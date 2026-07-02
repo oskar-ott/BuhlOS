@@ -61,6 +61,7 @@ const CATEGORY_LABELS: Record<DocumentCategory, string> = {
   schedule: "Schedule",
   photo: "Photo",
   certificate: "Certificate",
+  contract: "Contract / SOW",
   other: "Other",
 };
 

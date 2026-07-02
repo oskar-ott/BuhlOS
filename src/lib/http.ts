@@ -143,7 +143,14 @@ async function request<T>(url: string, opts: HttpOptions<T>): Promise<HttpResult
         status: 0,
         kind: "network",
         body: null,
-        message: err instanceof Error ? err.message : "network error",
+        // Bounded calls are field writes (#139) — give the worker honest,
+        // plain copy instead of a browser internals string ("Failed to
+        // fetch"). Unbounded (admin/read) callers keep the raw message.
+        message: timer
+          ? "Couldn't reach the office. Try again when you've got signal."
+          : err instanceof Error
+            ? err.message
+            : "network error",
       },
     };
   }

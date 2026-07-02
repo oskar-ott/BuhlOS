@@ -116,7 +116,11 @@ describe("AuditLogEntrySchema", () => {
     // itp_instance target types.
     expect([...AUDIT_ACTIONS].sort()).toEqual([
       // #170: AI assistant job summary ('ai.' sorts before 'backup.').
+      // #347: stored insights digest ('digest' sorts before 'job_summarised').
+      // #171: stored office daily summary.
+      "ai.digest_generated",
       "ai.job_summarised",
+      "ai.office_summary_generated",
       "backup.completed",
       // #231: certificates register.
       "certificate.uploaded",
@@ -144,9 +148,14 @@ describe("AuditLogEntrySchema", () => {
       "employee.role_changed",
       "employee.updated",
       "evidence.captured",
+      // #267: sticky per-photo dismissal of an AI defect suggestion.
+      "evidence.defect_suggestion_dismissed",
       // #233: as-built designation verbs. flagged sorts between captured and
       // linked ('f' < 'l'); unflagged sorts before unlinked ('unf' < 'unl').
       "evidence.flagged_asbuilt",
+      // #262: AI photo labels ('labels_*' sorts between 'flagged' and 'linked').
+      "evidence.labels_corrected",
+      "evidence.labels_suggested",
       // #263: before/after pairing verbs (sort between captured and rejected;
       // unlinked sorts before unreviewed).
       "evidence.linked",
@@ -186,6 +195,9 @@ describe("AuditLogEntrySchema", () => {
       "itp.submitted",
       // #349 closeout lifecycle + #581 Job Builder/won-quote creation.
       "job.closed",
+      // #373: contract-obligation extraction + per-item acceptance.
+      "job.contract_obligation_accepted",
+      "job.contract_obligations_extracted",
       "job.created",
       // #235 defect liability period (handover date set / cleared).
       "job.handover_cleared",

@@ -1275,3 +1275,10 @@ module.exports = async (req, res) => {
 // try/catches stay the primary handling) — journal + 500. Signature unchanged.
 const { withErrorCapture } = require('./_lib/error-wrap');
 module.exports = withErrorCapture(module.exports, 'jobs');
+
+// #373: expose the ONE scope-of-work validator so api/contract-extractions.js
+// (accepting an AI-proposed obligation into job.scopeOfWork) runs the exact
+// caps / id / order rules of the #200 PUT above — same validation, not a
+// parallel copy. Attached to the wrapped export; the handler signature is
+// untouched.
+module.exports.validateScopeOfWork = validateScopeOfWork;

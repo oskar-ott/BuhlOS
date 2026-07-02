@@ -3,6 +3,11 @@ import {
   type TestRecord,
   type TestRecordInput,
 } from "@/domains/test-records/schema";
+import {
+  boundedFetch,
+  PhilWriteTimeoutError,
+  PHIL_NETWORK_MESSAGE,
+} from "@/domains/phil/write-client";
 
 /**
  * Phil client for the structured TestRecord route (#517). Narrow: one POST that
@@ -34,15 +39,23 @@ export async function submitTestRecord(
 ): Promise<SubmitTestRecordResult> {
   let res: Response;
   try {
-    res = await fetchImpl("/api/job-control/test-records", {
+    // Bounded (#139): entered on site — never hang on bad signal. NOT
+    // replay-safe: this POST creates a record (no idempotency key on the
+    // route yet), so a retry after an ambiguous timeout could store the
+    // readings twice. Manual retry only — the timeout copy says "may not
+    // have sent" so the worker isn't told it definitely failed (P7).
+    res = await boundedFetch(fetchImpl)("/api/job-control/test-records", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
       credentials: "same-origin",
       body: JSON.stringify(input),
     });
-  } catch {
-    return { kind: "error", message: "Network error" };
+  } catch (err) {
+    if (err instanceof PhilWriteTimeoutError) {
+      return { kind: "error", message: err.message };
+    }
+    return { kind: "error", message: PHIL_NETWORK_MESSAGE };
   }
 
   if (res.status === 401 || res.status === 403) return { kind: "unauthorized" };

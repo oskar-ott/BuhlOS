@@ -7,6 +7,7 @@ import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { QuoteBuilderClient } from "@/components/admin/QuoteBuilderClient";
 import { QuoteDeliveryCard } from "@/components/admin/QuoteDeliveryCard";
 import { QuoteWorkbookImportCard } from "@/components/admin/QuoteWorkbookImportCard";
+import { QuoteClientPdfCard } from "@/components/admin/QuoteClientPdfCard";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { isFlagEnabled } from "../../../../../api/_lib/feature-flags.js";
 import { canAccessSurface } from "@/lib/auth/permissions";
@@ -91,6 +92,9 @@ export default async function QuoteBuilderPage({ params }: PageParams) {
         <QuoteDeliveryCard quoteId={result.quote.id} />
         {/* #365: imported-workbook review (findings + classifications). */}
         {workbookImportOn && <QuoteWorkbookImportCard quoteId={result.quote.id} />}
+        {/* #243: branded client PDF — preview + generate-and-file (immutable
+            issued-artifact register; renders from the sell-side projection). */}
+        <QuoteClientPdfCard quoteId={result.quote.id} />
         {/* §8: the cost/margin readback is admin-tier only. The surface is
             already admin-gated above; this flag gates the confidential UI at the
             component too (defence-in-depth) so cost/margin never render for a
@@ -98,6 +102,9 @@ export default async function QuoteBuilderPage({ params }: PageParams) {
         <QuoteBuilderClient
           initialQuote={result.quote}
           viewerIsAdmin={isAdminRole(session.role)}
+          // #246 — dark by default; resolved server-side like the other flags
+          // so the AI entry point never renders for a flag-dark viewer.
+          aiDraftsEnabled={await isFlagEnabled("ai_quote_drafts", session)}
         />
       </div>
     </AdminShell>

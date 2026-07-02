@@ -9,6 +9,7 @@ import {
   type QuoteListResponse,
   type QuoteSaveInput,
 } from "./schema";
+import { type DraftLine, type TakeoffInput } from "./ai-draft";
 
 /**
  * Typed wrapper around /api/quotes-v2 (#183) — the v2 quoting endpoint built
@@ -78,4 +79,41 @@ export function archiveQuote(quoteId: string): Promise<HttpResult<QuoteDetailRes
     schema: QuoteDetailResponseSchema,
     init: { credentials: "same-origin" },
   });
+}
+
+// ── #246: AI quote drafts ────────────────────────────────────────────────
+// Both actions return the updated quote document; the additive `aiDraft`
+// field rides through QuoteSchema's .passthrough() — read it with
+// readAiDraft() from ./ai-draft. Error statuses the UI must surface
+// honestly: 404 flag-dark, 503 AI unconfigured, 502 provider/JSON failure,
+// 409 concurrent edit.
+
+export function runAiQuoteDraft(
+  quoteId: string,
+  input: { sourceText: string; takeoff?: TakeoffInput }
+): Promise<HttpResult<QuoteDetailResponse>> {
+  return httpPost<QuoteDetailResponse>(
+    `/api/quotes-v2?id=${encodeURIComponent(quoteId)}&action=ai-draft`,
+    input,
+    { schema: QuoteDetailResponseSchema, init: { credentials: "same-origin" } }
+  );
+}
+
+export interface AiDraftReviewInput {
+  suggestionId: string;
+  decision: "accept" | "edit" | "reject";
+  /** Required for decision 'edit' — replaces the proposed line content. */
+  editedLine?: DraftLine;
+  reviewNote?: string;
+}
+
+export function reviewAiQuoteDraftSuggestion(
+  quoteId: string,
+  input: AiDraftReviewInput
+): Promise<HttpResult<QuoteDetailResponse>> {
+  return httpPost<QuoteDetailResponse>(
+    `/api/quotes-v2?id=${encodeURIComponent(quoteId)}&action=ai-draft-review`,
+    input,
+    { schema: QuoteDetailResponseSchema, init: { credentials: "same-origin" } }
+  );
 }

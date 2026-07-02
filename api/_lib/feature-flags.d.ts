@@ -30,6 +30,13 @@ export type FlagKey =
   | "minutes_register"
   | "site_instructions_register"
   | "ai_assistant"
+  // 2026-07 standalone AI batch (#246/#262/#267/#347/#373) — dark launch-gates
+  | "ai_photo_labels"
+  | "ai_snag_suggestions"
+  | "ai_insights_digest"
+  | "ai_quote_drafts"
+  | "ai_contract_obligations"
+  | "ai_office_daily_summary" // #171 office daily summary — dark launch-gate
   | "itp"
   // #760 owner feature-control kill-switches (LIVE features, default ON)
   | "jobs"

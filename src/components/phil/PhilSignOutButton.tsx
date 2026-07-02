@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { cn } from "@/lib/cn";
 import { purgePhilPageCaches } from "@/domains/phil/page-cache";
+import { boundedFetch } from "@/domains/phil/write-client";
 import { purgeJobListPrefs } from "./jobListPrefs";
 
 /**
@@ -39,7 +40,10 @@ export function PhilSignOutButton({
     if (pending) return;
     setPending(true);
     try {
-      await fetch("/api/auth?action=logout", {
+      // Bounded (#139): on bad signal the logout POST must not pin the worker
+      // on a disabled "Sign out" button for minutes — 10s then move on (the
+      // navigation below runs either way; see the best-effort note above).
+      await boundedFetch(fetch, 10_000)("/api/auth?action=logout", {
         method: "POST",
         credentials: "same-origin",
       });

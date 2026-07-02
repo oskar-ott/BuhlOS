@@ -393,6 +393,47 @@ const REGISTRY = {
     target: 'global',
     expires: '2026-12-31',
   },
+  // Standalone AI batch (2026-07): five suggestion features on the #170
+  // foundation. All launch-gates, default OFF — AI output is draft/suggested
+  // until a human reviews it; the flags keep each surface invisible until
+  // proven on a preview deploy. Admin-tier: every one is an office review
+  // surface; Phil renders none of them.
+  ai_photo_labels: {
+    description: 'AI photo classification on the evidence queue — suggested labels with confidence, human correct/override (#262). Dark.',
+    default: false,
+    target: 'admin-tier',
+    expires: '2026-12-31',
+  },
+  ai_snag_suggestions: {
+    description: 'Suggest a snag from photos labelled possible-defect — accept/dismiss in evidence review, snag created only on accept (#267). Dark.',
+    default: false,
+    target: 'admin-tier',
+    expires: '2026-12-31',
+  },
+  ai_insights_digest: {
+    description: 'Weekly plain-English digest of deterministic anomalies, every number grounded in the findings payload (#347). Dark.',
+    default: false,
+    target: 'admin-tier',
+    expires: '2026-12-31',
+  },
+  ai_quote_drafts: {
+    description: 'AI draft quote lines from pasted scope on the v2 builder — per-line accept/edit/discard, nothing enters totals unreviewed (#246). Dark.',
+    default: false,
+    target: 'admin-tier',
+    expires: '2026-12-31',
+  },
+  ai_contract_obligations: {
+    description: 'Extract contract obligations from pasted contract text into a review queue — accepted items become scope clauses (#373). Dark.',
+    default: false,
+    target: 'admin-tier',
+    expires: '2026-12-31',
+  },
+  ai_office_daily_summary: {
+    description: 'Morning summary of yesterday across jobs — deterministic facts (hours/snags/evidence/blockers), AI only rephrases, every number grounded (#171). Dark.',
+    default: false,
+    target: 'admin-tier',
+    expires: '2026-12-31',
+  },
   // Per-job ITP / QA (#474/#476): hold/witness/record points + office sign-off.
   // Unlike the registers above, ITPs are ALREADY LIVE — so this is a KILL SWITCH,
   // not a launch gate: default ON (killSwitch:true), and the owner can turn the
@@ -521,6 +562,12 @@ const FLAG_PRESENTATION = {
   admin_job_field_view: { label: 'Office / Field job view', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/v2/jobs' },
   admin_flags_readout: { label: 'Flags readout card', domain: 'Platform', surface: 'BuhlOS', previewHref: '/command-centre' },
   ai_assistant: { label: 'AI assistant (API foundation)', domain: 'Platform', surface: 'BuhlOS', previewHref: '/v2/jobs' },
+  ai_photo_labels: { label: 'AI photo labels', domain: 'Field capture', surface: 'BuhlOS', previewHref: '/v2/jobs' },
+  ai_snag_suggestions: { label: 'AI snag suggestions', domain: 'Field capture', surface: 'BuhlOS', previewHref: '/v2/jobs' },
+  ai_insights_digest: { label: 'AI insights digest', domain: 'Company', surface: 'BuhlOS', previewHref: '/reports' },
+  ai_quote_drafts: { label: 'AI quote drafts', domain: 'Commercial', surface: 'BuhlOS', previewHref: '/v2/quotes' },
+  ai_contract_obligations: { label: 'AI contract obligations', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/v2/jobs' },
+  ai_office_daily_summary: { label: 'AI office daily summary', domain: 'Company', surface: 'BuhlOS', previewHref: '/reports' },
 
   // #760 kill-switches. `core: true` = load-bearing spine; the board warns
   // before the owner turns one off.

@@ -57,6 +57,15 @@ These are **not** shown because the data to back them honestly does not exist ye
   leaves **no server record**. Showing a "failed uploads" count today would be
   fabricated. Surfacing it needs a new persistence/telemetry model on the
   capture client (out of scope here; must not touch the capture flow).
+- **Duplicate rows from an ambiguous field retry.** Phil's evidence create is
+  bounded by a timeout (#139): on very bad signal the request can time out
+  AFTER the server persisted the row, the tray honestly reports "may not have
+  sent", and a manual retry then creates a second row for the same photo. The
+  server already accepts an `Idempotency-Key` on this route
+  (`api/_lib/idempotency.js`, #497) but the capture client doesn't send one
+  yet — wiring a per-photo key is #158. Until then an occasional duplicate in
+  the review queue is expected and visible, never silent
+  (`src/domains/evidence/capture-batch.ts` documents the window).
 - **ITP / snag linkage.** `EvidenceItem` carries `taskId` / `areaId` / `stage`
   but **no `itpId` / `snagId`**. Convert-to-snag creates a separate snag record;
   it does not back-link onto the evidence row. A "linked to ITP/snag" signal is a

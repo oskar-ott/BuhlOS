@@ -161,6 +161,62 @@ export const EvidenceItemSchema = z
     // row stays valid via .passthrough() with no migration.
     asBuilt: z.boolean().optional(),
 
+    // #262 — AI photo labels with human correction. Both arrays are additive
+    // and optional so every pre-#262 row stays valid via .passthrough() with
+    // no migration. Entry semantics + the taxonomy whitelist live in
+    // api/_lib/photo-labels.js (server authority) and
+    // src/domains/evidence/labels.ts (typed display mirror): AI entries are
+    // suggestions until a human accepts; `rejected` entries are retained so
+    // a human-removed label never resurfaces; `aiLabelRuns` markers make
+    // classification idempotent per (photo, modelVersion) — including runs
+    // that returned zero labels. No labels is a normal state.
+    labels: z
+      .array(
+        z
+          .object({
+            label: z.string(),
+            source: z.enum(["ai", "human"]),
+            status: z.enum(["suggested", "accepted", "rejected", "confirmed"]),
+            confidence: z.number().nullable().optional(),
+            modelVersion: z.string().nullable().optional(),
+            promptVersion: z.string().nullable().optional(),
+            at: z.string(),
+          })
+          .passthrough()
+      )
+      .optional(),
+    aiLabelRuns: z
+      .array(
+        z
+          .object({
+            modelVersion: z.string(),
+            promptVersion: z.string(),
+            at: z.string(),
+            labelCount: z.number(),
+          })
+          .passthrough()
+      )
+      .optional(),
+
+    // #267 — sticky dismissal of the AI defect→snag suggestion. Set once by
+    // an admin's dismiss tap; the suggestion projection
+    // (src/domains/evidence/defect-suggestions.ts) never resurfaces a
+    // dismissed photo. Carries the label confidence at dismissal time so
+    // suggestion precision is measurable. Additive + optional
+    // (.passthrough()-safe, no migration).
+    defectSuggestionDismissed: z
+      .object({
+        at: z.string(),
+        byId: z.string().nullable(),
+        byName: z.string().nullable(),
+        label: z.string(),
+        confidence: z.number().nullable(),
+        modelVersion: z.string().nullable(),
+      })
+      .passthrough()
+      .nullable()
+      .optional(),
+
     // Audit trail pointers (doc 28 §A.1 + §A.5). The full audit rows
     // live in audit/{yyyy-mm}.json blobs — this array is just the IDs
     // an admin drawer can resolve.

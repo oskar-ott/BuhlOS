@@ -60,6 +60,64 @@ const MESSAGES = {
   parse: "Saved, but the app couldn't read the reply — refresh to check.",
 };
 
+/** Honest worker-voice copy for the two ambiguous-signal failures, exported so
+ *  clients with their own result mapping keep one voice across every write. */
+export const PHIL_TIMEOUT_MESSAGE = MESSAGES.timeout;
+export const PHIL_NETWORK_MESSAGE = MESSAGES.network;
+
+/**
+ * Thrown (rejected) by a `boundedFetch` fetch when the timeout budget elapses.
+ * Distinguishable from a dropped connection (plain TypeError) and from a
+ * caller cancellation (AbortError): a timed-out write MAY have reached the
+ * server, so callers must say "may not have sent" — never "wasn't sent" — and
+ * must not auto-retry non-idempotent endpoints (#497 gap).
+ */
+export class PhilWriteTimeoutError extends Error {
+  constructor() {
+    super(MESSAGES.timeout);
+    this.name = "PhilWriteTimeoutError";
+  }
+}
+
+/**
+ * Wrap a fetch so every call is bounded by the #139 timeout budget. For the
+ * narrow Phil write clients that keep their own result mapping (proof review,
+ * evidence link, test records, ITP photo upload) — same honesty contract as
+ * `philWrite`, without forcing their response taxonomy through it.
+ *
+ *   - budget elapses → rejects with `PhilWriteTimeoutError` (may have landed)
+ *   - caller's `init.signal` aborts → rejects with the original AbortError
+ *   - connection drops → the original fetch error passes through unchanged
+ */
+export function boundedFetch(
+  fetchImpl: typeof fetch = fetch,
+  timeoutMs: number = PHIL_WRITE_TIMEOUT_MS,
+): typeof fetch {
+  return (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const controller = new AbortController();
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs);
+    const callerSignal = init?.signal ?? undefined;
+    const onCallerAbort = () => controller.abort();
+    if (callerSignal) {
+      if (callerSignal.aborted) controller.abort();
+      else callerSignal.addEventListener("abort", onCallerAbort, { once: true });
+    }
+    try {
+      return await fetchImpl(input, { ...init, signal: controller.signal });
+    } catch (err) {
+      if (timedOut && !callerSignal?.aborted) throw new PhilWriteTimeoutError();
+      throw err;
+    } finally {
+      clearTimeout(timer);
+      callerSignal?.removeEventListener("abort", onCallerAbort);
+    }
+  }) as typeof fetch;
+}
+
 /**
  * POST `body` as JSON to `url` with a bounded timeout, returning a tagged
  * result. `parse` turns the raw JSON reply into the typed value (return null

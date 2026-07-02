@@ -1,4 +1,9 @@
 import type { EvidenceLink, TaskRef } from "@/domains/job-control/types";
+import {
+  boundedFetch,
+  PhilWriteTimeoutError,
+  PHIL_NETWORK_MESSAGE,
+} from "@/domains/phil/write-client";
 
 /**
  * Phil client for the L4 evidence-link route — the worker-facing half of the
@@ -42,7 +47,11 @@ export async function linkRequiredProof(
 ): Promise<LinkProofResult> {
   let res: Response;
   try {
-    res = await fetchImpl("/api/job-control/evidence-link", {
+    // Bounded (#139): runs right after a capture on site — never hang. The
+    // evidence itself is already saved by this point; a manual retry of the
+    // LINK after an ambiguous timeout is replay-safe (revision precondition
+    // 409s stale if the first attempt landed).
+    res = await boundedFetch(fetchImpl)("/api/job-control/evidence-link", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
@@ -56,8 +65,11 @@ export async function linkRequiredProof(
         ...(input.taskRef ? { taskRef: input.taskRef } : {}),
       }),
     });
-  } catch {
-    return { kind: "error", message: "Network error" };
+  } catch (err) {
+    if (err instanceof PhilWriteTimeoutError) {
+      return { kind: "error", message: err.message };
+    }
+    return { kind: "error", message: PHIL_NETWORK_MESSAGE };
   }
 
   if (res.status === 401 || res.status === 403) return { kind: "unauthorized" };

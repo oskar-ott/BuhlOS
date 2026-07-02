@@ -171,6 +171,10 @@ export function recordItpPoint(
   return httpPost<ITPTransitionResponse>(itpsUrl(jobId, "record"), parsed.data, {
     schema: ITPTransitionResponseSchema,
     init: { cache: "no-store", credentials: "same-origin" },
+    // Bounded (#139): recorded on site. The payload carries the absolute
+    // value for the point, so a manual retry after a timeout re-writes the
+    // same value — replay-safe.
+    timeoutMs: 15000,
   });
 }
 
@@ -222,6 +226,10 @@ export function submitItpForReview(
   return httpPost<ITPTransitionResponse>(itpsUrl(jobId, "submit"), parsed.data, {
     schema: ITPTransitionResponseSchema,
     init: { cache: "no-store", credentials: "same-origin" },
+    // Bounded (#139): the worker submits from site. A retry after an
+    // ambiguous timeout is replay-safe — the state machine 409s a
+    // second submit of an already-submitted instance.
+    timeoutMs: 15000,
   });
 }
 

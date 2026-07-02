@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { setPlanPages, uploadDocument } from "@/domains/documents/client";
 import { DOCUMENT_CATEGORIES, DOCUMENT_DISCIPLINES } from "@/domains/documents/schema";
+import { categoryLabel } from "@/domains/documents/format";
 import { loadPdfJs } from "@/lib/pdfjs-loader";
 
 /**
@@ -332,9 +333,11 @@ export function DocumentUploadButton({
                     className={inputClass}
                     data-testid="document-upload-category"
                   >
+                    {/* canonical labels (format.ts) — "contract" renders as
+                        "Contract / SOW" (#373), not a bare capitalisation */}
                     {DOCUMENT_CATEGORIES.map((c) => (
                       <option key={c} value={c}>
-                        {c[0]!.toUpperCase() + c.slice(1)}
+                        {categoryLabel(c)}
                       </option>
                     ))}
                   </select>
