@@ -20,6 +20,7 @@ const timeEntriesPath = requireFromHere.resolve("../../../api/_lib/time-entries.
 const dayPulsePath = requireFromHere.resolve("../../../api/_lib/day-pulse.js");
 const cronAuthPath = requireFromHere.resolve("../../../api/_lib/cron-auth.js");
 const anomaliesPath = requireFromHere.resolve("../../../api/_lib/insights-anomalies.js");
+const pushPath = requireFromHere.resolve("../../../api/_lib/push.js");
 const aiSuggestionsPath = requireFromHere.resolve("../../../api/_lib/ai-suggestions.js");
 const vercelBlobPath = requireFromHere.resolve("@vercel/blob");
 const handlerPath = requireFromHere.resolve("../../../api/insights-digest.js");
@@ -32,6 +33,7 @@ let store: Map<string, unknown>;
 let writes: string[];
 let aiConfigured: boolean;
 let aiCompleteMock: ReturnType<typeof vi.fn>;
+let pushMock: ReturnType<typeof vi.fn>;
 let entriesFixture: Array<Record<string, unknown>>;
 let auth: { signSession: (p: Record<string, unknown>) => string };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- handler res asserted per test
@@ -128,8 +130,19 @@ beforeEach(() => {
   ];
 
   writes = [];
+  pushMock = vi.fn(async () => ({ sent: 1, pruned: 0, skipped: null }));
   store = new Map<string, unknown>([
-    ["users.json", { users: [{ id: "u_boss", username: "boss", role: "boss" }] }],
+    [
+      "users.json",
+      {
+        users: [
+          { id: "u_boss", username: "boss", role: "boss" },
+          { id: "u_admin2", username: "office", role: "admin" },
+          { id: "u_gone", username: "old", role: "admin", archived: true },
+          { id: "u_field", username: "sparky", role: "electrician" },
+        ],
+      },
+    ],
     ["jobs.json", { jobs: [{ id: "job-1", name: "Riverside", status: "active" }] }],
     ["jobs/job-1/data.json", { snags: [], snagsV2: [], evidence: [], dwellings: {}, notes: [] }],
   ]);
@@ -164,6 +177,12 @@ beforeEach(() => {
     loaded: true,
     exports: { listAllEntriesForApprovers: vi.fn(async () => clone(entriesFixture)) },
   } as NodeJS.Module;
+  requireFromHere.cache[pushPath] = {
+    id: pushPath,
+    filename: pushPath,
+    loaded: true,
+    exports: { sendPushToUserId: (...args: unknown[]) => pushMock(...args) },
+  } as NodeJS.Module;
   requireFromHere.cache[dayPulsePath] = {
     id: dayPulsePath,
     filename: dayPulsePath,
@@ -194,7 +213,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  for (const p of [blobPath, vercelBlobPath, timeEntriesPath, dayPulsePath, aiPath]) {
+  for (const p of [blobPath, vercelBlobPath, timeEntriesPath, dayPulsePath, aiPath, pushPath]) {
     delete requireFromHere.cache[p];
   }
   delete process.env.FLAG_AI_INSIGHTS_DIGEST;
@@ -288,6 +307,40 @@ describe("generate — two-stage pipeline", () => {
     expect(res.body.dryRun).toBe(true);
     expect(res.body.digest.findings).toHaveLength(1);
     expect(writes).toEqual([]);
+  });
+});
+
+describe("delivery — push fan-out (#347 weekly delivery AC)", () => {
+  it("first non-quiet generation pushes to every live admin, deep-linking /reports", async () => {
+    const res = await generate();
+    expect(res.body.digest.pushedAt).toBeTruthy();
+    const pushedTo = pushMock.mock.calls.map((c) => c[0]).sort();
+    expect(pushedTo).toEqual(["u_admin2", "u_boss"]); // archived admin + field user excluded
+    const payload = pushMock.mock.calls[0]?.[1] as Record<string, string>;
+    expect(payload.url).toBe("/reports");
+    expect(payload.tag).toBe(`insights-digest-${WEEK}`);
+    expect(payload.body).toContain("1 thing changed this week");
+  });
+
+  it("regenerating the same week never re-pushes (pushedAt carried forward)", async () => {
+    await generate();
+    const firstPushedAt = (store.get(`analytics/digests/${WEEK}.json`) as { pushedAt: string })
+      .pushedAt;
+    pushMock.mockClear();
+    const again = await generate();
+    expect(pushMock).not.toHaveBeenCalled();
+    expect(again.body.digest.pushedAt).toBe(firstPushedAt);
+  });
+
+  it("a quiet week sends nothing", async () => {
+    entriesFixture = [];
+    await generate();
+    expect(pushMock).not.toHaveBeenCalled();
+  });
+
+  it("dryRun never pushes", async () => {
+    await generate({ dryRun: "1" });
+    expect(pushMock).not.toHaveBeenCalled();
   });
 });
 

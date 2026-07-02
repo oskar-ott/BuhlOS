@@ -17,12 +17,18 @@
 //      unvalidated prose. A quiet week stores a "no findings" record (audit
 //      trail has no gaps) and sends nothing.
 //
-// Generation is on-demand (button on /reports) or cron-capable via the
-// CRON_SECRET pattern; no vercel.json cron entry ships while the flag is
-// dark — that line lands when the feature is turned on.
+// Generation runs weekly by cron (vercel.json, Sun 21:00 UTC = Mon 07:00
+// Sydney) and on demand (button on /reports). The cron no-ops while the
+// flag is dark (tested), so the schedule is safe to ship dark.
+//
+// Delivery (#347 AC): the FIRST non-quiet generation of a week fans a push
+// out to the admin tier (cash-watch fan-out precedent), deep-linking to
+// /reports. `pushedAt` on the stored digest is the dedupe — regenerating a
+// week never re-pushes, and a quiet week sends nothing.
 
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, isAdminRole } = require('./_lib/auth');
+const { sendPushToUserId } = require('./_lib/push');
 const { isFlagEnabled } = require('./_lib/feature-flags');
 const { append: appendAuditLog } = require('./_lib/audit-log');
 const { aiComplete, isAiConfigured, AiError } = require('./_lib/ai');
@@ -239,10 +245,37 @@ module.exports = async (req, res) => {
   }
 
   if (!dryRun) {
+    // Delivery dedupe: the first non-quiet generation of a week pushes to
+    // the admin tier; regenerations carry `pushedAt` forward and stay
+    // silent. Read the prior record BEFORE overwriting it.
+    const prior = await readBlob(digestKey(weekStart), null);
+    const alreadyPushed = Boolean(prior && prior.pushedAt);
+    const shouldPush = !digest.quietWeek && !alreadyPushed;
+    if (alreadyPushed) digest.pushedAt = prior.pushedAt;
+    else if (shouldPush) digest.pushedAt = new Date().toISOString();
+
     try {
       await writeBlob(digestKey(weekStart), digest);
     } catch (e) {
       return res.status(502).json({ error: 'write failed: ' + (e.message || 'unknown') });
+    }
+
+    if (shouldPush) {
+      // Cash-watch fan-out precedent: every non-archived admin-tier user,
+      // best-effort per recipient — a push failure never fails the digest.
+      const usersBlob = await readBlob('users.json', { users: [] });
+      const admins = (usersBlob.users || []).filter((u) => u && isAdminRole(u.role) && !u.archived);
+      const first = digest.bullets[0] ? digest.bullets[0].text : '';
+      for (const a of admins) {
+        await sendPushToUserId(a.id, {
+          title: 'Weekly insights',
+          body:
+            `${findings.length} thing${findings.length === 1 ? '' : 's'} changed this week` +
+            (first ? ` — ${first.slice(0, 120)}` : ''),
+          url: '/reports',
+          tag: `insights-digest-${weekStart}`,
+        }).catch(() => null);
+      }
     }
     await appendAuditLog({
       action: 'ai.digest_generated',
