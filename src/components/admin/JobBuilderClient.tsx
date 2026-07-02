@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Route } from "next";
 import Link from "next/link";
@@ -17,6 +17,7 @@ import {
   ListChecks,
   Lock,
   Package,
+  PanelRight,
   Plus,
   Save,
   Send,
@@ -27,6 +28,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ScopeOfWorkSection } from "./ScopeOfWorkSection";
+import { ScopeReconciliationStatus } from "./ScopeReconciliationStatus";
 import { ClientContractSection } from "./ClientContractSection";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
@@ -46,6 +48,7 @@ import {
 } from "@/domains/jobs/structure-presets";
 import { Modal } from "@/components/ui/Modal";
 import {
+  buildBuilderReadiness,
   buildPhilPreview,
   buildUpdatePayload,
   canPublish,
@@ -53,12 +56,26 @@ import {
   moduleEnabled,
   projectArchivedStructure,
   publishState,
+  summariseStructure,
   validateForPublish,
   type AreaRowForm,
   type ArchivedStructure,
   type JobBuilderForm,
+  type ReadinessIssue,
   type TaskRowForm,
 } from "@/domains/jobs/builder";
+import { JobBuilderCockpit, type CockpitNavGroup, type CockpitSectionStatus } from "./JobBuilderCockpit";
+import { Inspector, type InspectorRow } from "./Inspector";
+import { ReviewQueue, type ReviewClause } from "./ReviewQueue";
+import { JobAssignmentPanel } from "./JobAssignmentPanel";
+import { classifyScopeClause } from "./jobControlAuthoringClient";
+import type { AssignableWorker } from "@/domains/users/types";
+import { certaintyForClassification, type CertaintyState } from "@/domains/jobs/certainty";
+import type { ScopeClassification } from "@/domains/job-control/reconciliation";
+import type {
+  ScopeClauseView,
+  ScopeReconciliationView,
+} from "@/server/job-control/reconciliation-read";
 import { validateJobBasics } from "@/domains/jobs/validate";
 import { statusLabel, statusTone } from "@/domains/jobs/format";
 import { SaveAsBlueprintCard } from "./SaveAsBlueprintCard";
@@ -101,12 +118,32 @@ import { cn } from "@/lib/cn";
  *   api/jobs.js — PUT (update) + the draft GET gate
  */
 
-type TabKey = "basics" | "structure" | "modules" | "preview" | "publish" | "more";
+type DeliverKey = "plans" | "materials" | "gear" | "itps" | "risks";
+
+type TabKey =
+  | "overview"
+  | "basics"
+  | "scope"
+  | "structure"
+  | "modules"
+  | DeliverKey
+  | "crew"
+  | "preview"
+  | "publish"
+  | "more";
 
 const TABS: ReadonlyArray<{ key: TabKey; label: string }> = [
+  { key: "overview", label: "Overview" },
   { key: "basics", label: "Basics" },
+  { key: "scope", label: "Scope" },
   { key: "structure", label: "Structure" },
   { key: "modules", label: "Field modules" },
+  { key: "plans", label: "Plans & docs" },
+  { key: "materials", label: "Materials" },
+  { key: "gear", label: "Gear" },
+  { key: "itps", label: "ITPs / QA" },
+  { key: "risks", label: "Risks & RFIs" },
+  { key: "crew", label: "Crew" },
   { key: "preview", label: "Phil preview" },
   { key: "publish", label: "Publish" },
   { key: "more", label: "More" },
@@ -183,7 +220,101 @@ const STAGES: ReadonlyArray<{ stage: JobStage; label: string }> = [
   { stage: "fitOff", label: "Fit-off tasks" },
 ];
 
-export function JobBuilderClient({ job: initialJob }: { job: Job }) {
+/* ---- cockpit nav (§4): the tabs, grouped into the rail, plus the map from a
+   readiness issue code → the section that owns its fix. ---- */
+const ISSUE_SECTION: Record<string, TabKey> = {
+  "name-missing": "basics",
+  "date-order": "basics",
+  "no-site-address": "basics",
+  "no-areas": "structure",
+  "no-tasks": "structure",
+  "blank-task": "structure",
+  "area-no-tasks": "structure",
+};
+
+/** Preserve the load-bearing tab testids (smoke + deep-links) on the rail. */
+const SECTION_TESTID: Partial<Record<TabKey, string>> = {
+  structure: "builder-structure-tab",
+  preview: "builder-phil-preview-tab",
+  publish: "builder-publish-tab",
+};
+
+const COCKPIT_GROUPS: ReadonlyArray<{ heading: string; keys: ReadonlyArray<TabKey> }> = [
+  { heading: "Build", keys: ["overview", "basics", "scope", "structure", "modules"] },
+  { heading: "Deliver", keys: ["plans", "materials", "gear", "itps", "risks", "crew"] },
+  { heading: "Ship", keys: ["preview", "publish"] },
+  { heading: "More", keys: ["more"] },
+];
+
+/**
+ * The delivery facets that live on their own dedicated job surfaces. The cockpit
+ * surfaces each as a section that links out — it does NOT duplicate the editor
+ * (extend, don't fork). `module` (where set) reflects the real per-job field
+ * toggle. `external` links a global register rather than a job sub-route.
+ */
+const DELIVER_LINKS: Record<
+  DeliverKey,
+  { label: string; desc: string; path: (jobId: string) => string; module?: keyof JobModules; external?: boolean }
+> = {
+  plans: {
+    label: "Plans & documents",
+    desc: "Drawings, specs and revisions attached to this job.",
+    path: (id) => `/v2/jobs/${id}/plans`,
+    module: "plans",
+  },
+  materials: {
+    label: "Materials",
+    desc: "Field material requests — approve & order, then confirm delivery.",
+    path: (id) => `/v2/jobs/${id}/material-requests`,
+    module: "materials",
+  },
+  gear: {
+    label: "Gear — test & tag",
+    desc: "The test-and-tag register: who holds what and tag currency. Assign gear to this job's crew there.",
+    path: () => `/gear`,
+    external: true,
+  },
+  itps: {
+    label: "ITPs / QA",
+    desc: "Inspection & test points and hold points recorded against this job.",
+    path: (id) => `/v2/jobs/${id}/itps`,
+    module: "itps",
+  },
+  risks: {
+    label: "Risks & RFIs",
+    desc: "Open RFIs and risks that gate the work before or during the job.",
+    path: (id) => `/v2/jobs/${id}/rfis`,
+  },
+};
+
+/** Office labels for the reconciliation classifications shown in the Inspector. */
+const CLAUSE_CLASSIFICATION_LABEL: Record<ScopeClassification, string> = {
+  priced: "Priced",
+  general_allowance: "General allowance",
+  excluded: "Excluded",
+  by_others: "By others",
+  reuse_existing: "Reuse existing",
+  pc_provisional: "PC / provisional",
+  variation_trigger: "Variation trigger",
+  closeout: "Closeout obligation",
+  admin_only: "Admin only",
+  unclear: "Not yet classified",
+};
+
+export function JobBuilderClient({
+  job: initialJob,
+  reconciliation = null,
+  assignableWorkers = [],
+  workersLoadError = null,
+}: {
+  job: Job;
+  /** The confirmed scope reconciliation (server-loaded), or null/missing. Source
+   *  of real per-clause certainty for the cockpit Inspector. */
+  reconciliation?: ScopeReconciliationView | null;
+  /** Assignable field/LH crew (server-loaded) for the cockpit Crew section. */
+  assignableWorkers?: ReadonlyArray<AssignableWorker>;
+  workersLoadError?: string | null;
+}) {
   const router = useRouter();
   const [savedJob, setSavedJob] = useState<Job>(initialJob);
   const [form, setForm] = useState<JobBuilderForm>(() => jobToForm(initialJob));
@@ -191,9 +322,21 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
   // Honour a deep-link hash on mount (e.g. `…/builder#publish`). Runs once,
   // client-only; a non-tab hash leaves the default tab untouched.
   useEffect(() => {
-    const t = tabFromHash(typeof window !== "undefined" ? window.location.hash : null);
+    const hash = (typeof window !== "undefined" ? window.location.hash : "").replace(/^#/, "");
+    const t = tabFromHash(hash ? `#${hash}` : null);
     if (t) setTab(t);
+    // The legacy #assigned-field-workers anchor (Needs-Attention deep-link) now
+    // opens the Crew section, where the assignment panel lives.
+    else if (hash === "assigned-field-workers") setTab("crew");
   }, []);
+  // Keep savedJob in sync with the server-provided job. A sibling section (e.g.
+  // ScopeOfWorkSection) can save + router.refresh(), handing down a fresh `job`
+  // prop; without this, its scopeOfWork edits wouldn't reach the review queue /
+  // chips until a hard reload. jobToForm ignores scopeOfWork, so a scope-only
+  // change leaves the basics/structure form and its dirty state untouched.
+  useEffect(() => {
+    setSavedJob(initialJob);
+  }, [initialJob]);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedTick, setSavedTick] = useState(false);
@@ -247,6 +390,200 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
   const publishIssues = useMemo(() => validateForPublish(savedJob), [savedJob]);
   const state = publishState(savedJob);
   const fieldVisible = isVisibleToField(savedJob);
+
+  // §4 cockpit: the readiness rollup that drives the rail meter + inspector, and
+  // the per-section status badges. Computed over the SAVED job (same honesty rule
+  // as preview/publish) plus the live basics validity for the Basics badge.
+  const readiness = useMemo(() => buildBuilderReadiness(savedJob), [savedJob]);
+
+  function sectionStatus(key: TabKey): CockpitSectionStatus {
+    if (
+      key === "modules" ||
+      key === "more" ||
+      key === "overview" ||
+      key === "crew" ||
+      key in DELIVER_LINKS
+    ) {
+      return "none";
+    }
+    if (key === "publish") return readiness.canPublish ? "ok" : "block";
+    if (key === "scope") {
+      // Scope owns the reconciliation: a red RAG = real conflicts (block); any
+      // un-triaged clause or an amber RAG = needs a look (warn); a clean
+      // confirmed reconciliation = ok; no scope/reconciliation yet = none.
+      if (reconciledView?.rag === "red") return "block";
+      if (untriagedClauses.length > 0 || reconciledView?.rag === "amber") return "warn";
+      return reconciledView ? "ok" : "none";
+    }
+    const all = [...readiness.blockers, ...readiness.warnings];
+    // Preview is "what the field sees", so it surfaces the field-lint symptom;
+    // every other section owns the issues whose fix lives there.
+    const mine =
+      key === "preview"
+        ? all.filter((i) => i.source === "field")
+        : all.filter((i) => (ISSUE_SECTION[i.code] ?? "publish") === key);
+    if ((key === "basics" && !basicsValid) || mine.some((i) => i.severity === "error")) {
+      return "block";
+    }
+    if (mine.some((i) => i.severity === "warning")) return "warn";
+    return "ok";
+  }
+
+  function goToIssue(issue: ReadinessIssue) {
+    setTab(ISSUE_SECTION[issue.code] ?? "publish");
+  }
+
+  // §4 certainty: per-clause certainty derived from the CONFIRMED reconciliation
+  // — the only real source (the saved job carries no classification). The review
+  // queue's optimistic overrides layer on top so chips + counts update the
+  // instant a clause is classified (the write persists in the background). We
+  // never fake a green: an un-triaged clause has no certainty entry → no chip.
+  const reconciledView =
+    reconciliation && reconciliation.status === "reconciled" ? reconciliation : null;
+  const clauseInfo = useMemo(() => {
+    const m = new Map<string, { certainty: CertaintyState; view: ScopeClauseView }>();
+    if (reconciledView) {
+      for (const c of reconciledView.clauses) {
+        m.set(c.clauseId, { certainty: certaintyForClassification(c.classification), view: c });
+      }
+    }
+    return m;
+  }, [reconciledView]);
+
+  // Optimistic classifications applied via the review queue this session.
+  const [classifiedOverrides, setClassifiedOverrides] = useState<Map<string, ScopeClassification>>(
+    () => new Map()
+  );
+
+  /** Effective certainty for a clause: a fresh override wins, else the confirmed
+   *  reconciliation, else none (un-triaged). */
+  const clauseState = useCallback(
+    (
+      clauseId: string
+    ): { certainty: CertaintyState; classification: ScopeClassification } | null => {
+      const ov = classifiedOverrides.get(clauseId);
+      if (ov) return { certainty: certaintyForClassification(ov), classification: ov };
+      const info = clauseInfo.get(clauseId);
+      if (info) return { certainty: info.certainty, classification: info.view.classification };
+      return null;
+    },
+    [classifiedOverrides, clauseInfo]
+  );
+
+  const certaintyByClauseId = useMemo(() => {
+    const m = new Map<string, CertaintyState>();
+    for (const [id, info] of clauseInfo) m.set(id, info.certainty);
+    for (const [id, cls] of classifiedOverrides) m.set(id, certaintyForClassification(cls));
+    return m;
+  }, [clauseInfo, classifiedOverrides]);
+
+  // The cockpit Inspector's selected row (a scope line or an area), or null →
+  // the Inspector falls back to the build-readiness view.
+  const [selectedRow, setSelectedRow] = useState<InspectorRow | null>(null);
+
+  function selectArea(groupName: string, area: AreaRowForm) {
+    setSelectedRow({
+      entity: "area",
+      id: area.id ?? null,
+      title: area.name || "Untitled area",
+      group: groupName,
+      spaceType: (area.spaceType ?? "") || null,
+      hasCustomTasks: areaHasOverride(area),
+    });
+  }
+
+  function selectClause(clauseId: string, title: string, detail: string) {
+    const st = clauseState(clauseId);
+    const view = clauseInfo.get(clauseId)?.view ?? null;
+    setSelectedRow({
+      entity: "clause",
+      id: clauseId,
+      title: title.trim() || "Untitled scope line",
+      detail: detail.trim() || null,
+      certainty: st?.certainty ?? null,
+      classificationLabel: st ? CLAUSE_CLASSIFICATION_LABEL[st.classification] : null,
+      boqLineCount: view?.boqLineCount ?? 0,
+      deliveredByCount: view?.deliveredByCount ?? 0,
+      requiredEvidenceCount: view?.requiredEvidenceCount ?? 0,
+      warningText: view?.warningText ?? null,
+    });
+  }
+
+  // ── §4 review queue: keyboard-fast classify of the un-triaged scope lines ──
+  const scopeClauses = useMemo<ReviewClause[]>(
+    () =>
+      (savedJob.scopeOfWork ?? [])
+        .slice()
+        .sort((a, b) => a.order - b.order)
+        .map((c) => ({ id: c.id, title: c.title, detail: c.detail || null })),
+    [savedJob.scopeOfWork]
+  );
+  /** Needs triage = no certainty yet (untracked) OR still `needs_review` (an
+   *  `unclear` reconciliation clause). A real classification → `confirmed` drops
+   *  it from the queue. */
+  const untriagedClauses = useMemo(
+    () =>
+      scopeClauses.filter((c) => {
+        const st = clauseState(c.id);
+        return st === null || st.certainty === "needs_review";
+      }),
+    [scopeClauses, clauseState]
+  );
+
+  // Built here (after reconciledView + untriagedClauses) so the Scope section's
+  // status can read them without a TDZ trap.
+  const cockpitNav: CockpitNavGroup[] = COCKPIT_GROUPS.map((g) => ({
+    heading: g.heading,
+    items: g.keys.map((key) => ({
+      key,
+      label: TABS.find((t) => t.key === key)!.label,
+      status: sectionStatus(key),
+      testId: SECTION_TESTID[key],
+    })),
+  }));
+
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [reviewSession, setReviewSession] = useState<ReviewClause[]>([]);
+  const [reviewIndex, setReviewIndex] = useState(0);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  const reviewCleared = reviewSession.filter((c) => classifiedOverrides.has(c.id)).length;
+  // Each classify is a read-modify-write of the one reconciliation blob (no CAS).
+  // Serialise the confirms through a tail promise so a fast reviewer's writes
+  // can't interleave and clobber each other (last-write-wins lost update).
+  const confirmTail = useRef<Promise<unknown>>(Promise.resolve());
+
+  function openReview() {
+    setReviewSession(untriagedClauses);
+    setReviewIndex(0);
+    setReviewError(null);
+    setReviewOpen(true);
+  }
+  function classifyInReview(clauseId: string, classification: ScopeClassification) {
+    // Optimistic: record + advance so chips/counts update now; persist to the
+    // real reconciliation in the background, strictly serialised. On failure
+    // revert the override AND rewind to re-present the clause — we never leave a
+    // green chip, nor silently drop a clause, for a classification that didn't save.
+    setClassifiedOverrides((m) => new Map(m).set(clauseId, classification));
+    setReviewIndex((i) => i + 1);
+    setReviewError(null);
+    const session = reviewSession;
+    confirmTail.current = confirmTail.current
+      .catch(() => {}) // a prior failure must not stall the chain
+      .then(() => classifyScopeClause(savedJob.id, clauseId, classification))
+      .then((res) => {
+        if (res && !res.ok) {
+          setClassifiedOverrides((m) => {
+            const next = new Map(m);
+            next.delete(clauseId);
+            return next;
+          });
+          const pos = session.findIndex((c) => c.id === clauseId);
+          if (pos >= 0) setReviewIndex((i) => Math.min(i, pos)); // re-present, never skip an unsaved line
+          const title = session.find((c) => c.id === clauseId)?.title ?? "that scope line";
+          setReviewError(`Couldn't save "${title}" — try again.`);
+        }
+      });
+  }
 
   async function save() {
     if (!basicsValid) {
@@ -392,59 +729,48 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
         ) : null}
       </Card>
 
-      {/* Tabs */}
-      <div
-        role="tablist"
-        aria-label="Job builder sections"
-        className="flex flex-wrap gap-1 rounded-card border border-border bg-surface p-1"
-      >
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            data-testid={
-              t.key === "structure"
-                ? "builder-structure-tab"
-                : t.key === "preview"
-                  ? "builder-phil-preview-tab"
-                  : t.key === "publish"
-                    ? "builder-publish-tab"
-                    : undefined
-            }
-            role="tab"
-            aria-selected={tab === t.key}
-            onClick={() => setTab(t.key)}
-            className={cn(
-              "rounded-card px-3 py-1.5 text-sm font-medium transition-colors",
-              tab === t.key
-                ? "bg-brand-navy text-text-inverse"
-                : "text-text-muted hover:bg-surface-subtle hover:text-text"
-            )}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {tab === "basics" ? (
-        <>
-          {renderBasics()}
-          {/* #200: scope of work — capture lives with Basics (the lighter
-              v1; a dedicated tab is a later call if it earns one). */}
-          <div className="mt-4">
-            <ScopeOfWorkSection job={savedJob} />
-          </div>
-          {/* #228: client + contract commercial context — admin-only, its
-              own PUT (the scopeOfWork precedent). */}
-          <div className="mt-4">
-            <ClientContractSection job={savedJob} />
-          </div>
-        </>
-      ) : null}
-      {tab === "structure" ? renderStructure() : null}
-      {tab === "modules" ? renderModules() : null}
-      {tab === "preview" ? renderPreview() : null}
-      {tab === "publish" ? renderPublish() : null}
-      {tab === "more" ? renderMore() : null}
+      {/* §4 cockpit: rail (readiness meter + section nav) · canvas (active
+          section) · inspector. The sections themselves — and all save/publish/
+          preset/generate logic — are unchanged; only the chrome is upgraded. */}
+      <JobBuilderCockpit
+        readiness={readiness}
+        nav={cockpitNav}
+        activeKey={tab}
+        onSelect={(k) => {
+          setReviewOpen(false);
+          setTab(k as TabKey);
+        }}
+        onMeterClick={() => {
+          setReviewOpen(false);
+          setTab("publish");
+        }}
+        reviewCount={untriagedClauses.length}
+        reviewActive={reviewOpen}
+        onOpenReview={openReview}
+        canvas={
+          reviewOpen ? (
+            <ReviewQueue
+              session={reviewSession}
+              index={reviewIndex}
+              cleared={reviewCleared}
+              error={reviewError}
+              onClassify={classifyInReview}
+              onSkip={() => setReviewIndex((i) => i + 1)}
+              onClose={() => setReviewOpen(false)}
+            />
+          ) : (
+            renderActiveSection()
+          )
+        }
+        inspector={
+          <Inspector
+            target={selectedRow ? { kind: "row", row: selectedRow } : { kind: "readiness" }}
+            readiness={readiness}
+            onGoToIssue={goToIssue}
+            onDeselect={() => setSelectedRow(null)}
+          />
+        }
+      />
 
       {/* #192 — save a saved group as a reusable preset */}
       <Modal
@@ -589,6 +915,236 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
       </Modal>
     </div>
   );
+
+  /* ---- the active section node fed into the cockpit canvas ---- */
+  function renderActiveSection() {
+    switch (tab) {
+      case "overview":
+        return renderOverview();
+      case "basics":
+        return (
+          <>
+            {renderBasics()}
+            {/* #228: client + contract commercial context — admin-only, its
+                own PUT (the scopeOfWork precedent). */}
+            <div className="mt-4">
+              <ClientContractSection job={savedJob} />
+            </div>
+          </>
+        );
+      case "scope":
+        return renderScope();
+      case "crew":
+        return renderCrew();
+      case "plans":
+      case "materials":
+      case "gear":
+      case "itps":
+      case "risks":
+        return renderDeliverLink(tab);
+      case "structure":
+        return renderStructure();
+      case "modules":
+        return renderModules();
+      case "preview":
+        return renderPreview();
+      case "publish":
+        return renderPublish();
+      case "more":
+        return renderMore();
+      default:
+        return null;
+    }
+  }
+
+  /* ============================ OVERVIEW ============================ */
+  function renderOverview() {
+    const struct = summariseStructure(savedJob);
+    const preview = buildPhilPreview(savedJob);
+    const fieldTools = preview.sections.filter((s) => s.enabled).length;
+    const stats: Array<{ label: string; value: number; to: TabKey; danger?: boolean }> = [
+      { label: "Blockers", value: readiness.blockingCount, to: "publish", danger: true },
+      { label: "Warnings", value: readiness.warningCount, to: "publish" },
+      { label: "Scope to triage", value: untriagedClauses.length, to: "scope" },
+      { label: "Areas", value: struct.areaCount, to: "structure" },
+    ];
+    return (
+      <div className="space-y-4">
+        <Card>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <CardTitle className="break-words">{savedJob.name}</CardTitle>
+                <Pill tone={statusTone(savedJob.status)}>{statusLabel(savedJob.status)}</Pill>
+              </div>
+              <CardDescription className="mt-1">
+                {[
+                  savedJob.ref && `Ref ${savedJob.ref}`,
+                  savedJob.typeName ?? (savedJob.type || null),
+                  savedJob.siteAddress || null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ") || "No ref, type or address yet"}
+              </CardDescription>
+            </div>
+            <Pill tone={readiness.tone}>{readiness.stateLabel}</Pill>
+          </div>
+        </Card>
+
+        <Card>
+          <CardTitle>Build readiness</CardTitle>
+          <CardDescription className="mt-1">
+            The running rollup of what stands between this job and the field.
+          </CardDescription>
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {stats.map((s) => (
+              <button
+                key={s.label}
+                type="button"
+                onClick={() => setTab(s.to)}
+                className="rounded-card border border-border bg-surface-subtle px-3 py-2 text-left transition-colors hover:border-brand-navy"
+              >
+                <span
+                  className={cn(
+                    "block font-mono text-lg font-semibold",
+                    s.danger && s.value > 0 ? "text-state-danger" : "text-text"
+                  )}
+                >
+                  {s.value}
+                </span>
+                <span className="block text-[11px] text-text-muted">{s.label}</span>
+              </button>
+            ))}
+          </div>
+          {readiness.blockers.length > 0 ? (
+            <ul className="mt-3 space-y-1.5">
+              {readiness.blockers.slice(0, 3).map((b) => (
+                <li key={b.code} className="flex items-start gap-2 text-sm text-state-danger">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" /> {b.message}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-3 inline-flex items-center gap-1.5 text-sm text-state-success">
+              <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> No blockers — clear to publish.
+            </p>
+          )}
+        </Card>
+
+        <Card>
+          <div className="flex items-center gap-2">
+            <Eye className="h-5 w-5 text-text-muted" aria-hidden="true" />
+            <CardTitle>What the field sees</CardTitle>
+          </div>
+          {preview.emptyReason ? (
+            <p className="mt-2 text-sm text-text-muted">{preview.emptyReason}</p>
+          ) : (
+            <p className="mt-2 text-sm text-text-muted">
+              {struct.areaCount} area{struct.areaCount === 1 ? "" : "s"} ·{" "}
+              {struct.roughInTaskCount + struct.fitOffTaskCount} job-level task template
+              {struct.roughInTaskCount + struct.fitOffTaskCount === 1 ? "" : "s"} · {fieldTools} field
+              tool{fieldTools === 1 ? "" : "s"} on.
+              {preview.isVisibleToField
+                ? " Published — visible to assigned crew."
+                : " Draft — office-only."}
+            </p>
+          )}
+          <Button size="sm" variant="ghost" className="mt-3" onClick={() => setTab("preview")}>
+            <Eye className="h-4 w-4" aria-hidden="true" /> Open Phil preview
+          </Button>
+        </Card>
+      </div>
+    );
+  }
+
+  /* ============================ CREW ============================ */
+  function renderCrew() {
+    return (
+      <JobAssignmentPanel
+        jobId={savedJob.id}
+        jobName={savedJob.name}
+        initialWorkers={assignableWorkers}
+        loadError={workersLoadError}
+      />
+    );
+  }
+
+  /* ===================== DELIVER (link-out facets) ==================== */
+  function renderDeliverLink(key: DeliverKey) {
+    const cfg = DELIVER_LINKS[key];
+    const moduleOn = cfg.module ? moduleEnabled(savedJob, cfg.module) : null;
+    return (
+      <Card>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <CardTitle>{cfg.label}</CardTitle>
+            <CardDescription className="mt-1">{cfg.desc}</CardDescription>
+          </div>
+          {moduleOn !== null ? (
+            <Pill tone={moduleOn ? "success" : "neutral"}>
+              Field module {moduleOn ? "on" : "off"}
+            </Pill>
+          ) : null}
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <Link
+            href={cfg.path(savedJob.id) as Route}
+            className="inline-flex items-center gap-1.5 rounded-card bg-brand-navy px-3 py-2 text-sm font-medium text-text-inverse"
+          >
+            Open {cfg.label} <span aria-hidden="true">→</span>
+          </Link>
+          <span className="text-xs text-text-muted">
+            {cfg.external
+              ? "Lives on its own register — the builder links out rather than duplicating it."
+              : "Lives on its own job surface — the builder links out rather than duplicating it."}
+          </span>
+        </div>
+      </Card>
+    );
+  }
+
+  /* ============================ SCOPE INTAKE ============================ */
+  function renderScope() {
+    return (
+      <div className="space-y-4">
+        <Card>
+          <CardTitle>Scope intake</CardTitle>
+          <CardDescription className="mt-1">
+            The agreed scope — the one source the structure, tasks and quote build from.
+            Classify each line so nothing becomes silent field work; the review queue triages
+            the unclassified ones fast.
+          </CardDescription>
+          {untriagedClauses.length > 0 ? (
+            <Button
+              size="sm"
+              className="mt-3"
+              data-testid="scope-open-review"
+              onClick={openReview}
+            >
+              <ListChecks className="h-4 w-4" aria-hidden="true" />
+              Review {untriagedClauses.length} unclassified line
+              {untriagedClauses.length === 1 ? "" : "s"}
+            </Button>
+          ) : reconciledView ? (
+            <p className="mt-3 inline-flex items-center gap-1.5 text-sm text-state-success">
+              <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> Every scope line classified.
+            </p>
+          ) : null}
+        </Card>
+
+        <ScopeOfWorkSection
+          job={savedJob}
+          certaintyByClauseId={certaintyByClauseId}
+          selectedClauseId={selectedRow?.entity === "clause" ? selectedRow.id : null}
+          onInspectClause={selectClause}
+        />
+
+        {/* The confirmed scope-vs-quote reconciliation (RAG + findings + clause
+            table). Renders its own honest "no reconciliation yet" state. */}
+        {reconciliation ? <ScopeReconciliationStatus view={reconciliation} /> : null}
+      </div>
+    );
+  }
 
   /* ============================ BASICS ============================ */
   function renderBasics() {
@@ -856,7 +1412,17 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
                   </div>
                   <ul className="mt-3 space-y-2 pl-1">
                     {group.areas.map((area, ai) => (
-                      <li key={ai} className="flex flex-wrap items-center gap-2">
+                      <li
+                        key={ai}
+                        className={cn(
+                          "flex flex-wrap items-center gap-2 rounded-card px-1",
+                          selectedRow?.entity === "area" &&
+                            area.id != null &&
+                            selectedRow.id === area.id
+                            ? "ring-1 ring-brand-navy"
+                            : ""
+                        )}
+                      >
                         <input
                           className={cn(inputClass, "min-w-[140px] flex-1")}
                           value={area.name}
@@ -874,6 +1440,14 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
                             custom tasks
                           </Pill>
                         ) : null}
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => selectArea(group.name, area)}
+                          aria-label="Inspect area"
+                        >
+                          <PanelRight className="h-4 w-4" aria-hidden="true" />
+                        </Button>
                         <Button
                           size="sm"
                           variant="ghost"

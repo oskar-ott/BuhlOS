@@ -4,11 +4,15 @@ import { cookies, headers } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { JobBuilderClient } from "@/components/admin/JobBuilderClient";
-import { JobAssignmentPanel } from "@/components/admin/JobAssignmentPanel";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { JobDetailResponseSchema } from "@/domains/jobs/schema";
 import type { Job } from "@/domains/jobs/types";
+import {
+  blobReconciliationReadDeps,
+  runScopeReconciliationView,
+  type ScopeReconciliationView,
+} from "@/server/job-control/reconciliation-read";
 import { UsersListResponseSchema } from "@/domains/users/schema";
 import { filterAssignableWorkers } from "@/domains/users/assignment";
 import type { AssignableWorker } from "@/domains/users/types";
@@ -86,15 +90,21 @@ export default async function JobBuilderPage({ params }: PageParams) {
   }
 
   const workers = await loadAssignableWorkers(raw);
+  // Confirmed scope reconciliation (#366) — the real source of per-clause
+  // certainty for the cockpit Inspector. Read-only blob read; degrades to a
+  // `missing` view when the job hasn't been reconciled, so the builder never
+  // fakes certainty. This page is already admin-gated, which the reader requires.
+  const reconciliation = await loadReconciliation(jobId);
 
   return (
     <BuilderShell jobId={jobId} title={result.job.name}>
-      <JobBuilderClient job={result.job} />
-      <JobAssignmentPanel
-        jobId={jobId}
-        jobName={result.job.name}
-        initialWorkers={workers.workers}
-        loadError={workers.error}
+      {/* Crew now lives inside the cockpit's Crew section (assignableWorkers),
+          not as a sibling panel. */}
+      <JobBuilderClient
+        job={result.job}
+        reconciliation={reconciliation}
+        assignableWorkers={workers.workers}
+        workersLoadError={workers.error}
       />
     </BuilderShell>
   );
@@ -121,7 +131,9 @@ function BuilderShell({
         </Link>
       }
     >
-      <div className="mx-auto max-w-4xl">{children}</div>
+      {/* Wider than the legacy single-column builder: the §4 cockpit is a
+          three-column rail · canvas · inspector layout that needs the room. */}
+      <div className="mx-auto max-w-7xl">{children}</div>
     </AdminShell>
   );
 }
@@ -201,5 +213,20 @@ async function loadAssignableWorkers(cookieValue: string | undefined): Promise<{
       workers: [],
       error: err instanceof Error ? err.message : "Network error",
     };
+  }
+}
+
+/**
+ * Read the confirmed scope reconciliation for this job. The reader never throws
+ * on a missing/invalid artifact (returns a typed missing/unreadable view); this
+ * wrapper additionally swallows an unexpected blob-store error to null so the
+ * builder always renders — certainty chips simply don't appear when there's no
+ * reconciliation, which is the honest "not tracked yet" state.
+ */
+async function loadReconciliation(jobId: string): Promise<ScopeReconciliationView | null> {
+  try {
+    return await runScopeReconciliationView(blobReconciliationReadDeps(), jobId);
+  } catch {
+    return null;
   }
 }
