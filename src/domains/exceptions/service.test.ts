@@ -4,6 +4,7 @@ import {
   jobExceptions,
   materialExceptions,
   observationExceptions,
+  rfiExceptions,
 } from "./mappers";
 import {
   buildExceptions,
@@ -20,7 +21,7 @@ import type { TimeEntry } from "@/domains/timesheets/types";
 import type { Job } from "@/domains/jobs/types";
 import type { ObservationItem } from "@/domains/observations/types";
 import type { MaterialRequestItem } from "@/domains/material-requests/types";
-import type { ExceptionSources } from "./types";
+import type { ExceptionRfi, ExceptionSources } from "./types";
 
 // ── fixtures ──────────────────────────────────────────────────────────
 function te(over: Partial<TimeEntry> & { id: string }): TimeEntry {
@@ -185,6 +186,104 @@ describe("materialExceptions", () => {
   });
 });
 
+// ── rfis (#276 chase) ─────────────────────────────────────────────────
+function rfiFix(over: Partial<ExceptionRfi> & { id: string }): ExceptionRfi {
+  return {
+    jobId: "job-1",
+    jobName: "Marriott St",
+    ref: "RFI-003",
+    subject: "Panel location",
+    question: "Where does the DB go?",
+    askedOf: "builder@example.com",
+    status: "sent",
+    responseDue: "2026-06-20",
+    sentAt: "2026-06-15T00:00:00.000Z",
+    answer: "",
+    answeredAt: null,
+    answeredBy: null,
+    closedReason: "",
+    observationId: null,
+    convertedFromObservationId: null,
+    areaId: null,
+    planId: null,
+    raisedById: "u1",
+    raisedByName: "Oskar",
+    createdAt: "2026-06-15T00:00:00.000Z",
+    updatedAt: "2026-06-15T00:00:00.000Z",
+    auditLogIds: [],
+    ...over,
+  };
+}
+
+describe("rfiExceptions", () => {
+  const TODAY = "2026-06-25";
+
+  it("includes only OVERDUE awaiting-answer RFIs — due-today/future, answered, closed and undated all stay out", () => {
+    const items = rfiExceptions(
+      [
+        rfiFix({ id: "r1", responseDue: "2026-06-20" }), // overdue
+        rfiFix({ id: "r2", responseDue: "2026-06-25" }), // due today — not overdue
+        rfiFix({ id: "r3", responseDue: "2026-07-01" }), // future
+        rfiFix({ id: "r4", responseDue: "2026-06-01", status: "answered" }),
+        rfiFix({ id: "r5", responseDue: "2026-06-01", status: "closed" }),
+        rfiFix({ id: "r6", responseDue: "" }), // no due date → can't be overdue
+      ],
+      TODAY,
+    );
+    expect(items.map((i) => i.id)).toEqual(["rfi-overdue:r1"]);
+  });
+
+  it("computes the day count honestly from responseDue and deep-links to the job's register", () => {
+    const [item] = rfiExceptions([rfiFix({ id: "r1", responseDue: "2026-06-20" })], TODAY);
+    expect(item).toMatchObject({
+      source: "rfi",
+      jobId: "job-1",
+      jobName: "Marriott St",
+      title: "RFI-003 overdue — Panel location",
+      severity: "warning", // 5 days ≤ the 7-day escalation threshold
+      dueAt: "2026-06-20",
+      actionState: "available",
+      actionHref: "/v2/jobs/job-1/rfis",
+      actionLabel: "Open RFI register",
+    });
+    expect(item!.summary).toContain("5 days overdue");
+    expect(item!.summary).toContain("chase builder@example.com");
+    expect(isSafeActionHref(item!.actionHref)).toBe(true);
+  });
+
+  it("escalates to critical past 7 days; exactly 7 stays warning; 1 day reads singular", () => {
+    const items = rfiExceptions(
+      [
+        rfiFix({ id: "r8", responseDue: "2026-06-17" }), // 8 days → critical
+        rfiFix({ id: "r7", responseDue: "2026-06-18" }), // 7 days → warning
+        rfiFix({ id: "r1", responseDue: "2026-06-24" }), // 1 day
+      ],
+      TODAY,
+    );
+    expect(items.find((i) => i.sourceId === "r8")!.severity).toBe("critical");
+    expect(items.find((i) => i.sourceId === "r7")!.severity).toBe("warning");
+    expect(items.find((i) => i.sourceId === "r1")!.summary).toContain("1 day overdue");
+  });
+
+  it("tells the truth about a never-sent overdue RFI (open ≠ chase the builder)", () => {
+    const [item] = rfiExceptions(
+      [rfiFix({ id: "r1", status: "open", sentAt: null, responseDue: "2026-06-20" })],
+      TODAY,
+    );
+    expect(item!.summary).toContain("never sent");
+    expect(item!.summary).not.toContain("chase");
+  });
+
+  it("encodes dynamic job segments in the register href", () => {
+    const [item] = rfiExceptions(
+      [rfiFix({ id: "r1", jobId: "job/1?x", responseDue: "2026-06-20" })],
+      TODAY,
+    );
+    expect(item!.actionHref).toBe("/v2/jobs/job%2F1%3Fx/rfis");
+    expect(isSafeActionHref(item!.actionHref)).toBe(true);
+  });
+});
+
 // ── aggregation / sort / filters ──────────────────────────────────────
 const SOURCES: ExceptionSources = {
   hoursPending: [te({ id: "t1", status: "submitted", submittedAt: "2026-06-03T00:00:00.000Z" })],
@@ -233,6 +332,25 @@ describe("buildExceptions", () => {
 
   it("returns an empty list for empty sources", () => {
     expect(buildExceptions({ hoursPending: [], hoursRejected: [], jobs: [], observations: [], materialRequests: [] })).toEqual([]);
+  });
+
+  it("folds in the OPTIONAL rfis source when rfis + today are supplied, and is unchanged when omitted", () => {
+    const withRfis = buildExceptions({
+      ...SOURCES,
+      rfis: [
+        rfiFix({ id: "r1", responseDue: "2026-06-20" }), // overdue
+        rfiFix({ id: "r2", responseDue: "2026-07-01" }), // not overdue
+      ],
+      today: "2026-06-25",
+    });
+    expect(withRfis.map((i) => i.id)).toContain("rfi-overdue:r1");
+    expect(withRfis.map((i) => i.id)).not.toContain("rfi-overdue:r2");
+    expect(withRfis.length).toBe(items.length + 1);
+    expect(withRfis.find((i) => i.id === "rfi-overdue:r1")!.sourceLabel).toBe("RFI");
+    // rfis without today (or neither) → the source contributes nothing.
+    expect(
+      buildExceptions({ ...SOURCES, rfis: [rfiFix({ id: "r1", responseDue: "2026-06-20" })] }).map((i) => i.id),
+    ).toEqual(items.map((i) => i.id));
   });
 });
 
