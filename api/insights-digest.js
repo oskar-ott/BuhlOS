@@ -29,7 +29,7 @@
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, isAdminRole } = require('./_lib/auth');
 const { sendPushToUserId } = require('./_lib/push');
-const { isFlagEnabled } = require('./_lib/feature-flags');
+const { isFlagEnabled, isFlagOn } = require('./_lib/feature-flags');
 const { append: appendAuditLog } = require('./_lib/audit-log');
 const { aiComplete, isAiConfigured, AiError } = require('./_lib/ai');
 const { parseModelJson, ungroundedNumerals } = require('./_lib/ai-suggestions');
@@ -185,8 +185,11 @@ module.exports = async (req, res) => {
     if (!user) return;
     if (!(await isFlagEnabled(FLAG, user))) return res.status(404).json({ error: 'not found' });
     if (!isAdminRole(user.role)) return res.status(403).json({ error: 'admin tier only' });
-  } else if (!(await isFlagEnabled(FLAG))) {
+  } else if (!(await isFlagOn(FLAG))) {
     // Flag-dark: the cron no-ops honestly rather than generating dark data.
+    // Deliberately isFlagOn (enablement), NOT isFlagEnabled: this flag targets
+    // the admin tier, and a viewerless isFlagEnabled always fails targeting —
+    // the cron would no-op forever, even with the flag turned on.
     return res.status(200).json({ skipped: 'flag off' });
   }
 

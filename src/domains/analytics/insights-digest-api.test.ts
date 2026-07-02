@@ -68,6 +68,7 @@ async function call(opts: {
   query?: Record<string, string>;
   role?: string;
   anon?: boolean;
+  headers?: Record<string, string>;
 }) {
   const res = createRes();
   await handler(
@@ -75,13 +76,14 @@ async function call(opts: {
       method: opts.method,
       query: opts.query || {},
       headers: opts.anon
-        ? {}
+        ? { ...(opts.headers || {}) }
         : {
             cookie: `buhl_session=${auth.signSession({
               userId: "u_boss",
               role: opts.role || "boss",
               exp: Date.now() + 60_000,
             })}`,
+            ...(opts.headers || {}),
           },
     },
     res
@@ -228,6 +230,32 @@ describe("gates", () => {
 
   it("401s anonymous callers, admin-tier only", async () => {
     expect((await call({ method: "POST", query: { action: "generate" }, anon: true })).statusCode).toBe(401);
+  });
+});
+
+describe("cron caller — enablement-only flag check", () => {
+  const SECRET = "cron-secret-long-enough";
+  const cronHeaders = { "x-cron-secret": SECRET };
+
+  beforeEach(() => {
+    process.env.CRON_SECRET = SECRET;
+  });
+  afterEach(() => {
+    delete process.env.CRON_SECRET;
+  });
+
+  it("generates with the flag on and NO viewer — an admin-targeted flag must not dead-end the cron", async () => {
+    const res = await call({ method: "POST", query: { action: "generate" }, anon: true, headers: cronHeaders });
+    expect(res.statusCode).toBe(200);
+    expect(res.body.digest).toBeTruthy();
+    expect(writes).toContain(`analytics/digests/${WEEK}.json`);
+  });
+
+  it("no-ops honestly while the flag is dark", async () => {
+    delete process.env.FLAG_AI_INSIGHTS_DIGEST;
+    const res = await call({ method: "POST", query: { action: "generate" }, anon: true, headers: cronHeaders });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({ skipped: "flag off" });
   });
 });
 
