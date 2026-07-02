@@ -111,6 +111,12 @@ export const ACTION_ROUTES = {
     defaultLabel: "Open observation",
     perJob: true,
   },
+  jobRfis: {
+    build: (p) => `/v2/jobs/${encodeSegment(p.jobId!)}/rfis`,
+    sourceFile: "src/app/v2/jobs/[jobId]/rfis/page.tsx",
+    defaultLabel: "Open RFI register",
+    perJob: true,
+  },
 } as const satisfies Record<string, RouteDef>;
 
 export type ActionRouteKey = keyof typeof ACTION_ROUTES;

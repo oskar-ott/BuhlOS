@@ -30,7 +30,8 @@ export type BoardIcon =
   | "rotate-ccw"
   | "user-x"
   | "layers"
-  | "package";
+  | "package"
+  | "message-circle-question";
 
 /** critical first, then warning; info never reaches needsNow. */
 const SEVERITY_RANK: Record<ExceptionSeverity, number> = {

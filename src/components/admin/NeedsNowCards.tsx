@@ -12,6 +12,7 @@ import {
   FileCheck2,
   Inbox,
   Layers,
+  MessageCircleQuestion,
   Package,
   Wrench,
 } from "lucide-react";
@@ -33,6 +34,7 @@ const SOURCE_ICON: Record<ExceptionSource, typeof AlertOctagon> = {
   itp: FileCheck2,
   job: AlertTriangle,
   material: Package,
+  rfi: MessageCircleQuestion,
   planMarkup: Layers,
   gear: Wrench,
 };

@@ -2,6 +2,7 @@ import type { TimeEntry } from "@/domains/timesheets/types";
 import type { Job } from "@/domains/jobs/types";
 import type { ObservationItem } from "@/domains/observations/types";
 import type { MaterialRequestItem } from "@/domains/material-requests/types";
+import type { Rfi } from "@/domains/rfi/schema";
 import type { ExceptionActionState } from "./routes";
 
 export type { ExceptionActionState } from "./routes";
@@ -27,6 +28,7 @@ export type ExceptionSource =
   | "itp"
   | "job"
   | "material"
+  | "rfi"
   | "planMarkup"
   | "gear";
 
@@ -102,6 +104,10 @@ export interface ExceptionCounts {
 /** Action-availability filter buckets. */
 export type ActionAvailability = "all" | "actionable" | "waiting";
 
+/** An RFI record decorated with its job's display name (the register stores
+ *  only jobId; the cross-job scan joins the name for the inbox grouping). */
+export type ExceptionRfi = Rfi & { jobName?: string };
+
 /** The already-loaded, admin-gated source snapshot the projection reads. */
 export interface ExceptionSources {
   hoursPending: ReadonlyArray<TimeEntry>;
@@ -109,6 +115,15 @@ export interface ExceptionSources {
   jobs: ReadonlyArray<Job>;
   observations: ReadonlyArray<ObservationItem>;
   materialRequests: ReadonlyArray<MaterialRequestItem>;
+  /**
+   * #276 chase — RFIs awaiting an answer (open/sent) across live jobs, judged
+   * overdue against `today` (business-timezone YYYY-MM-DD, injected — the
+   * projection never calls Date.now()). BOTH fields are OPTIONAL: a caller
+   * that didn't fetch RFIs (or runs with `rfi_register` off) omits them and
+   * the projection is byte-for-byte unchanged.
+   */
+  rfis?: ReadonlyArray<ExceptionRfi>;
+  today?: string;
 }
 
 export interface ExceptionFilters {
