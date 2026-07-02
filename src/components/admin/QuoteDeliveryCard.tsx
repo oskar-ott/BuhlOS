@@ -10,6 +10,7 @@ import {
   markQuoteViewed,
   type DeliveryState,
 } from "@/domains/quoting/delivery-client";
+import type { QuoteSection } from "@/domains/quoting/schema";
 
 /**
  * Quote client-status card (#240) on the quote detail page. Shows the client-
@@ -38,7 +39,26 @@ function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
 
-export function QuoteDeliveryCard({ quoteId }: { quoteId: string }) {
+/** Lines accepted from an AI draft that still sit at the honest rate 0 (#246). */
+function countNeedsPricing(sections: QuoteSection[]): number {
+  let n = 0;
+  for (const section of sections) {
+    for (const line of section.lines) {
+      if (line.needsPricing === true) n += 1;
+    }
+  }
+  return n;
+}
+
+export function QuoteDeliveryCard({
+  quoteId,
+  sections,
+}: {
+  quoteId: string;
+  /** The quote's sections as loaded — the card counts AI-drafted lines that
+   *  still have no price and warns before a send. Warn only, never block. */
+  sections: QuoteSection[];
+}) {
   const [d, setD] = useState<DeliveryState | null>(null);
   const [view, setView] = useState<"loading" | "ready" | "error">("loading");
   const [form, setForm] = useState<null | { at: string; recipient: string; method: string }>(null);
@@ -77,6 +97,7 @@ export function QuoteDeliveryCard({ quoteId }: { quoteId: string }) {
 
   const inputClass = "h-9 w-full rounded-card border border-border bg-surface px-2 text-sm";
   const terminal = d?.state === "accepted" || d?.state === "declined";
+  const needsPricingCount = countNeedsPricing(sections);
 
   return (
     <Card role="region" aria-label="Quote client status">
@@ -84,6 +105,18 @@ export function QuoteDeliveryCard({ quoteId }: { quoteId: string }) {
       <CardDescription className="mt-1">
         Where this quote sits with the client — sent, viewed, then accepted or declined.
       </CardDescription>
+
+      {needsPricingCount > 0 ? (
+        <p
+          role="status"
+          data-testid="quote-needs-pricing-warning"
+          className="mt-3 rounded-card border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+        >
+          {needsPricingCount === 1
+            ? "1 AI-drafted line still has no price — it contributes $0 to the quote total."
+            : `${needsPricingCount} AI-drafted lines still have no price — they contribute $0 to the quote total.`}
+        </p>
+      ) : null}
 
       {view === "loading" ? (
         <p className="mt-3 text-sm text-text-muted">Loading…</p>

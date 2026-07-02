@@ -15,9 +15,11 @@ import { cn } from "@/lib/cn";
  * scope surface. Flag-gated (`ai_contract_obligations`, admin-tier) by the
  * server page — this component never renders when the flag is dark.
  *
- * TEXT-FIRST honestly: server-side PDF text extraction is not built (#197),
- * so the admin PASTES the contract text; a documents-register row can be
- * attached for provenance only. No fake uploader.
+ * TEXT-FIRST honestly: the admin PASTES the contract text, OR picks a PDF
+ * register document — the server reads the PDF's text layer through the #197
+ * shared text layer (api/_lib/pdf-text.js). Scanned/image-only PDFs come back
+ * as an honest 422 (OCR is not built, #197) telling the admin to paste the
+ * text. No fake uploader.
  *
  * Nothing is auto-accepted: every AI proposal needs an explicit Accept /
  * Edit-then-accept / Reject. Accepted items land in the job's scope of work
@@ -80,7 +82,7 @@ export function ContractObligationsSection({ jobId }: { jobId: string }) {
   const router = useRouter();
   const [store, setStore] = useState<StoreState | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [docs, setDocs] = useState<Array<{ id: string; label: string }>>([]);
+  const [docs, setDocs] = useState<Array<{ id: string; label: string; isPdf: boolean }>>([]);
 
   const [text, setText] = useState("");
   const [docId, setDocId] = useState("");
@@ -127,6 +129,7 @@ export function ContractObligationsSection({ jobId }: { jobId: string }) {
         .map((p) => ({
           id: p.id,
           label: `${p.fileName || p.title || p.id} (${categoryLabel(p.category)})`,
+          isPdf: p.mimeType === "application/pdf",
         }));
       setDocs(rows);
     });
@@ -242,10 +245,11 @@ export function ContractObligationsSection({ jobId }: { jobId: string }) {
     <Card role="region" aria-label="Contract obligations">
       <CardTitle>Contract obligations (AI-extracted, review required)</CardTitle>
       <CardDescription className="mt-1">
-        Paste the contract or scope-of-works text below — the AI proposes candidate obligations
-        and every one needs your accept or reject before it touches the job. Reading text out of
-        a PDF on the server isn&rsquo;t built yet (#197), so copy the text out of the document and
-        paste it here; picking a register document only records where the text came from.
+        Paste the contract or scope-of-works text below, or pick a PDF from the register and leave
+        the box empty to read its text layer server-side — the AI proposes candidate obligations
+        and every one needs your accept or reject before it touches the job. Scanned PDFs have no
+        text layer and can&rsquo;t be read (OCR isn&rsquo;t built, #197) — paste their text instead.
+        When you paste text, picking a document only records where the text came from.
       </CardDescription>
 
       {/* ── paste form ─────────────────────────────────────────────── */}
@@ -260,7 +264,7 @@ export function ContractObligationsSection({ jobId }: { jobId: string }) {
         />
         <div className="flex flex-wrap items-center gap-2">
           <label className="flex items-center gap-2 text-sm text-text-muted">
-            <span>Source document (optional)</span>
+            <span>Source document (PDF text is read server-side; optional with pasted text)</span>
             <select
               value={docId}
               onChange={(e) => setDocId(e.target.value)}
@@ -278,7 +282,13 @@ export function ContractObligationsSection({ jobId }: { jobId: string }) {
           <Button
             size="sm"
             onClick={extract}
-            disabled={extracting || text.trim() === ""}
+            // Runnable with pasted text, or with a selected PDF register
+            // document (the server reads its text layer — #197 shared text
+            // layer). A non-PDF selection still needs pasted text.
+            disabled={
+              extracting ||
+              (text.trim() === "" && !docs.some((d) => d.id === docId && d.isPdf))
+            }
             data-testid="contract-extract-run"
           >
             {extracting ? "Extracting…" : "Extract obligations"}

@@ -14,6 +14,11 @@ import {
   type EvidenceStatusTone,
 } from "@/domains/evidence/format";
 import {
+  CLASSIFY_BATCH_MAX,
+  apiErrorMessage,
+  classifyEvidencePhotos,
+  correctEvidenceLabels,
+  dismissDefectSuggestion,
   flagAsBuiltEvidence,
   reviewEvidence,
   unlinkEvidence,
@@ -36,13 +41,6 @@ import { EvidenceDrawer } from "./EvidenceDrawer";
 import { EvidenceLabelChips } from "./EvidenceLabelChips";
 import { EvidenceRejectModal } from "./EvidenceRejectModal";
 import { EvidenceUnreviewModal } from "./EvidenceUnreviewModal";
-import {
-  CLASSIFY_BATCH_MAX,
-  apiErrorMessage,
-  classifyEvidencePhotos,
-  correctEvidenceLabels,
-  dismissDefectSuggestion,
-} from "./evidence-ai-client";
 import { cn } from "@/lib/cn";
 
 const PILL_TONE_MAP: Record<EvidenceStatusTone, "info" | "success" | "danger"> = {

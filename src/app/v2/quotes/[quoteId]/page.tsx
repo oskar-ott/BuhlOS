@@ -81,8 +81,10 @@ export default async function QuoteBuilderPage({ params }: PageParams) {
   return (
     <AdminShell title="Quote builder">
       <div className="space-y-4">
-        {/* #240: client-facing lifecycle (sent → viewed → accepted/declined). */}
-        <QuoteDeliveryCard quoteId={result.quote.id} />
+        {/* #240: client-facing lifecycle (sent → viewed → accepted/declined).
+            Sections ride along so the card can warn (never block) about
+            AI-drafted lines still priced at the honest $0 (#246). */}
+        <QuoteDeliveryCard quoteId={result.quote.id} sections={result.quote.sections} />
         {/* §8: the cost/margin readback is admin-tier only. The surface is
             already admin-gated above; this flag gates the confidential UI at the
             component too (defence-in-depth) so cost/margin never render for a
