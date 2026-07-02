@@ -80,7 +80,12 @@ export function ITPSubmitForReview({
           ? "Couldn't submit — finish the required points, or reload if it changed."
           : r.error.status === 403
             ? "You can't submit this check."
-            : "Couldn't submit for review. Try again.",
+            : // Bounded write (#139): a timeout/network failure carries honest
+              // worker-voice copy — a timeout MAY have landed (P7), so don't
+              // flatten it into a generic "try again".
+              r.error.kind
+              ? r.error.message
+              : "Couldn't submit for review. Try again.",
         r.error.status,
       );
     }

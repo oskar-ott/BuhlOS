@@ -71,6 +71,7 @@ export function createSnag(
   return httpPost<SnagCreateResponse>(snagsUrl(jobId), parsed.data, {
     schema: SnagCreateResponseSchema,
     init: { cache: "no-store", credentials: "same-origin" },
+    timeoutMs: 15000, // honest field write — never hang on bad signal (#139)
   });
 }
 
@@ -92,6 +93,10 @@ export function transitionSnag(
   return httpPost<SnagTransitionResponse>(snagsUrl(jobId, "transition"), parsed.data, {
     schema: SnagTransitionResponseSchema,
     init: { cache: "no-store", credentials: "same-origin" },
+    // Bounded (#139): Phil's snag panel uses this too. The transition names an
+    // absolute nextStatus, so a manual retry after a timeout is replay-safe
+    // (the server rejects an already-applied transition with a 409).
+    timeoutMs: 15000,
   });
 }
 

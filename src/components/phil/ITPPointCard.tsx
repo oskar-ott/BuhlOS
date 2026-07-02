@@ -12,6 +12,11 @@ import {
 } from "@/domains/itp/schema";
 import { valuePassFailLabel } from "@/domains/itp/format";
 import { resizeImageToDataUrl } from "@/domains/evidence/service";
+import {
+  boundedFetch,
+  PhilWriteTimeoutError,
+  PHIL_NETWORK_MESSAGE,
+} from "@/domains/phil/write-client";
 import type { ITPInstance, ITPTemplatePoint } from "@/domains/itp/types";
 import { cn } from "@/lib/cn";
 
@@ -138,13 +143,24 @@ export function ITPPointCard({
       return;
     }
     setPhase({ kind: "uploading" });
+    // Local resize failure (unsupported browser / decode failed) is not a
+    // network problem — keep its own honest message before anything is sent.
+    let dataUrl: string;
     try {
-      const dataUrl = await resizeImageToDataUrl(
-        file,
-        RESIZE_TARGET,
-        RESIZE_QUALITY,
+      dataUrl = await resizeImageToDataUrl(file, RESIZE_TARGET, RESIZE_QUALITY);
+    } catch (err) {
+      onError(
+        err instanceof Error ? err.message : "Couldn't read that photo. Try again.",
+        0,
       );
-      const res = await fetch(
+      setPhase({ kind: "dirty" });
+      return;
+    }
+    try {
+      // Bounded (#139): a photo on weak signal legitimately takes a while —
+      // generous 60s budget (same as the evidence photo upload), but never
+      // an unbounded hang with the card stuck on "Uploading…".
+      const res = await boundedFetch(fetch, 60_000)(
         `/api/photos?jobId=${encodeURIComponent(jobId)}&action=upload-itp-photo`,
         {
           method: "POST",
@@ -194,8 +210,10 @@ export function ITPPointCard({
       // attributed to the worker + auto-advance logic runs.
       await handleSubmit({ photoUrlOverride: body.url });
     } catch (err) {
+      // Honest failure copy (P7/P11): a timeout may have landed, a dropped
+      // connection didn't — say which, never a browser internals string.
       onError(
-        err instanceof Error ? err.message : "Photo upload failed.",
+        err instanceof PhilWriteTimeoutError ? err.message : PHIL_NETWORK_MESSAGE,
         0,
       );
       setPhase({ kind: "dirty" });

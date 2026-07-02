@@ -1,4 +1,9 @@
 import type { ProofReview, TaskRef } from "@/domains/job-control/types";
+import {
+  boundedFetch,
+  PhilWriteTimeoutError,
+  PHIL_NETWORK_MESSAGE,
+} from "@/domains/phil/write-client";
 
 /**
  * Client for the task-instance proof review/approval route (#503). Narrow: one
@@ -35,7 +40,10 @@ export async function postProofReview(
 ): Promise<ProofReviewActionResult> {
   let res: Response;
   try {
-    res = await fetchImpl("/api/job-control/proof-review", {
+    // Bounded (#139): submitted from site — never hang on bad signal. A manual
+    // retry after an ambiguous timeout is replay-safe: the revision
+    // precondition 409s (stale) if the first attempt actually landed.
+    res = await boundedFetch(fetchImpl)("/api/job-control/proof-review", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
@@ -48,8 +56,11 @@ export async function postProofReview(
         expectedJobControlRevision: input.expectedJobControlRevision,
       }),
     });
-  } catch {
-    return { kind: "error", message: "Network error" };
+  } catch (err) {
+    if (err instanceof PhilWriteTimeoutError) {
+      return { kind: "error", message: err.message };
+    }
+    return { kind: "error", message: PHIL_NETWORK_MESSAGE };
   }
 
   if (res.status === 401 || res.status === 403) return { kind: "unauthorized" };
