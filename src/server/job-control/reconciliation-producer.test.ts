@@ -1,5 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ScopeOfWorkItem } from "@/domains/jobs/types";
+
+// Mock the Vercel Blob SDK so blobReconciliationDeps.loadScope can be driven
+// against an in-memory key→JSON map (the src/server/job-control/blob.test.ts
+// pattern). Only the blobReconciliationDeps describe uses it — every other
+// test injects fakeDeps and never touches blob I/O.
+const blobStore = new Map<string, unknown>();
+vi.mock("@vercel/blob", () => ({
+  list: async ({ prefix }: { prefix: string }) => ({
+    blobs: [...blobStore.keys()]
+      .filter((k) => k.startsWith(prefix))
+      .map((k) => ({ pathname: k, url: `https://blob.test/${k}` })),
+  }),
+  put: async () => ({}),
+}));
 import { decodeSessionCookie } from "@/lib/auth/session";
 import {
   authorizeAdmin,
@@ -936,5 +950,93 @@ describe("blobReconciliationDeps", () => {
     expect(typeof deps.loadScope).toBe("function");
     expect(typeof deps.loadPrior).toBe("function");
     expect(typeof deps.savePersisted).toBe("function");
+  });
+
+  // ── The live job↔quote link (#365): loadScope follows job.fromQuoteId ──────
+  const stubFetch = () =>
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const key = String(url).replace("https://blob.test/", "");
+        const value = blobStore.get(key);
+        return {
+          ok: value !== undefined,
+          json: async () => value,
+        } as unknown as Response;
+      }),
+    );
+
+  const quoteDoc = () => ({
+    id: "qv2_arthur",
+    name: "100 Arthur St",
+    clientName: null,
+    status: "draft",
+    createdAt: AT,
+    createdBy: "boss",
+    updatedAt: AT,
+    sections: [
+      {
+        id: "qsec_wb_1",
+        title: "Imported — East Gym",
+        sortOrder: 0,
+        lines: [
+          { id: "wl_1_6", kind: "other", description: "ZIP circuit", qty: 2, unit: "ea", rate: 450 },
+        ],
+      },
+    ],
+    totals: { subtotalExGst: 900, gst: 90, totalIncGst: 990, lineCount: 1 },
+  });
+
+  it("loads the linked v2 quote via job.fromQuoteId — the link is LIVE", async () => {
+    blobStore.clear();
+    blobStore.set("jobs.json", {
+      jobs: [{ id: "j_arthur", scopeOfWork: [], fromQuoteId: "qv2_arthur" }],
+    });
+    blobStore.set("quotes-v2/qv2_arthur.json", quoteDoc());
+    stubFetch();
+    try {
+      const scope = await blobReconciliationDeps().loadScope("j_arthur");
+      expect(scope.found).toBe(true);
+      expect(scope.quote?.id).toBe("qv2_arthur");
+      expect(scope.quote?.sections[0]?.lines[0]?.id).toBe("wl_1_6");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("a job without fromQuoteId (or a legacy/missing quote id) yields quote: null", async () => {
+    blobStore.clear();
+    blobStore.set("jobs.json", {
+      jobs: [
+        { id: "j_plain", scopeOfWork: [] },
+        { id: "j_legacy", scopeOfWork: [], fromQuoteId: "q_legacy_only" },
+      ],
+    });
+    stubFetch();
+    try {
+      const plain = await blobReconciliationDeps().loadScope("j_plain");
+      expect(plain.quote).toBeNull();
+      // Legacy quotes.json ids have no quotes-v2/<id>.json document.
+      const legacy = await blobReconciliationDeps().loadScope("j_legacy");
+      expect(legacy.found).toBe(true);
+      expect(legacy.quote).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("a malformed quote document is never handed to the engine", async () => {
+    blobStore.clear();
+    blobStore.set("jobs.json", {
+      jobs: [{ id: "j_bad", scopeOfWork: [], fromQuoteId: "qv2_bad" }],
+    });
+    blobStore.set("quotes-v2/qv2_bad.json", { id: "qv2_bad", nope: true });
+    stubFetch();
+    try {
+      const scope = await blobReconciliationDeps().loadScope("j_bad");
+      expect(scope.quote).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
