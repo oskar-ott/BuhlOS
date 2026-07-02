@@ -16,10 +16,17 @@
   design.
 - **Guarded Postgres client** `api/_lib/supabase-db.js` (lazy singleton,
   transaction-pooler config), guarded before any network touch (#531).
-- **Migrations** committed + version-aligned:
-  `supabase/migrations/20260611142758_phase1_core_schema.sql` (applied to
-  production 2026-06-11) and `20260611212723_phase1_hardening.sql` (**drafted,
-  not yet applied** — step 2).
+- **Migrations** committed + version-aligned with the remote history (all
+  five applied to production, verified against `list_migrations` 2026-07-02):
+  `20260611142758_phase1_core_schema`, `20260611212723_phase1_hardening`,
+  `20260618120457_phase2_reference_registries`,
+  `20260618202531_phase2_registry_fk_wiring`, `20260619164327_sync_checks`.
+  The phase-2/sync files originally carried hand-written local timestamps;
+  they were renamed to the remote-stamped versions so a future
+  `supabase migration list` reports clean instead of divergent.
+- **CLI project** `supabase/config.toml` committed (`supabase init`,
+  `project_id = "birdwood"`, `major_version = 17` matching production).
+  `supabase link` still requires an operator access token — step 1.
 - **Dry-run parity** validated against live Blob data:
   [supabase-structure-dry-run-report.md](supabase-structure-dry-run-report.md),
   [supabase-hours-dry-run-report.md](supabase-hours-dry-run-report.md),
@@ -36,25 +43,19 @@ Phase-1 schema, RLS on, **zero rows**.
 
 ```bash
 # requires the Supabase CLI installed locally and an access token
-supabase init                      # creates supabase/config.toml (currently absent)
+# (supabase init already ran — config.toml is committed)
 supabase link --project-ref wetctlrhsycfwhuxlarv
 supabase migration list            # local vs remote
 ```
 
-- **Gate 1:** `supabase migration list` shows the two committed migrations and
-  marks `20260611142758_phase1_core_schema` as applied on remote.
-- Commit the generated `supabase/config.toml` (repo currently has none) in a
-  follow-up PR so the link is reproducible. It carries no secrets.
+- **Gate 1:** `supabase migration list` shows the five committed migrations
+  all marked applied on remote, no divergence in either direction.
 
-### 2. Apply the drafted hardening migration to production
+### 2. Hardening migration — DONE (applied to production)
 
-```bash
-supabase db push                   # applies 20260611212723_phase1_hardening.sql
-```
-
-- **Gate 2:** `supabase migration list` shows the hardening migration applied;
-  `supabase db lint` / the project **advisors** report no new security warnings
-  (search_path pins + RPC `REVOKE` are the point of this migration).
+`20260611212723_phase1_hardening.sql` is in the remote migration history
+(verified 2026-07-02). Nothing to do; on a fresh advisor scan expect the
+search_path/RPC WARNs it targeted to stay cleared.
 
 ### 3. Create the dev/staging Supabase project
 
