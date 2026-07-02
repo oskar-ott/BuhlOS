@@ -19,6 +19,8 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "document.superseded": "document superseded",
   "document.made_current": "marked a drawing current",
   "document.acknowledged": "acknowledged a drawing revision",
+  "document.ai_extracted": "AI read a plan page",
+  "document.ai_corrected": "corrected an AI-read plan field",
   "credential.added": "added a licence/ticket",
   "credential.updated": "updated a licence/ticket",
   "credential.removed": "removed a licence/ticket",
