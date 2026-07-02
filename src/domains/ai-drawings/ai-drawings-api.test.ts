@@ -41,6 +41,7 @@ let aiCalls: Array<Record<string, unknown>>;
 let aiNextText: string;
 let aiFail: { code: string } | null;
 let dbAvailable: boolean;
+let insertRaceWinner: Row | null; // simulates a concurrent run winning the unique index
 let auth: { signSession: (payload: Record<string, unknown>) => string };
 let handler: (req: Record<string, unknown>, res: Res) => Promise<unknown>;
 let testExports: {
@@ -165,6 +166,7 @@ beforeEach(() => {
   aiNextText = JSON.stringify(GOOD_OUTPUT);
   aiFail = null;
   dbAvailable = true;
+  insertRaceWinner = null;
   process.env.FLAG_AI_DRAWINGS = "1";
 
   delete requireFromHere.cache[handlerPath];
@@ -280,6 +282,17 @@ beforeEach(() => {
             e.model === key.model,
         ) ?? null,
       insertExtraction: async (_sql: unknown, _t: string, row: Row) => {
+        if (insertRaceWinner) {
+          // the "other" concurrent request landed first — its row is already
+          // in the table and this insert violates the unique cache index
+          extractions.push(insertRaceWinner);
+          insertRaceWinner = null;
+          const err = new Error("duplicate key value violates unique constraint") as Error & {
+            code: string;
+          };
+          err.code = "23505";
+          throw err;
+        }
         const e = { id: `ex_${extractions.length + 1}`, ...extractionColumns(row) };
         extractions.push(e);
         return e;
@@ -534,6 +547,58 @@ describe("understand-page", () => {
       pageIndex: 0,
     });
     expect(res.statusCode).toBe(503);
+  });
+
+  it("forwards the title-block crop as a second image and stores the region", async () => {
+    const res = await call("POST", { jobId: "j1", action: "understand-page" }, {
+      planId: "pl1",
+      pageIndex: 0,
+      titleBlockCrop: {
+        dataUrl: "data:image/png;base64,aGVsbG8=",
+        region: { x: 0.55, y: 0.55, w: 0.45, h: 0.45 },
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const content = (aiCalls[0] as { messages: Array<{ content: Array<{ type: string }> }> })
+      .messages[0]!.content;
+    expect(content.filter((b) => b.type === "image")).toHaveLength(2);
+    expect(content.filter((b) => b.type === "text")).toHaveLength(1);
+    expect(extractions[0]?.region).toEqual({ x: 0.55, y: 0.55, w: 0.45, h: 0.45 });
+  });
+
+  it("a concurrent duplicate insert (unique cache index) serves the winner's row", async () => {
+    insertRaceWinner = {
+      id: "ex_winner",
+      job_id: "j1",
+      plan_id: "pl1",
+      page_index: 0,
+      page_sha256: "sha0",
+      kind: "page-understanding",
+      model: process.env.AI_DRAWINGS_MODEL || "claude-opus-4-8",
+      prompt_version: testExports.PROMPT_VERSION,
+      raw: GOOD_OUTPUT,
+      sheet_type: "schedule",
+      sheet_type_confidence: 0.9,
+      sheet_number: "E-777",
+      sheet_number_confidence: 0.9,
+      sheet_title: "WINNER",
+      sheet_title_confidence: 0.9,
+      revision: "A",
+      revision_confidence: 0.9,
+      scale: "1:50",
+      scale_confidence: 0.9,
+      region: null,
+      input_tokens: 1,
+      output_tokens: 1,
+      created_by_label: "other",
+    };
+    const res = await call("POST", { jobId: "j1", action: "understand-page" }, {
+      planId: "pl1",
+      pageIndex: 0,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body.sheet.fields.sheetNumber.effective).toBe("E-777"); // winner's row served
+    expect(extractions).toHaveLength(1); // no duplicate row
   });
 });
 

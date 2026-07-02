@@ -220,7 +220,9 @@ function effectiveSheet(row, overrides) {
 }
 
 // Map a validated model payload + context into an extraction-row shape.
-function extractionRowFrom(ctx, parsed, usage) {
+// `rawJson` is the model's ACTUAL parsed output (pre-zod) — provenance stores
+// what the model said, not the schema-stripped projection of it.
+function extractionRowFrom(ctx, parsed, rawJson, usage) {
   const tb = parsed.titleBlock;
   return {
     jobId: ctx.jobId,
@@ -230,7 +232,7 @@ function extractionRowFrom(ctx, parsed, usage) {
     kind: KIND,
     model: AI_DRAWINGS_MODEL,
     promptVersion: PROMPT_VERSION,
-    raw: parsed,
+    raw: rawJson,
     sheetType: parsed.sheetType,
     sheetTypeConfidence: parsed.sheetTypeConfidence,
     sheetNumber: cleanValue(tb.sheetNumber.value),
@@ -383,7 +385,18 @@ async function handleUnderstandPage(res, sql, tenantId, jobId, user, body) {
   }
 
   const ctx = { jobId, planId, pageIndex, pageSha256: page.sha256, cropRegion, username: user.username };
-  const inserted = await store.insertExtraction(sql, tenantId, extractionRowFrom(ctx, parsed.data, usage));
+  let inserted;
+  try {
+    inserted = await store.insertExtraction(sql, tenantId, extractionRowFrom(ctx, parsed.data, json, usage));
+  } catch (e) {
+    // Two concurrent runs of the same page can both miss the cache; the
+    // loser hits the unique cache index. Serve the winner's row — both
+    // calls genuinely spent, both spends are already recorded.
+    const dup = e && (e.code === '23505' || /duplicate key/i.test(String(e.message || '')));
+    if (!dup) throw e;
+    inserted = await store.findCachedExtraction(sql, tenantId, cacheKey);
+    if (!inserted) throw e;
+  }
   await store.upsertPlanSheet(sql, tenantId, inserted);
 
   await appendAuditLog({

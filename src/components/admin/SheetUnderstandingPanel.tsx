@@ -80,7 +80,9 @@ function planLabel(p: PanelPlan): string {
 // Bottom-right quadrant-ish crop — title blocks conventionally live there.
 // Reading small title-block text from a high-res crop beats whole-page reads.
 const TITLE_BLOCK_REGION: CropRegion = { x: 0.55, y: 0.55, w: 0.45, h: 0.45 };
-const MAX_CROP_CHARS = 5_500_000; // stay under the API's 6M guard
+// Vercel caps serverless request bodies at ~4.5MB — stay safely under it
+// (the API's own 6M guard is the ceiling, not the target).
+const MAX_CROP_CHARS = 4_000_000;
 
 async function buildTitleBlockCrop(
   pngUrl: string,
