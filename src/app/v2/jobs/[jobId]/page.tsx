@@ -25,6 +25,7 @@ import { JobLabourSummary } from "@/components/admin/JobLabourSummary";
 import { JobProfitabilitySummary } from "@/components/admin/JobProfitabilitySummary";
 import { JobBudgetVarianceCard } from "@/components/admin/JobBudgetVarianceCard";
 import { JobCostImportCard } from "@/components/admin/JobCostImportCard";
+import { JobClaimsCard } from "@/components/admin/JobClaimsCard";
 import { JobCloseoutCard } from "@/components/admin/JobCloseoutCard";
 import {
   JobCloseoutMatrixCard,
@@ -154,6 +155,9 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
   // #365: surface the imported BOQ cost-basis card when the flag is on (the
   // card self-hides for jobs that weren't created from a BOQ import).
   const costImportEnabled = await isFlagEnabled("job_doc_import", session);
+  // #372: surface the progress-claims card when the flag is on. Admin-tier
+  // flag — resolves false for an LH viewer (claims are billing).
+  const progressClaimsEnabled = await isFlagEnabled("progress_claims", session);
   // #760: ITPs are a kill-switch feature — hide the ITP/QA nav row when off.
   const itpEnabled = await isFlagEnabled("itp", session);
   // #760: resolve the rest of the job sections' kill-switches so the section nav
@@ -319,6 +323,10 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
             job born from a workbook import. Flag-gated + admin-tier; the card
             self-hides for jobs with no import (the GET also 404s when dark). */}
         {costImportEnabled && canBuild ? <JobCostImportCard jobId={job.id} /> : null}
+        {/* #372: progress claims — derived claimed-to-date + latest claim status,
+            linking into the /claims register. Flag-dark + admin-tier; the card
+            self-hides when the endpoint 404s/403s (money never leaks to an LH). */}
+        {progressClaimsEnabled && canBuild ? <JobClaimsCard jobId={job.id} /> : null}
         {/* #349: closeout / "Final numbers" report card — freeze the job's final
             numbers at end-of-life; admin-tier only (hidden for an LH viewer). */}
         <JobCloseoutCard jobId={job.id} />

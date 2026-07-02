@@ -70,6 +70,10 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "variation.created": "Raised variation claim",
   "variation.transitioned": "Updated variation claim",
   "observation.converted_to_variation": "Converted observation to variation",
+  // #372: progress-claim register.
+  "claim.created": "Created progress claim",
+  "claim.submitted": "Submitted progress claim",
+  "claim.status_changed": "Updated progress claim status",
   "observation.converted_to_rfi": "Converted observation to RFI",
   // #151: scheduled blob backup runs (targetType 'system' groups as Other).
   "backup.completed": "Ran data backup",

@@ -313,6 +313,18 @@ const REGISTRY = {
     target: 'admin-tier',
     expires: '2026-12-31',
   },
+  // Per-job progress claims (#372): gates /api/job-claims (+ /export), the
+  // /v2/jobs/[jobId]/claims register + print view, and the job-hub claims card.
+  // Claim lines seed from the linked quote's priced lines (where #365/#828
+  // imported BOQ lines land) or compiled work packages; evidence links per line;
+  // submit freezes; CSV export matches Payapps keying. ADMIN-TIER (billing) and
+  // dark by default so the money surface is invisible until proven on preview.
+  progress_claims: {
+    description: 'Enable per-job progress claims — /api/job-claims + /v2/jobs/[jobId]/claims: lines from BOQ/packages, evidence per line, immutable submit, Payapps-ready CSV (#372). Dark.',
+    default: false,
+    target: 'admin-tier',
+    expires: '2026-12-31',
+  },
   // Safety documents on the job + acknowledge-read in Phil (#219): gates
   // /api/safety-docs, the /v2/jobs/[jobId]/safety admin sub-route, and the Phil
   // Safety section/route. GLOBAL (not admin-tier) so assigned field crew can see
@@ -559,6 +571,7 @@ const FLAG_PRESENTATION = {
   site_instructions_register: { label: 'Site instructions', domain: 'Site records', surface: 'BuhlOS', previewHref: '/v2/jobs' },
   job_doc_import: { label: 'BOQ / pricing import', domain: 'Commercial', surface: 'BuhlOS', previewHref: '/v2/tools/job-doc-import' },
   variations_register: { label: 'Variation claims', domain: 'Commercial', surface: 'BuhlOS', previewHref: '/v2/jobs' },
+  progress_claims: { label: 'Progress claims', domain: 'Commercial', surface: 'BuhlOS', previewHref: '/v2/jobs' },
   admin_job_field_view: { label: 'Office / Field job view', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/v2/jobs' },
   admin_flags_readout: { label: 'Flags readout card', domain: 'Platform', surface: 'BuhlOS', previewHref: '/command-centre' },
   ai_assistant: { label: 'AI assistant (API foundation)', domain: 'Platform', surface: 'BuhlOS', previewHref: '/v2/jobs' },
