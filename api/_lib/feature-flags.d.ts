@@ -11,6 +11,7 @@ export type FlagKey =
   | "supabase_read_health"
   | "supabase_read_hours"
   | "supabase_read_jobs"
+  | "supabase_read_job_detail"
   | "supabase_read_phil_jobs"
   | "supabase_read_phil_tasks"
   | "supabase_source_tasks"

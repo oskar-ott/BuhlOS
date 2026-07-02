@@ -8,6 +8,8 @@ const { mirrorJobToPg } = require('./_lib/jobs-mirror');
 const { isFlagOnSync } = require('./_lib/feature-flags');
 const { readJobsSummary, readFieldJobStats, countActiveSnagsV2, countActiveItps } = require('./_lib/jobs-summary');
 const { readJobDetailProjection } = require('./_lib/job-detail-projection');
+const { readAdminJobDetailFromPg, persistAdminExtras } = require('./_lib/job-detail-pg');
+const { recordAdminJobDetailRead } = require('./_lib/admin-job-detail-read-diagnostics');
 
 // Canonical job statuses — keep in sync with src/domains/jobs/schema.ts JOB_STATUSES.
 const VALID_JOB_STATUS = new Set(['active', 'complete', 'archived', 'on_hold', 'draft']);
@@ -353,6 +355,72 @@ module.exports = async (req, res) => {
     // Not eligible (admin/client/unassigned) or projection errored → fall through.
   }
 
+  // Perf (admin job-hub LCP, #152): ADMIN single-job PG DIRECT read — the first
+  // admin read that skips the jobs.json monolith (~2.5s cold) entirely. The
+  // job's migrated structure is reconstructed from the Postgres mirror (scoped
+  // to that ONE job) and the Blob-only remainder (money, customFields,
+  // scopeOfWork, modules, …) comes from the tiny derived
+  // jobs/<id>/admin-extras.json. DOUBLE-gated inside readAdminJobDetailFromPg —
+  // extras fresh against jobs.json's blob uploadedAt AND PG hash-identical to
+  // the Blob structure stamped at build time — so a write or a lagging
+  // dual-write mirror always falls back to the full read below (never stale;
+  // output == Blob). The served path runs the SAME projectJobStructure +
+  // effectiveModules + withStats enrichment + redactJobForViewer pipeline as
+  // the full read. ADMIN TIER ONLY (the extras record carries the commercial
+  // fields, exactly like jobs.json itself); field/LH keep the money-stripped
+  // field-detail path above and clients always take the full read. ANY miss /
+  // stale / drift / gate-denial / error → fall through to the authoritative
+  // full read (the one place that owns 404/403 semantics), which then rebuilds
+  // the extras best-effort so the NEXT read is fast.
+  let adminExtrasRebuild = null; // { uploadedAt } when the fast path asked for a rebuild
+  if (
+    req.method === 'GET' &&
+    req.query &&
+    req.query.id &&
+    process.env.SUPABASE_DB_URL
+  ) {
+    const me = await getCurrentUser(req);
+    if (!me) return res.status(401).json({ error: 'not authenticated' });
+    if (isAdminRole(me.role)) {
+      try {
+        const { job: pgJob, diag } = await readAdminJobDetailFromPg(req.query.id);
+        recordAdminJobDetailRead(diag);
+        if (diag.rebuildExtras && diag.uploadedAt) {
+          adminExtrasRebuild = { uploadedAt: diag.uploadedAt };
+        }
+        if (pgJob) {
+          // The SAME visibility gates as the full read below, evaluated on the
+          // hash-verified merged job (status/clientUserId == Blob). Any denial
+          // → fall through so the exact 404/403 semantics live in one place.
+          const statusDenied =
+            (pgJob.status === 'draft' && !canViewDraftJobs(me.role)) ||
+            (pgJob.status === 'archived' && !canViewArchivedJobs(me.role)) ||
+            (pgJob.status === 'complete' && !canViewArchivedJobs(me.role));
+          const canSee =
+            canManageJob(me, req.query.id) ||
+            (me.assignedJobIds || []).includes(req.query.id) ||
+            (isClientRole(me.role) && pgJob.clientUserId === me.id);
+          if (!statusDenied && canSee) {
+            const includeArchived =
+              req.query.includeArchived === '1' && canViewArchivedJobs(me.role);
+            const cleaned = projectJobStructure(pgJob, { includeArchived });
+            const projected = { ...cleaned, modules: effectiveModules(pgJob) };
+            if (req.query.withStats === '1') {
+              const crewCountByJob = await loadCrewCountByJob();
+              const [enrichedSingle] = await enrichJobsWithStats([projected], crewCountByJob);
+              return res.status(200).json({ job: redactJobForViewer(enrichedSingle, me.role) });
+            }
+            return res.status(200).json({ job: redactJobForViewer(projected, me.role) });
+          }
+        }
+      } catch (e) {
+        console.error('admin job-detail PG read failed; falling back to full jobs.json', e && e.message);
+        // fall through to the authoritative full read below
+      }
+    }
+    // Not admin-tier, gates denied, or the PG read missed → fall through.
+  }
+
   // Perf (admin Command Centre LCP): /api/jobs?withStats=1&statsOnly=1 serves the
   // ADMIN jobs list with ONLY the per-job COUNT stats the Command Centre aggregates
   // (crew / evidence-pending / snags-active / ITPs-needs-review) — it never reads
@@ -471,6 +539,14 @@ module.exports = async (req, res) => {
         (me.assignedJobIds || []).includes(id) ||
         (isClientRole(me.role) && job.clientUserId === me.id);
       if (!canSee) return res.status(403).json({ error: 'forbidden' });
+      // The admin PG fast path above missed on absent/stale extras → rebuild
+      // them (best-effort, never throws) from the authoritative job we just
+      // read, stamped with the uploadedAt sampled BEFORE this monolith read
+      // (race degrades to an extra fallback, never to stale data), so the
+      // NEXT admin read skips the monolith.
+      if (adminExtrasRebuild && isAdminRole(me.role)) {
+        await persistAdminExtras(id, job, adminExtrasRebuild.uploadedAt);
+      }
       // Hydrate modules + filter archived structural items unless the
       // caller passes ?includeArchived=1 (admin editor only). Mobile +
       // tradie surfaces see the live structure; archived rooms / tasks

@@ -235,6 +235,27 @@ const REGISTRY = {
     target: 'global',
     expires: '2026-12-31',
   },
+  // ADMIN single-job PG DIRECT read (perf — the /v2/jobs/[jobId] hub LCP): when
+  // on, the ADMIN single-job GET (/api/jobs?id=…) is served WITHOUT reading the
+  // jobs.json monolith (~2.5s cold): the migrated structure comes from the
+  // Postgres mirror (scoped to that ONE job) and the Blob-only remainder (money,
+  // customFields, scopeOfWork, modules, …) from a tiny derived per-job
+  // jobs/<id>/admin-extras.json. DOUBLE-gated per read — the extras must be
+  // fresh against jobs.json's blob uploadedAt AND the PG structure must
+  // hash-match the Blob structure stamped at build time — so a write or a
+  // lagging dual-write mirror always falls back to the full Blob read (never
+  // stale, output == Blob). Distinct from supabase_read_jobs (J6), which is the
+  // LIST-level overlay riding ON TOP of the monolith read and has different
+  // semantics. Flag is global; the ADMIN-TIER restriction is at the call site
+  // (api/jobs.js gates on isAdminRole) — field/LH keep field-detail.json and
+  // clients always read pure Blob. Default OFF, unset in prod; prove parity on
+  // /jobs-read-status (single-job read card) before flipping.
+  supabase_read_job_detail: {
+    description: 'Serve the ADMIN single-job GET from Postgres structure + a per-job extras projection (freshness+parity-gated, full Blob fallback) — skips the jobs.json monolith (#152). Dark.',
+    default: false,
+    target: 'global',
+    expires: '2026-12-31',
+  },
   // Phil (field) read cutover (J7): when on, the FIELD/LEADING-HAND jobs read
   // (api/jobs.js — the same /api/jobs Phil uses for the list, My Day and job
   // detail) is served from the Postgres reconstruction using the SAME per-job
