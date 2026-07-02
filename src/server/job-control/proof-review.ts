@@ -57,6 +57,7 @@ export type ProofReviewReason =
   | "no_review"
   | "not_submitted"
   | "self_review"
+  | "reviewer_identity_required"
   | "reason_required";
 
 export type ProofReviewApplyResult =
@@ -128,7 +129,11 @@ export function applyProofReview(
   // approve / reject — only on a submitted review, by someone other than the submitter
   if (!existing) return { ok: false, reason: "no_review" };
   if (existing.status !== "submitted") return { ok: false, reason: "not_submitted" };
-  if (ctx.actor != null && existing.submittedBy != null && ctx.actor === existing.submittedBy) {
+  // #579: an anonymous reviewer can't satisfy the independence rule — fail CLOSED,
+  // never open. (The route's HMAC gate should make this unreachable; this is the
+  // engine's own line.)
+  if (ctx.actor == null) return { ok: false, reason: "reviewer_identity_required" };
+  if (existing.submittedBy != null && ctx.actor === existing.submittedBy) {
     return { ok: false, reason: "self_review" };
   }
 
