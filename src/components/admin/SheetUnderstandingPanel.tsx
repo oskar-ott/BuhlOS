@@ -33,6 +33,8 @@ import {
   saveOverride,
   understandPage,
 } from "@/domains/ai-drawings/client";
+import { buildRegistryRows } from "@/domains/ai-drawings/registry";
+import { SheetRegistryCard } from "@/components/admin/SheetRegistryCard";
 
 /**
  * Epic 5 (#197) — AI sheet understanding: run + review-and-correct loop.
@@ -243,6 +245,22 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
     };
   }, [sheets]);
 
+  // #199: the searchable registry is a projection over the same data the
+  // review loop maintains — corrections flow through automatically.
+  const registryRows = useMemo(
+    () =>
+      buildRegistryRows(
+        Object.values(sheets),
+        plans.map((p) => ({
+          id: p.id,
+          label: planLabel(p),
+          status: p.status,
+          pages: p.pages.map((pg) => ({ pageIndex: pg.pageIndex, pngUrl: pg.pngUrl })),
+        })),
+      ),
+    [sheets, plans],
+  );
+
   if (status === "unavailable") {
     return (
       <Card>
@@ -312,6 +330,12 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
             >
               {runNotice}
             </p>
+          ) : null}
+
+          {registryRows.length > 0 ? (
+            <div className="mt-3">
+              <SheetRegistryCard rows={registryRows} />
+            </div>
           ) : null}
 
           {plans.length === 0 ? (
