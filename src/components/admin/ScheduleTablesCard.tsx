@@ -59,6 +59,40 @@ export function ScheduleTablesCard({
     return m;
   }, [rows]);
 
+  // #207: multi-page board schedules stitch AT READ TIME — same-board tables
+  // render adjacently, each annotated "part i of n". Honest about the seams:
+  // each part keeps its own source page and row strips.
+  const orderedTables = useMemo(() => {
+    const boardCounts = new Map<string, number>();
+    for (const t of tables) {
+      if (t.tableKind === "switchboard" && t.boardIdentifier) {
+        const k = t.boardIdentifier.toLowerCase();
+        boardCounts.set(k, (boardCounts.get(k) ?? 0) + 1);
+      }
+    }
+    const sorted = [...tables].sort((a, b) => {
+      if (a.tableKind !== b.tableKind) return a.tableKind.localeCompare(b.tableKind);
+      const ab = (a.boardIdentifier ?? "").toLowerCase();
+      const bb = (b.boardIdentifier ?? "").toLowerCase();
+      if (ab !== bb) return ab.localeCompare(bb);
+      if (a.pageIndex !== b.pageIndex) return a.pageIndex - b.pageIndex;
+      return a.createdAt.localeCompare(b.createdAt);
+    });
+    const seen = new Map<string, number>();
+    return sorted.map((t) => {
+      if (t.tableKind === "switchboard" && t.boardIdentifier) {
+        const k = t.boardIdentifier.toLowerCase();
+        const total = boardCounts.get(k) ?? 1;
+        if (total > 1) {
+          const part = (seen.get(k) ?? 0) + 1;
+          seen.set(k, part);
+          return { table: t, partNote: `part ${part} of ${total}` };
+        }
+      }
+      return { table: t, partNote: null };
+    });
+  }, [tables]);
+
   return (
     <section
       aria-label="Extracted schedules"
@@ -74,11 +108,12 @@ export function ScheduleTablesCard({
         </CardDescription>
       </div>
       <div className="divide-y divide-border">
-        {tables.map((t) => (
+        {orderedTables.map(({ table: t, partNote }) => (
           <ScheduleTableSection
             key={t.id}
             jobId={jobId}
             table={t}
+            partNote={partNote}
             rows={rowsByTable.get(t.id) ?? []}
             canonicalColumns={columns[t.tableKind] ?? []}
             lookup={lookup}
@@ -105,6 +140,7 @@ function columnOrder(rows: ScheduleRow[], canonical: string[]): string[] {
 function ScheduleTableSection({
   jobId,
   table,
+  partNote,
   rows,
   canonicalColumns,
   lookup,
@@ -112,6 +148,7 @@ function ScheduleTableSection({
 }: {
   jobId: string;
   table: ScheduleTable;
+  partNote: string | null;
   rows: ScheduleRow[];
   canonicalColumns: string[];
   lookup: SourcePlanLookup;
@@ -137,6 +174,9 @@ function ScheduleTableSection({
         <span className="font-display text-sm font-semibold text-text">
           {SCHEDULE_KIND_LABELS[table.tableKind]}
           {table.boardIdentifier ? ` · ${table.boardIdentifier}` : ""}
+          {partNote ? (
+            <span className="ml-1.5 text-xs font-normal text-text-muted">({partNote})</span>
+          ) : null}
         </span>
         <span className="text-xs text-text-muted">
           {lookup.labelFor(table.planId)} · p{table.pageIndex + 1}

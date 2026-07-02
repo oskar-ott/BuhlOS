@@ -121,7 +121,7 @@ const AttachLegendCropBody = z.object({
 const ExtractScheduleBody = z.object({
   planId: z.string().min(1),
   pageIndex: z.number().int().min(0),
-  tableKind: z.enum(['lighting']), // #207 widens to 'switchboard'
+  tableKind: z.enum(['lighting', 'switchboard']), // #202 lighting, #207 switchboard
 });
 const ReviewScheduleRowBody = z.object({
   rowId: z.string().min(1),

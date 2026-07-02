@@ -105,4 +105,37 @@ describe("ScheduleTablesCard (#202)", () => {
     expect(html).toContain('aria-label="Accept row 1"');
     expect(html).toContain('aria-label="Show source strip for row 1"');
   });
+
+  it("stitches multi-page boards at read time — same board adjacent, parts numbered (#207)", () => {
+    const board = (id: string, pageIndex: number): ScheduleTable => ({
+      ...TABLE,
+      id,
+      pageIndex,
+      tableKind: "switchboard",
+      boardIdentifier: "DB-1",
+      headers: ["CCT"],
+      columnMap: { CCT: "circuitRef" },
+      rowCount: 0,
+    });
+    const html = strip(
+      renderToString(
+        createElement(ScheduleTablesCard, {
+          jobId: "j1",
+          tables: [board("st_b2", 3), board("st_b1", 2)],
+          rows: [],
+          columns: { switchboard: ["circuitRef", "description", "protection", "cableSize", "phase", "load"] },
+          lookup: {
+            pngUrlFor: () => null,
+            labelFor: () => "E-SET",
+          },
+          onRow: () => undefined,
+        }),
+      ),
+    );
+    expect(html).toContain("Switchboard schedule · DB-1");
+    const p1 = html.indexOf("(part 1 of 2)");
+    const p2 = html.indexOf("(part 2 of 2)");
+    expect(p1).toBeGreaterThan(-1);
+    expect(p2).toBeGreaterThan(p1); // page 2 renders before page 3
+  });
 });

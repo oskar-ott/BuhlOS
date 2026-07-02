@@ -25,6 +25,7 @@ import {
   type LegendEntry,
   type ScheduleRow,
   type ScheduleTable,
+  type ScheduleTableKind,
   type SheetField,
   type SheetSpend,
   type SheetType,
@@ -311,18 +312,20 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
     [applyLegendEntry, jobId],
   );
 
-  // #202: one schedule-extraction call per page — same rhythm as legend.
+  // #202/#207: one schedule-extraction call per page — same rhythm as legend.
   const runExtractSchedule = useCallback(
-    async (plan: PanelPlan, pageIndex: number) => {
+    async (plan: PanelPlan, pageIndex: number, kind: ScheduleTableKind) => {
       setRunNotice("");
       setExtractBusyKey(sheetKey(plan.id, pageIndex));
       try {
-        const out = await extractSchedule(jobId, plan.id, pageIndex, "lighting");
+        const out = await extractSchedule(jobId, plan.id, pageIndex, kind);
         setScheduleTables(out.tables);
         setScheduleRows(out.rows);
         if (out.spend) setSpend(out.spend);
         if (!out.isSchedulePresent) {
-          setRunNotice(`No lighting schedule found on page ${pageIndex + 1} of ${planLabel(plan)}.`);
+          setRunNotice(
+            `No ${kind === "lighting" ? "lighting" : "switchboard"} schedule found on page ${pageIndex + 1} of ${planLabel(plan)}.`,
+          );
         }
       } catch (err) {
         if (err instanceof AiDrawingsError && err.code === "CAP_REACHED") {
@@ -499,7 +502,9 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
                   anyRunning={running !== null || extractBusyKey !== null}
                   extractBusyKey={extractBusyKey}
                   onExtractLegend={(pageIndex) => void runExtractLegend(plan, pageIndex)}
-                  onExtractSchedule={(pageIndex) => void runExtractSchedule(plan, pageIndex)}
+                  onExtractSchedule={(pageIndex, kind) =>
+                    void runExtractSchedule(plan, pageIndex, kind)
+                  }
                 />
               ))}
             </div>
@@ -574,7 +579,7 @@ function PlanSheets({
   anyRunning: boolean;
   extractBusyKey: string | null;
   onExtractLegend: (pageIndex: number) => void;
-  onExtractSchedule: (pageIndex: number) => void;
+  onExtractSchedule: (pageIndex: number, kind: ScheduleTableKind) => void;
 }) {
   const planRunning = running?.planId === plan.id;
   const analysed = plan.pages.filter(
@@ -636,7 +641,7 @@ function PlanSheets({
                 }
                 onExtractSchedule={
                   sheet?.fields.sheetType.effective === "schedule" && !anyRunning
-                    ? () => onExtractSchedule(page.pageIndex)
+                    ? (kind) => onExtractSchedule(page.pageIndex, kind)
                     : undefined
                 }
               />
@@ -669,7 +674,7 @@ function SheetRow({
   onSheet: (sheet: EffectiveSheet | null) => void;
   extractBusy?: boolean;
   onExtractLegend?: () => void;
-  onExtractSchedule?: () => void;
+  onExtractSchedule?: (kind: ScheduleTableKind) => void;
 }) {
   return (
     <div>
@@ -711,20 +716,36 @@ function SheetRow({
           </button>
         ) : null}
         {onExtractSchedule || (extractBusy && !onExtractLegend) ? (
-          <button
-            type="button"
-            onClick={onExtractSchedule}
-            disabled={!onExtractSchedule || extractBusy}
-            className={cn(
-              "inline-flex h-7 items-center gap-1.5 rounded-card border px-2.5 text-xs font-medium",
-              extractBusy || !onExtractSchedule
-                ? "cursor-not-allowed border-border bg-surface-subtle text-text-muted"
-                : "border-border bg-surface text-text hover:bg-surface-subtle",
-            )}
-          >
-            <ScanSearch aria-hidden="true" className="h-3.5 w-3.5" />
-            {extractBusy ? "Extracting schedule…" : "Extract lighting schedule"}
-          </button>
+          <>
+            <button
+              type="button"
+              onClick={() => onExtractSchedule?.("lighting")}
+              disabled={!onExtractSchedule || extractBusy}
+              className={cn(
+                "inline-flex h-7 items-center gap-1.5 rounded-card border px-2.5 text-xs font-medium",
+                extractBusy || !onExtractSchedule
+                  ? "cursor-not-allowed border-border bg-surface-subtle text-text-muted"
+                  : "border-border bg-surface text-text hover:bg-surface-subtle",
+              )}
+            >
+              <ScanSearch aria-hidden="true" className="h-3.5 w-3.5" />
+              {extractBusy ? "Extracting…" : "Extract lighting schedule"}
+            </button>
+            <button
+              type="button"
+              onClick={() => onExtractSchedule?.("switchboard")}
+              disabled={!onExtractSchedule || extractBusy}
+              className={cn(
+                "inline-flex h-7 items-center gap-1.5 rounded-card border px-2.5 text-xs font-medium",
+                extractBusy || !onExtractSchedule
+                  ? "cursor-not-allowed border-border bg-surface-subtle text-text-muted"
+                  : "border-border bg-surface text-text hover:bg-surface-subtle",
+              )}
+            >
+              <ScanSearch aria-hidden="true" className="h-3.5 w-3.5" />
+              Extract board schedule
+            </button>
+          </>
         ) : null}
       </div>
       {sheet ? (
