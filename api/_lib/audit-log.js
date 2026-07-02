@@ -243,6 +243,10 @@ const VALID_ACTIONS = new Set([
   // metadata.from/to carry the change. targetType 'feature_config', targetId is
   // '<featureKey>.<key>'. Best-effort. Kept in sync with schema.ts AUDIT_ACTIONS.
   'feature_config.changed',
+  // #170: the AI assistant generated a job summary (api/ai-assistant.js).
+  // targetType 'job'; metadata carries model + token usage. Best-effort. Kept
+  // in sync with src/domains/audit-log/schema.ts AUDIT_ACTIONS.
+  'ai.job_summarised',
 ]);
 const VALID_TARGET_TYPES = new Set([
   'evidence',

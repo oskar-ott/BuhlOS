@@ -44,6 +44,9 @@ import { z } from "zod";
  * straightforward.
  */
 export const AUDIT_ACTIONS = [
+  // #170: the AI assistant generated a job summary (api/ai-assistant.js).
+  // targetType 'job'. Kept in sync with api/_lib/audit-log.js VALID_ACTIONS.
+  "ai.job_summarised",
   "evidence.captured",
   "evidence.reviewed",
   "evidence.rejected",

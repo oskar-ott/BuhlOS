@@ -349,6 +349,17 @@ const REGISTRY = {
     target: 'global',
     expires: '2026-12-31',
   },
+  // AI assistant foundation (#170, Epic 6): gates /api/ai-assistant — the
+  // permission-scoped tool layer's first consumer (the job-summary backend for
+  // #173). GLOBAL flag; the handler + tool gates enforce admin/managing-LH
+  // (canManageJob) per tool, admin-tier for company-wide tools. No UI yet.
+  // Default OFF so the endpoint is invisible until proven on a preview deploy.
+  ai_assistant: {
+    description: 'Enable the AI assistant endpoint — /api/ai-assistant (permission-scoped tool layer + job summary backend, #170). No UI. Dark.',
+    default: false,
+    target: 'global',
+    expires: '2026-12-31',
+  },
   // Per-job ITP / QA (#474/#476): hold/witness/record points + office sign-off.
   // Unlike the registers above, ITPs are ALREADY LIVE — so this is a KILL SWITCH,
   // not a launch gate: default ON (killSwitch:true), and the owner can turn the
@@ -475,6 +486,7 @@ const FLAG_PRESENTATION = {
   job_doc_import: { label: 'BOQ / pricing import', domain: 'Commercial', surface: 'BuhlOS', previewHref: '/v2/tools/job-doc-import' },
   admin_job_field_view: { label: 'Office / Field job view', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/v2/jobs' },
   admin_flags_readout: { label: 'Flags readout card', domain: 'Platform', surface: 'BuhlOS', previewHref: '/command-centre' },
+  ai_assistant: { label: 'AI assistant (API foundation)', domain: 'Platform', surface: 'BuhlOS', previewHref: '/v2/jobs' },
 
   // #760 kill-switches. `core: true` = load-bearing spine; the board warns
   // before the owner turns one off.
