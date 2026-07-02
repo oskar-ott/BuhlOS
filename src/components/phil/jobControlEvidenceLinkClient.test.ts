@@ -78,11 +78,37 @@ describe("linkRequiredProof", () => {
     expect((await linkRequiredProof(INPUT, fakeFetch(500, { ok: false }))).kind).toBe("error");
   });
 
-  it("maps a thrown fetch (network) to error", async () => {
+  it("maps a thrown fetch (network) to error with honest worker copy", async () => {
     const throwingFetch = vi.fn(async () => {
       throw new Error("offline");
     }) as unknown as typeof fetch;
-    expect((await linkRequiredProof(INPUT, throwingFetch)).kind).toBe("error");
+    const r = await linkRequiredProof(INPUT, throwingFetch);
+    expect(r.kind).toBe("error");
+    if (r.kind === "error") expect(r.message).toMatch(/couldn't reach the office/i);
+  });
+
+  it("times out honestly on a hung request — bounded, 'may not have sent' copy (#139)", async () => {
+    vi.useFakeTimers();
+    try {
+      // A fetch that never settles until its abort signal fires (real fetch behaviour).
+      const hanging = vi.fn(
+        (_url: RequestInfo | URL, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener(
+              "abort",
+              () => reject(new DOMException("Aborted", "AbortError")),
+              { once: true },
+            );
+          }),
+      ) as unknown as typeof fetch;
+      const pending = linkRequiredProof(INPUT, hanging);
+      await vi.advanceTimersByTimeAsync(15_001);
+      const r = await pending;
+      expect(r.kind).toBe("error");
+      if (r.kind === "error") expect(r.message).toMatch(/may not have sent/i);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

@@ -65,7 +65,42 @@ describe("http timeout", () => {
     if (!res.ok) {
       expect(res.error.kind).toBe("network");
       expect(res.error.status).toBe(0);
+      // Unbounded (admin/read) callers keep the raw error message.
+      expect(res.error.message).toBe("Failed to fetch");
     }
+  });
+
+  it("gives a bounded (field-write) network failure honest worker copy, not browser internals (#139)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("Failed to fetch");
+      })
+    );
+    const res = await httpPost("/api/x", {}, { schema, timeoutMs: 5000 });
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.error.kind).toBe("network");
+      expect(res.error.message).toMatch(/couldn't reach the office/i);
+      expect(res.error.message).not.toMatch(/failed to fetch/i);
+    }
+  });
+
+  it("timeout copy says 'may not have sent' — never a definite failure claim (#139, P7)", async () => {
+    const fetchImpl = vi.fn(
+      (_url: string, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true }
+          );
+        })
+    );
+    vi.stubGlobal("fetch", fetchImpl);
+    const res = await httpPost("/api/x", {}, { schema, timeoutMs: 10 });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error.message).toMatch(/may not have sent/i);
   });
 
   it("does not attach a signal when no timeout is set (unchanged behaviour)", async () => {

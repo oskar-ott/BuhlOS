@@ -27,6 +27,17 @@ import type {
  *     results so failed photos can stay in the tray for retry while saved
  *     ones leave it.
  *
+ * KNOWN GAP — step-2 double-create window (#139 documented, closed by #158):
+ * createEvidence is bounded (15s, #139) so it can time out AFTER the server
+ * wrote the row but before the reply arrived. The tray then honestly shows the
+ * photo as failed ("may not have sent"), and a manual retry re-POSTs — creating
+ * a SECOND evidence row for the same photo. The server accepts an
+ * `Idempotency-Key` on this route (api/_lib/idempotency.js, #497) but this
+ * client does not send one yet; wiring a per-photo key end-to-end is #158's
+ * offline-capture work. Until then: manual retry only (never auto-retry), and
+ * a duplicate is at least visible in the job's evidence list — ambiguous,
+ * never silent.
+ *
  * Dependencies are injected so the loop is unit-testable without fetch.
  */
 

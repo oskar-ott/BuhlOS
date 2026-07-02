@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { philWrite, PHIL_WRITE_TIMEOUT_MS } from "./write-client";
+import {
+  boundedFetch,
+  philWrite,
+  PhilWriteTimeoutError,
+  PHIL_TIMEOUT_MESSAGE,
+  PHIL_WRITE_TIMEOUT_MS,
+} from "./write-client";
 
 /**
  * Shared Phil field-write client (#139). Fully injectable: every test passes a
@@ -146,5 +152,78 @@ describe("philWrite", () => {
 
   it("defaults to a 15s timeout budget", () => {
     expect(PHIL_WRITE_TIMEOUT_MS).toBe(15000);
+  });
+});
+
+// A fetch that never settles until its signal aborts, then rejects with a real
+// AbortError — the behaviour of browser fetch under AbortController.
+function hangingFetch() {
+  return vi.fn(
+    (_url: RequestInfo | URL, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal;
+        if (signal) {
+          if (signal.aborted) {
+            reject(new DOMException("Aborted", "AbortError"));
+            return;
+          }
+          signal.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true },
+          );
+        }
+      }),
+  );
+}
+
+describe("boundedFetch", () => {
+  it("passes a 2xx response straight through", async () => {
+    const inner = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) =>
+      jsonResponse({ ok: true }),
+    );
+    const res = await boundedFetch(inner as unknown as typeof fetch, 50)("/api/x", {
+      method: "POST",
+    });
+    expect(res.ok).toBe(true);
+    // The inner fetch got an abort signal wired in alongside the caller init.
+    const init = inner.mock.calls[0]?.[1] as RequestInit | undefined;
+    expect(init?.method).toBe("POST");
+    expect(init?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("rejects with PhilWriteTimeoutError when the budget elapses", async () => {
+    const inner = hangingFetch();
+    await expect(
+      boundedFetch(inner as unknown as typeof fetch, 10)("/api/x", { method: "POST" }),
+    ).rejects.toBeInstanceOf(PhilWriteTimeoutError);
+  });
+
+  it("carries the honest worker-voice timeout copy on the error", async () => {
+    const inner = hangingFetch();
+    await expect(
+      boundedFetch(inner as unknown as typeof fetch, 10)("/api/x", { method: "POST" }),
+    ).rejects.toMatchObject({ message: PHIL_TIMEOUT_MESSAGE });
+    expect(PHIL_TIMEOUT_MESSAGE).toMatch(/may not have sent/i);
+  });
+
+  it("a caller abort rejects with the original AbortError, not a timeout", async () => {
+    const inner = hangingFetch();
+    const controller = new AbortController();
+    const pending = boundedFetch(inner as unknown as typeof fetch, 5_000)("/api/x", {
+      method: "POST",
+      signal: controller.signal,
+    });
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+  });
+
+  it("a dropped connection passes the original error through unchanged", async () => {
+    const inner = vi.fn(async () => {
+      throw new TypeError("Failed to fetch");
+    });
+    await expect(
+      boundedFetch(inner as unknown as typeof fetch, 50)("/api/x", { method: "POST" }),
+    ).rejects.toBeInstanceOf(TypeError);
   });
 });

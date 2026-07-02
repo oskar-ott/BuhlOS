@@ -592,9 +592,13 @@ export function PhilCaptureLauncher({
       setObsSubmitting(false);
       if (!r.ok) {
         setObsError(
-          r.error.status === 0
-            ? "No connection — your note wasn't sent. Try again when you've got signal."
-            : `Couldn't send (${r.error.status}). Try again.`,
+          // A timed-out write MAY have landed — "may not have sent", never
+          // "wasn't sent" (#139, P7). A dropped connection definitely didn't.
+          r.error.kind === "timeout"
+            ? r.error.message
+            : r.error.status === 0
+              ? "No connection — your note wasn't sent. Try again when you've got signal."
+              : `Couldn't send (${r.error.status}). Try again.`,
         );
         return;
       }

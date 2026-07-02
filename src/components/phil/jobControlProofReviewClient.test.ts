@@ -58,6 +58,38 @@ describe("submitProofForReview / postProofReview", () => {
     expect((await submitProofForReview(INPUT, fakeFetch(500, { ok: false }))).kind).toBe("error");
   });
 
+  it("maps a thrown fetch (network) to error with honest worker copy", async () => {
+    const throwingFetch = vi.fn(async () => {
+      throw new Error("offline");
+    }) as unknown as typeof fetch;
+    const r = await submitProofForReview(INPUT, throwingFetch);
+    expect(r.kind).toBe("error");
+    if (r.kind === "error") expect(r.message).toMatch(/couldn't reach the office/i);
+  });
+
+  it("times out honestly on a hung request — bounded, 'may not have sent' copy (#139)", async () => {
+    vi.useFakeTimers();
+    try {
+      const hanging = vi.fn(
+        (_url: RequestInfo | URL, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener(
+              "abort",
+              () => reject(new DOMException("Aborted", "AbortError")),
+              { once: true },
+            );
+          }),
+      ) as unknown as typeof fetch;
+      const pending = submitProofForReview(INPUT, hanging);
+      await vi.advanceTimersByTimeAsync(15_001);
+      const r = await pending;
+      expect(r.kind).toBe("error");
+      if (r.kind === "error") expect(r.message).toMatch(/may not have sent/i);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("a reject action sends its reason", async () => {
     const fetchImpl = fakeFetch(200, { ok: true, status: 200, review: { id: "pr_1" }, revision: "rev_B" });
     await postProofReview({ jobId: "job_1", action: "reject", taskRef: T1, reason: "Missing photo", expectedJobControlRevision: "rev_A" }, fetchImpl);

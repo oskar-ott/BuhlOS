@@ -99,6 +99,7 @@ export function createObservation(
     {
       schema: ObservationMutationResponseSchema,
       init: { cache: "no-store", credentials: "same-origin" },
+      timeoutMs: 15000, // honest field write — never hang on bad signal (#139)
     }
   );
 }
