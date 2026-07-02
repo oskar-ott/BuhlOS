@@ -38,7 +38,10 @@ function assistantModel() {
 }
 
 // Hard per-call output cap — a caller may ask for less, never more.
-const MAX_TOKENS_CAP = 2048;
+// 4096 since #201: a full legend extraction (40+ symbol rows as strict JSON)
+// doesn't fit in 2048. Still a hard bound — the cap exists so no caller can
+// request an unbounded completion, not to pin the smallest workload.
+const MAX_TOKENS_CAP = 4096;
 const DEFAULT_MAX_TOKENS = 1024;
 
 function isAiConfigured() {

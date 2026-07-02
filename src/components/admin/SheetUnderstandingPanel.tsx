@@ -22,19 +22,24 @@ import {
   type CropRegion,
   type EffectiveSheet,
   type FieldState,
+  type LegendEntry,
   type SheetField,
   type SheetSpend,
   type SheetType,
 } from "@/domains/ai-drawings/schema";
 import {
   AiDrawingsError,
+  attachLegendCrop,
   clearOverride,
+  extractLegend,
+  fetchLegend,
   fetchSheets,
   saveOverride,
   understandPage,
 } from "@/domains/ai-drawings/client";
 import { buildRegistryRows } from "@/domains/ai-drawings/registry";
 import { SheetRegistryCard } from "@/components/admin/SheetRegistryCard";
+import { LegendVocabularyCard } from "@/components/admin/LegendVocabularyCard";
 
 /**
  * Epic 5 (#197) — AI sheet understanding: run + review-and-correct loop.
@@ -86,9 +91,16 @@ const TITLE_BLOCK_REGION: CropRegion = { x: 0.55, y: 0.55, w: 0.45, h: 0.45 };
 // (the API's own 6M guard is the ceiling, not the target).
 const MAX_CROP_CHARS = 4_000_000;
 
-async function buildTitleBlockCrop(
+// Crop a normalised region out of a stored page PNG in the browser (there is
+// no server-side image library). Returns a PNG data URL, or null on a
+// CORS-tainted canvas / load failure / oversize result — callers treat a
+// missing crop as best-effort, never fatal.
+async function cropRegionFromPng(
   pngUrl: string,
-): Promise<{ dataUrl: string; region: CropRegion } | null> {
+  region: CropRegion,
+  maxChars: number,
+  minEdgePx = 32,
+): Promise<string | null> {
   try {
     const img = await new Promise<HTMLImageElement>((resolve, reject) => {
       const el = new Image();
@@ -97,11 +109,11 @@ async function buildTitleBlockCrop(
       el.onerror = () => reject(new Error("image load failed"));
       el.src = pngUrl;
     });
-    const sx = Math.floor(img.naturalWidth * TITLE_BLOCK_REGION.x);
-    const sy = Math.floor(img.naturalHeight * TITLE_BLOCK_REGION.y);
-    const sw = Math.floor(img.naturalWidth * TITLE_BLOCK_REGION.w);
-    const sh = Math.floor(img.naturalHeight * TITLE_BLOCK_REGION.h);
-    if (sw < 32 || sh < 32) return null;
+    const sx = Math.floor(img.naturalWidth * region.x);
+    const sy = Math.floor(img.naturalHeight * region.y);
+    const sw = Math.floor(img.naturalWidth * region.w);
+    const sh = Math.floor(img.naturalHeight * region.h);
+    if (sw < minEdgePx || sh < minEdgePx) return null;
     const canvas = document.createElement("canvas");
     canvas.width = sw;
     canvas.height = sh;
@@ -109,15 +121,37 @@ async function buildTitleBlockCrop(
     if (!ctx) return null;
     ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
     const dataUrl = canvas.toDataURL("image/png");
-    if (!dataUrl.startsWith("data:image/") || dataUrl.length > MAX_CROP_CHARS) {
+    if (!dataUrl.startsWith("data:image/") || dataUrl.length > maxChars) {
       return null;
     }
-    return { dataUrl, region: TITLE_BLOCK_REGION };
+    return dataUrl;
   } catch {
-    // CORS-tainted canvas or load failure — analyse the whole page only.
     return null;
   }
 }
+
+async function buildTitleBlockCrop(
+  pngUrl: string,
+): Promise<{ dataUrl: string; region: CropRegion } | null> {
+  const dataUrl = await cropRegionFromPng(pngUrl, TITLE_BLOCK_REGION, MAX_CROP_CHARS);
+  return dataUrl ? { dataUrl, region: TITLE_BLOCK_REGION } : null;
+}
+
+// #201: pad a symbol bbox for context, clamped to the page.
+function padRegion(r: CropRegion, factor = 0.35): CropRegion {
+  const px = r.w * factor;
+  const py = r.h * factor;
+  const x = Math.max(0, r.x - px);
+  const y = Math.max(0, r.y - py);
+  return {
+    x,
+    y,
+    w: Math.min(1 - x, r.w + px * 2),
+    h: Math.min(1 - y, r.h + py * 2),
+  };
+}
+
+const MAX_SYMBOL_CROP_CHARS = 1_200_000; // stay under the API's 1.5M guard
 
 type PanelStatus = "loading" | "unavailable" | "error" | "ready";
 
@@ -137,6 +171,8 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
   const [plans, setPlans] = useState<PanelPlan[]>([]);
   const [running, setRunning] = useState<RunState | null>(null);
   const [runNotice, setRunNotice] = useState<string>("");
+  const [legendEntries, setLegendEntries] = useState<LegendEntry[]>([]);
+  const [legendBusyKey, setLegendBusyKey] = useState<string | null>(null);
 
   const applySheet = useCallback((sheet: EffectiveSheet | null) => {
     if (!sheet) return;
@@ -146,11 +182,24 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
     }));
   }, []);
 
+  const applyLegendEntry = useCallback((entry: LegendEntry | null) => {
+    if (!entry) return;
+    setLegendEntries((prev) => {
+      const i = prev.findIndex((e) => e.id === entry.id);
+      if (i >= 0) {
+        const next = [...prev];
+        next[i] = entry;
+        return next;
+      }
+      return [...prev, entry];
+    });
+  }, []);
+
   const load = useCallback(async () => {
     setStatus("loading");
     setStatusMessage("");
     try {
-      const [sheetsRes, plansRes] = await Promise.all([
+      const [sheetsRes, plansRes, legendRes] = await Promise.all([
         fetchSheets(jobId),
         fetch(`/api/plans?jobId=${encodeURIComponent(jobId)}`, {
           cache: "no-store",
@@ -159,6 +208,7 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
           if (!r.ok) throw new Error(`Documents API ${r.status}`);
           return PanelPlansResponseSchema.parse(await r.json());
         }),
+        fetchLegend(jobId),
       ]);
       const nextSheets: Record<string, EffectiveSheet> = {};
       for (const s of sheetsRes.sheets) {
@@ -176,6 +226,7 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
       setModel(sheetsRes.model);
       setSpend(sheetsRes.spend);
       setPlans(parsedPlans);
+      setLegendEntries(legendRes.entries);
       setStatus("ready");
     } catch (err) {
       if (err instanceof AiDrawingsError && err.code === "STORE_UNAVAILABLE") {
@@ -237,6 +288,56 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
     [applySheet, jobId],
   );
 
+  // #201: one legend-extraction call per page; symbol crops attach after,
+  // best-effort (a CORS-tainted canvas just means label-only entries).
+  const runExtractLegend = useCallback(
+    async (plan: PanelPlan, pageIndex: number) => {
+      const page = plan.pages.find((p) => p.pageIndex === pageIndex);
+      if (!page) return;
+      setRunNotice("");
+      setLegendBusyKey(sheetKey(plan.id, pageIndex));
+      try {
+        const out = await extractLegend(jobId, plan.id, pageIndex);
+        setLegendEntries(out.entries);
+        if (out.spend) setSpend(out.spend);
+        if (!out.isLegendPresent) {
+          setRunNotice(`No legend found on page ${pageIndex + 1} of ${planLabel(plan)}.`);
+        }
+        const targets = out.entries.filter(
+          (e) =>
+            e.symbolCropUrl === null &&
+            e.cropRegion !== null &&
+            e.sourcePlanId === plan.id &&
+            e.sourcePageIndex === pageIndex,
+        );
+        for (const t of targets) {
+          const dataUrl = await cropRegionFromPng(
+            page.pngUrl,
+            padRegion(t.cropRegion!),
+            MAX_SYMBOL_CROP_CHARS,
+            16,
+          );
+          if (!dataUrl) continue;
+          try {
+            const res2 = await attachLegendCrop(jobId, t.id, dataUrl);
+            applyLegendEntry(res2.entry);
+          } catch {
+            // best-effort — the label-only entry stands
+          }
+        }
+      } catch (err) {
+        if (err instanceof AiDrawingsError && err.code === "CAP_REACHED") {
+          setRunNotice(err.message);
+        } else {
+          setRunNotice(err instanceof Error ? err.message : "legend extraction failed");
+        }
+      } finally {
+        setLegendBusyKey(null);
+      }
+    },
+    [applyLegendEntry, jobId],
+  );
+
   const totals = useMemo(() => {
     const rows = Object.values(sheets);
     return {
@@ -244,6 +345,15 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
       needsReview: rows.filter((s) => s.needsReview).length,
     };
   }, [sheets]);
+
+  // Show the vocabulary once there is anything to review or any legend sheet
+  // to extract from — an empty card on a job with no legends is just noise.
+  const legendRelevant = useMemo(
+    () =>
+      legendEntries.length > 0 ||
+      Object.values(sheets).some((s) => s.fields.sheetType.effective === "legend"),
+    [legendEntries, sheets],
+  );
 
   // #199: the searchable registry is a projection over the same data the
   // review loop maintains — corrections flow through automatically.
@@ -338,6 +448,16 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
             </div>
           ) : null}
 
+          {legendRelevant ? (
+            <div className="mt-3">
+              <LegendVocabularyCard
+                jobId={jobId}
+                entries={legendEntries}
+                onEntry={applyLegendEntry}
+              />
+            </div>
+          ) : null}
+
           {plans.length === 0 ? (
             <p className="mt-3 rounded-card border border-dashed border-border bg-surface-subtle p-4 text-center text-sm text-text-muted">
               No documents with rendered pages yet — upload a PDF drawing set
@@ -355,7 +475,9 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
                   reviewThreshold={reviewThreshold}
                   onRun={() => void runPlan(plan)}
                   onSheet={applySheet}
-                  anyRunning={running !== null}
+                  anyRunning={running !== null || legendBusyKey !== null}
+                  legendBusyKey={legendBusyKey}
+                  onExtractLegend={(pageIndex) => void runExtractLegend(plan, pageIndex)}
                 />
               ))}
             </div>
@@ -416,6 +538,8 @@ function PlanSheets({
   onRun,
   onSheet,
   anyRunning,
+  legendBusyKey,
+  onExtractLegend,
 }: {
   jobId: string;
   plan: PanelPlan;
@@ -425,6 +549,8 @@ function PlanSheets({
   onRun: () => void;
   onSheet: (sheet: EffectiveSheet | null) => void;
   anyRunning: boolean;
+  legendBusyKey: string | null;
+  onExtractLegend: (pageIndex: number) => void;
 }) {
   const planRunning = running?.planId === plan.id;
   const analysed = plan.pages.filter(
@@ -478,6 +604,12 @@ function PlanSheets({
                 sheet={sheet}
                 reviewThreshold={reviewThreshold}
                 onSheet={onSheet}
+                extractingLegend={legendBusyKey === sheetKey(plan.id, page.pageIndex)}
+                onExtractLegend={
+                  sheet?.fields.sheetType.effective === "legend" && !anyRunning
+                    ? () => onExtractLegend(page.pageIndex)
+                    : undefined
+                }
               />
             </li>
           );
@@ -495,6 +627,8 @@ function SheetRow({
   sheet,
   reviewThreshold,
   onSheet,
+  extractingLegend = false,
+  onExtractLegend,
 }: {
   jobId: string;
   planId: string;
@@ -503,6 +637,8 @@ function SheetRow({
   sheet: EffectiveSheet | undefined;
   reviewThreshold: number;
   onSheet: (sheet: EffectiveSheet | null) => void;
+  extractingLegend?: boolean;
+  onExtractLegend?: () => void;
 }) {
   return (
     <div>
@@ -527,6 +663,22 @@ function SheetRow({
           view page
           <ExternalLink aria-hidden="true" className="h-3 w-3" />
         </a>
+        {onExtractLegend || extractingLegend ? (
+          <button
+            type="button"
+            onClick={onExtractLegend}
+            disabled={!onExtractLegend || extractingLegend}
+            className={cn(
+              "inline-flex h-7 items-center gap-1.5 rounded-card border px-2.5 text-xs font-medium",
+              extractingLegend || !onExtractLegend
+                ? "cursor-not-allowed border-border bg-surface-subtle text-text-muted"
+                : "border-border bg-surface text-text hover:bg-surface-subtle",
+            )}
+          >
+            <ScanSearch aria-hidden="true" className="h-3.5 w-3.5" />
+            {extractingLegend ? "Extracting legend…" : "Extract legend"}
+          </button>
+        ) : null}
       </div>
       {sheet ? (
         <>

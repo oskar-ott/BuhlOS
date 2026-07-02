@@ -119,3 +119,84 @@ export interface CropRegion {
 
 export const sheetKey = (planId: string, pageIndex: number) =>
   `${planId}:${pageIndex}`;
+
+// ─── #201: legend vocabulary ────────────────────────────────────────────────
+
+export const LEGEND_CATEGORIES = [
+  "Power",
+  "Lighting",
+  "Switch",
+  "Data",
+  "Comms",
+  "Safety",
+  "Mechanical",
+  "EV",
+  "Appliance",
+  "Other",
+] as const;
+export type LegendCategory = (typeof LEGEND_CATEGORIES)[number];
+
+export const LEGEND_STATUSES = [
+  "suggested",
+  "accepted",
+  "edited",
+  "rejected",
+  "superseded",
+] as const;
+export type LegendStatus = (typeof LEGEND_STATUSES)[number];
+
+const CropRegionSchema = z.object({
+  x: z.number(),
+  y: z.number(),
+  w: z.number(),
+  h: z.number(),
+});
+
+export const LegendEntrySchema = z.object({
+  id: z.string(),
+  origin: z.enum(["ai", "human"]),
+  status: z.enum(LEGEND_STATUSES),
+  label: z.string(),
+  effectiveLabel: z.string(),
+  description: z.string().nullable(),
+  category: z.string().nullable(),
+  symbolText: z.string().nullable(),
+  symbolCropUrl: z.string().nullable(),
+  cropRegion: CropRegionSchema.nullable(),
+  sourcePlanId: z.string().nullable(),
+  sourcePageIndex: z.number().int().nullable(),
+  confidence: z.number().nullable(),
+  model: z.string().nullable(),
+  promptVersion: z.string().nullable(),
+  createdAt: z.string(),
+  reviewedAt: z.string().nullable(),
+  reviewedBy: z.string().nullable(),
+  reviewNote: z.string().nullable(),
+});
+export type LegendEntry = z.infer<typeof LegendEntrySchema>;
+
+export const LegendListResponseSchema = z.object({
+  entries: z.array(LegendEntrySchema),
+  categories: z.array(z.string()),
+  model: z.string(),
+  promptVersion: z.string(),
+});
+export type LegendListResponse = z.infer<typeof LegendListResponseSchema>;
+
+export const ExtractLegendResponseSchema = z.object({
+  cached: z.boolean(),
+  isLegendPresent: z.boolean(),
+  extracted: z.number(),
+  inserted: z.number(),
+  duplicates: z.number(),
+  rejectedSkipped: z.number(),
+  notes: z.string().nullable(),
+  entries: z.array(LegendEntrySchema),
+  spend: z.object({ totalUsd: z.number(), capUsd: z.number() }).optional(),
+});
+export type ExtractLegendResponse = z.infer<typeof ExtractLegendResponseSchema>;
+
+export const LegendEntryResponseSchema = z.object({
+  entry: LegendEntrySchema.nullable(),
+});
+export type LegendEntryResponse = z.infer<typeof LegendEntryResponseSchema>;

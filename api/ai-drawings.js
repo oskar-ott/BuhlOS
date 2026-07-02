@@ -36,6 +36,7 @@
 // pretending. No new Blob keys (spend rides the existing ai-takeoff.json).
 
 const { z } = require('zod');
+const { put } = require('@vercel/blob');
 const { setNoCache } = require('./_lib/blob');
 const { requireAuth, canManageJob, isAdminRole, isClientRole } = require('./_lib/auth');
 const { isFlagEnabled } = require('./_lib/feature-flags');
@@ -59,6 +60,11 @@ const REVIEW_THRESHOLD = Number(process.env.AI_DRAWINGS_REVIEW_THRESHOLD || '0.8
 const PROMPT_VERSION = 'pu-v1';
 const KIND = 'page-understanding';
 const MAX_CROP_DATAURL_CHARS = 6 * 1024 * 1024; // ~4.5MB decoded
+
+// #201 legend extraction — separate prompt lineage, same run-log + cache.
+const LEGEND_PROMPT_VERSION = 'lv-v1';
+const KIND_LEGEND = 'legend-entries';
+const MAX_SYMBOL_CROP_CHARS = 1_500_000; // symbol cells are small
 
 // ─── Request validation (Zod at the boundary) ──────────────────────────────
 const CropRegion = z.object({
@@ -88,6 +94,25 @@ const ClearOverrideBody = z.object({
   pageIndex: z.number().int().min(0),
   field: z.enum(store.OVERRIDE_FIELDS),
 });
+const ExtractLegendBody = z.object({
+  planId: z.string().min(1),
+  pageIndex: z.number().int().min(0),
+});
+const ReviewLegendBody = z.object({
+  entryId: z.string().min(1),
+  status: z.enum(['accepted', 'edited', 'rejected']),
+  humanLabel: z.string().min(1).max(120).optional(),
+  note: z.string().max(500).optional(),
+});
+const AddLegendBody = z.object({
+  label: z.string().min(1).max(120),
+  description: z.string().max(500).nullable().optional(),
+  category: z.enum(store.LEGEND_CATEGORIES).nullable().optional(),
+});
+const AttachLegendCropBody = z.object({
+  entryId: z.string().min(1),
+  dataUrl: z.string().startsWith('data:image/').max(MAX_SYMBOL_CROP_CHARS),
+});
 
 // ─── Model output contract (validated before anything persists) ────────────
 const FieldOut = z.object({
@@ -103,6 +128,31 @@ const ModelOutput = z.object({
     revision: FieldOut,
     scale: FieldOut,
   }),
+  notes: z.string().max(2000).nullable().optional(),
+});
+
+// #201 legend model contract. bbox is the tight normalised box around the
+// drawn SYMBOL cell (for the client-side reference crop) — nullable: an
+// entry the model can't localise is still a valid label-only row.
+const LegendEntryOut = z.object({
+  label: z.string().min(1).max(120),
+  description: z.string().max(300).nullable().optional(),
+  category: z.enum(store.LEGEND_CATEGORIES).nullable().optional(),
+  symbol: z.string().max(200).nullable().optional(),
+  confidence: z.number().min(0).max(1),
+  bbox: z
+    .object({
+      x: z.number().min(0).max(1),
+      y: z.number().min(0).max(1),
+      w: z.number().gt(0).max(1),
+      h: z.number().gt(0).max(1),
+    })
+    .nullable()
+    .optional(),
+});
+const LegendModelOutput = z.object({
+  isLegendPresent: z.boolean(),
+  entries: z.array(LegendEntryOut).max(150),
   notes: z.string().max(2000).nullable().optional(),
 });
 
@@ -138,6 +188,34 @@ RULES — these are non-negotiable:
     "revision":    { "value": "..." or null, "confidence": 0.0 },
     "scale":       { "value": "..." or null, "confidence": 0.0 }
   },
+  "notes": "one short caveat sentence, or null"
+}`;
+}
+
+// ─── Prompt (version: LEGEND_PROMPT_VERSION) ────────────────────────────────
+function legendPrompt() {
+  return `You are reading the SYMBOL LEGEND on ONE page of an Australian construction drawing set (usually electrical).
+
+A legend is a key/table mapping each drawn symbol to its meaning (e.g. "double GPO", "downlight", "exhaust fan", "two-way switch", "data outlet"). It may be a dedicated legend sheet, or one or more legend blocks in a corner of another sheet. Read EVERY legend row on this page.
+
+For each legend entry return:
+- label:       the legend's own text label, verbatim (e.g. "DOUBLE GPO 10A")
+- description: extra descriptive text the legend gives for that row, or null
+- category:    one of "Power" | "Lighting" | "Switch" | "Data" | "Comms" | "Safety" | "Mechanical" | "EV" | "Appliance" | "Other"
+- symbol:      a terse description of the DRAWN symbol (e.g. "circle with two parallel lines"), or null
+- confidence:  YOUR honest 0..1 estimate for this row
+- bbox:        the tight box around the drawn SYMBOL GRAPHIC cell (not its text), in page-normalised coordinates {"x","y","w","h"} each 0..1 of the FULL page — or null if you cannot localise it precisely
+
+RULES — non-negotiable:
+- NEVER invent entries. Only rows the legend actually shows. Unreadable rows: skip them and say so in notes.
+- Use Australian terminology (GPO not "outlet", light point not "fixture", isolator not "disconnect").
+- If this page has NO legend at all: {"isLegendPresent": false, "entries": [], "notes": "..."}.
+- Return ONLY strict JSON:
+{
+  "isLegendPresent": true,
+  "entries": [
+    { "label": "...", "description": "..." or null, "category": "Power", "symbol": "..." or null, "confidence": 0.0, "bbox": {"x":0.1,"y":0.2,"w":0.03,"h":0.02} or null }
+  ],
   "notes": "one short caveat sentence, or null"
 }`;
 }
@@ -485,6 +563,290 @@ async function handleClearOverride(res, sql, tenantId, jobId, user, body) {
   return res.status(200).json({ sheet: row ? effectiveSheet(row, overrides) : null });
 }
 
+// ─── #201: legend vocabulary handlers ───────────────────────────────────────
+
+function legendEntryView(row) {
+  return {
+    id: row.id,
+    origin: row.origin,
+    status: row.status,
+    label: row.label,
+    effectiveLabel: row.human_label !== null && row.human_label !== undefined ? row.human_label : row.label,
+    description: row.description,
+    category: row.category,
+    symbolText: row.symbol_text,
+    symbolCropUrl: row.symbol_crop_url,
+    cropRegion: row.crop_region,
+    sourcePlanId: row.source_plan_id,
+    sourcePageIndex: row.source_page_index,
+    confidence: row.confidence,
+    model: row.model,
+    promptVersion: row.prompt_version,
+    createdAt: row.created_at,
+    reviewedAt: row.reviewed_at,
+    reviewedBy: row.reviewed_by_label,
+    reviewNote: row.review_note,
+  };
+}
+
+async function handleLegendList(res, sql, tenantId, jobId) {
+  const rows = await store.listLegendEntries(sql, tenantId, jobId);
+  return res.status(200).json({
+    entries: rows.map(legendEntryView),
+    categories: store.LEGEND_CATEGORIES,
+    model: AI_DRAWINGS_MODEL,
+    promptVersion: LEGEND_PROMPT_VERSION,
+  });
+}
+
+async function handleExtractLegend(res, sql, tenantId, jobId, user, body) {
+  const parsedBody = ExtractLegendBody.safeParse(body);
+  if (!parsedBody.success) {
+    return res.status(400).json({ error: parsedBody.error.issues[0]?.message || 'invalid body' });
+  }
+  const { planId, pageIndex } = parsedBody.data;
+  const found = await readPlanPage(jobId, planId, pageIndex);
+  if (found.error) return res.status(found.status).json({ error: found.error });
+  const { page } = found;
+
+  const cacheKey = {
+    jobId, planId, pageIndex,
+    pageSha256: page.sha256,
+    kind: KIND_LEGEND,
+    promptVersion: LEGEND_PROMPT_VERSION,
+    model: AI_DRAWINGS_MODEL,
+  };
+
+  // Same cache semantics as page understanding: an unchanged page + same
+  // prompt/model never bills twice; the MERGE below is idempotent (dedupe
+  // index), so a re-click safely re-converges the vocabulary.
+  let extraction = await store.findCachedExtraction(sql, tenantId, cacheKey);
+  const cached = !!extraction;
+  if (!extraction) {
+    const takeoff = await aiSpend.readTakeoff(jobId);
+    if (aiSpend.overBudget(takeoff)) {
+      return res.status(402).json({
+        error: 'cost cap reached for this job ($' + aiSpend.COST_CAP_USD + ')',
+        spend: takeoff.spend,
+      });
+    }
+    let content;
+    try {
+      const png = await fetchPngAsBase64(page.pngUrl);
+      content = [
+        { type: 'image', source: { type: 'base64', media_type: png.mediaType, data: png.base64 } },
+        { type: 'text', text: legendPrompt() },
+      ];
+    } catch (e) {
+      return res.status(502).json({ error: 'could not fetch page image: ' + e.message });
+    }
+    let text, usage;
+    try {
+      const out = await aiComplete({
+        model: AI_DRAWINGS_MODEL,
+        maxTokens: 4000, // a full legend is 40+ rows of JSON
+        messages: [{ role: 'user', content }],
+      });
+      text = out.text;
+      usage = out.usage;
+    } catch (e) {
+      if (e instanceof AiError && e.code === 'UNCONFIGURED') {
+        return res.status(503).json({ error: 'AI is not configured in this environment' });
+      }
+      return res.status(502).json({ error: 'vision call failed: ' + e.message });
+    }
+    // The money is spent — record it BEFORE judging the output (honest cap).
+    await aiSpend.commitTakeoff(jobId, (t) => {
+      aiSpend.recordSpend(t, usage, 'extract-legend', { planId, pageIndex, promptVersion: LEGEND_PROMPT_VERSION }, {
+        inputUsdPerToken: COST_PER_INPUT_TOKEN,
+        outputUsdPerToken: COST_PER_OUTPUT_TOKEN,
+      });
+    });
+    const json = extractJson(text);
+    if (!json || !LegendModelOutput.safeParse(json).success) {
+      return res.status(502).json({
+        error: 'model returned unusable output — nothing was stored; try again',
+      });
+    }
+    try {
+      extraction = await store.insertExtraction(sql, tenantId, {
+        jobId, planId, pageIndex,
+        pageSha256: page.sha256,
+        kind: KIND_LEGEND,
+        model: AI_DRAWINGS_MODEL,
+        promptVersion: LEGEND_PROMPT_VERSION,
+        raw: json,
+        sheetType: null, sheetTypeConfidence: null,
+        sheetNumber: null, sheetNumberConfidence: null,
+        sheetTitle: null, sheetTitleConfidence: null,
+        revision: null, revisionConfidence: null,
+        scale: null, scaleConfidence: null,
+        region: null,
+        inputTokens: usage ? Number(usage.inputTokens ?? usage.input_tokens ?? 0) : null,
+        outputTokens: usage ? Number(usage.outputTokens ?? usage.output_tokens ?? 0) : null,
+        createdByLabel: user.username || null,
+      });
+    } catch (e) {
+      const dup = e && (e.code === '23505' || /duplicate key/i.test(String(e.message || '')));
+      if (!dup) throw e;
+      extraction = await store.findCachedExtraction(sql, tenantId, cacheKey);
+      if (!extraction) throw e;
+    }
+  }
+
+  const parsedOut = LegendModelOutput.safeParse(extraction.raw);
+  if (!parsedOut.success) {
+    return res.status(502).json({ error: 'stored legend run is unreadable — re-run after a prompt bump' });
+  }
+  const output = parsedOut.data;
+
+  let inserted = [];
+  let duplicates = 0;
+  let rejectedSkipped = 0;
+  if (output.isLegendPresent && output.entries.length > 0) {
+    // A label a human explicitly rejected must not resurrect on re-runs.
+    const rejected = new Set(await store.rejectedLegendLabels(sql, tenantId, jobId));
+    const candidates = [];
+    for (const e of output.entries) {
+      if (rejected.has(store.normalizeLabel(e.label))) {
+        rejectedSkipped += 1;
+        continue;
+      }
+      candidates.push({
+        jobId,
+        label: e.label.trim(),
+        description: cleanValue(e.description),
+        category: e.category || null,
+        symbolText: cleanValue(e.symbol),
+        cropRegion: e.bbox || null,
+        sourcePlanId: planId,
+        sourcePageIndex: pageIndex,
+        sourcePageSha256: page.sha256,
+        extractionId: extraction.id,
+        confidence: e.confidence,
+        model: extraction.model,
+        promptVersion: extraction.prompt_version,
+        createdByLabel: user.username || null,
+      });
+    }
+    const merged = await store.insertLegendSuggestions(sql, tenantId, candidates);
+    inserted = merged.inserted;
+    duplicates = merged.duplicates;
+  }
+
+  if (inserted.length > 0) {
+    await appendAuditLog({
+      action: 'document.ai_extracted',
+      actorId: user.id,
+      actorName: user.username || 'Unknown',
+      actorRole: user.role || null,
+      jobId,
+      targetType: 'document',
+      targetId: planId,
+      summary: `AI read ${inserted.length} legend entr${inserted.length === 1 ? 'y' : 'ies'} from page ${pageIndex + 1}`,
+      metadata: { kind: KIND_LEGEND, pageIndex, inserted: inserted.length, promptVersion: LEGEND_PROMPT_VERSION },
+    }).catch(() => {});
+  }
+
+  const entries = await store.listLegendEntries(sql, tenantId, jobId);
+  const fresh = await aiSpend.readTakeoff(jobId);
+  return res.status(200).json({
+    cached,
+    isLegendPresent: output.isLegendPresent,
+    extracted: output.entries.length,
+    inserted: inserted.length,
+    duplicates,
+    rejectedSkipped,
+    notes: output.notes || null,
+    entries: entries.map(legendEntryView),
+    spend: { totalUsd: fresh.spend.totalUsd, capUsd: aiSpend.COST_CAP_USD },
+  });
+}
+
+async function handleReviewLegendEntry(res, sql, tenantId, jobId, user, body) {
+  const parsed = ReviewLegendBody.safeParse(body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0]?.message || 'invalid body' });
+  }
+  const { entryId, status, humanLabel, note } = parsed.data;
+  if (status === 'edited' && !cleanValue(humanLabel)) {
+    return res.status(400).json({ error: 'edited requires humanLabel — that is what distinguishes it from accept' });
+  }
+  const entry = await store.getLegendEntry(sql, tenantId, jobId, entryId);
+  if (!entry) return res.status(404).json({ error: 'legend entry not found' });
+  const allowed = store.LEGEND_TRANSITIONS[entry.status] || [];
+  if (!allowed.includes(status)) {
+    return res.status(409).json({ error: `cannot ${status} a ${entry.status} entry` });
+  }
+  const updated = await store.reviewLegendEntry(sql, tenantId, jobId, entry, {
+    status,
+    humanLabel: status === 'edited' ? cleanValue(humanLabel) : entry.human_label,
+    note: cleanValue(note),
+    reviewedByLabel: user.username || 'Unknown',
+  });
+  if (!updated) return res.status(409).json({ error: 'entry was reviewed concurrently — reload' });
+  await appendAuditLog({
+    action: 'document.ai_corrected',
+    actorId: user.id,
+    actorName: user.username || 'Unknown',
+    actorRole: user.role || null,
+    jobId,
+    targetType: 'document',
+    targetId: entry.source_plan_id || 'legend',
+    summary: `legend entry "${updated.human_label || updated.label}" ${status}`,
+    metadata: { kind: 'legend', entryId, status },
+  }).catch(() => {});
+  return res.status(200).json({ entry: legendEntryView(updated) });
+}
+
+async function handleAddLegendEntry(res, sql, tenantId, jobId, user, body) {
+  const parsed = AddLegendBody.safeParse(body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0]?.message || 'invalid body' });
+  }
+  const row = await store.addHumanLegendEntry(sql, tenantId, {
+    jobId,
+    label: parsed.data.label.trim(),
+    description: cleanValue(parsed.data.description),
+    category: parsed.data.category || null,
+    createdByLabel: user.username || 'Unknown',
+  });
+  if (!row) {
+    return res.status(409).json({ error: 'an entry with that label already exists on this job' });
+  }
+  await appendAuditLog({
+    action: 'document.ai_corrected',
+    actorId: user.id,
+    actorName: user.username || 'Unknown',
+    actorRole: user.role || null,
+    jobId,
+    targetType: 'document',
+    targetId: 'legend',
+    summary: `added legend entry "${row.label}" the AI missed`,
+    metadata: { kind: 'legend', entryId: row.id, added: true },
+  }).catch(() => {});
+  return res.status(201).json({ entry: legendEntryView(row) });
+}
+
+async function handleAttachLegendCrop(res, sql, tenantId, jobId, user, body) {
+  const parsed = AttachLegendCropBody.safeParse(body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0]?.message || 'invalid body' });
+  }
+  const entry = await store.getLegendEntry(sql, tenantId, jobId, parsed.data.entryId);
+  if (!entry) return res.status(404).json({ error: 'legend entry not found' });
+  const m = parsed.data.dataUrl.match(/^data:(image\/[a-z+.-]+);base64,(.+)$/s);
+  if (!m) return res.status(400).json({ error: 'dataUrl must be a base64 image data URL' });
+  const buf = Buffer.from(m[2], 'base64');
+  const uploaded = await put(`jobs/${jobId}/legend-crops/${entry.id}.png`, buf, {
+    access: 'public',
+    contentType: m[1],
+    token: process.env.BLOB_READ_WRITE_TOKEN,
+  });
+  const updated = await store.setLegendCrop(sql, tenantId, jobId, entry.id, uploaded.url);
+  return res.status(200).json({ entry: updated ? legendEntryView(updated) : null });
+}
+
 // ─── Router ─────────────────────────────────────────────────────────────────
 
 module.exports = async (req, res) => {
@@ -510,10 +872,11 @@ module.exports = async (req, res) => {
     return res.status(403).json({ error: 'cannot manage this job' });
   }
 
-  if (req.method === 'GET' && action === 'sheets') {
+  if (req.method === 'GET' && (action === 'sheets' || action === 'legend')) {
     const sql = dbOr503(res, 'read');
     if (!sql) return;
     const tenantId = await store.resolveTenantId(sql);
+    if (action === 'legend') return handleLegendList(res, sql, tenantId, jobId);
     return handleSheets(res, sql, tenantId, jobId);
   }
 
@@ -525,6 +888,10 @@ module.exports = async (req, res) => {
     if (action === 'understand-page') return handleUnderstandPage(res, sql, tenantId, jobId, user, body);
     if (action === 'override') return handleOverride(res, sql, tenantId, jobId, user, body);
     if (action === 'clear-override') return handleClearOverride(res, sql, tenantId, jobId, user, body);
+    if (action === 'extract-legend') return handleExtractLegend(res, sql, tenantId, jobId, user, body);
+    if (action === 'review-legend-entry') return handleReviewLegendEntry(res, sql, tenantId, jobId, user, body);
+    if (action === 'add-legend-entry') return handleAddLegendEntry(res, sql, tenantId, jobId, user, body);
+    if (action === 'attach-legend-crop') return handleAttachLegendCrop(res, sql, tenantId, jobId, user, body);
     return res.status(400).json({ error: 'unknown action: ' + (action || '(none)') });
   }
 
@@ -541,4 +908,7 @@ module.exports.__test = {
   PROMPT_VERSION,
   REVIEW_THRESHOLD,
   pageUnderstandingPrompt,
+  LEGEND_PROMPT_VERSION,
+  legendPrompt,
+  legendEntryView,
 };

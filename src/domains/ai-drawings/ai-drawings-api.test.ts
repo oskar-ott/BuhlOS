@@ -19,6 +19,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  */
 
 const requireFromHere = createRequire(import.meta.url);
+const vercelBlobPath = requireFromHere.resolve("@vercel/blob");
 const blobPath = requireFromHere.resolve("../../../api/_lib/blob.js");
 const auditPath = requireFromHere.resolve("../../../api/_lib/audit-log.js");
 const aiPath = requireFromHere.resolve("../../../api/_lib/ai.js");
@@ -36,6 +37,8 @@ let blob: Map<string, unknown>;
 let extractions: Row[];
 let sheetRows: Row[];
 let overrides: Row[];
+let legendRows: Row[];
+let blobPuts: Array<{ path: string; bytes: number }>;
 let auditEntries: Row[];
 let aiCalls: Array<Record<string, unknown>>;
 let aiNextText: string;
@@ -164,13 +167,32 @@ function sheetFromExtraction(e: Row): Row {
   };
 }
 
+const normalizeLabel = (label: string) =>
+  String(label || "").toLowerCase().trim().replace(/\s+/g, " ");
+
+const LIVE_LEGEND = new Set(["suggested", "accepted", "edited"]);
+
 beforeEach(() => {
   process.env.SESSION_SECRET = "test-session-secret-long-enough";
   blob = new Map();
   extractions = [];
   sheetRows = [];
   overrides = [];
+  legendRows = [];
+  blobPuts = [];
   auditEntries = [];
+
+  requireFromHere.cache[vercelBlobPath] = {
+    id: vercelBlobPath,
+    filename: vercelBlobPath,
+    loaded: true,
+    exports: {
+      put: async (path: string, buf: Buffer) => {
+        blobPuts.push({ path, bytes: buf.length });
+        return { url: `https://blob.test/${path}` };
+      },
+    },
+  } as NodeJS.Module;
   aiCalls = [];
   aiNextText = JSON.stringify(GOOD_OUTPUT);
   aiFail = null;
@@ -362,6 +384,151 @@ beforeEach(() => {
         );
         return overrides.length < before;
       },
+      // ── #201 legend vocabulary (mirrors the real store's SQL semantics) ──
+      LEGEND_CATEGORIES: ["Power", "Lighting", "Switch", "Data", "Comms", "Safety", "Mechanical", "EV", "Appliance", "Other"],
+      LEGEND_TRANSITIONS: {
+        suggested: ["accepted", "edited", "rejected"],
+        accepted: ["rejected"],
+        edited: ["rejected"],
+        rejected: [],
+        superseded: [],
+      },
+      normalizeLabel,
+      listLegendEntries: async (_sql: unknown, _t: string, jobId: string) =>
+        legendRows.filter((r) => r.job_id === jobId && r.status !== "superseded"),
+      acceptedLegendEntries: async (_sql: unknown, _t: string, jobId: string) =>
+        legendRows.filter(
+          (r) => r.job_id === jobId && (r.status === "accepted" || r.status === "edited"),
+        ),
+      rejectedLegendLabels: async (_sql: unknown, _t: string, jobId: string) => [
+        ...new Set(
+          legendRows
+            .filter((r) => r.job_id === jobId && r.status === "rejected")
+            .map((r) => r.normalized_label),
+        ),
+      ],
+      insertLegendSuggestions: async (_sql: unknown, _t: string, rows: Row[]) => {
+        const inserted: Row[] = [];
+        let duplicates = 0;
+        for (const row of rows) {
+          const norm = normalizeLabel(row.label as string);
+          const live = legendRows.some(
+            (r) =>
+              r.job_id === row.jobId &&
+              r.normalized_label === norm &&
+              LIVE_LEGEND.has(r.status as string),
+          );
+          if (live) {
+            duplicates += 1;
+            continue;
+          }
+          const e: Row = {
+            id: `le_${legendRows.length + 1}`,
+            job_id: row.jobId,
+            origin: "ai",
+            status: "suggested",
+            label: row.label,
+            normalized_label: norm,
+            description: row.description,
+            category: row.category,
+            symbol_text: row.symbolText,
+            symbol_crop_url: null,
+            crop_region: row.cropRegion,
+            source_plan_id: row.sourcePlanId,
+            source_page_index: row.sourcePageIndex,
+            source_page_sha256: row.sourcePageSha256,
+            extraction_id: row.extractionId,
+            confidence: row.confidence,
+            model: row.model,
+            prompt_version: row.promptVersion,
+            created_at: new Date().toISOString(),
+            created_by_label: row.createdByLabel,
+            reviewed_at: null,
+            reviewed_by_label: null,
+            review_note: null,
+            human_label: null,
+            superseded_by: null,
+          };
+          legendRows.push(e);
+          inserted.push(e);
+        }
+        return { inserted, duplicates };
+      },
+      getLegendEntry: async (_sql: unknown, _t: string, jobId: string, entryId: string) =>
+        legendRows.find((r) => r.job_id === jobId && r.id === entryId) ?? null,
+      reviewLegendEntry: async (
+        _sql: unknown,
+        _t: string,
+        jobId: string,
+        entry: Row,
+        next: Row,
+      ) => {
+        const i = legendRows.findIndex(
+          (r) => r.job_id === jobId && r.id === entry.id && r.status === entry.status,
+        );
+        if (i < 0) return null;
+        legendRows[i] = {
+          ...legendRows[i],
+          status: next.status,
+          human_label:
+            next.humanLabel === undefined ? legendRows[i]!.human_label : next.humanLabel,
+          review_note: next.note === undefined ? legendRows[i]!.review_note : next.note,
+          reviewed_at: new Date().toISOString(),
+          reviewed_by_label: next.reviewedByLabel,
+        };
+        return legendRows[i];
+      },
+      addHumanLegendEntry: async (_sql: unknown, _t: string, row: Row) => {
+        const norm = normalizeLabel(row.label as string);
+        const live = legendRows.some(
+          (r) =>
+            r.job_id === row.jobId &&
+            r.normalized_label === norm &&
+            LIVE_LEGEND.has(r.status as string),
+        );
+        if (live) return null;
+        const e: Row = {
+          id: `le_${legendRows.length + 1}`,
+          job_id: row.jobId,
+          origin: "human",
+          status: "accepted",
+          label: row.label,
+          normalized_label: norm,
+          description: row.description,
+          category: row.category,
+          symbol_text: null,
+          symbol_crop_url: null,
+          crop_region: null,
+          source_plan_id: null,
+          source_page_index: null,
+          source_page_sha256: null,
+          extraction_id: null,
+          confidence: null,
+          model: null,
+          prompt_version: null,
+          created_at: new Date().toISOString(),
+          created_by_label: row.createdByLabel,
+          reviewed_at: new Date().toISOString(),
+          reviewed_by_label: row.createdByLabel,
+          review_note: null,
+          human_label: null,
+          superseded_by: null,
+        };
+        legendRows.push(e);
+        return e;
+      },
+      setLegendCrop: async (
+        _sql: unknown,
+        _t: string,
+        jobId: string,
+        entryId: string,
+        url: string,
+      ) => {
+        const i = legendRows.findIndex((r) => r.job_id === jobId && r.id === entryId);
+        if (i < 0) return null;
+        legendRows[i] = { ...legendRows[i], symbol_crop_url: url };
+        return legendRows[i];
+      },
     },
   } as NodeJS.Module;
 
@@ -384,7 +551,7 @@ beforeEach(() => {
     ],
   });
 
-  // one registered plan page on job j1
+  // registered plan pages on job j1 (page 1 exists for multi-sheet merges)
   blob.set("jobs/j1/plans-index.json", {
     plans: [
       {
@@ -392,7 +559,10 @@ beforeEach(() => {
         jobId: "j1",
         fileName: "set.pdf",
         status: "current",
-        pages: [{ pageIndex: 0, pngUrl: "https://blob.test/pl1-0.png", sha256: "sha0" }],
+        pages: [
+          { pageIndex: 0, pngUrl: "https://blob.test/pl1-0.png", sha256: "sha0" },
+          { pageIndex: 1, pngUrl: "https://blob.test/pl1-1.png", sha256: "sha1" },
+        ],
       },
     ],
     __rev: 1,
@@ -779,5 +949,186 @@ describe("needs-review derivation (pure)", () => {
     expect(testExports.extractJson('```json\n{"a":1}\n```')).toEqual({ a: 1 });
     expect(testExports.extractJson('noise {"a":1} trailing')).toEqual({ a: 1 });
     expect(testExports.extractJson("no json at all")).toBe(null);
+  });
+});
+
+// ─── #201 legend vocabulary ─────────────────────────────────────────────────
+
+const GOOD_LEGEND = {
+  isLegendPresent: true,
+  entries: [
+    {
+      label: "DOUBLE GPO",
+      description: "10A twin outlet",
+      category: "Power",
+      symbol: "circle with two lines",
+      confidence: 0.92,
+      bbox: { x: 0.1, y: 0.1, w: 0.05, h: 0.03 },
+    },
+    { label: "DOWNLIGHT", category: "Lighting", confidence: 0.9, bbox: null },
+  ],
+  notes: null,
+};
+
+async function extractLegendOn(pageIndex: number): Promise<Res> {
+  return call("POST", { jobId: "j1", action: "extract-legend" }, { planId: "pl1", pageIndex });
+}
+
+describe("legend vocabulary (#201)", () => {
+  beforeEach(() => {
+    aiNextText = JSON.stringify(GOOD_LEGEND);
+  });
+
+  it("extracts entries as suggestions, records spend + audit, lists them", async () => {
+    const res = await extractLegendOn(0);
+    expect(res.statusCode).toBe(200);
+    expect(res.body.isLegendPresent).toBe(true);
+    expect(res.body.inserted).toBe(2);
+    expect(res.body.duplicates).toBe(0);
+    expect(res.body.entries).toHaveLength(2);
+    expect(res.body.entries[0].status).toBe("suggested");
+    expect(legendRows).toHaveLength(2);
+    expect(spendLedger().calls[0]?.kind).toBe("extract-legend");
+    const audit = auditEntries.find((a) => a.action === "document.ai_extracted");
+    expect((audit?.metadata as Row)?.kind).toBe("legend-entries");
+
+    const list = await call("GET", { jobId: "j1", action: "legend" });
+    expect(list.statusCode).toBe(200);
+    expect(list.body.entries).toHaveLength(2);
+  });
+
+  it("merges multiple legend blocks into ONE vocabulary — duplicates are no-ops", async () => {
+    await extractLegendOn(0);
+    const res = await extractLegendOn(1); // second sheet, same labels
+    expect(res.statusCode).toBe(200);
+    expect(res.body.inserted).toBe(0);
+    expect(res.body.duplicates).toBe(2);
+    expect(legendRows).toHaveLength(2); // still one vocabulary
+    expect(aiCalls).toHaveLength(2); // different page → real run
+  });
+
+  it("serves an unchanged page from cache and stays idempotent", async () => {
+    await extractLegendOn(0);
+    const res = await extractLegendOn(0);
+    expect(res.statusCode).toBe(200);
+    expect(res.body.cached).toBe(true);
+    expect(res.body.duplicates).toBe(2); // merge re-ran, changed nothing
+    expect(aiCalls).toHaveLength(1);
+    expect(spendLedger().calls).toHaveLength(1); // never bills twice
+  });
+
+  it("a rejected label never resurrects on re-extraction", async () => {
+    await extractLegendOn(0);
+    const entry = legendRows.find((r) => r.label === "DOUBLE GPO");
+    const rej = await call("POST", { jobId: "j1", action: "review-legend-entry" }, {
+      entryId: entry?.id,
+      status: "rejected",
+      note: "not on this job",
+    });
+    expect(rej.statusCode).toBe(200);
+    const res = await extractLegendOn(1);
+    expect(res.statusCode).toBe(200);
+    expect(res.body.rejectedSkipped).toBe(1);
+    expect(
+      legendRows.filter((r) => r.label === "DOUBLE GPO" && r.status !== "rejected"),
+    ).toHaveLength(0);
+  });
+
+  it("review machine: accept works; edited requires humanLabel; terminal re-review 409s; live entries can still be rejected", async () => {
+    await extractLegendOn(0);
+    const [a, b] = legendRows;
+
+    const accepted = await call("POST", { jobId: "j1", action: "review-legend-entry" }, {
+      entryId: a?.id,
+      status: "accepted",
+    });
+    expect(accepted.statusCode).toBe(200);
+    expect(accepted.body.entry.status).toBe("accepted");
+
+    const editNoLabel = await call("POST", { jobId: "j1", action: "review-legend-entry" }, {
+      entryId: b?.id,
+      status: "edited",
+    });
+    expect(editNoLabel.statusCode).toBe(400);
+
+    const edited = await call("POST", { jobId: "j1", action: "review-legend-entry" }, {
+      entryId: b?.id,
+      status: "edited",
+      humanLabel: "LED DOWNLIGHT 90mm",
+    });
+    expect(edited.statusCode).toBe(200);
+    expect(edited.body.entry.effectiveLabel).toBe("LED DOWNLIGHT 90mm");
+    expect(edited.body.entry.label).toBe("DOWNLIGHT"); // AI original preserved
+
+    const reAccept = await call("POST", { jobId: "j1", action: "review-legend-entry" }, {
+      entryId: a?.id,
+      status: "accepted",
+    });
+    expect(reAccept.statusCode).toBe(409);
+
+    // the documented vocabulary extension: bogus entries removable post-accept
+    const lateReject = await call("POST", { jobId: "j1", action: "review-legend-entry" }, {
+      entryId: a?.id,
+      status: "rejected",
+    });
+    expect(lateReject.statusCode).toBe(200);
+
+    const missing = await call("POST", { jobId: "j1", action: "review-legend-entry" }, {
+      entryId: "nope",
+      status: "accepted",
+    });
+    expect(missing.statusCode).toBe(404);
+  });
+
+  it("a human can add a missed entry (pre-accepted); a live duplicate 409s", async () => {
+    const added = await call("POST", { jobId: "j1", action: "add-legend-entry" }, {
+      label: "EXHAUST FAN",
+      category: "Mechanical",
+    });
+    expect(added.statusCode).toBe(201);
+    expect(added.body.entry.origin).toBe("human");
+    expect(added.body.entry.status).toBe("accepted");
+
+    const dup = await call("POST", { jobId: "j1", action: "add-legend-entry" }, {
+      label: "  exhaust   FAN ", // normalises to the same label
+    });
+    expect(dup.statusCode).toBe(409);
+  });
+
+  it("attaches a browser-cropped symbol image via Blob; unknown entry 404s", async () => {
+    await extractLegendOn(0);
+    const entry = legendRows[0];
+    const res = await call("POST", { jobId: "j1", action: "attach-legend-crop" }, {
+      entryId: entry?.id,
+      dataUrl: "data:image/png;base64,aGVsbG8=",
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body.entry.symbolCropUrl).toContain("legend-crops");
+    expect(blobPuts[0]?.path).toBe(`jobs/j1/legend-crops/${entry?.id}.png`);
+
+    const missing = await call("POST", { jobId: "j1", action: "attach-legend-crop" }, {
+      entryId: "nope",
+      dataUrl: "data:image/png;base64,aGVsbG8=",
+    });
+    expect(missing.statusCode).toBe(404);
+  });
+
+  it("a page with no legend stores the run but inserts nothing", async () => {
+    aiNextText = JSON.stringify({ isLegendPresent: false, entries: [], notes: "floor plan page" });
+    const res = await extractLegendOn(0);
+    expect(res.statusCode).toBe(200);
+    expect(res.body.isLegendPresent).toBe(false);
+    expect(res.body.inserted).toBe(0);
+    expect(legendRows).toHaveLength(0);
+    expect(extractions).toHaveLength(1); // cached so a re-click never bills
+  });
+
+  it("unusable legend output → 502, spend recorded, nothing stored (P7)", async () => {
+    aiNextText = "not json";
+    const res = await extractLegendOn(0);
+    expect(res.statusCode).toBe(502);
+    expect(legendRows).toHaveLength(0);
+    expect(extractions).toHaveLength(0);
+    expect(spendLedger().calls).toHaveLength(1);
   });
 });

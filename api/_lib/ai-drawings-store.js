@@ -145,9 +145,142 @@ async function deleteOverride(sql, tenantId, jobId, planId, pageIndex, field) {
   return rows.length > 0;
 }
 
+// ─── #201: legend vocabulary ────────────────────────────────────────────────
+
+// Category vocabulary (mirrors the DB CHECK; from the Phase-9 legend taxonomy).
+const LEGEND_CATEGORIES = ['Power', 'Lighting', 'Switch', 'Data', 'Comms', 'Safety', 'Mechanical', 'EV', 'Appliance', 'Other'];
+
+// Review-state machine for vocabulary rows. Follows the house
+// api/_lib/ai-suggestions.js machine with ONE documented extension: a live
+// (accepted|edited) entry may still be rejected later — bogus vocabulary must
+// be removable after acceptance or #204 recognition would keep consuming it.
+// The AI payload itself is never rewritten; rejection is a review action with
+// its own audit row.
+const LEGEND_TRANSITIONS = {
+  suggested: ['accepted', 'edited', 'rejected'],
+  accepted: ['rejected'],
+  edited: ['rejected'],
+  rejected: [],
+  superseded: [],
+};
+
+// Dedupe key: one live entry per normalised label per job.
+function normalizeLabel(label) {
+  return String(label || '').toLowerCase().trim().replace(/\s+/g, ' ');
+}
+
+async function listLegendEntries(sql, tenantId, jobId) {
+  return await sql`
+    select * from public.legend_entries
+    where tenant_id = ${tenantId} and job_id = ${jobId}
+      and status <> 'superseded'
+    order by category nulls last, normalized_label`;
+}
+
+// The reviewed vocabulary downstream consumers (#204/#205) read.
+async function acceptedLegendEntries(sql, tenantId, jobId) {
+  return await sql`
+    select * from public.legend_entries
+    where tenant_id = ${tenantId} and job_id = ${jobId}
+      and status in ('accepted', 'edited')
+    order by category nulls last, normalized_label`;
+}
+
+// Labels a human explicitly rejected — a re-run must not resurrect them.
+async function rejectedLegendLabels(sql, tenantId, jobId) {
+  const rows = await sql`
+    select distinct normalized_label from public.legend_entries
+    where tenant_id = ${tenantId} and job_id = ${jobId} and status = 'rejected'`;
+  return rows.map((r) => r.normalized_label);
+}
+
+// Merge one extraction's entries into the vocabulary. The partial unique
+// index (one live entry per normalised label) makes duplicates no-ops —
+// multiple legend sheets/blocks converge on ONE vocabulary (#201 AC).
+// Returns { inserted: rows[], duplicates: number }.
+async function insertLegendSuggestions(sql, tenantId, rows) {
+  const inserted = [];
+  let duplicates = 0;
+  for (const row of rows) {
+    const out = await sql`
+      insert into public.legend_entries (
+        tenant_id, job_id, origin, status, label, normalized_label,
+        description, category, symbol_text, crop_region,
+        source_plan_id, source_page_index, source_page_sha256,
+        extraction_id, confidence, model, prompt_version, created_by_label
+      ) values (
+        ${tenantId}, ${row.jobId}, 'ai', 'suggested', ${row.label}, ${normalizeLabel(row.label)},
+        ${row.description}, ${row.category}, ${row.symbolText},
+        ${row.cropRegion === null ? null : sql.json(row.cropRegion)},
+        ${row.sourcePlanId}, ${row.sourcePageIndex}, ${row.sourcePageSha256},
+        ${row.extractionId}, ${row.confidence}, ${row.model}, ${row.promptVersion}, ${row.createdByLabel}
+      )
+      on conflict (tenant_id, job_id, normalized_label)
+        where status in ('suggested', 'accepted', 'edited')
+      do nothing
+      returning *`;
+    if (out.length) inserted.push(out[0]);
+    else duplicates += 1;
+  }
+  return { inserted, duplicates };
+}
+
+async function getLegendEntry(sql, tenantId, jobId, entryId) {
+  const rows = await sql`
+    select * from public.legend_entries
+    where tenant_id = ${tenantId} and job_id = ${jobId} and id = ${entryId}`;
+  return rows.length ? rows[0] : null;
+}
+
+// Apply a review transition. Guarded by the machine above; the WHERE clause
+// re-checks the from-status so concurrent reviews can't double-apply.
+async function reviewLegendEntry(sql, tenantId, jobId, entry, next) {
+  const rows = await sql`
+    update public.legend_entries set
+      status = ${next.status},
+      human_label = ${next.humanLabel === undefined ? entry.human_label : next.humanLabel},
+      review_note = ${next.note === undefined ? entry.review_note : next.note},
+      reviewed_at = now(),
+      reviewed_by_label = ${next.reviewedByLabel}
+    where tenant_id = ${tenantId} and job_id = ${jobId} and id = ${entry.id}
+      and status = ${entry.status}
+    returning *`;
+  return rows.length ? rows[0] : null;
+}
+
+// Human-added entry: pre-accepted, no model provenance to invent (P7).
+// Returns null when a live entry already holds the label.
+async function addHumanLegendEntry(sql, tenantId, row) {
+  const out = await sql`
+    insert into public.legend_entries (
+      tenant_id, job_id, origin, status, label, normalized_label,
+      description, category, created_by_label, reviewed_at, reviewed_by_label
+    ) values (
+      ${tenantId}, ${row.jobId}, 'human', 'accepted', ${row.label}, ${normalizeLabel(row.label)},
+      ${row.description}, ${row.category}, ${row.createdByLabel}, now(), ${row.createdByLabel}
+    )
+    on conflict (tenant_id, job_id, normalized_label)
+      where status in ('suggested', 'accepted', 'edited')
+    do nothing
+    returning *`;
+  return out.length ? out[0] : null;
+}
+
+async function setLegendCrop(sql, tenantId, jobId, entryId, url) {
+  const rows = await sql`
+    update public.legend_entries
+    set symbol_crop_url = ${url}
+    where tenant_id = ${tenantId} and job_id = ${jobId} and id = ${entryId}
+    returning *`;
+  return rows.length ? rows[0] : null;
+}
+
 module.exports = {
   OVERRIDE_FIELDS,
   SHEET_TYPES,
+  LEGEND_CATEGORIES,
+  LEGEND_TRANSITIONS,
+  normalizeLabel,
   resolveTenantId,
   findCachedExtraction,
   insertExtraction,
@@ -156,4 +289,12 @@ module.exports = {
   listOverrides,
   upsertOverride,
   deleteOverride,
+  listLegendEntries,
+  acceptedLegendEntries,
+  rejectedLegendLabels,
+  insertLegendSuggestions,
+  getLegendEntry,
+  reviewLegendEntry,
+  addHumanLegendEntry,
+  setLegendCrop,
 };
