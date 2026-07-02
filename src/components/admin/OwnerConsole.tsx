@@ -31,8 +31,19 @@ import {
  * no vanity numbers.
  */
 export function OwnerConsole({ summary }: { summary: OwnerSummary }) {
-  const { meta, capabilities, health, flags, settings, usage, audit, coverage, problems, nextActions } =
-    summary;
+  const {
+    meta,
+    capabilities,
+    health,
+    flags,
+    settings,
+    usage,
+    errors,
+    audit,
+    coverage,
+    problems,
+    nextActions,
+  } = summary;
 
   const onCount = flags.items.filter((f) => f.resolved).length;
   const expiredCount = flags.items.filter((f) => f.expiryStatus === "expired").length;
@@ -133,6 +144,77 @@ export function OwnerConsole({ summary }: { summary: OwnerSummary }) {
           <p className="mt-3 text-sm text-text-muted">No activity recorded in the last 7 days.</p>
         )}
         <NotInstrumented items={usage.notInstrumented} />
+      </Section>
+
+      {/* Errors (#154) — the platform error journal. Partial by design; the
+          caption states scope so the panel never overclaims coverage. */}
+      <Section
+        title="Errors"
+        source={errors?.source ?? "platform error journal (platform/errors.json)"}
+        caption={errors?.coverageNote}
+      >
+        {!errors ? (
+          <EmptyState
+            title="Errors panel unavailable"
+            description="The owner endpoint did not return the errors section."
+          />
+        ) : !errors.available ? (
+          <EmptyState
+            title="No errors recorded yet"
+            description="Nothing captured by the wrapped api handlers or the client error boundary."
+          />
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              <StatCard label="Events (7d)" value={String(errors.count7d)} />
+              <StatCard label="Recorded" value={String(errors.total)} hint={`cap ${errors.cap}`} />
+              <StatCard
+                label="Top groups"
+                value={String(errors.topGroups.length)}
+                hint="by fingerprint"
+              />
+            </div>
+            {errors.topGroups.length > 0 ? (
+              <div className="mt-3 space-y-1.5">
+                {errors.topGroups.map((g) => (
+                  <Row key={g.fingerprint}>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm text-text">
+                        <span className="font-mono font-semibold">{g.handler}</span> · {g.message}
+                      </p>
+                      <p className="text-xs text-text-muted">
+                        last seen {fmtTime(g.lastSeen)} · {g.source}
+                      </p>
+                    </div>
+                    <StatusChip tone="neutral" dot={false}>
+                      {g.count}
+                    </StatusChip>
+                  </Row>
+                ))}
+              </div>
+            ) : null}
+            {errors.recent.length > 0 ? (
+              <div className="mt-3 divide-y divide-border overflow-hidden rounded-card border border-border">
+                {errors.recent.map((e) => (
+                  <div
+                    key={e.id}
+                    className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-4 py-2.5"
+                  >
+                    <span className="font-mono text-xs text-text-muted">{fmtTime(e.ts)}</span>
+                    <span className="font-mono text-sm font-semibold text-text">{e.handler}</span>
+                    <span className="min-w-0 flex-1 truncate text-sm text-text-muted">
+                      {e.message}
+                    </span>
+                    <span className="ml-auto text-xs text-text-muted">
+                      {e.source}
+                      {e.statusCode != null ? ` · ${e.statusCode}` : ""}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </>
+        )}
       </Section>
 
       {/* Feature control board (#760) */}
