@@ -135,15 +135,44 @@ consumes. Rides the same flag, handler, run-log cache and spend cap.
   vocabulary source of truth (the legacy takeoff loop still reads its own
   copy until it migrates).
 
+## Schedule tables (#202, machinery shared with #207)
+
+Tabular extraction with a side-by-side human verification view — lighting
+schedules first; the machinery is table-type-agnostic and #207 adds the
+switchboard mapper on top. Same flag, run-log cache and spend cap.
+
+- **Extract**: schedule-classified pages get "Extract lighting schedule" —
+  one vision call (`kind = schedule-lighting`, prompt `sl-v1`) returning
+  every table on the page: raw headers, a canonical column map
+  (`typeCode/description/manufacturer/model/lamp/wattage/qty`; unmapped
+  columns keep their raw header), and every row's cells as
+  `{value, confidence}`. **Verbatim policy**: cells are exactly the printed
+  text, abbreviations never expanded; unreadable cells are `null` +
+  flagged, never invented (P7).
+- **Verify**: `ScheduleTablesCard` renders rows against a canvas-cropped
+  **source strip** of the row's region; low-confidence cells are marked;
+  per-cell corrections (`edited`) win on read with the AI's original
+  preserved; rows accept/reject; accepted rows stay fixable. The accuracy
+  line counts corrected cells openly — errors measured, not hidden.
+- **Lifecycle**: re-extracting a page (new raster / prompt bump) inserts a
+  NEW table and supersedes the old with its rows intact for the trail —
+  schedule rows have no stable cross-run identity, so unlike page-keyed
+  #197 overrides, corrections do not carry across a re-extraction.
+- Storage: `schedule_tables` + `schedule_rows`
+  (migration `20260703080000_epic5_schedule_tables.sql`, both kinds); runs
+  log into `plan_sheet_extractions` with the widened `kind` CHECK.
+- A very long schedule can overrun the 4k output cap — the run then fails
+  honestly (502, nothing stored); chunked extraction is a known follow-up.
+
 ## Honest limits (deliberate, this slice)
 
 - **No server-side PDF/OCR pipeline** — pages must have been rendered by the
   existing upload flow (client-side PDF.js → `set-pages`).
-- **Per-page + legend extraction only** — no schedule extraction yet
-  (#202/#207), no revision diff (#203), no device recognition (#204/#205).
-- Legend accuracy AC (#201: compare against a human's listing of a real
-  legend sheet, misses documented) needs prod — same owner-preview session
-  as the #197/#199 checks.
+- **Lighting schedules only so far** — the switchboard mapper + board
+  grouping is #207; no revision diff (#203), no device recognition
+  (#204/#205).
+- Accuracy ACs (#201 legend listing, #202 cell-level error rate on a real
+  schedule) need prod — same owner-preview session as the #197/#199 checks.
 - **The ≥10-page real-set end-to-end check (final #197 AC) needs production**
   (real Anthropic key + Supabase + a real drawing set) — run it there with
   the flag in owner-preview before closing the issue.
