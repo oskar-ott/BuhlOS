@@ -45,6 +45,7 @@ const EXACT_STORES = [
   'licence-reminder-state.json', // licence alert dedupe state (#331)
   'temps/assets.json',
   'temps/movements.json',
+  'platform/errors.json', // error-event journal (#154) — capped FIFO, still a canonical store
 ];
 
 /** Multi-document stores (path prefixes; every *.json under them). */

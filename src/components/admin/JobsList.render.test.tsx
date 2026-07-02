@@ -261,6 +261,15 @@ describe("JobsList — §3 portfolio card presentation (admin redesign)", () => 
     expect(noCreate).not.toContain('data-testid="jobs-new-job"');
   });
 
+  it("keeps the +New job entry point on the zero-jobs empty state (first-job path)", () => {
+    const withCreate = renderWith("", [], { newJobHref: "/v2/jobs/new" });
+    expect(withCreate).toContain("No active jobs");
+    expect(withCreate).toContain('data-testid="jobs-new-job"');
+    const noCreate = render("", []);
+    expect(noCreate).toContain("No active jobs");
+    expect(noCreate).not.toContain('data-testid="jobs-new-job"');
+  });
+
   it("shows the per-card Build chip only for admin builders", () => {
     const jobs: ReadonlyArray<Job> = [job({ id: "a", name: "Alpha", status: "active" })];
     const asBuilder = renderWith("", jobs, { canBuild: true });

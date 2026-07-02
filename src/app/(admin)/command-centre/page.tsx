@@ -13,6 +13,7 @@ import {
   FileCheck2,
   Inbox,
   Layers,
+  MessageCircleQuestion,
   Package,
   RotateCcw,
   UserX,
@@ -34,6 +35,7 @@ import {
   blobProofQueueDeps,
   type ProofQueueItem,
 } from "@/server/job-control/proof-queue";
+import { runRfiScan, blobRfiScanDeps } from "@/server/rfi/overdue-rfis";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import {
   TimeEntryListResponseSchema,
@@ -83,6 +85,7 @@ const BOARD_ICON: Record<BoardIcon, LucideIcon> = {
   "user-x": UserX,
   layers: Layers,
   package: Package,
+  "message-circle-question": MessageCircleQuestion,
 };
 
 /**
@@ -106,6 +109,8 @@ const BOARD_ICON: Record<BoardIcon, LucideIcon> = {
  *   - Plan mismatches — type='plan_mismatch' subset of the observations fetch (PR 7)
  *   - Material requests — open subset of /api/material-requests (PR 11; status
  *     in {requested, approved} = "office action needed before procurement")
+ *   - RFIs overdue (#276 chase, flag-gated `rfi_register`) — cross-job scan of
+ *     jobs/<id>/rfis.json over the snapshot's live jobs; dark = zero reads
  *
  * Followed by a thin "Live surfaces" strip linking to the four working
  * admin pages (Hours, Approvals, Gear, Jobs). Anything else is still
@@ -136,6 +141,11 @@ export default async function CommandCentrePage() {
   const proofPromise = showProofReview
     ? runProofQueue(blobProofQueueDeps())
     : Promise.resolve(null);
+
+  // #276 chase — is the RFI register live for this viewer? Resolved up front so
+  // a dark flag does ZERO extra reads (the scan below never runs) and renders
+  // no RFI tile at all.
+  const rfiEnabled = await isFlagEnabled("rfi_register", session);
 
   const {
     hoursPending,
@@ -231,6 +241,20 @@ export default async function CommandCentrePage() {
   const missingSummary = summariseMissing(hoursMissing);
   const missingHoursCount = missingSummary.workerCount;
 
+  // #276 chase — overdue RFIs across live jobs. The register store is per-job
+  // (jobs/<id>/rfis.json, no cross-job index), so this is the one snapshot
+  // source needing a real fan-out: BOUNDED to the snapshot's live jobs (the
+  // list already fetched above — no second jobs read), all in parallel, and
+  // only when the `rfi_register` flag is on (off ⇒ zero extra reads). It runs
+  // after the snapshot because it needs that job list; the day is judged in
+  // the business timezone, same boundary the hours surfaces use.
+  const rfiScan = rfiEnabled ? await runRfiScan(jobs, blobRfiScanDeps()) : null;
+  const rfiToday = localDateString(new Date(), BUSINESS_TIMEZONE);
+  const rfiError =
+    rfiScan && rfiScan.failedJobs.length > 0
+      ? `${rfiScan.failedJobs.length} job${rfiScan.failedJobs.length === 1 ? "’s" : "s’"} RFIs couldn’t be read`
+      : null;
+
   // Itemised "Needs attention" projection over the SAME already-loaded,
   // admin-gated sources the count cards use — no new fetch, no new store.
   const exceptions = decorateAges(
@@ -240,6 +264,8 @@ export default async function CommandCentrePage() {
       jobs,
       observations,
       materialRequests,
+      // Flag off / scan skipped → the optional source is simply absent.
+      ...(rfiScan ? { rfis: rfiScan.rfis, today: rfiToday } : {}),
     }),
     Date.now(),
   );
@@ -248,7 +274,8 @@ export default async function CommandCentrePage() {
       hoursRejectedError ||
       jobsError ||
       observationsError ||
-      materialRequestsError);
+      materialRequestsError ||
+      rfiError);
   // The mobile home also reads expenses (the "to approve" count) — fold its
   // error in so a failed expenses fetch shows the mobile "couldn't load every
   // queue" card and blocks all-clear (no fabricated 0). Desktop is unchanged
@@ -314,6 +341,14 @@ export default async function CommandCentrePage() {
     { key: "missing", label: "Missing hours", count: missingHoursCount, href: "/hours", icon: "user-x" },
     { key: "plan", label: "Plan mismatches", count: planMismatchCount, href: "/observations", icon: "layers" },
     { key: "materials", label: "Material requests", count: materialRequestCount, href: "/material-requests", icon: "package" },
+    // #276 chase — overdue RFIs across live jobs. Count derived from the SAME
+    // exceptions projection (one judgement of "overdue", one number). No
+    // cross-job RFI surface exists, so the tile links to the jobs list (each
+    // needs-you-now card deep-links to its job's register); no tile when the
+    // flag is off, and buildBoard drops it at zero like every other loop.
+    ...(rfiScan
+      ? [{ key: "rfis", label: "RFIs overdue", count: exceptions.filter((e) => e.source === "rfi").length, href: "/v2/jobs", icon: "message-circle-question" as const }]
+      : []),
   ];
   const board = buildBoard({
     crewOnSite: todayStrip ? todayStrip.crewCount : null,
@@ -396,6 +431,7 @@ export default async function CommandCentrePage() {
             jobsError ??
             observationsError ??
             materialRequestsError ??
+            rfiError ??
             expensesError
           }
           allClear={mobileAllClear}
@@ -564,7 +600,8 @@ export default async function CommandCentrePage() {
                 hoursMissingError ??
                 jobsError ??
                 observationsError ??
-                materialRequestsError}
+                materialRequestsError ??
+                rfiError}
               . The board may be incomplete.
             </CardDescription>
             <div className="mt-3">

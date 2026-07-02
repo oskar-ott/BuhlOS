@@ -136,6 +136,20 @@ describe("applyProofReview — approve / reject (separate admin action + indepen
     expect(r.reason).toBe("self_review");
   });
 
+  it("a null actor cannot approve — the guard fails closed, not open (#579)", () => {
+    const r = applyProofReview(submitted(), { action: "approve", taskRef: T1 }, { ...CTX, actor: null });
+    expect(r.ok).toBe(false);
+    if (r.ok) throw new Error("unreachable");
+    expect(r.reason).toBe("reviewer_identity_required");
+  });
+
+  it("a null actor cannot reject either (#579)", () => {
+    const r = applyProofReview(submitted(), { action: "reject", taskRef: T1, reason: "x" }, { ...CTX, actor: null });
+    expect(r.ok).toBe(false);
+    if (r.ok) throw new Error("unreachable");
+    expect(r.reason).toBe("reviewer_identity_required");
+  });
+
   it("a different admin approves a submitted review", () => {
     const r = applyProofReview(submitted(), { action: "approve", taskRef: T1 }, { ...CTX, actor: "u_admin" });
     expect(r.ok).toBe(true);

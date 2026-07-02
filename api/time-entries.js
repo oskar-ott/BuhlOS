@@ -512,3 +512,8 @@ async function enrichEntries(entries, viewer) {
     };
   });
 }
+
+// #154: capture any error that ESCAPES the handler above (its internal
+// try/catches stay the primary handling) — journal + 500. Signature unchanged.
+const { withErrorCapture } = require('./_lib/error-wrap');
+module.exports = withErrorCapture(module.exports, 'time-entries');

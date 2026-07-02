@@ -59,6 +59,10 @@ const h = vi.hoisted(() => ({
   proofResult: { ok: true, items: [] as unknown[], scannedJobs: 0, failedJobs: [] as string[] } as
     | { ok: true; items: unknown[]; scannedJobs: number; failedJobs: string[] }
     | { ok: false; error: string },
+  // #276 chase — rfi_register flag + the cross-job RFI scan result.
+  rfiFlagOn: false,
+  rfiScanCalls: 0,
+  rfiResult: { rfis: [] as unknown[], scannedJobs: 0, failedJobs: [] as string[] },
 }));
 
 // #760 kill-switch flags are LIVE by default, so their Command Centre cards
@@ -74,7 +78,11 @@ const KILL_SWITCHES_ON = new Set([
 ]);
 vi.mock("../../../../api/_lib/feature-flags.js", () => ({
   isFlagEnabled: async (key: string) =>
-    key === "admin_proof_review" ? h.proofFlagOn : KILL_SWITCHES_ON.has(key),
+    key === "admin_proof_review"
+      ? h.proofFlagOn
+      : key === "rfi_register"
+        ? h.rfiFlagOn
+        : KILL_SWITCHES_ON.has(key),
   listFlags: () => [],
   isFlagOn: async () => false,
 }));
@@ -84,6 +92,16 @@ vi.mock("../../../../api/_lib/feature-flags.js", () => ({
 vi.mock("@/server/job-control/proof-queue", () => ({
   runProofQueue: async () => h.proofResult,
   blobProofQueueDeps: () => ({}),
+}));
+
+// #276 — the cross-job RFI scan reads blobs directly too; mocked + counted so
+// the tests can also assert "flag off ⇒ the scan never runs" (zero reads).
+vi.mock("@/server/rfi/overdue-rfis", () => ({
+  runRfiScan: async () => {
+    h.rfiScanCalls += 1;
+    return h.rfiResult;
+  },
+  blobRfiScanDeps: () => ({}),
 }));
 
 import CommandCentrePage from "./page";
@@ -228,6 +246,9 @@ beforeEach(() => {
   vi.unstubAllGlobals();
   h.proofFlagOn = false;
   h.proofResult = { ok: true, items: [], scannedJobs: 0, failedJobs: [] };
+  h.rfiFlagOn = false;
+  h.rfiScanCalls = 0;
+  h.rfiResult = { rfis: [], scannedJobs: 0, failedJobs: [] };
 });
 
 afterEach(() => {
@@ -376,5 +397,73 @@ describe("/command-centre board (§2)", () => {
     const html = await renderPage();
     expect(html).toContain("Owner numbers");
     expect(html).toContain('href="/reports"');
+  });
+
+  // ── RFIs overdue (#276 chase, flagged rfi_register) ─────────────────────
+  function overdueRfi(id: string, daysAgo: number): Record<string, unknown> {
+    const due = new Date(Date.now() - daysAgo * 86_400_000).toISOString().slice(0, 10);
+    return {
+      id,
+      jobId: "j1",
+      jobName: "Marriott St",
+      ref: "RFI-004",
+      subject: "Panel location",
+      question: "Where does the DB go?",
+      askedOf: "builder@example.com",
+      status: "sent",
+      responseDue: due,
+      sentAt: null,
+      answer: "",
+      answeredAt: null,
+      answeredBy: null,
+      closedReason: "",
+      observationId: null,
+      convertedFromObservationId: null,
+      areaId: null,
+      planId: null,
+      raisedById: "u1",
+      raisedByName: "Oskar",
+      createdAt: "2026-06-15T00:00:00.000Z",
+      updatedAt: "2026-06-15T00:00:00.000Z",
+      auditLogIds: [],
+    };
+  }
+
+  it("does NOT run the RFI scan and renders no RFI tile when rfi_register is off (zero extra reads)", async () => {
+    stubFetch({ submittedEntries: [], pulse: pulseBody() });
+    const html = await renderPage();
+    expect(h.rfiScanCalls).toBe(0);
+    expect(html).not.toContain("RFIs overdue");
+  });
+
+  it("surfaces an overdue RFI when the flag is on — needs-you-now card + open-work tile, deep-linked to the register", async () => {
+    h.rfiFlagOn = true;
+    h.rfiResult = { rfis: [overdueRfi("rfi_1", 10)], scannedJobs: 1, failedJobs: [] };
+    stubFetch({ submittedEntries: [], pulse: pulseBody() });
+    const html = await renderPage();
+    expect(h.rfiScanCalls).toBe(1);
+    // Needs-you-now card: real ref + subject, linked to the job's register.
+    expect(html).toContain("RFI-004 overdue — Panel location");
+    expect(html).toContain('href="/v2/jobs/j1/rfis"');
+    // Open-work heatmap tile with the real count.
+    expect(html).toContain('aria-label="RFIs overdue: 1"');
+  });
+
+  it("stays calm with the flag on and nothing overdue — no tile (buildBoard drops zero loops), All clear intact", async () => {
+    h.rfiFlagOn = true;
+    h.rfiResult = { rfis: [], scannedJobs: 3, failedJobs: [] };
+    stubFetch({ submittedEntries: [], pulse: pulseBody() });
+    const html = await renderPage();
+    expect(html).not.toContain("RFIs overdue");
+    expect(html).toContain("All clear");
+  });
+
+  it("discloses a partial RFI scan (failedJobs) via the 'couldn't load every signal' card — no silent undercount", async () => {
+    h.rfiFlagOn = true;
+    h.rfiResult = { rfis: [], scannedJobs: 3, failedJobs: ["j2", "j3"] };
+    stubFetch({ submittedEntries: [], pulse: pulseBody() });
+    const html = await renderPage();
+    expect(html).toContain("Couldn’t load every signal");
+    expect(html).toContain("RFIs couldn’t be read");
   });
 });
