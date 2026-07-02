@@ -171,6 +171,18 @@ export const VariationClaimRecordSchema = z
 
 export type VariationClaimRecord = z.infer<typeof VariationClaimRecordSchema>;
 
+// ── Wire responses ─────────────────────────────────────────────────────────--
+
+/** GET /api/variations?jobId=<id> — one job's claims, newest first. */
+export const VariationClaimsResponseSchema = z.object({
+  claims: z.array(VariationClaimRecordSchema),
+});
+
+/** POST (201) / PATCH (200) /api/variations — the created/updated claim. */
+export const VariationClaimMutationResponseSchema = z.object({
+  claim: VariationClaimRecordSchema,
+});
+
 // ── Create input ───────────────────────────────────────────────────────────--
 
 /**

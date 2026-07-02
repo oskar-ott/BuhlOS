@@ -1,5 +1,5 @@
 import { createRequire } from "node:module";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * Integration tests for api/variations.js — the real serverless handler against
@@ -461,6 +461,10 @@ describe("PATCH /api/variations (pipeline + approval gate + invoice)", () => {
 
 describe("POST /api/observations?action=convert-to-variation (#280)", () => {
   beforeEach(() => {
+    // The conversion is double flag-gated (observations_inbox kill-switch is
+    // default-on; variations_register is default-dark) — light the register
+    // flag for these tests, mirroring the rfi_register pattern.
+    process.env.FLAG_VARIATIONS_REGISTER = "true";
     blob.set("observations.json", {
       observations: [
         {
@@ -485,6 +489,9 @@ describe("POST /api/observations?action=convert-to-variation (#280)", () => {
         },
       ],
     });
+  });
+  afterEach(() => {
+    delete process.env.FLAG_VARIATIONS_REGISTER;
   });
 
   it("admin converts a variation-typed observation into a real claim + back-link + dual audit", async () => {
@@ -564,6 +571,15 @@ describe("POST /api/observations?action=convert-to-variation (#280)", () => {
     const res = await call({
       method: "POST", role: "boss", userId: "u_boss", via: "observations",
       query: { action: "convert-to-variation" }, body: { id: "missing" },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("404s when the variations_register flag is dark", async () => {
+    delete process.env.FLAG_VARIATIONS_REGISTER;
+    const res = await call({
+      method: "POST", role: "boss", userId: "u_boss", via: "observations",
+      query: { action: "convert-to-variation" }, body: { id: "ov1" },
     });
     expect(res.statusCode).toBe(404);
   });

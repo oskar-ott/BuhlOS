@@ -142,6 +142,9 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
   const rfiEnabled = await isFlagEnabled("rfi_register", session);
   // #217: surface the meeting-minutes register section when the flag is on.
   const minutesEnabled = await isFlagEnabled("minutes_register", session);
+  // #280: surface the variation-claims register section when the flag is on.
+  // Admin-tier flag — resolves false for an LH viewer (claims are billing).
+  const variationsEnabled = await isFlagEnabled("variations_register", session);
   // #365: surface the imported BOQ cost-basis card when the flag is on (the
   // card self-hides for jobs that weren't created from a BOQ import).
   const costImportEnabled = await isFlagEnabled("job_doc_import", session);
@@ -366,6 +369,7 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
           certificatesEnabled={certificatesEnabled}
           rfiEnabled={rfiEnabled}
           minutesEnabled={minutesEnabled}
+          variationsEnabled={variationsEnabled}
           itpEnabled={itpEnabled}
           killSwitches={killSwitches}
         />

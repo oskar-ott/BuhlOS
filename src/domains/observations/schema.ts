@@ -143,6 +143,10 @@ export const ObservationItemSchema = z
      *  RFI via POST /api/observations?action=convert-to-rfi (mirrors
      *  linkedSnagId / linkedMaterialRequestId). */
     linkedRfiId: z.string().nullable().optional(),
+    /** #280: set when the observation has been converted to a real variation
+     *  CLAIM via POST /api/observations?action=convert-to-variation (mirrors
+     *  linkedRfiId — the claim lives at /v2/jobs/<id>/variations). */
+    linkedVariationId: z.string().nullable().optional(),
     photoUrls: z.array(z.string()),
 
     // Variation flag (#369). Set only on a `variation`-typed observation — a
@@ -373,4 +377,14 @@ export const ObservationConvertToMaterialRequestResponseSchema = z.object({
 export const ObservationConvertToRfiResponseSchema = z.object({
   observation: ObservationItemSchema,
   rfi: z.object({ id: z.string() }).passthrough(),
+});
+
+/** #280: POST /api/observations?action=convert-to-variation response — the
+ *  updated observation AND the newly-minted variation CLAIM (passthrough object
+ *  so this schema doesn't couple to the variations domain; only `id` and the
+ *  register `ref` are contractually required for the inbox to link to
+ *  /v2/jobs/<id>/variations and name the claim). */
+export const ObservationConvertToVariationResponseSchema = z.object({
+  observation: ObservationItemSchema,
+  variation: z.object({ id: z.string(), ref: z.string() }).passthrough(),
 });

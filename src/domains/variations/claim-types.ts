@@ -4,7 +4,9 @@ import type {
   VariationApprovalEvidenceSchema,
   VariationApprovalMethodSchema,
   VariationClaimLinksSchema,
+  VariationClaimMutationResponseSchema,
   VariationClaimRecordSchema,
+  VariationClaimsResponseSchema,
   VariationClaimStatusSchema,
 } from "./claim-schema";
 
@@ -17,6 +19,8 @@ export type VariationApprovalEvidence = z.infer<typeof VariationApprovalEvidence
 export type VariationClaimLinks = z.infer<typeof VariationClaimLinksSchema>;
 export type VariationClaimRecord = z.infer<typeof VariationClaimRecordSchema>;
 export type CreateVariationClaimInput = z.infer<typeof CreateVariationClaimInputSchema>;
+export type VariationClaimsResponse = z.infer<typeof VariationClaimsResponseSchema>;
+export type VariationClaimMutationResponse = z.infer<typeof VariationClaimMutationResponseSchema>;
 
 // ── Transition events ─────────────────────────────────────────────────────---
 

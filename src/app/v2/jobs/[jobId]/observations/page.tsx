@@ -54,6 +54,10 @@ export default async function JobObservationsPage({ params }: PageParams) {
   // #276/#737: when the RFI register is on, the inbox offers a REAL
   // "Convert to RFI" (mints a register RFI) instead of the intent-only tag.
   const rfiEnabled = await isFlagEnabled("rfi_register", session);
+  // #280: same promotion for variation claims when their register is on
+  // (admin-tier flag — resolves false for an LH viewer, whose inbox is
+  // read-only here anyway via actionsEnabled).
+  const variationsEnabled = await isFlagEnabled("variations_register", session);
 
   const { job, jobError, observations, observationsError } = await loadJobAndObservations(raw, jobId);
 
@@ -120,6 +124,7 @@ export default async function JobObservationsPage({ params }: PageParams) {
           actionsEnabled={isAdminRole(session.role)}
           showJobFilter={false}
           rfiEnabled={rfiEnabled}
+          variationsEnabled={variationsEnabled}
         />
       </div>
     </AdminShell>

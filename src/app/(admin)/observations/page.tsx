@@ -40,6 +40,8 @@ export default async function ObservationsPage() {
 
   // #276/#737: real "Convert to RFI" in the inbox when the register is on.
   const rfiEnabled = await isFlagEnabled("rfi_register", session);
+  // #280: real "Convert to Variation claim" when the claims register is on.
+  const variationsEnabled = await isFlagEnabled("variations_register", session);
 
   const { observations, fetchError } = await loadObservations(raw);
 
@@ -64,6 +66,7 @@ export default async function ObservationsPage() {
             role: String(session.role ?? ""),
           }}
           rfiEnabled={rfiEnabled}
+          variationsEnabled={variationsEnabled}
         />
       </div>
     </AdminShell>
