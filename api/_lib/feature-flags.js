@@ -428,6 +428,12 @@ const REGISTRY = {
     target: 'admin-tier',
     expires: '2026-12-31',
   },
+  ai_office_daily_summary: {
+    description: 'Morning summary of yesterday across jobs — deterministic facts (hours/snags/evidence/blockers), AI only rephrases, every number grounded (#171). Dark.',
+    default: false,
+    target: 'admin-tier',
+    expires: '2026-12-31',
+  },
   // Per-job ITP / QA (#474/#476): hold/witness/record points + office sign-off.
   // Unlike the registers above, ITPs are ALREADY LIVE — so this is a KILL SWITCH,
   // not a launch gate: default ON (killSwitch:true), and the owner can turn the
@@ -561,6 +567,7 @@ const FLAG_PRESENTATION = {
   ai_insights_digest: { label: 'AI insights digest', domain: 'Company', surface: 'BuhlOS', previewHref: '/reports' },
   ai_quote_drafts: { label: 'AI quote drafts', domain: 'Commercial', surface: 'BuhlOS', previewHref: '/v2/quotes' },
   ai_contract_obligations: { label: 'AI contract obligations', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/v2/jobs' },
+  ai_office_daily_summary: { label: 'AI office daily summary', domain: 'Company', surface: 'BuhlOS', previewHref: '/reports' },
 
   // #760 kill-switches. `core: true` = load-bearing spine; the board warns
   // before the owner turns one off.

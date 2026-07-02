@@ -106,6 +106,7 @@
     { "path": "/api/internal/sync-checks/structure",            "schedule": "0 18 * * *"   },
     { "path": "/api/internal/mirror-tasks",                     "schedule": "*/10 * * * *" },
     { "path": "/api/internal/mirror-evidence",                  "schedule": "*/15 * * * *" },
-    { "path": "/api/insights-digest?action=generate",           "schedule": "0 21 * * 0"   }
+    { "path": "/api/insights-digest?action=generate",           "schedule": "0 21 * * 0"   },
+    { "path": "/api/office-daily-summary?action=generate",      "schedule": "30 20 * * *"  }
   ]
 }

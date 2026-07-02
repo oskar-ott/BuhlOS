@@ -1,11 +1,11 @@
 # AI suggestions — the review conventions (2026-07 standalone AI batch)
 
 > Scope: #246 quote drafts · #262 photo labels · #267 snag suggestions ·
-> #347 insights digest · #373 contract obligations. All five ride the #170
-> assistant foundation and the shared conventions below. All five ship
-> **flag-dark** (default OFF, admin-tier): `ai_quote_drafts`,
+> #347 insights digest · #373 contract obligations · #171 office daily
+> summary. All ride the #170 assistant foundation and the shared conventions
+> below. All ship **flag-dark** (default OFF, admin-tier): `ai_quote_drafts`,
 > `ai_photo_labels`, `ai_snag_suggestions`, `ai_insights_digest`,
-> `ai_contract_obligations`.
+> `ai_contract_obligations`, `ai_office_daily_summary`.
 
 ## The rule
 
@@ -56,6 +56,26 @@ entries record both the suggestion event and the human decision.
   (cron-capable via CRON_SECRET; the vercel.json cron line lands when the
   flag turns on). Coverage footer states what the digest does and does not
   see. Boundary: per-record staleness detection belongs to #175.
+- **#171 office daily summary** — the #347 two-stage pattern applied daily:
+  deterministic fact-gathering over the previous Sydney calendar day
+  (`api/_lib/office-summary.js`, pure, fixture-tested — hours via the shared
+  per-user blob walk `listEntriesForDate`, snags/evidence per active job,
+  blocker observations) → the model only REPHRASES the fact table into a
+  short narrative; every numeral is validated against the facts, any miss →
+  the deterministic lines render alone (AI absence degrades to facts, never
+  to nothing or fakes). Stored per day at
+  `analytics/office-summaries/<date>.json` (covered by the `analytics/`
+  backup-manifest prefix) with the fact table + a coverage record naming
+  read failures ("2 of 14 timesheets unreadable") — partial data is never
+  presented as complete. Generated on-demand from /reports and by a daily
+  cron (20:30 UTC ≈ 6:30–7:30am Sydney) that no-ops while the flag is dark
+  (tested). First non-quiet generation of a date pushes the admin tier
+  (`pushedAt` dedupe); a quiet day stores the honest record and sends
+  nothing. Relationship to the non-AI 5pm `send-daily-digest` push:
+  **coexist, distinct jobs** — 5pm is a same-day one-line scoreboard nudge,
+  7am is yesterday's persisted auditable narrative; revisit once live.
+  Boundaries: anomalies belong to #347; current-state metrics to #316;
+  per-user tailoring is future (#170's dual-principal question).
 - **#246 quote drafts** — drafts live in the quote doc's additive `aiDraft`
   field; totals never read it. Paste-first input (12,000-char truncation
   disclosed); the Epic-5 takeoff input is a typed, stubbed contract. Accepted
@@ -86,5 +106,11 @@ transitions, and that nothing unreviewed becomes authoritative.
   admin action, capped per batch, cost documented before running.
 - `ai_insights_digest` (#347): add the weekly vercel.json cron + admin push
   fan-out when (not before) the flag turns on.
-- All five: `ANTHROPIC_API_KEY` must be present in the environment or every
-  surface shows its honest "AI is not configured" state.
+- `ai_office_daily_summary` (#171): measure per-generation cost (one model
+  call/day, facts payload scales with active jobs) on the PR preview and
+  record it on #171 first — cost measurement stays a pre-flip requirement.
+  The daily cron line is already in vercel.json and no-ops while dark
+  (tested); confirm CRON_SECRET is set in prod before flipping so the
+  morning run actually fires.
+- All of them: `ANTHROPIC_API_KEY` must be present in the environment or
+  every surface shows its honest "AI is not configured" state.

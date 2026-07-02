@@ -186,6 +186,44 @@ async function listAllEntriesForApprovers({ status = 'submitted', statuses } = {
     .sort((a, b) => (a.submittedAt || '').localeCompare(b.submittedAt || ''));
 }
 
+// Walk every user's time-entry blob for ONE date — the walk the daily-digest
+// cron (api/notifications.js) and day-pulse inline; shared here so the #171
+// office summary (and future consumers, e.g. #177) run the SAME read.
+// Unlike those best-effort inlines this one COUNTS what it could not read
+// (`unreadable`) so an auditable document can state its coverage gaps
+// instead of presenting partial data as complete.
+async function listEntriesForDate(date) {
+  const token = process.env.BLOB_READ_WRITE_TOKEN;
+  let blobs;
+  try {
+    const res = await list({ prefix: 'users/', token, limit: 5000 });
+    blobs = res.blobs || [];
+  } catch (e) {
+    console.error('list error', e.message);
+    return { entries: [], unreadable: -1 }; // -1 = the listing itself failed
+  }
+  const dayBlobs = blobs.filter((b) => b.pathname.endsWith(`/time-entries/${date}.json`));
+  let unreadable = 0;
+  const entries = (
+    await Promise.all(
+      dayBlobs.map(async (b) => {
+        try {
+          const r = await fetch(b.url + '?t=' + Date.now(), { cache: 'no-store' });
+          if (!r.ok) {
+            unreadable++;
+            return null;
+          }
+          return await r.json();
+        } catch {
+          unreadable++;
+          return null;
+        }
+      })
+    )
+  ).filter(Boolean);
+  return { entries, unreadable };
+}
+
 // Append an audit row. Best-effort — never blocks the caller's write path.
 async function appendAudit(userId, entryId, action, changedBy, note, diff) {
   try {
@@ -252,6 +290,7 @@ module.exports = {
   deleteEntry,
   listUserEntries,
   listAllEntriesForApprovers,
+  listEntriesForDate,
   appendAudit,
   diffOf,
   entryView,

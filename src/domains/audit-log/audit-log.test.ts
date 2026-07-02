@@ -117,8 +117,10 @@ describe("AuditLogEntrySchema", () => {
     expect([...AUDIT_ACTIONS].sort()).toEqual([
       // #170: AI assistant job summary ('ai.' sorts before 'backup.').
       // #347: stored insights digest ('digest' sorts before 'job_summarised').
+      // #171: stored office daily summary.
       "ai.digest_generated",
       "ai.job_summarised",
+      "ai.office_summary_generated",
       "backup.completed",
       // #231: certificates register.
       "certificate.uploaded",
