@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { Route } from "next";
 import {
   AlertOctagon,
+  Banknote,
   Camera,
   ChevronRight,
   ClipboardCheck,
@@ -35,6 +36,9 @@ interface Props {
   rfiEnabled?: boolean;
   /** #217: show the Minutes register row. Flag-gated (minutes_register) by the hub. */
   minutesEnabled?: boolean;
+  /** #280: show the Variations register row. Flag-gated (variations_register,
+   *  admin-tier) by the hub — resolves false for LH viewers (claims are billing). */
+  variationsEnabled?: boolean;
   /** #760: ITPs are a kill-switch feature — hide the ITP / QA row when off. */
   itpEnabled?: boolean;
   /**
@@ -100,6 +104,7 @@ export function JobInterfaceSectionNav({
   certificatesEnabled = false,
   rfiEnabled = false,
   minutesEnabled = false,
+  variationsEnabled = false,
   itpEnabled = false,
   killSwitches,
 }: Props) {
@@ -264,6 +269,21 @@ export function JobInterfaceSectionNav({
               "Questions to the builder — raised, sent, chased (overdue surfaces) and answered, on the record.",
             href: `/v2/jobs/${jobIdEnc}/rfis` as Route,
             icon: Inbox,
+          } satisfies SectionRow,
+        ]
+      : []),
+    // #280: Variation-claims register — the billable record of extra work
+    // (raise → quote → submit → approve-with-evidence → invoice). Flag-gated by
+    // the hub (variations_register, admin-tier); dark until on.
+    ...(variationsEnabled
+      ? [
+          {
+            kind: "live",
+            label: "Variations",
+            description:
+              "Extra-work claims — priced, submitted and approved with evidence of who said yes, so no variation becomes free work.",
+            href: `/v2/jobs/${jobIdEnc}/variations` as Route,
+            icon: Banknote,
           } satisfies SectionRow,
         ]
       : []),

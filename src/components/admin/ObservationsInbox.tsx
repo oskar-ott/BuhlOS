@@ -79,6 +79,10 @@ interface Props {
    *  REAL conversion (mints a register RFI) with its own button + handler, and
    *  drops out of the intent-only list. Default false → intent-only (unchanged). */
   rfiEnabled?: boolean;
+  /** #280: when the variations_register flag is on, "Convert to Variation claim"
+   *  becomes a REAL conversion (mints a draft claim on the job's register) and
+   *  variation drops out of the intent-only list. Default false → intent-only. */
+  variationsEnabled?: boolean;
 }
 
 /** Intent-only conversion targets — the downstream modules (RFI / Variation /
@@ -91,7 +95,8 @@ const INTENT_CONVERT_OPTIONS: ReadonlyArray<ObservationConvertTarget> = [
   // PR 11 promoted material_request to a REAL conversion target — own section +
   // own handler below. #737 promoted RFI too, but only when rfi_register is on
   // (the register has to exist to mint into) — so RFI is filtered out of this
-  // list at render time when rfiEnabled. Variation remains intent-only.
+  // list at render time when rfiEnabled. #280 did the same for variation:
+  // real conversion when variations_register is on, intent-only otherwise.
   "rfi",
   "variation",
 ];
@@ -108,6 +113,11 @@ const RFI_ELIGIBLE_TYPES = new Set(["rfi"]);
 /** Observation type that auto-promotes to a Material Request without a
  *  force flag (mirror of the api/observations.js convert handler). */
 const MATERIAL_REQUEST_ELIGIBLE_TYPES = new Set(["material_request"]);
+
+/** Observation type that auto-promotes to a real variation CLAIM without a
+ *  force flag (mirror of api/observations.js convertObservationToVariation) —
+ *  the field's "extra work" capture. */
+const VARIATION_ELIGIBLE_TYPES = new Set(["variation"]);
 
 /**
  * BuhlOS Observations Inbox — the office triage surface for field-to-office
@@ -126,6 +136,7 @@ export function ObservationsInbox({
   actionsEnabled = true,
   showJobFilter = true,
   rfiEnabled = false,
+  variationsEnabled = false,
 }: Props) {
   const [observations, setObservations] = useState<ReadonlyArray<ObservationItem>>(
     initialObservations
@@ -290,6 +301,36 @@ export function ObservationsInbox({
     });
   }
 
+  /** #280: real variation-claim conversion. Calls POST /api/observations?
+   *  action=convert-to-variation which mints a draft claim (VO-00N) on the
+   *  job's register and links it back; the response is the updated observation
+   *  (linkedVariationId, convertedTo='variation', status='converted') + the
+   *  claim. Only wired when variationsEnabled. */
+  async function convertToVariation(id: string, force = false) {
+    setBusy(true);
+    setBanner(null);
+    const r = await observationsClient.convertObservationToVariation({ id, force });
+    setBusy(false);
+    if (!r.ok) {
+      const conflictAlready = r.error.status === 409;
+      setBanner({
+        tone: "danger",
+        message: conflictAlready
+          ? "Already converted to a variation claim."
+          : r.error.status === 0
+            ? "Couldn't reach the server. Check your connection and try again."
+            : `Convert to Variation claim failed (${r.error.status}).`,
+      });
+      return;
+    }
+    const updated = r.data.observation;
+    setObservations((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
+    setBanner({
+      tone: "success",
+      message: `Converted — variation claim ${r.data.variation.ref} raised on ${updated.jobName || updated.jobId}.`,
+    });
+  }
+
   // Summary cards — exception-first vitals.
   const stats: InboxStat[] = [
     { key: "needsAction", label: "New / needs action", value: summary.newOrNeedsAction, icon: Inbox, tone: "warning" },
@@ -412,7 +453,9 @@ export function ObservationsInbox({
         onConvertToSnag={convertToSnag}
         onConvertToMaterialRequest={convertToMaterialRequest}
         onConvertToRfi={convertToRfi}
+        onConvertToVariation={convertToVariation}
         rfiEnabled={rfiEnabled}
+        variationsEnabled={variationsEnabled}
       />
     </div>
   );
@@ -548,7 +591,9 @@ function ObservationDrawer({
   onConvertToSnag,
   onConvertToMaterialRequest,
   onConvertToRfi,
+  onConvertToVariation,
   rfiEnabled,
+  variationsEnabled,
   actionsEnabled,
 }: {
   observation: ObservationItem | null;
@@ -564,9 +609,13 @@ function ObservationDrawer({
     fields: { item: string; quantity: number; unit: string; urgency?: ObservationPriority; force?: boolean }
   ) => void;
   onConvertToRfi: (id: string, force?: boolean) => void;
+  onConvertToVariation: (id: string, force?: boolean) => void;
   /** #276/#737: when true, render the REAL "Convert to RFI" section + drop RFI
    *  from the intent-only list. */
   rfiEnabled: boolean;
+  /** #280: when true, render the REAL "Convert to Variation claim" section +
+   *  drop variation from the intent-only list. */
+  variationsEnabled: boolean;
   /** PR 8: when false, render only the read-only details (no triage / priority /
    *  resolve / convert sections). */
   actionsEnabled: boolean;
@@ -635,9 +684,31 @@ function ObservationDrawer({
               </dd>
             </div>
           ) : null}
+          {o.linkedVariationId ? (
+            <div className="flex gap-2">
+              <dt className="w-28 shrink-0 text-text-muted">Linked claim</dt>
+              <dd className="min-w-0 flex-1 text-text">
+                <Link
+                  href={`/v2/jobs/${o.jobId}/variations` as Route}
+                  className="underline decoration-accent-yellow decoration-2 underline-offset-2"
+                >
+                  {o.linkedVariationId} →
+                </Link>
+              </dd>
+            </div>
+          ) : null}
           {o.resolutionNote ? <DetailRow label="Resolution" value={o.resolutionNote} /> : null}
           {o.convertedTo ? (
-            <DetailRow label="Converted to" value={`${convertTargetLabel(o.convertedTo)} — module coming`} />
+            <DetailRow
+              label="Converted to"
+              value={
+                // "module coming" only for INTENT-only conversions — a real
+                // conversion carries a linked record id (honest UI).
+                o.linkedSnagId || o.linkedMaterialRequestId || o.linkedRfiId || o.linkedVariationId
+                  ? convertTargetLabel(o.convertedTo)
+                  : `${convertTargetLabel(o.convertedTo)} — module coming`
+              }
+            />
           ) : null}
         </dl>
 
@@ -883,9 +954,67 @@ function ObservationDrawer({
           </section>
         ) : null}
 
-        {/* Record other conversion intent — the Variation module isn't built yet
-            (and RFI when its register is off). These buttons record the office
-            decision honestly with no downstream record. */}
+        {/* Convert to Variation claim — REAL (#280), only when the register is
+            on. The field's "extra work" capture raises a variation-typed
+            observation; this promotes it to a draft claim on the job's
+            variations register (the office prices it + works the pipeline). */}
+        {variationsEnabled ? (
+          <section className="space-y-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted">
+              Convert to Variation claim
+            </h3>
+            {o.convertedTo === "variation" || o.linkedVariationId ? (
+              <p className="text-xs text-text-muted">
+                Already raised as a variation claim — see the job&rsquo;s Variations register.
+              </p>
+            ) : VARIATION_ELIGIBLE_TYPES.has(o.type) ? (
+              <>
+                <p className="text-xs text-text-muted">
+                  Raises a draft claim (ref <em>VO-00N</em>) on this job&rsquo;s Variations
+                  register with the field&rsquo;s estimate folded in, links it back here, and
+                  moves this to <em>Converted</em>. The office prices it, submits it to the
+                  builder and records the decision there.
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="primary"
+                  disabled={busy}
+                  onClick={() => onConvertToVariation(o.id, false)}
+                >
+                  <ArrowRightLeft aria-hidden="true" className="h-4 w-4" />
+                  Raise variation claim from this observation
+                </Button>
+              </>
+            ) : (
+              <>
+                <p className="text-xs text-text-muted">
+                  This is a <em>{typeLabel(o.type).toLowerCase()}</em> — claims fit the
+                  field&rsquo;s <em>variation</em> capture. Force-convert anyway if you&rsquo;ve
+                  decided it&rsquo;s billable extra work.
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  disabled={busy}
+                  onClick={() => onConvertToVariation(o.id, true)}
+                >
+                  <ArrowRightLeft aria-hidden="true" className="h-4 w-4" />
+                  Force-convert to Variation claim
+                </Button>
+              </>
+            )}
+          </section>
+        ) : null}
+
+        {/* Record other conversion intent — for targets whose module/register is
+            still off (variation when its register is dark; RFI likewise). These
+            buttons record the office decision honestly with no downstream
+            record. The section hides entirely once every target is real. */}
+        {INTENT_CONVERT_OPTIONS.some(
+          (t) => !(rfiEnabled && t === "rfi") && !(variationsEnabled && t === "variation")
+        ) ? (
         <section className="space-y-2">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted">
             Record other intent
@@ -895,7 +1024,9 @@ function ObservationDrawer({
             yet.
           </p>
           <div className="flex flex-wrap gap-2">
-            {INTENT_CONVERT_OPTIONS.filter((t) => !(rfiEnabled && t === "rfi")).map((t) => (
+            {INTENT_CONVERT_OPTIONS.filter(
+              (t) => !(rfiEnabled && t === "rfi") && !(variationsEnabled && t === "variation")
+            ).map((t) => (
               <Button
                 key={t}
                 type="button"
@@ -910,6 +1041,7 @@ function ObservationDrawer({
             ))}
           </div>
         </section>
+        ) : null}
         </>
         )}
         </>

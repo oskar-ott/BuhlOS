@@ -324,6 +324,18 @@ const REGISTRY = {
     target: 'global',
     expires: '2026-12-31',
   },
+  // Per-job variation-claims register (#280): gates the /v2/jobs/[jobId]/variations
+  // admin register UI + the observations "Convert to variation claim" promotion
+  // (api/variations.js itself stays admin-tier-gated regardless — money is never
+  // flag-open). ADMIN-TIER target (not global): claims are billing, an office
+  // concern — the LH job hub never advertises the section and the API 403s
+  // non-admin anyway. Default OFF.
+  variations_register: {
+    description: 'Enable the per-job variation-claims register UI — /v2/jobs/[jobId]/variations over api/variations.js (#280). Dark.',
+    default: false,
+    target: 'admin-tier',
+    expires: '2026-12-31',
+  },
   // Per-job meeting-minutes register (#217): gates /api/job-minutes + the
   // /v2/jobs/[jobId]/minutes admin register (record minutes / add amendment).
   // An append-only record of meeting minutes (date, title, attendees, body
@@ -484,6 +496,7 @@ const FLAG_PRESENTATION = {
   minutes_register: { label: 'Meeting minutes', domain: 'Site records', surface: 'BuhlOS', previewHref: '/v2/jobs' },
   site_instructions_register: { label: 'Site instructions', domain: 'Site records', surface: 'BuhlOS', previewHref: '/v2/jobs' },
   job_doc_import: { label: 'BOQ / pricing import', domain: 'Commercial', surface: 'BuhlOS', previewHref: '/v2/tools/job-doc-import' },
+  variations_register: { label: 'Variation claims', domain: 'Commercial', surface: 'BuhlOS', previewHref: '/v2/jobs' },
   admin_job_field_view: { label: 'Office / Field job view', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/v2/jobs' },
   admin_flags_readout: { label: 'Flags readout card', domain: 'Platform', surface: 'BuhlOS', previewHref: '/command-centre' },
   ai_assistant: { label: 'AI assistant (API foundation)', domain: 'Platform', surface: 'BuhlOS', previewHref: '/v2/jobs' },

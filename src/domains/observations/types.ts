@@ -6,6 +6,7 @@ import type {
   ObservationConvertToMaterialRequestResponseSchema,
   ObservationConvertToRfiResponseSchema,
   ObservationConvertToSnagResponseSchema,
+  ObservationConvertToVariationResponseSchema,
   ObservationItemSchema,
   ObservationListResponseSchema,
   ObservationMutationResponseSchema,
@@ -47,4 +48,7 @@ export type ObservationConvertToMaterialRequestResponse = z.infer<
 >;
 export type ObservationConvertToRfiResponse = z.infer<
   typeof ObservationConvertToRfiResponseSchema
+>;
+export type ObservationConvertToVariationResponse = z.infer<
+  typeof ObservationConvertToVariationResponseSchema
 >;

@@ -1642,10 +1642,16 @@ module.exports = async (req, res) => {
   }
 
   // --- POST ?action=convert-to-variation (#280) ---------------------------
+  // Double flag-gated like convert-to-rfi: observations_inbox (owner
+  // kill-switch) AND variations_register (the claims register UI is dark until
+  // ready — don't mint claims the office can't yet see). Admin-tier only.
   if (req.method === 'POST' && action === 'convert-to-variation') {
     const user = await requireAuth(req, res, { roles: ['admin'] });
     if (!user) return;
     if (!(await isFlagEnabled('observations_inbox', user))) {
+      return res.status(404).json({ error: 'not found' });
+    }
+    if (!(await isFlagEnabled('variations_register', user))) {
       return res.status(404).json({ error: 'not found' });
     }
     try {

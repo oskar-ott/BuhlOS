@@ -5,6 +5,7 @@ import {
   ObservationConvertToMaterialRequestResponseSchema,
   ObservationConvertToRfiResponseSchema,
   ObservationConvertToSnagResponseSchema,
+  ObservationConvertToVariationResponseSchema,
   ObservationListResponseSchema,
   ObservationMutationResponseSchema,
   OfficePhotoUploadResponseSchema,
@@ -16,6 +17,7 @@ import type {
   ObservationConvertToMaterialRequestResponse,
   ObservationConvertToRfiResponse,
   ObservationConvertToSnagResponse,
+  ObservationConvertToVariationResponse,
   ObservationListResponse,
   ObservationMutationResponse,
   OfficePhotoUploadResponse,
@@ -249,6 +251,43 @@ export function convertObservationToRfi(
 }
 
 /**
+ * #280: convert an eligible observation into a real variation CLAIM.
+ *
+ *   POST /api/observations?action=convert-to-variation
+ *   (admin-tier, variations_register)
+ *
+ * Default-eligible type is `variation` (the field's "extra work" capture);
+ * other types need `force: true`. The server mints a draft claim (VO-00N) on
+ * the job's register with the field estimate folded into the description, and
+ * links it back. The office prices it and works the pipeline from
+ * /v2/jobs/<id>/variations. Gated by the variations_register flag (404 when
+ * dark) on top of the observations_inbox kill-switch.
+ *
+ * 201 → { observation, variation }; the observation now has linkedVariationId,
+ * convertedTo='variation', convertedTargetId=variation.id, status='converted'.
+ * 409 → already converted (idempotent). 400 → invalid type + no force, or an
+ * office item (no job). 404 → not found / flag dark. 403 → not admin tier.
+ */
+export function convertObservationToVariation(
+  payload: { id: string; force?: boolean }
+): Promise<HttpResult<ObservationConvertToVariationResponse>> {
+  if (!payload.id) {
+    return Promise.resolve({
+      ok: false,
+      error: { status: 0, body: null, message: "id is required" },
+    });
+  }
+  return httpPost<ObservationConvertToVariationResponse>(
+    "/api/observations?action=convert-to-variation",
+    { id: payload.id, ...(payload.force ? { force: true } : {}) },
+    {
+      schema: ObservationConvertToVariationResponseSchema,
+      init: { cache: "no-store", credentials: "same-origin" },
+    }
+  );
+}
+
+/**
  * Create an OFFICE item — an observation with NO job (the Phil "send to
  * office" path). POST /api/observations?scope=office; staff-only (the server
  * 403s clients). Photos must already be uploaded (uploadOfficePhoto) — the
@@ -306,4 +345,5 @@ export const observationsClient = {
   convertObservationToSnag,
   convertObservationToMaterialRequest,
   convertObservationToRfi,
+  convertObservationToVariation,
 } as const;
