@@ -52,6 +52,8 @@ import { filterSpecsByArea, isCurrent } from "@/domains/documents/format";
 import { CaptureSheet } from "./CaptureSheet";
 import { PhilTestRecordCard, type TestRecordDraft } from "./PhilTestRecordCard";
 import { submitTestRecord } from "./testRecordClient";
+import { ReportSnagSheet } from "./ReportSnagSheet";
+import type { TestRecordRow } from "@/domains/test-records/schema";
 import { TodaysCapturesStrip } from "./TodaysCapturesStrip";
 import { JobSnagsPanel } from "./JobSnagsPanel";
 import { JobItpPanel } from "./JobItpPanel";
@@ -330,6 +332,20 @@ export function PhilJobDetail({
   } | null>(null);
   const [testRecordSaving, setTestRecordSaving] = useState(false);
   const [testRecordError, setTestRecordError] = useState<string | null>(null);
+  // #520: after a successful save whose SERVER-derived record has failed
+  // circuits, the card shows the failed rows + "Report defect" instead of
+  // silently closing. Null on a clean pass (closes exactly as before).
+  const [testRecordSaved, setTestRecordSaved] = useState<{
+    recordId: string;
+    failedRows: TestRecordRow[];
+  } | null>(null);
+  // #520: the defect sheet opened FROM a failed test result — the existing
+  // Report snag sheet, pre-filled with the real readings + the testRecordId.
+  const [testDefectSheet, setTestDefectSheet] = useState<{
+    prefill: { title: string; description: string };
+    testRecordId: string;
+    context: { stage: JobStage | null; areaId: string | null };
+  } | null>(null);
 
   // Worker-visible task state (areaId → stage → taskId → state). Seeded from
   // the server-loaded data blob; only ever advanced by a CONFIRMED
@@ -761,6 +777,18 @@ export function PhilJobDetail({
           delete next[req];
           return next;
         });
+        // #520: a failed circuit is not a dead end. When the SERVER-derived
+        // record has failed rows, keep the sheet open in its saved-result view
+        // so the worker can raise the defect in one tap. A clean pass (or a
+        // response without a parseable record) closes exactly as before.
+        const failedRows =
+          result.record?.rows.filter((r) => r.status === "fail") ?? [];
+        if (result.record && failedRows.length > 0) {
+          setTestRecordSaved({ recordId: result.record.id, failedRows });
+          setCaptureBanner({ tone: "success", message: "Test recorded." });
+          window.setTimeout(() => setCaptureBanner(null), 1500);
+          return;
+        }
         setTestRecordOpen(false);
         setTestRecordTarget(null);
         setCaptureBanner({ tone: "success", message: "Test recorded." });
@@ -773,6 +801,29 @@ export function PhilJobDetail({
       }
     },
     [testRecordTarget, jcRevision, job.id],
+  );
+
+  // #520: the worker tapped "Report defect" on the saved-result view — close
+  // the test sheet and open the EXISTING Report snag sheet pre-filled with the
+  // failed readings, scoped to the requirement's area/stage where known, and
+  // stamped with the testRecordId it came from.
+  const handleTestRecordDefect = useCallback(
+    (prefill: { title: string; description: string }) => {
+      const saved = testRecordSaved;
+      if (!saved) return;
+      const taskRef = testRecordTarget?.taskRef;
+      setTestDefectSheet({
+        prefill,
+        testRecordId: saved.recordId,
+        context: taskRef
+          ? { stage: taskRef.stage, areaId: taskRef.areaId }
+          : { stage: null, areaId: null },
+      });
+      setTestRecordOpen(false);
+      setTestRecordTarget(null);
+      setTestRecordSaved(null);
+    },
+    [testRecordSaved, testRecordTarget],
   );
 
   const handleCaptured = useCallback(
@@ -1317,12 +1368,37 @@ export function PhilJobDetail({
         requirementLabel={testRecordTarget?.label}
         saving={testRecordSaving}
         errorMessage={testRecordError}
+        savedResult={testRecordSaved}
         onClose={() => {
           setTestRecordOpen(false);
           setTestRecordTarget(null);
           setTestRecordError(null);
+          setTestRecordSaved(null);
         }}
         onSubmit={handleSubmitTestRecord}
+        onReportDefect={handleTestRecordDefect}
+      />
+
+      {/* #520: defect raised FROM a failed test result — the existing snag
+          sheet, pre-filled with the real readings + origin testRecordId. */}
+      <ReportSnagSheet
+        open={testDefectSheet !== null}
+        job={job}
+        initialContext={testDefectSheet?.context ?? { stage: null, areaId: null }}
+        recentEvidence={evidenceItems}
+        prefill={testDefectSheet?.prefill ?? null}
+        originRefs={
+          testDefectSheet ? { testRecordId: testDefectSheet.testRecordId } : null
+        }
+        onClose={() => setTestDefectSheet(null)}
+        onCreated={() => {
+          setTestDefectSheet(null);
+          setCaptureBanner({ tone: "success", message: "Defect reported." });
+          window.setTimeout(() => setCaptureBanner(null), 1500);
+        }}
+        onFailed={() => {
+          /* the sheet surfaces its own inline error */
+        }}
       />
     </div>
   );

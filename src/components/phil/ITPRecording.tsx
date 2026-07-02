@@ -17,6 +17,7 @@ import type { ITPInstance, ITPTemplatePoint } from "@/domains/itp/types";
 import type { Job } from "@/domains/jobs/types";
 import { ITPPointCard } from "./ITPPointCard";
 import { ITPSubmitForReview } from "./ITPSubmitForReview";
+import { ReportSnagSheet } from "./ReportSnagSheet";
 import { resolveScopeName } from "./itp-scope";
 import { PhilNotice } from "./ui/PhilNotice";
 
@@ -72,6 +73,14 @@ type Banner =
 export function ITPRecording({ job, instance: initial, viewer }: Props) {
   const [instance, setInstance] = useState<ITPInstance>(initial);
   const [banner, setBanner] = useState<Banner>(null);
+  // #520: defect-from-failure — a failed point's "Report defect" opens the
+  // EXISTING Report snag sheet pre-filled with the real reading + criteria
+  // and stamped with the itpInstanceId/itpPointId it came from.
+  const [defectPrefill, setDefectPrefill] = useState<{
+    pointId: string;
+    title: string;
+    description: string;
+  } | null>(null);
 
   const visiblePoints = useMemo<ITPTemplatePoint[]>(() => {
     const ctx = { scope: instance.scope };
@@ -116,6 +125,18 @@ export function ITPRecording({ job, instance: initial, viewer }: Props) {
     // Server component is responsible for the fresh load; this is the
     // simplest path that survives stale-state without an extra fetch.
     window.location.reload();
+  }, []);
+
+  const handleReportDefect = useCallback(
+    (prefill: { pointId: string; title: string; description: string }) => {
+      setDefectPrefill(prefill);
+    },
+    [],
+  );
+
+  const handleDefectCreated = useCallback(() => {
+    setDefectPrefill(null);
+    setBanner({ kind: "info", message: "Defect reported. It's on this job's snag list." });
   }, []);
 
   const lockedReason = lockedReasonFor(instance);
@@ -190,6 +211,7 @@ export function ITPRecording({ job, instance: initial, viewer }: Props) {
                 viewer={viewer}
                 onSaved={handleSaved}
                 onError={handleError}
+                onReportDefect={handleReportDefect}
               />
             </li>
           ))}
@@ -205,6 +227,31 @@ export function ITPRecording({ job, instance: initial, viewer }: Props) {
           onError={handleError}
         />
       ) : null}
+
+      {/* #520: the EXISTING Report snag sheet, pre-filled from the failed
+          point. Area context is derivable only for an area-scoped ITP;
+          stage isn't on an ITP instance, so it stays unset (no invented
+          context). The sheet caps + keeps everything editable. */}
+      <ReportSnagSheet
+        open={defectPrefill !== null}
+        job={job}
+        initialContext={{
+          stage: null,
+          areaId:
+            instance.scope === "area" ? (instance.scopeId ?? null) : null,
+        }}
+        prefill={defectPrefill}
+        originRefs={
+          defectPrefill
+            ? { itpInstanceId: instance.id, itpPointId: defectPrefill.pointId }
+            : null
+        }
+        onClose={() => setDefectPrefill(null)}
+        onCreated={handleDefectCreated}
+        onFailed={() => {
+          /* the sheet surfaces its own inline error */
+        }}
+      />
     </div>
   );
 }

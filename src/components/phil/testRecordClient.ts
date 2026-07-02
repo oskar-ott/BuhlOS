@@ -1,4 +1,8 @@
-import type { TestRecordInput } from "@/domains/test-records/schema";
+import {
+  TestRecordSchema,
+  type TestRecord,
+  type TestRecordInput,
+} from "@/domains/test-records/schema";
 
 /**
  * Phil client for the structured TestRecord route (#517). Narrow: one POST that
@@ -13,7 +17,10 @@ import type { TestRecordInput } from "@/domains/test-records/schema";
  */
 
 export type SubmitTestRecordResult =
-  | { kind: "ok"; evidenceId: string }
+  /** `record` is the SERVER-derived stored record (id + per-row pass/fail) —
+   *  null when the response body didn't carry a parseable record. #520 uses
+   *  it to show the worker their failed circuits and offer "Report defect". */
+  | { kind: "ok"; evidenceId: string; record: TestRecord | null }
   /** Saved, but the companion proof could not be minted — the worker can retry
    *  the link without re-entering the numbers. */
   | { kind: "saved_unlinked"; message: string }
@@ -51,11 +58,20 @@ export async function submitTestRecord(
     error?: string;
     evidenceId?: string | null;
     evidenceWarning?: string;
+    record?: unknown;
   };
 
   if (res.ok && b.ok) {
     if (typeof b.evidenceId === "string" && b.evidenceId.length > 0) {
-      return { kind: "ok", evidenceId: b.evidenceId };
+      // The route returns the stored record alongside the evidence id; parse
+      // defensively — a missing/unparseable record degrades to null (the
+      // submit still succeeded).
+      const parsedRecord = TestRecordSchema.safeParse(b.record);
+      return {
+        kind: "ok",
+        evidenceId: b.evidenceId,
+        record: parsedRecord.success ? parsedRecord.data : null,
+      };
     }
     // The record saved but the companion proof didn't mint — tell the worker it's
     // saved and to retry the link, never that proof is done.

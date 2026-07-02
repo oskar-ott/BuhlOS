@@ -3,6 +3,7 @@ import {
   CreateSnagPayloadSchema,
   SNAG_DESCRIPTION_MAX,
   SNAG_EVIDENCE_LINK_MAX,
+  SNAG_ORIGIN_ID_MAX,
   SNAG_PRIORITIES,
   SNAG_REJECTION_REASON_MAX,
   SNAG_SOURCES,
@@ -87,6 +88,22 @@ const baseSnag: SnagItem = {
 describe("SnagItemSchema", () => {
   it("accepts a minimal open snag", () => {
     expect(SnagItemSchema.safeParse(baseSnag).success).toBe(true);
+  });
+
+  // #520: raised-from pointers round-trip on the stored item.
+  it("round-trips origin pointers (itpInstanceId/itpPointId/testRecordId)", () => {
+    const r = SnagItemSchema.safeParse({
+      ...baseSnag,
+      itpInstanceId: "itp_abc123",
+      itpPointId: "pt_1",
+      testRecordId: "tr_xyz789",
+    });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.itpInstanceId).toBe("itp_abc123");
+      expect(r.data.itpPointId).toBe("pt_1");
+      expect(r.data.testRecordId).toBe("tr_xyz789");
+    }
   });
 
   it("accepts a fully populated resolved snag", () => {
@@ -292,6 +309,46 @@ describe("CreateSnagPayloadSchema", () => {
     expect(
       CreateSnagPayloadSchema.safeParse({ title: "x", evidenceIds: ids }).success
     ).toBe(true);
+  });
+
+  // #520: raised-from origin pointers (failed ITP point / failed test circuit).
+  it("accepts ITP origin ids and round-trips them", () => {
+    const r = CreateSnagPayloadSchema.safeParse({
+      title: "Failed: Insulation resistance",
+      itpInstanceId: "itp_abc123",
+      itpPointId: "pt_1",
+    });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.itpInstanceId).toBe("itp_abc123");
+      expect(r.data.itpPointId).toBe("pt_1");
+      expect(r.data.testRecordId).toBeUndefined();
+    }
+  });
+
+  it("accepts a testRecordId origin and round-trips it", () => {
+    const r = CreateSnagPayloadSchema.safeParse({
+      title: "Failed test: Ring final — kitchen",
+      testRecordId: "tr_xyz789",
+    });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.testRecordId).toBe("tr_xyz789");
+  });
+
+  it("rejects itpPointId without its itpInstanceId", () => {
+    expect(
+      CreateSnagPayloadSchema.safeParse({ title: "x", itpPointId: "pt_1" }).success
+    ).toBe(false);
+  });
+
+  it("rejects origin ids over SNAG_ORIGIN_ID_MAX (junk guard)", () => {
+    const junk = "x".repeat(SNAG_ORIGIN_ID_MAX + 1);
+    expect(
+      CreateSnagPayloadSchema.safeParse({ title: "x", itpInstanceId: junk }).success
+    ).toBe(false);
+    expect(
+      CreateSnagPayloadSchema.safeParse({ title: "x", testRecordId: junk }).success
+    ).toBe(false);
   });
 });
 

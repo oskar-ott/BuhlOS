@@ -32,6 +32,16 @@ interface Props {
   /** Worker's recent evidence captures on this job — the sheet
    *  offers a multi-select to link supporting evidence. May be empty. */
   recentEvidence?: ReadonlyArray<EvidenceItem>;
+  /** #520: pre-seed the form when the sheet is opened FROM a failed
+   *  ITP point / test circuit — real readings only, always editable. */
+  prefill?: { title?: string; description?: string } | null;
+  /** #520: raised-from pointers persisted on the created snag so review
+   *  surfaces can say where the defect came from. */
+  originRefs?: {
+    itpInstanceId?: string;
+    itpPointId?: string;
+    testRecordId?: string;
+  } | null;
   onClose: () => void;
   onCreated: (item: SnagItem) => void;
   onFailed: (message: string) => void;
@@ -58,6 +68,8 @@ export function ReportSnagSheet({
   job,
   initialContext,
   recentEvidence = [],
+  prefill = null,
+  originRefs = null,
   onClose,
   onCreated,
   onFailed,
@@ -87,11 +99,15 @@ export function ReportSnagSheet({
 
   // Re-seed the form whenever the sheet opens so a previous open-close
   // doesn't leak state into the next session. The page's selected
-  // stage/area carries through as the default context.
+  // stage/area carries through as the default context; a #520 prefill
+  // (failed ITP point / test circuit) seeds title + description with the
+  // actual reading — always editable, caps enforced.
+  const prefillTitle = prefill?.title ?? "";
+  const prefillDescription = prefill?.description ?? "";
   useEffect(() => {
     if (open) {
-      setTitle("");
-      setDescription("");
+      setTitle(prefillTitle.slice(0, SNAG_TITLE_MAX));
+      setDescription(prefillDescription.slice(0, SNAG_DESCRIPTION_MAX));
       setPriority("normal");
       setAreaId(initialContext.areaId ?? null);
       setStage(initialContext.stage ?? null);
@@ -99,7 +115,7 @@ export function ReportSnagSheet({
       setBusy(false);
       setErrorMessage(null);
     }
-  }, [open, initialContext.areaId, initialContext.stage]);
+  }, [open, initialContext.areaId, initialContext.stage, prefillTitle, prefillDescription]);
 
   // Esc closes the sheet — matches CaptureSheet UX.
   useEffect(() => {
@@ -132,6 +148,11 @@ export function ReportSnagSheet({
       areaId: areaId || null,
       stage: areaId && stage ? stage : null,
       evidenceIds: linkedEvidenceIds.length ? linkedEvidenceIds : undefined,
+      // #520: raised-from pointers ride along only when the sheet was
+      // opened off a failed check/test.
+      ...(originRefs?.itpInstanceId ? { itpInstanceId: originRefs.itpInstanceId } : {}),
+      ...(originRefs?.itpPointId ? { itpPointId: originRefs.itpPointId } : {}),
+      ...(originRefs?.testRecordId ? { testRecordId: originRefs.testRecordId } : {}),
     };
     const r = await createSnag(job.id, payload);
     setBusy(false);
@@ -160,6 +181,7 @@ export function ReportSnagSheet({
     areaId,
     stage,
     linkedEvidenceIds,
+    originRefs,
     job.id,
     onCreated,
     closeWithHistory,

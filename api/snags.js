@@ -87,6 +87,10 @@ const TITLE_MAX = 120;
 const DESCRIPTION_MAX = 1000;
 const REJECTION_REASON_MAX = 500;
 const EVIDENCE_LINK_MAX = 10;
+// #520: raised-from pointers (failed ITP point / failed TestRecord circuit).
+// Plain ids persisted verbatim; the cap is a junk guard, not a format check.
+// Mirrors SNAG_ORIGIN_ID_MAX in src/domains/snags/schema.ts.
+const ORIGIN_ID_MAX = 80;
 
 function dataKey(jobId) {
   return `jobs/${jobId}/data.json`;
@@ -259,7 +263,32 @@ function validateCreateBody(body, job) {
     }
   }
 
-  return { errors, title, description, priority, stage, area, group };
+  // #520: raised-from pointers — optional plain-id strings, length-capped.
+  const originIds = {};
+  for (const key of ['itpInstanceId', 'itpPointId', 'testRecordId']) {
+    const raw = body[key];
+    if (raw == null || raw === '') {
+      originIds[key] = null;
+      continue;
+    }
+    if (typeof raw !== 'string') {
+      errors.push(`${key} must be a string`);
+      originIds[key] = null;
+      continue;
+    }
+    const trimmed = raw.trim();
+    if (trimmed.length > ORIGIN_ID_MAX) {
+      errors.push(`${key} must be ${ORIGIN_ID_MAX} characters or fewer`);
+      originIds[key] = null;
+      continue;
+    }
+    originIds[key] = trimmed || null;
+  }
+  if (originIds.itpPointId && !originIds.itpInstanceId) {
+    errors.push('itpInstanceId is required when itpPointId is provided');
+  }
+
+  return { errors, title, description, priority, stage, area, group, originIds };
 }
 
 function sourceForUser(user) {
@@ -359,6 +388,10 @@ async function createSnag(req, res, user, jobId) {
     // over by today. `job` is the row loaded by loadJobOrFail (carries the
     // additive handoverDate field). Recorded once, never recomputed on read.
     origin: originForJob(job, sydneyToday()),
+    // #520: raised-from pointers (failed ITP point / failed test circuit).
+    itpInstanceId: v.originIds.itpInstanceId,
+    itpPointId: v.originIds.itpPointId,
+    testRecordId: v.originIds.testRecordId,
     createdById: user.id,
     createdByName: user.name || user.username || 'Unknown',
     createdByRole: user.role || null,
@@ -404,6 +437,10 @@ async function createSnag(req, res, user, jobId) {
       stage: item.stage,
       taskId: item.taskId,
       evidenceIds: item.evidenceIds,
+      // #520: only present when the snag came off a failed check/test.
+      ...(item.itpInstanceId ? { itpInstanceId: item.itpInstanceId } : {}),
+      ...(item.itpPointId ? { itpPointId: item.itpPointId } : {}),
+      ...(item.testRecordId ? { testRecordId: item.testRecordId } : {}),
     },
   }).catch(() => null);
   if (auditEntry && auditEntry.id) item.auditLogIds.push(auditEntry.id);

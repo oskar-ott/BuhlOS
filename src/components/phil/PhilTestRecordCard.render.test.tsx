@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
-import { PhilTestRecordCard } from "./PhilTestRecordCard";
+import { PhilTestRecordCard, defectPrefillFromFailedRows } from "./PhilTestRecordCard";
+import type { TestRecordRow } from "@/domains/test-records/schema";
 
 /**
  * SSR render tests (node env — no jsdom; effects never run under renderToString).
@@ -84,5 +85,79 @@ describe("PhilTestRecordCard", () => {
 
   it("shows the saving label while a save→link is in flight", () => {
     expect(render({ saving: true })).toContain("Saving…");
+  });
+});
+
+/* ----------------------------------------------------------------------
+ * #520 — post-submit saved-result view (defect from a failed circuit)
+ * -------------------------------------------------------------------- */
+
+const failedRow: TestRecordRow = {
+  circuit: "Ring final — kitchen sockets",
+  testType: "insulation_resistance",
+  value: 0.4,
+  unit: "MΩ",
+  min: 1,
+  max: null,
+  status: "fail",
+};
+
+describe("PhilTestRecordCard — #520 saved-result view", () => {
+  it("shows the failed circuits + Report defect after a save with failures", () => {
+    const html = render({
+      savedResult: { recordId: "tr_1", failedRows: [failedRow] },
+      onReportDefect: () => {},
+    });
+    expect(html).toContain("Test saved");
+    expect(html).toContain("1 circuit failed.");
+    expect(html).toContain('data-testid="test-record-failed-rows"');
+    expect(html).toContain("Ring final — kitchen sockets");
+    expect(html).toContain('data-testid="test-record-report-defect"');
+    expect(html).toContain("Report defect");
+    // the capture form is replaced, not stacked
+    expect(html).not.toContain('data-testid="test-record-submit"');
+  });
+
+  it("pluralises multiple failed circuits", () => {
+    const html = render({
+      savedResult: {
+        recordId: "tr_1",
+        failedRows: [failedRow, { ...failedRow, circuit: "Oven circuit" }],
+      },
+      onReportDefect: () => {},
+    });
+    expect(html).toContain("2 circuits failed.");
+    expect(html).toContain("Oven circuit");
+  });
+
+  it("shows the normal capture form when there is no saved result (P10)", () => {
+    const html = render({ onReportDefect: () => {} });
+    expect(html).toContain('data-testid="test-record-submit"');
+    expect(html).not.toContain('data-testid="test-record-report-defect"');
+  });
+
+  it("an empty failedRows list closes as before (no saved view)", () => {
+    const html = render({ savedResult: { recordId: "tr_1", failedRows: [] } });
+    expect(html).toContain('data-testid="test-record-submit"');
+    expect(html).not.toContain("Test saved");
+  });
+});
+
+describe("defectPrefillFromFailedRows", () => {
+  it("builds title + description from the REAL readings only (P7)", () => {
+    const prefill = defectPrefillFromFailedRows([failedRow]);
+    expect(prefill.title).toBe("Failed test: Ring final — kitchen sockets");
+    expect(prefill.description).toContain("Insulation resistance");
+    expect(prefill.description).toContain("0.4 MΩ");
+    expect(prefill.description).toContain("pass ≥ 1 MΩ");
+  });
+
+  it("counts the extra failed circuits in the title", () => {
+    const prefill = defectPrefillFromFailedRows([
+      failedRow,
+      { ...failedRow, circuit: "Oven circuit" },
+    ]);
+    expect(prefill.title).toBe("Failed test: Ring final — kitchen sockets +1 more");
+    expect(prefill.description).toContain("Oven circuit");
   });
 });

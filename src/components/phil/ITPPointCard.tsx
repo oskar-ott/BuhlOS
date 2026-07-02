@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Camera, Check, RotateCcw } from "lucide-react";
+import { AlertTriangle, Camera, Check, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Pill } from "@/components/ui/Pill";
 import { recordItpPoint } from "@/domains/itp/client";
@@ -26,6 +26,15 @@ interface Props {
   /** Called on any non-200 so the parent can decide whether to surface
    *  a banner (e.g. on a 409 it should prompt a reload). */
   onError: (message: string, status: number) => void;
+  /** #520: when the point's derived verdict is FAIL, the card offers
+   *  "Report defect" and hands the parent a prefill built from the real
+   *  recorded reading vs. the pass criteria (P7 — no invented numbers).
+   *  Absent = no affordance (the card stays exactly as before). */
+  onReportDefect?: (prefill: {
+    pointId: string;
+    title: string;
+    description: string;
+  }) => void;
 }
 
 type Phase =
@@ -71,6 +80,7 @@ export function ITPPointCard({
   viewer,
   onSaved,
   onError,
+  onReportDefect,
 }: Props) {
   const existing = instance.results?.[point.id];
   const initialValue = useMemo(() => {
@@ -252,6 +262,32 @@ export function ITPPointCard({
     setPhase({ kind: "dirty" });
   }
 
+  // #520: hand the parent a defect prefill built ONLY from what was actually
+  // recorded — the reading, the pass criteria, the check's name (P7). The
+  // parent opens the existing Report snag sheet with it (always editable).
+  const handleReportDefect = () => {
+    if (!onReportDefect) return;
+    const label = point.label || pointTypeFallbackLabel(point.type);
+    const parts: string[] = [];
+    const v = existing?.value;
+    if (typeof v === "number") {
+      parts.push(`Reading: ${v}${point.unit ? ` ${point.unit}` : ""}.`);
+    }
+    const hint = formatPassHint(point.min ?? null, point.max ?? null, point.unit ?? null);
+    if (hint) parts.push(`${hint}.`);
+    const templateName = instance.templateSnapshot?.name?.trim();
+    parts.push(
+      `Failed ITP check${templateName ? ` on "${templateName}"` : ""}: ${label}.`,
+    );
+    const note = existing?.note?.trim();
+    if (note) parts.push(`Note: ${note}`);
+    onReportDefect({
+      pointId: point.id,
+      title: `Failed: ${label}`,
+      description: parts.join(" "),
+    });
+  };
+
   const required = point.required !== false;
   // #285: evidence-required — the photo affordance leads and Save stays
   // disabled until a photo exists, so the gate never reads as a dead-end
@@ -371,6 +407,24 @@ export function ITPPointCard({
             ) : (
               <>Save</>
             )}
+          </Button>
+        ) : null}
+
+        {/* #520: a failed check is not a dead end — one tap raises the defect
+            it implies. Renders ONLY on a derived FAIL verdict (P10 — zero new
+            chrome on passing/neutral points). */}
+        {passFail === "Fail" && onReportDefect ? (
+          <Button
+            type="button"
+            variant="secondary"
+            size="lg"
+            onClick={handleReportDefect}
+            disabled={phase.kind === "submitting" || phase.kind === "uploading"}
+            className="w-full"
+            data-testid="itp-report-defect"
+          >
+            <AlertTriangle aria-hidden="true" className="h-5 w-5 text-state-danger" />
+            Report defect
           </Button>
         ) : null}
 

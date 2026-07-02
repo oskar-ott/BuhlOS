@@ -10,6 +10,7 @@ import {
   REPORT_TYPES,
   TEST_TYPES,
   type ReportType,
+  type TestRecordRow,
   type TestRecordRowInput,
   type TestStatus,
   type TestType,
@@ -135,8 +136,10 @@ export function PhilTestRecordCard({
   defaultTester,
   saving = false,
   errorMessage,
+  savedResult = null,
   onClose,
   onSubmit,
+  onReportDefect,
 }: {
   open: boolean;
   jobName: string;
@@ -148,8 +151,15 @@ export function PhilTestRecordCard({
   saving?: boolean;
   /** A worker-facing error from the parent (save/link failure). */
   errorMessage?: string | null;
+  /** #520: set by the parent AFTER a successful save when the SERVER-derived
+   *  record has failed circuits — the card shows the failed rows and offers
+   *  "Report defect" instead of silently closing. Null = close as before. */
+  savedResult?: { recordId: string; failedRows: TestRecordRow[] } | null;
   onClose: () => void;
   onSubmit: (draft: TestRecordDraft) => void;
+  /** #520: raise the defect a failed circuit implies (parent opens the
+   *  existing Report snag sheet pre-filled with these real readings). */
+  onReportDefect?: (prefill: { title: string; description: string }) => void;
 }) {
   const [reportType, setReportType] = useState<ReportType>("eicr");
   const [tester, setTester] = useState(defaultTester ?? "");
@@ -175,6 +185,20 @@ export function PhilTestRecordCard({
   }, [open, onClose]);
 
   if (!open) return null;
+
+  // #520: post-submit result view — the record saved but the server derived
+  // failed circuits. Shown ONLY when there is a real fail (P10 — a clean pass
+  // closes exactly as before, zero new chrome). One tap raises the defect.
+  if (savedResult && savedResult.failedRows.length > 0) {
+    return (
+      <SavedFailView
+        jobName={jobName}
+        failedRows={savedResult.failedRows}
+        onClose={onClose}
+        onReportDefect={onReportDefect}
+      />
+    );
+  }
 
   function setRow(i: number, patch: Partial<RowState>) {
     setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
@@ -414,6 +438,117 @@ export function PhilTestRecordCard({
               Add who tested and at least one circuit to save.
             </p>
           ) : null}
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------
+ * #520 — saved-with-failures view + defect prefill
+ * -------------------------------------------------------------------*/
+
+/** One plain-language line per failed circuit — the ACTUAL reading vs. the
+ *  limits the worker entered, nothing invented (P7). */
+function failedRowLine(row: TestRecordRow): string {
+  const label = TEST_TYPE_LABEL[row.testType] ?? row.testType;
+  const unit = row.unit ? ` ${row.unit}` : "";
+  const reading = row.value == null ? "no reading" : `${row.value}${unit}`;
+  const limits: string[] = [];
+  if (row.min != null) limits.push(`≥ ${row.min}`);
+  if (row.max != null) limits.push(`≤ ${row.max}`);
+  const limitText = limits.length ? ` (pass ${limits.join(", ")}${unit})` : "";
+  return `${row.circuit} — ${label}: ${reading}${limitText}`;
+}
+
+/** Build the snag prefill from the failed rows. The Report snag sheet caps
+ *  title/description and keeps both editable. */
+export function defectPrefillFromFailedRows(
+  failedRows: TestRecordRow[],
+): { title: string; description: string } {
+  const first = failedRows[0];
+  const extra = failedRows.length - 1;
+  return {
+    title: `Failed test: ${first?.circuit ?? "circuit"}${extra > 0 ? ` +${extra} more` : ""}`,
+    description: failedRows.map(failedRowLine).join("\n"),
+  };
+}
+
+function SavedFailView({
+  jobName,
+  failedRows,
+  onClose,
+  onReportDefect,
+}: {
+  jobName: string;
+  failedRows: TestRecordRow[];
+  onClose: () => void;
+  onReportDefect?: (prefill: { title: string; description: string }) => void;
+}) {
+  const n = failedRows.length;
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Test saved — failed circuits"
+      data-testid="test-record-card"
+      className="fixed inset-0 z-50 flex flex-col bg-surface-raised pb-[env(safe-area-inset-bottom)]"
+    >
+      <header className="flex items-center justify-between gap-3 border-b border-border bg-surface-raised px-4 py-3">
+        <div className="min-w-0">
+          <h2 className="truncate font-display text-lg font-semibold text-text">Test saved</h2>
+          <p className="truncate text-xs text-text-muted">{jobName}</p>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          className={cn(
+            "inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-card",
+            "text-text-muted hover:bg-surface-subtle",
+          )}
+        >
+          <X aria-hidden="true" className="h-5 w-5" />
+        </button>
+      </header>
+
+      <div className="flex-1 overflow-y-auto px-4 py-4">
+        <div className="mx-auto max-w-lg space-y-4">
+          <PhilNotice tone="danger" role="alert">
+            {n === 1 ? "1 circuit failed." : `${n} circuits failed.`} A failed
+            reading usually means something to fix — you can raise it now.
+          </PhilNotice>
+
+          <ul className="space-y-2" data-testid="test-record-failed-rows">
+            {failedRows.map((row, i) => (
+              <li
+                key={i}
+                className="rounded-card border border-border bg-surface p-3 text-sm text-text"
+              >
+                {failedRowLine(row)}
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+
+      <footer className="border-t border-border bg-surface-raised px-4 py-3">
+        <div className="mx-auto max-w-lg space-y-2">
+          {onReportDefect ? (
+            <PhilActionButton
+              onClick={() => onReportDefect(defectPrefillFromFailedRows(failedRows))}
+              data-testid="test-record-report-defect"
+            >
+              Report defect
+            </PhilActionButton>
+          ) : null}
+          <button
+            type="button"
+            onClick={onClose}
+            className="min-h-[44px] w-full rounded-card border border-border px-4 text-sm font-semibold text-text hover:bg-surface-subtle"
+          >
+            Done
+          </button>
         </div>
       </footer>
     </div>

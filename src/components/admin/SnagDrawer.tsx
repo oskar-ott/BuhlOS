@@ -269,6 +269,26 @@ export function SnagDrawer({
                 {snag.taskName ?? (snag.taskId ? `Task ${snag.taskId}` : "—")}
               </Field>
             </dl>
+            {/* #520: honest origin line — only when the snag was raised
+                straight off a failed ITP point / failed test circuit. */}
+            {snag.itpPointId && snag.itpInstanceId ? (
+              <p className="mt-2 text-xs text-text-muted" data-testid="snag-origin-itp">
+                From a failed ITP point — instance{" "}
+                <code className="text-[11px]">{snag.itpInstanceId}</code>, point{" "}
+                <code className="text-[11px]">{snag.itpPointId}</code>
+              </p>
+            ) : snag.itpInstanceId ? (
+              <p className="mt-2 text-xs text-text-muted" data-testid="snag-origin-itp">
+                From a failed ITP point — instance{" "}
+                <code className="text-[11px]">{snag.itpInstanceId}</code>
+              </p>
+            ) : null}
+            {snag.testRecordId ? (
+              <p className="mt-2 text-xs text-text-muted" data-testid="snag-origin-test-record">
+                From a failed test result — record{" "}
+                <code className="text-[11px]">{snag.testRecordId}</code>
+              </p>
+            ) : null}
           </section>
 
           <section>
