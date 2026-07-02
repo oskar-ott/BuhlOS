@@ -18,6 +18,7 @@ describe("<OwnerConsole />", () => {
       "Platform control",
       "Product health",
       "Usage &amp; activity",
+      "Errors",
       "Feature control",
       "Product problems",
       "Audit trail",
@@ -33,6 +34,30 @@ describe("<OwnerConsole />", () => {
     expect(html).toContain("Not instrumented yet"); // honest gap label
     expect(html).toContain("Route / page views"); // a named gap
     expect(html).toContain("hours.approved"); // a real audit action
+    expect(html).toContain("page:/v2/jobs"); // the seeded error group's handler
+  });
+
+  it("renders an explicit empty state when no errors are recorded (#154)", () => {
+    const summary = makeSummary();
+    summary.errors = {
+      source: "platform error journal (platform/errors.json)",
+      coverageNote: "Partial by design.",
+      available: false,
+      count7d: 0,
+      total: 0,
+      cap: 5000,
+      recent: [],
+      topGroups: [],
+    };
+    const html = renderToString(createElement(OwnerConsole, { summary }));
+    expect(html).toContain("No errors recorded yet");
+  });
+
+  it("renders an unavailable note when the endpoint omits the errors section", () => {
+    const summary = makeSummary();
+    delete summary.errors;
+    const html = renderToString(createElement(OwnerConsole, { summary }));
+    expect(html).toContain("Errors panel unavailable");
   });
 
   it("renders an explicit empty state when the audit feed has no entries", () => {
@@ -195,6 +220,36 @@ function makeSummary(): OwnerSummary {
       monthCap: 5000,
       topActions: [{ action: "hours.approved", count: 3 }],
       notInstrumented: ["Route / page views", "Feature adoption"],
+    },
+    errors: {
+      source: "platform error journal (platform/errors.json)",
+      coverageNote: "Partial by design: wrapped handlers + client boundary only.",
+      available: true,
+      count7d: 2,
+      total: 2,
+      cap: 5000,
+      recent: [
+        {
+          id: "err_1",
+          ts: "2026-06-28T08:30:00.000Z",
+          source: "client",
+          handler: "page:/v2/jobs",
+          message: "Cannot read properties of undefined",
+          severity: "error",
+          statusCode: null,
+          fingerprint: "aaaaaaaaaaaa",
+        },
+      ],
+      topGroups: [
+        {
+          fingerprint: "aaaaaaaaaaaa",
+          handler: "page:/v2/jobs",
+          message: "Cannot read properties of undefined",
+          source: "client",
+          count: 2,
+          lastSeen: "2026-06-28T08:30:00.000Z",
+        },
+      ],
     },
     audit: {
       source: "audit log — cross-job journal",

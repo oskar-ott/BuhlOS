@@ -102,6 +102,41 @@ export const UsageSchema = z.object({
   notInstrumented: z.array(z.string()),
 });
 
+// #154: the platform error journal panel — escaped api errors (wrapped
+// handlers only) + client render crashes. Honest partial coverage: the
+// endpoint's coverageNote states scope; counts are floors, never rates.
+export const ErrorEntrySchema = z.object({
+  id: z.string(),
+  ts: z.string(),
+  source: z.enum(["api", "client"]),
+  handler: z.string(),
+  message: z.string(),
+  severity: z.string(),
+  statusCode: z.number().nullable(),
+  fingerprint: z.string().nullable(),
+});
+
+export const ErrorGroupSchema = z.object({
+  fingerprint: z.string(),
+  handler: z.string(),
+  message: z.string(),
+  source: z.enum(["api", "client"]),
+  count: z.number(),
+  lastSeen: z.string(),
+});
+
+export const ErrorsSchema = z.object({
+  source: z.string(),
+  coverageNote: z.string(),
+  available: z.boolean(),
+  count7d: z.number(),
+  total: z.number(),
+  cap: z.number(),
+  recent: z.array(ErrorEntrySchema),
+  topGroups: z.array(ErrorGroupSchema),
+  error: z.string().optional(),
+});
+
 export const AuditEntrySchema = z.object({
   id: z.string(),
   ts: z.string(),
@@ -171,6 +206,8 @@ export const OwnerSummarySchema = z.object({
   flags: FlagsSchema,
   settings: SettingsSchema.optional(),
   usage: UsageSchema,
+  // Optional for forward/backward tolerance between page + endpoint deploys.
+  errors: ErrorsSchema.optional(),
   audit: AuditSchema,
   coverage: CoverageSchema,
   problems: z.array(ProblemSchema),
@@ -185,6 +222,9 @@ export type NextActionItem = z.infer<typeof NextActionSchema>;
 export type CoverageRow = z.infer<typeof CoverageRowSchema>;
 export type HealthCheck = z.infer<typeof HealthCheckSchema>;
 export type AuditEntry = z.infer<typeof AuditEntrySchema>;
+export type ErrorsPanel = z.infer<typeof ErrorsSchema>;
+export type ErrorEntry = z.infer<typeof ErrorEntrySchema>;
+export type ErrorGroup = z.infer<typeof ErrorGroupSchema>;
 
 // ── Pure classification helpers (tested in owner-console.test.ts) ──────────
 

@@ -3,6 +3,7 @@ import {
   jobExceptions,
   materialExceptions,
   observationExceptions,
+  rfiExceptions,
 } from "./mappers";
 import { isSafeActionHref, type ExceptionActionState } from "./routes";
 import { SOURCE_LABEL } from "./labels";
@@ -42,6 +43,9 @@ export function buildExceptions(sources: ExceptionSources): ExceptionItem[] {
     ...observationExceptions(sources.observations),
     ...jobExceptions(sources.jobs),
     ...materialExceptions(sources.materialRequests),
+    // #276 chase — optional source: a caller that didn't fetch RFIs (or runs
+    // with `rfi_register` off) omits `rfis`/`today` and nothing changes.
+    ...(sources.rfis && sources.today ? rfiExceptions(sources.rfis, sources.today) : []),
   ];
 
   const seen = new Set<string>();

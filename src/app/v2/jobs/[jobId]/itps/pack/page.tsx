@@ -12,6 +12,7 @@ import {
 } from "@/domains/itp/compliance-pack";
 import { CompliancePackView } from "@/components/admin/CompliancePackView";
 import { PackPrintButton } from "@/components/admin/PackPrintButton";
+import { TestRecordStoreSchema, type TestRecord } from "@/domains/test-records/schema";
 import type { Job } from "@/domains/jobs/types";
 import type { ITPInstance } from "@/domains/itp/types";
 
@@ -56,10 +57,11 @@ export default async function CompliancePackPage({
     notFound();
   }
 
-  const [job, instances, overrides] = await Promise.all([
+  const [job, instances, overrides, testRecords] = await Promise.all([
     loadJob(raw, jobId),
     loadInstances(raw, jobId),
     loadOverrides(raw, jobId),
+    loadTestRecords(raw, jobId),
   ]);
 
   if (!job) {
@@ -84,6 +86,7 @@ export default async function CompliancePackPage({
     overrides,
     overridesWindowMonths: OVERRIDES_WINDOW_MONTHS,
     generatedAt: new Date().toISOString(),
+    testRecords,
   });
 
   return (
@@ -137,6 +140,27 @@ async function loadInstances(raw: string | undefined, jobId: string): Promise<IT
     if (!res.ok) return [];
     const parsed = ITPListResponseSchema.safeParse(await res.json());
     return parsed.success ? [...parsed.data.instances] : [];
+  } catch {
+    return [];
+  }
+}
+
+/** #519 — the job's structured TestRecords for the pack's electrical
+ *  test-results section. Server-derived statuses arrive stored; the pack
+ *  reproduces them. Failure → [] → the section is honestly omitted. */
+async function loadTestRecords(
+  raw: string | undefined,
+  jobId: string
+): Promise<TestRecord[]> {
+  try {
+    const res = await fetch(
+      `${await baseUrl()}/api/job-control/test-records?jobId=${encodeURIComponent(jobId)}`,
+      { cache: "no-store", headers: cookieHeader(raw) }
+    );
+    if (!res.ok) return [];
+    const body = (await res.json()) as { records?: unknown };
+    const parsed = TestRecordStoreSchema.safeParse({ records: body?.records ?? [] });
+    return parsed.success ? parsed.data.records : [];
   } catch {
     return [];
   }

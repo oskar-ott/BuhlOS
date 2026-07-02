@@ -3,8 +3,9 @@ import type { Job } from "@/domains/jobs/types";
 import type { ObservationItem, ObservationPriority } from "@/domains/observations/types";
 import type { MaterialRequestItem, MaterialRequestUrgency } from "@/domains/material-requests/types";
 import { isOpenObservation } from "@/domains/observations/service";
+import { isOverdue as isRfiOverdue } from "@/domains/rfi/logic";
 import { resolveAction, jobHubHref, type ResolvedAction } from "./routes";
-import type { ExceptionItem, ExceptionSeverity } from "./types";
+import type { ExceptionItem, ExceptionRfi, ExceptionSeverity } from "./types";
 
 /**
  * Source-specific mappers: each turns real source records into ExceptionItems.
@@ -248,6 +249,65 @@ export function materialExceptions(
       // ?focus id) — the office can act on it without hunting the list.
       ...withAction(resolveAction("materialRequests", {}, { label: "Open request", query: { focus: m.id } })),
       tags: ["material", m.status],
+    });
+  }
+  return out;
+}
+
+const DAY_MS = 86_400_000;
+
+/** Whole days between responseDue and today — both YYYY-MM-DD, so Date.parse
+ *  reads each as UTC midnight and the difference is an exact day count. */
+function rfiDaysOverdue(responseDue: string, today: string): number {
+  const due = Date.parse(String(responseDue).slice(0, 10));
+  const now = Date.parse(String(today).slice(0, 10));
+  if (!Number.isFinite(due) || !Number.isFinite(now)) return 0;
+  return Math.max(0, Math.floor((now - due) / DAY_MS));
+}
+
+/** A chase ignored for over a week escalates to critical (mirrors the
+ *  urgent-observation / urgent-material escalation: the loudest tier is for
+ *  items that are actively stalling work). */
+const RFI_CRITICAL_AFTER_DAYS = 7;
+
+/**
+ * RFIs (#276 "chase"): overdue only — still awaiting an answer (open/sent, the
+ * shared isOverdue predicate the per-job register uses) with a past
+ * response-due date, judged against the INJECTED `today` (business-timezone
+ * YYYY-MM-DD; pure — no Date.now()). Days-overdue is computed from the real
+ * responseDue, never fabricated. Deep-links to the job's RFI register.
+ */
+export function rfiExceptions(
+  rfis: ReadonlyArray<ExceptionRfi>,
+  today: string,
+): ExceptionItem[] {
+  const out: ExceptionItem[] = [];
+  for (const r of rfis) {
+    if (!isRfiOverdue(r, today)) continue;
+    const days = rfiDaysOverdue(r.responseDue, today);
+    const daysLabel = `${days} day${days === 1 ? "" : "s"} overdue`;
+    out.push({
+      id: `rfi-overdue:${r.id}`,
+      source: "rfi",
+      sourceId: r.id,
+      jobId: r.jobId,
+      jobName: r.jobName,
+      title: `${r.ref} overdue — ${r.subject}`,
+      // "sent" = the builder owes an answer → chase; "open" = it was never
+      // actually sent, which is the honest office-side failure to surface.
+      summary:
+        r.status === "sent"
+          ? `Response was due ${r.responseDue} (${daysLabel}) — chase ${r.askedOf || "the builder"}.`
+          : `Response was due ${r.responseDue} (${daysLabel}) — never sent. Send it or move the due date.`,
+      severity: days > RFI_CRITICAL_AFTER_DAYS ? "critical" : "warning",
+      status: "open",
+      ownerRole: "office",
+      createdAt: r.createdAt,
+      dueAt: r.responseDue,
+      ...withAction(
+        resolveAction("jobRfis", { jobId: r.jobId }, { fallbackHref: jobHubHref(r.jobId) }),
+      ),
+      tags: ["rfi", "overdue", r.status],
     });
   }
   return out;

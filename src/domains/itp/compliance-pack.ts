@@ -12,6 +12,8 @@ import {
   isPointApplicable,
 } from "./applicability";
 import { resolveScopeName } from "@/components/phil/itp-scope";
+import type { TestRecord, TestStatus } from "@/domains/test-records/schema";
+import { reportTypeLabel, testTypeLabel } from "@/domains/test-records/labels";
 
 /**
  * Compliance pack model (#286) — the PURE builder behind the printable
@@ -116,6 +118,12 @@ export interface CompliancePack {
    * never an empty "0 of 0" section).
    */
   handoverChecklist: HandoverChecklistSection | null;
+  /**
+   * #519 — structured electrical test results (TestRecords), APPENDED after
+   * the per-inspection sections when the caller supplies the job's records.
+   * `null` when the job has none (honest absence — no empty scaffold).
+   */
+  testResults: TestResultsSection | null;
   summary: Array<{
     id: string;
     templateName: string;
@@ -175,6 +183,118 @@ export function buildHandoverChecklistSection(
   };
 }
 
+/**
+ * #519 — one circuit/test line of a TestRecord as it prints. Every value is
+ * reproduced AS STORED (reading, unit, limits, the SERVER-DERIVED verdict) —
+ * the pack never re-judges or reformats a measurement. Missing reading/limit
+ * renders "—" per the pack's conventions (handled in the view via the strings
+ * built here, so same data → same section).
+ */
+export interface TestResultRow {
+  circuit: string;
+  /** Human label for the test, e.g. "Insulation resistance". Unknown types
+   *  fall back to the stored string — never guessed. */
+  testTypeLabel: string;
+  /** "0.35 Ω" — the stored value + stored unit verbatim; "—" when no reading. */
+  reading: string;
+  /** Inclusive limits as recorded, e.g. "≥ 1, ≤ 2"; "—" when none set. */
+  limits: string;
+  /** SERVER-DERIVED — passed through, never re-derived here. */
+  status: TestStatus;
+  note: string | null;
+}
+
+export interface TestResultRecordSection {
+  id: string;
+  /** "EICR" / "EIC" / "Minor works" / "Test record". */
+  reportTypeLabel: string;
+  /** Who performed the test — as stored, never re-resolved. */
+  tester: string;
+  testedAt: string;
+  /** SERVER-DERIVED roll-up — passed through. */
+  overallStatus: TestStatus;
+  /** The record this one corrects (AC3 supersede-by-revision), as stored —
+   *  the pack names the replacement chain honestly. Null for a fresh record. */
+  supersedesId: string | null;
+  note: string | null;
+  rows: TestResultRow[];
+}
+
+export interface TestResultsSection {
+  records: TestResultRecordSection[];
+  /** Superseded records are EXCLUDED and COUNTED — a correction can't silently
+   *  erase history from the document (mirrors archivedCount). */
+  supersededCount: number;
+}
+
+/**
+ * #519 — build the composable electrical-test-results section from the job's
+ * TestRecords. PURE: same input → same section; `null` for zero records
+ * (honest absence — the pack never prints an empty scaffold).
+ *
+ * Supersede handling: a record another record names via `supersedesId` is
+ * superseded and EXCLUDED (the latest revision per lineage prints), but the
+ * exclusion is COUNTED and each printed correction names the record it
+ * replaces. Degenerate data in which every record is superseded (a supersede
+ * cycle) falls back to printing everything — the pack never drops records
+ * it can't honestly rank.
+ */
+export function buildTestResultsSection(
+  records: ReadonlyArray<TestRecord>,
+): TestResultsSection | null {
+  if (records.length === 0) return null;
+
+  const supersededIds = new Set(
+    records.map((r) => r.supersedesId).filter((id): id is string => Boolean(id)),
+  );
+  let current = records.filter((r) => !supersededIds.has(r.id));
+  if (current.length === 0) current = [...records];
+  const supersededCount = records.length - current.length;
+
+  // Determinism: by test date (createdAt, then id, tiebreaks) — the document
+  // reads in the order the testing happened.
+  const ordered = [...current].sort(
+    (a, b) =>
+      String(a.testedAt ?? "").localeCompare(String(b.testedAt ?? "")) ||
+      String(a.createdAt ?? "").localeCompare(String(b.createdAt ?? "")) ||
+      a.id.localeCompare(b.id),
+  );
+
+  return {
+    records: ordered.map((r) => ({
+      id: r.id,
+      reportTypeLabel: reportTypeLabel(r.reportType),
+      tester: r.tester,
+      testedAt: r.testedAt,
+      overallStatus: r.overallStatus,
+      supersedesId: r.supersedesId ?? null,
+      note: r.note?.trim() ? r.note : null,
+      rows: r.rows.map((row) => ({
+        circuit: row.circuit,
+        testTypeLabel: testTypeLabel(row.testType),
+        reading:
+          row.value === null || row.value === undefined
+            ? "—"
+            : `${String(row.value)}${row.unit ? ` ${row.unit}` : ""}`,
+        limits: formatLimits(row.min, row.max),
+        status: row.status,
+        note: row.note?.trim() ? row.note : null,
+      })),
+    })),
+    supersededCount,
+  };
+}
+
+function formatLimits(
+  min: number | null | undefined,
+  max: number | null | undefined,
+): string {
+  const parts: string[] = [];
+  if (min !== null && min !== undefined) parts.push(`≥ ${String(min)}`);
+  if (max !== null && max !== undefined) parts.push(`≤ ${String(max)}`);
+  return parts.length ? parts.join(", ") : "—";
+}
+
 /** Overrides harvested from the audit log (itp.signed_off metadata), keyed
  *  by instance id. The instance itself does not persist the justification. */
 export type OverrideByInstanceId = Readonly<Record<string, string>>;
@@ -188,6 +308,10 @@ export function buildCompliancePack(input: {
   /** #374 — OPTIONAL closeout matrix requirements. When supplied (and non-empty)
    *  the pack carries a prepended handover checklist section; omitted → null. */
   closeoutRequirements?: ReadonlyArray<HandoverChecklistInputRow>;
+  /** #519 — OPTIONAL structured TestRecords (already server-derived). When
+   *  supplied (and non-empty) the pack carries the test-results section;
+   *  omitted or empty → null. Passed in, never fetched — this stays pure. */
+  testRecords?: ReadonlyArray<TestRecord>;
 }): CompliancePack {
   const { job, overrides } = input;
   const live = input.instances.filter((i) => !i.archived);
@@ -213,6 +337,7 @@ export function buildCompliancePack(input: {
     generatedAt: input.generatedAt,
     overridesNote: `Independence override justifications are sourced from the job audit log (last ${input.overridesWindowMonths} months). Older overrides remain in the audit record.`,
     handoverChecklist: buildHandoverChecklistSection(input.closeoutRequirements ?? []),
+    testResults: buildTestResultsSection(input.testRecords ?? []),
     summary: sections.map((s) => ({
       id: s.id,
       templateName: s.templateName,

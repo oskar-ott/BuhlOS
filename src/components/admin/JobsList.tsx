@@ -272,6 +272,17 @@ export function JobsList({ jobs, canBuild = false, newJobHref, cardExtrasPromise
       <EmptyState
         title="No active jobs"
         description="When admin or PMs activate a job in the Job Builder, it'll appear here. Archived jobs aren't listed."
+        action={
+          newJobHref ? (
+            <Link
+              data-testid="jobs-new-job"
+              href={newJobHref as Route}
+              className="inline-flex items-center gap-1.5 rounded-card bg-brand-navy px-3 py-2 text-sm font-medium text-text-inverse transition-colors hover:bg-accent-ink focus:outline-none focus:ring-2 focus:ring-brand-navy"
+            >
+              <Plus aria-hidden="true" className="h-4 w-4" /> New job
+            </Link>
+          ) : undefined
+        }
       />
     );
   }

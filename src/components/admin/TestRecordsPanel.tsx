@@ -5,6 +5,7 @@ import {
   overallStatusWord,
   summariseTestRecord,
 } from "@/domains/test-records/derive";
+import { TEST_TYPE_LABEL } from "@/domains/test-records/labels";
 import {
   TestRecordStoreSchema,
   type TestRecord,
@@ -22,21 +23,6 @@ import {
  * TestRecord satisfies its `test_result` requirement by minting a companion
  * EvidenceItem, so the existing met rule is untouched.
  */
-
-const TEST_TYPE_LABEL: Record<string, string> = {
-  continuity_r1r2: "Continuity (R1+R2)",
-  continuity_r2: "Continuity (R2)",
-  ring_continuity: "Ring continuity",
-  insulation_resistance: "Insulation resistance",
-  polarity: "Polarity",
-  earth_fault_loop_zs: "Earth loop (Zs)",
-  earth_electrode_resistance: "Earth electrode",
-  prospective_fault_current: "Fault current (PFC)",
-  rcd_trip_time: "RCD trip time",
-  rcd_trip_current: "RCD trip current",
-  functional: "Functional check",
-  other: "Other",
-};
 
 function StatusBadge({ status }: { status: TestStatus }) {
   const cls =
