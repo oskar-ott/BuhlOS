@@ -1,4 +1,9 @@
-import type { CompliancePack, PackInstanceSection } from "@/domains/itp/compliance-pack";
+import type {
+  CompliancePack,
+  PackInstanceSection,
+  TestResultRecordSection,
+  TestResultsSection,
+} from "@/domains/itp/compliance-pack";
 
 /**
  * Printable compliance pack (#286) — a print-first document the office hits
@@ -155,6 +160,11 @@ export function CompliancePackView({ pack }: { pack: CompliancePack }) {
           </>
         )}
 
+        {/* #519 — structured electrical test results. Rendered whenever the job
+            has TestRecords (even with zero ITPs); omitted entirely when it has
+            none — the pack never prints an empty scaffold. */}
+        {pack.testResults ? <TestResultsBlock section={pack.testResults} /> : null}
+
         <footer className="docfoot">
           <span>
             Inspection &amp; Test Plan compiled in BuhlOS — records reproduced from
@@ -307,6 +317,86 @@ function CheckRow({ p }: { p: PackInstanceSection["points"][number] }) {
   );
 }
 
+/**
+ * #519 — the electrical test-results section: circuit readings reproduced from
+ * the field TestRecords with their SERVER-DERIVED verdicts. Nothing here
+ * re-judges a value; missing readings/limits print "—"; superseded records are
+ * excluded AND counted; a correction names the record it replaces.
+ */
+function TestResultsBlock({ section }: { section: TestResultsSection }) {
+  return (
+    <section className="block" data-testid="pack-test-results">
+      <h2 className="block-h">Electrical test results</h2>
+      {section.records.map((rec) => (
+        <TestRecordBlock key={rec.id} rec={rec} />
+      ))}
+      <p className="fineprint">
+        Circuit results reproduced from field test records; pass/fail is derived
+        from the measured value against its recorded limits — never re-judged
+        for this document.
+      </p>
+      {section.supersededCount > 0 ? (
+        <p className="fineprint">
+          {`${section.supersededCount} superseded ${
+            section.supersededCount === 1 ? "record" : "records"
+          } not included — corrections replace the record they name; originals remain on file.`}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+function TestRecordBlock({ rec }: { rec: TestResultRecordSection }) {
+  return (
+    <div className="trec" data-testid="pack-test-record">
+      <div className="trec-head">
+        <div className="trec-title">
+          <span className="strong">{rec.reportTypeLabel}</span>
+          <span className="trec-meta">
+            {" "}
+            · Tested by {rec.tester} · {formatStamp(rec.testedAt)}
+            {rec.supersedesId ? ` · supersedes ${rec.supersedesId}` : ""}
+          </span>
+        </div>
+        <TestVerdict value={rec.overallStatus} />
+      </div>
+      <table className="reg trec-table">
+        <thead>
+          <tr>
+            <th>Circuit</th>
+            <th>Test</th>
+            <th className="num">Reading</th>
+            <th>Limits</th>
+            <th>Verdict</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rec.rows.map((row, i) => (
+            <tr key={i} data-testid="pack-test-row">
+              <td className="strong">{row.circuit}</td>
+              <td>{row.testTypeLabel}</td>
+              <td className="num mono">{row.reading}</td>
+              <td>{row.limits}</td>
+              <td>
+                <TestVerdict value={row.status} />
+                {row.note ? <span className="trec-note"> {row.note}</span> : null}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {rec.note ? <p className="ck-note">&ldquo;{rec.note}&rdquo;</p> : null}
+    </div>
+  );
+}
+
+/** pass/fail reuse the ITP verdict chips; `na` prints "Not judged" (site
+ *  language — a row with no criterion or reading was never judged). */
+function TestVerdict({ value }: { value: "pass" | "fail" | "na" }) {
+  if (value === "na") return <span className="verdict-na">Not judged</span>;
+  return <Verdict value={value} />;
+}
+
 function Verdict({ value }: { value: "pass" | "fail" }) {
   return (
     <span className={value === "pass" ? "verdict verdict-pass" : "verdict verdict-fail"}>
@@ -449,6 +539,14 @@ function PackStyles() {
   font-size:10px; letter-spacing:.06em; text-transform:uppercase; padding:1px 7px; border-radius:3px;}
 .itp-pack .verdict-pass{background:#e7f4ec; color:var(--pass);}
 .itp-pack .verdict-fail{background:#fbeae8; color:var(--fail);}
+.itp-pack .verdict-na{font-size:11px; color:var(--muted);}
+
+/* #519 — electrical test-results records */
+.itp-pack .trec{margin-top:14px;}
+.itp-pack .trec-head{display:flex; align-items:baseline; justify-content:space-between; gap:14px; margin-bottom:6px;}
+.itp-pack .trec-title{font-size:13px; min-width:0;}
+.itp-pack .trec-meta{font-family:"JetBrains Mono",monospace; font-size:9.5px; color:var(--muted); letter-spacing:.03em;}
+.itp-pack .trec-note{font-style:italic; font-size:11px; color:var(--ink-2);}
 .itp-pack .badge{display:inline-block; font-family:"Inter Tight",sans-serif; font-weight:700;
   font-size:10px; letter-spacing:.04em; padding:2px 8px; border-radius:999px; border:1px solid;}
 .itp-pack .badge-lg{font-size:11px; padding:3px 11px;}
@@ -477,6 +575,7 @@ function PackStyles() {
   .itp-pack .itp{break-before:page;}
   .itp-pack .itp:first-of-type{break-before:auto;}
   .itp-pack .check, .itp-pack .checks tr, .itp-pack .signoff, .itp-pack .reg tr{break-inside:avoid;}
+  .itp-pack .trec-head{break-after:avoid;}
 }
 @page{margin:14mm;}
 `,

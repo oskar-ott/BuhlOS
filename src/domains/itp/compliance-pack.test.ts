@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { buildCompliancePack, buildHandoverChecklistSection } from "./compliance-pack";
+import {
+  buildCompliancePack,
+  buildHandoverChecklistSection,
+  buildTestResultsSection,
+} from "./compliance-pack";
 import type { ITPInstance } from "./types";
 import type { Job } from "@/domains/jobs/types";
+import type { TestRecord } from "@/domains/test-records/schema";
 
 /**
  * Pure pack-model contract (#286). The printable view renders exactly what
@@ -178,6 +183,170 @@ describe("buildCompliancePack — sign-off + overrides + determinism", () => {
     const two = build([...data].reverse());
     expect(one).toEqual(two);
     expect(one.instances.map((i) => i.id)).toEqual(["i_a", "i_b"]);
+  });
+});
+
+function testRecord(id: string, extra: Partial<TestRecord> = {}): TestRecord {
+  return {
+    id,
+    jobId: "j1",
+    reportType: "eicr",
+    rows: [
+      {
+        circuit: "Ring final — kitchen sockets",
+        testType: "insulation_resistance",
+        value: 250,
+        unit: "MΩ",
+        min: 1,
+        max: null,
+        status: "pass",
+      },
+    ],
+    tester: "sparky",
+    testedAt: "2026-06-05T02:00:00.000Z",
+    overallStatus: "pass",
+    createdAt: "2026-06-05T02:05:00.000Z",
+    ...extra,
+  } as TestRecord;
+}
+
+describe("buildCompliancePack — #519 electrical test results", () => {
+  it("is null with zero records — the pack never prints an empty scaffold", () => {
+    expect(build([]).testResults).toBeNull();
+    expect(buildTestResultsSection([])).toBeNull();
+  });
+
+  it("rows reproduce readings, units, limits and SERVER-DERIVED verdicts as stored", () => {
+    const pack = buildCompliancePack({
+      job,
+      instances: [],
+      overrides: {},
+      overridesWindowMonths: 12,
+      generatedAt: NOW,
+      testRecords: [
+        testRecord("tr_1", {
+          rows: [
+            {
+              circuit: "Lights — level 1",
+              testType: "earth_fault_loop_zs",
+              value: 0.35,
+              unit: "Ω",
+              min: null,
+              max: 1.37,
+              status: "pass",
+              note: "at DB",
+            },
+            {
+              circuit: "Spa RCD",
+              testType: "rcd_trip_time",
+              value: 480,
+              unit: "ms",
+              min: null,
+              max: 300,
+              status: "fail",
+            },
+            {
+              circuit: "Oven",
+              testType: "functional",
+              value: null,
+              unit: null,
+              min: null,
+              max: null,
+              status: "na",
+            },
+          ] as TestRecord["rows"],
+          overallStatus: "fail",
+        }),
+      ],
+    });
+    const rec = pack.testResults!.records[0]!;
+    expect(rec).toMatchObject({
+      id: "tr_1",
+      reportTypeLabel: "EICR",
+      tester: "sparky",
+      testedAt: "2026-06-05T02:00:00.000Z",
+      overallStatus: "fail",
+      supersedesId: null,
+    });
+    // Readings verbatim — never reformatted into invented precision.
+    expect(rec.rows[0]).toEqual({
+      circuit: "Lights — level 1",
+      testTypeLabel: "Earth loop (Zs)",
+      reading: "0.35 Ω",
+      limits: "≤ 1.37",
+      status: "pass",
+      note: "at DB",
+    });
+    // A failing reading passes through as fail — never re-judged or hidden.
+    expect(rec.rows[1]!.status).toBe("fail");
+    expect(rec.rows[1]!.reading).toBe("480 ms");
+    // No reading / no limits → "—" and na, never blank or invented.
+    expect(rec.rows[2]).toMatchObject({ reading: "—", limits: "—", status: "na" });
+  });
+
+  it("an unknown/other test type falls back to the stored string — never guessed", () => {
+    const section = buildTestResultsSection([
+      testRecord("tr_1", {
+        rows: [
+          {
+            circuit: "C1",
+            testType: "other",
+            value: 7,
+            unit: null,
+            min: 1,
+            max: 9,
+            status: "pass",
+          },
+        ] as TestRecord["rows"],
+      }),
+    ])!;
+    expect(section.records[0]!.rows[0]!.testTypeLabel).toBe("Other");
+    expect(section.records[0]!.rows[0]!.reading).toBe("7");
+    expect(section.records[0]!.rows[0]!.limits).toBe("≥ 1, ≤ 9");
+  });
+
+  it("superseded records are EXCLUDED and COUNTED; the correction names its target", () => {
+    const section = buildTestResultsSection([
+      testRecord("tr_1"),
+      testRecord("tr_2", {
+        supersedesId: "tr_1",
+        testedAt: "2026-06-06T02:00:00.000Z",
+      }),
+    ])!;
+    expect(section.records.map((r) => r.id)).toEqual(["tr_2"]);
+    expect(section.supersededCount).toBe(1);
+    expect(section.records[0]!.supersedesId).toBe("tr_1");
+  });
+
+  it("a supersede chain prints only the latest revision per lineage", () => {
+    const section = buildTestResultsSection([
+      testRecord("tr_1"),
+      testRecord("tr_2", { supersedesId: "tr_1", testedAt: "2026-06-06T02:00:00.000Z" }),
+      testRecord("tr_3", { supersedesId: "tr_2", testedAt: "2026-06-07T02:00:00.000Z" }),
+      testRecord("tr_x", { testedAt: "2026-06-01T02:00:00.000Z" }),
+    ])!;
+    expect(section.records.map((r) => r.id)).toEqual(["tr_x", "tr_3"]);
+    expect(section.supersededCount).toBe(2);
+  });
+
+  it("deterministic: same records → same section; ordered by testedAt", () => {
+    const data = [
+      testRecord("tr_b", { testedAt: "2026-06-06T02:00:00.000Z" }),
+      testRecord("tr_a", { testedAt: "2026-06-05T02:00:00.000Z" }),
+    ];
+    const one = buildTestResultsSection(data);
+    const two = buildTestResultsSection([...data].reverse());
+    expect(one).toEqual(two);
+    expect(one!.records.map((r) => r.id)).toEqual(["tr_a", "tr_b"]);
+  });
+
+  it("degenerate supersede cycle falls back to printing everything — never drops all records", () => {
+    const section = buildTestResultsSection([
+      testRecord("tr_1", { supersedesId: "tr_2" }),
+      testRecord("tr_2", { supersedesId: "tr_1" }),
+    ])!;
+    expect(section.records).toHaveLength(2);
+    expect(section.supersededCount).toBe(0);
   });
 });
 

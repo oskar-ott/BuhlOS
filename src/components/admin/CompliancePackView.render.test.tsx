@@ -19,6 +19,7 @@ const base: CompliancePack = {
   generatedAt: "2026-06-12T10:00:00.000Z",
   overridesNote: "Independence override justifications are sourced from the job audit log (last 12 months). Older overrides remain in the audit record.",
   handoverChecklist: null,
+  testResults: null,
   summary: [
     {
       id: "i1",
@@ -131,6 +132,71 @@ describe("CompliancePackView", () => {
     const html = renderToString(createElement(CompliancePackView, { pack }));
     expect(html).toContain("awaiting sign-off");
     expect(html).not.toContain("not a completed record");
+  });
+
+  it("renders the #519 electrical test-results section: readings, limits, verdicts, supersede note", () => {
+    const pack: CompliancePack = {
+      ...base,
+      testResults: {
+        supersededCount: 1,
+        records: [
+          {
+            id: "tr_2",
+            reportTypeLabel: "EICR",
+            tester: "sparky",
+            testedAt: "2026-06-05T02:00:00.000Z",
+            overallStatus: "fail",
+            supersedesId: "tr_1",
+            note: "Retest after spa RCD swap",
+            rows: [
+              {
+                circuit: "Lights — level 1",
+                testTypeLabel: "Earth loop (Zs)",
+                reading: "0.35 Ω",
+                limits: "≤ 1.37",
+                status: "pass",
+                note: null,
+              },
+              {
+                circuit: "Spa RCD",
+                testTypeLabel: "RCD trip time",
+                reading: "480 ms",
+                limits: "≤ 300",
+                status: "fail",
+                note: "at board",
+              },
+              {
+                circuit: "Oven",
+                testTypeLabel: "Functional check",
+                reading: "—",
+                limits: "—",
+                status: "na",
+                note: null,
+              },
+            ],
+          },
+        ],
+      },
+    };
+    const html = renderToString(createElement(CompliancePackView, { pack }));
+    expect(html).toContain("Electrical test results");
+    expect(html).toContain("EICR");
+    expect(html).toContain("Tested by");
+    expect(html).toContain("Lights — level 1");
+    expect(html).toContain("0.35 Ω");
+    expect(html).toContain("≤ 1.37");
+    expect(html).toContain("Fail");
+    expect(html).toContain("Not judged");
+    expect(html).toContain("supersedes tr_1");
+    expect(html).toContain("1 superseded record not included");
+    expect(html).toContain("Retest after spa RCD swap");
+    expect(html).toContain("never re-judged");
+  });
+
+  it("omits the test-results section entirely when the job has no test records", () => {
+    const html = renderToString(createElement(CompliancePackView, { pack: base }));
+    expect(html).not.toContain("Electrical test results");
+    expect(html).not.toContain("pack-test-results");
   });
 
   it("empty job exports an honest one-pager, not an error", () => {
