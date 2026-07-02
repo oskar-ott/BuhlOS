@@ -6,6 +6,7 @@ import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { QuoteBuilderClient } from "@/components/admin/QuoteBuilderClient";
 import { QuoteDeliveryCard } from "@/components/admin/QuoteDeliveryCard";
+import { QuoteWorkbookImportCard } from "@/components/admin/QuoteWorkbookImportCard";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { isFlagEnabled } from "../../../../../api/_lib/feature-flags.js";
 import { canAccessSurface } from "@/lib/auth/permissions";
@@ -49,6 +50,11 @@ export default async function QuoteBuilderPage({ params }: PageParams) {
   }
   if (!(await isFlagEnabled("quotes", session))) notFound();
 
+  // #365: the workbook-import review card ships flag-dark behind the same
+  // `job_doc_import` flag as the import tool. Hidden-until-real either way —
+  // the card renders nothing for a quote with no import.
+  const workbookImportOn = await isFlagEnabled("job_doc_import", session);
+
   const result = await loadQuote(raw, quoteId);
 
   if (result.kind !== "ok") {
@@ -83,6 +89,8 @@ export default async function QuoteBuilderPage({ params }: PageParams) {
       <div className="space-y-4">
         {/* #240: client-facing lifecycle (sent → viewed → accepted/declined). */}
         <QuoteDeliveryCard quoteId={result.quote.id} />
+        {/* #365: imported-workbook review (findings + classifications). */}
+        {workbookImportOn && <QuoteWorkbookImportCard quoteId={result.quote.id} />}
         {/* §8: the cost/margin readback is admin-tier only. The surface is
             already admin-gated above; this flag gates the confidential UI at the
             component too (defence-in-depth) so cost/margin never render for a

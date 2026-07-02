@@ -1,13 +1,15 @@
 "use client";
 
-import { useState, type ChangeEvent } from "react";
+import { useEffect, useState, type ChangeEvent } from "react";
 import {
+  attachWorkbookToQuote,
   createJobFromBoqImport,
   requestBoqImportPreview,
   type BoqJobCreated,
 } from "@/domains/job-doc-import/client";
 import {
   BOQ_FLAG_LABEL,
+  type AttachWorkbookResponse,
   type BoqFlagKind,
   type BoqImportPreview,
   type BoqRecon,
@@ -86,6 +88,147 @@ export function JobDocImportPreview() {
           created={created}
           onCreated={setCreated}
         />
+      )}
+      {/* #365: import against a QUOTE. Deliberately available even when the
+          package preview above found nothing — the quote-side import parses
+          server-side with the generic provenance/health parser, which reads
+          layouts (e.g. Description/Qty/Rate/Amount BOQs) the package preview
+          doesn't. */}
+      {file && <AttachToQuotePanel file={file} defaultName={defaultJobName(fileName)} />}
+    </div>
+  );
+}
+
+/**
+ * #365 quote-side import: pick an existing v2 quote (or name a new draft) and
+ * attach the workbook to it. The server stores the import record on the quote
+ * (health findings + classification defaults; re-upload supersedes with a kept
+ * record) and materialises base lines into import-owned quote sections. Review
+ * happens on the quote page.
+ */
+export function AttachToQuotePanel({ file, defaultName }: { file: File; defaultName: string }) {
+  const [quotes, setQuotes] = useState<Array<{ id: string; name: string }>>([]);
+  const [targetId, setTargetId] = useState<string>("");
+  const [newName, setNewName] = useState(defaultName);
+  const [attaching, setAttaching] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [attached, setAttached] = useState<AttachWorkbookResponse | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/quotes-v2", { headers: { Accept: "application/json" } })
+      .then(async (res) => (res.ok ? ((await res.json()) as { quotes?: Array<{ id: string; name: string }> }) : null))
+      .then((body) => {
+        if (alive && body && Array.isArray(body.quotes)) {
+          setQuotes(body.quotes.map((q) => ({ id: q.id, name: q.name })));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // A new file selection invalidates a previous success state.
+  useEffect(() => {
+    setAttached(null);
+    setErr(null);
+  }, [file]);
+
+  if (attached) {
+    return (
+      <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
+        <p className="font-medium">Workbook imported against {attached.quoteName}.</p>
+        <p className="mt-1">
+          {attached.counts.lines} line{attached.counts.lines === 1 ? "" : "s"} ·{" "}
+          {attached.counts.findings} health finding{attached.counts.findings === 1 ? "" : "s"} ·{" "}
+          {attached.counts.unconfirmedClassifications} classification
+          {attached.counts.unconfirmedClassifications === 1 ? "" : "s"} to confirm
+          {attached.supersededCount > 0 &&
+            ` · superseded ${attached.supersededCount} earlier upload${attached.supersededCount === 1 ? "" : "s"}`}
+        </p>
+        <a
+          href={`/v2/quotes/${attached.quoteId}`}
+          className="mt-2 inline-block rounded-md bg-emerald-700 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-800"
+        >
+          Review on the quote
+        </a>
+      </div>
+    );
+  }
+
+  async function onAttach() {
+    const target = targetId ? { quoteId: targetId } : { quoteName: newName.trim() };
+    if (!targetId && !newName.trim()) {
+      setErr("Pick a quote or name the new one first.");
+      return;
+    }
+    setErr(null);
+    setAttaching(true);
+    try {
+      setAttached(await attachWorkbookToQuote(file, target));
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Could not import the workbook");
+    } finally {
+      setAttaching(false);
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+      <p className="mb-2 text-sm font-medium text-slate-700">
+        Import this workbook against a quote
+      </p>
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="block">
+          <span className="mb-1 block text-xs text-slate-500">Quote</span>
+          <select
+            value={targetId}
+            onChange={(e) => setTargetId(e.target.value)}
+            className="block rounded-md border border-slate-300 px-3 py-2 text-sm"
+          >
+            <option value="">— New draft quote —</option>
+            {quotes.map((q) => (
+              <option key={q.id} value={q.id}>
+                {q.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        {!targetId && (
+          <label className="block grow">
+            <span className="mb-1 block text-xs text-slate-500">New quote name</span>
+            <input
+              type="text"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder="e.g. 100 Arthur St — Electrical"
+              className="block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+            />
+          </label>
+        )}
+        <button
+          type="button"
+          onClick={onAttach}
+          disabled={attaching}
+          className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+        >
+          {attaching ? "Importing…" : "Import against quote"}
+        </button>
+      </div>
+      <p className="mt-2 text-xs text-slate-500">
+        Lines land on the quote with sheet/cell provenance, health checks (formula errors, qty ×
+        rate mismatches, total reconciliation) and classification defaults you confirm on the quote
+        page. Re-importing the workbook supersedes the previous import — the earlier upload stays
+        on record.
+      </p>
+      {err && (
+        <div
+          className="mt-2 rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-800"
+          role="alert"
+        >
+          {err}
+        </div>
       )}
     </div>
   );

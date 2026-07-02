@@ -421,3 +421,18 @@ module.exports.computeQuoteTotals = computeQuoteTotals;
 module.exports.QUOTE_LIMITS = LIMITS;
 // Exposed for the #511 registry-roll-up concurrency test.
 module.exports.__test = { upsertRegistryRow, readRegistry };
+// Shared store surface for the workbook importer (#365): api/job-doc-import.js
+// attaches an imported BOQ to a v2 quote through these SAME helpers (one doc
+// writer convention, one registry upsert, one totals rule) — never a second
+// hand-rolled copy of the quote storage model.
+module.exports.store = {
+  REGISTRY_KEY,
+  docKey,
+  readRegistry,
+  upsertRegistryRow,
+  currentRevOf,
+  toWire,
+  computeQuoteTotals,
+  uid,
+  LIMITS,
+};

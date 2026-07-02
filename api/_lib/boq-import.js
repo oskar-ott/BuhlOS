@@ -118,17 +118,39 @@ function colToIndex(ref) {
   return n - 1;
 }
 
-/** One worksheet → array of rows, each a column-indexed array of cell strings.
- *  Cells keep embedded newlines (a multi-line description cell stays one cell). */
-function parseSheet(xml, shared) {
+/** Excel error literals a cell can evaluate to (t="e") or carry as text. */
+const ERROR_TOKENS = new Set(['#REF!', '#VALUE!', '#DIV/0!', '#NAME?', '#N/A', '#NUM!', '#NULL!']);
+
+/** 0-based column index → "A"/"B"/…/"AA" (inverse of colToIndex). */
+function colName(index) {
+  let n = index + 1;
+  let out = '';
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    out = String.fromCharCode(65 + rem) + out;
+    n = Math.floor((n - 1) / 26);
+  }
+  return out;
+}
+
+/**
+ * One worksheet → rows of CELL OBJECTS `{ ref, v, f, err }` keeping the sheet
+ * coordinates (`ref`, e.g. "E10"), whether the cell holds a formula (`f`,
+ * `<f>` element present) and any Excel error token it evaluated to (`err`,
+ * e.g. "#REF!"). The provenance/health layer (#365) needs all three; the
+ * plain string grid below is a projection of this.
+ */
+function parseSheetCells(xml, shared) {
   const rows = [];
-  const rowRe = /<row\b[^>]*>([\s\S]*?)<\/row>/g;
+  const rowRe = /<row\b([^>]*)>([\s\S]*?)<\/row>/g;
   let rm;
   while ((rm = rowRe.exec(xml))) {
+    const rAttr = /\br="(\d+)"/.exec(rm[1] || '');
+    const rowNum = rAttr ? parseInt(rAttr[1], 10) : rows.length + 1;
     const cells = [];
     const cRe = /<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g;
     let cm;
-    while ((cm = cRe.exec(rm[1]))) {
+    while ((cm = cRe.exec(rm[2]))) {
       const attrs = cm[1] || '';
       const inner = cm[2] || '';
       const rMatch = /\br="([^"]+)"/.exec(attrs);
@@ -147,16 +169,28 @@ function parseSheet(xml, shared) {
         const v = /<v>([\s\S]*?)<\/v>/.exec(inner);
         if (v) val = decodeEntities(v[1]);
       }
-      cells[col] = val;
+      const trimmed = String(val).trim();
+      cells[col] = {
+        ref: rMatch ? rMatch[1] : colName(col) + rowNum,
+        v: val,
+        f: /<f[\s>/]/.test(inner),
+        err: t === 'e' || ERROR_TOKENS.has(trimmed) ? trimmed || '#ERROR' : null,
+      };
     }
-    for (let i = 0; i < cells.length; i++) if (cells[i] === undefined) cells[i] = '';
-    rows.push(cells);
+    rows.push({ rowNum, cells });
   }
   return rows;
 }
 
-/** Buffer/Uint8Array of an .xlsx → { sheets: [{ name, rows }] }. */
-function extractXlsxGrid(buf) {
+/** One worksheet → array of rows, each a column-indexed array of cell strings.
+ *  Cells keep embedded newlines (a multi-line description cell stays one cell). */
+function parseSheet(xml, shared) {
+  return parseSheetCells(xml, shared).map((row) =>
+    Array.from(row.cells, (c) => (c ? c.v : ''))
+  );
+}
+
+function readWorkbookEntries(buf) {
   const entries = unzip(buf);
   const shared = entries['xl/sharedStrings.xml']
     ? parseSharedStrings(entries['xl/sharedStrings.xml'].toString('utf8'))
@@ -167,9 +201,27 @@ function extractXlsxGrid(buf) {
   const sheetFiles = Object.keys(entries)
     .filter((n) => /^xl\/worksheets\/sheet\d+\.xml$/.test(n))
     .sort((a, b) => Number(/sheet(\d+)\.xml/.exec(a)[1]) - Number(/sheet(\d+)\.xml/.exec(b)[1]));
+  return { entries, shared, names, sheetFiles };
+}
+
+/** Buffer/Uint8Array of an .xlsx → { sheets: [{ name, rows }] }. */
+function extractXlsxGrid(buf) {
+  const { entries, shared, names, sheetFiles } = readWorkbookEntries(buf);
   const sheets = sheetFiles.map((f, i) => ({
     name: names[i] || 'Sheet' + (i + 1),
     rows: parseSheet(entries[f].toString('utf8'), shared),
+  }));
+  return { sheets };
+}
+
+/** Buffer/Uint8Array of an .xlsx → { sheets: [{ name, rows: [{ rowNum,
+ *  cells: [{ ref, v, f, err }] }] }] } — the cell-level grid keeping sheet/cell
+ *  provenance, formula presence and error tokens (#365 health checks). */
+function extractXlsxCells(buf) {
+  const { entries, shared, names, sheetFiles } = readWorkbookEntries(buf);
+  const sheets = sheetFiles.map((f, i) => ({
+    name: names[i] || 'Sheet' + (i + 1),
+    rows: parseSheetCells(entries[f].toString('utf8'), shared),
   }));
   return { sheets };
 }
@@ -354,4 +406,409 @@ function parseBoqFromXlsx(buf) {
   return parseBoq(extractXlsxGrid(buf));
 }
 
-module.exports = { extractXlsxGrid, parseBoq, parseBoqFromXlsx };
+// ─────────────────── Quote workbook import + health checks (#365) ───────────────────
+//
+// The generic, layout-tolerant parse used when a quote workbook is imported
+// AGAINST A QUOTE (the parseBoq above is the Sansara-shaped preview). It keeps
+// {sheet, cell} provenance per line, runs the named health checks the issue
+// pins (formula errors, qty×rate ≠ subtotal, subtotal with missing inputs,
+// hardcoded numbers among formula siblings, section totals ≠ stated total),
+// and defaults a per-line classification (base / alternate / exclusion /
+// pc_sum / by_others) from detection text — every default human-confirmable.
+// PURE: extracts and flags; persists nothing.
+
+const QUOTE_LINE_CLASSIFICATIONS = ['base', 'alternate', 'exclusion', 'pc_sum', 'by_others'];
+
+/** Detection defaults ("Alternative", "by others", "PC"/"provisional"), most
+ *  specific first. qty === 0 is an excluded option (never priced in). */
+function detectClassification(description, qty) {
+  const d = ' ' + String(description || '').toLowerCase().replace(/\s+/g, ' ') + ' ';
+  if (qty === 0 || /\bexcluded\b|\bexclusion\b|\bnot included\b/.test(d)) {
+    return {
+      classification: 'exclusion',
+      reason: qty === 0 ? 'quantity is zero' : 'matched "excluded"',
+    };
+  }
+  if (/\balternative\b|\balternate\b|\balt\.\s/.test(d)) {
+    return { classification: 'alternate', reason: 'matched "Alternative"' };
+  }
+  if (/by others\b|supplied by (the )?(curator|joiner|builder|others|sauna)|connection only/.test(d)) {
+    return { classification: 'by_others', reason: 'matched "by others"' };
+  }
+  if (/\bpc sum\b|\bpc\b|provisional|\ballowance\b/.test(d)) {
+    return { classification: 'pc_sum', reason: 'matched "PC/provisional"' };
+  }
+  return { classification: 'base', reason: null };
+}
+
+/** Is this row a column-header row? Returns the column map or null. A BOQ
+ *  table needs a description + quantity column and at least one money column. */
+function detectColumns(cells) {
+  let desc = null;
+  let qty = null;
+  let unit = null;
+  let rate = null;
+  let subtotal = null;
+  let firstText = null;
+  cells.forEach((c, i) => {
+    if (!c) return;
+    const t = String(c.v).trim().toLowerCase();
+    if (!t) return;
+    if (firstText === null) firstText = i;
+    if (desc === null && /desc|^item\b|particular/.test(t)) desc = i;
+    if (qty === null && /^(qty|quantity|no\.?|nr)\b|quantity/.test(t)) qty = i;
+    if (unit === null && /^unit\b|^uom\b/.test(t)) unit = i;
+    if (rate === null && /rate|unit price|^price\b/.test(t) && !/total/.test(t)) rate = i;
+    if (subtotal === null && /amount|sub.?total/.test(t)) subtotal = i;
+  });
+  if (subtotal === null) {
+    cells.forEach((c, i) => {
+      if (subtotal !== null || !c) return;
+      if (/^total\b/.test(String(c.v).trim().toLowerCase()) && i !== rate) subtotal = i;
+    });
+  }
+  if (desc === null) desc = firstText;
+  if (desc === null || qty === null || (rate === null && subtotal === null)) return null;
+  return { desc, qty, unit, rate, subtotal };
+}
+
+const STATED_TOTAL_RE =
+  /\b(?:boq|tender|contract|quote|project)\s+(?:value|total|sum)\b|\bgrand\s+total\b|\bstated\s+total\b/i;
+
+function cellNum(cell) {
+  if (!cell || cell.err) return null;
+  return num(cell.v);
+}
+
+function cellRefOf(sheetName, cell, colIdx, rowNum) {
+  return sheetName + '!' + (cell ? cell.ref : colName(colIdx == null ? 0 : colIdx) + rowNum);
+}
+
+/**
+ * Parse the cell-level grid of a quote workbook into structured BOQ lines with
+ * provenance, per-line classification defaults and the named health findings.
+ * Pure — no I/O.
+ */
+function parseQuoteWorkbook(cellGrid) {
+  const sheets = (cellGrid && cellGrid.sheets) || [];
+  const lines = [];
+  const findings = [];
+  const sectionOrder = [];
+  const sectionStated = new Map(); // section name → { value, cellRef }
+  let statedTotal = null;
+
+  const seenFindingIds = new Set();
+  const pushFinding = (kind, severity, cellRef, message) => {
+    let id = kind + ':' + cellRef;
+    let n = 2;
+    while (seenFindingIds.has(id)) id = kind + ':' + cellRef + '#' + n++;
+    seenFindingIds.add(id);
+    findings.push({ id, kind, severity, cellRef, message });
+  };
+
+  // Pass 1 — formula error tokens, anywhere in the workbook (#REF!/#VALUE!/#DIV/0!…).
+  for (const sheet of sheets) {
+    for (const row of sheet.rows) {
+      for (const cell of row.cells) {
+        if (cell && cell.err) {
+          pushFinding(
+            'formula_error',
+            'error',
+            sheet.name + '!' + cell.ref,
+            `Formula error ${cell.err} in ${cell.ref} — the workbook is computing on a broken reference.`
+          );
+        }
+      }
+    }
+  }
+
+  // Pass 2 — table extraction with provenance + line-level checks.
+  for (let s = 0; s < sheets.length; s++) {
+    const sheet = sheets[s];
+    let section = null;
+    let cols = null;
+
+    for (const row of sheet.rows) {
+      const cells = row.cells;
+      const textParts = [];
+      let hasNumeric = false;
+      for (const c of cells) {
+        if (!c) continue;
+        const t = String(c.v).trim();
+        if (t) textParts.push(t);
+        if (cellNum(c) != null) hasNumeric = true;
+      }
+      const text = textParts.join(' ').replace(/\s+/g, ' ').trim();
+      if (!text) continue;
+
+      const headerCols = detectColumns(cells);
+      if (headerCols) {
+        cols = headerCols;
+        continue;
+      }
+
+      // A stated workbook total ("BOQ value $46,034", "Grand total") — the
+      // number the section totals must reconcile to. First one wins (headers
+      // state the headline; a bottom grand-total only fills a gap).
+      if (STATED_TOTAL_RE.test(text) && hasNumeric) {
+        if (!statedTotal) {
+          let value = null;
+          let ref = null;
+          for (const c of cells) {
+            const n = cellNum(c);
+            if (n != null && n > 0) {
+              value = n;
+              ref = sheet.name + '!' + c.ref;
+            }
+          }
+          if (value != null) statedTotal = { value, cellRef: ref };
+        }
+        continue;
+      }
+
+      if (cols) {
+        const descCell = cells[cols.desc];
+        const qtyCell = cols.qty != null ? cells[cols.qty] : undefined;
+        const rateCell = cols.rate != null ? cells[cols.rate] : undefined;
+        const subCell = cols.subtotal != null ? cells[cols.subtotal] : undefined;
+        const description = descCell ? String(descCell.v).replace(/\s+/g, ' ').trim() : '';
+        const qty = cellNum(qtyCell);
+        const rate = cellNum(rateCell);
+        const subtotal = cellNum(subCell);
+        const rowErr = [qtyCell, rateCell, subCell].some((c) => c && c.err);
+
+        // A section-total row ("East Gym total") — capture the stated figure.
+        if (description && /\btotal\b/i.test(description) && qty == null) {
+          let value = subtotal;
+          let ref = subCell ? sheet.name + '!' + subCell.ref : null;
+          if (value == null) {
+            for (const c of cells) {
+              const n = cellNum(c);
+              if (n != null) {
+                value = n;
+                ref = sheet.name + '!' + c.ref;
+              }
+            }
+          }
+          const key = section || '(no section)';
+          if (value != null && !sectionStated.has(key)) {
+            sectionStated.set(key, { value, cellRef: ref });
+          }
+          cols = null; // the total closes this table
+          continue;
+        }
+
+        const isLine = description && (qty != null || subtotal != null || rowErr);
+        if (!isLine) {
+          // Text-only row inside/around a table = a section banner.
+          if (description && !hasNumeric && !/\btotal\b/i.test(description)) {
+            section = description.slice(0, 80);
+          }
+          continue;
+        }
+
+        const lineTotal =
+          subtotal != null ? subtotal : qty != null && rate != null ? round2(qty * rate) : null;
+        const det = detectClassification(description, qty);
+        const line = {
+          id: 'wl_' + (s + 1) + '_' + row.rowNum,
+          sheet: sheet.name,
+          row: row.rowNum,
+          section,
+          description,
+          qty,
+          unit: cols.unit != null && cells[cols.unit] ? String(cells[cols.unit].v).trim() : '',
+          rate,
+          subtotal,
+          lineTotal,
+          classification: det.classification,
+          classificationReason: det.reason,
+          subtotalHasFormula: Boolean(subCell && subCell.f),
+          cells: {
+            description: cellRefOf(sheet.name, descCell, cols.desc, row.rowNum),
+            qty: cols.qty != null ? cellRefOf(sheet.name, qtyCell, cols.qty, row.rowNum) : null,
+            unit:
+              cols.unit != null
+                ? cellRefOf(sheet.name, cells[cols.unit], cols.unit, row.rowNum)
+                : null,
+            rate: cols.rate != null ? cellRefOf(sheet.name, rateCell, cols.rate, row.rowNum) : null,
+            subtotal:
+              cols.subtotal != null ? cellRefOf(sheet.name, subCell, cols.subtotal, row.rowNum) : null,
+          },
+        };
+        if (section && !sectionOrder.includes(section)) sectionOrder.push(section);
+        lines.push(line);
+
+        // qty×rate ≠ subtotal beyond rounding (the mispriced-circuit trap).
+        if (qty != null && rate != null && subtotal != null) {
+          const expected = round2(qty * rate);
+          const tolerance = 0.015 + 0.005 * Math.abs(qty);
+          if (Math.abs(expected - subtotal) > tolerance) {
+            pushFinding(
+              'qty_rate_mismatch',
+              'error',
+              line.cells.subtotal,
+              `"${description.slice(0, 60)}": ${qty} × ${rate} = ${expected}, but the subtotal says ${subtotal} (off by ${round2(subtotal - expected)}).`
+            );
+          }
+        }
+
+        // A subtotal with no qty or no rate behind it — unauditable money.
+        if (subtotal != null && (qty == null || rate == null)) {
+          pushFinding(
+            'subtotal_missing_inputs',
+            'warning',
+            line.cells.subtotal,
+            `"${description.slice(0, 60)}" has a subtotal of ${subtotal} but no ${qty == null ? 'quantity' : 'rate'} — the number can't be checked.`
+          );
+        }
+      } else if (!hasNumeric && text.length <= 80) {
+        // Outside any table: a short text-only row is a section banner.
+        section = text.slice(0, 80);
+      }
+    }
+  }
+
+  // Pass 3 — hardcoded subtotal among formula siblings (per section).
+  const bySection = new Map();
+  for (const line of lines) {
+    const key = line.section || '(no section)';
+    if (!bySection.has(key)) bySection.set(key, []);
+    bySection.get(key).push(line);
+  }
+  for (const [, sectionLines] of bySection) {
+    // Only lines that COULD compute (qty + rate present) are hardcode-checkable;
+    // a qty/rate-less subtotal is already named by subtotal_missing_inputs.
+    const withSubtotal = sectionLines.filter(
+      (l) => l.subtotal != null && l.qty != null && l.rate != null
+    );
+    const formulas = withSubtotal.filter((l) => l.subtotalHasFormula);
+    const hardcoded = withSubtotal.filter((l) => !l.subtotalHasFormula);
+    if (formulas.length >= 2 && hardcoded.length >= 1 && formulas.length > hardcoded.length) {
+      for (const l of hardcoded) {
+        pushFinding(
+          'hardcoded_value',
+          'warning',
+          l.cells.subtotal,
+          `"${l.description.slice(0, 60)}" subtotal is a typed number while sibling rows compute theirs — a hand-edit that formulas won't update.`
+        );
+      }
+    }
+  }
+
+  // Sections rollup (computed vs the workbook's stated section totals).
+  const allSections = [...new Set([...sectionOrder, ...sectionStated.keys()])];
+  const sections = allSections.map((name) => {
+    const sectionLines = lines.filter((l) => (l.section || '(no section)') === name);
+    const computed = round2(sectionLines.reduce((t, l) => t + (l.lineTotal || 0), 0));
+    const base = round2(
+      sectionLines
+        .filter((l) => l.classification === 'base')
+        .reduce((t, l) => t + (l.lineTotal || 0), 0)
+    );
+    const stated = sectionStated.get(name) || null;
+    return {
+      name,
+      lineCount: sectionLines.length,
+      computed,
+      base,
+      stated: stated ? stated.value : null,
+      statedCellRef: stated ? stated.cellRef : null,
+      reconciles: stated ? Math.abs(computed - stated.value) < 1 : null,
+    };
+  });
+
+  // Sum of section totals ≠ the workbook's stated total (the $46,034 trap).
+  if (statedTotal && sections.length > 0) {
+    const sectionSum = round2(
+      sections.reduce((t, s) => t + (s.stated != null ? s.stated : s.computed), 0)
+    );
+    if (Math.abs(sectionSum - statedTotal.value) >= 1) {
+      pushFinding(
+        'total_mismatch',
+        'error',
+        statedTotal.cellRef,
+        `Section totals sum to ${sectionSum} but the workbook states ${statedTotal.value} (off by ${round2(statedTotal.value - sectionSum)}) — the headline number does not reconcile.`
+      );
+    }
+  }
+
+  // Alternative-marked lines counted in a base total: the stated figure only
+  // reconciles WITH the alternates included → each alternate is double-counted
+  // until a human confirms it in or out.
+  const flagAlternatesInBase = (scopedLines, statedValue) => {
+    const alternates = scopedLines.filter(
+      (l) => l.classification === 'alternate' && (l.lineTotal || 0) > 0
+    );
+    if (!alternates.length || statedValue == null) return;
+    const all = round2(scopedLines.reduce((t, l) => t + (l.lineTotal || 0), 0));
+    const altSum = round2(alternates.reduce((t, l) => t + (l.lineTotal || 0), 0));
+    if (Math.abs(all - statedValue) < 1 && Math.abs(all - altSum - statedValue) >= 1) {
+      for (const l of alternates) {
+        pushFinding(
+          'alternate_counted_in_base',
+          'error',
+          l.cells.subtotal || l.cells.description,
+          `"${l.description.slice(0, 60)}" is marked Alternative but its ${l.lineTotal} is counted in the base total — confirm it in or out before relying on the number.`
+        );
+      }
+    }
+  };
+  let anySectionStated = false;
+  for (const s of sections) {
+    if (s.stated != null) {
+      anySectionStated = true;
+      flagAlternatesInBase(
+        lines.filter((l) => (l.section || '(no section)') === s.name),
+        s.stated
+      );
+    }
+  }
+  if (!anySectionStated && statedTotal) flagAlternatesInBase(lines, statedTotal.value);
+
+  // Totals by classification. Base NEVER includes alternates (or exclusions /
+  // PC sums / by-others money) — the AC's hard rule.
+  const byClassification = {};
+  for (const c of QUOTE_LINE_CLASSIFICATIONS) byClassification[c] = 0;
+  for (const l of lines) {
+    byClassification[l.classification] = round2(
+      byClassification[l.classification] + (l.lineTotal || 0)
+    );
+  }
+  const all = round2(lines.reduce((t, l) => t + (l.lineTotal || 0), 0));
+
+  const bySeverity = { error: 0, warning: 0 };
+  for (const f of findings) bySeverity[f.severity] += 1;
+
+  return {
+    source: { sheetCount: sheets.length, sheetNames: sheets.map((sh) => sh.name) },
+    lines: lines.map(({ subtotalHasFormula, ...wire }) => wire),
+    sections,
+    statedTotal,
+    totals: {
+      all,
+      base: byClassification.base,
+      byClassification,
+      stated: statedTotal ? statedTotal.value : null,
+      delta: statedTotal ? round2(all - statedTotal.value) : null,
+      reconciles: statedTotal ? Math.abs(all - statedTotal.value) < 1 : null,
+    },
+    findings,
+    counts: { lines: lines.length, findings: findings.length, bySeverity },
+  };
+}
+
+/** Convenience: .xlsx buffer → quote-workbook parse with health findings. */
+function parseQuoteWorkbookFromXlsx(buf) {
+  return parseQuoteWorkbook(extractXlsxCells(buf));
+}
+
+module.exports = {
+  extractXlsxGrid,
+  extractXlsxCells,
+  parseBoq,
+  parseBoqFromXlsx,
+  parseQuoteWorkbook,
+  parseQuoteWorkbookFromXlsx,
+  QUOTE_LINE_CLASSIFICATIONS,
+};

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import { isAdminRole } from "@/lib/auth/roles";
 import type { ScopeOfWorkItem } from "@/domains/jobs/types";
-import type { Quote } from "@/domains/quoting/schema";
+import { QuoteSchema, type Quote } from "@/domains/quoting/schema";
 import { boqLineRefKey, taskRefKey } from "@/domains/job-control/spine";
 import {
   JobControlStageSchema,
@@ -638,14 +638,16 @@ export async function confirmReconciliationAuthorized(
 // ── Real deps (Vercel Blob) ───────────────────────────────────────────────────
 
 interface JobsBlob {
-  jobs: Array<{ id: string; scopeOfWork?: ScopeOfWorkItem[] }>;
+  jobs: Array<{ id: string; scopeOfWork?: ScopeOfWorkItem[]; fromQuoteId?: string }>;
 }
 
 /**
  * Production deps: scope clauses come from the existing `jobs.json` blob; the
  * prior + confirmed reconciliation live at `scopeReconciliationKey(jobId)`. The
- * job↔quote link is #244 (not live), so the quote is always null today — never
- * fabricated.
+ * job↔quote link is `job.fromQuoteId` → the v2 quote document
+ * (`quotes-v2/<id>.json`), recorded by the BOQ-import create-job path and the
+ * won-quote conversion (#365/#244). A missing/legacy/malformed quote document
+ * yields `quote: null` — the engine never computes on a fabricated quote.
  */
 export function blobReconciliationDeps(): ReconciliationProducerDeps {
   return {
@@ -653,7 +655,16 @@ export function blobReconciliationDeps(): ReconciliationProducerDeps {
       const data = await readJsonBlob<JobsBlob>("jobs.json", { jobs: [] });
       const job = data?.jobs.find((j) => j.id === jobId) ?? null;
       if (!job) return { found: false, clauses: [], quote: null };
-      return { found: true, clauses: job.scopeOfWork ?? [], quote: null };
+      let quote: Quote | null = null;
+      if (job.fromQuoteId) {
+        // Legacy fromQuoteId values point at the old quotes.json store — that
+        // key simply doesn't exist under quotes-v2/ and safeParse guards the
+        // rest, so only a real v2 quote ever reaches the engine.
+        const raw = await readJsonBlob<unknown>(`quotes-v2/${job.fromQuoteId}.json`, null);
+        const parsed = QuoteSchema.safeParse(raw);
+        if (parsed.success) quote = parsed.data;
+      }
+      return { found: true, clauses: job.scopeOfWork ?? [], quote };
     },
     async loadPrior(jobId) {
       const raw = await readJsonBlob<unknown>(scopeReconciliationKey(jobId), null);
