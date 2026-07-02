@@ -58,6 +58,11 @@ export const DOCUMENT_CATEGORIES = [
   "schedule",
   "photo",
   "certificate",
+  // #373: head contract / scope-of-works documents. Typing only — the row
+  // rides the existing upload flow; obligation extraction (api/
+  // contract-extractions.js) is TEXT-FIRST because server-side PDF text
+  // extraction is not built (#197).
+  "contract",
   "other",
 ] as const;
 export const DocumentCategorySchema = z.enum(DOCUMENT_CATEGORIES);

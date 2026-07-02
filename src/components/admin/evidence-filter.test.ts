@@ -4,6 +4,7 @@ import {
   DEFAULT_FILTER,
   matchesFilter,
   NO_AREA,
+  NO_LABELS,
   type FilterState,
 } from "./EvidenceFilterBar";
 import type { EvidenceItem } from "@/domains/evidence/types";
@@ -66,6 +67,7 @@ describe("DEFAULT_FILTER", () => {
     expect(DEFAULT_FILTER.areaId).toBeNull();
     expect(DEFAULT_FILTER.stage).toBeNull();
     expect(DEFAULT_FILTER.taskId).toBeNull();
+    expect(DEFAULT_FILTER.label).toBeNull();
   });
 });
 
@@ -203,6 +205,110 @@ describe("matchesFilter — task context (#260)", () => {
   });
 });
 
+describe("matchesFilter — label axis (#262)", () => {
+  // A labelled photo carrying the full spread of entry states: a visible
+  // AI suggestion, a human-confirmed label, a rejected entry (never
+  // visible) and a below-display-floor suggestion (never visible).
+  const labelledItem: EvidenceItem = {
+    ...baseItem,
+    id: "ev_lab",
+    kind: "photo",
+    photoId: "ph_1",
+    photoUrl: "https://blob.example/p.jpg",
+    labels: [
+      {
+        label: "switchboard",
+        source: "ai",
+        status: "suggested",
+        confidence: 0.9,
+        at: "2026-05-25T14:31:00.000Z",
+      },
+      {
+        label: "outlet",
+        source: "human",
+        status: "confirmed",
+        confidence: null,
+        at: "2026-05-25T14:32:00.000Z",
+      },
+      {
+        label: "lighting",
+        source: "ai",
+        status: "rejected",
+        confidence: 0.9,
+        at: "2026-05-25T14:33:00.000Z",
+      },
+      {
+        label: "materials",
+        source: "ai",
+        status: "suggested",
+        confidence: 0.3,
+        at: "2026-05-25T14:34:00.000Z",
+      },
+    ],
+  };
+
+  it("default null label matches everything", () => {
+    expect(matchesFilter(baseItem, DEFAULT_FILTER)).toBe(true);
+    expect(matchesFilter(labelledItem, DEFAULT_FILTER)).toBe(true);
+  });
+
+  it("matches a specific visible label (AI-suggested or human-confirmed)", () => {
+    const suggested: FilterState = { ...DEFAULT_FILTER, label: "switchboard" };
+    expect(matchesFilter(labelledItem, suggested)).toBe(true);
+    expect(matchesFilter(baseItem, suggested)).toBe(false);
+
+    const confirmed: FilterState = { ...DEFAULT_FILTER, label: "outlet" };
+    expect(matchesFilter(labelledItem, confirmed)).toBe(true);
+  });
+
+  it("never matches rejected or below-floor entries", () => {
+    // Rejected: a human removed it — it must not resurface via the filter.
+    expect(
+      matchesFilter(labelledItem, { ...DEFAULT_FILTER, label: "lighting" })
+    ).toBe(false);
+    // Below the confidence display floor: not visible, so not filterable.
+    expect(
+      matchesFilter(labelledItem, { ...DEFAULT_FILTER, label: "materials" })
+    ).toBe(false);
+  });
+
+  it("NO_LABELS matches unlabelled rows only", () => {
+    const f: FilterState = { ...DEFAULT_FILTER, label: NO_LABELS };
+    // No labels array at all.
+    expect(matchesFilter(baseItem, f)).toBe(true);
+    // Only invisible entries (rejected + below-floor) = honestly unlabelled.
+    const invisibleOnly: EvidenceItem = {
+      ...labelledItem,
+      id: "ev_invisible",
+      labels: labelledItem.labels?.filter(
+        (l) => l.label === "lighting" || l.label === "materials"
+      ),
+    };
+    expect(matchesFilter(invisibleOnly, f)).toBe(true);
+    // A visibly-labelled row is excluded.
+    expect(matchesFilter(labelledItem, f)).toBe(false);
+  });
+
+  it("AND-combines the label axis with status", () => {
+    const f: FilterState = {
+      ...DEFAULT_FILTER,
+      status: "reviewed",
+      label: "switchboard",
+    };
+    // Right label, wrong status → fails.
+    expect(matchesFilter(labelledItem, f)).toBe(false);
+    // Right label AND right status → passes.
+    expect(matchesFilter({ ...labelledItem, status: "reviewed" }, f)).toBe(true);
+    // Right status, wrong label → fails.
+    expect(
+      matchesFilter(
+        { ...labelledItem, status: "reviewed" },
+        { ...f, label: "progress" }
+      )
+    ).toBe(false);
+  });
+});
+
 describe("matchesFilter — combined", () => {
   it("requires all active filters to pass", () => {
     const f: FilterState = {
@@ -214,6 +320,7 @@ describe("matchesFilter — combined", () => {
       areaId: null,
       stage: null,
       taskId: null,
+      label: null,
     };
     expect(matchesFilter(baseItem, f)).toBe(true);
     // Different captured-by fails.

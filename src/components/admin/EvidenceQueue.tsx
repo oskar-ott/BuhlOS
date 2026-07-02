@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { FileText, Image as ImageIcon, Link2 } from "lucide-react";
+import { FileText, Image as ImageIcon, Link2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -19,9 +19,12 @@ import {
   unlinkEvidence,
 } from "@/domains/evidence/client";
 import type { EvidenceItem } from "@/domains/evidence/types";
+import { defectSuggestionFor } from "@/domains/evidence/defect-suggestions";
 import { pairedIdSet } from "@/domains/evidence/pairing";
 import { resolveEvidenceTargetParts } from "@/domains/evidence/target-label";
 import type { Job } from "@/domains/jobs/types";
+import { createSnag } from "@/domains/snags/client";
+import type { CreateSnagPayload, SnagItem } from "@/domains/snags/types";
 import {
   DEFAULT_FILTER,
   EvidenceFilterBar,
@@ -30,8 +33,16 @@ import {
 } from "./EvidenceFilterBar";
 import { EvidenceContextChips } from "./EvidenceContextChips";
 import { EvidenceDrawer } from "./EvidenceDrawer";
+import { EvidenceLabelChips } from "./EvidenceLabelChips";
 import { EvidenceRejectModal } from "./EvidenceRejectModal";
 import { EvidenceUnreviewModal } from "./EvidenceUnreviewModal";
+import {
+  CLASSIFY_BATCH_MAX,
+  apiErrorMessage,
+  classifyEvidencePhotos,
+  correctEvidenceLabels,
+  dismissDefectSuggestion,
+} from "./evidence-ai-client";
 import { cn } from "@/lib/cn";
 
 const PILL_TONE_MAP: Record<EvidenceStatusTone, "info" | "success" | "danger"> = {
@@ -58,6 +69,17 @@ interface Props {
    *  hand assigned to it). Gates the FLAG half of the as-built toggle for
    *  non-capturers, mirroring the server's `canManageJob`. */
   viewerCanManageJob?: boolean;
+  /** #262 — true when the viewer is an admin AND the ai_photo_labels flag
+   *  is on. Gates the "Suggest labels (AI)" toolbar, the Label filter axis
+   *  and the drawer's correction controls. Label chips DISPLAY regardless
+   *  (harmless). Default-safe: absent = dark. */
+  aiLabelsEnabled?: boolean;
+  /** #267 — true when the viewer is an admin AND ai_snag_suggestions is
+   *  on. Gates the row indicator + drawer suggestion panel. */
+  snagSuggestionsEnabled?: boolean;
+  /** #267 — the job's snagsV2 rows, fetched server-side when suggestions
+   *  are on. Drives the suggested/linked projection. */
+  initialSnags?: ReadonlyArray<SnagItem>;
 }
 
 type ActionState =
@@ -95,6 +117,9 @@ export function EvidenceQueue({
   viewerName,
   viewerId,
   viewerCanManageJob,
+  aiLabelsEnabled = false,
+  snagSuggestionsEnabled = false,
+  initialSnags,
 }: Props) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -107,6 +132,15 @@ export function EvidenceQueue({
   const [unreviewId, setUnreviewId] = useState<string | null>(null);
   const [action, setAction] = useState<ActionState>({ kind: "idle" });
   const [bulkBusy, setBulkBusy] = useState(false);
+  // #267 — local snags mirror; grows when a suggestion is accepted so the
+  // 'linked' projection flips without a reload.
+  const [snags, setSnags] = useState<SnagItem[]>(() => [...(initialSnags ?? [])]);
+  // #262 — classification run state + the honest post-run summary.
+  const [classifyBusy, setClassifyBusy] = useState(false);
+  const [classifySummary, setClassifySummary] = useState<{
+    text: string;
+    failed: boolean;
+  } | null>(null);
 
   const visible = useMemo(
     () => items.filter((it) => matchesFilter(it, filter)),
@@ -120,6 +154,33 @@ export function EvidenceQueue({
     () => pairedIdSet(initialEvidence),
     [initialEvidence]
   );
+
+  // #262 — VISIBLE photo rows the AI hasn't run on yet (no aiLabelRuns).
+  // The server also enforces idempotency per (photo, modelVersion); this is
+  // just the honest client-side candidate count for the toolbar.
+  const classifyCandidateIds = useMemo(
+    () =>
+      visible
+        .filter(
+          (it) =>
+            it.kind === "photo" &&
+            !!it.photoUrl &&
+            (!Array.isArray(it.aiLabelRuns) || it.aiLabelRuns.length === 0)
+        )
+        .map((it) => it.id),
+    [visible]
+  );
+
+  // #267 — ids whose defect suggestion is live (state='suggested'), from the
+  // UNFILTERED list so the drawer + row indicator agree.
+  const suggestedDefectIds = useMemo(() => {
+    const set = new Set<string>();
+    if (!snagSuggestionsEnabled) return set;
+    for (const it of items) {
+      if (defectSuggestionFor(it, snags).state === "suggested") set.add(it.id);
+    }
+    return set;
+  }, [items, snags, snagSuggestionsEnabled]);
 
   const selectedSubmittedIds = useMemo(
     () =>
@@ -301,6 +362,130 @@ export function EvidenceQueue({
     [job.id, applyServerItem, router]
   );
 
+  // #262 — batch-classify the visible unclassified photos (cap 8 per go).
+  // The summary is honest per-outcome ("3 labelled · 1 failed: …"); a 503
+  // UNCONFIGURED shows the server's plain error text, never a fake result.
+  const suggestLabels = useCallback(async () => {
+    const ids = classifyCandidateIds.slice(0, CLASSIFY_BATCH_MAX);
+    if (ids.length === 0 || classifyBusy) return;
+    setClassifyBusy(true);
+    setClassifySummary(null);
+    const r = await classifyEvidencePhotos(job.id, ids);
+    if (r.ok) {
+      for (const ev of r.data.evidence) applyServerItem(ev);
+      const counts = { labelled: 0, "no-labels": 0, skipped: 0, failed: 0 };
+      let failReason: string | null = null;
+      for (const result of r.data.results) {
+        counts[result.outcome] += 1;
+        if (result.outcome === "failed" && !failReason && result.reason) {
+          failReason = result.reason;
+        }
+      }
+      const parts: string[] = [];
+      if (counts.labelled) parts.push(`${counts.labelled} labelled`);
+      if (counts["no-labels"]) parts.push(`${counts["no-labels"]} no labels`);
+      if (counts.skipped) parts.push(`${counts.skipped} skipped`);
+      if (counts.failed) {
+        parts.push(
+          `${counts.failed} failed${failReason ? `: ${failReason}` : ""}`
+        );
+      }
+      setClassifySummary({
+        text: parts.length > 0 ? parts.join(" · ") : "Nothing classified.",
+        failed: counts.failed > 0,
+      });
+      startTransition(() => router.refresh());
+    } else {
+      setClassifySummary({
+        text: apiErrorMessage(r.error, "Couldn't suggest labels. Try again."),
+        failed: true,
+      });
+    }
+    setClassifyBusy(false);
+  }, [classifyCandidateIds, classifyBusy, job.id, applyServerItem, router]);
+
+  // #262 — human label correction (accept / remove / add) from the drawer.
+  const correctLabels = useCallback(
+    async (
+      evidenceId: string,
+      correction: { add?: string[]; accept?: string[]; remove?: string[] }
+    ) => {
+      setAction({ kind: "in_flight", evidenceId });
+      const r = await correctEvidenceLabels(job.id, {
+        evidenceId,
+        ...correction,
+      });
+      if (r.ok) {
+        applyServerItem(r.data.evidenceItem);
+        setAction({ kind: "success", message: "Labels updated." });
+        startTransition(() => router.refresh());
+      } else {
+        setAction({
+          kind: "error",
+          message:
+            r.error.status === 403
+              ? "Admin only — you can't change labels."
+              : apiErrorMessage(r.error, "Couldn't update the labels. Try again."),
+        });
+      }
+    },
+    [job.id, applyServerItem, router]
+  );
+
+  // #267 — sticky dismissal of the defect suggestion. Quiet on success:
+  // the card itself flips to its muted dismissed line, no banner needed.
+  const dismissSuggestion = useCallback(
+    async (evidenceId: string) => {
+      setAction({ kind: "in_flight", evidenceId });
+      const r = await dismissDefectSuggestion(job.id, evidenceId);
+      if (r.ok) {
+        applyServerItem(r.data.evidenceItem);
+        setAction({ kind: "idle" });
+        startTransition(() => router.refresh());
+      } else {
+        setAction({
+          kind: "error",
+          message:
+            r.error.status === 403
+              ? "Admin only — you can't dismiss this suggestion."
+              : apiErrorMessage(
+                  r.error,
+                  "Couldn't dismiss the suggestion. Try again."
+                ),
+        });
+      }
+    },
+    [job.id, applyServerItem, router]
+  );
+
+  // #267 — accept a defect suggestion by raising a snag through the
+  // EXISTING snag-create path. Returns an error message for the card's
+  // inline display, or null on success (the new snag flips the projection
+  // to 'linked' via local snags state).
+  const raiseSnag = useCallback(
+    async (
+      evidenceId: string,
+      payload: CreateSnagPayload
+    ): Promise<string | null> => {
+      setAction({ kind: "in_flight", evidenceId });
+      const r = await createSnag(job.id, payload);
+      if (r.ok) {
+        setSnags((prev) => [...prev, r.data.snagItem]);
+        setAction({
+          kind: "success",
+          message: "Snag raised and linked to this photo.",
+        });
+        startTransition(() => router.refresh());
+        return null;
+      }
+      setAction({ kind: "idle" });
+      return r.error.status === 403
+        ? "You can't raise snags on this job."
+        : apiErrorMessage(r.error, "Couldn't raise the snag. Try again.");
+    },
+    [job.id, router]
+  );
+
   // Resolve the AFTER id for the drawer's unlink button: if the drawer item
   // IS the after it carries pairedWithId; if it's the before, find the row
   // pointing at it. Returns null when the item isn't part of a live pair.
@@ -435,7 +620,41 @@ export function EvidenceQueue({
           setSelected({});
         }}
         visibleCount={visible.length}
+        aiLabelsEnabled={isAdmin && aiLabelsEnabled}
       />
+
+      {isAdmin && aiLabelsEnabled ? (
+        <div className="flex flex-wrap items-center gap-3 rounded-card border border-border bg-surface-raised px-3 py-2.5 shadow-card">
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={suggestLabels}
+            disabled={classifyBusy || classifyCandidateIds.length === 0}
+          >
+            <Sparkles aria-hidden="true" className="h-3.5 w-3.5" />
+            {classifyBusy ? "Suggesting…" : "Suggest labels (AI)"}
+          </Button>
+          <p className="text-xs text-text-muted">
+            {classifyCandidateIds.length === 0
+              ? "Nothing to classify — the AI has looked at every visible photo."
+              : classifyCandidateIds.length > CLASSIFY_BATCH_MAX
+                ? `${classifyCandidateIds.length} visible photos the AI hasn't looked at — does ${CLASSIFY_BATCH_MAX} at a time.`
+                : `${classifyCandidateIds.length} visible photo${classifyCandidateIds.length === 1 ? "" : "s"} the AI hasn't looked at.`}
+          </p>
+          {classifySummary ? (
+            <p
+              role="status"
+              aria-live="polite"
+              className={cn(
+                "text-xs font-medium",
+                classifySummary.failed ? "text-rose-700" : "text-emerald-800"
+              )}
+            >
+              {classifySummary.text}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       {isAdmin && selectedSubmittedIds.length > 0 ? (
         <div className="flex items-center justify-between gap-3 rounded-card border border-brand-navy bg-brand-navy px-4 py-3 text-text-inverse">
@@ -515,6 +734,7 @@ export function EvidenceQueue({
                   job={job}
                   isAdmin={isAdmin}
                   isPaired={pairedIds.has(it.id)}
+                  hasDefectSuggestion={suggestedDefectIds.has(it.id)}
                   isSelected={!!selected[it.id]}
                   busy={!!busyMap[it.id] || bulkBusy}
                   onToggleSelect={() => toggleSelect(it.id)}
@@ -567,6 +787,24 @@ export function EvidenceQueue({
             ? () => toggleAsBuilt(drawerItem.id, !(drawerItem.asBuilt === true))
             : undefined
         }
+        aiLabelsEnabled={isAdmin && aiLabelsEnabled}
+        onCorrectLabels={
+          isAdmin && aiLabelsEnabled && drawerItem
+            ? (correction) => correctLabels(drawerItem.id, correction)
+            : undefined
+        }
+        snagSuggestionsEnabled={isAdmin && snagSuggestionsEnabled}
+        snags={snags}
+        onDismissDefectSuggestion={
+          isAdmin && snagSuggestionsEnabled && drawerItem
+            ? () => dismissSuggestion(drawerItem.id)
+            : undefined
+        }
+        onRaiseSnag={
+          isAdmin && snagSuggestionsEnabled && drawerItem
+            ? (payload) => raiseSnag(drawerItem.id, payload)
+            : undefined
+        }
       />
 
       <EvidenceRejectModal
@@ -600,6 +838,9 @@ interface RowProps {
    *  computed from the UNFILTERED list, so the badge shows even when the
    *  partner is filtered out). */
   isPaired: boolean;
+  /** #267 — true when the defect-suggestion projection says 'suggested'
+   *  for this row (only ever true when ai_snag_suggestions is on). */
+  hasDefectSuggestion: boolean;
   isSelected: boolean;
   busy: boolean;
   onToggleSelect: () => void;
@@ -613,6 +854,7 @@ function EvidenceRow({
   job,
   isAdmin,
   isPaired,
+  hasDefectSuggestion,
   isSelected,
   busy,
   onToggleSelect,
@@ -672,6 +914,17 @@ function EvidenceRow({
             <span className="block max-w-xs truncate text-sm text-text">
               {item.note ? item.note : "—"}
             </span>
+            {/* #262 — label chips display whenever the row carries labels;
+                mutation stays behind the flag-gated controls. */}
+            <EvidenceLabelChips item={item} className="mt-1 max-w-xs" />
+            {hasDefectSuggestion ? (
+              // #267 — opens the drawer (this whole cell is the open button)
+              // where the suggestion panel holds the raise/dismiss decision.
+              <span className="mt-1 inline-flex items-center gap-1 rounded-pill border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-900">
+                <Sparkles aria-hidden="true" className="h-3 w-3" />
+                Possible defect — suggestion
+              </span>
+            ) : null}
             {rejected && item.rejectionReason ? (
               <span className="mt-1 block max-w-xs truncate text-xs text-rose-700">
                 Reason: {item.rejectionReason}

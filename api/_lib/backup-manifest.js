@@ -59,6 +59,7 @@ const PREFIX_STORES = [
   'suppliers/', // per-supplier products.json (supplier-products.js)
   'access-requests/',
   'password-resets/',
+  'analytics/', // insights digests analytics/digests/<weekStart>.json (#347) — findings JSON + phrased bullets, stored so every sentence stays auditable against the data that produced it
 ];
 
 /** The snapshot destination prefix — never itself snapshotted or app-read. */

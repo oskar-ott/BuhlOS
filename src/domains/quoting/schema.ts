@@ -81,6 +81,14 @@ export const QuoteLineSchema = z
      *  the rates were COPIED onto the line, editing the preset never changes it). */
     ratePresetId: z.string().optional(),
     ratePresetName: z.string().optional(),
+    /** #246 — provenance stamp for a line accepted from an AI draft. Additive:
+     *  human-entered lines never carry these; old docs stay valid. */
+    source: z.literal("ai_suggested").optional(),
+    /** The accepted suggestion's envelope id (audit trail back to `aiDraft`). */
+    aiSuggestionId: z.string().optional(),
+    /** True while the accepted line still sits at the honest rate 0 — the
+     *  builder badges it "AI · needs pricing"; a price is NEVER invented. */
+    needsPricing: z.boolean().optional(),
   })
   .passthrough();
 export type QuoteLine = z.infer<typeof QuoteLineSchema>;
@@ -184,6 +192,11 @@ const QuoteLineInputSchema = z.object({
   category: z.string().trim().max(QUOTE_LIMITS.maxCategory).optional(),
   ratePresetId: z.string().trim().max(QUOTE_LIMITS.maxId).optional(),
   ratePresetName: z.string().trim().max(QUOTE_LIMITS.maxName).optional(),
+  /** #246 — AI-draft provenance flags round-trip through full-document saves
+   *  (the builder echoes what it loaded; the server validates + persists). */
+  source: z.literal("ai_suggested").optional(),
+  aiSuggestionId: z.string().trim().max(QUOTE_LIMITS.maxId).optional(),
+  needsPricing: z.boolean().optional(),
 });
 export type QuoteLineInput = z.infer<typeof QuoteLineInputSchema>;
 

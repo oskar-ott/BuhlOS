@@ -53,6 +53,16 @@ const {
 const { appendAudit: appendLegacyAudit } = require('./_lib/job-audit');
 const { append: appendAuditLog } = require('./_lib/audit-log');
 const { idempotencyKeyFrom, findIdempotent, recordIdempotent } = require('./_lib/idempotency');
+// #262 — AI photo labels: the one gateway (#170) + the label merge rules.
+const { aiComplete, isAiConfigured } = require('./_lib/ai');
+const { parseModelJson } = require('./_lib/ai-suggestions');
+const {
+  PHOTO_LABEL_TAXONOMY,
+  PHOTO_LABELS_PROMPT_VERSION,
+  hasAiLabelRun,
+  mergeAiLabels,
+  applyLabelCorrection,
+} = require('./_lib/photo-labels');
 
 // `test_result` (#517) is the companion proof minted when a worker saves a
 // structured electrical TestRecord — the numbers live in
@@ -657,6 +667,310 @@ async function flagAsBuiltEvidence(req, res, user, jobId) {
   return res.status(200).json({ evidenceItem: next });
 }
 
+// ── #262: AI photo labels ─────────────────────────────────────────────────
+//
+//   POST /api/evidence?jobId=X&action=classify  body { evidenceIds: [..] }
+//   POST /api/evidence?jobId=X&action=labels    body { evidenceId, add/accept/remove }
+//
+// Lazy classify-on-review (the tags.js on-demand OCR precedent): the office
+// triggers classification from the queue — capture is never involved, an
+// upload never waits on or fails because of a model. Idempotent per
+// (photo, modelVersion) via run markers; a FAILED call writes no marker so
+// the photo stays honestly unlabelled and re-attemptable. One data.json
+// write per batch (never per-photo loop writes).
+
+// Bare current alias per #378 (see scripts/check-model-ids.js); vision-capable.
+const EVIDENCE_AI_MODEL = process.env.EVIDENCE_AI_MODEL || 'claude-sonnet-4-6';
+const CLASSIFY_BATCH_MAX = 8;
+const CLASSIFY_SYSTEM = [
+  'You classify site photos for a small Australian electrical contractor.',
+  'Label ONLY what is clearly visible. Use ONLY these labels:',
+  PHOTO_LABEL_TAXONOMY.join(', ') + '.',
+  'Reply with STRICT JSON only: {"labels":[{"label":"<one of the list>","confidence":<0..1>}]}.',
+  'Use possible-defect only for visible damage, unsafe or non-compliant work.',
+  'When you are not sure, OMIT the label. An unclear photo gets {"labels":[]}.',
+  'Never invent labels outside the list.',
+].join(' ');
+
+async function classifyOnePhoto(item) {
+  // Fetch the public blob image and send base64 (the api/tags.js OCR pattern).
+  const r = await fetch(item.photoUrl);
+  if (!r.ok) throw new Error('image fetch failed (' + r.status + ')');
+  let mediaType = r.headers.get('content-type') || 'image/jpeg';
+  if (!mediaType.startsWith('image/')) mediaType = 'image/jpeg';
+  const ab = await r.arrayBuffer();
+  const imageBase64 = Buffer.from(ab).toString('base64');
+
+  const completion = await aiComplete({
+    system: CLASSIFY_SYSTEM,
+    messages: [
+      {
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: mediaType, data: imageBase64 } },
+          { type: 'text', text: 'Classify this photo. Return only the JSON object.' },
+        ],
+      },
+    ],
+    model: EVIDENCE_AI_MODEL,
+    maxTokens: 400,
+  });
+  const parsed = parseModelJson(completion.text);
+  if (!parsed.ok) throw new Error(parsed.error);
+  const rawLabels = Array.isArray(parsed.value && parsed.value.labels) ? parsed.value.labels : [];
+  return { rawLabels, model: completion.model, usage: completion.usage };
+}
+
+async function classifyEvidence(req, res, user, jobId) {
+  if (!isAdminRole(user.role)) {
+    return res.status(403).json({ error: 'admin only' });
+  }
+  if (!isAiConfigured()) {
+    return res.status(503).json({ error: 'AI is not configured', code: 'UNCONFIGURED' });
+  }
+  const body = req.body || {};
+  const ids = Array.isArray(body.evidenceIds) ? body.evidenceIds.filter(Boolean) : [];
+  if (ids.length === 0) return res.status(400).json({ error: 'evidenceIds required' });
+  if (ids.length > CLASSIFY_BATCH_MAX) {
+    return res.status(400).json({ error: `at most ${CLASSIFY_BATCH_MAX} photos per batch` });
+  }
+
+  const KEY = dataKey(jobId);
+  const data = await readBlob(KEY, emptyData());
+  const arr = Array.isArray(data.evidence) ? data.evidence : [];
+
+  const results = [];
+  const updated = [];
+  let totalUsage = { inputTokens: 0, outputTokens: 0 };
+  let anyChange = false;
+
+  // Sequential on purpose — bounded spend, bounded blob-image fetches.
+  for (const evidenceId of ids) {
+    const idx = arr.findIndex((ev) => ev && ev.id === evidenceId);
+    if (idx === -1) {
+      results.push({ evidenceId, outcome: 'skipped', reason: 'not found on job' });
+      continue;
+    }
+    const item = arr[idx];
+    if (item.kind !== 'photo' || !item.photoUrl) {
+      results.push({ evidenceId, outcome: 'skipped', reason: 'not a photo' });
+      continue;
+    }
+    if (hasAiLabelRun(item, EVIDENCE_AI_MODEL)) {
+      results.push({ evidenceId, outcome: 'skipped', reason: 'already classified' });
+      continue;
+    }
+    try {
+      const { rawLabels, usage } = await classifyOnePhoto(item);
+      const merged = mergeAiLabels(item, rawLabels, {
+        modelVersion: EVIDENCE_AI_MODEL,
+        promptVersion: PHOTO_LABELS_PROMPT_VERSION,
+      });
+      const next = {
+        ...item,
+        labels: merged.labels,
+        aiLabelRuns: merged.aiLabelRuns,
+        updatedAt: new Date().toISOString(),
+      };
+      arr[idx] = next;
+      updated.push(next);
+      anyChange = true;
+      if (usage) {
+        totalUsage = {
+          inputTokens: totalUsage.inputTokens + usage.inputTokens,
+          outputTokens: totalUsage.outputTokens + usage.outputTokens,
+        };
+      }
+      results.push({
+        evidenceId,
+        outcome: merged.added.length > 0 ? 'labelled' : 'no-labels',
+        labelCount: merged.added.length,
+      });
+    } catch (e) {
+      // No run marker on failure — the row stays unlabelled and re-attemptable.
+      results.push({ evidenceId, outcome: 'failed', reason: e.message || 'classification failed' });
+    }
+  }
+
+  if (anyChange) {
+    data.evidence = arr;
+    try {
+      await writeBlob(KEY, data);
+    } catch (e) {
+      return res.status(502).json({ error: 'write failed: ' + (e.message || 'unknown') });
+    }
+
+    await appendAuditLog({
+      action: 'evidence.labels_suggested',
+      actorId: user.id,
+      actorName: user.name || user.username || 'Unknown',
+      actorRole: user.role || null,
+      jobId,
+      targetType: 'job',
+      targetId: jobId,
+      summary: `AI suggested labels on ${updated.length} photo${updated.length === 1 ? '' : 's'}`,
+      metadata: {
+        model: EVIDENCE_AI_MODEL,
+        promptVersion: PHOTO_LABELS_PROMPT_VERSION,
+        evidenceIds: updated.map((ev) => ev.id),
+        usage: totalUsage,
+      },
+    }).catch(() => null);
+
+    appendLegacyAudit(jobId, {
+      byUserId: user.id,
+      byUsername: user.username || user.name || '',
+      kind: 'evidence.labels_suggested',
+      summary: `AI suggested labels on ${updated.length} photo(s)`,
+      after: { evidenceIds: updated.map((ev) => ev.id) },
+    }).catch(() => {});
+  }
+
+  return res.status(200).json({ results, evidence: updated });
+}
+
+async function correctLabels(req, res, user, jobId) {
+  if (!isAdminRole(user.role)) {
+    return res.status(403).json({ error: 'admin only' });
+  }
+  const body = req.body || {};
+  const evidenceId = typeof body.evidenceId === 'string' ? body.evidenceId : '';
+  if (!evidenceId) return res.status(400).json({ error: 'evidenceId required' });
+  const toList = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []);
+  const correction = { add: toList(body.add), accept: toList(body.accept), remove: toList(body.remove) };
+
+  const KEY = dataKey(jobId);
+  const data = await readBlob(KEY, emptyData());
+  const arr = Array.isArray(data.evidence) ? data.evidence : [];
+  const idx = arr.findIndex((ev) => ev && ev.id === evidenceId);
+  if (idx === -1) return res.status(404).json({ error: 'evidence not found on job' });
+  const current = arr[idx];
+
+  const applied = applyLabelCorrection(current, correction, user);
+  if (!applied.ok) return res.status(400).json({ error: applied.error });
+
+  const nowIso = new Date().toISOString();
+  const next = { ...current, labels: applied.labels, updatedAt: nowIso };
+
+  const auditEntry = await appendAuditLog({
+    action: 'evidence.labels_corrected',
+    actorId: user.id,
+    actorName: user.name || user.username || 'Unknown',
+    actorRole: user.role || null,
+    jobId,
+    targetType: 'evidence',
+    targetId: next.id,
+    summary: 'corrected photo labels',
+    metadata: {
+      added: correction.add,
+      accepted: correction.accept,
+      removed: correction.remove,
+    },
+  }).catch(() => null);
+  if (auditEntry && auditEntry.id) {
+    next.auditLogIds = [...(current.auditLogIds || []), auditEntry.id];
+  }
+
+  arr[idx] = next;
+  data.evidence = arr;
+  try {
+    await writeBlob(KEY, data);
+  } catch (e) {
+    return res.status(502).json({ error: 'write failed: ' + (e.message || 'unknown') });
+  }
+
+  appendLegacyAudit(jobId, {
+    byUserId: user.id,
+    byUsername: user.username || user.name || '',
+    kind: 'evidence.labels_corrected',
+    summary: `evidence ${next.id} labels corrected`,
+    before: { labels: (current.labels || []).length },
+    after: { labels: (next.labels || []).length },
+  }).catch(() => {});
+
+  return res.status(200).json({ evidenceItem: next });
+}
+
+// ── #267: dismiss an AI defect→snag suggestion ────────────────────────────
+//
+//   POST /api/evidence?jobId=X&action=dismiss-defect-suggestion
+//     body { evidenceId, label?, confidence?, modelVersion? }
+//
+// The suggestion itself is a pure projection (possible-defect label above the
+// conservative floor — src/domains/evidence/defect-suggestions.ts); ACCEPT
+// goes through the EXISTING snag creation path (POST /api/snags with
+// evidenceIds) — this endpoint only records the sticky dismissal, with the
+// confidence at dismissal time so precision is measurable. Idempotent.
+async function dismissDefectSuggestion(req, res, user, jobId) {
+  if (!isAdminRole(user.role)) {
+    return res.status(403).json({ error: 'admin only' });
+  }
+  const body = req.body || {};
+  const evidenceId = typeof body.evidenceId === 'string' ? body.evidenceId : '';
+  if (!evidenceId) return res.status(400).json({ error: 'evidenceId required' });
+
+  const KEY = dataKey(jobId);
+  const data = await readBlob(KEY, emptyData());
+  const arr = Array.isArray(data.evidence) ? data.evidence : [];
+  const idx = arr.findIndex((ev) => ev && ev.id === evidenceId);
+  if (idx === -1) return res.status(404).json({ error: 'evidence not found on job' });
+  const current = arr[idx];
+
+  // Idempotent: already dismissed → 200 no-op (no write, no audit).
+  if (current.defectSuggestionDismissed) {
+    return res.status(200).json({ evidenceItem: current, idempotentNoop: true });
+  }
+
+  // Record the suggestion's evidence trail as it stood at dismissal — read
+  // from the row itself (server truth), never trusting client-sent numbers.
+  const defectEntry = (Array.isArray(current.labels) ? current.labels : []).find(
+    (l) => l && l.label === 'possible-defect' && l.status !== 'rejected'
+  );
+  const nowIso = new Date().toISOString();
+  const dismissal = {
+    at: nowIso,
+    byId: user.id,
+    byName: user.name || user.username || 'Unknown',
+    label: 'possible-defect',
+    confidence: defectEntry && typeof defectEntry.confidence === 'number' ? defectEntry.confidence : null,
+    modelVersion: (defectEntry && defectEntry.modelVersion) || null,
+  };
+  const next = { ...current, defectSuggestionDismissed: dismissal, updatedAt: nowIso };
+
+  const auditEntry = await appendAuditLog({
+    action: 'evidence.defect_suggestion_dismissed',
+    actorId: user.id,
+    actorName: user.name || user.username || 'Unknown',
+    actorRole: user.role || null,
+    jobId,
+    targetType: 'evidence',
+    targetId: next.id,
+    summary: 'dismissed AI defect suggestion',
+    metadata: { confidence: dismissal.confidence, modelVersion: dismissal.modelVersion },
+  }).catch(() => null);
+  if (auditEntry && auditEntry.id) {
+    next.auditLogIds = [...(current.auditLogIds || []), auditEntry.id];
+  }
+
+  arr[idx] = next;
+  data.evidence = arr;
+  try {
+    await writeBlob(KEY, data);
+  } catch (e) {
+    return res.status(502).json({ error: 'write failed: ' + (e.message || 'unknown') });
+  }
+
+  appendLegacyAudit(jobId, {
+    byUserId: user.id,
+    byUsername: user.username || user.name || '',
+    kind: 'evidence.defect_suggestion_dismissed',
+    summary: `evidence ${next.id} defect suggestion dismissed`,
+    after: { confidence: dismissal.confidence },
+  }).catch(() => {});
+
+  return res.status(200).json({ evidenceItem: next });
+}
+
 module.exports = async (req, res) => {
   setNoCache(res);
   if (req.method === 'OPTIONS') return res.status(200).end();
@@ -690,6 +1004,34 @@ module.exports = async (req, res) => {
       return await reviewEvidence(req, res, user, jobId);
     } catch (e) {
       return res.status(500).json({ error: e.message || 'review failed' });
+    }
+  }
+
+  // #262 — AI photo labels. BOTH actions are admin-tier + flag-gated
+  // (ai_photo_labels, dark by default): the endpoint 404s exactly like an
+  // unbuilt feature until the flag is on. Phil never calls these.
+  if (req.method === 'POST' && (action === 'classify' || action === 'labels')) {
+    if (!(await isFlagEnabled('ai_photo_labels', user))) {
+      return res.status(404).json({ error: 'not found' });
+    }
+    try {
+      return action === 'classify'
+        ? await classifyEvidence(req, res, user, jobId)
+        : await correctLabels(req, res, user, jobId);
+    } catch (e) {
+      return res.status(500).json({ error: e.message || `${action} failed` });
+    }
+  }
+
+  // #267 — dismiss an AI defect suggestion. Admin-tier + its own dark flag.
+  if (req.method === 'POST' && action === 'dismiss-defect-suggestion') {
+    if (!(await isFlagEnabled('ai_snag_suggestions', user))) {
+      return res.status(404).json({ error: 'not found' });
+    }
+    try {
+      return await dismissDefectSuggestion(req, res, user, jobId);
+    } catch (e) {
+      return res.status(500).json({ error: e.message || 'dismiss failed' });
     }
   }
 
