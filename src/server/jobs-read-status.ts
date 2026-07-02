@@ -23,6 +23,10 @@ import { getAdminEvidenceReadDiagnostics } from "../../api/_lib/admin-evidence-r
 import type { AdminEvidenceReadDiagnosticsSnapshot } from "../../api/_lib/admin-evidence-read-diagnostics";
 import { getPhilEvidenceReadDiagnostics } from "../../api/_lib/phil-evidence-read-diagnostics.js";
 import type { PhilEvidenceReadDiagnosticsSnapshot } from "../../api/_lib/phil-evidence-read-diagnostics";
+import { probeAdminJobDetailParity } from "../../api/_lib/job-detail-pg.js";
+import type { AdminJobDetailProbeResult } from "../../api/_lib/job-detail-pg";
+import { getAdminJobDetailReadDiagnostics } from "../../api/_lib/admin-job-detail-read-diagnostics.js";
+import type { AdminJobDetailReadDiagnosticsSnapshot } from "../../api/_lib/admin-job-detail-read-diagnostics";
 import { isFlagOn } from "../../api/_lib/feature-flags.js";
 
 export type JobsReadStatus = {
@@ -419,4 +423,89 @@ export async function loadSourceMode(): Promise<SourceModeSummary> {
     { domain: "Hours", flag: "supabase_source_hours", pgSource: await flagOrFalse("supabase_source_hours") },
   ];
   return { rows, anyPgSource: rows.some((r) => r.pgSource) };
+}
+
+// ── ADMIN single-job PG DIRECT read (api/_lib/job-detail-pg.js, behind
+//    supabase_read_job_detail) — the first admin read that skips the jobs.json
+//    monolith. Live parity probe (extras-build → PG reconstruct → merge must
+//    reproduce the Blob job, flag-ignored, nothing served/persisted) + the
+//    process-local counters of reads attempted by this instance.
+export type AdminJobDetailReadStatus = {
+  wired: boolean;
+  flagOn: boolean;
+  probe: AdminJobDetailProbeResult | null;
+  counters: AdminJobDetailReadDiagnosticsSnapshot;
+  error?: string;
+};
+
+const runJobDetailProbe = probeAdminJobDetailParity as (deps?: unknown) => Promise<AdminJobDetailProbeResult>;
+const readJobDetailCounters = getAdminJobDetailReadDiagnostics as () => AdminJobDetailReadDiagnosticsSnapshot;
+
+export async function loadAdminJobDetailReadStatus(): Promise<AdminJobDetailReadStatus> {
+  const counters = readJobDetailCounters();
+  const flagOn = await flagOrFalse("supabase_read_job_detail");
+  if (!process.env.SUPABASE_DB_URL) {
+    return { wired: false, flagOn, probe: null, counters };
+  }
+  try {
+    return { wired: true, flagOn, probe: await runJobDetailProbe(), counters };
+  } catch (err) {
+    return { wired: true, flagOn, probe: null, counters, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export type AdminJobDetailReadSummary = {
+  state: "not_wired" | "error" | "all_faithful" | "drift" | "empty";
+  flagOn: boolean;
+  jobsTotal: number;
+  jobsSampled: number;
+  faithful: number;
+  byteEqual: number;
+  drifted: number;
+  mergeDrift: number;
+  unavailable: number;
+  errored: number;
+  latencyMs: number | null;
+  readyToFlip: boolean; // every sampled job merges back byte-safe → flipping the flag serves == Blob
+  totalReads: number;
+  pgServedReads: number;
+  blobServedReads: number;
+  fallbackReads: number;
+  parityMismatches: number;
+  lastAt: string | null;
+  lastSource: "blob" | "postgres" | null;
+  error?: string;
+};
+
+/** Pure view model for the admin single-job PG read card. */
+export function summariseAdminJobDetailRead(s: AdminJobDetailReadStatus): AdminJobDetailReadSummary {
+  const c = s.counters;
+  const base = {
+    flagOn: s.flagOn,
+    totalReads: c.totalReads,
+    pgServedReads: c.pgServedReads,
+    blobServedReads: c.blobServedReads,
+    fallbackReads: c.fallbackReads,
+    parityMismatches: c.parityMismatches,
+    lastAt: c.lastAt,
+    lastSource: c.lastDiag ? c.lastDiag.source : null,
+  };
+  const empty = {
+    jobsTotal: 0, jobsSampled: 0, faithful: 0, byteEqual: 0, drifted: 0,
+    mergeDrift: 0, unavailable: 0, errored: 0,
+    latencyMs: null as number | null, readyToFlip: false,
+  };
+  if (!s.wired) return { state: "not_wired", ...base, ...empty };
+  if (s.error || !s.probe) return { state: "error", ...base, ...empty, error: s.error ?? "no probe result" };
+  const p = s.probe;
+  const metrics = {
+    jobsTotal: p.jobsTotal, jobsSampled: p.jobsSampled, faithful: p.faithful,
+    byteEqual: p.byteEqual, drifted: p.drifted, mergeDrift: p.mergeDrift,
+    unavailable: p.unavailable, errored: p.errored, latencyMs: p.latencyMs,
+  };
+  if (p.error) return { state: "error", ...base, ...metrics, readyToFlip: false, error: p.error };
+  if (p.jobsSampled === 0) return { state: "empty", ...base, ...metrics, readyToFlip: false };
+  const readyToFlip =
+    p.faithful === p.jobsSampled && p.drifted === 0 && p.mergeDrift === 0 && p.unavailable === 0 && p.errored === 0;
+  return { state: readyToFlip ? "all_faithful" : "drift", ...base, ...metrics, readyToFlip };
 }

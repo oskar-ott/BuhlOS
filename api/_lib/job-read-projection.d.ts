@@ -33,6 +33,7 @@ export interface ProbeAdminJobsDeps extends AdminJobsOverlayDeps {
 
 export const MIGRATED_JOB_FIELDS: string[];
 export function migratedFieldsHash(job: unknown): string;
+export function deepCanonOrdered(v: unknown): unknown;
 export function overlayAdminJobs(
   blobJobs?: unknown[],
   pgJobs?: unknown[],

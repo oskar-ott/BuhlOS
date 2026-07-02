@@ -5,7 +5,7 @@ import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardTitle, CardDescription } from "@/components/ui/Card";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
-import { loadJobsReadStatus, summariseJobsRead, summarisePhilRead, loadTaskReadStatus, summariseTaskRead, loadAdminTaskReadStatus, summariseAdminTaskRead, loadTaskReadProbe, summariseTaskReadProbe, loadEvidenceReadProbe, summariseEvidenceReadProbe, loadAdminEvidenceReadStatus, summariseAdminEvidenceRead, loadPhilEvidenceReadStatus, summarisePhilEvidenceRead, loadSourceMode } from "@/server/jobs-read-status";
+import { loadJobsReadStatus, summariseJobsRead, summarisePhilRead, loadTaskReadStatus, summariseTaskRead, loadAdminTaskReadStatus, summariseAdminTaskRead, loadTaskReadProbe, summariseTaskReadProbe, loadEvidenceReadProbe, summariseEvidenceReadProbe, loadAdminEvidenceReadStatus, summariseAdminEvidenceRead, loadPhilEvidenceReadStatus, summarisePhilEvidenceRead, loadSourceMode, loadAdminJobDetailReadStatus, summariseAdminJobDetailRead } from "@/server/jobs-read-status";
 
 // Runs a live, read-only probe at request time.
 export const dynamic = "force-dynamic";
@@ -42,6 +42,7 @@ export default async function JobsReadStatusPage() {
   const adminEvidenceRead = summariseAdminEvidenceRead(await loadAdminEvidenceReadStatus());
   const philEvidenceRead = summarisePhilEvidenceRead(await loadPhilEvidenceReadStatus());
   const sourceMode = await loadSourceMode();
+  const jobDetailRead = summariseAdminJobDetailRead(await loadAdminJobDetailReadStatus());
 
   const sourceLabel = s.readSource === "postgres" ? "Postgres" : "Blob";
 
@@ -317,6 +318,75 @@ export default async function JobsReadStatusPage() {
               label="Ready for served-source promotion (this sample)"
               value={taskProbe.readyForPromotion ? "YES" : "no"}
             />
+          </>
+        )}
+      </Card>
+
+      <Card
+        className={
+          "mt-4 " +
+          (jobDetailRead.state === "all_faithful"
+            ? "border-emerald-200 bg-emerald-50"
+            : jobDetailRead.state === "drift" || jobDetailRead.state === "error"
+              ? "border-amber-200 bg-amber-50"
+              : "")
+        }
+        data-testid="admin-job-detail-read-status"
+        role="status"
+      >
+        <CardTitle className="mb-2 text-slate-800">
+          Admin single-job PG direct read — parity probe + counters
+        </CardTitle>
+        <CardDescription className="mb-2">
+          The admin single-job GET (<code>/api/jobs?id=</code>, the job hub) can skip
+          the <code>jobs.json</code> monolith behind{" "}
+          <code>supabase_read_job_detail</code>: structure from the Postgres mirror,
+          the Blob-only remainder from a per-job extras projection, double-gated
+          (freshness + hash parity) with a full Blob fallback.{" "}
+          <strong>Blob stays authoritative.</strong> The probe rebuilds each sampled
+          job from PG + extras and checks it reproduces the Blob job exactly.
+        </CardDescription>
+
+        {jobDetailRead.state === "not_wired" && (
+          <CardDescription>
+            Supabase is not wired here, so the fast path never engages — single-job
+            reads are served entirely from Blob.
+          </CardDescription>
+        )}
+        {jobDetailRead.state === "error" && (
+          <CardDescription className="text-amber-900">
+            The read-only probe failed:{" "}
+            <span className="font-mono text-xs">{jobDetailRead.error}</span>. Reads
+            are unaffected (Blob authoritative) — this only affects diagnostics.
+          </CardDescription>
+        )}
+        {jobDetailRead.state === "empty" && (
+          <CardDescription>No jobs were available to sample.</CardDescription>
+        )}
+        {(jobDetailRead.state === "all_faithful" || jobDetailRead.state === "drift") && (
+          <>
+            <CardDescription
+              className={jobDetailRead.state === "all_faithful" ? "mb-2 text-emerald-900" : "mb-2 text-amber-900"}
+            >
+              {jobDetailRead.state === "all_faithful"
+                ? `All ${jobDetailRead.jobsSampled} sampled job(s) merge back identical to Blob — flipping the flag serves == Blob for this sample.`
+                : `${jobDetailRead.faithful} of ${jobDetailRead.jobsSampled} sampled job(s) faithful; the rest would fall back to the full Blob read (slow but correct).`}
+            </CardDescription>
+            <Row label="Flag" value={jobDetailRead.flagOn ? "ON" : "OFF (dark)"} />
+            <Row label="Jobs sampled" value={`${jobDetailRead.jobsSampled} of ${jobDetailRead.jobsTotal}`} />
+            <Row label="Faithful (merge == Blob)" value={jobDetailRead.faithful} />
+            <Row label="…of which byte-equal (incl. nested key order)" value={jobDetailRead.byteEqual} />
+            <Row label="Drifted (PG structure ≠ Blob)" value={jobDetailRead.drifted} />
+            <Row label="Merge drift (must be 0)" value={jobDetailRead.mergeDrift} />
+            <Row label="Unavailable (not yet in PG)" value={jobDetailRead.unavailable} />
+            <Row label="Errored (PG unreachable)" value={jobDetailRead.errored} />
+            <Row label="Probe latency" value={jobDetailRead.latencyMs == null ? "—" : `${jobDetailRead.latencyMs} ms`} />
+            <Row label="Ready to flip (this sample)" value={jobDetailRead.readyToFlip ? "YES" : "no"} />
+            <Row label="Reads attempted (this instance)" value={jobDetailRead.totalReads} />
+            <Row label="Served from Postgres" value={jobDetailRead.pgServedReads} />
+            <Row label="Fell back to Blob" value={jobDetailRead.blobServedReads} />
+            <Row label="Parity mismatches" value={jobDetailRead.parityMismatches} />
+            <Row label="Last read" value={fmtWhen(jobDetailRead.lastAt)} />
           </>
         )}
       </Card>

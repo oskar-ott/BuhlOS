@@ -475,6 +475,6 @@ async function probeAdminJobsRead(deps = {}) {
 
 module.exports = {
   reconstructFromPg, loadJobStructureFromPg, readJobsFromPgIfEnabled,
-  MIGRATED_JOB_FIELDS, migratedFieldsHash, overlayAdminJobs, overlayPhilJobs,
+  MIGRATED_JOB_FIELDS, migratedFieldsHash, deepCanonOrdered, overlayAdminJobs, overlayPhilJobs,
   readAdminJobsWithPgOverlay, readPhilJobsWithPgOverlay, probeAdminJobsRead,
 };
