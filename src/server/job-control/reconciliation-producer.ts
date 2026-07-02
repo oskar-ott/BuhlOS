@@ -9,7 +9,7 @@ import {
   RequiredEvidenceKindSchema,
   TaskRefSchema,
 } from "@/domains/job-control/schema";
-import type { TaskRef } from "@/domains/job-control/types";
+import type { BoqLineRef, TaskRef } from "@/domains/job-control/types";
 import {
   ScopeClassificationSchema,
   ScopeReconciliationSchema,
@@ -20,6 +20,7 @@ import {
   reconcile,
   reconciliationStatus,
   seedReconciliation,
+  setBoqLineAlternate,
 } from "@/domains/job-control/reconciliation";
 import type {
   ReconciliationFinding,
@@ -150,6 +151,21 @@ export const ClauseClassificationInputSchema = z.union([
           }),
         )
         .optional(),
+      /** The quote half of AC1: the BOQ lines that price this clause. Each ref
+       *  is checked against the LINKED quote's real lines — a ref naming a line
+       *  the quote doesn't have is ignored and surfaced (never stored), so a
+       *  stored link always points at real money. Linking a line marks it owned
+       *  (clearing its `priced_line_no_clause` finding); dropping a previously
+       *  linked line releases it. */
+      boqLineRefs: z
+        .array(
+          z.object({
+            quoteId: z.string().min(1),
+            sectionId: z.string().min(1),
+            lineId: z.string().min(1),
+          }),
+        )
+        .optional(),
     })
     .passthrough(),
 ]);
@@ -158,6 +174,22 @@ export const ClauseClassificationInputSchema = z.union([
 export const ClassificationsInputSchema = z.record(z.string(), ClauseClassificationInputSchema);
 export type ClauseClassificationInput = z.infer<typeof ClauseClassificationInputSchema>;
 export type ClassificationsInput = z.infer<typeof ClassificationsInputSchema>;
+
+// ── BOQ-line input (the quote half of AC1) ────────────────────────────────────
+
+/**
+ * Per-line admin marks, keyed by `boqLineRefKey(ref)` (`quoteId/sectionId/lineId`).
+ * Today the only mark is `isAlternate` — a line the workbook priced as an
+ * "Alternative" (or the office knows is one) that must NOT count as base scope
+ * until confirmed; tying an alternate line to a clause raises the red
+ * `alternate_in_base_total` finding. Keys naming no line of the LINKED quote
+ * are ignored and surfaced (`unknownBoqLineKeys`) — never stored.
+ */
+export const BoqLinesInputSchema = z.record(
+  z.string(),
+  z.object({ isAlternate: z.boolean() }).passthrough(),
+);
+export type BoqLinesInput = z.infer<typeof BoqLinesInputSchema>;
 
 // ── Resolution input (resolve-or-accept-with-reason, #366 AC2/AC5) ───────────
 
@@ -232,6 +264,15 @@ function normalisePatch(input: ClauseClassificationInput): ClausePatch {
       taskId: t.taskId,
     }));
   }
+  if (input.boqLineRefs !== undefined) {
+    // Copy the line refs through verbatim — the preview builder validates each
+    // against the LINKED quote's real lines and strips (+ surfaces) unknowns.
+    patch.boqLineRefs = input.boqLineRefs.map((r) => ({
+      quoteId: r.quoteId,
+      sectionId: r.sectionId,
+      lineId: r.lineId,
+    }));
+  }
   if (input.requiredEvidence !== undefined) {
     // Preserve the authored proof; derive a stable id only when one is omitted.
     // We never fabricate proof — an absent `requiredEvidence` stays absent.
@@ -299,6 +340,10 @@ export interface ReconciliationPreviewResult {
    *  surfaced honestly (a resolution is only ever recorded against a real,
    *  engine-named finding; we never store a decision about nothing). */
   unknownFindingKeys: string[];
+  /** BOQ line refs/keys that named no line of the linked quote (or arrived with
+   *  no quote linked at all) — ignored, surfaced honestly; a stored link always
+   *  points at a real priced line (no invented money). */
+  unknownBoqLineKeys: string[];
   sourceHash: string;
 }
 
@@ -316,25 +361,57 @@ export function buildReconciliationPreview(input: {
   quote: Quote | null;
   prior: ScopeReconciliation | null;
   classifications?: ClassificationsInput;
+  /** Per-line marks (isAlternate), keyed by boqLineRefKey — see BoqLinesInputSchema. */
+  boqLines?: BoqLinesInput;
   /** Full resolution records (by/at already stamped by the confirm flow). */
   resolutions?: ReadonlyArray<ScopeResolution>;
 }): ReconciliationPreviewResult {
-  const { jobId, clauses, quote, prior, classifications, resolutions } = input;
+  const { jobId, clauses, quote, prior, classifications, boqLines, resolutions } = input;
 
   const base = prior
     ? reconcile(prior, clauses, quote)
     : seedReconciliation(jobId, clauses, quote);
 
+  // The closed set of REAL line keys — seeded 1:1 from the linked quote. Every
+  // inbound line ref/key is checked against it; unknowns are surfaced, never
+  // stored (no invented money).
+  const realLineKeys = new Set(base.boqClassifications.map((b) => boqLineRefKey(b.ref)));
+  const unknownBoqLineKeys: string[] = [];
+  let rec = base;
+
+  if (boqLines) {
+    for (const [key, mark] of Object.entries(boqLines)) {
+      const record = rec.boqClassifications.find((b) => boqLineRefKey(b.ref) === key);
+      if (!record) {
+        unknownBoqLineKeys.push(key);
+        continue;
+      }
+      rec = setBoqLineAlternate(rec, record.ref, mark.isAlternate);
+    }
+  }
+
   const clauseIds = new Set(clauses.map((c) => c.id));
   const unknownClauseIds: string[] = [];
-  let rec = base;
   if (classifications) {
     for (const [clauseId, raw] of Object.entries(classifications)) {
       if (!clauseIds.has(clauseId)) {
         unknownClauseIds.push(clauseId); // never invent a clause the job doesn't have
         continue;
       }
-      rec = classifyClause(rec, clauseId, normalisePatch(raw));
+      const patch = normalisePatch(raw);
+      if (patch.boqLineRefs !== undefined) {
+        // Keep only refs that name a real line of the LINKED quote; surface the
+        // rest. An empty array is meaningful (unlink everything) and kept.
+        // (`Omit` over the passthrough-inferred record widens the field type —
+        // normalisePatch built it from the parsed input, so the assertion is sound.)
+        const refs = (patch.boqLineRefs ?? []) as ReadonlyArray<BoqLineRef>;
+        patch.boqLineRefs = refs.filter((r) => {
+          const known = realLineKeys.has(boqLineRefKey(r));
+          if (!known) unknownBoqLineKeys.push(boqLineRefKey(r));
+          return known;
+        });
+      }
+      rec = classifyClause(rec, clauseId, patch);
     }
   }
 
@@ -374,6 +451,7 @@ export function buildReconciliationPreview(input: {
     unclassifiedClauseIds,
     unknownClauseIds,
     unknownFindingKeys,
+    unknownBoqLineKeys,
     sourceHash: computeScopeSourceHash(clauses, quote),
   };
 }
@@ -395,6 +473,7 @@ export function prepareReconciliationConfirm(input: {
   quote: Quote | null;
   prior: PersistedScopeReconciliation | null;
   classifications?: ClassificationsInput;
+  boqLines?: BoqLinesInput;
   resolutions?: ResolutionsInput;
   expectedSourceHash?: string | null;
   confirmedBy?: string | null;
@@ -420,6 +499,7 @@ export function prepareReconciliationConfirm(input: {
     quote: input.quote,
     prior: input.prior?.reconciliation ?? null,
     classifications: input.classifications,
+    boqLines: input.boqLines,
     resolutions: resolutionRecords,
   });
 
@@ -484,7 +564,7 @@ export type RunPreviewResult = ReconciliationPreviewResult | { ok: false; status
 /** Preview flow: load → build → return. Writes NOTHING. */
 export async function runReconciliationPreview(
   deps: ReconciliationProducerDeps,
-  input: { jobId: string; classifications?: ClassificationsInput },
+  input: { jobId: string; classifications?: ClassificationsInput; boqLines?: BoqLinesInput },
 ): Promise<RunPreviewResult> {
   const { found, clauses, quote } = await deps.loadScope(input.jobId);
   if (!found) return { ok: false, status: 404, error: "Job not found" };
@@ -495,6 +575,7 @@ export async function runReconciliationPreview(
     quote,
     prior: prior?.reconciliation ?? null,
     classifications: input.classifications,
+    boqLines: input.boqLines,
   });
 }
 
@@ -512,6 +593,8 @@ export type RunConfirmResult =
       };
       /** Resolution inputs that named no real finding — ignored, surfaced. */
       unknownFindingKeys: string[];
+      /** BOQ line refs/keys that named no line of the linked quote — ignored, surfaced. */
+      unknownBoqLineKeys: string[];
     }
   | { ok: false; status: 404 | 409; code?: "stale_source"; error: string; currentSourceHash?: string };
 
@@ -522,6 +605,7 @@ export async function runReconciliationConfirm(
   input: {
     jobId: string;
     classifications?: ClassificationsInput;
+    boqLines?: BoqLinesInput;
     resolutions?: ResolutionsInput;
     expectedSourceHash?: string | null;
     confirmedBy?: string | null;
@@ -538,6 +622,7 @@ export async function runReconciliationConfirm(
     quote,
     prior,
     classifications: input.classifications,
+    boqLines: input.boqLines,
     resolutions: input.resolutions,
     expectedSourceHash: input.expectedSourceHash,
     confirmedBy: input.confirmedBy,
@@ -566,6 +651,7 @@ export async function runReconciliationConfirm(
       updatedAt: prep.persisted.updatedAt,
     },
     unknownFindingKeys: prep.preview.unknownFindingKeys,
+    unknownBoqLineKeys: prep.preview.unknownBoqLineKeys,
   };
 }
 
@@ -618,6 +704,7 @@ export async function confirmReconciliationAuthorized(
   input: {
     jobId: string;
     classifications?: ClassificationsInput;
+    boqLines?: BoqLinesInput;
     resolutions?: ResolutionsInput;
     expectedSourceHash?: string | null;
     at: string;
@@ -628,6 +715,7 @@ export async function confirmReconciliationAuthorized(
   return runReconciliationConfirm(deps, {
     jobId: input.jobId,
     classifications: input.classifications,
+    boqLines: input.boqLines,
     resolutions: input.resolutions,
     expectedSourceHash: input.expectedSourceHash,
     confirmedBy: a.confirmedBy,

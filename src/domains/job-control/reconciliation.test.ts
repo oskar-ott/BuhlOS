@@ -10,6 +10,7 @@ import {
   warningsForCompile,
   applyResolution,
   classifyClause,
+  setBoqLineAlternate,
   ScopeReconciliationSchema,
   SCOPE_CLASSIFICATIONS,
 } from "./reconciliation";
@@ -124,6 +125,104 @@ describe("detectFindings — each kind fires", () => {
     const hit = detectFindings(rec).find((x) => x.kind === "alternate_in_base_total");
     expect(hit?.severity).toBe("red");
     expect(boqLineRefKey(hit!.ref!)).toBe(KEY_PL3);
+  });
+});
+
+describe("clause↔BOQ-line linking (the quote half of AC1)", () => {
+  const ZIP_REF = { quoteId: "q_100arthur", sectionId: "sec_power", lineId: "ql_zip" };
+
+  it("classifying a clause with boqLineRefs marks the lines owned — priced_line_no_clause clears", () => {
+    let rec = seedReconciliation("j", clauses(), quote());
+    expect(
+      detectFindings(rec).some(
+        (f) => f.kind === "priced_line_no_clause" && boqLineRefKey(f.ref!) === KEY_ZIP,
+      ),
+    ).toBe(true);
+    rec = classifyClause(rec, "sw_zip", { classification: "priced", boqLineRefs: [ZIP_REF] });
+    const zipRecord = rec.boqClassifications.find((b) => boqLineRefKey(b.ref) === KEY_ZIP);
+    expect(zipRecord?.owningClauseId).toBe("sw_zip");
+    expect(
+      detectFindings(rec).some(
+        (f) => f.kind === "priced_line_no_clause" && boqLineRefKey(f.ref!) === KEY_ZIP,
+      ),
+    ).toBe(false);
+  });
+
+  it("unlinking (empty boqLineRefs) releases the line — the finding reopens", () => {
+    let rec = seedReconciliation("j", clauses(), quote());
+    rec = classifyClause(rec, "sw_zip", { classification: "priced", boqLineRefs: [ZIP_REF] });
+    rec = classifyClause(rec, "sw_zip", { classification: "priced", boqLineRefs: [] });
+    const zipRecord = rec.boqClassifications.find((b) => boqLineRefKey(b.ref) === KEY_ZIP);
+    expect(zipRecord?.owningClauseId).toBeNull();
+    expect(
+      detectFindings(rec).some(
+        (f) => f.kind === "priced_line_no_clause" && boqLineRefKey(f.ref!) === KEY_ZIP,
+      ),
+    ).toBe(true);
+  });
+
+  it("a patch WITHOUT boqLineRefs never disturbs an existing link", () => {
+    let rec = seedReconciliation("j", clauses(), quote());
+    rec = classifyClause(rec, "sw_zip", { classification: "priced", boqLineRefs: [ZIP_REF] });
+    rec = classifyClause(rec, "sw_zip", { classification: "priced", note: "re-noted" });
+    const zipRecord = rec.boqClassifications.find((b) => boqLineRefKey(b.ref) === KEY_ZIP);
+    expect(zipRecord?.owningClauseId).toBe("sw_zip");
+  });
+
+  it("a ref naming a line the quote doesn't have owns nothing (no invented money)", () => {
+    let rec = seedReconciliation("j", clauses(), quote());
+    rec = classifyClause(rec, "sw_zip", {
+      classification: "priced",
+      boqLineRefs: [{ quoteId: "q_100arthur", sectionId: "sec_power", lineId: "ql_ghost" }],
+    });
+    expect(rec.boqClassifications.every((b) => b.owningClauseId === null)).toBe(true);
+  });
+
+  it("linking a line marked alternate raises the red alternate_in_base_total", () => {
+    let rec = seedReconciliation("j", clauses(), quote());
+    rec = setBoqLineAlternate(rec, { quoteId: "q_100arthur", sectionId: "sec_power", lineId: "ql_pl3" }, true);
+    rec = classifyClause(rec, "sw_zip", {
+      classification: "priced",
+      boqLineRefs: [{ quoteId: "q_100arthur", sectionId: "sec_power", lineId: "ql_pl3" }],
+    });
+    const hit = detectFindings(rec).find((f) => f.kind === "alternate_in_base_total");
+    expect(hit?.severity).toBe("red");
+    expect(boqLineRefKey(hit!.ref!)).toBe(KEY_PL3);
+  });
+
+  it("setBoqLineAlternate marks/unmarks a real line and ignores an unknown ref", () => {
+    let rec = seedReconciliation("j", clauses(), quote());
+    const pl3Ref = { quoteId: "q_100arthur", sectionId: "sec_power", lineId: "ql_pl3" };
+    rec = setBoqLineAlternate(rec, pl3Ref, true);
+    expect(rec.boqClassifications.find((b) => boqLineRefKey(b.ref) === KEY_PL3)?.isAlternate).toBe(true);
+    // an alternate is not unattributed money
+    expect(
+      detectFindings(rec).some(
+        (f) => f.kind === "priced_line_no_clause" && boqLineRefKey(f.ref!) === KEY_PL3,
+      ),
+    ).toBe(false);
+    rec = setBoqLineAlternate(rec, pl3Ref, false);
+    expect(rec.boqClassifications.find((b) => boqLineRefKey(b.ref) === KEY_PL3)?.isAlternate).toBe(false);
+    const before = rec;
+    const after = setBoqLineAlternate(rec, { ...pl3Ref, lineId: "ql_ghost" }, true);
+    expect(after).toEqual(before);
+  });
+
+  it("a clause-side ref on a PRIOR overlay still counts as ownership (defensive both-ways match)", () => {
+    // A persisted overlay written with only the clause half of the link (e.g. a
+    // hand-authored prior) must not report the line unattributed.
+    let rec = seedReconciliation("j", clauses(), quote());
+    rec = ScopeReconciliationSchema.parse({
+      ...rec,
+      clauseClassifications: rec.clauseClassifications.map((c) =>
+        c.clauseId === "sw_zip" ? { ...c, classification: "priced", boqLineRefs: [ZIP_REF] } : c,
+      ),
+    });
+    expect(
+      detectFindings(rec).some(
+        (f) => f.kind === "priced_line_no_clause" && boqLineRefKey(f.ref!) === KEY_ZIP,
+      ),
+    ).toBe(false);
   });
 });
 

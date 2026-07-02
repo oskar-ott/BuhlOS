@@ -200,30 +200,46 @@ export async function saveReconciliation(
   return { ok: false, message: failMessage("save the proof", r) };
 }
 
-/** Review-queue fast-classify body: ONE clause, a BARE classification — no task
- *  wiring / proof (the cockpit triage path). The confirm producer merges this
- *  into the prior reconciliation, so other clauses' classifications are kept. */
-export function buildClassifyBody(jobId: string, clauseId: string, classification: ScopeClassification) {
-  return { jobId, classifications: { [clauseId]: classification } };
+/** Review-queue fast-classify body: ONE clause, the disposition — no task
+ *  wiring / proof (the cockpit triage path). With a non-empty `warningText`
+ *  the OBJECT form travels, carrying the SAME `warningText` field the producer
+ *  already accepts (and #367 compiles onto the delivering packages) — the
+ *  cockpit path extends the existing wire, it never forks it. The confirm
+ *  producer merges this into the prior reconciliation, so other clauses'
+ *  classifications are kept. */
+export function buildClassifyBody(
+  jobId: string,
+  clauseId: string,
+  classification: ScopeClassification,
+  warningText?: string,
+) {
+  const text = warningText?.trim();
+  return {
+    jobId,
+    classifications: { [clauseId]: text ? { classification, warningText: text } : classification },
+  };
 }
 
 /**
  * POST /api/job-control/reconciliation/confirm — fast-classify one scope clause
  * from the cockpit review queue. Same endpoint + producer as the full authoring
- * flow (extend, don't fork); it just sends the bare disposition. Returns the new
- * RAG status on success, or admin-readable error copy.
+ * flow (extend, don't fork); it sends the disposition plus, for the warning-
+ * bearing classes (by others / reuse existing / variation trigger), the optional
+ * worker-facing heads-up text (#366 AC4). Returns the new RAG status on success,
+ * or admin-readable error copy.
  */
 export async function classifyScopeClause(
   jobId: string,
   clauseId: string,
   classification: ScopeClassification,
+  warningText?: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<ClientResult<SaveReconciliationData>> {
   let r: Awaited<ReturnType<typeof postJson>>;
   try {
     r = await postJson(
       "/api/job-control/reconciliation/confirm",
-      buildClassifyBody(jobId, clauseId, classification),
+      buildClassifyBody(jobId, clauseId, classification, warningText),
       fetchImpl,
     );
   } catch {

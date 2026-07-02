@@ -1,8 +1,11 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Check, CheckCircle2, ChevronRight, SkipForward } from "lucide-react";
-import type { ScopeClassification } from "@/domains/job-control/reconciliation";
+import {
+  WARNING_CLASSIFICATIONS,
+  type ScopeClassification,
+} from "@/domains/job-control/reconciliation";
 import { cn } from "@/lib/cn";
 
 /** Bucket a progress ratio to a STATIC Tailwind width class (the repo bans inline
@@ -35,6 +38,13 @@ function barWidthClass(cleared: number, total: number): string {
  * The keyboard map mirrors the buttons so a reviewer never has to reach for the
  * mouse: P priced · A allowance · C PC/provisional · E excluded · O by others ·
  * R reuse · V variation · space/N skip · esc close.
+ *
+ * AC4 (#366): the card carries an OPTIONAL heads-up field for the crew. Text
+ * typed there travels with the warning-bearing dispositions (By others / Reuse
+ * existing / Variation trigger) as the same `warningText` the narrow authoring
+ * wire uses, so #367 compiles it onto the delivering packages — the fast path
+ * and the full path persist identically. For any other disposition the text is
+ * dropped (those classes carry no worker warning). The field resets per clause.
  */
 
 export interface ReviewClause {
@@ -70,7 +80,8 @@ interface ReviewQueueProps {
   /** How many of the session have been classified. */
   cleared: number;
   error: string | null;
-  onClassify: (clauseId: string, classification: ScopeClassification) => void;
+  /** `warningText` travels only for the warning-bearing classes (AC4). */
+  onClassify: (clauseId: string, classification: ScopeClassification, warningText?: string) => void;
   onSkip: () => void;
   onClose: () => void;
 }
@@ -87,6 +98,20 @@ export function ReviewQueue({
   const total = session.length;
   const done = index >= total;
   const current = done ? null : session[index];
+
+  // Optional worker-facing heads-up for the current clause (AC4). Reset per
+  // clause so text authored for one line never bleeds onto the next.
+  const [warningDraft, setWarningDraft] = useState("");
+  const currentId = current?.id ?? null;
+  useEffect(() => {
+    setWarningDraft("");
+  }, [currentId]);
+
+  function classify(clauseId: string, classification: ScopeClassification) {
+    const text = warningDraft.trim();
+    const carriesWarning = WARNING_CLASSIFICATIONS.includes(classification);
+    onClassify(clauseId, classification, carriesWarning && text ? text : undefined);
+  }
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -117,12 +142,14 @@ export function ReviewQueue({
       const opt = REVIEW_OPTIONS.find((o) => o.key === k);
       if (opt) {
         e.preventDefault();
-        onClassify(current.id, opt.value);
+        classify(current.id, opt.value);
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [current, onClassify, onSkip, onClose]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- classify is
+    // recreated per render; warningDraft keeps the captured draft fresh.
+  }, [current, warningDraft, onClassify, onSkip, onClose]);
 
   return (
     <div data-testid="review-queue" className="space-y-4">
@@ -192,7 +219,7 @@ export function ReviewQueue({
                   key={opt.value}
                   type="button"
                   data-testid={`review-classify-${opt.value}`}
-                  onClick={() => onClassify(current!.id, opt.value)}
+                  onClick={() => classify(current!.id, opt.value)}
                   className="flex items-center justify-between gap-2 rounded-card border border-border bg-surface px-3 py-2 text-left text-sm text-text transition-colors hover:border-brand-navy hover:bg-surface-subtle"
                 >
                   <span className="min-w-0 truncate">{opt.label}</span>
@@ -204,6 +231,24 @@ export function ReviewQueue({
                 </button>
               ))}
             </div>
+
+            <label className="mt-3 block">
+              <span className="mb-1 block text-xs font-medium text-text-muted">
+                Heads-up for the crew (optional)
+              </span>
+              <input
+                data-testid="review-warning-text"
+                className="w-full rounded-card border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-text-muted"
+                value={warningDraft}
+                maxLength={280}
+                onChange={(e) => setWarningDraft(e.target.value)}
+                placeholder="e.g. Cabling only — the AV mob supply the hardware"
+              />
+              <span className="mt-1 block text-[11px] text-text-muted">
+                Saved with By others / Reuse existing / Variation trigger — shows on the job for
+                the crew before they start.
+              </span>
+            </label>
 
             <div className="mt-3 flex items-center justify-between gap-2">
               <button

@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { SESSION_COOKIE, decodeSessionCookie, verifyViaApi } from "@/lib/auth/session";
 import {
+  BoqLinesInputSchema,
   ClassificationsInputSchema,
   REASON_REQUIRED_MESSAGE,
   ResolutionsInputSchema,
@@ -20,8 +21,11 @@ import { append as appendAuditLog } from "../../../../../../api/_lib/audit-log.j
  * is checked against the current scope and a stale confirm is rejected (409).
  * It compiles NOTHING and writes NO `jobs/<jobId>/job-control.json` (that is L1).
  *
- * Body (both optional, either or both):
- *   - `classifications` — clauseId → classification (the authoring/triage path)
+ * Body (all optional, any combination):
+ *   - `classifications` — clauseId → classification (the authoring/triage path;
+ *     the object form may carry `boqLineRefs`, the clause↔quote-line link)
+ *   - `boqLines` — boqLineRefKey → { isAlternate } marks on the linked quote's
+ *     lines (refs/keys naming no real line are ignored + surfaced)
  *   - `resolutions` — resolve-or-accept decisions on engine-named findings
  *     (#366 AC2). `accepted` REQUIRES a reason (400 without one). The actor +
  *     timestamp are stamped server-side from the verified session, never taken
@@ -43,6 +47,7 @@ const BodySchema = z.object({
   jobId: z.string().min(1),
   sourceHash: z.string().min(1).optional(),
   classifications: ClassificationsInputSchema.optional(),
+  boqLines: BoqLinesInputSchema.optional(),
   resolutions: ResolutionsInputSchema.optional(),
 });
 
@@ -78,6 +83,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     {
       jobId: body.data.jobId,
       classifications: body.data.classifications,
+      boqLines: body.data.boqLines,
       resolutions: body.data.resolutions,
       expectedSourceHash: body.data.sourceHash ?? null,
       at: new Date().toISOString(),

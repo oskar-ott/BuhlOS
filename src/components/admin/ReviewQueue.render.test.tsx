@@ -38,6 +38,14 @@ describe("ReviewQueue", () => {
     expect(html).toContain('data-testid="review-skip"');
   });
 
+  it("offers the optional worker heads-up field on the card (AC4)", () => {
+    const html = render();
+    expect(html).toContain('data-testid="review-warning-text"');
+    expect(html).toContain("Heads-up for the crew (optional)");
+    // Site language naming where the text lands, not an enum dump.
+    expect(html).toContain("By others / Reuse existing / Variation trigger");
+  });
+
   it("shows progress + an up-next peek", () => {
     const html = render({ index: 0, cleared: 1 });
     expect(html).toContain("1 of 3 classified");
