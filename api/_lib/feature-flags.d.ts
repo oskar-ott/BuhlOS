@@ -36,6 +36,7 @@ export type FlagKey =
   | "ai_insights_digest"
   | "ai_quote_drafts"
   | "ai_contract_obligations"
+  | "ai_office_daily_summary" // #171 office daily summary — dark launch-gate
   | "itp"
   // #760 owner feature-control kill-switches (LIVE features, default ON)
   | "jobs"

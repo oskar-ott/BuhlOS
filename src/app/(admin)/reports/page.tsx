@@ -8,6 +8,10 @@ import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { OwnerNumbersBoard } from "@/components/admin/OwnerNumbersBoard";
 import { UtilisationPanel } from "@/components/admin/UtilisationPanel";
 import { InsightsDigestCard, type StoredDigest } from "@/components/admin/InsightsDigestCard";
+import {
+  OfficeDailySummaryCard,
+  type StoredOfficeSummary,
+} from "@/components/admin/OfficeDailySummaryCard";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { isFlagEnabled } from "../../../../api/_lib/feature-flags.js";
 import { canAccessSurface } from "@/lib/auth/permissions";
@@ -83,6 +87,12 @@ export default async function ReportsPage() {
   const digestEnabled = await isFlagEnabled("ai_insights_digest", session);
   const digestData = digestEnabled ? await loadDigest(raw) : null;
 
+  // #171 — flag-dark (default OFF) office daily summary of yesterday across
+  // jobs. Same pattern: loaded server-side, the client button only triggers
+  // regeneration. Invisible until the flag is on for this admin.
+  const officeSummaryEnabled = await isFlagEnabled("ai_office_daily_summary", session);
+  const officeSummaryData = officeSummaryEnabled ? await loadOfficeSummary(raw) : null;
+
   return (
     <AdminShell title="Reports">
       <div className="mx-auto max-w-5xl space-y-6">
@@ -113,6 +123,15 @@ export default async function ReportsPage() {
         <section aria-label="Owner numbers">
           <OwnerNumbersBoard tiles={tiles} />
         </section>
+
+        {officeSummaryData ? (
+          <section aria-label="Office daily summary">
+            <OfficeDailySummaryCard
+              date={officeSummaryData.date}
+              summary={officeSummaryData.summary}
+            />
+          </section>
+        ) : null}
 
         {digestData ? (
           <section aria-label="AI insights digest">
@@ -148,6 +167,26 @@ async function loadDigest(
   const body = result.body as { weekStart?: string; digest?: StoredDigest | null };
   if (!body.weekStart) return null;
   return { weekStart: body.weekStart, digest: body.digest ?? null };
+}
+
+// #171 — read the stored summary for yesterday (never generates).
+async function loadOfficeSummary(
+  cookieValue: string | undefined,
+): Promise<{ date: string; summary: StoredOfficeSummary | null } | null> {
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  const base = host ? `${proto}://${host}` : "http://localhost:3000";
+  const result = await fetchJson(
+    base,
+    "/api/office-daily-summary",
+    cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
+    "Office daily summary",
+  );
+  if (result.error || !result.body || typeof result.body !== "object") return null;
+  const body = result.body as { date?: string; summary?: StoredOfficeSummary | null };
+  if (!body.date) return null;
+  return { date: body.date, summary: body.summary ?? null };
 }
 
 // ── Server-side fan-in (loadSnapshot pattern) ──────────────────────────

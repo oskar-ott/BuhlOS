@@ -47,8 +47,10 @@ export const AUDIT_ACTIONS = [
   // #170: the AI assistant generated a job summary (api/ai-assistant.js).
   // targetType 'job'. Kept in sync with api/_lib/audit-log.js VALID_ACTIONS.
   "ai.job_summarised",
-  // 2026-07 AI batch (#347/#373). Kept in sync with api/_lib/audit-log.js.
+  // 2026-07 AI batch (#347/#373) + #171 office daily summary. Kept in sync
+  // with api/_lib/audit-log.js.
   "ai.digest_generated",
+  "ai.office_summary_generated",
   "job.contract_obligations_extracted",
   "job.contract_obligation_accepted",
   "evidence.captured",

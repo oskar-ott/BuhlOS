@@ -12,6 +12,7 @@ import type { AuditAction, AuditLogEntry, AuditTargetType } from "./types";
 const ACTION_LABELS: Record<AuditAction, string> = {
   "ai.job_summarised": "Generated an AI job summary",
   "ai.digest_generated": "Generated an AI insights digest",
+  "ai.office_summary_generated": "Generated the office daily summary",
   "job.contract_obligations_extracted": "Extracted contract obligations (AI)",
   "job.contract_obligation_accepted": "Accepted contract obligation",
   "document.uploaded": "uploaded a document",

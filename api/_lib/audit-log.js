@@ -259,6 +259,10 @@ const VALID_ACTIONS = new Set([
   // outcome). #373: contract-obligation extraction run + per-item acceptance
   // (targetType 'job'). Kept in sync with src/domains/audit-log/schema.ts.
   'ai.digest_generated',
+  // #171: a stored office daily summary was generated (targetType 'system';
+  // metadata carries model + phrasing outcome). Kept in sync with
+  // src/domains/audit-log/schema.ts AUDIT_ACTIONS.
+  'ai.office_summary_generated',
   'job.contract_obligations_extracted',
   'job.contract_obligation_accepted',
   // #366: scope-vs-quote reconciliation — the office's resolve-or-accept
