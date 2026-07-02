@@ -76,3 +76,15 @@ Model calls are always mocked (the ai-assistant harness pattern:
 `createRequire` + cache injection); no live Anthropic calls in CI. Every
 feature tests: flag-dark 404, tier gates, honest 503/502, the review
 transitions, and that nothing unreviewed becomes authoritative.
+
+## Enable gates (before flipping any of these flags for the crew)
+
+- `ai_photo_labels` (#262): measure per-photo classification cost on the PR
+  preview with REAL evidence JPEGs and record it on #262 first — the issue
+  stays open until the number is written down. Re-measure after #261
+  thumbnails land (smaller inputs, cheaper calls). Backfills are an explicit
+  admin action, capped per batch, cost documented before running.
+- `ai_insights_digest` (#347): add the weekly vercel.json cron + admin push
+  fan-out when (not before) the flag turns on.
+- All five: `ANTHROPIC_API_KEY` must be present in the environment or every
+  surface shows its honest "AI is not configured" state.
