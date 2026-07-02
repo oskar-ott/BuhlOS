@@ -6,10 +6,17 @@
 //   'CAP_REACHED'       — 402 (per-job AI budget spent)
 
 import {
+  ExtractLegendResponseSchema,
+  LegendEntryResponseSchema,
+  LegendListResponseSchema,
   OverrideResponseSchema,
   SheetsResponseSchema,
   UnderstandResponseSchema,
   type CropRegion,
+  type ExtractLegendResponse,
+  type LegendCategory,
+  type LegendEntryResponse,
+  type LegendListResponse,
   type OverrideResponse,
   type SheetField,
   type SheetsResponse,
@@ -127,5 +134,80 @@ export async function clearOverride(
       body: JSON.stringify({ planId, pageIndex, field }),
     },
     (b) => OverrideResponseSchema.parse(b),
+  );
+}
+
+// ─── #201: legend vocabulary ────────────────────────────────────────────────
+
+export async function fetchLegend(jobId: string): Promise<LegendListResponse> {
+  return request(
+    `/api/ai-drawings?jobId=${encodeURIComponent(jobId)}&action=legend`,
+    { method: "GET" },
+    (b) => LegendListResponseSchema.parse(b),
+  );
+}
+
+export async function extractLegend(
+  jobId: string,
+  planId: string,
+  pageIndex: number,
+): Promise<ExtractLegendResponse> {
+  return request(
+    `/api/ai-drawings?jobId=${encodeURIComponent(jobId)}&action=extract-legend`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ planId, pageIndex }),
+    },
+    (b) => ExtractLegendResponseSchema.parse(b),
+  );
+}
+
+export async function reviewLegendEntry(
+  jobId: string,
+  entryId: string,
+  status: "accepted" | "edited" | "rejected",
+  opts: { humanLabel?: string; note?: string } = {},
+): Promise<LegendEntryResponse> {
+  return request(
+    `/api/ai-drawings?jobId=${encodeURIComponent(jobId)}&action=review-legend-entry`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ entryId, status, ...opts }),
+    },
+    (b) => LegendEntryResponseSchema.parse(b),
+  );
+}
+
+export async function addLegendEntry(
+  jobId: string,
+  label: string,
+  opts: { description?: string | null; category?: LegendCategory | null } = {},
+): Promise<LegendEntryResponse> {
+  return request(
+    `/api/ai-drawings?jobId=${encodeURIComponent(jobId)}&action=add-legend-entry`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ label, ...opts }),
+    },
+    (b) => LegendEntryResponseSchema.parse(b),
+  );
+}
+
+export async function attachLegendCrop(
+  jobId: string,
+  entryId: string,
+  dataUrl: string,
+): Promise<LegendEntryResponse> {
+  return request(
+    `/api/ai-drawings?jobId=${encodeURIComponent(jobId)}&action=attach-legend-crop`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ entryId, dataUrl }),
+    },
+    (b) => LegendEntryResponseSchema.parse(b),
   );
 }

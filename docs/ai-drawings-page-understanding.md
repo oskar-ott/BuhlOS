@@ -97,12 +97,53 @@ Prompt changes bump `PROMPT_VERSION` (`pu-v1` today) in `api/ai-drawings.js`
 — the cache key includes it, so a new prompt re-runs pages while old rows
 remain for comparison.
 
+## Legend vocabulary (#201)
+
+The project's symbol language, extracted from its legend sheets into a
+reviewed per-job vocabulary — the input device recognition (#204/#205)
+consumes. Rides the same flag, handler, run-log cache and spend cap.
+
+- **Extract**: pages whose (effective) sheet type is `legend` get an
+  "Extract legend" action — one vision call (`kind = legend-entries`,
+  prompt `lv-v1`) returning label / description / category / symbol
+  description / confidence / symbol bbox per row. Cached by page sha256 +
+  prompt + model like page understanding.
+- **Review state machine** (the house `ai-suggestions` grammar):
+  `suggested → accepted | edited | rejected`, with one documented
+  vocabulary extension — a live (accepted/edited) entry can still be
+  rejected later, because bogus vocabulary must be removable before #204
+  consumes it. The AI's original label is always preserved (`edited`
+  stores the correction alongside). **Downstream consumers read
+  accepted/edited entries only** (`acceptedLegendEntries`).
+- **Merging**: one live entry per normalised label per job (partial unique
+  index) — multiple legend sheets/blocks converge on ONE vocabulary;
+  duplicates are reported, not silently re-added. A label a human rejected
+  never resurrects on re-extraction.
+- **Symbol crops**: the browser crops each entry's bbox from the page PNG
+  (no server-side image library) and attaches it via
+  `jobs/<jobId>/legend-crops/<entryId>.png` — best-effort: a CORS-tainted
+  canvas just leaves an honest label-only row. Crops become the few-shot
+  reference images for #204.
+- **Human additions**: entries the AI missed are added by hand,
+  pre-accepted, with no invented model provenance (P7).
+- Storage: `legend_entries`
+  (migration `20260703060000_epic5_legend_entries.sql`); runs log into
+  `plan_sheet_extractions` with the widened `kind` CHECK.
+- The gateway output cap (`api/_lib/ai.js MAX_TOKENS_CAP`) rose 2048 → 4096
+  for the row-heavy legend JSON; callers still request only what they need.
+- Supersedes the Phase-9 blob `ai-takeoff.json.legendItems` as the
+  vocabulary source of truth (the legacy takeoff loop still reads its own
+  copy until it migrates).
+
 ## Honest limits (deliberate, this slice)
 
 - **No server-side PDF/OCR pipeline** — pages must have been rendered by the
   existing upload flow (client-side PDF.js → `set-pages`).
-- **Per-page metadata only** — no legend/symbol/schedule extraction yet
-  (#201/#202/#207), no registry surface (#199), no revision diff (#203).
+- **Per-page + legend extraction only** — no schedule extraction yet
+  (#202/#207), no revision diff (#203), no device recognition (#204/#205).
+- Legend accuracy AC (#201: compare against a human's listing of a real
+  legend sheet, misses documented) needs prod — same owner-preview session
+  as the #197/#199 checks.
 - **The ≥10-page real-set end-to-end check (final #197 AC) needs production**
   (real Anthropic key + Supabase + a real drawing set) — run it there with
   the flag in owner-preview before closing the issue.
