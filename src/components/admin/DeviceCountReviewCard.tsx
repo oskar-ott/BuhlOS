@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, MapPin, Plus, RotateCcw, Trash2, X } from "lucide-react";
+import { Check, MapPin, Pencil, Plus, RotateCcw, Square, Trash2, X } from "lucide-react";
 import { CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
 import { cn } from "@/lib/cn";
@@ -17,8 +17,17 @@ import type {
   DeviceDetection,
   EffectiveMarker,
   LegendEntry,
+  Room,
 } from "@/domains/ai-drawings/schema";
-import { acceptCount, addMarker, reviewMarker } from "@/domains/ai-drawings/client";
+import {
+  acceptCount,
+  addMarker,
+  addRoom,
+  assignDeviceRoom,
+  clearDeviceRoom,
+  reviewMarker,
+  reviewRoom,
+} from "@/domains/ai-drawings/client";
 
 /**
  * Epic 5 (#205) — the count verify loop: markers on the sheet, corrections
@@ -127,6 +136,12 @@ function PageReview({
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [addEntryId, setAddEntryId] = useState<string | null>(null);
   const [focusEntryId, setFocusEntryId] = useState<string | null>(null);
+  // #206: two-tap rectangle drawing — redraw an existing room or add one.
+  const [drawMode, setDrawMode] = useState<
+    { kind: "redraw"; roomId: string } | { kind: "add"; name: string } | null
+  >(null);
+  const [pendingCorner, setPendingCorner] = useState<NormPoint | null>(null);
+  const [newRoomName, setNewRoomName] = useState("");
 
   const pngUrl = lookup.pngUrlFor(page.planId, page.pageIndex);
   const toneOf = useMemo(() => {
@@ -193,6 +208,58 @@ function PageReview({
     await run(() => acceptCount(jobId, page.planId, page.pageIndex, legendEntryId));
   };
 
+  // ── #206: rooms ──
+  const liveRooms = useMemo(
+    () => page.rooms.filter((r) => r.status !== "rejected"),
+    [page.rooms],
+  );
+  const roomNameOf = useMemo(() => {
+    const m = new Map(liveRooms.map((r) => [r.id, r.effectiveName]));
+    return (id: string | null) => (id ? (m.get(id) ?? "?") : null);
+  }, [liveRooms]);
+
+  const onRoomAction = async (
+    roomId: string,
+    status: "accepted" | "edited" | "rejected",
+    opts: { name?: string; bbox?: CropRegion } = {},
+  ) => {
+    await run(() => reviewRoom(jobId, roomId, status, opts));
+  };
+  const onDrawTap = async (p: NormPoint) => {
+    if (!drawMode || busy) return;
+    if (!pendingCorner) {
+      setPendingCorner(p);
+      return;
+    }
+    const first = pendingCorner;
+    setPendingCorner(null);
+    const mode = drawMode;
+    setDrawMode(null);
+    const x = Math.min(first.nx, p.nx);
+    const y = Math.min(first.ny, p.ny);
+    const bbox: CropRegion = {
+      x,
+      y,
+      w: Math.max(Math.abs(p.nx - first.nx), 0.02),
+      h: Math.max(Math.abs(p.ny - first.ny), 0.02),
+    };
+    if (mode.kind === "redraw") {
+      await run(() => reviewRoom(jobId, mode.roomId, "edited", { bbox }));
+    } else {
+      await run(() => addRoom(jobId, page.planId, page.pageIndex, mode.name, bbox));
+    }
+  };
+  const onPinRoom = async (m: EffectiveMarker, value: string) => {
+    if (value === "__auto") {
+      if (m.roomPinned) {
+        await run(() => clearDeviceRoom(jobId, page.planId, page.pageIndex, m.key));
+      }
+      return;
+    }
+    const roomId = value === "__unzoned" ? null : value;
+    await run(() => assignDeviceRoom(jobId, page.planId, page.pageIndex, m.key, roomId));
+  };
+
   const allVerified =
     page.counts.length > 0 && page.counts.every((c) => c.accepted && !c.accepted.stale);
   const addEntry = addEntryId ? vocabulary.find((v) => v.id === addEntryId) : null;
@@ -226,15 +293,21 @@ function PageReview({
             pageLabel={`${lookup.labelFor(page.planId)} page ${page.pageIndex + 1}`}
             markers={page.markers}
             uncertain={page.uncertain}
+            rooms={liveRooms}
             toneOf={toneOf}
             selectedKey={selectedKey}
             focusEntryId={focusEntryId}
             addMode={Boolean(addEntryId)}
+            drawMode={Boolean(drawMode)}
+            pendingCorner={pendingCorner}
             onMarkerTap={(key) => {
               setAddEntryId(null);
+              setDrawMode(null);
+              setPendingCorner(null);
               setSelectedKey((k) => (k === key ? null : key));
             }}
             onAddTap={(p) => void onAddTap(p)}
+            onDrawTap={(p) => void onDrawTap(p)}
           />
         </div>
       ) : (
@@ -258,6 +331,38 @@ function PageReview({
           >
             <Check aria-hidden="true" className="h-3 w-3" />
             Done adding
+          </button>
+        </div>
+      ) : null}
+
+      {drawMode ? (
+        <div
+          className="mt-2 flex flex-wrap items-center gap-2 rounded-card border border-dashed border-border bg-surface-subtle px-3 py-2 text-xs text-text"
+          role="status"
+        >
+          <Square aria-hidden="true" className="h-3.5 w-3.5 text-text-muted" />
+          {drawMode.kind === "add" ? (
+            <>
+              Drawing <strong>{drawMode.name}</strong> — tap two opposite corners of the
+              room.
+            </>
+          ) : (
+            <>
+              Redrawing <strong>{roomNameOf(drawMode.roomId)}</strong> — tap two opposite
+              corners of the new box.
+            </>
+          )}
+          {pendingCorner ? " First corner set." : ""}
+          <button
+            type="button"
+            onClick={() => {
+              setDrawMode(null);
+              setPendingCorner(null);
+            }}
+            className="ml-auto inline-flex h-6 items-center gap-1 rounded-card border border-border bg-surface px-2 font-medium hover:bg-surface-subtle"
+          >
+            <X aria-hidden="true" className="h-3 w-3" />
+            Cancel
           </button>
         </div>
       ) : null}
@@ -306,6 +411,31 @@ function PageReview({
                     ))}
                 </select>
               </label>
+              {liveRooms.length > 0 ? (
+                <label className="inline-flex items-center gap-1 text-text-muted">
+                  Room
+                  <select
+                    aria-label="Assign this marker to a room"
+                    disabled={busy}
+                    value={
+                      selected.roomPinned ? (selected.roomId ?? "__unzoned") : "__auto"
+                    }
+                    onChange={(e) => void onPinRoom(selected, e.target.value)}
+                    className="h-6 rounded-card border border-border bg-surface px-1 text-xs text-text"
+                    data-testid="marker-room-select"
+                  >
+                    <option value="__auto">
+                      Auto{!selected.roomPinned ? ` (${roomNameOf(selected.roomId) ?? "unzoned"})` : ""}
+                    </option>
+                    <option value="__unzoned">Unzoned (pinned)</option>
+                    {liveRooms.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.effectiveName}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
             </>
           ) : (
             <button
@@ -352,6 +482,100 @@ function PageReview({
           />
         ))}
       </ul>
+      {page.rooms.length > 0 || page.markers.some((m) => m.status === "live") ? (
+        <div className="mt-3" data-testid="rooms-section">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-semibold uppercase tracking-wide text-text-muted">
+              Rooms
+            </span>
+            {liveRooms.length > 0 ? (
+              <span className="text-xs text-text-muted">
+                {liveRooms.length} on this sheet (approximate boxes — redraw to correct)
+              </span>
+            ) : (
+              <span className="text-xs text-text-muted">
+                none mapped yet — run &ldquo;Map rooms&rdquo; on the sheet or add one
+              </span>
+            )}
+            <span className="ml-auto inline-flex items-center gap-1">
+              <input
+                type="text"
+                value={newRoomName}
+                onChange={(e) => setNewRoomName(e.target.value)}
+                placeholder="Room name…"
+                aria-label="Name for a new room"
+                className="h-6 w-28 rounded-card border border-border bg-surface px-2 text-xs text-text"
+              />
+              <button
+                type="button"
+                disabled={busy || !newRoomName.trim() || !pngUrl}
+                onClick={() => {
+                  setAddEntryId(null);
+                  setSelectedKey(null);
+                  setPendingCorner(null);
+                  setDrawMode({ kind: "add", name: newRoomName.trim() });
+                  setNewRoomName("");
+                }}
+                className="inline-flex h-6 items-center gap-1 rounded-card border border-border bg-surface px-2 text-xs font-medium text-text hover:bg-surface-subtle disabled:cursor-not-allowed disabled:text-text-muted"
+              >
+                <Plus aria-hidden="true" className="h-3 w-3" />
+                Draw room
+              </button>
+            </span>
+          </div>
+          {liveRooms.length > 0 ? (
+            <ul className="mt-1.5 space-y-1">
+              {liveRooms.map((r) => (
+                <RoomRow
+                  key={r.id}
+                  room={r}
+                  deviceCount={
+                    page.byRoom.find((g) => g.roomId === r.id)?.total ?? 0
+                  }
+                  busy={busy}
+                  canDraw={Boolean(pngUrl)}
+                  onAccept={() => void onRoomAction(r.id, "accepted")}
+                  onRename={(name) => void onRoomAction(r.id, "edited", { name })}
+                  onRedraw={() => {
+                    setAddEntryId(null);
+                    setSelectedKey(null);
+                    setPendingCorner(null);
+                    setDrawMode({ kind: "redraw", roomId: r.id });
+                  }}
+                  onReject={() => void onRoomAction(r.id, "rejected")}
+                />
+              ))}
+            </ul>
+          ) : null}
+          {page.byRoom.length > 0 ? (
+            <ul className="mt-2 space-y-1" data-testid="by-room">
+              {page.byRoom.map((g) => (
+                <li
+                  key={g.roomId ?? "(unzoned)"}
+                  className={cn(
+                    "flex flex-wrap items-baseline gap-2 rounded-card border px-3 py-1.5 text-xs",
+                    g.roomId === null
+                      ? "border-dashed border-amber-500 text-text"
+                      : "border-border text-text",
+                  )}
+                  data-testid={g.roomId === null ? "by-room-unzoned" : "by-room-row"}
+                >
+                  <span className="font-medium">
+                    {g.roomId === null ? "Unzoned (outside every room)" : g.roomName}
+                  </span>
+                  <span className="font-semibold">{g.total}</span>
+                  <span className="text-text-muted">
+                    {g.entries
+                      .map((e) => `${e.count}× ${e.label ?? "(unlabelled)"}`)
+                      .join(" · ")}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+
       {page.uncertain.length > 0 ? (
         <p className="mt-2 text-xs text-text-muted">
           The AI flagged {page.uncertain.length} dense area
@@ -454,28 +678,154 @@ function CountRowView({
   );
 }
 
+function RoomRow({
+  room,
+  deviceCount,
+  busy,
+  canDraw,
+  onAccept,
+  onRename,
+  onRedraw,
+  onReject,
+}: {
+  room: Room;
+  deviceCount: number;
+  busy: boolean;
+  canDraw: boolean;
+  onAccept: () => void;
+  onRename: (name: string) => void;
+  onRedraw: () => void;
+  onReject: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(room.effectiveName);
+  return (
+    <li
+      className="flex flex-wrap items-center gap-2 rounded-card border border-border px-3 py-1"
+      data-testid="room-row"
+    >
+      {editing ? (
+        <>
+          <input
+            type="text"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            aria-label={`Rename room ${room.effectiveName}`}
+            className="h-6 w-32 rounded-card border border-border bg-surface px-2 text-xs text-text"
+          />
+          <button
+            type="button"
+            disabled={busy || !draft.trim()}
+            onClick={() => {
+              setEditing(false);
+              if (draft.trim() && draft.trim() !== room.effectiveName) onRename(draft.trim());
+            }}
+            className="inline-flex h-6 items-center gap-1 rounded-card border border-border bg-surface px-2 text-xs font-medium text-text hover:bg-surface-subtle"
+          >
+            <Check aria-hidden="true" className="h-3 w-3" />
+            Save
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setEditing(false);
+              setDraft(room.effectiveName);
+            }}
+            aria-label="Cancel rename"
+            className="inline-flex h-6 w-6 items-center justify-center rounded-card border border-border bg-surface text-text-muted hover:text-text"
+          >
+            <X aria-hidden="true" className="h-3 w-3" />
+          </button>
+        </>
+      ) : (
+        <span className="text-xs font-medium text-text">{room.effectiveName}</span>
+      )}
+      {room.status === "suggested" ? (
+        <Pill tone="warning">AI · {room.confidence !== null ? `${Math.round(room.confidence * 100)}%` : "?"}</Pill>
+      ) : (
+        <Pill tone="neutral">{room.origin === "human" ? "added" : room.status}</Pill>
+      )}
+      <span className="text-xs text-text-muted">
+        {deviceCount} device{deviceCount === 1 ? "" : "s"}
+      </span>
+      <span className="ml-auto inline-flex items-center gap-1">
+        {room.status === "suggested" ? (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onAccept}
+            aria-label={`Accept room ${room.effectiveName}`}
+            className="inline-flex h-6 items-center gap-1 rounded-card border border-border bg-surface px-2 text-xs font-medium text-text hover:bg-surface-subtle disabled:cursor-not-allowed disabled:text-text-muted"
+          >
+            <Check aria-hidden="true" className="h-3 w-3" />
+            Accept
+          </button>
+        ) : null}
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => setEditing((v) => !v)}
+          aria-label={`Rename room ${room.effectiveName}`}
+          className="inline-flex h-6 items-center gap-1 rounded-card border border-border bg-surface px-2 text-xs font-medium text-text hover:bg-surface-subtle disabled:cursor-not-allowed disabled:text-text-muted"
+        >
+          <Pencil aria-hidden="true" className="h-3 w-3" />
+          Rename
+        </button>
+        <button
+          type="button"
+          disabled={busy || !canDraw}
+          onClick={onRedraw}
+          aria-label={`Redraw room ${room.effectiveName}`}
+          className="inline-flex h-6 items-center gap-1 rounded-card border border-border bg-surface px-2 text-xs font-medium text-text hover:bg-surface-subtle disabled:cursor-not-allowed disabled:text-text-muted"
+        >
+          <Square aria-hidden="true" className="h-3 w-3" />
+          Redraw
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onReject}
+          aria-label={`Reject room ${room.effectiveName} (not a room)`}
+          className="inline-flex h-6 items-center gap-1 rounded-card border border-border bg-surface px-2 text-xs font-medium text-text hover:bg-surface-subtle disabled:cursor-not-allowed disabled:text-text-muted"
+        >
+          <Trash2 aria-hidden="true" className="h-3 w-3" />
+          Not a room
+        </button>
+      </span>
+    </li>
+  );
+}
+
 function MarkerOverlay({
   pngUrl,
   pageLabel,
   markers,
   uncertain,
+  rooms,
   toneOf,
   selectedKey,
   focusEntryId,
   addMode,
+  drawMode,
+  pendingCorner,
   onMarkerTap,
   onAddTap,
+  onDrawTap,
 }: {
   pngUrl: string;
   pageLabel: string;
   markers: EffectiveMarker[];
   uncertain: DeviceDetection[];
+  rooms: Room[];
   toneOf: (id: string | null) => string;
   selectedKey: string | null;
   focusEntryId: string | null;
   addMode: boolean;
+  drawMode: boolean;
+  pendingCorner: NormPoint | null;
   onMarkerTap: (key: string) => void;
   onAddTap: (p: NormPoint) => void;
+  onDrawTap: (p: NormPoint) => void;
 }) {
   const imgRef = useRef<HTMLImageElement | null>(null);
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
@@ -506,10 +856,12 @@ function MarkerOverlay({
       }
     : null;
 
-  const handleAddClick = (e: React.MouseEvent<SVGRectElement>) => {
+  const handleCaptureClick = (e: React.MouseEvent<SVGRectElement>) => {
     if (!view) return;
     const rect = e.currentTarget.getBoundingClientRect();
-    onAddTap(pixelToNorm({ px: e.clientX - rect.left, py: e.clientY - rect.top }, view));
+    const p = pixelToNorm({ px: e.clientX - rect.left, py: e.clientY - rect.top }, view);
+    if (drawMode) onDrawTap(p);
+    else onAddTap(p);
   };
 
   return (
@@ -529,7 +881,7 @@ function MarkerOverlay({
           viewBox={`0 0 ${size.w} ${size.h}`}
           className="pointer-events-none absolute left-0 top-0 overflow-visible"
         >
-          {addMode ? (
+          {addMode || drawMode ? (
             <rect
               x={0}
               y={0}
@@ -537,8 +889,52 @@ function MarkerOverlay({
               height={size.h}
               fill="transparent"
               className="pointer-events-auto cursor-crosshair"
-              onClick={handleAddClick}
+              onClick={handleCaptureClick}
               data-testid="marker-add-capture"
+            />
+          ) : null}
+          {rooms.map((r) => {
+            const tl = normToPixel({ nx: r.effectiveBbox.x, ny: r.effectiveBbox.y }, view);
+            const br = normToPixel(
+              { nx: r.effectiveBbox.x + r.effectiveBbox.w, ny: r.effectiveBbox.y + r.effectiveBbox.h },
+              view,
+            );
+            return (
+              <g key={r.id} className="pointer-events-none text-slate-500" data-testid="room-rect">
+                <rect
+                  x={tl.px}
+                  y={tl.py}
+                  width={br.px - tl.px}
+                  height={br.py - tl.py}
+                  fill="currentColor"
+                  fillOpacity={0.04}
+                  stroke="currentColor"
+                  strokeWidth={1.25}
+                  strokeDasharray={r.status === "suggested" ? "6 4" : undefined}
+                  strokeOpacity={0.7}
+                />
+                <text
+                  x={tl.px + 4}
+                  y={tl.py + 12}
+                  fontSize={10}
+                  fill="currentColor"
+                  fillOpacity={0.9}
+                  className="select-none"
+                >
+                  {r.effectiveName}
+                </text>
+              </g>
+            );
+          })}
+          {pendingCorner ? (
+            <circle
+              cx={normToPixel(pendingCorner, view).px}
+              cy={normToPixel(pendingCorner, view).py}
+              r={5}
+              fill="currentColor"
+              stroke="white"
+              strokeWidth={1.5}
+              className="text-brand-navy"
             />
           ) : null}
           {uncertain.map((u) => {

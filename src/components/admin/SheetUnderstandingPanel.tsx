@@ -42,6 +42,7 @@ import {
   detectDevices,
   diffPages,
   extractLegend,
+  extractRooms,
   extractSchedule,
   fetchCountReview,
   fetchDetections,
@@ -435,6 +436,37 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
     [jobId],
   );
 
+  // #206: one whole-page vision pass for room labels + approximate extents.
+  const runExtractRooms = useCallback(
+    async (plan: PanelPlan, pageIndex: number) => {
+      setRunNotice("");
+      setExtractBusyKey(sheetKey(plan.id, pageIndex));
+      try {
+        const out = await extractRooms(jobId, plan.id, pageIndex);
+        setCountPages((prev) => {
+          const i = prev.findIndex(
+            (p) => p.planId === out.page.planId && p.pageIndex === out.page.pageIndex,
+          );
+          if (i < 0) return [...prev, out.page];
+          const next = [...prev];
+          next[i] = out.page;
+          return next;
+        });
+        if (out.spend) setSpend(out.spend);
+        setRunNotice(
+          out.cached
+            ? "Rooms already mapped for this sheet (cached — no new AI spend)."
+            : `Mapped ${out.inserted} room${out.inserted === 1 ? "" : "s"} — approximate boxes; review them in the counts card.`,
+        );
+      } catch (err) {
+        setRunNotice(err instanceof Error ? err.message : "Room mapping failed");
+      } finally {
+        setExtractBusyKey(null);
+      }
+    },
+    [jobId],
+  );
+
   // #204: tile the page in the browser (overlapping 2×2) and run one vision
   // call per tile — the server dedupes seam duplicates by IoU.
   const runDetectDevices = useCallback(
@@ -721,6 +753,7 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
                     void runExtractSchedule(plan, pageIndex, kind)
                   }
                   onDetectDevices={(pageIndex) => void runDetectDevices(plan, pageIndex)}
+                  onExtractRooms={(pageIndex) => void runExtractRooms(plan, pageIndex)}
                 />
               ))}
             </div>
@@ -785,6 +818,7 @@ function PlanSheets({
   onExtractLegend,
   onExtractSchedule,
   onDetectDevices,
+  onExtractRooms,
 }: {
   jobId: string;
   plan: PanelPlan;
@@ -798,6 +832,7 @@ function PlanSheets({
   onExtractLegend: (pageIndex: number) => void;
   onExtractSchedule: (pageIndex: number, kind: ScheduleTableKind) => void;
   onDetectDevices: (pageIndex: number) => void;
+  onExtractRooms: (pageIndex: number) => void;
 }) {
   const planRunning = running?.planId === plan.id;
   const analysed = plan.pages.filter(
@@ -867,6 +902,11 @@ function PlanSheets({
                     ? () => onDetectDevices(page.pageIndex)
                     : undefined
                 }
+                onExtractRooms={
+                  sheet?.fields.sheetType.effective === "floorPlan" && !anyRunning
+                    ? () => onExtractRooms(page.pageIndex)
+                    : undefined
+                }
               />
             </li>
           );
@@ -888,6 +928,7 @@ function SheetRow({
   onExtractLegend,
   onExtractSchedule,
   onDetectDevices,
+  onExtractRooms,
 }: {
   jobId: string;
   planId: string;
@@ -900,6 +941,7 @@ function SheetRow({
   onExtractLegend?: () => void;
   onExtractSchedule?: (kind: ScheduleTableKind) => void;
   onDetectDevices?: () => void;
+  onExtractRooms?: () => void;
 }) {
   // While an extraction runs every callback is withdrawn (anyRunning), so the
   // busy row keeps showing only the button group its sheet type owns.
@@ -980,20 +1022,36 @@ function SheetRow({
           </>
         ) : null}
         {showDetect ? (
-          <button
-            type="button"
-            onClick={onDetectDevices}
-            disabled={!onDetectDevices || extractBusy}
-            className={cn(
-              "inline-flex h-7 items-center gap-1.5 rounded-card border px-2.5 text-xs font-medium",
-              extractBusy || !onDetectDevices
-                ? "cursor-not-allowed border-border bg-surface-subtle text-text-muted"
-                : "border-border bg-surface text-text hover:bg-surface-subtle",
-            )}
-          >
-            <ScanSearch aria-hidden="true" className="h-3.5 w-3.5" />
-            {extractBusy ? "Detecting devices…" : "Detect devices"}
-          </button>
+          <>
+            <button
+              type="button"
+              onClick={onDetectDevices}
+              disabled={!onDetectDevices || extractBusy}
+              className={cn(
+                "inline-flex h-7 items-center gap-1.5 rounded-card border px-2.5 text-xs font-medium",
+                extractBusy || !onDetectDevices
+                  ? "cursor-not-allowed border-border bg-surface-subtle text-text-muted"
+                  : "border-border bg-surface text-text hover:bg-surface-subtle",
+              )}
+            >
+              <ScanSearch aria-hidden="true" className="h-3.5 w-3.5" />
+              {extractBusy ? "Working…" : "Detect devices"}
+            </button>
+            <button
+              type="button"
+              onClick={onExtractRooms}
+              disabled={!onExtractRooms || extractBusy}
+              className={cn(
+                "inline-flex h-7 items-center gap-1.5 rounded-card border px-2.5 text-xs font-medium",
+                extractBusy || !onExtractRooms
+                  ? "cursor-not-allowed border-border bg-surface-subtle text-text-muted"
+                  : "border-border bg-surface text-text hover:bg-surface-subtle",
+              )}
+            >
+              <ScanSearch aria-hidden="true" className="h-3.5 w-3.5" />
+              Map rooms
+            </button>
+          </>
         ) : null}
       </div>
       {sheet ? (
