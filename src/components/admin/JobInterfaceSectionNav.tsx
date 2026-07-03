@@ -51,46 +51,36 @@ interface Props {
   killSwitches?: Partial<Record<string, boolean>>;
 }
 
-type SectionRow =
-  | {
-      kind: "live";
-      label: string;
-      description: string;
-      href: Route;
-      count?: number;
-      icon: typeof Camera;
-      /** #760: the kill-switch flag gating this row (via `killSwitches`). */
-      flag?: string;
-    }
-  | {
-      kind: "uc";
-      label: string;
-      description: string;
-      icon: typeof Camera;
-      ucReason: string;
-    };
+type SectionRow = {
+  kind: "live";
+  label: string;
+  description: string;
+  href: Route;
+  count?: number;
+  icon: typeof Camera;
+  /** #760: the kill-switch flag gating this row (via `killSwitches`). */
+  flag?: string;
+};
 
 /**
  * Admin job interface section nav.
  *
  * Sits inside /v2/jobs/[jobId] (the job hub) and exposes every section
- * we want to surface for a job &mdash; live ones link to the rebuild
- * surface for that section; UC ones surface a short explanation of why
- * it isn't wired yet. The hub itself owns Overview and Site (rendered
- * above this nav in the page); this list is the rest.
+ * we want to surface for a job &mdash; each links to the rebuild surface
+ * for that section. The hub itself owns Overview and Site (rendered above
+ * this nav in the page); this list is the rest.
  *
  * Counts come from job.statsEvidenceV2Pending / statsSnagsV2Active /
  * statsItpsActive on the Job object, the same enrichment the D6 jobs
  * index uses. When the count is `undefined` we omit the chip rather than
  * fabricate a zero &mdash; the cell renders without it.
  *
- * Section order: Evidence &middot; Snags &middot; Observations (PR 8) &middot;
- * ITPs &middot; Documents &middot; Materials (UC) &middot; Activity (LIVE, PR 9).
- * PR 9 flipped Activity (was "History") from UC to LIVE — it now points at
- * /v2/jobs/[jobId]/history which consumes the audit-log via the
- * scope=job mode.
- * Documents &middot; Materials &middot; History. Overview + Site live
- * above this in the hub page itself.
+ * Section order: Evidence &middot; Photos &middot; Snags &middot;
+ * Observations &middot; ITP / QA &middot; &hellip; &middot; Documents
+ * &middot; Material requests &middot; Diary &middot; Activity. Overview +
+ * Site live above this in the hub page itself. (#523 dropped the dead UC
+ * "Materials (legacy takeoff)" placeholder row — every row is now a live
+ * link.)
  *
  * Cross-ref:
  *   src/components/admin/JobsList.tsx &mdash; row chip pattern (these
@@ -315,14 +305,6 @@ export function JobInterfaceSectionNav({
       flag: "material_requests",
     },
     {
-      kind: "uc",
-      label: "Materials (legacy takeoff)",
-      description: "Structured materials takeoff, PO and invoice match.",
-      icon: Package,
-      ucReason:
-        "Legacy /admin/materials still owns takeoff + PO + invoice match — a rebuilt scoped view is a later slice. The Material requests row above is the field-to-office request loop (PR 11) and is unrelated.",
-    },
-    {
       // #210: the job's daily site diary — the office's contemporaneous record
       // (delay-claim evidence). No count chip (like Photos): a total would need
       // an extra fetch the hub doesn't do, so we omit it rather than fabricate.
@@ -346,10 +328,10 @@ export function JobInterfaceSectionNav({
   ];
 
   // #760: hide a live section only when the owner has explicitly turned its
-  // kill-switch off. Rows without a `flag` (UC, or gated elsewhere via the
-  // existing spread props) always pass this filter.
+  // kill-switch off. Rows without a `flag` (gated elsewhere via the existing
+  // spread props) always pass this filter.
   const visibleRows = rows.filter(
-    (row) => row.kind !== "live" || !row.flag || killSwitches?.[row.flag] !== false,
+    (row) => !row.flag || killSwitches?.[row.flag] !== false,
   );
 
   return (
@@ -358,19 +340,15 @@ export function JobInterfaceSectionNav({
         <div>
           <CardTitle>Sections</CardTitle>
           <CardDescription className="mt-1">
-            Every part of the job interface in one place. Live sections open
-            their queue. UC sections show what&rsquo;s coming.
+            Every part of the job interface in one place. Each section opens
+            its queue.
           </CardDescription>
         </div>
       </div>
       <ul className="mt-3 divide-y divide-border overflow-hidden rounded-card border border-border bg-surface">
         {visibleRows.map((row) => (
           <li key={row.label}>
-            {row.kind === "live" ? (
-              <LiveRow row={row} />
-            ) : (
-              <UcRow row={row} />
-            )}
+            <LiveRow row={row} />
           </li>
         ))}
       </ul>
@@ -378,7 +356,7 @@ export function JobInterfaceSectionNav({
   );
 }
 
-function LiveRow({ row }: { row: Extract<SectionRow, { kind: "live" }> }) {
+function LiveRow({ row }: { row: SectionRow }) {
   const Icon = row.icon;
   const hasCount = typeof row.count === "number";
   const highlightCount = hasCount && row.count! > 0;
@@ -408,29 +386,5 @@ function LiveRow({ row }: { row: Extract<SectionRow, { kind: "live" }> }) {
       ) : null}
       <ChevronRight aria-hidden="true" className="h-5 w-5 shrink-0 text-text-muted/60" />
     </Link>
-  );
-}
-
-function UcRow({ row }: { row: Extract<SectionRow, { kind: "uc" }> }) {
-  const Icon = row.icon;
-  return (
-    <div
-      className="flex min-h-[64px] items-start gap-3 px-4 py-3"
-      aria-label={`${row.label} — under construction`}
-    >
-      <Icon aria-hidden="true" className="h-5 w-5 shrink-0 text-text-muted/60" />
-      <span className="min-w-0 flex-1">
-        <span className="flex items-center gap-2">
-          <span className="font-display text-base font-semibold text-text-muted">
-            {row.label}
-          </span>
-          <Pill tone="neutral" className="text-[10px] uppercase tracking-wider">
-            UC
-          </Pill>
-        </span>
-        <span className="mt-0.5 block text-xs text-text-muted">{row.description}</span>
-        <span className="mt-1 block text-xs text-text-muted/80">{row.ucReason}</span>
-      </span>
-    </div>
   );
 }

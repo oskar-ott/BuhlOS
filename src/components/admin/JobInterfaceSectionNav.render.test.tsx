@@ -44,4 +44,18 @@ describe("<JobInterfaceSectionNav /> kill-switch filtering (#760)", () => {
     expect(html).toContain("Circuit schedules");
     expect(html).toContain("Closeout");
   });
+
+  // #523: the dead UC "Materials (legacy takeoff)" placeholder row is gone —
+  // it linked nowhere (a non-feature). The live "Material requests" row (the
+  // real field-to-office procurement loop) and every other section stay.
+  it("no longer renders the dead UC Materials (legacy takeoff) row", () => {
+    const html = render();
+    expect(html).not.toContain("Materials (legacy takeoff)");
+    expect(html).not.toContain("Structured materials takeoff");
+    expect(html).not.toContain(">UC<"); // the UC pill is gone entirely
+    // The real Material requests section and the rest of the nav still render.
+    expect(html).toContain("Material requests");
+    expect(html).toContain("Evidence");
+    expect(html).toContain("Documents &amp; specs");
+  });
 });
