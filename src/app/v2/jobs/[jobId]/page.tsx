@@ -65,6 +65,7 @@ import {
   type CloseoutMatrixView,
 } from "@/server/job-control/closeout-read";
 import { JobScopeReconciliationChip } from "@/components/admin/JobScopeReconciliationChip";
+import { JobSummaryCard } from "@/components/admin/JobSummaryCard";
 import {
   blobReconciliationReadDeps,
   runScopeReconciliationView,
@@ -158,6 +159,12 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
   // #372: surface the progress-claims card when the flag is on. Admin-tier
   // flag — resolves false for an LH viewer (claims are billing).
   const progressClaimsEnabled = await isFlagEnabled("progress_claims", session);
+  // #173: surface the "Where is this job at?" AI summary card when the
+  // ai_assistant flag is on. Dark by default — the whole surface is invisible
+  // until proven on a preview deploy. The client card POSTs to the shipped #170
+  // endpoint (permission-scoped server-side); no button renders when this is
+  // false. Global flag, so it resolves the same for an admin or a managing LH.
+  const aiAssistantEnabled = await isFlagEnabled("ai_assistant", session);
   // #760: ITPs are a kill-switch feature — hide the ITP/QA nav row when off.
   const itpEnabled = await isFlagEnabled("itp", session);
   // #760: resolve the rest of the job sections' kill-switches so the section nav
@@ -309,6 +316,12 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
         {canBuild ? <ClientContractCard job={job} /> : null}
         <JobBuildCard job={job} canBuild={canBuild} />
         <JobFieldViewCard job={job} />
+        {/* #173: "Where is this job at?" — one-tap AI summary over the same
+            deterministic projections the cards below render. Flag-dark
+            (ai_assistant); the endpoint is permission-scoped + returns the real
+            toolData so the card shows verbatim numbers next to the prose (P7).
+            The card assumes the flag is ON — no button renders when it's off. */}
+        {aiAssistantEnabled ? <JobSummaryCard jobId={job.id} /> : null}
         {/* Operational loop — what's actually happening on the job, derived
             from real time-entry / evidence / audit-log data (read-only). */}
         <JobLabourSummary entries={data.hours.entries} jobId={job.id} fetchError={data.hours.error} />
