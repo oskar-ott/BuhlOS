@@ -31,11 +31,12 @@ const OVERRIDES_WINDOW_MONTHS = 12;
  * jobs — the underlying /api/jobs + /api/job-itps loads enforce job access
  * server-side; clients never reach this surface. Read-only end to end.
  *
- * Override sourcing (#286 trap 1, decided): independence override
- * justifications live ONLY in audit-log metadata (the instance doesn't
- * persist them until #289). We read the job audit feed over an explicit
- * 12-month window and the pack states exactly that, so a long job's older
- * overrides are never silently missing — the note says where they live.
+ * Override sourcing (#289): independence override justifications are now
+ * PERSISTED on the instance (schema `signOffOverride`) at sign-off time, so
+ * the pack reads them straight from the instance and they can never age out.
+ * The 12-month audit read below is retained ONLY as a legacy fallback for
+ * instances signed off before that field existed; the pack prefers the
+ * instance value and the note explains the split.
  */
 export default async function CompliancePackPage({
   params,
@@ -166,7 +167,10 @@ async function loadTestRecords(
   }
 }
 
-/** itp.signed_off audit entries → { instanceId: overrideJustification }.
+/** #289 legacy fallback — itp.signed_off audit entries →
+ *  { instanceId: overrideJustification }, for instances signed off before
+ *  the override was persisted on the instance. The pack prefers the
+ *  instance's own signOffOverride and only reaches this for older rows.
  *  Latest entry per instance wins (a reopen + re-signoff supersedes). */
 async function loadOverrides(
   raw: string | undefined,

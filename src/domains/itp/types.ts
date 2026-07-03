@@ -6,6 +6,7 @@ import type {
   ITPAttachResponseSchema,
   ITPInstanceResultSchema,
   ITPInstanceSchema,
+  ITPSignOffOverrideSchema,
   ITPListResponseSchema,
   ITPPointConditionSchema,
   ITPPointTypeSchema,
@@ -52,6 +53,8 @@ export type ITPTemplatePoint = z.infer<typeof ITPTemplatePointSchema>;
 export type ITPTemplateSnapshot = z.infer<typeof ITPTemplateSnapshotSchema>;
 export type ITPTemplate = z.infer<typeof ITPTemplateSchema>;
 export type ITPInstanceResult = z.infer<typeof ITPInstanceResultSchema>;
+/** #289 — persisted independence-override record (see schema). */
+export type ITPSignOffOverride = z.infer<typeof ITPSignOffOverrideSchema>;
 export type ITPInstance = z.infer<typeof ITPInstanceSchema>;
 
 export type AttachITPPayload = z.infer<typeof AttachITPPayloadSchema>;

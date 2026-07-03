@@ -512,9 +512,27 @@ module.exports = async (req, res) => {
             ratio,
           });
         }
+        const signedOffAt = new Date().toISOString();
         inst.status = 'signed-off';
         inst.signedOffBy = me.username;
-        inst.signedOffAt = new Date().toISOString();
+        inst.signedOffAt = signedOffAt;
+        // #289 — persist the independence override ON the instance whenever
+        // the signer supplied a justification (the rule was tripped). This
+        // is the single durable source the #286 compliance pack reads, so an
+        // override can never age out of a time-windowed audit scan. The
+        // audit-log write below stays (belt and braces) but the pack no
+        // longer depends on it. An independent sign-off clears any stale
+        // override carried over from a prior reopen + re-signoff.
+        if (overrideJustificationRaw) {
+          inst.signOffOverride = {
+            justification: overrideJustificationRaw,
+            ratio,
+            by: me.username,
+            at: signedOffAt,
+          };
+        } else {
+          delete inst.signOffOverride;
+        }
       } else {
         if (inst.status !== 'signed-off') {
           return res.status(409).json({ error: 'cannot reopen — not signed off' });
@@ -522,6 +540,7 @@ module.exports = async (req, res) => {
         inst.status = 'witnessed';
         delete inst.signedOffBy;
         delete inst.signedOffAt;
+        delete inst.signOffOverride;
       }
       inst.updatedAt = new Date().toISOString();
       try {

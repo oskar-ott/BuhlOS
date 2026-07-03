@@ -15,6 +15,7 @@ import {
   ITPListResponseSchema,
   ITPPointTypeSchema,
   ITPScopeSchema,
+  ITPSignOffOverrideSchema,
   ITPStatusSchema,
   ITPTemplatePointSchema,
   ITPTemplateSnapshotSchema,
@@ -364,6 +365,56 @@ describe("ITPInstanceSchema", () => {
 
   it("status enum stays in sync with the runtime export", () => {
     expect(ITPStatusSchema.options).toEqual([...ITP_STATUSES]);
+  });
+
+  it("#289: accepts a signed-off instance carrying a persisted signOffOverride", () => {
+    const signed = {
+      ...baseInstance,
+      status: "signed-off" as const,
+      signedOffBy: "anna",
+      signedOffAt: "2026-05-26T11:00:00.000Z",
+      signOffOverride: {
+        justification: "Solo call-out — I recorded and signed",
+        ratio: 1,
+        by: "anna",
+        at: "2026-05-26T11:00:00.000Z",
+      },
+    };
+    expect(ITPInstanceSchema.safeParse(signed).success).toBe(true);
+  });
+
+  it("#289: signOffOverride is optional (independent sign-offs omit it)", () => {
+    const signed = {
+      ...baseInstance,
+      status: "signed-off" as const,
+      signedOffBy: "anna",
+      signedOffAt: "2026-05-26T11:00:00.000Z",
+    };
+    expect(ITPInstanceSchema.safeParse(signed).success).toBe(true);
+  });
+});
+
+describe("ITPSignOffOverrideSchema (#289)", () => {
+  const valid = {
+    justification: "I recorded most points on a solo job",
+    ratio: 0.75,
+    by: "boss",
+    at: "2026-06-03T00:00:00.000Z",
+  };
+
+  it("accepts a well-formed override record", () => {
+    expect(ITPSignOffOverrideSchema.safeParse(valid).success).toBe(true);
+  });
+
+  it("rejects an empty justification", () => {
+    expect(
+      ITPSignOffOverrideSchema.safeParse({ ...valid, justification: "" }).success,
+    ).toBe(false);
+  });
+
+  it("rejects a ratio outside 0..1", () => {
+    expect(ITPSignOffOverrideSchema.safeParse({ ...valid, ratio: 1.5 }).success).toBe(false);
+    expect(ITPSignOffOverrideSchema.safeParse({ ...valid, ratio: -0.1 }).success).toBe(false);
   });
 });
 

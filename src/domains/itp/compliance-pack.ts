@@ -295,8 +295,13 @@ function formatLimits(
   return parts.length ? parts.join(", ") : "—";
 }
 
-/** Overrides harvested from the audit log (itp.signed_off metadata), keyed
- *  by instance id. The instance itself does not persist the justification. */
+/** #289 — LEGACY fallback only. Overrides harvested from the audit log
+ *  (itp.signed_off metadata), keyed by instance id, for instances signed
+ *  off BEFORE the override was persisted on the instance (schema
+ *  `signOffOverride`). New sign-offs carry the justification on the
+ *  instance itself, so the pack no longer depends on this audit scan — an
+ *  override can never age out of a time window. Kept so a job that closed
+ *  before #289 still shows its overrides. */
 export type OverrideByInstanceId = Readonly<Record<string, string>>;
 
 export function buildCompliancePack(input: {
@@ -335,7 +340,11 @@ export function buildCompliancePack(input: {
     jobRef: job.ref ?? null,
     siteAddress: job.siteAddress ? String(job.siteAddress).trim() || null : null,
     generatedAt: input.generatedAt,
-    overridesNote: `Independence override justifications are sourced from the job audit log (last ${input.overridesWindowMonths} months). Older overrides remain in the audit record.`,
+    // #289 — the current source is the instance itself (signOffOverride),
+    // which never ages out. The audit log is only a legacy fallback for
+    // instances signed off before that field existed, and the window note
+    // applies to those alone.
+    overridesNote: `Independence override justifications are recorded on the sign-off itself and cannot expire. Overrides from sign-offs predating this record are sourced from the job audit log (last ${input.overridesWindowMonths} months); older ones remain in the audit record.`,
     handoverChecklist: buildHandoverChecklistSection(input.closeoutRequirements ?? []),
     testResults: buildTestResultsSection(input.testRecords ?? []),
     summary: sections.map((s) => ({
@@ -355,7 +364,7 @@ export function buildCompliancePack(input: {
 function buildInstanceSection(
   job: Job,
   instance: ITPInstance,
-  overrideJustification: string | null
+  auditOverrideJustification: string | null
 ): PackInstanceSection {
   const points = (instance.templateSnapshot?.points ?? [])
     .filter((p) => !p.archived)
@@ -365,6 +374,13 @@ function buildInstanceSection(
   const progress = formatProgress(instance);
   const scopeName = resolveScopeName(job, instance);
   const status = instance.status;
+
+  // #289 — the persisted override on the instance is the source of truth
+  // and never ages out; fall back to the audit-sourced value only for
+  // instances signed off before signOffOverride existed.
+  const persistedJustification =
+    instance.signOffOverride?.justification?.trim() || null;
+  const overrideJustification = persistedJustification ?? auditOverrideJustification;
 
   return {
     id: instance.id,
