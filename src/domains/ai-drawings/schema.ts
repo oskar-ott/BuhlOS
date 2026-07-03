@@ -293,3 +293,57 @@ export const ReviewScheduleRowResponseSchema = z.object({
   row: ScheduleRowSchema,
 });
 export type ReviewScheduleRowResponse = z.infer<typeof ReviewScheduleRowResponseSchema>;
+
+// ─── #203: revision diffs ───────────────────────────────────────────────────
+
+export const PageDiffSchema = z.object({
+  id: z.string(),
+  basePlanId: z.string(),
+  basePageIndex: z.number().int(),
+  basePageSha256: z.string(),
+  headPlanId: z.string(),
+  headPageIndex: z.number().int(),
+  headPageSha256: z.string(),
+  algoVersion: z.string(),
+  identical: z.boolean(),
+  alignment: z
+    .object({ dx: z.number(), dy: z.number(), quality: z.number() })
+    .nullable(),
+  /** The diff's honesty payload — threshold, mask, algo knobs. */
+  basis: z.record(z.string(), z.unknown()),
+  regionCount: z.number().int(),
+  createdAt: z.string(),
+});
+export type PageDiff = z.infer<typeof PageDiffSchema>;
+
+export const DiffRegionSchema = z.object({
+  id: z.string(),
+  diffId: z.string(),
+  regionIndex: z.number().int(),
+  bbox: CropRegionSchema,
+  areaCells: z.number().int().nullable(),
+  status: z.enum(["pending", "reviewed", "dismissed"]),
+  reviewedAt: z.string().nullable(),
+  reviewedBy: z.string().nullable(),
+  reviewNote: z.string().nullable(),
+});
+export type DiffRegion = z.infer<typeof DiffRegionSchema>;
+
+export const DiffsResponseSchema = z.object({
+  diffs: z.array(PageDiffSchema),
+  regions: z.array(DiffRegionSchema),
+  algoVersion: z.string(),
+});
+export type DiffsResponse = z.infer<typeof DiffsResponseSchema>;
+
+export const DiffPagesResponseSchema = z.object({
+  cached: z.boolean(),
+  diff: PageDiffSchema,
+  regions: z.array(DiffRegionSchema),
+});
+export type DiffPagesResponse = z.infer<typeof DiffPagesResponseSchema>;
+
+export const ReviewDiffRegionResponseSchema = z.object({
+  region: DiffRegionSchema,
+});
+export type ReviewDiffRegionResponse = z.infer<typeof ReviewDiffRegionResponseSchema>;

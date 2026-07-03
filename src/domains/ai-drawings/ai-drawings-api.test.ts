@@ -40,6 +40,8 @@ let overrides: Row[];
 let legendRows: Row[];
 let scheduleTables: Row[];
 let scheduleRowsArr: Row[];
+let pageDiffsArr: Row[];
+let diffRegionsArr: Row[];
 let blobPuts: Array<{ path: string; bytes: number }>;
 let auditEntries: Row[];
 let aiCalls: Array<Record<string, unknown>>;
@@ -183,6 +185,8 @@ beforeEach(() => {
   legendRows = [];
   scheduleTables = [];
   scheduleRowsArr = [];
+  pageDiffsArr = [];
+  diffRegionsArr = [];
   blobPuts = [];
   auditEntries = [];
 
@@ -627,6 +631,97 @@ beforeEach(() => {
         };
         return scheduleRowsArr[i];
       },
+      // ── #203 revision diffs (mirrors the real store's SQL semantics) ──
+      DIFF_REGION_TRANSITIONS: {
+        pending: ["reviewed", "dismissed"],
+        reviewed: ["dismissed"],
+        dismissed: ["reviewed"],
+      },
+      findLiveDiff: async (
+        _sql: unknown,
+        _t: string,
+        jobId: string,
+        baseSha: string,
+        headSha: string,
+        algo: string,
+      ) =>
+        pageDiffsArr.find(
+          (d) =>
+            d.job_id === jobId &&
+            d.base_page_sha256 === baseSha &&
+            d.head_page_sha256 === headSha &&
+            d.algo_version === algo &&
+            d.status === "live",
+        ) ?? null,
+      insertPageDiff: async (_sql: unknown, _t: string, d: Row, regions: Row[]) => {
+        const diff: Row = {
+          id: `pd_${pageDiffsArr.length + 1}`,
+          job_id: d.jobId,
+          base_plan_id: d.basePlanId,
+          base_page_index: d.basePageIndex,
+          base_page_sha256: d.basePageSha256,
+          head_plan_id: d.headPlanId,
+          head_page_index: d.headPageIndex,
+          head_page_sha256: d.headPageSha256,
+          algo_version: d.algoVersion,
+          identical: d.identical,
+          alignment: d.alignment,
+          basis: d.basis,
+          region_count: regions.length,
+          status: "live",
+          superseded_by: null,
+          created_at: new Date().toISOString(),
+          created_by_label: d.createdByLabel,
+        };
+        pageDiffsArr.push(diff);
+        regions.forEach((r, i) => {
+          diffRegionsArr.push({
+            id: `dr_${diffRegionsArr.length + 1}`,
+            diff_id: diff.id,
+            job_id: d.jobId,
+            region_index: i,
+            bbox: r.bbox,
+            area_cells: r.areaCells,
+            status: "pending",
+            reviewed_at: null,
+            reviewed_by_label: null,
+            review_note: null,
+          });
+        });
+        for (const other of pageDiffsArr) {
+          if (
+            other.id !== diff.id &&
+            other.job_id === d.jobId &&
+            other.base_page_sha256 === d.basePageSha256 &&
+            other.head_page_sha256 === d.headPageSha256 &&
+            other.status === "live"
+          ) {
+            other.status = "superseded";
+            other.superseded_by = diff.id;
+          }
+        }
+        return diff;
+      },
+      listPageDiffs: async (_sql: unknown, _t: string, jobId: string) =>
+        pageDiffsArr.filter((d) => d.job_id === jobId && d.status === "live"),
+      listDiffRegionsForDiffs: async (_sql: unknown, _t: string, ids: string[]) =>
+        diffRegionsArr.filter((r) => ids.includes(r.diff_id as string)),
+      getDiffRegion: async (_sql: unknown, _t: string, jobId: string, regionId: string) =>
+        diffRegionsArr.find((r) => r.job_id === jobId && r.id === regionId) ?? null,
+      reviewDiffRegion: async (_sql: unknown, _t: string, jobId: string, region: Row, next: Row) => {
+        const i = diffRegionsArr.findIndex(
+          (r) => r.job_id === jobId && r.id === region.id && r.status === region.status,
+        );
+        if (i < 0) return null;
+        diffRegionsArr[i] = {
+          ...diffRegionsArr[i],
+          status: next.status,
+          review_note: next.note === undefined ? diffRegionsArr[i]!.review_note : next.note,
+          reviewed_at: new Date().toISOString(),
+          reviewed_by_label: next.reviewedByLabel,
+        };
+        return diffRegionsArr[i];
+      },
     },
   } as NodeJS.Module;
 
@@ -649,7 +744,8 @@ beforeEach(() => {
     ],
   });
 
-  // registered plan pages on job j1 (page 1 exists for multi-sheet merges)
+  // registered plan pages on job j1 (page 1 exists for multi-sheet merges;
+  // pl2 page 0 shares pl1 page 0's sha for the byte-identical diff case)
   blob.set("jobs/j1/plans-index.json", {
     plans: [
       {
@@ -661,6 +757,13 @@ beforeEach(() => {
           { pageIndex: 0, pngUrl: "https://blob.test/pl1-0.png", sha256: "sha0" },
           { pageIndex: 1, pngUrl: "https://blob.test/pl1-1.png", sha256: "sha1" },
         ],
+      },
+      {
+        id: "pl2",
+        jobId: "j1",
+        fileName: "set-revB.pdf",
+        status: "superseded",
+        pages: [{ pageIndex: 0, pngUrl: "https://blob.test/pl2-0.png", sha256: "sha0" }],
       },
     ],
     __rev: 1,
@@ -1480,5 +1583,165 @@ describe("schedule tables (#202)", () => {
     expect(aiCalls).toHaveLength(2);
     // both kinds live side by side — a board run never supersedes lighting tables
     expect(scheduleTables.filter((t) => t.status === "live")).toHaveLength(2);
+  });
+});
+
+// ─── #203 revision diffs ────────────────────────────────────────────────────
+
+// Real PNG fixtures — the actual engine runs (no diff mocking).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- CJS PNG codec, used structurally
+const { PNG: TestPNG } = requireFromHere("pngjs") as any;
+
+function makeTestPng(draw?: (set: (x: number, y: number) => void) => void): Buffer {
+  const w = 640;
+  const h = 480;
+  const png = new TestPNG({ width: w, height: h });
+  for (let i = 0; i < w * h; i += 1) {
+    png.data[i * 4] = 255;
+    png.data[i * 4 + 1] = 255;
+    png.data[i * 4 + 2] = 255;
+    png.data[i * 4 + 3] = 255;
+  }
+  const set = (x: number, y: number) => {
+    if (x < 0 || y < 0 || x >= w || y >= h) return;
+    const i = (y * w + x) * 4;
+    png.data[i] = 0;
+    png.data[i + 1] = 0;
+    png.data[i + 2] = 0;
+  };
+  draw?.(set);
+  return TestPNG.sync.write(png);
+}
+
+function testRect(set: (x: number, y: number) => void, x0: number, y0: number, x1: number, y1: number) {
+  for (let y = y0; y < y1; y += 1) for (let x = x0; x < x1; x += 1) set(x, y);
+}
+
+function baseSheet(set: (x: number, y: number) => void) {
+  testRect(set, 40, 40, 600, 44);
+  testRect(set, 40, 436, 600, 440);
+  testRect(set, 40, 40, 44, 440);
+  testRect(set, 80, 120, 400, 124);
+}
+
+let fetchUrls: string[] = [];
+
+function stubDiffFetch(map: Record<string, Buffer>) {
+  fetchUrls = [];
+  vi.stubGlobal("fetch", async (url: string) => {
+    fetchUrls.push(String(url));
+    const key = Object.keys(map).find((k) => String(url).includes(k));
+    if (!key) throw new Error("unexpected fetch " + url);
+    const buf = map[key]!;
+    return {
+      ok: true,
+      arrayBuffer: async () => buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength),
+    };
+  });
+}
+
+async function runDiff(base: { planId: string; pageIndex: number }, head: { planId: string; pageIndex: number }): Promise<Res> {
+  return call("POST", { jobId: "j1", action: "diff-pages" }, { base, head });
+}
+
+describe("revision diffs (#203)", () => {
+  it("byte-identical rasters short-circuit — no image fetch, honest basis", async () => {
+    const res = await runDiff({ planId: "pl2", pageIndex: 0 }, { planId: "pl1", pageIndex: 0 });
+    expect(res.statusCode).toBe(200);
+    expect(res.body.diff.identical).toBe(true);
+    expect(res.body.diff.regionCount).toBe(0);
+    expect(res.body.diff.basis.byteIdentical).toBe(true); // "no changes" carries its basis
+    expect(auditEntries.map((a) => a.action)).toContain("document.revision_diffed");
+  });
+
+  it("a changed page yields walkable regions with the diff basis; reruns hit the cache", async () => {
+    stubDiffFetch({
+      "pl1-0.png": makeTestPng((s) => baseSheet(s)),
+      "pl1-1.png": makeTestPng((s) => {
+        baseSheet(s);
+        testRect(s, 200, 200, 280, 280); // the revision's change
+      }),
+    });
+    const res = await runDiff({ planId: "pl1", pageIndex: 0 }, { planId: "pl1", pageIndex: 1 });
+    expect(res.statusCode).toBe(200);
+    expect(res.body.diff.identical).toBe(false);
+    expect(res.body.diff.regionCount).toBeGreaterThanOrEqual(1);
+    expect(res.body.diff.basis.threshold).toBeGreaterThan(0);
+    expect(res.body.diff.alignment.quality).toBeGreaterThan(0.9);
+    expect(res.body.regions[0].status).toBe("pending");
+    const fetchesAfterFirst = fetchUrls.length;
+    expect(fetchesAfterFirst).toBe(2);
+
+    const again = await runDiff({ planId: "pl1", pageIndex: 0 }, { planId: "pl1", pageIndex: 1 });
+    expect(again.statusCode).toBe(200);
+    expect(again.body.cached).toBe(true);
+    expect(fetchUrls.length).toBe(fetchesAfterFirst); // cache — no refetch
+  });
+
+  it("an un-alignable pair is refused honestly and NOTHING is stored", async () => {
+    let seed = 0x9e3779b9;
+    stubDiffFetch({
+      "pl1-0.png": makeTestPng((s) => baseSheet(s)),
+      "pl1-1.png": makeTestPng((s) => {
+        for (let y = 0; y < 480; y += 2) {
+          for (let x = 0; x < 640; x += 2) {
+            seed ^= seed << 13;
+            seed ^= seed >>> 17;
+            seed ^= seed << 5;
+            if ((seed & 3) === 0) testRect(s, x, y, x + 2, y + 2);
+          }
+        }
+      }),
+    });
+    const res = await runDiff({ planId: "pl1", pageIndex: 0 }, { planId: "pl1", pageIndex: 1 });
+    expect(res.statusCode).toBe(422);
+    expect(String(res.body.error)).toMatch(/could not compare/);
+    expect(pageDiffsArr).toHaveLength(0);
+  });
+
+  it("region walk-through: reviewed/dismissed flip, double-mark 409s, unknown 404s; same page 400s", async () => {
+    stubDiffFetch({
+      "pl1-0.png": makeTestPng((s) => baseSheet(s)),
+      "pl1-1.png": makeTestPng((s) => {
+        baseSheet(s);
+        testRect(s, 200, 200, 280, 280);
+      }),
+    });
+    await runDiff({ planId: "pl1", pageIndex: 0 }, { planId: "pl1", pageIndex: 1 });
+    const region = diffRegionsArr[0];
+
+    const reviewed = await call("POST", { jobId: "j1", action: "review-diff-region" }, {
+      regionId: region?.id,
+      status: "reviewed",
+    });
+    expect(reviewed.statusCode).toBe(200);
+    expect(reviewed.body.region.status).toBe("reviewed");
+    expect(auditEntries.map((a) => a.action)).toContain("document.diff_region_reviewed");
+
+    const doubled = await call("POST", { jobId: "j1", action: "review-diff-region" }, {
+      regionId: region?.id,
+      status: "reviewed",
+    });
+    expect(doubled.statusCode).toBe(409);
+
+    const dismissed = await call("POST", { jobId: "j1", action: "review-diff-region" }, {
+      regionId: region?.id,
+      status: "dismissed",
+    });
+    expect(dismissed.statusCode).toBe(200); // flip allowed — reviewer bookkeeping
+
+    const missing = await call("POST", { jobId: "j1", action: "review-diff-region" }, {
+      regionId: "nope",
+      status: "reviewed",
+    });
+    expect(missing.statusCode).toBe(404);
+
+    const samePage = await runDiff({ planId: "pl1", pageIndex: 0 }, { planId: "pl1", pageIndex: 0 });
+    expect(samePage.statusCode).toBe(400);
+
+    const list = await call("GET", { jobId: "j1", action: "diffs" });
+    expect(list.statusCode).toBe(200);
+    expect(list.body.diffs).toHaveLength(1);
+    expect(list.body.regions.length).toBeGreaterThanOrEqual(1);
   });
 });

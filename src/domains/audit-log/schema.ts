@@ -129,6 +129,9 @@ export const AUDIT_ACTIONS = [
   // #197: Epic 5 page understanding — AI extraction ran / human corrected a field.
   "document.ai_extracted",
   "document.ai_corrected",
+  // #203: Epic 5 revision diff ran (classic CV) / a changed region was walked.
+  "document.revision_diffed",
+  "document.diff_region_reviewed",
   "contact.saved",
   "contact.removed",
   "credential.added",

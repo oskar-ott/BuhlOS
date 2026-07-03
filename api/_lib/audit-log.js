@@ -123,6 +123,10 @@ const VALID_ACTIONS = new Set([
   // reviewed-and-corrected an AI-read field (api/ai-drawings.js).
   'document.ai_extracted',
   'document.ai_corrected',
+  // #203: Epic 5 revision diff — a comparison ran (classic CV, no AI) / a
+  // human walked a changed region (api/ai-drawings.js).
+  'document.revision_diffed',
+  'document.diff_region_reviewed',
   // #189: per-job contacts maintained by the office.
   'contact.saved',
   'contact.removed',

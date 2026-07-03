@@ -384,6 +384,97 @@ async function reviewScheduleRow(sql, tenantId, jobId, row, next) {
   return rows.length ? rows[0] : null;
 }
 
+// ─── #203: revision diffs ───────────────────────────────────────────────────
+
+// Review state is human bookkeeping (who walked which region) — flippable,
+// unlike the AI-provenance machines above.
+const DIFF_REGION_TRANSITIONS = {
+  pending: ['reviewed', 'dismissed'],
+  reviewed: ['dismissed'],
+  dismissed: ['reviewed'],
+};
+
+async function findLiveDiff(sql, tenantId, jobId, baseSha, headSha, algoVersion) {
+  const rows = await sql`
+    select * from public.page_diffs
+    where tenant_id = ${tenantId} and job_id = ${jobId}
+      and base_page_sha256 = ${baseSha} and head_page_sha256 = ${headSha}
+      and algo_version = ${algoVersion} and status = 'live'`;
+  return rows.length ? rows[0] : null;
+}
+
+// Insert a diff + its regions, superseding any live diff for the same
+// sha pair (an older algo run) — reviewed regions stay on the old row.
+async function insertPageDiff(sql, tenantId, d, regions) {
+  const rows = await sql`
+    insert into public.page_diffs (
+      tenant_id, job_id,
+      base_plan_id, base_page_index, base_page_sha256,
+      head_plan_id, head_page_index, head_page_sha256,
+      algo_version, identical, alignment, basis, region_count, created_by_label
+    ) values (
+      ${tenantId}, ${d.jobId},
+      ${d.basePlanId}, ${d.basePageIndex}, ${d.basePageSha256},
+      ${d.headPlanId}, ${d.headPageIndex}, ${d.headPageSha256},
+      ${d.algoVersion}, ${d.identical},
+      ${d.alignment === null ? null : sql.json(d.alignment)},
+      ${sql.json(d.basis)}, ${regions.length}, ${d.createdByLabel}
+    ) returning *`;
+  const diff = rows[0];
+  for (let i = 0; i < regions.length; i += 1) {
+    const r = regions[i];
+    await sql`
+      insert into public.diff_regions (
+        tenant_id, diff_id, job_id, region_index, bbox, area_cells
+      ) values (
+        ${tenantId}, ${diff.id}, ${d.jobId}, ${i}, ${sql.json(r.bbox)}, ${r.areaCells}
+      )`;
+  }
+  await sql`
+    update public.page_diffs
+    set status = 'superseded', superseded_by = ${diff.id}
+    where tenant_id = ${tenantId} and job_id = ${d.jobId}
+      and base_page_sha256 = ${d.basePageSha256}
+      and head_page_sha256 = ${d.headPageSha256}
+      and status = 'live' and id <> ${diff.id}`;
+  return diff;
+}
+
+async function listPageDiffs(sql, tenantId, jobId) {
+  return await sql`
+    select * from public.page_diffs
+    where tenant_id = ${tenantId} and job_id = ${jobId} and status = 'live'
+    order by head_plan_id, head_page_index, created_at`;
+}
+
+async function listDiffRegionsForDiffs(sql, tenantId, diffIds) {
+  if (!diffIds.length) return [];
+  return await sql`
+    select * from public.diff_regions
+    where tenant_id = ${tenantId} and diff_id = any(${diffIds})
+    order by diff_id, region_index`;
+}
+
+async function getDiffRegion(sql, tenantId, jobId, regionId) {
+  const rows = await sql`
+    select * from public.diff_regions
+    where tenant_id = ${tenantId} and job_id = ${jobId} and id = ${regionId}`;
+  return rows.length ? rows[0] : null;
+}
+
+async function reviewDiffRegion(sql, tenantId, jobId, region, next) {
+  const rows = await sql`
+    update public.diff_regions set
+      status = ${next.status},
+      review_note = ${next.note === undefined ? region.review_note : next.note},
+      reviewed_at = now(),
+      reviewed_by_label = ${next.reviewedByLabel}
+    where tenant_id = ${tenantId} and job_id = ${jobId} and id = ${region.id}
+      and status = ${region.status}
+    returning *`;
+  return rows.length ? rows[0] : null;
+}
+
 module.exports = {
   OVERRIDE_FIELDS,
   SHEET_TYPES,
@@ -391,6 +482,13 @@ module.exports = {
   LEGEND_TRANSITIONS,
   SCHEDULE_COLUMNS,
   SCHEDULE_ROW_TRANSITIONS,
+  DIFF_REGION_TRANSITIONS,
+  findLiveDiff,
+  insertPageDiff,
+  listPageDiffs,
+  listDiffRegionsForDiffs,
+  getDiffRegion,
+  reviewDiffRegion,
   listScheduleTables,
   listScheduleRowsForTables,
   insertScheduleTables,

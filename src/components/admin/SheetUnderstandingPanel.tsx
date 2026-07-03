@@ -22,7 +22,9 @@ import {
   type CropRegion,
   type EffectiveSheet,
   type FieldState,
+  type DiffRegion,
   type LegendEntry,
+  type PageDiff,
   type ScheduleRow,
   type ScheduleTable,
   type ScheduleTableKind,
@@ -34,8 +36,10 @@ import {
   AiDrawingsError,
   attachLegendCrop,
   clearOverride,
+  diffPages,
   extractLegend,
   extractSchedule,
+  fetchDiffs,
   fetchLegend,
   fetchSchedules,
   fetchSheets,
@@ -47,6 +51,7 @@ import { cropRegionFromPng, padRegion } from "@/domains/ai-drawings/crop";
 import { SheetRegistryCard } from "@/components/admin/SheetRegistryCard";
 import { LegendVocabularyCard } from "@/components/admin/LegendVocabularyCard";
 import { ScheduleTablesCard } from "@/components/admin/ScheduleTablesCard";
+import { RevisionDiffCard, type RevisionPair } from "@/components/admin/RevisionDiffCard";
 
 /**
  * Epic 5 (#197) — AI sheet understanding: run + review-and-correct loop.
@@ -79,6 +84,7 @@ const PanelPlanSchema = z.object({
   drawingNumber: z.string().optional().default(""),
   revision: z.string().optional().default(""),
   status: z.string().optional().default("current"),
+  supersedes: z.string().optional().default(""),
   pages: z.array(PanelPageSchema).optional().default([]),
 });
 const PanelPlansResponseSchema = z.object({
@@ -129,6 +135,9 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
   const [scheduleTables, setScheduleTables] = useState<ScheduleTable[]>([]);
   const [scheduleRows, setScheduleRows] = useState<ScheduleRow[]>([]);
   const [scheduleColumns, setScheduleColumns] = useState<Record<string, string[]>>({});
+  const [pageDiffs, setPageDiffs] = useState<PageDiff[]>([]);
+  const [diffRegions, setDiffRegions] = useState<DiffRegion[]>([]);
+  const [comparing, setComparing] = useState<{ headPlanId: string; done: number; total: number } | null>(null);
   // one page-level extraction (legend OR schedule) at a time
   const [extractBusyKey, setExtractBusyKey] = useState<string | null>(null);
 
@@ -165,11 +174,23 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
     });
   }, []);
 
+  const applyDiffRegion = useCallback((region: DiffRegion) => {
+    setDiffRegions((prev) => {
+      const i = prev.findIndex((r) => r.id === region.id);
+      if (i >= 0) {
+        const next = [...prev];
+        next[i] = region;
+        return next;
+      }
+      return [...prev, region];
+    });
+  }, []);
+
   const load = useCallback(async () => {
     setStatus("loading");
     setStatusMessage("");
     try {
-      const [sheetsRes, plansRes, legendRes, schedulesRes] = await Promise.all([
+      const [sheetsRes, plansRes, legendRes, schedulesRes, diffsRes] = await Promise.all([
         fetchSheets(jobId),
         fetch(`/api/plans?jobId=${encodeURIComponent(jobId)}`, {
           cache: "no-store",
@@ -180,6 +201,7 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
         }),
         fetchLegend(jobId),
         fetchSchedules(jobId),
+        fetchDiffs(jobId),
       ]);
       const nextSheets: Record<string, EffectiveSheet> = {};
       for (const s of sheetsRes.sheets) {
@@ -201,6 +223,8 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
       setScheduleTables(schedulesRes.tables);
       setScheduleRows(schedulesRes.rows);
       setScheduleColumns(schedulesRes.columns);
+      setPageDiffs(diffsRes.diffs);
+      setDiffRegions(diffsRes.regions);
       setStatus("ready");
     } catch (err) {
       if (err instanceof AiDrawingsError && err.code === "STORE_UNAVAILABLE") {
@@ -340,6 +364,62 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
     [jobId],
   );
 
+  // #203: candidate revision pairs from the register's supersede lineage;
+  // pages pair by index (manual pairing can come later if sheets move pages).
+  const revisionPairs = useMemo<RevisionPair[]>(() => {
+    const byId = new Map(plans.map((p) => [p.id, p]));
+    const pairs: RevisionPair[] = [];
+    for (const head of plans) {
+      if (!head.supersedes || head.pages.length === 0) continue;
+      const base = byId.get(head.supersedes);
+      if (!base || base.pages.length === 0) continue;
+      pairs.push({
+        headPlanId: head.id,
+        basePlanId: base.id,
+        headLabel: planLabel(head),
+        baseLabel: planLabel(base),
+        pageCount: Math.min(head.pages.length, base.pages.length),
+      });
+    }
+    return pairs;
+  }, [plans]);
+
+  const runComparePair = useCallback(
+    async (pair: RevisionPair) => {
+      setRunNotice("");
+      setComparing({ headPlanId: pair.headPlanId, done: 0, total: pair.pageCount });
+      const failures: string[] = [];
+      try {
+        for (let i = 0; i < pair.pageCount; i += 1) {
+          try {
+            await diffPages(
+              jobId,
+              { planId: pair.basePlanId, pageIndex: i },
+              { planId: pair.headPlanId, pageIndex: i },
+            );
+          } catch (err) {
+            failures.push(`p${i + 1}: ${err instanceof Error ? err.message : "failed"}`);
+          } finally {
+            setComparing((c) =>
+              c && c.headPlanId === pair.headPlanId ? { ...c, done: i + 1 } : c,
+            );
+          }
+        }
+        const diffsRes = await fetchDiffs(jobId);
+        setPageDiffs(diffsRes.diffs);
+        setDiffRegions(diffsRes.regions);
+        if (failures.length > 0) {
+          setRunNotice(
+            `Some pages couldn't be compared — ${failures.slice(0, 3).join("; ")}${failures.length > 3 ? ` (+${failures.length - 3} more)` : ""}`,
+          );
+        }
+      } finally {
+        setComparing(null);
+      }
+    },
+    [jobId],
+  );
+
   const totals = useMemo(() => {
     const rows = Object.values(sheets);
     return {
@@ -456,6 +536,30 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
                 jobId={jobId}
                 entries={legendEntries}
                 onEntry={applyLegendEntry}
+              />
+            </div>
+          ) : null}
+
+          {revisionPairs.length > 0 || pageDiffs.length > 0 ? (
+            <div className="mt-3">
+              <RevisionDiffCard
+                jobId={jobId}
+                diffs={pageDiffs}
+                regions={diffRegions}
+                pairs={revisionPairs}
+                comparing={comparing}
+                onComparePair={(pair) => void runComparePair(pair)}
+                lookup={{
+                  pngUrlFor: (planId, pageIndex) =>
+                    plans
+                      .find((p) => p.id === planId)
+                      ?.pages.find((pg) => pg.pageIndex === pageIndex)?.pngUrl ?? null,
+                  labelFor: (planId) => {
+                    const p = plans.find((pl) => pl.id === planId);
+                    return p ? planLabel(p) : "(document no longer on this job)";
+                  },
+                }}
+                onRegion={applyDiffRegion}
               />
             </div>
           ) : null}
