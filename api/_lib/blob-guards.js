@@ -157,7 +157,12 @@ const EXACT_GUARDS = {
       return null;
     },
     shrinkField: 'users',
-    shrinkFloor: 10,
+    // CAS-02: a floor of 10 left the real roster (single-digit records)
+    // BELOW its own floor and thus UNGUARDED against a silent bulk wipe — the
+    // opposite of the intent. 4 keeps a small-but-real register guarded (an
+    // 8→1 collapse trips: 1 < 8×0.8) while letting genuine early onboarding
+    // churn (2→1, 3→1) through under the 80% ratio.
+    shrinkFloor: 4,
   },
   // #760: the env-only owner's chosen password hash (set via the console
   // change-password). Shape only; a credential store — never returned by any
@@ -168,7 +173,10 @@ const EXACT_GUARDS = {
         ? null
         : 'passwordHash must be a string',
   },
-  'jobs.json': { validate: arrayOfIdObjects('jobs'), shrinkField: 'jobs', shrinkFloor: 10 },
+  // CAS-02: floor 4 (not 10) so the flagship register — currently a handful of
+  // real jobs, below the old 10 floor and therefore unguarded — stays guarded
+  // against a silent bulk wipe, while genuine small deletes pass the 80% ratio.
+  'jobs.json': { validate: arrayOfIdObjects('jobs'), shrinkField: 'jobs', shrinkFloor: 4 },
   'observations.json': {
     validate: arrayOfIdObjects('observations'),
     shrinkField: 'observations',

@@ -196,9 +196,28 @@ describe("shrinkage guard", () => {
   });
 
   it("small stores (under the floor) shrink freely — onboarding churn isn't a disaster", async () => {
-    seed("users.json", { users: manyUsers(5), __rev: 1 });
-    await blobLib.writeBlob("users.json", { users: manyUsers(2) });
-    expect((stored("users.json").users as unknown[]).length).toBe(2);
+    // Under the CAS-02 floor of 4 (3 < 4): genuine early churn still passes.
+    seed("users.json", { users: manyUsers(3), __rev: 1 });
+    await blobLib.writeBlob("users.json", { users: manyUsers(1) });
+    expect((stored("users.json").users as unknown[]).length).toBe(1);
+  });
+
+  it("CAS-02: a small-but-real register (8 jobs) is now guarded against a silent wipe", async () => {
+    // The flagship jobs.json sits in single digits — below the OLD floor of 10,
+    // so an 8→1 collapse used to slip through unguarded. Floor 4 catches it.
+    const manyJobs = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `job${i}`, name: `J${i}` }));
+    seed("jobs.json", { jobs: manyJobs(8), __rev: 1 });
+    await expect(blobLib.writeBlob("jobs.json", { jobs: manyJobs(1) })).rejects.toMatchObject({
+      code: "shrink_rejected",
+      before: 8,
+      after: 1,
+    });
+    // the stored register is untouched, and the rejection is audited
+    expect((stored("jobs.json").jobs as unknown[]).length).toBe(8);
+    expect(audits.at(-1)!.action).toBe("storage.write_rejected");
+    // …but the explicit escape hatch still lets an intentional bulk clear through.
+    await blobLib.writeBlob("jobs.json", { jobs: manyJobs(1) }, { allowShrink: true });
+    expect((stored("jobs.json").jobs as unknown[]).length).toBe(1);
   });
 
   it("the v2 quotes registry is shrink-guarded (#183) — archive flips, never removals", async () => {

@@ -9,6 +9,7 @@
 const { put, list, del } = require('@vercel/blob');
 const { readBlob, writeBlob, deleteBlob } = require('./blob');
 const { mirrorTimeEntry, mirrorTimeEntryDelete } = require('./hours-mirror');
+const { recordMirrorDrift } = require('./mirror-drift'); // DWD-04: surface Blob-ok/PG-fail drift
 const { listUserEntriesFromPgIfEnabled } = require('./hours-read');
 
 const ENTRY_PREFIX = (userId) => `users/${userId}/time-entries/`;
@@ -105,13 +106,18 @@ async function writeEntry(userId, entry) {
   // #152 dual-write: best-effort mirror into Postgres. Blob is authoritative;
   // mirrorTimeEntry never throws (triple-gated, inert in prod) so a mirror
   // failure can never break the hours save.
-  await mirrorTimeEntry(userId, entry);
+  const mirror = await mirrorTimeEntry(userId, entry);
+  // DWD-04: Blob just succeeded — if the PG mirror errored (not a gated/unmirrored
+  // skip), record the divergence to the error journal so it surfaces on the owner
+  // console rather than lurking until the daily sync-check. Best-effort.
+  await recordMirrorDrift({ domain: 'hours', result: mirror, key: ENTRY_PATH(userId, entry.date) });
   return entry;
 }
 
 async function deleteEntry(userId, date) {
   await deleteBlob(ENTRY_PATH(userId, date));
-  await mirrorTimeEntryDelete(userId, date); // best-effort soft-delete mirror
+  const mirror = await mirrorTimeEntryDelete(userId, date); // best-effort soft-delete mirror
+  await recordMirrorDrift({ domain: 'hours', result: mirror, key: ENTRY_PATH(userId, date) }); // DWD-04
 }
 
 // List one user's entries (newest first), optionally filtered by date range / status.
