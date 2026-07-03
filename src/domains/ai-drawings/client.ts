@@ -7,6 +7,7 @@
 
 import {
   AcceptCountResponseSchema,
+  AcceptRoomsResponseSchema,
   CableRunResponseSchema,
   CalibrateResponseSchema,
   CountReviewResponseSchema,
@@ -35,6 +36,7 @@ import {
   TakeoffViewsSchema,
   UnderstandResponseSchema,
   type AcceptCountResponse,
+  type AcceptRoomsResponse,
   type CableRunResponse,
   type CalibrateResponse,
   type CountReviewResponse,
@@ -488,6 +490,27 @@ export async function addRoom(
       body: JSON.stringify({ planId, pageIndex, name, bbox }),
     },
     (b) => ReviewRoomResponseSchema.parse(b),
+  );
+}
+
+/**
+ * #206 — accept the job's reviewed rooms (accepted|edited) into Structure as
+ * real areas. AI proposes, human accepts: this is the explicit accept. Pass
+ * `roomIds` to accept a selection, or omit to accept every reviewed room.
+ * Idempotent server-side (dedupes on provenance), so a double-click is safe.
+ */
+export async function acceptRooms(
+  jobId: string,
+  roomIds?: string[],
+): Promise<AcceptRoomsResponse> {
+  return request(
+    `/api/ai-drawings?jobId=${encodeURIComponent(jobId)}&action=accept-rooms`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(roomIds && roomIds.length ? { roomIds } : {}),
+    },
+    (b) => AcceptRoomsResponseSchema.parse(b),
   );
 }
 

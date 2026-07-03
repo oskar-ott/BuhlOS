@@ -1590,6 +1590,92 @@ describe("gates", () => {
   });
 });
 
+// #206 rooms→areas accept bridge — reviewed rooms become real job areas.
+describe("accept-rooms → job areas", () => {
+  function seedRoom(over: Record<string, unknown> = {}) {
+    const row = {
+      id: `rm_${roomRows.length + 1}`,
+      job_id: "j1",
+      plan_id: "pl1",
+      page_index: 0,
+      page_sha256: "sha0",
+      origin: "ai",
+      status: "accepted",
+      name: "KITCHEN",
+      human_name: null,
+      bbox: { x: 0.3, y: 0.4, w: 0.2, h: 0.15 },
+      human_bbox: null,
+      confidence: 0.9,
+      created_at: "2026-07-03T00:00:00.000Z",
+      reviewed_at: "2026-07-03T00:00:00.000Z",
+      reviewed_by_label: "boss",
+      review_note: null,
+      ...over,
+    };
+    roomRows.push(row);
+    return row;
+  }
+
+  it("creates areas from reviewed rooms, grouped by plan level, and writes jobs.json", async () => {
+    blob.set("jobs.json", { jobs: [{ id: "j1", name: "Test job", areaGroups: [] }] });
+    blob.set("jobs/j1/plans-index.json", {
+      plans: [{ id: "pl1", jobId: "j1", fileName: "set.pdf", drawingNumber: "E-101", level: "Level 1", revision: "B", status: "current", pages: [] }],
+    });
+    seedRoom({ id: "rm_1", name: "KITCHEN", status: "accepted" });
+    seedRoom({ id: "rm_2", name: "BED 2", status: "edited", human_name: "BED 2" });
+
+    const res = await call("POST", { jobId: "j1", action: "accept-rooms" }, {});
+    expect(res.statusCode).toBe(200);
+    expect(res.body.created).toBe(2);
+
+    const job = (blob.get("jobs.json") as { jobs: Array<Record<string, any>> }).jobs[0]!;
+    expect(job.areaGroups).toHaveLength(1);
+    expect(job.areaGroups[0].name).toBe("Level 1");
+    expect(job.areaGroups[0].areas.map((a: Record<string, unknown>) => a.name)).toEqual(["KITCHEN", "BED 2"]);
+    // provenance persisted + real ar_ ids minted by validateAreaGroups
+    expect(job.areaGroups[0].areas[0].aiSourceId).toBe("aidr:room:rm_1");
+    expect(String(job.areaGroups[0].areas[0].id)).toMatch(/^ar_/);
+    expect(job.areaGroups[0].areas[0].provenance.rev).toBe("B");
+  });
+
+  it("is idempotent — a second accept creates nothing and doesn't grow the areas", async () => {
+    blob.set("jobs.json", { jobs: [{ id: "j1", name: "Test job", areaGroups: [] }] });
+    seedRoom({ id: "rm_1", name: "KITCHEN", status: "accepted" });
+
+    const first = await call("POST", { jobId: "j1", action: "accept-rooms" }, {});
+    expect(first.body.created).toBe(1);
+    const second = await call("POST", { jobId: "j1", action: "accept-rooms" }, {});
+    expect(second.statusCode).toBe(200);
+    expect(second.body.created).toBe(0);
+    expect(second.body.skipped[0].reason).toBe("already-created");
+
+    const job = (blob.get("jobs.json") as { jobs: Array<Record<string, any>> }).jobs[0]!;
+    const areaCount = job.areaGroups.reduce((n: number, g: Record<string, any>) => n + g.areas.length, 0);
+    expect(areaCount).toBe(1);
+  });
+
+  it("reports a selected but still-suggested room as skipped 'not-reviewed' (gate holds)", async () => {
+    blob.set("jobs.json", { jobs: [{ id: "j1", name: "Test job", areaGroups: [] }] });
+    seedRoom({ id: "rm_1", name: "KITCHEN", status: "suggested" });
+
+    // Selection mode: the admin explicitly picked a room that isn't reviewed.
+    const res = await call("POST", { jobId: "j1", action: "accept-rooms" }, { roomIds: ["rm_1"] });
+    expect(res.statusCode).toBe(200);
+    expect(res.body.created).toBe(0);
+    expect(res.body.skipped[0].reason).toBe("not-reviewed");
+  });
+
+  it("accept-all mode ignores still-suggested rooms without spamming skipped", async () => {
+    blob.set("jobs.json", { jobs: [{ id: "j1", name: "Test job", areaGroups: [] }] });
+    seedRoom({ id: "rm_1", name: "KITCHEN", status: "suggested" });
+
+    const res = await call("POST", { jobId: "j1", action: "accept-rooms" }, {});
+    expect(res.statusCode).toBe(200);
+    expect(res.body.created).toBe(0);
+    expect(res.body.skipped).toHaveLength(0);
+  });
+});
+
 describe("understand-page", () => {
   it("runs the vision call, persists extraction + projection, records spend once, audits", async () => {
     const res = await call("POST", { jobId: "j1", action: "understand-page" }, {
