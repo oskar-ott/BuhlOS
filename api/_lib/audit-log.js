@@ -127,6 +127,9 @@ const VALID_ACTIONS = new Set([
   // human walked a changed region (api/ai-drawings.js).
   'document.revision_diffed',
   'document.diff_region_reviewed',
+  // #205: Epic 5 count review — a human accepted a device count after the
+  // marker verify loop (api/ai-drawings.js).
+  'document.count_accepted',
   // #189: per-job contacts maintained by the office.
   'contact.saved',
   'contact.removed',

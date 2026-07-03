@@ -132,6 +132,8 @@ export const AUDIT_ACTIONS = [
   // #203: Epic 5 revision diff ran (classic CV) / a changed region was walked.
   "document.revision_diffed",
   "document.diff_region_reviewed",
+  // #205: Epic 5 count review — a human accepted a device count.
+  "document.count_accepted",
   "contact.saved",
   "contact.removed",
   "credential.added",

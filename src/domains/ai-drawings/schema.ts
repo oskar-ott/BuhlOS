@@ -390,3 +390,101 @@ export const DETECTION_TILES: readonly CropRegion[] = [
   { x: 0, y: 0.44, w: 0.56, h: 0.56 },
   { x: 0.44, y: 0.44, w: 0.56, h: 0.56 },
 ];
+
+// ─── #205: count review ──────────────────────────────────────────────────────
+
+export const EffectiveMarkerSchema = z.object({
+  key: z.string(), // 'd:<detectionId>' | 'r:<add reviewId>' — the identity accepts snapshot
+  source: z.enum(["ai", "human"]),
+  detectionId: z.string().nullable(),
+  reviewId: z.string().nullable(),
+  bbox: CropRegionSchema,
+  legendEntryId: z.string().nullable(),
+  label: z.string().nullable(),
+  confidence: z.number().nullable(),
+  status: z.enum(["live", "deleted"]),
+  appliedReviewIds: z.array(z.string()),
+});
+export type EffectiveMarker = z.infer<typeof EffectiveMarkerSchema>;
+
+export const ReviewActionSchema = z.object({
+  id: z.string(),
+  planId: z.string(),
+  pageIndex: z.number().int(),
+  pageSha256: z.string(),
+  action: z.enum(["delete", "restore", "reclassify", "add"]),
+  targetDetectionId: z.string().nullable(),
+  targetReviewId: z.string().nullable(),
+  legendEntryId: z.string().nullable(),
+  label: z.string().nullable(),
+  bbox: CropRegionSchema.nullable(),
+  note: z.string().nullable(),
+  createdAt: z.string(),
+  createdBy: z.string().nullable(),
+});
+export type ReviewAction = z.infer<typeof ReviewActionSchema>;
+
+export const AcceptedCountSchema = z.object({
+  id: z.string(),
+  planId: z.string(),
+  pageIndex: z.number().int(),
+  pageSha256: z.string(),
+  legendEntryId: z.string(),
+  label: z.string(),
+  count: z.number().int(),
+  basis: z.object({
+    markerKeys: z.array(z.string()),
+    markers: z.array(
+      z.object({
+        key: z.string(),
+        source: z.enum(["ai", "human"]),
+        bbox: CropRegionSchema,
+        label: z.string().nullable(),
+        confidence: z.number().nullable().optional(),
+      }),
+    ),
+    reviewIds: z.array(z.string()),
+  }),
+  acceptedAt: z.string(),
+  acceptedBy: z.string().nullable(),
+  /** True when corrections (or a page re-render) happened after the sign-off. */
+  stale: z.boolean(),
+});
+export type AcceptedCount = z.infer<typeof AcceptedCountSchema>;
+
+export const CountRowSchema = z.object({
+  legendEntryId: z.string().nullable(),
+  label: z.string().nullable(),
+  liveCount: z.number().int(),
+  removedCount: z.number().int(),
+  addedCount: z.number().int(),
+  accepted: AcceptedCountSchema.nullable(),
+});
+export type CountRow = z.infer<typeof CountRowSchema>;
+
+export const CountReviewPageSchema = z.object({
+  planId: z.string(),
+  pageIndex: z.number().int(),
+  pageSha256: z.string(),
+  markers: z.array(EffectiveMarkerSchema),
+  uncertain: z.array(DeviceDetectionSchema),
+  counts: z.array(CountRowSchema),
+});
+export type CountReviewPage = z.infer<typeof CountReviewPageSchema>;
+
+export const CountReviewResponseSchema = z.object({
+  pages: z.array(CountReviewPageSchema),
+});
+export type CountReviewResponse = z.infer<typeof CountReviewResponseSchema>;
+
+export const ReviewMarkerResponseSchema = z.object({
+  review: ReviewActionSchema,
+  page: CountReviewPageSchema,
+});
+export type ReviewMarkerResponse = z.infer<typeof ReviewMarkerResponseSchema>;
+
+export const AcceptCountResponseSchema = z.object({
+  accepted: AcceptedCountSchema,
+  page: CountReviewPageSchema,
+});
+export type AcceptCountResponse = z.infer<typeof AcceptCountResponseSchema>;

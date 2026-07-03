@@ -235,6 +235,47 @@ anything off-list is dropped and counted (`offVocabulary`).
   never fake). Building the reference set needs a real plan — same
   owner-preview session as the other accuracy ACs.
 
+## Verified counts (#205)
+
+The issue's state model, implemented verbatim: **raw detections (immutable,
+#204) → review actions (append-only) → accepted counts (derived)**. A bare
+number is unverifiable; a count only becomes trustworthy when every counted
+instance is a marker the human checked in place.
+
+- **Markers on the sheet**: the panel's count-review card overlays every
+  effective marker on the page raster (SVG geometry via attributes over the
+  measured `<img>`, the Plan-Viewer coords idiom — zoom 1/rotation 0).
+  Removed markers stay visible as dashed ghosts (restorable); human-added
+  markers carry a cross so their origin is visible on the sheet.
+- **Corrections are layered, never destructive**: `detection_reviews` rows
+  (`delete` / `restore` / `reclassify` / `add`) are append-only; the
+  effective marker set is derived by replaying actions per target in time
+  order (`api/_lib/count-review.js`, unit-tested). Reclassify implies the
+  marker exists (revives a deleted one); adds require the reviewed legend
+  vocabulary, same as detection. Every action is audited
+  (`document.ai_corrected`, kind `device-marker`).
+- **Accept is a sign-off with provenance**: one live `accepted_counts` row
+  per (page raster, legend entry) — the count, the acceptor, the timestamp,
+  and a basis snapshot of the EXACT marker keys counted plus the review
+  actions that shaped them. Re-accepting supersedes (history kept). Audited
+  as `document.count_accepted`. Accepting zero after removing every marker
+  of a type is a valid sign-off; accepting a type with no markers at all is
+  refused.
+- **Staleness is structural**: corrections after a sign-off — or a page
+  re-render changing the raster sha — flip the accepted badge to "changed
+  since sign-off" (marker-key set comparison, not count equality: a delete
+  plus an add nets the same number over different instances). Nothing
+  silently stays "verified".
+- **The takeoff seam**: `liveAcceptedCounts` (store) is the ONLY count
+  surface downstream consumers (#213) may read. Raw and derived numbers
+  never leave the review card, and every unaccepted/stale count renders
+  "unverified".
+- Storage: `detection_reviews` + `accepted_counts`
+  (migration `20260703140000_epic5_count_review.sql`). No AI calls, no
+  spend — this slice is pure human review over #204's output. The
+  correction stream doubles as the eval feedback loop for detection
+  quality (issue "future considerations").
+
 ## Honest limits (deliberate, this slice)
 
 - **No server-side PDF/OCR pipeline** — pages must have been rendered by the
@@ -250,11 +291,15 @@ anything off-list is dropped and counted (`offVocabulary`).
   a review-side register — they do NOT write into `circuitBoards[]` (the
   engineering schedule keeps its single writer); feeding verified rows
   across is a #213-adjacent follow-up.
-- No verified counts yet: #204 locates and flags; the delete/add/reclassify
-  overlay review that turns detections into accepted counts is #205.
+- The #205 review overlay is a **thin review-only surface** on the documents
+  panel (per the issue: Epic 13's plans viewer owns rich rendering —
+  coordinate, don't rival). No zoom/pan in the overlay yet; the markers sit
+  on a fit-width raster.
+- Room/zone breakdown of counts ("12 GPOs in Kitchen") arrives with #206.
 - Accuracy ACs (#201 legend listing, #202/#207 cell-level error rate,
-  #204 detection precision/recall on a hand-labelled sheet) need prod —
-  same owner-preview session as the #197/#199 checks.
+  #204 detection precision/recall, #205 full-loop count match vs an
+  independent hand count) need prod — same owner-preview session as the
+  #197/#199 checks.
 - **The ≥10-page real-set end-to-end check (final #197 AC) needs production**
   (real Anthropic key + Supabase + a real drawing set) — run it there with
   the flag in owner-preview before closing the issue.

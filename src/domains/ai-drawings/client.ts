@@ -6,6 +6,8 @@
 //   'CAP_REACHED'       — 402 (per-job AI budget spent)
 
 import {
+  AcceptCountResponseSchema,
+  CountReviewResponseSchema,
   DetectDevicesResponseSchema,
   DetectionsResponseSchema,
   DiffPagesResponseSchema,
@@ -16,10 +18,13 @@ import {
   LegendListResponseSchema,
   OverrideResponseSchema,
   ReviewDiffRegionResponseSchema,
+  ReviewMarkerResponseSchema,
   ReviewScheduleRowResponseSchema,
   SchedulesResponseSchema,
   SheetsResponseSchema,
   UnderstandResponseSchema,
+  type AcceptCountResponse,
+  type CountReviewResponse,
   type CropRegion,
   type DetectDevicesResponse,
   type DetectionsResponse,
@@ -32,6 +37,7 @@ import {
   type LegendListResponse,
   type OverrideResponse,
   type ReviewDiffRegionResponse,
+  type ReviewMarkerResponse,
   type ReviewScheduleRowResponse,
   type ScheduleTableKind,
   type SchedulesResponse,
@@ -340,5 +346,72 @@ export async function detectDevices(
       body: JSON.stringify({ planId, pageIndex, tile }),
     },
     (b) => DetectDevicesResponseSchema.parse(b),
+  );
+}
+
+// ─── #205: count review ─────────────────────────────────────────────────────
+
+export async function fetchCountReview(jobId: string): Promise<CountReviewResponse> {
+  return request(
+    `/api/ai-drawings?jobId=${encodeURIComponent(jobId)}&action=count-review`,
+    { method: "GET" },
+    (b) => CountReviewResponseSchema.parse(b),
+  );
+}
+
+export async function reviewMarker(
+  jobId: string,
+  body: {
+    action: "delete" | "restore" | "reclassify";
+    detectionId?: string;
+    reviewId?: string;
+    toLegendEntryId?: string;
+    note?: string;
+  },
+): Promise<ReviewMarkerResponse> {
+  return request(
+    `/api/ai-drawings?jobId=${encodeURIComponent(jobId)}&action=review-marker`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    },
+    (b) => ReviewMarkerResponseSchema.parse(b),
+  );
+}
+
+export async function addMarker(
+  jobId: string,
+  planId: string,
+  pageIndex: number,
+  bbox: CropRegion,
+  legendEntryId: string,
+  note?: string,
+): Promise<ReviewMarkerResponse> {
+  return request(
+    `/api/ai-drawings?jobId=${encodeURIComponent(jobId)}&action=add-marker`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ planId, pageIndex, bbox, legendEntryId, note }),
+    },
+    (b) => ReviewMarkerResponseSchema.parse(b),
+  );
+}
+
+export async function acceptCount(
+  jobId: string,
+  planId: string,
+  pageIndex: number,
+  legendEntryId: string,
+): Promise<AcceptCountResponse> {
+  return request(
+    `/api/ai-drawings?jobId=${encodeURIComponent(jobId)}&action=accept-count`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ planId, pageIndex, legendEntryId }),
+    },
+    (b) => AcceptCountResponseSchema.parse(b),
   );
 }

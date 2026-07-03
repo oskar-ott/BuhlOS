@@ -23,6 +23,7 @@ import {
   type EffectiveSheet,
   type FieldState,
   DETECTION_TILES,
+  type CountReviewPage,
   type DeviceDetection,
   type DiffRegion,
   type LegendEntry,
@@ -42,6 +43,7 @@ import {
   diffPages,
   extractLegend,
   extractSchedule,
+  fetchCountReview,
   fetchDetections,
   fetchDiffs,
   fetchLegend,
@@ -57,6 +59,7 @@ import { LegendVocabularyCard } from "@/components/admin/LegendVocabularyCard";
 import { ScheduleTablesCard } from "@/components/admin/ScheduleTablesCard";
 import { RevisionDiffCard, type RevisionPair } from "@/components/admin/RevisionDiffCard";
 import { DeviceDetectionCard } from "@/components/admin/DeviceDetectionCard";
+import { DeviceCountReviewCard } from "@/components/admin/DeviceCountReviewCard";
 
 /**
  * Epic 5 (#197) — AI sheet understanding: run + review-and-correct loop.
@@ -143,6 +146,7 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
   const [pageDiffs, setPageDiffs] = useState<PageDiff[]>([]);
   const [diffRegions, setDiffRegions] = useState<DiffRegion[]>([]);
   const [deviceDetections, setDeviceDetections] = useState<DeviceDetection[]>([]);
+  const [countPages, setCountPages] = useState<CountReviewPage[]>([]);
   const [comparing, setComparing] = useState<{ headPlanId: string; done: number; total: number } | null>(null);
   // one page-level extraction (legend OR schedule) at a time
   const [extractBusyKey, setExtractBusyKey] = useState<string | null>(null);
@@ -196,7 +200,7 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
     setStatus("loading");
     setStatusMessage("");
     try {
-      const [sheetsRes, plansRes, legendRes, schedulesRes, diffsRes, detectionsRes] =
+      const [sheetsRes, plansRes, legendRes, schedulesRes, diffsRes, detectionsRes, countRes] =
         await Promise.all([
           fetchSheets(jobId),
           fetch(`/api/plans?jobId=${encodeURIComponent(jobId)}`, {
@@ -210,6 +214,7 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
           fetchSchedules(jobId),
           fetchDiffs(jobId),
           fetchDetections(jobId),
+          fetchCountReview(jobId),
         ]);
       const nextSheets: Record<string, EffectiveSheet> = {};
       for (const s of sheetsRes.sheets) {
@@ -234,6 +239,7 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
       setPageDiffs(diffsRes.diffs);
       setDiffRegions(diffsRes.regions);
       setDeviceDetections(detectionsRes.detections);
+      setCountPages(countRes.pages);
       setStatus("ready");
     } catch (err) {
       if (err instanceof AiDrawingsError && err.code === "STORE_UNAVAILABLE") {
@@ -459,9 +465,13 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
             );
           }
         }
-        const detectionsRes = await fetchDetections(jobId);
+        const [detectionsRes, countRes, spendRes] = await Promise.all([
+          fetchDetections(jobId),
+          fetchCountReview(jobId),
+          fetchSheets(jobId),
+        ]);
         setDeviceDetections(detectionsRes.detections);
-        const spendRes = await fetchSheets(jobId);
+        setCountPages(countRes.pages);
         setSpend(spendRes.spend);
       } finally {
         setExtractBusyKey(null);
@@ -610,6 +620,39 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
                   },
                 }}
                 onRegion={applyDiffRegion}
+              />
+            </div>
+          ) : null}
+
+          {countPages.length > 0 ? (
+            <div className="mt-3">
+              <DeviceCountReviewCard
+                jobId={jobId}
+                pages={countPages}
+                vocabulary={legendEntries.filter(
+                  (e) => e.status === "accepted" || e.status === "edited",
+                )}
+                lookup={{
+                  pngUrlFor: (planId, pageIndex) =>
+                    plans
+                      .find((p) => p.id === planId)
+                      ?.pages.find((pg) => pg.pageIndex === pageIndex)?.pngUrl ?? null,
+                  labelFor: (planId) => {
+                    const p = plans.find((pl) => pl.id === planId);
+                    return p ? planLabel(p) : "(document no longer on this job)";
+                  },
+                }}
+                onPage={(page) =>
+                  setCountPages((prev) => {
+                    const i = prev.findIndex(
+                      (p) => p.planId === page.planId && p.pageIndex === page.pageIndex,
+                    );
+                    if (i < 0) return [...prev, page];
+                    const next = [...prev];
+                    next[i] = page;
+                    return next;
+                  })
+                }
               />
             </div>
           ) : null}
