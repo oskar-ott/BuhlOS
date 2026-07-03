@@ -444,6 +444,33 @@ integrity are the entire job.
   quantities match the accepted counts — joins the standing owner-preview
   session.
 
+## Consumers: assistant Q&A (#179) and quote drafting (#246)
+
+Epic 5's outputs now feed the two downstream epics through deliberately
+narrow seams:
+
+- **`drawing_extractions` assistant tool** (#179, `api/_lib/ai-tools.js`):
+  the read-only queryable index the issue names — classified sheets with
+  EFFECTIVE fields (overrides win), reviewed legend vocabulary, accepted
+  schedule rows, live rooms, live-resolved cross-sheet refs, verified
+  counts, cable estimates (flagged `estimate: true`) and the signed-off
+  takeoff summary — every item citing `planId` + `pageIndex` (the
+  plans-register address space). Permission-scoped like every assistant
+  read (`canManageJob`); no vision at question time; where the store is
+  unreachable (previews) the tool says so instead of guessing.
+  **The job Q&A chat surface itself belongs to Epic 6's own issue** — this
+  tool is the Epic 5 side of that contract; #179's chat-facing ACs land
+  when that surface exists and consumes it.
+- **Signed-off takeoff → quote drafting** (#246 follow-through,
+  `takeoffToDraftInput` in `src/domains/quoting/ai-draft.ts`): the
+  previously producer-less `TakeoffInput` contract now has its producer.
+  On a quote converted to a job (`quote.convertedJobId`), the AI-draft
+  panel offers "Include the signed-off drawing takeoff (vN · X measured
+  lines)" — mapped lines carry drawing refs, human adjustments ride as
+  the effective quantities, estimate lines keep the word "estimate", and
+  qty-less flagged lines are skipped with a disclosed count, never
+  invented. Dark flag / unreachable store / no sign-off ⇒ no offer.
+
 ## Honest limits (deliberate, this slice)
 
 - **No server-side PDF/OCR pipeline** — pages must have been rendered by the

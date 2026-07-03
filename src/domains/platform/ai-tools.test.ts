@@ -16,6 +16,8 @@ const timeEntriesPath = requireFromHere.resolve("../../../api/_lib/time-entries.
 const dayPulsePath = requireFromHere.resolve("../../../api/_lib/day-pulse.js");
 const toolsPath = requireFromHere.resolve("../../../api/_lib/ai-tools.js");
 const vercelBlobPath = requireFromHere.resolve("@vercel/blob");
+const dbPath = requireFromHere.resolve("../../../api/_lib/supabase-db.js");
+const drawingsStorePath = requireFromHere.resolve("../../../api/_lib/ai-drawings-store.js");
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- fixture-shaped tool output, asserted per test
 type ToolData = Record<string, any>;
@@ -30,6 +32,12 @@ type ToolsModule = {
 let store: Map<string, unknown>;
 let approverEntries: unknown[];
 let tools: ToolsModule;
+// #179 drawing_extractions fixtures — empty by default; describes seed them.
+let dbAvailable: boolean;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- fixture rows, snake_case like PG
+let drawingsFixture: Record<string, any[]>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- fixture shape
+let signedOffTakeoffFixture: any;
 
 const admin = { id: "u_admin", username: "boss", role: "boss", assignedJobIds: [] };
 const lhAssigned = { id: "u_lh", username: "lh", role: "leadingHand", assignedJobIds: ["job-1"] };
@@ -89,6 +97,52 @@ beforeEach(() => {
     ],
   ]);
 
+  dbAvailable = true;
+  drawingsFixture = {
+    sheets: [],
+    overrides: [],
+    legend: [],
+    tables: [],
+    scheduleRows: [],
+    rooms: [],
+    refs: [],
+    counts: [],
+    cableRuns: [],
+  };
+  signedOffTakeoffFixture = null;
+  requireFromHere.cache[dbPath] = {
+    id: dbPath,
+    filename: dbPath,
+    loaded: true,
+    exports: {
+      getDb: () => {
+        if (!dbAvailable) {
+          const e = new Error("SUPABASE_DB_URL missing") as Error & { code: string };
+          e.code = "MISSING_ENV";
+          throw e;
+        }
+        return {};
+      },
+    },
+  } as NodeJS.Module;
+  requireFromHere.cache[drawingsStorePath] = {
+    id: drawingsStorePath,
+    filename: drawingsStorePath,
+    loaded: true,
+    exports: {
+      resolveTenantId: async () => "tenant-1",
+      listPlanSheets: async () => drawingsFixture.sheets,
+      listOverrides: async () => drawingsFixture.overrides,
+      acceptedLegendEntries: async () => drawingsFixture.legend,
+      listScheduleTables: async () => drawingsFixture.tables,
+      listScheduleRowsForTables: async () => drawingsFixture.scheduleRows,
+      listRooms: async () => drawingsFixture.rooms,
+      listSheetRefs: async () => drawingsFixture.refs,
+      liveAcceptedCounts: async () => drawingsFixture.counts,
+      acceptedCableRuns: async () => drawingsFixture.cableRuns,
+      signedOffTakeoff: async () => signedOffTakeoffFixture,
+    },
+  } as NodeJS.Module;
   for (const p of [authPath, dayPulsePath, toolsPath]) delete requireFromHere.cache[p];
   requireFromHere.cache[blobPath] = {
     id: blobPath,
@@ -304,6 +358,7 @@ describe("registry plumbing", () => {
     const listed = tools.listTools();
     expect(listed.map((t) => t.name).sort()).toEqual([
       "company_day_pulse",
+      "drawing_extractions",
       "job_hours",
       "job_open_items",
       "job_overview",
@@ -311,5 +366,99 @@ describe("registry plumbing", () => {
     for (const t of listed) {
       expect(Object.keys(t).sort()).toEqual(["description", "name"]);
     }
+  });
+});
+
+describe("drawing_extractions (#179)", () => {
+  it("gates like every job read: field never, LH assigned-only", async () => {
+    expect((await tools.runTool(fieldAssigned, "drawing_extractions", { jobId: "job-1" })).ok).toBe(false);
+    expect((await tools.runTool(lhOther, "drawing_extractions", { jobId: "job-1" })).ok).toBe(false);
+    expect((await tools.runTool(lhAssigned, "drawing_extractions", { jobId: "job-1" })).ok).toBe(true);
+  });
+
+  it("says the store is unreachable instead of guessing (preview/local)", async () => {
+    dbAvailable = false;
+    const res = await tools.runTool(admin, "drawing_extractions", { jobId: "job-1" });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.available).toBe(false);
+    expect(String(res.data.reason)).toContain("not reachable");
+  });
+
+  it("returns the extraction index with citations: effective sheet fields, verified counts, live-resolved refs, estimates flagged", async () => {
+    drawingsFixture.sheets = [
+      {
+        plan_id: "pl1", page_index: 0,
+        sheet_type: "floorPlan", sheet_number: "E-101", sheet_title: "LEVEL 1 POWER",
+        revision: "C", scale: "1:100",
+      },
+      {
+        plan_id: "pl1", page_index: 4,
+        sheet_type: "detail", sheet_number: "E-501", sheet_title: "DETAILS",
+        revision: "C", scale: null,
+      },
+    ];
+    // a human corrected page 0's number — the effective value must win
+    drawingsFixture.overrides = [
+      { plan_id: "pl1", page_index: 0, field: "sheetNumber", value: "E-101A" },
+    ];
+    drawingsFixture.legend = [
+      { label: "GPO", human_label: "Double GPO", description: null, category: "Power", source_plan_id: "pl1", source_page_index: 2 },
+    ];
+    drawingsFixture.counts = [
+      { label: "Double GPO", count: 12, plan_id: "pl1", page_index: 0, accepted_by_label: "boss" },
+    ];
+    drawingsFixture.refs = [
+      { plan_id: "pl1", page_index: 0, text: "REFER E-501", target_sheet_number: "E-501" },
+      { plan_id: "pl1", page_index: 0, text: "SEE E-999", target_sheet_number: "E-999" },
+    ];
+    drawingsFixture.rooms = [
+      { name: "KITCHEN", human_name: null, plan_id: "pl1", page_index: 0, status: "suggested" },
+      { name: "BED2", human_name: "BED 2", plan_id: "pl1", page_index: 0, status: "edited" },
+      { name: "GONE", human_name: null, plan_id: "pl1", page_index: 0, status: "rejected" },
+    ];
+    drawingsFixture.cableRuns = [
+      {
+        plan_id: "pl1", page_index: 0,
+        results: { boards: [{ boardIdentifier: "DB-1", totalMm: 184600 }] },
+      },
+    ];
+    signedOffTakeoffFixture = {
+      takeoff: { version: 2, signed_off_by_label: "boss", signed_off_at: "2026-07-03T02:00:00.000Z" },
+      lines: [{ id: "tl_1" }, { id: "tl_2" }],
+    };
+
+    const res = await tools.runTool(admin, "drawing_extractions", { jobId: "job-1" });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const d = res.data;
+    expect(d.available).toBe(true);
+    // effective sheet number (override wins) + citation fields present
+    expect(d.sheets.items[0]).toMatchObject({ planId: "pl1", pageIndex: 0, sheetNumber: "E-101A" });
+    // human legend label wins
+    expect(d.legend.items[0]).toMatchObject({ label: "Double GPO", sourcePlanId: "pl1" });
+    // verified counts cite their sheet
+    expect(d.verifiedCounts.items[0]).toMatchObject({ label: "Double GPO", count: 12, planId: "pl1", pageIndex: 0 });
+    // refs resolve live against EFFECTIVE numbers; unresolved stays null
+    expect(d.refs.items[0].resolved).toEqual({ planId: "pl1", pageIndex: 4 });
+    expect(d.refs.items[1].resolved).toBeNull();
+    // rooms: rejected drops, edited carries the human name + reviewed flag
+    expect(d.rooms.total).toBe(2);
+    expect(d.rooms.items[1]).toMatchObject({ name: "BED 2", reviewed: true });
+    expect(d.rooms.items[0]).toMatchObject({ name: "KITCHEN", reviewed: false });
+    // cable estimates flagged estimate: true
+    expect(d.cableEstimates.items[0]).toMatchObject({ boardIdentifier: "DB-1", estimate: true });
+    // signed-off takeoff summarised
+    expect(d.signedOffTakeoff).toMatchObject({ version: 2, lineCount: 2 });
+    expect(Array.isArray(d.sources)).toBe(true);
+  });
+
+  it("honest empties: a job with no extractions returns zero-count lists, never invented records", async () => {
+    const res = await tools.runTool(admin, "drawing_extractions", { jobId: "job-1" });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.sheets).toEqual({ total: 0, truncated: false, items: [] });
+    expect(res.data.verifiedCounts.total).toBe(0);
+    expect(res.data.signedOffTakeoff).toBeNull();
   });
 });
