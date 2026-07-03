@@ -51,6 +51,7 @@ const countReview = require('./_lib/count-review');
 const roomAssign = require('./_lib/room-assign');
 const cable = require('./_lib/cable-estimate');
 const entityLinks = require('./_lib/entity-links');
+const takeoffAssemble = require('./_lib/takeoff-assemble');
 
 // ─── Config (env-configurable, bare current alias default — #378) ──────────
 const AI_DRAWINGS_MODEL = process.env.AI_DRAWINGS_MODEL || 'claude-opus-4-8';
@@ -280,6 +281,19 @@ const AddLinkBody = z.object({
   a: z.object({ planId: z.string().min(1), pageIndex: z.number().int().min(0) }),
   b: z.object({ planId: z.string().min(1), pageIndex: z.number().int().min(0) }),
 });
+// #213 takeoffs — pure aggregation over the accepted seams.
+const AdjustTakeoffLineBody = z.object({
+  lineId: z.string().min(1),
+  qty: z.number().min(0).max(1_000_000).nullable(), // null clears the adjustment
+  note: z.string().max(500).optional(),
+});
+const AddTakeoffLineBody = z.object({
+  takeoffId: z.string().min(1),
+  description: z.string().min(1).max(200),
+  qty: z.number().min(0).max(1_000_000),
+  unit: z.string().min(1).max(20),
+});
+const SignOffTakeoffBody = z.object({ takeoffId: z.string().min(1) });
 
 // ─── Model output contract (validated before anything persists) ────────────
 const FieldOut = z.object({
@@ -3186,6 +3200,226 @@ async function handleAddLink(res, sql, tenantId, jobId, user, body) {
   return res.status(200).json({ link: entityLinkView(inserted[0]) });
 }
 
+// ─── #213: takeoff handlers ─────────────────────────────────────────────────
+
+function takeoffLineView(l) {
+  return {
+    id: l.id,
+    lineIndex: l.line_index,
+    sourceType: l.source_type,
+    description: l.description,
+    qty: l.qty === null ? null : Number(l.qty),
+    humanQty: l.human_qty === null ? null : Number(l.human_qty),
+    effectiveQty: l.human_qty === null ? (l.qty === null ? null : Number(l.qty)) : Number(l.human_qty),
+    unit: l.unit,
+    estimate: l.estimate,
+    flagged: l.flagged,
+    flagReason: l.flag_reason,
+    note: l.note,
+    adjustedAt: l.adjusted_at,
+    adjustedBy: l.adjusted_by_label,
+    provenance: l.provenance,
+  };
+}
+
+function takeoffView(t, lines) {
+  return {
+    id: t.id,
+    version: t.version,
+    status: t.status,
+    warnings: t.warnings,
+    createdAt: t.created_at,
+    createdBy: t.created_by_label,
+    signedOffAt: t.signed_off_at,
+    signedOffBy: t.signed_off_by_label,
+    lines: lines.map(takeoffLineView),
+  };
+}
+
+async function loadTakeoffViews(sql, tenantId, jobId) {
+  const takeoffs = await store.listTakeoffs(sql, tenantId, jobId);
+  const lines = await store.takeoffLinesFor(sql, tenantId, takeoffs.map((t) => t.id));
+  const byTakeoff = new Map();
+  for (const l of lines) {
+    if (!byTakeoff.has(l.takeoff_id)) byTakeoff.set(l.takeoff_id, []);
+    byTakeoff.get(l.takeoff_id).push(l);
+  }
+  const draft = takeoffs.find((t) => t.status === 'draft') || null;
+  const signedOff = takeoffs.find((t) => t.status === 'signed_off') || null;
+  return {
+    draft: draft ? takeoffView(draft, byTakeoff.get(draft.id) || []) : null,
+    signedOff: signedOff ? takeoffView(signedOff, byTakeoff.get(signedOff.id) || []) : null,
+  };
+}
+
+async function handleTakeoffGet(res, sql, tenantId, jobId) {
+  const views = await loadTakeoffViews(sql, tenantId, jobId);
+  return res.status(200).json(views);
+}
+
+// Assemble a fresh DRAFT from the accepted seams — pure aggregation, no AI.
+async function handleAssembleTakeoff(res, sql, tenantId, jobId, user) {
+  const [acceptedCounts, scheduleTables, links, cableRuns] = await Promise.all([
+    store.liveAcceptedCounts(sql, tenantId, jobId),
+    store.listScheduleTables(sql, tenantId, jobId),
+    store.listEntityLinks(sql, tenantId, jobId),
+    store.acceptedCableRuns(sql, tenantId, jobId),
+  ]);
+  const scheduleRows = await store.listScheduleRowsForTables(
+    sql, tenantId, scheduleTables.map((t) => t.id),
+  );
+  const countedPageKeys = new Set(
+    acceptedCounts.map((a) => entityLinks.pageKeyOf(a.plan_id, a.page_index)),
+  );
+  const warningsByPage = entityLinks.duplicateCountWarnings(links, countedPageKeys);
+  const { lines, warnings } = takeoffAssemble.assembleLines({
+    acceptedCounts,
+    scheduleTables,
+    scheduleRows,
+    cableRuns,
+    warningsByPage,
+  });
+  if (!lines.length) {
+    return res.status(409).json({
+      error: 'nothing accepted to assemble — verify device counts (and optionally schedules/cable) first',
+    });
+  }
+  const { takeoff, lines: insertedLines } = await store.insertTakeoff(
+    sql,
+    tenantId,
+    jobId,
+    {
+      warnings,
+      sources: {
+        acceptedCountIds: acceptedCounts.map((a) => a.id),
+        scheduleRowIds: scheduleRows
+          .filter((r) => r.status === 'accepted' || r.status === 'edited')
+          .map((r) => r.id),
+        cableRunIds: cableRuns.map((r) => r.id),
+      },
+      createdByLabel: user.username || null,
+    },
+    lines,
+  );
+  await appendAuditLog({
+    action: 'document.ai_extracted',
+    actorId: user.id,
+    actorName: user.username || 'Unknown',
+    actorRole: user.role || null,
+    jobId,
+    targetType: 'document',
+    targetId: 'takeoff',
+    summary: `assembled takeoff v${takeoff.version} — ${insertedLines.length} lines from accepted extractions (draft)`,
+    metadata: { kind: 'takeoff', takeoffId: takeoff.id, version: takeoff.version, lines: insertedLines.length },
+  }).catch(() => {});
+  const views = await loadTakeoffViews(sql, tenantId, jobId);
+  return res.status(200).json(views);
+}
+
+// A draft's takeoff must still be a draft for any mutation — signed-off
+// takeoffs are immutable (new version instead of edits).
+async function draftTakeoffOr409(res, sql, tenantId, jobId, takeoffId) {
+  const takeoff = await store.getTakeoff(sql, tenantId, jobId, takeoffId);
+  if (!takeoff) {
+    res.status(404).json({ error: 'takeoff not found' });
+    return null;
+  }
+  if (takeoff.status !== 'draft') {
+    res.status(409).json({
+      error: 'signed-off takeoffs are immutable — assemble a new version instead',
+    });
+    return null;
+  }
+  return takeoff;
+}
+
+async function handleAdjustTakeoffLine(res, sql, tenantId, jobId, user, body) {
+  const parsed = AdjustTakeoffLineBody.safeParse(body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0]?.message || 'invalid body' });
+  }
+  const { lineId, qty, note } = parsed.data;
+  const line = await store.getTakeoffLine(sql, tenantId, lineId);
+  if (!line) return res.status(404).json({ error: 'line not found' });
+  const takeoff = await draftTakeoffOr409(res, sql, tenantId, jobId, line.takeoff_id);
+  if (!takeoff) return;
+  const updated = await store.adjustTakeoffLine(sql, tenantId, lineId, {
+    humanQty: qty,
+    note: cleanValue(note),
+    adjustedByLabel: user.username || 'Unknown',
+  });
+  await appendAuditLog({
+    action: 'document.ai_corrected',
+    actorId: user.id,
+    actorName: user.username || 'Unknown',
+    actorRole: user.role || null,
+    jobId,
+    targetType: 'document',
+    targetId: 'takeoff',
+    summary:
+      qty === null
+        ? `cleared the adjustment on takeoff line "${line.description}"`
+        : `adjusted takeoff line "${line.description}" to ${qty} ${line.unit}`,
+    metadata: { kind: 'takeoff-line', lineId, qty },
+  }).catch(() => {});
+  return res.status(200).json({ line: takeoffLineView(updated) });
+}
+
+async function handleAddTakeoffLine(res, sql, tenantId, jobId, user, body) {
+  const parsed = AddTakeoffLineBody.safeParse(body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0]?.message || 'invalid body' });
+  }
+  const { takeoffId, description, qty, unit } = parsed.data;
+  const takeoff = await draftTakeoffOr409(res, sql, tenantId, jobId, takeoffId);
+  if (!takeoff) return;
+  const line = await store.addManualTakeoffLine(sql, tenantId, takeoffId, {
+    description: description.trim(),
+    qty,
+    unit: unit.trim(),
+    addedByLabel: user.username || 'Unknown',
+  });
+  await appendAuditLog({
+    action: 'document.ai_corrected',
+    actorId: user.id,
+    actorName: user.username || 'Unknown',
+    actorRole: user.role || null,
+    jobId,
+    targetType: 'document',
+    targetId: 'takeoff',
+    summary: `added manual takeoff line "${line.description}" (${qty} ${line.unit})`,
+    metadata: { kind: 'takeoff-line', lineId: line.id, manual: true },
+  }).catch(() => {});
+  return res.status(200).json({ line: takeoffLineView(line) });
+}
+
+async function handleSignOffTakeoff(res, sql, tenantId, jobId, user, body) {
+  const parsed = SignOffTakeoffBody.safeParse(body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0]?.message || 'invalid body' });
+  }
+  const { takeoffId } = parsed.data;
+  const takeoff = await draftTakeoffOr409(res, sql, tenantId, jobId, takeoffId);
+  if (!takeoff) return;
+  const signed = await store.signOffTakeoff(
+    sql, tenantId, jobId, takeoffId, user.username || 'Unknown',
+  );
+  if (!signed) return res.status(409).json({ error: 'takeoff changed concurrently — reload' });
+  await appendAuditLog({
+    action: 'document.takeoff_signed_off',
+    actorId: user.id,
+    actorName: user.username || 'Unknown',
+    actorRole: user.role || null,
+    jobId,
+    targetType: 'document',
+    targetId: 'takeoff',
+    summary: `signed off takeoff v${signed.version} — now the quoting source for this job`,
+    metadata: { kind: 'takeoff', takeoffId, version: signed.version },
+  }).catch(() => {});
+  const views = await loadTakeoffViews(sql, tenantId, jobId);
+  return res.status(200).json(views);
+}
+
 // ─── Router ─────────────────────────────────────────────────────────────────
 
 module.exports = async (req, res) => {
@@ -3214,7 +3448,7 @@ module.exports = async (req, res) => {
   if (
     req.method === 'GET' &&
     (action === 'sheets' || action === 'legend' || action === 'schedules' || action === 'diffs' ||
-      action === 'detections' || action === 'count-review' || action === 'links')
+      action === 'detections' || action === 'count-review' || action === 'links' || action === 'takeoff')
   ) {
     const sql = dbOr503(res, 'read');
     if (!sql) return;
@@ -3225,6 +3459,7 @@ module.exports = async (req, res) => {
     if (action === 'detections') return handleDetectionsList(res, sql, tenantId, jobId);
     if (action === 'count-review') return handleCountReviewList(res, sql, tenantId, jobId);
     if (action === 'links') return handleLinksList(res, sql, tenantId, jobId);
+    if (action === 'takeoff') return handleTakeoffGet(res, sql, tenantId, jobId);
     return handleSheets(res, sql, tenantId, jobId);
   }
 
@@ -3262,6 +3497,10 @@ module.exports = async (req, res) => {
     if (action === 'propose-links') return handleProposeLinks(res, sql, tenantId, jobId, user);
     if (action === 'review-link') return handleReviewLink(res, sql, tenantId, jobId, user, body);
     if (action === 'add-link') return handleAddLink(res, sql, tenantId, jobId, user, body);
+    if (action === 'assemble-takeoff') return handleAssembleTakeoff(res, sql, tenantId, jobId, user);
+    if (action === 'adjust-takeoff-line') return handleAdjustTakeoffLine(res, sql, tenantId, jobId, user, body);
+    if (action === 'add-takeoff-line') return handleAddTakeoffLine(res, sql, tenantId, jobId, user, body);
+    if (action === 'sign-off-takeoff') return handleSignOffTakeoff(res, sql, tenantId, jobId, user, body);
     return res.status(400).json({ error: 'unknown action: ' + (action || '(none)') });
   }
 
@@ -3304,4 +3543,6 @@ module.exports.__test = {
   refsPrompt,
   sheetRefView,
   entityLinkView,
+  takeoffView,
+  takeoffLineView,
 };

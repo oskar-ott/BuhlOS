@@ -27,6 +27,7 @@ import {
   type DeviceDetection,
   type EntityLink,
   type SheetRef,
+  type TakeoffViews,
   type DiffRegion,
   type LegendEntry,
   type PageDiff,
@@ -49,6 +50,7 @@ import {
   extractSchedule,
   fetchCountReview,
   fetchLinks,
+  fetchTakeoff,
   fetchDetections,
   fetchDiffs,
   fetchLegend,
@@ -66,6 +68,7 @@ import { RevisionDiffCard, type RevisionPair } from "@/components/admin/Revision
 import { DeviceDetectionCard } from "@/components/admin/DeviceDetectionCard";
 import { DeviceCountReviewCard } from "@/components/admin/DeviceCountReviewCard";
 import { CrossSheetLinksCard } from "@/components/admin/CrossSheetLinksCard";
+import { TakeoffCard } from "@/components/admin/TakeoffCard";
 
 /**
  * Epic 5 (#197) — AI sheet understanding: run + review-and-correct loop.
@@ -155,6 +158,7 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
   const [countPages, setCountPages] = useState<CountReviewPage[]>([]);
   const [sheetRefs, setSheetRefs] = useState<SheetRef[]>([]);
   const [entityLinks, setEntityLinks] = useState<EntityLink[]>([]);
+  const [takeoffViews, setTakeoffViews] = useState<TakeoffViews>({ draft: null, signedOff: null });
   const [comparing, setComparing] = useState<{ headPlanId: string; done: number; total: number } | null>(null);
   // one page-level extraction (legend OR schedule) at a time
   const [extractBusyKey, setExtractBusyKey] = useState<string | null>(null);
@@ -217,6 +221,7 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
         detectionsRes,
         countRes,
         linksRes,
+        takeoffRes,
       ] = await Promise.all([
         fetchSheets(jobId),
         fetch(`/api/plans?jobId=${encodeURIComponent(jobId)}`, {
@@ -232,6 +237,7 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
         fetchDetections(jobId),
         fetchCountReview(jobId),
         fetchLinks(jobId),
+        fetchTakeoff(jobId),
       ]);
       const nextSheets: Record<string, EffectiveSheet> = {};
       for (const s of sheetsRes.sheets) {
@@ -259,6 +265,7 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
       setCountPages(countRes.pages);
       setSheetRefs(linksRes.refs);
       setEntityLinks(linksRes.links);
+      setTakeoffViews(takeoffRes);
       setStatus("ready");
     } catch (err) {
       if (err instanceof AiDrawingsError && err.code === "STORE_UNAVAILABLE") {
@@ -741,6 +748,22 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
                     return next;
                   })
                 }
+              />
+            </div>
+          ) : null}
+
+          {countPages.length > 0 || takeoffViews.draft || takeoffViews.signedOff ? (
+            <div className="mt-3">
+              <TakeoffCard
+                jobId={jobId}
+                views={takeoffViews}
+                lookup={{
+                  labelFor: (planId) => {
+                    const p = plans.find((pl) => pl.id === planId);
+                    return p ? planLabel(p) : "(document no longer on this job)";
+                  },
+                }}
+                onViews={setTakeoffViews}
               />
             </div>
           ) : null}

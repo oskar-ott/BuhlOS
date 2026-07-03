@@ -1023,9 +1023,157 @@ async function reviewEntityLink(sql, tenantId, jobId, link, next) {
   return rows.length ? rows[0] : null;
 }
 
+// ─── #213: takeoffs (assembled from accepted seams only) ────────────────────
+
+async function listTakeoffs(sql, tenantId, jobId) {
+  return await sql`
+    select * from public.takeoffs
+    where tenant_id = ${tenantId} and job_id = ${jobId} and status <> 'superseded'
+    order by version`;
+}
+
+async function getTakeoff(sql, tenantId, jobId, takeoffId) {
+  const rows = await sql`
+    select * from public.takeoffs
+    where tenant_id = ${tenantId} and job_id = ${jobId} and id = ${takeoffId}
+    limit 1`;
+  return rows.length ? rows[0] : null;
+}
+
+async function takeoffLinesFor(sql, tenantId, takeoffIds) {
+  if (!takeoffIds.length) return [];
+  return await sql`
+    select * from public.takeoff_lines
+    where tenant_id = ${tenantId} and takeoff_id = any(${takeoffIds})
+    order by takeoff_id, line_index`;
+}
+
+async function getTakeoffLine(sql, tenantId, lineId) {
+  const rows = await sql`
+    select * from public.takeoff_lines
+    where tenant_id = ${tenantId} and id = ${lineId}
+    limit 1`;
+  return rows.length ? rows[0] : null;
+}
+
+// Assemble = insert a fresh draft (version = max + 1), superseding any
+// existing draft. The signed-off takeoff (if any) stays live until the new
+// draft is itself signed off.
+async function insertTakeoff(sql, tenantId, jobId, header, lines) {
+  const prior = await sql`
+    update public.takeoffs set status = 'superseded'
+    where tenant_id = ${tenantId} and job_id = ${jobId} and status = 'draft'
+    returning id`;
+  const versions = await sql`
+    select coalesce(max(version), 0) as v from public.takeoffs
+    where tenant_id = ${tenantId} and job_id = ${jobId}`;
+  const version = Number(versions[0].v) + 1;
+  const rows = await sql`
+    insert into public.takeoffs (
+      tenant_id, job_id, version, status, warnings, sources, created_by_label
+    ) values (
+      ${tenantId}, ${jobId}, ${version}, 'draft', ${sql.json(header.warnings)},
+      ${sql.json(header.sources)}, ${header.createdByLabel}
+    ) returning *`;
+  const takeoff = rows[0];
+  if (prior.length) {
+    await sql`
+      update public.takeoffs set superseded_by = ${takeoff.id}
+      where tenant_id = ${tenantId} and id = any(${prior.map((p) => p.id)})`;
+  }
+  const inserted = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    const l = lines[i];
+    const lineRows = await sql`
+      insert into public.takeoff_lines (
+        tenant_id, takeoff_id, line_index, source_type, description, qty,
+        unit, estimate, flagged, flag_reason, provenance
+      ) values (
+        ${tenantId}, ${takeoff.id}, ${i}, ${l.sourceType}, ${l.description},
+        ${l.qty}, ${l.unit}, ${l.estimate}, ${l.flagged}, ${l.flagReason},
+        ${sql.json(l.provenance)}
+      ) returning *`;
+    inserted.push(lineRows[0]);
+  }
+  return { takeoff, lines: inserted };
+}
+
+async function adjustTakeoffLine(sql, tenantId, lineId, next) {
+  const rows = await sql`
+    update public.takeoff_lines set
+      human_qty = ${next.humanQty},
+      note = ${next.note},
+      adjusted_at = now(),
+      adjusted_by_label = ${next.adjustedByLabel}
+    where tenant_id = ${tenantId} and id = ${lineId}
+    returning *`;
+  return rows.length ? rows[0] : null;
+}
+
+async function addManualTakeoffLine(sql, tenantId, takeoffId, line) {
+  const next = await sql`
+    select coalesce(max(line_index), -1) + 1 as i from public.takeoff_lines
+    where tenant_id = ${tenantId} and takeoff_id = ${takeoffId}`;
+  const rows = await sql`
+    insert into public.takeoff_lines (
+      tenant_id, takeoff_id, line_index, source_type, description, qty,
+      unit, estimate, flagged, flag_reason, provenance,
+      adjusted_at, adjusted_by_label
+    ) values (
+      ${tenantId}, ${takeoffId}, ${Number(next[0].i)}, 'manual', ${line.description},
+      ${line.qty}, ${line.unit}, false, false, null,
+      ${sql.json({ addedBy: line.addedByLabel })}, now(), ${line.addedByLabel}
+    ) returning *`;
+  return rows[0];
+}
+
+// Sign-off flips draft → signed_off and supersedes the previous signed_off
+// version. Signed-off rows are immutable from here.
+async function signOffTakeoff(sql, tenantId, jobId, takeoffId, signedOffByLabel) {
+  const prior = await sql`
+    update public.takeoffs set status = 'superseded'
+    where tenant_id = ${tenantId} and job_id = ${jobId} and status = 'signed_off'
+    returning id`;
+  const rows = await sql`
+    update public.takeoffs set
+      status = 'signed_off', signed_off_at = now(),
+      signed_off_by_label = ${signedOffByLabel}
+    where tenant_id = ${tenantId} and job_id = ${jobId}
+      and id = ${takeoffId} and status = 'draft'
+    returning *`;
+  if (!rows.length) return null;
+  if (prior.length) {
+    await sql`
+      update public.takeoffs set superseded_by = ${takeoffId}
+      where tenant_id = ${tenantId} and id = any(${prior.map((p) => p.id)})`;
+  }
+  return rows[0];
+}
+
+// The Epic 7 seam: the latest signed-off takeoff with its lines — quoting
+// reads NOTHING else from this epic.
+async function signedOffTakeoff(sql, tenantId, jobId) {
+  const rows = await sql`
+    select * from public.takeoffs
+    where tenant_id = ${tenantId} and job_id = ${jobId} and status = 'signed_off'
+    limit 1`;
+  if (!rows.length) return null;
+  const lines = await takeoffLinesFor(sql, tenantId, [rows[0].id]);
+  return { takeoff: rows[0], lines };
+}
+
 module.exports = {
   OVERRIDE_FIELDS,
   ROOM_TRANSITIONS,
+  listTakeoffs,
+  getTakeoff,
+  takeoffLinesFor,
+  getTakeoffLine,
+  insertTakeoff,
+  adjustTakeoffLine,
+  addManualTakeoffLine,
+  signOffTakeoff,
+  signedOffTakeoff,
   listSheetRefs,
   refsForExtraction,
   insertSheetRefs,

@@ -152,6 +152,7 @@ describe("AuditLogEntrySchema", () => {
       "document.made_current",
       "document.revision_diffed",
       "document.superseded",
+      "document.takeoff_signed_off",
       "document.uploaded",
       "employee.activated",
       "employee.created",

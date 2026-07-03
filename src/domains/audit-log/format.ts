@@ -26,6 +26,7 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "document.count_accepted": "accepted a verified device count",
   "document.cable_estimated": "computed a cable-run estimate",
   "document.cable_estimate_accepted": "accepted a cable-run estimate",
+  "document.takeoff_signed_off": "signed off a drawing takeoff",
   "credential.added": "added a licence/ticket",
   "credential.updated": "updated a licence/ticket",
   "credential.removed": "removed a licence/ticket",

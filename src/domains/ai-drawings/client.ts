@@ -31,6 +31,8 @@ import {
   ReviewScheduleRowResponseSchema,
   SchedulesResponseSchema,
   SheetsResponseSchema,
+  TakeoffLineResponseSchema,
+  TakeoffViewsSchema,
   UnderstandResponseSchema,
   type AcceptCountResponse,
   type CableRunResponse,
@@ -60,6 +62,8 @@ import {
   type ScheduleTableKind,
   type SchedulesResponse,
   type SheetField,
+  type TakeoffLineResponse,
+  type TakeoffViews,
   type SheetsResponse,
   type UnderstandResponse,
 } from "./schema";
@@ -679,5 +683,74 @@ export async function addLink(
       body: JSON.stringify({ kind: "same-board", identifier, a, b }),
     },
     (b2) => LinkResponseSchema.parse(b2),
+  );
+}
+
+// ─── #213: takeoffs ─────────────────────────────────────────────────────────
+
+export async function fetchTakeoff(jobId: string): Promise<TakeoffViews> {
+  return request(
+    `/api/ai-drawings?jobId=${encodeURIComponent(jobId)}&action=takeoff`,
+    { method: "GET" },
+    (b) => TakeoffViewsSchema.parse(b),
+  );
+}
+
+export async function assembleTakeoff(jobId: string): Promise<TakeoffViews> {
+  return request(
+    `/api/ai-drawings?jobId=${encodeURIComponent(jobId)}&action=assemble-takeoff`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    },
+    (b) => TakeoffViewsSchema.parse(b),
+  );
+}
+
+export async function adjustTakeoffLine(
+  jobId: string,
+  lineId: string,
+  qty: number | null,
+  note?: string,
+): Promise<TakeoffLineResponse> {
+  return request(
+    `/api/ai-drawings?jobId=${encodeURIComponent(jobId)}&action=adjust-takeoff-line`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ lineId, qty, note }),
+    },
+    (b) => TakeoffLineResponseSchema.parse(b),
+  );
+}
+
+export async function addTakeoffLine(
+  jobId: string,
+  takeoffId: string,
+  description: string,
+  qty: number,
+  unit: string,
+): Promise<TakeoffLineResponse> {
+  return request(
+    `/api/ai-drawings?jobId=${encodeURIComponent(jobId)}&action=add-takeoff-line`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ takeoffId, description, qty, unit }),
+    },
+    (b) => TakeoffLineResponseSchema.parse(b),
+  );
+}
+
+export async function signOffTakeoff(jobId: string, takeoffId: string): Promise<TakeoffViews> {
+  return request(
+    `/api/ai-drawings?jobId=${encodeURIComponent(jobId)}&action=sign-off-takeoff`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ takeoffId }),
+    },
+    (b) => TakeoffViewsSchema.parse(b),
   );
 }
