@@ -47,6 +47,7 @@ const { getDb } = require('./_lib/supabase-db');
 const aiSpend = require('./_lib/ai-spend');
 const store = require('./_lib/ai-drawings-store');
 const pageDiff = require('./_lib/page-diff');
+const countReview = require('./_lib/count-review');
 
 // ─── Config (env-configurable, bare current alias default — #378) ──────────
 const AI_DRAWINGS_MODEL = process.env.AI_DRAWINGS_MODEL || 'claude-opus-4-8';
@@ -157,6 +158,34 @@ const DetectDevicesBody = z.object({
     region: CropRegion, // the tile's window on the page, normalised
     dataUrl: z.string().startsWith('data:image/').max(MAX_TILE_DATAURL_CHARS),
   }),
+});
+// #205 — the marker being acted on carries its own (plan, page, raster), so
+// the body names only the target and the action.
+const ReviewMarkerBody = z
+  .object({
+    action: z.enum(['delete', 'restore', 'reclassify']),
+    detectionId: z.string().min(1).optional(), // AI marker
+    reviewId: z.string().min(1).optional(), // human-added marker (its add action)
+    toLegendEntryId: z.string().min(1).optional(),
+    note: z.string().max(500).optional(),
+  })
+  .refine((b) => (b.detectionId ? 1 : 0) + (b.reviewId ? 1 : 0) === 1, {
+    message: 'exactly one of detectionId or reviewId is required',
+  })
+  .refine((b) => b.action !== 'reclassify' || Boolean(b.toLegendEntryId), {
+    message: 'reclassify requires toLegendEntryId',
+  });
+const AddMarkerBody = z.object({
+  planId: z.string().min(1),
+  pageIndex: z.number().int().min(0),
+  bbox: CropRegion,
+  legendEntryId: z.string().min(1),
+  note: z.string().max(500).optional(),
+});
+const AcceptCountBody = z.object({
+  planId: z.string().min(1),
+  pageIndex: z.number().int().min(0),
+  legendEntryId: z.string().min(1),
 });
 
 // ─── Model output contract (validated before anything persists) ────────────
@@ -1699,6 +1728,349 @@ async function handleReviewDiffRegion(res, sql, tenantId, jobId, user, body) {
   return res.status(200).json({ region: diffRegionView(updated) });
 }
 
+// ─── #205: count review handlers ────────────────────────────────────────────
+
+function reviewActionView(r) {
+  return {
+    id: r.id,
+    planId: r.plan_id,
+    pageIndex: r.page_index,
+    pageSha256: r.page_sha256,
+    action: r.action,
+    targetDetectionId: r.target_detection_id,
+    targetReviewId: r.target_review_id,
+    legendEntryId: r.legend_entry_id,
+    label: r.label,
+    bbox: r.bbox,
+    note: r.note,
+    createdAt: r.created_at,
+    createdBy: r.created_by_label,
+  };
+}
+
+function acceptedCountView(a, stale) {
+  return {
+    id: a.id,
+    planId: a.plan_id,
+    pageIndex: a.page_index,
+    pageSha256: a.page_sha256,
+    legendEntryId: a.legend_entry_id,
+    label: a.label,
+    count: a.count,
+    basis: a.basis,
+    acceptedAt: a.accepted_at,
+    acceptedBy: a.accepted_by_label,
+    stale,
+  };
+}
+
+// Assemble ONE page raster's full review state from preloaded job rows —
+// pure, so GET and every POST return the identical shape and the UI never
+// re-derives. Accepted sign-offs prefer the current raster; a live sign-off
+// whose raster (or marker set) no longer matches surfaces as stale, never
+// silently — including entries whose markers were ALL removed since accept.
+function assembleCountReviewPage(planId, pageIndex, pageSha256, jobRows) {
+  const detections = jobRows.detections.filter(
+    (d) => d.plan_id === planId && d.page_index === pageIndex && d.page_sha256 === pageSha256,
+  );
+  const reviews = jobRows.reviews.filter(
+    (r) => r.plan_id === planId && r.page_index === pageIndex && r.page_sha256 === pageSha256,
+  );
+  const { markers, uncertain } = countReview.deriveMarkers(detections, reviews);
+  const counts = countReview.countsByEntry(markers);
+  const liveAccepted = jobRows.accepted.filter(
+    (a) => a.plan_id === planId && a.page_index === pageIndex && a.status === 'live',
+  );
+  const acceptedFor = (entryId) =>
+    liveAccepted.find((a) => a.legend_entry_id === entryId && a.page_sha256 === pageSha256) ||
+    liveAccepted.find((a) => a.legend_entry_id === entryId) ||
+    null;
+  const countRows = counts.map((c) => {
+    const acc = c.legendEntryId ? acceptedFor(c.legendEntryId) : null;
+    return {
+      legendEntryId: c.legendEntryId,
+      label: c.label,
+      liveCount: c.liveCount,
+      removedCount: c.removedCount,
+      addedCount: c.addedCount,
+      accepted: acc
+        ? acceptedCountView(
+            acc,
+            acc.page_sha256 !== pageSha256 || countReview.isAcceptStale(acc, markers),
+          )
+        : null,
+    };
+  });
+  for (const acc of liveAccepted) {
+    if (!countRows.some((c) => c.legendEntryId === acc.legend_entry_id)) {
+      countRows.push({
+        legendEntryId: acc.legend_entry_id,
+        label: acc.label,
+        liveCount: 0,
+        removedCount: 0,
+        addedCount: 0,
+        accepted: acceptedCountView(acc, true),
+      });
+    }
+  }
+  return {
+    planId,
+    pageIndex,
+    pageSha256,
+    markers,
+    uncertain: uncertain.map(detectionView),
+    counts: countRows,
+  };
+}
+
+async function loadJobReviewRows(sql, tenantId, jobId) {
+  const [detections, reviews, accepted] = await Promise.all([
+    store.listDeviceDetections(sql, tenantId, jobId),
+    store.listDetectionReviews(sql, tenantId, jobId),
+    store.listAcceptedCounts(sql, tenantId, jobId),
+  ]);
+  return { detections, reviews, accepted };
+}
+
+async function handleCountReviewList(res, sql, tenantId, jobId) {
+  const jobRows = await loadJobReviewRows(sql, tenantId, jobId);
+  const index = await readBlob('jobs/' + jobId + '/plans-index.json', { plans: [] });
+  const shaOf = new Map();
+  for (const plan of index.plans || []) {
+    for (const page of plan.pages || []) {
+      if (page.sha256) shaOf.set(plan.id + ':' + page.pageIndex, page.sha256);
+    }
+  }
+  const pageKeys = new Set();
+  for (const d of jobRows.detections) pageKeys.add(d.plan_id + ':' + d.page_index);
+  for (const r of jobRows.reviews) pageKeys.add(r.plan_id + ':' + r.page_index);
+  for (const a of jobRows.accepted) {
+    if (a.status === 'live') pageKeys.add(a.plan_id + ':' + a.page_index);
+  }
+  const pages = [];
+  for (const key of [...pageKeys].sort()) {
+    const cut = key.lastIndexOf(':');
+    const planId = key.slice(0, cut);
+    const pageIndex = Number(key.slice(cut + 1));
+    const sha = shaOf.get(key);
+    if (!sha) continue; // page no longer registered — history stays in PG, not shown as actionable
+    pages.push(assembleCountReviewPage(planId, pageIndex, sha, jobRows));
+  }
+  // drop pages with nothing to show for the CURRENT raster and no sign-offs
+  const visible = pages.filter(
+    (p) => p.markers.length > 0 || p.uncertain.length > 0 || p.counts.length > 0,
+  );
+  return res.status(200).json({ pages: visible });
+}
+
+async function loadCountReviewPage(sql, tenantId, jobId, planId, pageIndex, pageSha256) {
+  const jobRows = await loadJobReviewRows(sql, tenantId, jobId);
+  return assembleCountReviewPage(planId, pageIndex, pageSha256, jobRows);
+}
+
+async function handleReviewMarker(res, sql, tenantId, jobId, user, body) {
+  const parsed = ReviewMarkerBody.safeParse(body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0]?.message || 'invalid body' });
+  }
+  const { action, detectionId, reviewId, toLegendEntryId, note } = parsed.data;
+
+  let target;
+  let targetKind;
+  if (detectionId) {
+    target = await store.getDeviceDetection(sql, tenantId, jobId, detectionId);
+    if (!target) return res.status(404).json({ error: 'detection not found' });
+    if (target.kind !== 'device') {
+      return res.status(400).json({
+        error: 'uncertain regions are not countable markers — add real markers over the area instead',
+      });
+    }
+    targetKind = 'detection';
+  } else {
+    target = await store.getDetectionReview(sql, tenantId, jobId, reviewId);
+    if (!target) return res.status(404).json({ error: 'marker not found' });
+    if (target.action !== 'add') {
+      return res.status(400).json({ error: 'reviewId must reference an added marker' });
+    }
+    targetKind = 'review';
+  }
+
+  // Acting on a marker from a superseded render would silently affect nothing
+  // — refuse instead (the current raster needs its own detection pass).
+  const found = await readPlanPage(jobId, target.plan_id, target.page_index);
+  if (found.error) return res.status(found.status).json({ error: found.error });
+  if (found.page.sha256 !== target.page_sha256) {
+    return res.status(409).json({
+      error: 'the sheet raster changed since this marker was made — re-run detection on the current render',
+    });
+  }
+
+  let entry = null;
+  if (action === 'reclassify') {
+    entry = await store.getLegendEntry(sql, tenantId, jobId, toLegendEntryId);
+    if (!entry) return res.status(404).json({ error: 'legend entry not found' });
+    if (entry.status !== 'accepted' && entry.status !== 'edited') {
+      return res.status(409).json({
+        error: 'reclassify target must be a reviewed legend entry (accepted or edited)',
+      });
+    }
+  }
+
+  const inserted = await store.insertDetectionReview(sql, tenantId, {
+    jobId,
+    planId: target.plan_id,
+    pageIndex: target.page_index,
+    pageSha256: target.page_sha256,
+    action,
+    targetDetectionId: targetKind === 'detection' ? target.id : null,
+    targetReviewId: targetKind === 'review' ? target.id : null,
+    legendEntryId: action === 'reclassify' ? entry.id : null,
+    label: action === 'reclassify' ? entry.human_label || entry.label : null,
+    bbox: null,
+    note: cleanValue(note),
+    createdByLabel: user.username || null,
+  });
+  await appendAuditLog({
+    action: 'document.ai_corrected',
+    actorId: user.id,
+    actorName: user.username || 'Unknown',
+    actorRole: user.role || null,
+    jobId,
+    targetType: 'document',
+    targetId: target.plan_id,
+    summary:
+      action === 'reclassify'
+        ? `reclassified a device marker to ${inserted.label} on page ${target.page_index + 1}`
+        : `${action}d a device marker on page ${target.page_index + 1}`,
+    metadata: { kind: 'device-marker', action, reviewId: inserted.id },
+  }).catch(() => {});
+
+  const page = await loadCountReviewPage(
+    sql, tenantId, jobId, target.plan_id, target.page_index, target.page_sha256,
+  );
+  return res.status(200).json({ review: reviewActionView(inserted), page });
+}
+
+async function handleAddMarker(res, sql, tenantId, jobId, user, body) {
+  const parsed = AddMarkerBody.safeParse(body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0]?.message || 'invalid body' });
+  }
+  const { planId, pageIndex, bbox, legendEntryId, note } = parsed.data;
+  const found = await readPlanPage(jobId, planId, pageIndex);
+  if (found.error) return res.status(found.status).json({ error: found.error });
+
+  const entry = await store.getLegendEntry(sql, tenantId, jobId, legendEntryId);
+  if (!entry) return res.status(404).json({ error: 'legend entry not found' });
+  if (entry.status !== 'accepted' && entry.status !== 'edited') {
+    return res.status(409).json({
+      error: 'added markers must use the reviewed legend vocabulary (accepted or edited)',
+    });
+  }
+
+  const inserted = await store.insertDetectionReview(sql, tenantId, {
+    jobId,
+    planId,
+    pageIndex,
+    pageSha256: found.page.sha256,
+    action: 'add',
+    targetDetectionId: null,
+    targetReviewId: null,
+    legendEntryId: entry.id,
+    label: entry.human_label || entry.label,
+    bbox,
+    note: cleanValue(note),
+    createdByLabel: user.username || null,
+  });
+  await appendAuditLog({
+    action: 'document.ai_corrected',
+    actorId: user.id,
+    actorName: user.username || 'Unknown',
+    actorRole: user.role || null,
+    jobId,
+    targetType: 'document',
+    targetId: planId,
+    summary: `added a ${inserted.label} marker the AI missed on page ${pageIndex + 1}`,
+    metadata: { kind: 'device-marker', action: 'add', reviewId: inserted.id },
+  }).catch(() => {});
+
+  const page = await loadCountReviewPage(sql, tenantId, jobId, planId, pageIndex, found.page.sha256);
+  return res.status(200).json({ review: reviewActionView(inserted), page });
+}
+
+async function handleAcceptCount(res, sql, tenantId, jobId, user, body) {
+  const parsed = AcceptCountBody.safeParse(body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0]?.message || 'invalid body' });
+  }
+  const { planId, pageIndex, legendEntryId } = parsed.data;
+  const found = await readPlanPage(jobId, planId, pageIndex);
+  if (found.error) return res.status(found.status).json({ error: found.error });
+  const pageSha256 = found.page.sha256;
+
+  const entry = await store.getLegendEntry(sql, tenantId, jobId, legendEntryId);
+  if (!entry) return res.status(404).json({ error: 'legend entry not found' });
+
+  const before = await loadCountReviewPage(sql, tenantId, jobId, planId, pageIndex, pageSha256);
+  const entryMarkers = before.markers.filter((m) => m.legendEntryId === legendEntryId);
+  const liveMarkers = entryMarkers.filter((m) => m.status === 'live');
+  // count 0 IS a valid sign-off ("none on this sheet") — but only after the
+  // human actually reviewed something here: markers existed or were removed.
+  if (entryMarkers.length === 0) {
+    return res.status(409).json({
+      error: 'nothing to accept — no markers of this type on the sheet (detect or add first)',
+    });
+  }
+
+  // Snapshot EXACTLY what was counted: marker keys (staleness compare),
+  // marker detail (provenance display), and the review actions that shaped
+  // this entry's marker set (the corrections trail).
+  const basis = {
+    markerKeys: liveMarkers.map((m) => m.key).sort(),
+    markers: liveMarkers.map((m) => ({
+      key: m.key,
+      source: m.source,
+      bbox: m.bbox,
+      label: m.label,
+      confidence: m.confidence,
+    })),
+    reviewIds: [...new Set(entryMarkers.flatMap((m) => m.appliedReviewIds))],
+  };
+
+  let accepted;
+  try {
+    accepted = await store.insertAcceptedCount(sql, tenantId, {
+      jobId,
+      planId,
+      pageIndex,
+      pageSha256,
+      legendEntryId: entry.id,
+      label: entry.human_label || entry.label,
+      count: liveMarkers.length,
+      basis,
+      acceptedByLabel: user.username || null,
+    });
+  } catch (e) {
+    const dup = e && (e.code === '23505' || /duplicate key/i.test(String(e.message || '')));
+    if (!dup) throw e;
+    return res.status(409).json({ error: 'this count was accepted concurrently — reload' });
+  }
+  await appendAuditLog({
+    action: 'document.count_accepted',
+    actorId: user.id,
+    actorName: user.username || 'Unknown',
+    actorRole: user.role || null,
+    jobId,
+    targetType: 'document',
+    targetId: planId,
+    summary: `accepted ${accepted.label} count: ${accepted.count} on page ${pageIndex + 1} (human-verified)`,
+    metadata: { kind: 'device-count', legendEntryId: entry.id, count: accepted.count },
+  }).catch(() => {});
+
+  const page = await loadCountReviewPage(sql, tenantId, jobId, planId, pageIndex, pageSha256);
+  return res.status(200).json({ accepted: acceptedCountView(accepted, false), page });
+}
+
 // ─── Router ─────────────────────────────────────────────────────────────────
 
 module.exports = async (req, res) => {
@@ -1726,7 +2098,8 @@ module.exports = async (req, res) => {
 
   if (
     req.method === 'GET' &&
-    (action === 'sheets' || action === 'legend' || action === 'schedules' || action === 'diffs' || action === 'detections')
+    (action === 'sheets' || action === 'legend' || action === 'schedules' || action === 'diffs' ||
+      action === 'detections' || action === 'count-review')
   ) {
     const sql = dbOr503(res, 'read');
     if (!sql) return;
@@ -1735,6 +2108,7 @@ module.exports = async (req, res) => {
     if (action === 'schedules') return handleSchedulesList(res, sql, tenantId, jobId);
     if (action === 'diffs') return handleDiffsList(res, sql, tenantId, jobId);
     if (action === 'detections') return handleDetectionsList(res, sql, tenantId, jobId);
+    if (action === 'count-review') return handleCountReviewList(res, sql, tenantId, jobId);
     return handleSheets(res, sql, tenantId, jobId);
   }
 
@@ -1755,6 +2129,9 @@ module.exports = async (req, res) => {
     if (action === 'diff-pages') return handleDiffPages(res, sql, tenantId, jobId, user, body);
     if (action === 'review-diff-region') return handleReviewDiffRegion(res, sql, tenantId, jobId, user, body);
     if (action === 'detect-devices') return handleDetectDevices(res, sql, tenantId, jobId, user, body);
+    if (action === 'review-marker') return handleReviewMarker(res, sql, tenantId, jobId, user, body);
+    if (action === 'add-marker') return handleAddMarker(res, sql, tenantId, jobId, user, body);
+    if (action === 'accept-count') return handleAcceptCount(res, sql, tenantId, jobId, user, body);
     return res.status(400).json({ error: 'unknown action: ' + (action || '(none)') });
   }
 
@@ -1784,4 +2161,7 @@ module.exports.__test = {
   detectionPrompt,
   detectionView,
   tileBoxToPage,
+  reviewActionView,
+  acceptedCountView,
+  assembleCountReviewPage,
 };

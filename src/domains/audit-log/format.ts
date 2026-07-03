@@ -23,6 +23,7 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "document.ai_corrected": "corrected an AI-read plan field",
   "document.revision_diffed": "compared two drawing revisions",
   "document.diff_region_reviewed": "walked a drawing change region",
+  "document.count_accepted": "accepted a verified device count",
   "credential.added": "added a licence/ticket",
   "credential.updated": "updated a licence/ticket",
   "credential.removed": "removed a licence/ticket",

@@ -573,6 +573,95 @@ async function insertDeviceDetections(sql, tenantId, ctx, candidates, iouThresho
   return { inserted, seamDuplicates };
 }
 
+// ─── #205: count review (append-only actions + accepted counts) ─────────────
+
+const REVIEW_ACTIONS = ['delete', 'restore', 'reclassify', 'add'];
+
+async function listDetectionReviews(sql, tenantId, jobId) {
+  return await sql`
+    select * from public.detection_reviews
+    where tenant_id = ${tenantId} and job_id = ${jobId}
+    order by created_at, id`;
+}
+
+async function getDetectionReview(sql, tenantId, jobId, reviewId) {
+  const rows = await sql`
+    select * from public.detection_reviews
+    where tenant_id = ${tenantId} and job_id = ${jobId} and id = ${reviewId}
+    limit 1`;
+  return rows.length ? rows[0] : null;
+}
+
+async function getDeviceDetection(sql, tenantId, jobId, detectionId) {
+  const rows = await sql`
+    select * from public.device_detections
+    where tenant_id = ${tenantId} and job_id = ${jobId} and id = ${detectionId}
+    limit 1`;
+  return rows.length ? rows[0] : null;
+}
+
+// Append one review action. Rows are immutable — corrections of corrections
+// are just later rows; the derivation (api/_lib/count-review.js) replays them.
+async function insertDetectionReview(sql, tenantId, row) {
+  const rows = await sql`
+    insert into public.detection_reviews (
+      tenant_id, job_id, plan_id, page_index, page_sha256, action,
+      target_detection_id, target_review_id, legend_entry_id, label, bbox,
+      note, created_by_label
+    ) values (
+      ${tenantId}, ${row.jobId}, ${row.planId}, ${row.pageIndex}, ${row.pageSha256},
+      ${row.action}, ${row.targetDetectionId}, ${row.targetReviewId},
+      ${row.legendEntryId}, ${row.label}, ${row.bbox === null ? null : sql.json(row.bbox)},
+      ${row.note}, ${row.createdByLabel}
+    ) returning *`;
+  return rows[0];
+}
+
+async function listAcceptedCounts(sql, tenantId, jobId) {
+  return await sql`
+    select * from public.accepted_counts
+    where tenant_id = ${tenantId} and job_id = ${jobId}
+    order by accepted_at, id`;
+}
+
+// The takeoff seam (#213): live sign-offs only — raw and derived numbers
+// never leave the review surface.
+async function liveAcceptedCounts(sql, tenantId, jobId) {
+  return await sql`
+    select * from public.accepted_counts
+    where tenant_id = ${tenantId} and job_id = ${jobId} and status = 'live'
+    order by plan_id, page_index, label`;
+}
+
+// Accept = insert the new live row, superseding any prior live sign-off for
+// the same (page raster, legend entry). The partial unique index enforces one
+// live row, so the prior row flips BEFORE the insert; a concurrent accept
+// surfaces as 23505 for the caller to report honestly.
+async function insertAcceptedCount(sql, tenantId, row) {
+  const prior = await sql`
+    update public.accepted_counts set status = 'superseded'
+    where tenant_id = ${tenantId} and job_id = ${row.jobId} and plan_id = ${row.planId}
+      and page_index = ${row.pageIndex} and page_sha256 = ${row.pageSha256}
+      and legend_entry_id = ${row.legendEntryId} and status = 'live'
+    returning id`;
+  const rows = await sql`
+    insert into public.accepted_counts (
+      tenant_id, job_id, plan_id, page_index, page_sha256, legend_entry_id,
+      label, count, basis, accepted_by_label
+    ) values (
+      ${tenantId}, ${row.jobId}, ${row.planId}, ${row.pageIndex}, ${row.pageSha256},
+      ${row.legendEntryId}, ${row.label}, ${row.count}, ${sql.json(row.basis)},
+      ${row.acceptedByLabel}
+    ) returning *`;
+  const accepted = rows[0];
+  if (prior.length) {
+    await sql`
+      update public.accepted_counts set superseded_by = ${accepted.id}
+      where tenant_id = ${tenantId} and id = any(${prior.map((p) => p.id)})`;
+  }
+  return accepted;
+}
+
 module.exports = {
   OVERRIDE_FIELDS,
   SHEET_TYPES,
@@ -588,6 +677,14 @@ module.exports = {
   listDeviceDetections,
   listDeviceDetectionsForPage,
   insertDeviceDetections,
+  REVIEW_ACTIONS,
+  listDetectionReviews,
+  getDetectionReview,
+  getDeviceDetection,
+  insertDetectionReview,
+  listAcceptedCounts,
+  liveAcceptedCounts,
+  insertAcceptedCount,
   findLiveDiff,
   insertPageDiff,
   listPageDiffs,

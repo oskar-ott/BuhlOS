@@ -44,6 +44,8 @@ let pageDiffsArr: Row[];
 let diffRegionsArr: Row[];
 let detectionRuns: Row[];
 let deviceDetections: Row[];
+let detectionReviews: Row[];
+let acceptedCounts: Row[];
 let blobPuts: Array<{ path: string; bytes: number }>;
 let auditEntries: Row[];
 let aiCalls: Array<Record<string, unknown>>;
@@ -204,6 +206,8 @@ beforeEach(() => {
   diffRegionsArr = [];
   detectionRuns = [];
   deviceDetections = [];
+  detectionReviews = [];
+  acceptedCounts = [];
   blobPuts = [];
   auditEntries = [];
   detectionRaceWinner = null;
@@ -853,6 +857,76 @@ beforeEach(() => {
           kept.push({ bbox: c.bbox as Box, legendEntryId: c.legendEntryId, kind: c.kind });
         }
         return { inserted, seamDuplicates };
+      },
+      // ── #205 count review (mirrors the real store's SQL semantics) ──
+      REVIEW_ACTIONS: ["delete", "restore", "reclassify", "add"],
+      listDetectionReviews: async (_sql: unknown, _t: string, jobId: string) =>
+        detectionReviews
+          .filter((r) => r.job_id === jobId)
+          .sort((a, b) =>
+            a.created_at === b.created_at
+              ? String(a.id).localeCompare(String(b.id))
+              : String(a.created_at) < String(b.created_at)
+                ? -1
+                : 1,
+          ),
+      getDetectionReview: async (_sql: unknown, _t: string, jobId: string, id: string) =>
+        detectionReviews.find((r) => r.job_id === jobId && r.id === id) ?? null,
+      getDeviceDetection: async (_sql: unknown, _t: string, jobId: string, id: string) =>
+        deviceDetections.find((d) => d.job_id === jobId && d.id === id) ?? null,
+      insertDetectionReview: async (_sql: unknown, _t: string, row: Row) => {
+        const r: Row = {
+          id: `rv_${detectionReviews.length + 1}`,
+          job_id: row.jobId,
+          plan_id: row.planId,
+          page_index: row.pageIndex,
+          page_sha256: row.pageSha256,
+          action: row.action,
+          target_detection_id: row.targetDetectionId,
+          target_review_id: row.targetReviewId,
+          legend_entry_id: row.legendEntryId,
+          label: row.label,
+          bbox: row.bbox,
+          note: row.note,
+          created_at: new Date(1750000000000 + detectionReviews.length * 1000).toISOString(),
+          created_by_label: row.createdByLabel,
+        };
+        detectionReviews.push(r);
+        return r;
+      },
+      listAcceptedCounts: async (_sql: unknown, _t: string, jobId: string) =>
+        acceptedCounts.filter((a) => a.job_id === jobId),
+      liveAcceptedCounts: async (_sql: unknown, _t: string, jobId: string) =>
+        acceptedCounts.filter((a) => a.job_id === jobId && a.status === "live"),
+      insertAcceptedCount: async (_sql: unknown, _t: string, row: Row) => {
+        const prior = acceptedCounts.filter(
+          (a) =>
+            a.job_id === row.jobId &&
+            a.plan_id === row.planId &&
+            a.page_index === row.pageIndex &&
+            a.page_sha256 === row.pageSha256 &&
+            a.legend_entry_id === row.legendEntryId &&
+            a.status === "live",
+        );
+        for (const p of prior) p.status = "superseded";
+        const a: Row = {
+          id: `ac_${acceptedCounts.length + 1}`,
+          job_id: row.jobId,
+          plan_id: row.planId,
+          page_index: row.pageIndex,
+          page_sha256: row.pageSha256,
+          legend_entry_id: row.legendEntryId,
+          label: row.label,
+          count: row.count,
+          basis: row.basis,
+          status: "live",
+          superseded_by: null,
+          accepted_at: new Date(1750000000000 + acceptedCounts.length * 1000).toISOString(),
+          accepted_by_label: row.acceptedByLabel,
+        };
+        acceptedCounts.push(a);
+        for (const p of prior) p.superseded_by = a.id;
+        return a;
       },
     },
   } as NodeJS.Module;
@@ -2132,5 +2206,341 @@ describe("device detection (#204)", () => {
     expect(res.statusCode).toBe(200);
     expect(res.body.detections).toHaveLength(3);
     expect(res.body.promptVersion).toBe("dd-v1");
+  });
+});
+
+describe("count review (#205)", () => {
+  // Reviewed vocabulary + raw detections on pl1 p0 (current raster sha0):
+  // two GPOs and one downlight from the AI, plus one uncertain region.
+  function seedReviewScene() {
+    legendRows.push(
+      {
+        id: "le_gpo",
+        job_id: "j1",
+        origin: "ai",
+        status: "accepted",
+        label: "Double GPO",
+        normalized_label: "double gpo",
+        human_label: null,
+        symbol_text: null,
+        symbol_crop_url: null,
+      },
+      {
+        id: "le_dl",
+        job_id: "j1",
+        origin: "ai",
+        status: "edited",
+        label: "Downlight",
+        normalized_label: "downlight",
+        human_label: "LED downlight",
+        symbol_text: null,
+        symbol_crop_url: null,
+      },
+    );
+    deviceDetections.push(
+      {
+        id: "d1",
+        job_id: "j1",
+        plan_id: "pl1",
+        page_index: 0,
+        page_sha256: "sha0",
+        run_id: "run_x",
+        kind: "device",
+        legend_entry_id: "le_gpo",
+        label: "Double GPO",
+        bbox: { x: 0.4, y: 0.4, w: 0.04, h: 0.04 },
+        confidence: 0.9,
+        note: null,
+        created_at: "2026-07-03T00:00:00.000Z",
+      },
+      {
+        id: "d2",
+        job_id: "j1",
+        plan_id: "pl1",
+        page_index: 0,
+        page_sha256: "sha0",
+        run_id: "run_x",
+        kind: "device",
+        legend_entry_id: "le_gpo",
+        label: "Double GPO",
+        bbox: { x: 0.6, y: 0.6, w: 0.04, h: 0.04 },
+        confidence: 0.8,
+        note: null,
+        created_at: "2026-07-03T00:00:01.000Z",
+      },
+      {
+        id: "d3",
+        job_id: "j1",
+        plan_id: "pl1",
+        page_index: 0,
+        page_sha256: "sha0",
+        run_id: "run_x",
+        kind: "device",
+        legend_entry_id: "le_dl",
+        label: "LED downlight",
+        bbox: { x: 0.2, y: 0.2, w: 0.03, h: 0.03 },
+        confidence: 0.7,
+        note: null,
+        created_at: "2026-07-03T00:00:02.000Z",
+      },
+      {
+        id: "u1",
+        job_id: "j1",
+        plan_id: "pl1",
+        page_index: 0,
+        page_sha256: "sha0",
+        run_id: "run_x",
+        kind: "uncertain-region",
+        legend_entry_id: null,
+        label: null,
+        bbox: { x: 0.8, y: 0.1, w: 0.15, h: 0.15 },
+        confidence: null,
+        note: "dense grid",
+        created_at: "2026-07-03T00:00:03.000Z",
+      },
+    );
+  }
+
+  const gpoRow = (page: { counts: Row[] }) =>
+    page.counts.find((c) => c.legendEntryId === "le_gpo") as Row;
+
+  it("GET count-review assembles pages: markers, counts, uncertain regions", async () => {
+    seedReviewScene();
+    const res = await call("GET", { jobId: "j1", action: "count-review" });
+    expect(res.statusCode).toBe(200);
+    expect(res.body.pages).toHaveLength(1);
+    const page = res.body.pages[0];
+    expect(page.planId).toBe("pl1");
+    expect(page.pageSha256).toBe("sha0");
+    expect(page.markers).toHaveLength(3);
+    expect(page.uncertain).toHaveLength(1);
+    expect(gpoRow(page)).toMatchObject({ liveCount: 2, removedCount: 0, addedCount: 0 });
+    expect(gpoRow(page).accepted).toBeNull(); // nothing verified yet
+  });
+
+  it("delete a false positive: count drops live, the action is recorded, audit lands", async () => {
+    seedReviewScene();
+    const res = await call("POST", { jobId: "j1", action: "review-marker" }, {
+      action: "delete",
+      detectionId: "d2",
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body.review.action).toBe("delete");
+    expect(gpoRow(res.body.page)).toMatchObject({ liveCount: 1, removedCount: 1 });
+    // detections stayed immutable — the correction is a layered action
+    expect(deviceDetections).toHaveLength(4);
+    expect(detectionReviews).toHaveLength(1);
+    const audit = auditEntries.find(
+      (a) =>
+        a.action === "document.ai_corrected" && (a.metadata as Row)?.kind === "device-marker",
+    );
+    expect(audit).toBeTruthy();
+  });
+
+  it("restore brings a deleted marker back", async () => {
+    seedReviewScene();
+    await call("POST", { jobId: "j1", action: "review-marker" }, {
+      action: "delete",
+      detectionId: "d2",
+    });
+    const res = await call("POST", { jobId: "j1", action: "review-marker" }, {
+      action: "restore",
+      detectionId: "d2",
+    });
+    expect(res.statusCode).toBe(200);
+    expect(gpoRow(res.body.page)).toMatchObject({ liveCount: 2, removedCount: 0 });
+  });
+
+  it("reclassify moves a marker between entries — reviewed vocabulary only", async () => {
+    seedReviewScene();
+    const bad = await call("POST", { jobId: "j1", action: "review-marker" }, {
+      action: "reclassify",
+      detectionId: "d2",
+      toLegendEntryId: "le_nope",
+    });
+    expect(bad.statusCode).toBe(404);
+
+    legendRows.push({
+      id: "le_sugg",
+      job_id: "j1",
+      origin: "ai",
+      status: "suggested",
+      label: "Switch",
+      normalized_label: "switch",
+      human_label: null,
+      symbol_text: null,
+      symbol_crop_url: null,
+    });
+    const unreviewed = await call("POST", { jobId: "j1", action: "review-marker" }, {
+      action: "reclassify",
+      detectionId: "d2",
+      toLegendEntryId: "le_sugg",
+    });
+    expect(unreviewed.statusCode).toBe(409);
+
+    const res = await call("POST", { jobId: "j1", action: "review-marker" }, {
+      action: "reclassify",
+      detectionId: "d2",
+      toLegendEntryId: "le_dl",
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body.review.label).toBe("LED downlight"); // human label wins
+    expect(gpoRow(res.body.page)).toMatchObject({ liveCount: 1 });
+    const dl = res.body.page.counts.find((c: Row) => c.legendEntryId === "le_dl");
+    expect(dl).toMatchObject({ liveCount: 2 });
+  });
+
+  it("add a missed device: human marker joins the count; vocabulary is enforced", async () => {
+    seedReviewScene();
+    const unreviewedEntry = await call("POST", { jobId: "j1", action: "add-marker" }, {
+      planId: "pl1",
+      pageIndex: 0,
+      bbox: { x: 0.5, y: 0.5, w: 0.016, h: 0.016 },
+      legendEntryId: "le_missing",
+    });
+    expect(unreviewedEntry.statusCode).toBe(404);
+
+    const res = await call("POST", { jobId: "j1", action: "add-marker" }, {
+      planId: "pl1",
+      pageIndex: 0,
+      bbox: { x: 0.5, y: 0.5, w: 0.016, h: 0.016 },
+      legendEntryId: "le_gpo",
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body.review.action).toBe("add");
+    expect(gpoRow(res.body.page)).toMatchObject({ liveCount: 3, addedCount: 1 });
+    const human = (res.body.page.markers as Row[]).find((m) => m.source === "human");
+    expect(human).toMatchObject({ status: "live", label: "Double GPO" });
+  });
+
+  it("exactly one target: body naming both detectionId and reviewId is rejected", async () => {
+    seedReviewScene();
+    const res = await call("POST", { jobId: "j1", action: "review-marker" }, {
+      action: "delete",
+      detectionId: "d1",
+      reviewId: "rv_1",
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("uncertain regions are not deletable markers", async () => {
+    seedReviewScene();
+    const res = await call("POST", { jobId: "j1", action: "review-marker" }, {
+      action: "delete",
+      detectionId: "u1",
+    });
+    expect(res.statusCode).toBe(400);
+    expect(String(res.body.error)).toContain("uncertain");
+  });
+
+  it("409s actions on markers from a superseded raster", async () => {
+    seedReviewScene();
+    deviceDetections.push({
+      id: "d_old",
+      job_id: "j1",
+      plan_id: "pl1",
+      page_index: 0,
+      page_sha256: "sha-OLD",
+      run_id: "run_y",
+      kind: "device",
+      legend_entry_id: "le_gpo",
+      label: "Double GPO",
+      bbox: { x: 0.3, y: 0.3, w: 0.04, h: 0.04 },
+      confidence: 0.9,
+      note: null,
+      created_at: "2026-07-02T00:00:00.000Z",
+    });
+    const res = await call("POST", { jobId: "j1", action: "review-marker" }, {
+      action: "delete",
+      detectionId: "d_old",
+    });
+    expect(res.statusCode).toBe(409);
+    expect(String(res.body.error)).toContain("raster changed");
+  });
+
+  it("accept snapshots the count with basis + acceptor; corrections after make it stale; re-accept clears", async () => {
+    seedReviewScene();
+    // correct first: delete d2, then accept GPO = 1
+    await call("POST", { jobId: "j1", action: "review-marker" }, {
+      action: "delete",
+      detectionId: "d2",
+    });
+    const res = await call("POST", { jobId: "j1", action: "accept-count" }, {
+      planId: "pl1",
+      pageIndex: 0,
+      legendEntryId: "le_gpo",
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body.accepted).toMatchObject({
+      count: 1,
+      label: "Double GPO",
+      acceptedBy: "boss",
+      stale: false,
+    });
+    expect(res.body.accepted.basis.markerKeys).toEqual(["d:d1"]);
+    expect(res.body.accepted.basis.reviewIds).toContain("rv_1"); // the delete shaped this count
+    expect(gpoRow(res.body.page).accepted).toMatchObject({ count: 1, stale: false });
+    const audit = auditEntries.find((a) => a.action === "document.count_accepted");
+    expect(audit).toBeTruthy();
+    expect(String(audit?.summary)).toContain("human-verified");
+
+    // a correction AFTER the sign-off makes it visibly stale
+    const afterAdd = await call("POST", { jobId: "j1", action: "add-marker" }, {
+      planId: "pl1",
+      pageIndex: 0,
+      bbox: { x: 0.7, y: 0.7, w: 0.016, h: 0.016 },
+      legendEntryId: "le_gpo",
+    });
+    expect(gpoRow(afterAdd.body.page).accepted).toMatchObject({ count: 1, stale: true });
+
+    // re-accept supersedes, keeps history, clears staleness
+    const again = await call("POST", { jobId: "j1", action: "accept-count" }, {
+      planId: "pl1",
+      pageIndex: 0,
+      legendEntryId: "le_gpo",
+    });
+    expect(again.statusCode).toBe(200);
+    expect(again.body.accepted).toMatchObject({ count: 2, stale: false });
+    expect(acceptedCounts).toHaveLength(2);
+    expect(acceptedCounts[0]).toMatchObject({ status: "superseded", superseded_by: "ac_2" });
+    expect(acceptedCounts[1]).toMatchObject({ status: "live" });
+  });
+
+  it("cannot accept an entry with no markers on the sheet", async () => {
+    seedReviewScene();
+    legendRows.push({
+      id: "le_empty",
+      job_id: "j1",
+      origin: "human",
+      status: "accepted",
+      label: "EV charger",
+      normalized_label: "ev charger",
+      human_label: null,
+      symbol_text: null,
+      symbol_crop_url: null,
+    });
+    const res = await call("POST", { jobId: "j1", action: "accept-count" }, {
+      planId: "pl1",
+      pageIndex: 0,
+      legendEntryId: "le_empty",
+    });
+    expect(res.statusCode).toBe(409);
+    expect(String(res.body.error)).toContain("nothing to accept");
+  });
+
+  it("accepting zero after removing every marker of a type IS a valid sign-off", async () => {
+    seedReviewScene();
+    await call("POST", { jobId: "j1", action: "review-marker" }, {
+      action: "delete",
+      detectionId: "d3",
+    });
+    const res = await call("POST", { jobId: "j1", action: "accept-count" }, {
+      planId: "pl1",
+      pageIndex: 0,
+      legendEntryId: "le_dl",
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body.accepted).toMatchObject({ count: 0, stale: false });
+    expect(res.body.accepted.basis.markerKeys).toEqual([]);
   });
 });

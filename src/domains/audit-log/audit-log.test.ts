@@ -145,6 +145,7 @@ describe("AuditLogEntrySchema", () => {
       "document.acknowledged",
       "document.ai_corrected",
       "document.ai_extracted",
+      "document.count_accepted",
       "document.diff_region_reviewed",
       "document.made_current",
       "document.revision_diffed",
