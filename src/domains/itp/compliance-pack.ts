@@ -295,7 +295,7 @@ function formatLimits(
   return parts.length ? parts.join(", ") : "—";
 }
 
-/** #289 — LEGACY fallback only. Overrides harvested from the audit log
+/** #289 — compatibility path (pre-#289 instances) only. Overrides harvested from the audit log
  *  (itp.signed_off metadata), keyed by instance id, for instances signed
  *  off BEFORE the override was persisted on the instance (schema
  *  `signOffOverride`). New sign-offs carry the justification on the
@@ -341,7 +341,7 @@ export function buildCompliancePack(input: {
     siteAddress: job.siteAddress ? String(job.siteAddress).trim() || null : null,
     generatedAt: input.generatedAt,
     // #289 — the current source is the instance itself (signOffOverride),
-    // which never ages out. The audit log is only a legacy fallback for
+    // which never ages out. The audit log is only a compatibility path (pre-#289 instances) for
     // instances signed off before that field existed, and the window note
     // applies to those alone.
     overridesNote: `Independence override justifications are recorded on the sign-off itself and cannot expire. Overrides from sign-offs predating this record are sourced from the job audit log (last ${input.overridesWindowMonths} months); older ones remain in the audit record.`,

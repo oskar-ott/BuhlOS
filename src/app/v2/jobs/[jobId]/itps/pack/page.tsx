@@ -34,7 +34,7 @@ const OVERRIDES_WINDOW_MONTHS = 12;
  * Override sourcing (#289): independence override justifications are now
  * PERSISTED on the instance (schema `signOffOverride`) at sign-off time, so
  * the pack reads them straight from the instance and they can never age out.
- * The 12-month audit read below is retained ONLY as a legacy fallback for
+ * The 12-month audit read below is retained ONLY as a compatibility path (pre-#289 instances) for
  * instances signed off before that field existed; the pack prefers the
  * instance value and the note explains the split.
  */
@@ -167,7 +167,7 @@ async function loadTestRecords(
   }
 }
 
-/** #289 legacy fallback — itp.signed_off audit entries →
+/** #289 compatibility path (pre-#289 instances) — itp.signed_off audit entries →
  *  { instanceId: overrideJustification }, for instances signed off before
  *  the override was persisted on the instance. The pack prefers the
  *  instance's own signOffOverride and only reaches this for older rows.
