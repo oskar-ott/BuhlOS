@@ -801,9 +801,145 @@ async function deleteRoomAssignment(sql, tenantId, jobId, planId, pageIndex, pag
   return rows.length > 0;
 }
 
+// ─── #211: cable-run estimates (pins, calibration, runs) ────────────────────
+
+async function listBoardPins(sql, tenantId, jobId) {
+  return await sql`
+    select * from public.board_pins
+    where tenant_id = ${tenantId} and job_id = ${jobId}
+    order by plan_id, page_index, board_identifier`;
+}
+
+async function upsertBoardPin(sql, tenantId, o) {
+  const rows = await sql`
+    insert into public.board_pins (
+      tenant_id, job_id, plan_id, page_index, page_sha256, board_identifier,
+      point, created_by_label
+    ) values (
+      ${tenantId}, ${o.jobId}, ${o.planId}, ${o.pageIndex}, ${o.pageSha256},
+      ${o.boardIdentifier}, ${sql.json(o.point)}, ${o.createdByLabel}
+    )
+    on conflict (tenant_id, job_id, plan_id, page_index, page_sha256, board_identifier)
+    do update set point = excluded.point, created_at = now(),
+      created_by_label = excluded.created_by_label
+    returning *`;
+  return rows[0];
+}
+
+async function deleteBoardPin(sql, tenantId, jobId, planId, pageIndex, pageSha256, boardIdentifier) {
+  const rows = await sql`
+    delete from public.board_pins
+    where tenant_id = ${tenantId} and job_id = ${jobId}
+      and plan_id = ${planId} and page_index = ${pageIndex}
+      and page_sha256 = ${pageSha256} and board_identifier = ${boardIdentifier}
+    returning id`;
+  return rows.length > 0;
+}
+
+async function listCalibrations(sql, tenantId, jobId) {
+  return await sql`
+    select * from public.sheet_calibrations
+    where tenant_id = ${tenantId} and job_id = ${jobId}
+    order by plan_id, page_index`;
+}
+
+// Re-calibrating replaces the raster's single calibration row.
+async function upsertCalibration(sql, tenantId, o) {
+  const rows = await sql`
+    insert into public.sheet_calibrations (
+      tenant_id, job_id, plan_id, page_index, page_sha256, point_a, point_b,
+      real_mm, raster_aspect, mm_per_norm_x, mm_per_norm_y, title_scale_text,
+      created_by_label
+    ) values (
+      ${tenantId}, ${o.jobId}, ${o.planId}, ${o.pageIndex}, ${o.pageSha256},
+      ${sql.json(o.pointA)}, ${sql.json(o.pointB)}, ${o.realMm}, ${o.rasterAspect},
+      ${o.mmPerNormX}, ${o.mmPerNormY}, ${o.titleScaleText}, ${o.createdByLabel}
+    )
+    on conflict (tenant_id, job_id, plan_id, page_index, page_sha256)
+    do update set
+      point_a = excluded.point_a, point_b = excluded.point_b,
+      real_mm = excluded.real_mm, raster_aspect = excluded.raster_aspect,
+      mm_per_norm_x = excluded.mm_per_norm_x, mm_per_norm_y = excluded.mm_per_norm_y,
+      title_scale_text = excluded.title_scale_text,
+      created_at = now(), created_by_label = excluded.created_by_label
+    returning *`;
+  return rows[0];
+}
+
+async function listCableRuns(sql, tenantId, jobId) {
+  return await sql`
+    select * from public.cable_estimate_runs
+    where tenant_id = ${tenantId} and job_id = ${jobId} and status <> 'superseded'
+    order by plan_id, page_index`;
+}
+
+async function getCableRun(sql, tenantId, jobId, runId) {
+  const rows = await sql`
+    select * from public.cable_estimate_runs
+    where tenant_id = ${tenantId} and job_id = ${jobId} and id = ${runId}
+    limit 1`;
+  return rows.length ? rows[0] : null;
+}
+
+// Recompute = insert a fresh DRAFT run, superseding the raster's live run —
+// acceptance never carries across a recompute (the partial unique index
+// enforces one live row, so the flip happens before the insert).
+async function insertCableRun(sql, tenantId, row) {
+  const prior = await sql`
+    update public.cable_estimate_runs set status = 'superseded'
+    where tenant_id = ${tenantId} and job_id = ${row.jobId} and plan_id = ${row.planId}
+      and page_index = ${row.pageIndex} and page_sha256 = ${row.pageSha256}
+      and status <> 'superseded'
+    returning id`;
+  const rows = await sql`
+    insert into public.cable_estimate_runs (
+      tenant_id, job_id, plan_id, page_index, page_sha256, status,
+      factors, inputs, results, created_by_label
+    ) values (
+      ${tenantId}, ${row.jobId}, ${row.planId}, ${row.pageIndex}, ${row.pageSha256},
+      'draft', ${sql.json(row.factors)}, ${sql.json(row.inputs)},
+      ${sql.json(row.results)}, ${row.createdByLabel}
+    ) returning *`;
+  const run = rows[0];
+  if (prior.length) {
+    await sql`
+      update public.cable_estimate_runs set superseded_by = ${run.id}
+      where tenant_id = ${tenantId} and id = any(${prior.map((p) => p.id)})`;
+  }
+  return run;
+}
+
+async function acceptCableRun(sql, tenantId, jobId, runId, acceptedByLabel) {
+  const rows = await sql`
+    update public.cable_estimate_runs set
+      status = 'accepted', accepted_at = now(), accepted_by_label = ${acceptedByLabel}
+    where tenant_id = ${tenantId} and job_id = ${jobId} and id = ${runId}
+      and status = 'draft'
+    returning *`;
+  return rows.length ? rows[0] : null;
+}
+
+// The takeoff seam (#213): accepted estimate runs only.
+async function acceptedCableRuns(sql, tenantId, jobId) {
+  return await sql`
+    select * from public.cable_estimate_runs
+    where tenant_id = ${tenantId} and job_id = ${jobId} and status = 'accepted'
+    order by plan_id, page_index`;
+}
+
 module.exports = {
   OVERRIDE_FIELDS,
   ROOM_TRANSITIONS,
+  listBoardPins,
+  upsertBoardPin,
+  deleteBoardPin,
+  listCalibrations,
+  upsertCalibration,
+  listCableRuns,
+  getCableRun,
+  insertCableRun,
+  acceptCableRun,
+  acceptedCableRuns,
   listRooms,
   getRoom,
   roomsForExtraction,

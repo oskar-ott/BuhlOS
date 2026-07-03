@@ -134,6 +134,9 @@ export const AUDIT_ACTIONS = [
   "document.diff_region_reviewed",
   // #205: Epic 5 count review — a human accepted a device count.
   "document.count_accepted",
+  // #211: Epic 5 cable estimates — calibration/run + human acceptance.
+  "document.cable_estimated",
+  "document.cable_estimate_accepted",
   "contact.saved",
   "contact.removed",
   "credential.added",

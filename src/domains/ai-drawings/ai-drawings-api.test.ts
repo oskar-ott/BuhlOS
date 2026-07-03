@@ -48,6 +48,9 @@ let detectionReviews: Row[];
 let acceptedCounts: Row[];
 let roomRows: Row[];
 let roomAssignments: Row[];
+let boardPins: Row[];
+let calibrations: Row[];
+let cableRuns: Row[];
 let blobPuts: Array<{ path: string; bytes: number }>;
 let auditEntries: Row[];
 let aiCalls: Array<Record<string, unknown>>;
@@ -212,6 +215,9 @@ beforeEach(() => {
   acceptedCounts = [];
   roomRows = [];
   roomAssignments = [];
+  boardPins = [];
+  calibrations = [];
+  cableRuns = [];
   blobPuts = [];
   auditEntries = [];
   detectionRaceWinner = null;
@@ -1083,6 +1089,140 @@ beforeEach(() => {
         );
         return roomAssignments.length < before;
       },
+      // ── #211 cable estimates (mirrors the real store's SQL semantics) ──
+      listBoardPins: async (_sql: unknown, _t: string, jobId: string) =>
+        boardPins.filter((p) => p.job_id === jobId),
+      upsertBoardPin: async (_sql: unknown, _t: string, o: Row) => {
+        const i = boardPins.findIndex(
+          (p) =>
+            p.job_id === o.jobId &&
+            p.plan_id === o.planId &&
+            p.page_index === o.pageIndex &&
+            p.page_sha256 === o.pageSha256 &&
+            p.board_identifier === o.boardIdentifier,
+        );
+        const row: Row = {
+          id: i >= 0 ? boardPins[i]!.id : `bp_${boardPins.length + 1}`,
+          job_id: o.jobId,
+          plan_id: o.planId,
+          page_index: o.pageIndex,
+          page_sha256: o.pageSha256,
+          board_identifier: o.boardIdentifier,
+          point: o.point,
+          created_at: new Date().toISOString(),
+          created_by_label: o.createdByLabel,
+        };
+        if (i >= 0) boardPins[i] = row;
+        else boardPins.push(row);
+        return row;
+      },
+      deleteBoardPin: async (
+        _sql: unknown,
+        _t: string,
+        jobId: string,
+        planId: string,
+        pageIndex: number,
+        pageSha256: string,
+        boardIdentifier: string,
+      ) => {
+        const before = boardPins.length;
+        boardPins = boardPins.filter(
+          (p) =>
+            !(
+              p.job_id === jobId &&
+              p.plan_id === planId &&
+              p.page_index === pageIndex &&
+              p.page_sha256 === pageSha256 &&
+              p.board_identifier === boardIdentifier
+            ),
+        );
+        return boardPins.length < before;
+      },
+      listCalibrations: async (_sql: unknown, _t: string, jobId: string) =>
+        calibrations.filter((c) => c.job_id === jobId),
+      upsertCalibration: async (_sql: unknown, _t: string, o: Row) => {
+        const i = calibrations.findIndex(
+          (c) =>
+            c.job_id === o.jobId &&
+            c.plan_id === o.planId &&
+            c.page_index === o.pageIndex &&
+            c.page_sha256 === o.pageSha256,
+        );
+        const row: Row = {
+          id: i >= 0 ? calibrations[i]!.id : `cal_${calibrations.length + 1}`,
+          job_id: o.jobId,
+          plan_id: o.planId,
+          page_index: o.pageIndex,
+          page_sha256: o.pageSha256,
+          point_a: o.pointA,
+          point_b: o.pointB,
+          real_mm: o.realMm,
+          raster_aspect: o.rasterAspect,
+          mm_per_norm_x: o.mmPerNormX,
+          mm_per_norm_y: o.mmPerNormY,
+          title_scale_text: o.titleScaleText,
+          created_at: new Date().toISOString(),
+          created_by_label: o.createdByLabel,
+        };
+        if (i >= 0) calibrations[i] = row;
+        else calibrations.push(row);
+        return row;
+      },
+      listCableRuns: async (_sql: unknown, _t: string, jobId: string) =>
+        cableRuns.filter((r) => r.job_id === jobId && r.status !== "superseded"),
+      getCableRun: async (_sql: unknown, _t: string, jobId: string, id: string) =>
+        cableRuns.find((r) => r.job_id === jobId && r.id === id) ?? null,
+      insertCableRun: async (_sql: unknown, _t: string, row: Row) => {
+        const prior = cableRuns.filter(
+          (r) =>
+            r.job_id === row.jobId &&
+            r.plan_id === row.planId &&
+            r.page_index === row.pageIndex &&
+            r.page_sha256 === row.pageSha256 &&
+            r.status !== "superseded",
+        );
+        for (const p of prior) p.status = "superseded";
+        const run: Row = {
+          id: `cr_${cableRuns.length + 1}`,
+          job_id: row.jobId,
+          plan_id: row.planId,
+          page_index: row.pageIndex,
+          page_sha256: row.pageSha256,
+          status: "draft",
+          factors: row.factors,
+          inputs: row.inputs,
+          results: row.results,
+          superseded_by: null,
+          created_at: new Date().toISOString(),
+          created_by_label: row.createdByLabel,
+          accepted_at: null,
+          accepted_by_label: null,
+        };
+        cableRuns.push(run);
+        for (const p of prior) p.superseded_by = run.id;
+        return run;
+      },
+      acceptCableRun: async (
+        _sql: unknown,
+        _t: string,
+        jobId: string,
+        runId: string,
+        acceptedByLabel: string,
+      ) => {
+        const i = cableRuns.findIndex(
+          (r) => r.job_id === jobId && r.id === runId && r.status === "draft",
+        );
+        if (i < 0) return null;
+        cableRuns[i] = {
+          ...cableRuns[i],
+          status: "accepted",
+          accepted_at: new Date().toISOString(),
+          accepted_by_label: acceptedByLabel,
+        };
+        return cableRuns[i];
+      },
+      acceptedCableRuns: async (_sql: unknown, _t: string, jobId: string) =>
+        cableRuns.filter((r) => r.job_id === jobId && r.status === "accepted"),
     },
   } as NodeJS.Module;
 
@@ -3052,5 +3192,225 @@ describe("rooms and zones (#206)", () => {
     expect(res.statusCode).toBe(502);
     expect(spendLedger().calls).toHaveLength(1);
     expect(roomRows).toHaveLength(0);
+  });
+});
+
+describe("cable estimates (#211)", () => {
+  // Two GPOs at (0.42,0.42) and (0.62,0.62), one downlight at (0.215,0.215).
+  function seedCableScene() {
+    legendRows.push({
+      id: "le_gpo",
+      job_id: "j1",
+      origin: "ai",
+      status: "accepted",
+      label: "Double GPO",
+      normalized_label: "double gpo",
+      human_label: null,
+      symbol_text: null,
+      symbol_crop_url: null,
+    });
+    deviceDetections.push(
+      {
+        id: "d1",
+        job_id: "j1",
+        plan_id: "pl1",
+        page_index: 0,
+        page_sha256: "sha0",
+        run_id: "run_x",
+        kind: "device",
+        legend_entry_id: "le_gpo",
+        label: "Double GPO",
+        bbox: { x: 0.4, y: 0.4, w: 0.04, h: 0.04 },
+        confidence: 0.9,
+        note: null,
+        created_at: "2026-07-03T00:00:00.000Z",
+      },
+      {
+        id: "d2",
+        job_id: "j1",
+        plan_id: "pl1",
+        page_index: 0,
+        page_sha256: "sha0",
+        run_id: "run_x",
+        kind: "device",
+        legend_entry_id: "le_gpo",
+        label: "Double GPO",
+        bbox: { x: 0.6, y: 0.6, w: 0.04, h: 0.04 },
+        confidence: 0.8,
+        note: null,
+        created_at: "2026-07-03T00:00:01.000Z",
+      },
+    );
+  }
+
+  const pin = (boardIdentifier = "DB-1", point = { x: 0.1, y: 0.1 }) =>
+    call("POST", { jobId: "j1", action: "pin-board" }, {
+      planId: "pl1",
+      pageIndex: 0,
+      boardIdentifier,
+      point,
+    });
+  // square raster, reference: half the page width = 5,000mm → 10,000mm/unit
+  const calibrate = () =>
+    call("POST", { jobId: "j1", action: "calibrate-sheet" }, {
+      planId: "pl1",
+      pageIndex: 0,
+      pointA: { x: 0.25, y: 0.5 },
+      pointB: { x: 0.75, y: 0.5 },
+      realMm: 5000,
+      rasterAspect: 1,
+    });
+  const estimate = (factors?: Record<string, number>) =>
+    call("POST", { jobId: "j1", action: "estimate-cable" }, {
+      planId: "pl1",
+      pageIndex: 0,
+      factors,
+    });
+
+  it("refuses to estimate without a calibration — flagged, never unit-guessed", async () => {
+    seedCableScene();
+    await pin();
+    const res = await estimate();
+    expect(res.statusCode).toBe(409);
+    expect(String(res.body.error)).toContain("calibrate");
+  });
+
+  it("refuses to estimate without a board pin", async () => {
+    seedCableScene();
+    await calibrate();
+    const res = await estimate();
+    expect(res.statusCode).toBe(409);
+    expect(String(res.body.error)).toContain("board");
+  });
+
+  it("calibration stores derived scales and the title-block cross-check; pins land on the page block", async () => {
+    seedCableScene();
+    // the sheet has an AI-understood scale for the cross-check
+    await call("POST", { jobId: "j1", action: "understand-page" }, {
+      planId: "pl1",
+      pageIndex: 0,
+    });
+    const cal = await calibrate();
+    expect(cal.statusCode).toBe(200);
+    expect(cal.body.calibration).toMatchObject({
+      mmPerNormX: 10000,
+      mmPerNormY: 10000,
+      titleScaleText: "1:100", // from GOOD_OUTPUT's title block — cross-check only
+    });
+    const pinned = await pin();
+    expect(pinned.statusCode).toBe(200);
+    expect(pinned.body.page.cable.pins).toHaveLength(1);
+    expect(pinned.body.page.cable.calibration).not.toBeNull();
+    const audit = auditEntries.find(
+      (a) => a.action === "document.cable_estimated" && (a.metadata as Row)?.kind === "calibration",
+    );
+    expect(audit).toBeTruthy();
+  });
+
+  it("estimates Manhattan runs with the applied assumption set stored on the result", async () => {
+    seedCableScene();
+    await calibrate();
+    await pin("DB-1", { x: 0.1, y: 0.1 });
+    const res = await estimate({ routingFactor: 1, riseDropMm: 0, slackFactor: 1 });
+    expect(res.statusCode).toBe(200);
+    const run = res.body.run;
+    expect(run.status).toBe("draft");
+    expect(run.stale).toBe(false);
+    expect(run.factors).toEqual({ routingFactor: 1, riseDropMm: 0, slackFactor: 1 });
+    // d1 centre (0.42,0.42) → manhattan (0.32+0.32)×10,000 = 6,400mm
+    const d1 = run.results.perDevice.find((d: Row) => d.markerKey === "d:d1");
+    expect(d1).toMatchObject({ boardIdentifier: "DB-1", manhattanMm: 6400, estimateMm: 6400 });
+    // d2 centre (0.62,0.62) → 10,400mm
+    expect(run.results.totalMm).toBe(6400 + 10400);
+    // full input snapshot rides the run — reproducible
+    expect(run.inputs.markerKeys).toEqual(["d:d1", "d:d2"]);
+    expect(run.inputs.calibration).toMatchObject({ mmPerNormX: 10000, realMm: 5000 });
+    expect(run.inputs.pins).toEqual([{ boardIdentifier: "DB-1", point: { x: 0.1, y: 0.1 } }]);
+    const audit = auditEntries.find(
+      (a) =>
+        a.action === "document.cable_estimated" && (a.metadata as Row)?.kind === "cable-estimate",
+    );
+    expect(String(audit?.summary)).toContain("heuristic draft");
+  });
+
+  it("changing factors recomputes transparently — new draft supersedes, acceptance never carries", async () => {
+    seedCableScene();
+    await calibrate();
+    await pin();
+    const first = await estimate({ routingFactor: 1, riseDropMm: 0, slackFactor: 1 });
+    const accepted = await call("POST", { jobId: "j1", action: "accept-cable-estimate" }, {
+      runId: first.body.run.id,
+    });
+    expect(accepted.statusCode).toBe(200);
+    expect(accepted.body.run.status).toBe("accepted");
+    const auditAccept = auditEntries.find(
+      (a) => a.action === "document.cable_estimate_accepted",
+    );
+    expect(String(auditAccept?.summary)).toContain("ESTIMATE");
+
+    const second = await estimate({ routingFactor: 2, riseDropMm: 0, slackFactor: 1 });
+    expect(second.statusCode).toBe(200);
+    expect(second.body.run.status).toBe("draft"); // re-acceptance required
+    expect(second.body.run.results.totalMm).toBe((6400 + 10400) * 2);
+    expect(cableRuns.filter((r) => r.status === "superseded")).toHaveLength(1);
+
+    // accepting the superseded run is refused
+    const stale = await call("POST", { jobId: "j1", action: "accept-cable-estimate" }, {
+      runId: first.body.run.id,
+    });
+    expect(stale.statusCode).toBe(409);
+  });
+
+  it("marker corrections after a run make it visibly stale", async () => {
+    seedCableScene();
+    await calibrate();
+    await pin();
+    await estimate();
+    const del = await call("POST", { jobId: "j1", action: "review-marker" }, {
+      action: "delete",
+      detectionId: "d2",
+    });
+    expect(del.body.page.cable.run.stale).toBe(true);
+  });
+
+  it("re-pinning a board after a run makes it stale too", async () => {
+    seedCableScene();
+    await calibrate();
+    await pin();
+    await estimate();
+    const moved = await pin("DB-1", { x: 0.9, y: 0.9 });
+    expect(moved.body.page.cable.run.stale).toBe(true);
+  });
+
+  it("clears a board pin; unknown pin 404s", async () => {
+    seedCableScene();
+    await pin();
+    const cleared = await call("POST", { jobId: "j1", action: "clear-board-pin" }, {
+      planId: "pl1",
+      pageIndex: 0,
+      boardIdentifier: "DB-1",
+    });
+    expect(cleared.statusCode).toBe(200);
+    expect(cleared.body.page.cable.pins).toHaveLength(0);
+    const missing = await call("POST", { jobId: "j1", action: "clear-board-pin" }, {
+      planId: "pl1",
+      pageIndex: 0,
+      boardIdentifier: "DB-9",
+    });
+    expect(missing.statusCode).toBe(404);
+  });
+
+  it("rejects a degenerate calibration reference", async () => {
+    seedCableScene();
+    const res = await call("POST", { jobId: "j1", action: "calibrate-sheet" }, {
+      planId: "pl1",
+      pageIndex: 0,
+      pointA: { x: 0.5, y: 0.5 },
+      pointB: { x: 0.505, y: 0.5 },
+      realMm: 5000,
+      rasterAspect: 1,
+    });
+    expect(res.statusCode).toBe(400);
+    expect(String(res.body.error)).toContain("too close");
   });
 });

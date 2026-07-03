@@ -499,6 +499,103 @@ export const ByRoomRowSchema = z.object({
 });
 export type ByRoomRow = z.infer<typeof ByRoomRowSchema>;
 
+// ─── #211: cable estimates (pure geometry — every number is an ESTIMATE) ───
+
+export const NormPointSchema = z.object({ x: z.number(), y: z.number() });
+export type NormPagePoint = z.infer<typeof NormPointSchema>;
+
+export const BoardPinSchema = z.object({
+  id: z.string(),
+  boardIdentifier: z.string(),
+  point: NormPointSchema,
+  createdBy: z.string().nullable(),
+});
+export type BoardPin = z.infer<typeof BoardPinSchema>;
+
+export const SheetCalibrationSchema = z.object({
+  id: z.string(),
+  pointA: NormPointSchema,
+  pointB: NormPointSchema,
+  realMm: z.number(),
+  rasterAspect: z.number(),
+  mmPerNormX: z.number(),
+  mmPerNormY: z.number(),
+  titleScaleText: z.string().nullable(),
+  createdAt: z.string(),
+  createdBy: z.string().nullable(),
+});
+export type SheetCalibration = z.infer<typeof SheetCalibrationSchema>;
+
+export const CableFactorsSchema = z.object({
+  routingFactor: z.number(),
+  riseDropMm: z.number(),
+  slackFactor: z.number(),
+});
+export type CableFactors = z.infer<typeof CableFactorsSchema>;
+
+export const CableRunSchema = z.object({
+  id: z.string(),
+  status: z.enum(["draft", "accepted"]),
+  factors: CableFactorsSchema,
+  inputs: z.object({
+    markerKeys: z.array(z.string()),
+    markers: z.array(
+      z.object({ key: z.string(), label: z.string().nullable(), bbox: CropRegionSchema }),
+    ),
+    pins: z.array(z.object({ boardIdentifier: z.string(), point: NormPointSchema })),
+    calibration: z.object({
+      id: z.string(),
+      mmPerNormX: z.number(),
+      mmPerNormY: z.number(),
+      realMm: z.number(),
+      titleScaleText: z.string().nullable(),
+    }),
+  }),
+  results: z.object({
+    perDevice: z.array(
+      z.object({
+        markerKey: z.string(),
+        label: z.string().nullable(),
+        legendEntryId: z.string().nullable(),
+        boardIdentifier: z.string(),
+        manhattanMm: z.number(),
+        estimateMm: z.number(),
+      }),
+    ),
+    boards: z.array(
+      z.object({
+        boardIdentifier: z.string(),
+        deviceCount: z.number().int(),
+        totalMm: z.number(),
+        byLabel: z.array(
+          z.object({
+            label: z.string().nullable(),
+            legendEntryId: z.string().nullable(),
+            deviceCount: z.number().int(),
+            totalMm: z.number(),
+          }),
+        ),
+      }),
+    ),
+    totalMm: z.number(),
+    deviceCount: z.number().int(),
+  }),
+  createdAt: z.string(),
+  createdBy: z.string().nullable(),
+  acceptedAt: z.string().nullable(),
+  acceptedBy: z.string().nullable(),
+  /** True when markers, pins or calibration moved after this run. */
+  stale: z.boolean(),
+});
+export type CableRun = z.infer<typeof CableRunSchema>;
+
+export const PageCableSchema = z.object({
+  pins: z.array(BoardPinSchema),
+  calibration: SheetCalibrationSchema.nullable(),
+  run: CableRunSchema.nullable(),
+});
+export type PageCable = z.infer<typeof PageCableSchema>;
+
 export const CountReviewPageSchema = z.object({
   planId: z.string(),
   pageIndex: z.number().int(),
@@ -509,6 +606,8 @@ export const CountReviewPageSchema = z.object({
   /** #206 */
   rooms: z.array(RoomSchema).optional().default([]),
   byRoom: z.array(ByRoomRowSchema).optional().default([]),
+  /** #211 */
+  cable: PageCableSchema.optional().default({ pins: [], calibration: null, run: null }),
 });
 export type CountReviewPage = z.infer<typeof CountReviewPageSchema>;
 
@@ -549,3 +648,15 @@ export const RoomAssignResponseSchema = z.object({
   page: CountReviewPageSchema,
 });
 export type RoomAssignResponse = z.infer<typeof RoomAssignResponseSchema>;
+
+export const CalibrateResponseSchema = z.object({
+  calibration: SheetCalibrationSchema,
+  page: CountReviewPageSchema,
+});
+export type CalibrateResponse = z.infer<typeof CalibrateResponseSchema>;
+
+export const CableRunResponseSchema = z.object({
+  run: CableRunSchema,
+  page: CountReviewPageSchema,
+});
+export type CableRunResponse = z.infer<typeof CableRunResponseSchema>;
