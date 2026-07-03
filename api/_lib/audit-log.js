@@ -130,6 +130,10 @@ const VALID_ACTIONS = new Set([
   // #205: Epic 5 count review — a human accepted a device count after the
   // marker verify loop (api/ai-drawings.js).
   'document.count_accepted',
+  // #211: Epic 5 cable estimates — sheet calibrated / heuristic run computed,
+  // and a human accepted an estimate (api/ai-drawings.js).
+  'document.cable_estimated',
+  'document.cable_estimate_accepted',
   // #189: per-job contacts maintained by the office.
   'contact.saved',
   'contact.removed',

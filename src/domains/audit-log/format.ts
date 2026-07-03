@@ -24,6 +24,8 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "document.revision_diffed": "compared two drawing revisions",
   "document.diff_region_reviewed": "walked a drawing change region",
   "document.count_accepted": "accepted a verified device count",
+  "document.cable_estimated": "computed a cable-run estimate",
+  "document.cable_estimate_accepted": "accepted a cable-run estimate",
   "credential.added": "added a licence/ticket",
   "credential.updated": "updated a licence/ticket",
   "credential.removed": "removed a licence/ticket",

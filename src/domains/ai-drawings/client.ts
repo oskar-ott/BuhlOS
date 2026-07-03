@@ -7,6 +7,8 @@
 
 import {
   AcceptCountResponseSchema,
+  CableRunResponseSchema,
+  CalibrateResponseSchema,
   CountReviewResponseSchema,
   ExtractRoomsResponseSchema,
   ReviewRoomResponseSchema,
@@ -27,6 +29,8 @@ import {
   SheetsResponseSchema,
   UnderstandResponseSchema,
   type AcceptCountResponse,
+  type CableRunResponse,
+  type CalibrateResponse,
   type CountReviewResponse,
   type ExtractRoomsResponse,
   type ReviewRoomResponse,
@@ -507,5 +511,94 @@ export async function clearDeviceRoom(
       body: JSON.stringify({ planId, pageIndex, markerKey }),
     },
     (b) => RoomAssignResponseSchema.parse(b),
+  );
+}
+
+// ─── #211: cable estimates ──────────────────────────────────────────────────
+
+export async function pinBoard(
+  jobId: string,
+  planId: string,
+  pageIndex: number,
+  boardIdentifier: string,
+  point: { x: number; y: number },
+): Promise<RoomAssignResponse> {
+  return request(
+    `/api/ai-drawings?jobId=${encodeURIComponent(jobId)}&action=pin-board`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ planId, pageIndex, boardIdentifier, point }),
+    },
+    (b) => RoomAssignResponseSchema.parse(b),
+  );
+}
+
+export async function clearBoardPin(
+  jobId: string,
+  planId: string,
+  pageIndex: number,
+  boardIdentifier: string,
+): Promise<RoomAssignResponse> {
+  return request(
+    `/api/ai-drawings?jobId=${encodeURIComponent(jobId)}&action=clear-board-pin`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ planId, pageIndex, boardIdentifier }),
+    },
+    (b) => RoomAssignResponseSchema.parse(b),
+  );
+}
+
+export async function calibrateSheet(
+  jobId: string,
+  planId: string,
+  pageIndex: number,
+  pointA: { x: number; y: number },
+  pointB: { x: number; y: number },
+  realMm: number,
+  rasterAspect: number,
+): Promise<CalibrateResponse> {
+  return request(
+    `/api/ai-drawings?jobId=${encodeURIComponent(jobId)}&action=calibrate-sheet`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ planId, pageIndex, pointA, pointB, realMm, rasterAspect }),
+    },
+    (b) => CalibrateResponseSchema.parse(b),
+  );
+}
+
+export async function estimateCable(
+  jobId: string,
+  planId: string,
+  pageIndex: number,
+  factors?: { routingFactor?: number; riseDropMm?: number; slackFactor?: number },
+): Promise<CableRunResponse> {
+  return request(
+    `/api/ai-drawings?jobId=${encodeURIComponent(jobId)}&action=estimate-cable`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ planId, pageIndex, factors }),
+    },
+    (b) => CableRunResponseSchema.parse(b),
+  );
+}
+
+export async function acceptCableEstimate(
+  jobId: string,
+  runId: string,
+): Promise<CableRunResponse> {
+  return request(
+    `/api/ai-drawings?jobId=${encodeURIComponent(jobId)}&action=accept-cable-estimate`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ runId }),
+    },
+    (b) => CableRunResponseSchema.parse(b),
   );
 }

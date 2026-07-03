@@ -321,6 +321,52 @@ human can redraw beat over-promised geometry.
   a reference floor plan, boundary errors visible in the overlay — joins
   the standing owner-preview session.
 
+## Cable-run estimates (#211)
+
+Pure geometry + factors — **no model calls, no AI spend**. A heuristic is
+valuable only while its assumptions are explicit, and harmful the moment it
+pretends to be a measurement, so "estimate" is in the label everywhere and
+every run stores its full input snapshot (reproducible from that alone).
+
+- **Metric anchor = human calibration, not the scale string.** Page rasters
+  carry no physical size, so the title-block scale ALONE cannot yield
+  lengths. The estimator two-taps a dimension they know (a grid bay, a
+  dimensioned wall) and enters its real mm — one straight reference plus
+  the raster aspect fixes mm-per-normalised-unit on both axes exactly.
+  This *is* the issue's "verify the parsed scale against a known
+  dimension"; the sheet's effective title-block scale (human override
+  wins, #197) is recorded and displayed as a **cross-check** on every
+  calibration. **No calibration → no estimate, flagged (409)** — never a
+  unit-guessed number; degenerate references (points too close) are
+  refused.
+- **Board input = manual pins** (the issue's accepted v1): named pins
+  ("DB-1", "MSB") tapped onto the sheet; each live device marker (#205)
+  runs to its NEAREST pin by **Manhattan distance** (in-building runs
+  follow walls, not diagonals).
+- **Factors are data, not code**: `estimateMm = manhattan × routingFactor
+  × slackFactor + riseDropMm`, defaults visible (1.15 / 1.1 / 4000mm) and
+  editable per run; the applied set is stored on the result and printed
+  under every output. Changing factors recomputes transparently — a new
+  draft run supersedes the old one.
+- **Explicit acceptance is the only path onward**: runs are born `draft`;
+  a human accepts (acceptor + timestamp, audited as
+  `document.cable_estimate_accepted`). Recomputing never carries
+  acceptance over. `acceptedCableRuns` is the #213 seam — takeoff
+  assembly reads nothing else.
+- **Staleness is structural**: markers, pins or calibration moving after
+  a run flips it to "inputs changed since this run — recompute"
+  (snapshot-vs-current comparison, same contract as #205 counts).
+- Storage: `board_pins` + `sheet_calibrations` + `cable_estimate_runs`
+  (migration `20260703180000_epic5_cable_estimates.sql`); engine
+  `api/_lib/cable-estimate.js` (pure, unit-tested). Audit
+  `document.cable_estimated` (calibration + runs) and
+  `document.cable_estimate_accepted`.
+- Real routing (tray runs, ceiling paths) is beyond what drawings encode
+  and stays permanently out of scope, per the issue.
+- **Accuracy AC prod-gated**: spot-check against a human's scaled
+  measurement on a reference sheet, deviation reported alongside — joins
+  the standing owner-preview session.
+
 ## Honest limits (deliberate, this slice)
 
 - **No server-side PDF/OCR pipeline** — pages must have been rendered by the
@@ -342,9 +388,13 @@ human can redraw beat over-promised geometry.
   on a fit-width raster.
 - Room extents are **approximate bboxes**, not wall-tracing polygons
   (#206 v1 per its issue) — the redraw affordance is the correction path.
+- Cable estimates (#211) group per BOARD, not per circuit — circuit-level
+  grouping arrives with schematic circuit recognition (#209, deferred) or
+  #212's entity links; the board-pin v1 is per that issue's own scoping.
 - Accuracy ACs (#201 legend listing, #202/#207 cell-level error rate,
   #204 detection precision/recall, #205 full-loop count match vs an
-  independent hand count, #206 room names vs a human's room listing)
+  independent hand count, #206 room names vs a human's room listing,
+  #211 estimate vs a human's scaled measurement with deviation reported)
   need prod — same owner-preview session as the #197/#199 checks.
 - **The ≥10-page real-set end-to-end check (final #197 AC) needs production**
   (real Anthropic key + Supabase + a real drawing set) — run it there with

@@ -12,19 +12,26 @@ import {
   type PageView,
 } from "@/domains/plans/coords";
 import type {
+  BoardPin,
   CountReviewPage,
   CropRegion,
   DeviceDetection,
   EffectiveMarker,
   LegendEntry,
   Room,
+  SheetCalibration,
 } from "@/domains/ai-drawings/schema";
 import {
   acceptCount,
+  acceptCableEstimate,
   addMarker,
   addRoom,
   assignDeviceRoom,
+  calibrateSheet,
+  clearBoardPin,
   clearDeviceRoom,
+  estimateCable,
+  pinBoard,
   reviewMarker,
   reviewRoom,
 } from "@/domains/ai-drawings/client";
@@ -66,6 +73,10 @@ const MARKER_TONES = [
 // A human-added marker's footprint on the page (normalised) — small, centred
 // on the tap, clamped inside the page.
 const ADDED_MARKER_SIZE = 0.016;
+
+// Mirrors DEFAULT_FACTORS in api/_lib/cable-estimate.js — visible
+// assumptions, editable per run; the server stores whatever was applied.
+const DEFAULT_CABLE_FACTORS = { routingFactor: 1.15, riseDropMm: 4000, slackFactor: 1.1 };
 
 export function DeviceCountReviewCard({
   jobId,
@@ -136,12 +147,23 @@ function PageReview({
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [addEntryId, setAddEntryId] = useState<string | null>(null);
   const [focusEntryId, setFocusEntryId] = useState<string | null>(null);
-  // #206: two-tap rectangle drawing — redraw an existing room or add one.
+  // #206/#211: tap modes on the overlay — two-tap rectangles (rooms), a
+  // single-tap board pin, and the two-tap calibration line.
   const [drawMode, setDrawMode] = useState<
-    { kind: "redraw"; roomId: string } | { kind: "add"; name: string } | null
+    | { kind: "redraw"; roomId: string }
+    | { kind: "add"; name: string }
+    | { kind: "pin-board"; name: string }
+    | { kind: "calibrate"; realMm: number }
+    | null
   >(null);
   const [pendingCorner, setPendingCorner] = useState<NormPoint | null>(null);
   const [newRoomName, setNewRoomName] = useState("");
+  const [boardName, setBoardName] = useState("DB");
+  const [calMmText, setCalMmText] = useState("");
+  const [rasterAspect, setRasterAspect] = useState<number | null>(null);
+  const [factors, setFactors] = useState(
+    () => page.cable.run?.factors ?? DEFAULT_CABLE_FACTORS,
+  );
 
   const pngUrl = lookup.pngUrlFor(page.planId, page.pageIndex);
   const toneOf = useMemo(() => {
@@ -227,6 +249,14 @@ function PageReview({
   };
   const onDrawTap = async (p: NormPoint) => {
     if (!drawMode || busy) return;
+    if (drawMode.kind === "pin-board") {
+      const mode = drawMode;
+      setDrawMode(null);
+      await run(() =>
+        pinBoard(jobId, page.planId, page.pageIndex, mode.name, { x: p.nx, y: p.ny }),
+      );
+      return;
+    }
     if (!pendingCorner) {
       setPendingCorner(p);
       return;
@@ -235,6 +265,21 @@ function PageReview({
     setPendingCorner(null);
     const mode = drawMode;
     setDrawMode(null);
+    if (mode.kind === "calibrate") {
+      if (rasterAspect === null) return;
+      await run(() =>
+        calibrateSheet(
+          jobId,
+          page.planId,
+          page.pageIndex,
+          { x: first.nx, y: first.ny },
+          { x: p.nx, y: p.ny },
+          mode.realMm,
+          rasterAspect,
+        ),
+      );
+      return;
+    }
     const x = Math.min(first.nx, p.nx);
     const y = Math.min(first.ny, p.ny);
     const bbox: CropRegion = {
@@ -248,6 +293,15 @@ function PageReview({
     } else {
       await run(() => addRoom(jobId, page.planId, page.pageIndex, mode.name, bbox));
     }
+  };
+  const onEstimate = async () => {
+    await run(() => estimateCable(jobId, page.planId, page.pageIndex, factors));
+  };
+  const onAcceptEstimate = async (runId: string) => {
+    await run(() => acceptCableEstimate(jobId, runId));
+  };
+  const onClearPin = async (boardIdentifier: string) => {
+    await run(() => clearBoardPin(jobId, page.planId, page.pageIndex, boardIdentifier));
   };
   const onPinRoom = async (m: EffectiveMarker, value: string) => {
     if (value === "__auto") {
@@ -294,6 +348,9 @@ function PageReview({
             markers={page.markers}
             uncertain={page.uncertain}
             rooms={liveRooms}
+            pins={page.cable.pins}
+            calibration={page.cable.calibration}
+            onMeasured={setRasterAspect}
             toneOf={toneOf}
             selectedKey={selectedKey}
             focusEntryId={focusEntryId}
@@ -346,10 +403,19 @@ function PageReview({
               Drawing <strong>{drawMode.name}</strong> — tap two opposite corners of the
               room.
             </>
-          ) : (
+          ) : drawMode.kind === "redraw" ? (
             <>
               Redrawing <strong>{roomNameOf(drawMode.roomId)}</strong> — tap two opposite
               corners of the new box.
+            </>
+          ) : drawMode.kind === "pin-board" ? (
+            <>
+              Tap the sheet where board <strong>{drawMode.name}</strong> sits.
+            </>
+          ) : (
+            <>
+              Calibrating — tap BOTH ends of a dimension you know to be{" "}
+              <strong>{drawMode.realMm}mm</strong> (a grid bay, a dimensioned wall).
             </>
           )}
           {pendingCorner ? " First corner set." : ""}
@@ -572,6 +638,212 @@ function PageReview({
                 </li>
               ))}
             </ul>
+          ) : null}
+        </div>
+      ) : null}
+
+      {page.markers.some((m) => m.status === "live") && pngUrl ? (
+        <div className="mt-3" data-testid="cable-section">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-semibold uppercase tracking-wide text-text-muted">
+              Cable runs
+            </span>
+            <Pill tone="warning">estimate — assumptions attached</Pill>
+          </div>
+
+          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
+            {page.cable.pins.map((p) => (
+              <span
+                key={p.id}
+                className="inline-flex items-center gap-1 rounded-pill border border-border bg-surface-subtle px-2 py-0.5 text-text"
+                data-testid="board-pin-chip"
+              >
+                <Square aria-hidden="true" className="h-3 w-3 text-text-muted" />
+                {p.boardIdentifier}
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void onClearPin(p.boardIdentifier)}
+                  aria-label={`Remove board pin ${p.boardIdentifier}`}
+                  className="text-text-muted hover:text-text"
+                >
+                  <X aria-hidden="true" className="h-3 w-3" />
+                </button>
+              </span>
+            ))}
+            <input
+              type="text"
+              value={boardName}
+              onChange={(e) => setBoardName(e.target.value)}
+              aria-label="Board identifier for a new pin"
+              className="h-6 w-20 rounded-card border border-border bg-surface px-2 text-xs text-text"
+            />
+            <button
+              type="button"
+              disabled={busy || !boardName.trim()}
+              onClick={() => {
+                setAddEntryId(null);
+                setSelectedKey(null);
+                setPendingCorner(null);
+                setDrawMode({ kind: "pin-board", name: boardName.trim() });
+              }}
+              className="inline-flex h-6 items-center gap-1 rounded-card border border-border bg-surface px-2 text-xs font-medium text-text hover:bg-surface-subtle disabled:cursor-not-allowed disabled:text-text-muted"
+            >
+              <MapPin aria-hidden="true" className="h-3 w-3" />
+              Pin board
+            </button>
+          </div>
+
+          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
+            {page.cable.calibration ? (
+              <span className="text-text-muted" data-testid="calibration-line">
+                Calibrated against a {Math.round(page.cable.calibration.realMm)}mm reference
+                {page.cable.calibration.titleScaleText
+                  ? ` · title block says ${page.cable.calibration.titleScaleText} (cross-check)`
+                  : ""}
+                {" · by "}
+                {page.cable.calibration.createdBy ?? "?"}
+              </span>
+            ) : (
+              <span className="text-text-muted">
+                Not calibrated — estimates need a known dimension, never a guessed unit.
+              </span>
+            )}
+            <input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              value={calMmText}
+              onChange={(e) => setCalMmText(e.target.value)}
+              placeholder="known mm…"
+              aria-label="Real-world length in millimetres of the reference dimension"
+              className="h-6 w-24 rounded-card border border-border bg-surface px-2 text-xs text-text"
+            />
+            <button
+              type="button"
+              disabled={busy || !(Number(calMmText) > 0) || rasterAspect === null}
+              onClick={() => {
+                setAddEntryId(null);
+                setSelectedKey(null);
+                setPendingCorner(null);
+                setDrawMode({ kind: "calibrate", realMm: Number(calMmText) });
+              }}
+              className="inline-flex h-6 items-center gap-1 rounded-card border border-border bg-surface px-2 text-xs font-medium text-text hover:bg-surface-subtle disabled:cursor-not-allowed disabled:text-text-muted"
+            >
+              <Pencil aria-hidden="true" className="h-3 w-3" />
+              {page.cable.calibration ? "Re-calibrate" : "Calibrate"}
+            </button>
+          </div>
+
+          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
+            <label className="inline-flex items-center gap-1 text-text-muted">
+              routing ×
+              <input
+                type="number"
+                step={0.05}
+                min={1}
+                max={5}
+                value={factors.routingFactor}
+                onChange={(e) =>
+                  setFactors((f) => ({ ...f, routingFactor: Number(e.target.value) }))
+                }
+                aria-label="Routing factor"
+                className="h-6 w-16 rounded-card border border-border bg-surface px-1 text-xs text-text"
+              />
+            </label>
+            <label className="inline-flex items-center gap-1 text-text-muted">
+              rise/drop mm
+              <input
+                type="number"
+                step={100}
+                min={0}
+                value={factors.riseDropMm}
+                onChange={(e) =>
+                  setFactors((f) => ({ ...f, riseDropMm: Number(e.target.value) }))
+                }
+                aria-label="Rise and drop allowance per device in millimetres"
+                className="h-6 w-20 rounded-card border border-border bg-surface px-1 text-xs text-text"
+              />
+            </label>
+            <label className="inline-flex items-center gap-1 text-text-muted">
+              slack ×
+              <input
+                type="number"
+                step={0.05}
+                min={1}
+                max={3}
+                value={factors.slackFactor}
+                onChange={(e) =>
+                  setFactors((f) => ({ ...f, slackFactor: Number(e.target.value) }))
+                }
+                aria-label="Slack factor"
+                className="h-6 w-16 rounded-card border border-border bg-surface px-1 text-xs text-text"
+              />
+            </label>
+            <button
+              type="button"
+              disabled={busy || !page.cable.calibration || page.cable.pins.length === 0}
+              onClick={() => void onEstimate()}
+              data-testid="estimate-cable"
+              className="inline-flex h-6 items-center gap-1 rounded-card border border-border bg-surface px-2 text-xs font-medium text-text hover:bg-surface-subtle disabled:cursor-not-allowed disabled:text-text-muted"
+            >
+              {page.cable.run ? "Recompute estimate" : "Estimate cable"}
+            </button>
+          </div>
+
+          {page.cable.run ? (
+            <div
+              className="mt-2 rounded-card border border-border px-3 py-2"
+              data-testid="cable-run"
+            >
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="font-semibold text-text">
+                  {(page.cable.run.results.totalMm / 1000).toFixed(0)} m est. total ·{" "}
+                  {page.cable.run.results.deviceCount} devices
+                </span>
+                {page.cable.run.stale ? (
+                  <Pill tone="warning">inputs changed since this run — recompute</Pill>
+                ) : page.cable.run.status === "accepted" ? (
+                  <Pill tone="success">
+                    <Check aria-hidden="true" className="mr-1 inline h-3 w-3" />
+                    estimate accepted · {page.cable.run.acceptedBy ?? "?"}
+                  </Pill>
+                ) : (
+                  <>
+                    <Pill tone="warning">draft — not accepted</Pill>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void onAcceptEstimate(page.cable.run!.id)}
+                      data-testid="accept-cable"
+                      className="inline-flex h-6 items-center gap-1 rounded-card border border-brand-navy bg-brand-navy px-2 text-xs font-medium text-text-inverse hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <Check aria-hidden="true" className="h-3 w-3" />
+                      Accept estimate
+                    </button>
+                  </>
+                )}
+              </div>
+              <ul className="mt-1 space-y-0.5 text-xs text-text-muted">
+                {page.cable.run.results.boards.map((b) => (
+                  <li key={b.boardIdentifier} data-testid="cable-board-row">
+                    <span className="font-medium text-text">{b.boardIdentifier}</span> ·{" "}
+                    {(b.totalMm / 1000).toFixed(0)} m est. · {b.deviceCount} devices —{" "}
+                    {b.byLabel
+                      .map((l) => `${l.label ?? "(unlabelled)"} ${(l.totalMm / 1000).toFixed(0)}m`)
+                      .join(" · ")}
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-1 text-xs text-text-muted">
+                Assumptions: Manhattan distance × routing{" "}
+                {page.cable.run.factors.routingFactor} × slack{" "}
+                {page.cable.run.factors.slackFactor} + {page.cable.run.factors.riseDropMm}
+                mm rise/drop per device, calibrated against a{" "}
+                {Math.round(page.cable.run.inputs.calibration.realMm)}mm reference. A
+                heuristic first pass — not a measurement.
+              </p>
+            </div>
           ) : null}
         </div>
       ) : null}
@@ -802,6 +1074,9 @@ function MarkerOverlay({
   markers,
   uncertain,
   rooms,
+  pins,
+  calibration,
+  onMeasured,
   toneOf,
   selectedKey,
   focusEntryId,
@@ -817,6 +1092,9 @@ function MarkerOverlay({
   markers: EffectiveMarker[];
   uncertain: DeviceDetection[];
   rooms: Room[];
+  pins: BoardPin[];
+  calibration: SheetCalibration | null;
+  onMeasured: (aspect: number) => void;
   toneOf: (id: string | null) => string;
   selectedKey: string | null;
   focusEntryId: string | null;
@@ -834,8 +1112,11 @@ function MarkerOverlay({
     const img = imgRef.current;
     if (img && img.clientWidth > 0 && img.clientHeight > 0) {
       setSize({ w: img.clientWidth, h: img.clientHeight });
+      if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+        onMeasured(img.naturalHeight / img.naturalWidth);
+      }
     }
-  }, []);
+  }, [onMeasured]);
 
   useEffect(() => {
     const img = imgRef.current;
@@ -926,6 +1207,64 @@ function MarkerOverlay({
               </g>
             );
           })}
+          {pins.map((p) => {
+            const c = normToPixel({ nx: p.point.x, ny: p.point.y }, view);
+            return (
+              <g key={p.id} className="pointer-events-none text-brand-navy" data-testid="board-pin">
+                <rect
+                  x={c.px - 7}
+                  y={c.py - 7}
+                  width={14}
+                  height={14}
+                  rx={2}
+                  fill="currentColor"
+                  stroke="white"
+                  strokeWidth={1.5}
+                />
+                <text
+                  x={c.px + 10}
+                  y={c.py + 4}
+                  fontSize={10}
+                  fill="currentColor"
+                  className="select-none"
+                >
+                  {p.boardIdentifier}
+                </text>
+              </g>
+            );
+          })}
+          {calibration ? (
+            <g className="pointer-events-none text-emerald-700" data-testid="calibration-mark">
+              {(() => {
+                const a = normToPixel({ nx: calibration.pointA.x, ny: calibration.pointA.y }, view);
+                const b = normToPixel({ nx: calibration.pointB.x, ny: calibration.pointB.y }, view);
+                return (
+                  <>
+                    <line
+                      x1={a.px}
+                      y1={a.py}
+                      x2={b.px}
+                      y2={b.py}
+                      stroke="currentColor"
+                      strokeWidth={1.5}
+                      strokeDasharray="2 3"
+                    />
+                    <circle cx={a.px} cy={a.py} r={3.5} fill="currentColor" stroke="white" strokeWidth={1} />
+                    <circle cx={b.px} cy={b.py} r={3.5} fill="currentColor" stroke="white" strokeWidth={1} />
+                    <text
+                      x={(a.px + b.px) / 2 + 5}
+                      y={(a.py + b.py) / 2 - 5}
+                      fontSize={9}
+                      fill="currentColor"
+                      className="select-none"
+                    >
+                      {Math.round(calibration.realMm)}mm
+                    </text>
+                  </>
+                );
+              })()}
+            </g>
+          ) : null}
           {pendingCorner ? (
             <circle
               cx={normToPixel(pendingCorner, view).px}

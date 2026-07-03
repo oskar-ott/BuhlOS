@@ -49,6 +49,7 @@ const store = require('./_lib/ai-drawings-store');
 const pageDiff = require('./_lib/page-diff');
 const countReview = require('./_lib/count-review');
 const roomAssign = require('./_lib/room-assign');
+const cable = require('./_lib/cable-estimate');
 
 // ─── Config (env-configurable, bare current alias default — #378) ──────────
 const AI_DRAWINGS_MODEL = process.env.AI_DRAWINGS_MODEL || 'claude-opus-4-8';
@@ -225,6 +226,39 @@ const ClearRoomAssignmentBody = z.object({
   pageIndex: z.number().int().min(0),
   markerKey: z.string().min(3),
 });
+// #211 cable estimates — pure geometry, no AI.
+const NormPoint = z.object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1) });
+const PinBoardBody = z.object({
+  planId: z.string().min(1),
+  pageIndex: z.number().int().min(0),
+  boardIdentifier: z.string().min(1).max(40),
+  point: NormPoint,
+});
+const ClearBoardPinBody = z.object({
+  planId: z.string().min(1),
+  pageIndex: z.number().int().min(0),
+  boardIdentifier: z.string().min(1).max(40),
+});
+const CalibrateBody = z.object({
+  planId: z.string().min(1),
+  pageIndex: z.number().int().min(0),
+  pointA: NormPoint,
+  pointB: NormPoint,
+  realMm: z.number().gt(0).max(1_000_000),
+  rasterAspect: z.number().gt(0).max(20),
+});
+const EstimateCableBody = z.object({
+  planId: z.string().min(1),
+  pageIndex: z.number().int().min(0),
+  factors: z
+    .object({
+      routingFactor: z.number().min(1).max(5).optional(),
+      riseDropMm: z.number().min(0).max(100000).optional(),
+      slackFactor: z.number().min(1).max(3).optional(),
+    })
+    .optional(),
+});
+const AcceptCableBody = z.object({ runId: z.string().min(1) });
 
 // ─── Model output contract (validated before anything persists) ────────────
 const FieldOut = z.object({
@@ -1873,6 +1907,11 @@ function assembleCountReviewPage(planId, pageIndex, pageSha256, jobRows) {
   );
   const assignment = roomAssign.assignMarkers(markers, pageRooms, pageAssignments);
   const pinnedKeys = new Set(pageAssignments.map((a) => a.marker_key));
+  const onRaster = (r) =>
+    r.plan_id === planId && r.page_index === pageIndex && r.page_sha256 === pageSha256;
+  const pagePins = jobRows.pins.filter(onRaster);
+  const calibration = jobRows.calibrations.find(onRaster) || null;
+  const cableRun = jobRows.cableRuns.find(onRaster) || null;
   return {
     planId,
     pageIndex,
@@ -1886,18 +1925,312 @@ function assembleCountReviewPage(planId, pageIndex, pageSha256, jobRows) {
     counts: countRows,
     rooms: pageRooms.map(roomView),
     byRoom: roomAssign.groupByRoom(markers, pageRooms, pageAssignments),
+    cable: {
+      pins: pagePins.map(boardPinView),
+      calibration: calibration ? calibrationView(calibration) : null,
+      run: cableRun ? cableRunView(cableRun, cableRunStale(cableRun, markers, pagePins, calibration)) : null,
+    },
   };
 }
 
+// ─── #211: cable estimate handlers ──────────────────────────────────────────
+
+function boardPinView(p) {
+  return {
+    id: p.id,
+    boardIdentifier: p.board_identifier,
+    point: p.point,
+    createdBy: p.created_by_label,
+  };
+}
+
+function calibrationView(c) {
+  return {
+    id: c.id,
+    pointA: c.point_a,
+    pointB: c.point_b,
+    realMm: c.real_mm,
+    rasterAspect: c.raster_aspect,
+    mmPerNormX: c.mm_per_norm_x,
+    mmPerNormY: c.mm_per_norm_y,
+    titleScaleText: c.title_scale_text,
+    createdAt: c.created_at,
+    createdBy: c.created_by_label,
+  };
+}
+
+function cableRunView(r, stale) {
+  return {
+    id: r.id,
+    status: r.status,
+    factors: r.factors,
+    inputs: r.inputs,
+    results: r.results,
+    createdAt: r.created_at,
+    createdBy: r.created_by_label,
+    acceptedAt: r.accepted_at,
+    acceptedBy: r.accepted_by_label,
+    stale,
+  };
+}
+
+// A run is stale when ANY of its inputs moved: the live marker set, the
+// pins, or the calibration. Snapshot-vs-current comparison — same honesty
+// contract as the #205 accepted counts.
+function cableRunStale(run, markers, pins, calibration) {
+  const inputs = run.inputs || {};
+  const currentKeys = markers
+    .filter((m) => m.status === 'live')
+    .map((m) => m.key)
+    .sort();
+  const snapKeys = Array.isArray(inputs.markerKeys) ? [...inputs.markerKeys].sort() : [];
+  if (currentKeys.length !== snapKeys.length || currentKeys.some((k, i) => k !== snapKeys[i])) {
+    return true;
+  }
+  const pinSig = (arr) =>
+    arr
+      .map((p) => `${p.boardIdentifier ?? p.board_identifier}@${(p.point || {}).x},${(p.point || {}).y}`)
+      .sort()
+      .join('|');
+  if (pinSig(pins) !== pinSig(Array.isArray(inputs.pins) ? inputs.pins : [])) return true;
+  const snapCal = inputs.calibration || null;
+  if (!calibration || !snapCal) return true;
+  return (
+    Number(snapCal.mmPerNormX) !== Number(calibration.mm_per_norm_x) ||
+    Number(snapCal.mmPerNormY) !== Number(calibration.mm_per_norm_y)
+  );
+}
+
+async function handlePinBoard(res, sql, tenantId, jobId, user, body) {
+  const parsed = PinBoardBody.safeParse(body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0]?.message || 'invalid body' });
+  }
+  const { planId, pageIndex, boardIdentifier, point } = parsed.data;
+  const found = await readPlanPage(jobId, planId, pageIndex);
+  if (found.error) return res.status(found.status).json({ error: found.error });
+  await store.upsertBoardPin(sql, tenantId, {
+    jobId,
+    planId,
+    pageIndex,
+    pageSha256: found.page.sha256,
+    boardIdentifier: boardIdentifier.trim(),
+    point,
+    createdByLabel: user.username || null,
+  });
+  const page = await loadCountReviewPage(sql, tenantId, jobId, planId, pageIndex, found.page.sha256);
+  return res.status(200).json({ page });
+}
+
+async function handleClearBoardPin(res, sql, tenantId, jobId, user, body) {
+  const parsed = ClearBoardPinBody.safeParse(body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0]?.message || 'invalid body' });
+  }
+  const { planId, pageIndex, boardIdentifier } = parsed.data;
+  const found = await readPlanPage(jobId, planId, pageIndex);
+  if (found.error) return res.status(found.status).json({ error: found.error });
+  const removed = await store.deleteBoardPin(
+    sql, tenantId, jobId, planId, pageIndex, found.page.sha256, boardIdentifier,
+  );
+  if (!removed) return res.status(404).json({ error: 'no pin with that identifier' });
+  const page = await loadCountReviewPage(sql, tenantId, jobId, planId, pageIndex, found.page.sha256);
+  return res.status(200).json({ page });
+}
+
+async function handleCalibrateSheet(res, sql, tenantId, jobId, user, body) {
+  const parsed = CalibrateBody.safeParse(body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0]?.message || 'invalid body' });
+  }
+  const { planId, pageIndex, pointA, pointB, realMm, rasterAspect } = parsed.data;
+  const found = await readPlanPage(jobId, planId, pageIndex);
+  if (found.error) return res.status(found.status).json({ error: found.error });
+  const scales = cable.calibrationScales(pointA, pointB, realMm, rasterAspect);
+  if (scales.error) return res.status(400).json({ error: scales.error });
+
+  // The sheet's effective title-block scale rides along as a CROSS-CHECK —
+  // the calibration is the measured source, never the scale string.
+  let titleScaleText = null;
+  try {
+    const [rows, overrides] = await Promise.all([
+      store.listPlanSheets(sql, tenantId, jobId),
+      store.listOverrides(sql, tenantId, jobId),
+    ]);
+    const row = rows.find((r) => r.plan_id === planId && r.page_index === pageIndex);
+    if (row) titleScaleText = effectiveSheet(row, overrides).fields.scale.effective;
+  } catch {
+    // cross-check only — a failure here never blocks calibration
+  }
+
+  const saved = await store.upsertCalibration(sql, tenantId, {
+    jobId,
+    planId,
+    pageIndex,
+    pageSha256: found.page.sha256,
+    pointA,
+    pointB,
+    realMm,
+    rasterAspect,
+    mmPerNormX: scales.mmPerNormX,
+    mmPerNormY: scales.mmPerNormY,
+    titleScaleText,
+    createdByLabel: user.username || null,
+  });
+  await appendAuditLog({
+    action: 'document.cable_estimated',
+    actorId: user.id,
+    actorName: user.username || 'Unknown',
+    actorRole: user.role || null,
+    jobId,
+    targetType: 'document',
+    targetId: planId,
+    summary: `calibrated page ${pageIndex + 1} against a known ${Math.round(realMm)}mm dimension`,
+    metadata: { kind: 'calibration', pageIndex, realMm },
+  }).catch(() => {});
+  const page = await loadCountReviewPage(sql, tenantId, jobId, planId, pageIndex, found.page.sha256);
+  return res.status(200).json({ calibration: calibrationView(saved), page });
+}
+
+async function handleEstimateCable(res, sql, tenantId, jobId, user, body) {
+  const parsed = EstimateCableBody.safeParse(body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0]?.message || 'invalid body' });
+  }
+  const { planId, pageIndex, factors } = parsed.data;
+  const found = await readPlanPage(jobId, planId, pageIndex);
+  if (found.error) return res.status(found.status).json({ error: found.error });
+  const pageSha256 = found.page.sha256;
+
+  const jobRows = await loadJobReviewRows(sql, tenantId, jobId);
+  const onRaster = (r) =>
+    r.plan_id === planId && r.page_index === pageIndex && r.page_sha256 === pageSha256;
+  const calibration = jobRows.calibrations.find(onRaster) || null;
+  if (!calibration) {
+    return res.status(409).json({
+      error: 'no trusted scale for this sheet — calibrate against a known dimension first (estimates are never unit-guessed)',
+    });
+  }
+  const pins = jobRows.pins.filter(onRaster);
+  if (!pins.length) {
+    return res.status(409).json({ error: 'no board pinned on this sheet — pin the switchboard location first' });
+  }
+  const detections = jobRows.detections.filter(onRaster);
+  const reviews = jobRows.reviews.filter(onRaster);
+  const { markers } = countReview.deriveMarkers(detections, reviews);
+  const liveMarkers = markers.filter((m) => m.status === 'live');
+  if (!liveMarkers.length) {
+    return res.status(409).json({ error: 'no devices on this sheet — detect or add markers first' });
+  }
+
+  const cal = { mmPerNormX: calibration.mm_per_norm_x, mmPerNormY: calibration.mm_per_norm_y };
+  const result = cable.estimateRun(
+    markers,
+    pins.map((p) => ({ board_identifier: p.board_identifier, point: p.point })),
+    cal,
+    factors,
+  );
+  if (result.error) return res.status(409).json({ error: result.error });
+
+  const run = await store.insertCableRun(sql, tenantId, {
+    jobId,
+    planId,
+    pageIndex,
+    pageSha256,
+    factors: result.factors,
+    inputs: {
+      markerKeys: liveMarkers.map((m) => m.key).sort(),
+      markers: liveMarkers.map((m) => ({ key: m.key, label: m.label, bbox: m.bbox })),
+      pins: pins.map((p) => ({ boardIdentifier: p.board_identifier, point: p.point })),
+      calibration: {
+        id: calibration.id,
+        mmPerNormX: calibration.mm_per_norm_x,
+        mmPerNormY: calibration.mm_per_norm_y,
+        realMm: calibration.real_mm,
+        titleScaleText: calibration.title_scale_text,
+      },
+    },
+    results: {
+      perDevice: result.perDevice,
+      boards: result.boards,
+      totalMm: result.totalMm,
+      deviceCount: result.deviceCount,
+    },
+    createdByLabel: user.username || null,
+  });
+  await appendAuditLog({
+    action: 'document.cable_estimated',
+    actorId: user.id,
+    actorName: user.username || 'Unknown',
+    actorRole: user.role || null,
+    jobId,
+    targetType: 'document',
+    targetId: planId,
+    summary: `estimated ${(result.totalMm / 1000).toFixed(0)}m of cable across ${result.deviceCount} devices on page ${pageIndex + 1} (heuristic draft — assumptions attached)`,
+    metadata: { kind: 'cable-estimate', pageIndex, runId: run.id, totalMm: result.totalMm },
+  }).catch(() => {});
+  const page = await loadCountReviewPage(sql, tenantId, jobId, planId, pageIndex, pageSha256);
+  return res.status(200).json({ run: cableRunView(run, false), page });
+}
+
+async function handleAcceptCableEstimate(res, sql, tenantId, jobId, user, body) {
+  const parsed = AcceptCableBody.safeParse(body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0]?.message || 'invalid body' });
+  }
+  const { runId } = parsed.data;
+  const run = await store.getCableRun(sql, tenantId, jobId, runId);
+  if (!run) return res.status(404).json({ error: 'estimate run not found' });
+  if (run.status === 'superseded') {
+    return res.status(409).json({ error: 'this run was superseded by a recompute — accept the current one' });
+  }
+  if (run.status === 'accepted') {
+    return res.status(409).json({ error: 'already accepted' });
+  }
+  const updated = await store.acceptCableRun(sql, tenantId, jobId, runId, user.username || 'Unknown');
+  if (!updated) return res.status(409).json({ error: 'run changed concurrently — reload' });
+  await appendAuditLog({
+    action: 'document.cable_estimate_accepted',
+    actorId: user.id,
+    actorName: user.username || 'Unknown',
+    actorRole: user.role || null,
+    jobId,
+    targetType: 'document',
+    targetId: run.plan_id,
+    summary: `accepted the ${((updated.results || {}).totalMm / 1000).toFixed(0)}m cable ESTIMATE on page ${run.page_index + 1} (assumptions attached)`,
+    metadata: { kind: 'cable-estimate', runId, totalMm: (updated.results || {}).totalMm },
+  }).catch(() => {});
+  const page = await loadCountReviewPage(
+    sql, tenantId, jobId, run.plan_id, run.page_index, run.page_sha256,
+  );
+  return res.status(200).json({ run: cableRunView(updated, cableRunStaleFromPage(page, updated)), page });
+}
+
+// convenience: recompute staleness for a run against an assembled page block
+function cableRunStaleFromPage(page, run) {
+  return cableRunStale(
+    run,
+    page.markers,
+    (page.cable?.pins || []).map((p) => ({ board_identifier: p.boardIdentifier, point: p.point })),
+    page.cable?.calibration
+      ? { mm_per_norm_x: page.cable.calibration.mmPerNormX, mm_per_norm_y: page.cable.calibration.mmPerNormY }
+      : null,
+  );
+}
+
 async function loadJobReviewRows(sql, tenantId, jobId) {
-  const [detections, reviews, accepted, rooms, assignments] = await Promise.all([
-    store.listDeviceDetections(sql, tenantId, jobId),
-    store.listDetectionReviews(sql, tenantId, jobId),
-    store.listAcceptedCounts(sql, tenantId, jobId),
-    store.listRooms(sql, tenantId, jobId),
-    store.listRoomAssignments(sql, tenantId, jobId),
-  ]);
-  return { detections, reviews, accepted, rooms, assignments };
+  const [detections, reviews, accepted, rooms, assignments, pins, calibrations, cableRuns] =
+    await Promise.all([
+      store.listDeviceDetections(sql, tenantId, jobId),
+      store.listDetectionReviews(sql, tenantId, jobId),
+      store.listAcceptedCounts(sql, tenantId, jobId),
+      store.listRooms(sql, tenantId, jobId),
+      store.listRoomAssignments(sql, tenantId, jobId),
+      store.listBoardPins(sql, tenantId, jobId),
+      store.listCalibrations(sql, tenantId, jobId),
+      store.listCableRuns(sql, tenantId, jobId),
+    ]);
+  return { detections, reviews, accepted, rooms, assignments, pins, calibrations, cableRuns };
 }
 
 async function handleCountReviewList(res, sql, tenantId, jobId) {
@@ -2540,6 +2873,11 @@ module.exports = async (req, res) => {
     if (action === 'add-room') return handleAddRoom(res, sql, tenantId, jobId, user, body);
     if (action === 'assign-device-room') return handleAssignDeviceRoom(res, sql, tenantId, jobId, user, body);
     if (action === 'clear-device-room') return handleClearDeviceRoom(res, sql, tenantId, jobId, user, body);
+    if (action === 'pin-board') return handlePinBoard(res, sql, tenantId, jobId, user, body);
+    if (action === 'clear-board-pin') return handleClearBoardPin(res, sql, tenantId, jobId, user, body);
+    if (action === 'calibrate-sheet') return handleCalibrateSheet(res, sql, tenantId, jobId, user, body);
+    if (action === 'estimate-cable') return handleEstimateCable(res, sql, tenantId, jobId, user, body);
+    if (action === 'accept-cable-estimate') return handleAcceptCableEstimate(res, sql, tenantId, jobId, user, body);
     return res.status(400).json({ error: 'unknown action: ' + (action || '(none)') });
   }
 
@@ -2575,4 +2913,7 @@ module.exports.__test = {
   ROOMS_PROMPT_VERSION,
   roomsPrompt,
   roomView,
+  cableRunStale,
+  boardPinView,
+  calibrationView,
 };

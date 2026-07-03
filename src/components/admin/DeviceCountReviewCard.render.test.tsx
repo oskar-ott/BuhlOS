@@ -64,6 +64,7 @@ function page(over: Partial<CountReviewPage>): CountReviewPage {
     ],
     rooms: [],
     byRoom: [],
+    cable: { pins: [], calibration: null, run: null },
     counts: [
       {
         legendEntryId: "le_gpo",
@@ -235,6 +236,114 @@ describe("DeviceCountReviewCard (#205)", () => {
     expect(html).toContain('data-testid="by-room-unzoned"');
     expect(html).toContain("Unzoned (outside every room)");
     expect(html).toContain("1× LED downlight");
+  });
+
+  it("renders the cable estimate with assumptions attached and estimate-everywhere labelling (#211)", () => {
+    const p = page({
+      cable: {
+        pins: [
+          { id: "bp_1", boardIdentifier: "DB-1", point: { x: 0.1, y: 0.1 }, createdBy: "boss" },
+        ],
+        calibration: {
+          id: "cal_1",
+          pointA: { x: 0.25, y: 0.5 },
+          pointB: { x: 0.75, y: 0.5 },
+          realMm: 8100,
+          rasterAspect: 0.7,
+          mmPerNormX: 16200,
+          mmPerNormY: 11340,
+          titleScaleText: "1:100",
+          createdAt: "2026-07-03T00:00:00.000Z",
+          createdBy: "boss",
+        },
+        run: {
+          id: "cr_1",
+          status: "draft",
+          factors: { routingFactor: 1.15, riseDropMm: 4000, slackFactor: 1.1 },
+          inputs: {
+            markerKeys: ["d:d1"],
+            markers: [
+              { key: "d:d1", label: "Double GPO", bbox: { x: 0.4, y: 0.4, w: 0.04, h: 0.04 } },
+            ],
+            pins: [{ boardIdentifier: "DB-1", point: { x: 0.1, y: 0.1 } }],
+            calibration: {
+              id: "cal_1",
+              mmPerNormX: 16200,
+              mmPerNormY: 11340,
+              realMm: 8100,
+              titleScaleText: "1:100",
+            },
+          },
+          results: {
+            perDevice: [
+              {
+                markerKey: "d:d1",
+                label: "Double GPO",
+                legendEntryId: "le_gpo",
+                boardIdentifier: "DB-1",
+                manhattanMm: 8830,
+                estimateMm: 15170,
+              },
+            ],
+            boards: [
+              {
+                boardIdentifier: "DB-1",
+                deviceCount: 1,
+                totalMm: 15170,
+                byLabel: [
+                  { label: "Double GPO", legendEntryId: "le_gpo", deviceCount: 1, totalMm: 15170 },
+                ],
+              },
+            ],
+            totalMm: 15170,
+            deviceCount: 1,
+          },
+          createdAt: "2026-07-03T00:00:00.000Z",
+          createdBy: "boss",
+          acceptedAt: null,
+          acceptedBy: null,
+          stale: false,
+        },
+      },
+    });
+    const html = strip(
+      renderToString(
+        createElement(DeviceCountReviewCard, {
+          jobId: "j1",
+          pages: [p],
+          vocabulary,
+          lookup: { pngUrlFor: () => "https://blob.test/p.png", labelFor: () => "E-101" },
+          onPage: () => undefined,
+        }),
+      ),
+    );
+    expect(html).toContain('data-testid="cable-section"');
+    expect(html).toContain("estimate — assumptions attached");
+    expect(html).toContain("Calibrated against a 8100mm reference");
+    expect(html).toContain("title block says 1:100 (cross-check)");
+    expect(html).toContain("15 m est. total");
+    expect(html).toContain("draft — not accepted");
+    expect(html).toContain("Accept estimate");
+    expect(html).toContain("Manhattan distance × routing");
+    expect(html).toContain("not a measurement");
+    expect(html).toContain('data-testid="cable-board-row"');
+  });
+
+  it("flags a stale cable run and never shows accepted state for it", () => {
+    const p = page({});
+    // uncalibrated page with live markers: the section renders the refusal state
+    const html = strip(
+      renderToString(
+        createElement(DeviceCountReviewCard, {
+          jobId: "j1",
+          pages: [p],
+          vocabulary,
+          lookup: { pngUrlFor: () => "https://blob.test/p.png", labelFor: () => "E-101" },
+          onPage: () => undefined,
+        }),
+      ),
+    );
+    expect(html).toContain("Not calibrated — estimates need a known dimension");
   });
 
   it("shows the all-verified page state when every count is accepted and fresh", () => {
