@@ -459,6 +459,17 @@ const REGISTRY = {
     target: 'admin-tier',
     expires: '2026-12-31',
   },
+  // BuhlOS Job Builder redesign (campaign). The office job-builder is re-skinned
+  // to the Claude-Design prototype in coordinated WAVES; this dark gate lets each
+  // redesigned surface be preview-verified before it becomes the admin default
+  // (Wave 1 = the New Job screen; cockpit polish + gap steps follow). Admin-only
+  // surface. Default OFF. See docs/job-builder-redesign.md.
+  job_builder_redesign: {
+    description: 'Render the redesigned BuhlOS Job Builder surfaces (Wave 1: New Job; cockpit polish + gap steps follow). Dark. See docs/job-builder-redesign.md.',
+    default: false,
+    target: 'admin-tier',
+    expires: '2026-12-31',
+  },
   // Per-job ITP / QA (#474/#476): hold/witness/record points + office sign-off.
   // Unlike the registers above, ITPs are ALREADY LIVE — so this is a KILL SWITCH,
   // not a launch gate: default ON (killSwitch:true), and the owner can turn the
@@ -595,6 +606,7 @@ const FLAG_PRESENTATION = {
   ai_contract_obligations: { label: 'AI contract obligations', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/v2/jobs' },
   ai_office_daily_summary: { label: 'AI office daily summary', domain: 'Company', surface: 'BuhlOS', previewHref: '/reports' },
   ai_drawings: { label: 'AI drawings — sheet understanding', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/v2/jobs' },
+  job_builder_redesign: { label: 'Job Builder redesign', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/v2/jobs/new' },
 
   // #760 kill-switches. `core: true` = load-bearing spine; the board warns
   // before the owner turns one off.

@@ -39,6 +39,7 @@ export type FlagKey =
   | "ai_contract_obligations"
   | "ai_office_daily_summary" // #171 office daily summary — dark launch-gate
   | "ai_drawings" // #197 Epic 5 page understanding — dark launch-gate
+  | "job_builder_redesign" // BuhlOS Job Builder redesign campaign — dark launch-gate
   | "itp"
   // #760 owner feature-control kill-switches (LIVE features, default ON)
   | "jobs"
