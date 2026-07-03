@@ -172,6 +172,41 @@ For **each** flag:
 - **Abort triggers:** sustained `parityMismatches > 0`, a fallback storm,
   probe/guard errors, or any latency regression on `/api/data` or `/api/jobs`.
 
+## Verified invariants (do NOT re-raise — audit false alarms, recorded)
+
+Two migration-audit findings were **investigated and confirmed false**. They are
+recorded here — against the code that disproves them — so a later audit doesn't
+re-raise them, and so a future RLS effort doesn't "fix" a deliberate boundary.
+
+- **DWD-01 — "jobs have no PG UPDATE path" is FALSE.** The jobs structure
+  dual-write DOES update existing rows, it is not insert-only. `api/_lib/jobs-mirror.js`
+  builds rows with `buildStructureRows` and applies them via `writeAll`
+  (`scripts/importers/lib/structure-writer.js`), whose jobs upsert is
+  `insert … on conflict (tenant_id, legacy_id) … do update set <JOB_MUTABLE_COLS>`
+  with an `is distinct from` idempotency guard. `JOB_MUTABLE_COLS`
+  (`scripts/importers/lib/structure-rows.js`) is every mutable job column (name,
+  ref, status, address, dates, …); only the identity/legacy key and `created_at`
+  are insert-only. So an office edit that re-writes `jobs.json` mirrors the changed
+  fields into Postgres (best-effort, Blob-authoritative). The mirror and the bulk
+  importer share this one writer, so a live mirror and an import can never diverge.
+  **Invariant:** jobs have a PG UPDATE path via the shared upsert; do not add a
+  second one or claim it's missing.
+
+- **CUT-06 — the synthetic owner login has no JWT and no `user_profiles` row BY
+  DESIGN.** The env-only platform owner (`OWNER_LOGIN_USERNAME` →
+  `__owner__` sentinel, `api/_lib/auth.js`) authenticates against env/blob
+  credentials and is represented by an HMAC-signed session cookie (`signSession`),
+  **not** a Supabase JWT. `getCurrentUser` resolves the sentinel to a synthetic
+  super-admin **without touching any store** — there is intentionally no
+  `users.json` row and, correspondingly, no `user_profiles` row for it. This is
+  the documented RLS-boundary contract: the owner sentinel (and service jobs) stay
+  on the **service-role / RLS-bypass** connection and never use the per-request
+  JWT identity bridge (see
+  [supabase-rls-identity-bridge-adr.md](supabase-rls-identity-bridge-adr.md) §
+  "The owner sentinel (`__owner__`) and service jobs don't use the bridge").
+  **Invariant:** a future RLS effort must NOT try to give the owner sentinel a
+  `user_profiles` row or a minted JWT to "close the gap" — the gap is the design.
+
 ## Out of scope (do NOT do as part of this runbook)
 
 - **Served-source promotion** — making Postgres the *source of truth* (dropping the

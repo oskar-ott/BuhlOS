@@ -31,6 +31,7 @@
     "check:role-literals": "node scripts/check-role-literals.js",
     "check:model-ids": "node scripts/check-model-ids.js",
     "check:flag-expiry": "node scripts/check-flag-expiry.js",
+    "check:read-flags-protected": "node scripts/check-read-flags-protected.js",
     "check:shell-contract": "node scripts/check-shell-contract.js",
     "check:legacy-quarantine": "node scripts/check-legacy-quarantine.js",
     "check:smoke-list": "playwright test tests/playwright/smoke --list",
