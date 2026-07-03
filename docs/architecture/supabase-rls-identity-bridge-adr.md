@@ -8,7 +8,7 @@
 [../supabase-environment.md](../supabase-environment.md).
 **Consumed by:** [supabase-rls-access-matrix.md](supabase-rls-access-matrix.md)
 and the policy migration
-[20260703100000_phase1_rls_policies.sql](../../supabase/migrations/20260703100000_phase1_rls_policies.sql).
+[20260703230000_phase1_rls_policies.sql](../../supabase/migrations/20260703230000_phase1_rls_policies.sql).
 
 ## Context
 

@@ -281,6 +281,7 @@ describe("tools listing", () => {
     expect(res.statusCode).toBe(200);
     expect(res.body.tools.map((t: { name: string }) => t.name).sort()).toEqual([
       "company_day_pulse",
+      "drawing_extractions",
       "job_hours",
       "job_open_items",
       "job_overview",
