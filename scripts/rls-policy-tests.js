@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // RLS allow/deny suite for the Phase 1 policy migration (issue #153).
 //
-//   supabase/migrations/20260703100000_phase1_rls_policies.sql
+//   supabase/migrations/20260703230000_phase1_rls_policies.sql
 //   docs/architecture/supabase-rls-access-matrix.md      (the spec)
 //   docs/architecture/supabase-rls-identity-bridge-adr.md (the JWT contract)
 //

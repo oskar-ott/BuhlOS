@@ -2,7 +2,7 @@
 
 **Status:** Drafted 2026-07-03 · policies written, **NOT applied** (production
 cutover ceremony in flight — apply later via the normal migration workflow).
-**Policy migration:** [supabase/migrations/20260703100000_phase1_rls_policies.sql](../../supabase/migrations/20260703100000_phase1_rls_policies.sql)
+**Policy migration:** [supabase/migrations/20260703230000_phase1_rls_policies.sql](../../supabase/migrations/20260703230000_phase1_rls_policies.sql)
 **Identity model:** [supabase-rls-identity-bridge-adr.md](supabase-rls-identity-bridge-adr.md)
 **Schema + conventions:** [supabase/migrations/20260611142758_phase1_core_schema.sql](../../supabase/migrations/20260611142758_phase1_core_schema.sql)
 (header documents the tenant_id + `UNIQUE (tenant_id, id)` composite-FK
@@ -138,7 +138,7 @@ path needs them. Registry policies would be a trivial follow-up
 
 ## How to apply + verify (later — not during the cutover ceremony)
 
-1. **Dev first.** Apply `20260703100000_phase1_rls_policies.sql` to the dev
+1. **Dev first.** Apply `20260703230000_phase1_rls_policies.sql` to the dev
    project (`frovgpywsopbeuekijmo`) via the normal workflow — `supabase db
    push` on the linked dev project, or MCP `apply_migration` with name
    `phase1_rls_policies` (keep the version = the filename timestamp so
