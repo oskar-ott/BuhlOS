@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  takeoffToDraftInput,
   parseTakeoffInput,
   readAiDraft,
   validateProposedLine,
@@ -177,5 +178,78 @@ describe("readAiDraft — the additive doc field", () => {
 
   it("pins the disclosed truncation boundary", () => {
     expect(SCOPE_TEXT_MAX_CHARS).toBe(12_000);
+  });
+});
+
+describe("takeoffToDraftInput (#246 follow-through — the #213 producer)", () => {
+  const line = (over: Record<string, unknown> = {}) => ({
+    description: "Double GPO",
+    effectiveQty: 12 as number | null,
+    unit: "ea",
+    estimate: false,
+    provenance: { planId: "pl1", pageIndex: 0 },
+    ...over,
+  });
+
+  it("maps signed-off lines to takeoff items with drawing refs; the result parses", () => {
+    const { input, skippedNoQty, droppedOverCap } = takeoffToDraftInput({
+      version: 2,
+      lines: [
+        line({}),
+        line({
+          description: "Cable runs to DB-1 (heuristic estimate)",
+          effectiveQty: 184.6,
+          unit: "m",
+          estimate: true,
+        }),
+      ],
+    });
+    expect(skippedNoQty).toBe(0);
+    expect(droppedOverCap).toBe(0);
+    expect(input).not.toBeNull();
+    expect(input!.items[0]).toEqual({
+      description: "Double GPO",
+      qty: 12,
+      unit: "ea",
+      drawingRef: "pl1 p1",
+    });
+    // already says estimate — not doubled
+    expect(input!.items[1]!.description).toBe("Cable runs to DB-1 (heuristic estimate)");
+    const parsed = parseTakeoffInput(input);
+    expect(parsed.ok).toBe(true);
+  });
+
+  it("estimate lines without the word gain an explicit '(estimate)' suffix", () => {
+    const { input } = takeoffToDraftInput({
+      version: 1,
+      lines: [line({ description: "Sub-mains run", estimate: true, effectiveQty: 40, unit: "m" })],
+    });
+    expect(input!.items[0]!.description).toBe("Sub-mains run (estimate)");
+  });
+
+  it("qty-less flagged lines are skipped and counted — never invented", () => {
+    const { input, skippedNoQty } = takeoffToDraftInput({
+      version: 1,
+      lines: [line({}), line({ description: "L2 — OYSTER", effectiveQty: null })],
+    });
+    expect(skippedNoQty).toBe(1);
+    expect(input!.items).toHaveLength(1);
+  });
+
+  it("a human adjustment IS the effective qty the drafter sees", () => {
+    const { input } = takeoffToDraftInput({
+      version: 1,
+      lines: [line({ effectiveQty: 10 })], // human adjusted 12 → 10 upstream
+    });
+    expect(input!.items[0]!.qty).toBe(10);
+  });
+
+  it("nothing usable → null input, not an empty takeoff", () => {
+    const { input, skippedNoQty } = takeoffToDraftInput({
+      version: 1,
+      lines: [line({ effectiveQty: null })],
+    });
+    expect(input).toBeNull();
+    expect(skippedNoQty).toBe(1);
   });
 });

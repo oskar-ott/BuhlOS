@@ -25,6 +25,9 @@ const { readBlob } = require('./blob');
 const { canManageJob, isAdminRole } = require('./auth');
 const { listAllEntriesForApprovers } = require('./time-entries');
 const { computeDayPulse, sydneyToday } = require('./day-pulse');
+const { getDb } = require('./supabase-db');
+const drawingsStore = require('./ai-drawings-store');
+const entityLinks = require('./entity-links');
 
 // ── shared gates ─────────────────────────────────────────────────────────
 
@@ -240,6 +243,166 @@ function listTools() {
  * @param {object} [args]
  * @returns {Promise<{ok: true, data: object} | {ok: false, error: {code: string, message: string}}>}
  */
+// ── #179: the Epic 5 drawing-extraction index as a read tool ─────────────
+
+// Per-list cap keeps a single tool call promptable; totals stay honest.
+const DRAWING_LIST_CAP = 200;
+
+function capList(rows) {
+  return { total: rows.length, truncated: rows.length > DRAWING_LIST_CAP, items: rows.slice(0, DRAWING_LIST_CAP) };
+}
+
+TOOLS.drawing_extractions = {
+  name: 'drawing_extractions',
+  description:
+    "Epic 5 drawing-understanding index for one job — classified sheets (registry with effective sheet numbers/titles), reviewed legend vocabulary, accepted schedule rows, rooms, cross-sheet references (live-resolved), human-verified device counts, accepted cable estimates and the signed-off takeoff. Every item cites its plans-register id + page. Answers come ONLY from these extractions — no vision runs at question time; where a value isn't extracted, it simply isn't here.",
+  gate: gateManageJob,
+  async read({ jobId }) {
+    let sql;
+    try {
+      sql = getDb({ mode: 'read' });
+    } catch (e) {
+      // preview/local deployments have no extraction store — say so, never guess
+      return {
+        available: false,
+        reason: 'the drawing-extraction store is not reachable in this environment',
+        sources: [],
+      };
+    }
+    const tenantId = await drawingsStore.resolveTenantId(sql);
+    const [
+      sheetRows, overrides, legend, tables, roomsRows, refs, counts, cableRuns, takeoff,
+    ] = await Promise.all([
+      drawingsStore.listPlanSheets(sql, tenantId, jobId),
+      drawingsStore.listOverrides(sql, tenantId, jobId),
+      drawingsStore.acceptedLegendEntries(sql, tenantId, jobId),
+      drawingsStore.listScheduleTables(sql, tenantId, jobId),
+      drawingsStore.listRooms(sql, tenantId, jobId),
+      drawingsStore.listSheetRefs(sql, tenantId, jobId),
+      drawingsStore.liveAcceptedCounts(sql, tenantId, jobId),
+      drawingsStore.acceptedCableRuns(sql, tenantId, jobId),
+      drawingsStore.signedOffTakeoff(sql, tenantId, jobId),
+    ]);
+    const scheduleRows = await drawingsStore.listScheduleRowsForTables(
+      sql, tenantId, tables.map((t) => t.id),
+    );
+
+    // effective field = human override > AI value (the #197 contract)
+    const ovr = (planId, pageIndex, field) => {
+      const o = overrides.find(
+        (x) => x.plan_id === planId && x.page_index === pageIndex && x.field === field,
+      );
+      return o ? o.value : undefined;
+    };
+    const eff = (row, field, aiValue) => {
+      const o = ovr(row.plan_id, row.page_index, field);
+      return o === undefined ? aiValue : o;
+    };
+    const sheets = sheetRows.map((r) => ({
+      planId: r.plan_id,
+      pageIndex: r.page_index,
+      sheetType: eff(r, 'sheetType', r.sheet_type),
+      sheetNumber: eff(r, 'sheetNumber', r.sheet_number),
+      sheetTitle: eff(r, 'sheetTitle', r.sheet_title),
+      revision: eff(r, 'revision', r.revision),
+      scale: eff(r, 'scale', r.scale),
+    }));
+
+    const resolvedRefs = entityLinks.resolveRefs(
+      refs,
+      sheets.map((sh) => ({ planId: sh.planId, pageIndex: sh.pageIndex, sheetNumber: sh.sheetNumber })),
+    );
+
+    const tableById = new Map(tables.map((t) => [t.id, t]));
+    const reviewedScheduleRows = scheduleRows
+      .filter((r) => r.status === 'accepted' || r.status === 'edited')
+      .map((r) => {
+        const t = tableById.get(r.table_id);
+        return {
+          planId: t.plan_id,
+          pageIndex: t.page_index,
+          tableKind: t.table_kind,
+          boardIdentifier: t.board_identifier,
+          cells: r.human_cells
+            ? { ...Object.fromEntries(Object.entries(r.cells || {}).map(([k, v]) => [k, v && v.value])), ...r.human_cells }
+            : Object.fromEntries(Object.entries(r.cells || {}).map(([k, v]) => [k, v && v.value])),
+        };
+      });
+
+    return {
+      available: true,
+      sheets: capList(sheets),
+      legend: capList(
+        legend.map((l) => ({
+          label: l.human_label || l.label,
+          description: l.description,
+          category: l.category,
+          sourcePlanId: l.source_plan_id,
+          sourcePageIndex: l.source_page_index,
+        })),
+      ),
+      scheduleRows: capList(reviewedScheduleRows),
+      rooms: capList(
+        roomsRows
+          .filter((r) => r.status === 'suggested' || r.status === 'accepted' || r.status === 'edited')
+          .map((r) => ({
+            name: r.human_name || r.name,
+            planId: r.plan_id,
+            pageIndex: r.page_index,
+            reviewed: r.status !== 'suggested',
+          })),
+      ),
+      refs: capList(
+        resolvedRefs.map((r) => ({
+          planId: r.plan_id,
+          pageIndex: r.page_index,
+          text: r.text,
+          targetSheetNumber: r.target_sheet_number,
+          resolved: r.resolved,
+        })),
+      ),
+      verifiedCounts: capList(
+        counts.map((c) => ({
+          label: c.label,
+          count: c.count,
+          planId: c.plan_id,
+          pageIndex: c.page_index,
+          acceptedBy: c.accepted_by_label,
+        })),
+      ),
+      cableEstimates: capList(
+        cableRuns.flatMap((run) =>
+          ((run.results || {}).boards || []).map((b) => ({
+            boardIdentifier: b.boardIdentifier,
+            totalMm: b.totalMm,
+            estimate: true, // heuristic — verify on drawing
+            planId: run.plan_id,
+            pageIndex: run.page_index,
+          })),
+        ),
+      ),
+      signedOffTakeoff: takeoff
+        ? {
+            version: takeoff.takeoff.version,
+            signedOffBy: takeoff.takeoff.signed_off_by_label,
+            signedOffAt: takeoff.takeoff.signed_off_at,
+            lineCount: takeoff.lines.length,
+          }
+        : null,
+      sources: [
+        { store: 'supabase:plan_sheets', id: jobId },
+        { store: 'supabase:legend_entries', id: jobId },
+        { store: 'supabase:schedule_rows', id: jobId },
+        { store: 'supabase:rooms', id: jobId },
+        { store: 'supabase:sheet_refs', id: jobId },
+        { store: 'supabase:accepted_counts', id: jobId },
+        { store: 'supabase:cable_estimate_runs', id: jobId },
+        { store: 'supabase:takeoffs', id: jobId },
+      ],
+    };
+  },
+};
+
 async function runTool(user, name, args = {}) {
   const tool = TOOLS[String(name)];
   if (!tool) {

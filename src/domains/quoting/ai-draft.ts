@@ -32,11 +32,10 @@ export const SOURCE_TEXT_EXCERPT_CHARS = 300;
 
 // ── Takeoff input — the TYPED, STUBBED Epic-5 interface ──────────────────
 //
-// NO PRODUCER EXISTS YET. The plans takeoff (Epic 5, #651 studio) does not
-// emit this shape today; the contract is defined here so the ai-draft action
-// can accept measured quantities the day a producer lands, without an API
-// change. Until then the only real input path is pasted scope text — the UI
-// says so and never fakes a takeoff.
+// THE PRODUCER NOW EXISTS: Epic 5's signed-off takeoffs (#213 — assembled
+// from human-verified counts/schedules/estimates with provenance per line).
+// takeoffToDraftInput() below maps a signed-off Takeoff into this shape;
+// pasted scope text remains the other input path.
 
 export const TakeoffItemSchema = z.object({
   description: z.string().trim().min(1, "takeoff item description required").max(QUOTE_LIMITS.maxLineDescription),
@@ -54,6 +53,49 @@ export const TakeoffInputSchema = z.object({
   items: z.array(TakeoffItemSchema).min(1, "takeoff needs at least one item").max(TAKEOFF_MAX_ITEMS),
 });
 export type TakeoffInput = z.infer<typeof TakeoffInputSchema>;
+
+/**
+ * #246 follow-through — map a SIGNED-OFF Epic 5 takeoff (#213) into the
+ * ai-draft TakeoffInput. Only lines with an effective quantity map (a
+ * flagged qty-less schedule line has nothing measurable to offer the
+ * drafter — it is skipped and counted, never invented); estimate lines
+ * keep the word "estimate" in their description so the drafting model and
+ * the human both see it. Returns the mapped input plus honest skip/drop
+ * counts for the UI to disclose.
+ */
+export function takeoffToDraftInput(takeoff: {
+  version: number;
+  lines: Array<{
+    description: string;
+    effectiveQty: number | null;
+    unit: string;
+    estimate: boolean;
+    provenance: Record<string, unknown>;
+  }>;
+}): { input: TakeoffInput | null; skippedNoQty: number; droppedOverCap: number } {
+  const usable = takeoff.lines.filter((l) => l.effectiveQty !== null);
+  const skippedNoQty = takeoff.lines.length - usable.length;
+  const capped = usable.slice(0, TAKEOFF_MAX_ITEMS);
+  const droppedOverCap = usable.length - capped.length;
+  const items: TakeoffItem[] = capped.map((l) => {
+    const p = l.provenance;
+    const ref =
+      typeof p.planId === "string" && typeof p.pageIndex === "number"
+        ? `${p.planId} p${p.pageIndex + 1}`.slice(0, 80)
+        : undefined;
+    return {
+      description:
+        l.estimate && !/estimate/i.test(l.description)
+          ? `${l.description} (estimate)`.slice(0, QUOTE_LIMITS.maxLineDescription)
+          : l.description.slice(0, QUOTE_LIMITS.maxLineDescription),
+      qty: l.effectiveQty as number,
+      unit: l.unit.slice(0, QUOTE_LIMITS.maxUnit),
+      ...(ref ? { drawingRef: ref } : {}),
+    };
+  });
+  if (items.length === 0) return { input: null, skippedNoQty, droppedOverCap };
+  return { input: { source: "takeoff", items }, skippedNoQty, droppedOverCap };
+}
 
 export function parseTakeoffInput(
   raw: unknown

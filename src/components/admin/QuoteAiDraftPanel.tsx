@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Sparkles } from "lucide-react";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
@@ -8,9 +8,12 @@ import { Button } from "@/components/ui/Button";
 import { runAiQuoteDraft, reviewAiQuoteDraftSuggestion } from "@/domains/quoting/client";
 import {
   readAiDraft,
+  takeoffToDraftInput,
   SCOPE_TEXT_MAX_CHARS,
   type DraftSuggestion,
+  type TakeoffInput,
 } from "@/domains/quoting/ai-draft";
+import { fetchTakeoff } from "@/domains/ai-drawings/client";
 import { QUOTE_LIMITS, type Quote, type QuoteLineKind } from "@/domains/quoting/schema";
 
 /**
@@ -67,6 +70,42 @@ export function QuoteAiDraftPanel({ quote, onQuoteUpdate }: QuoteAiDraftPanelPro
 
   const [open, setOpen] = useState(pending.length > 0);
   const [sourceText, setSourceText] = useState("");
+  // #246 follow-through: a job converted from this quote may carry a
+  // SIGNED-OFF Epic 5 takeoff (#213) — offer its measured quantities.
+  // Absent store / dark flag / no sign-off ⇒ no offer, never a fake one.
+  const linkedJobId =
+    typeof (quote as unknown as Record<string, unknown>).convertedJobId === "string"
+      ? ((quote as unknown as Record<string, unknown>).convertedJobId as string)
+      : null;
+  const [takeoffOffer, setTakeoffOffer] = useState<{
+    input: TakeoffInput;
+    version: number;
+    lineCount: number;
+    skippedNoQty: number;
+  } | null>(null);
+  const [useTakeoff, setUseTakeoff] = useState(true);
+  useEffect(() => {
+    if (!linkedJobId) return;
+    let cancelled = false;
+    fetchTakeoff(linkedJobId)
+      .then((views) => {
+        if (cancelled || !views.signedOff) return;
+        const mapped = takeoffToDraftInput(views.signedOff);
+        if (!mapped.input) return;
+        setTakeoffOffer({
+          input: mapped.input,
+          version: views.signedOff.version,
+          lineCount: mapped.input.items.length,
+          skippedNoQty: mapped.skippedNoQty,
+        });
+      })
+      .catch(() => {
+        // flag-dark (404) or store unreachable (503) — silently no offer
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [linkedJobId]);
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
   const [busySuggestionId, setBusySuggestionId] = useState<string | null>(null);
@@ -89,7 +128,10 @@ export function QuoteAiDraftPanel({ quote, onQuoteUpdate }: QuoteAiDraftPanelPro
     if (!text || running) return;
     setRunning(true);
     setRunError(null);
-    const result = await runAiQuoteDraft(quote.id, { sourceText: text });
+    const result = await runAiQuoteDraft(quote.id, {
+      sourceText: text,
+      ...(takeoffOffer && useTakeoff ? { takeoff: takeoffOffer.input } : {}),
+    });
     setRunning(false);
     if (result.ok) {
       onQuoteUpdate(result.data.quote);
@@ -206,6 +248,27 @@ export function QuoteAiDraftPanel({ quote, onQuoteUpdate }: QuoteAiDraftPanelPro
               className="rounded-card border border-border bg-surface p-2.5 text-sm text-text focus:border-border-strong focus:outline-none focus:ring-2 focus:ring-brand-navy"
             />
           </label>
+          {takeoffOffer ? (
+            <label
+              className="flex flex-wrap items-center gap-2 rounded-card border border-border bg-surface-subtle px-3 py-2 text-xs text-text"
+              data-testid="quote-ai-draft-takeoff-offer"
+            >
+              <input
+                type="checkbox"
+                checked={useTakeoff}
+                onChange={(e) => setUseTakeoff(e.target.checked)}
+                className="h-3.5 w-3.5"
+              />
+              Include the signed-off drawing takeoff (v{takeoffOffer.version} ·{" "}
+              {takeoffOffer.lineCount} measured line{takeoffOffer.lineCount === 1 ? "" : "s"})
+              {takeoffOffer.skippedNoQty > 0 ? (
+                <span className="text-text-muted">
+                  — {takeoffOffer.skippedNoQty} line{takeoffOffer.skippedNoQty === 1 ? "" : "s"}{" "}
+                  without a quantity stay out
+                </span>
+              ) : null}
+            </label>
+          ) : null}
           <div className="flex flex-wrap items-center gap-2">
             <Button
               data-testid="quote-ai-draft-generate"
