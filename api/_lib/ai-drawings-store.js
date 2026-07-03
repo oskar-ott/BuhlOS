@@ -475,6 +475,104 @@ async function reviewDiffRegion(sql, tenantId, jobId, region, next) {
   return rows.length ? rows[0] : null;
 }
 
+// ─── #204: locational device detection ──────────────────────────────────────
+
+// Intersection-over-union of two normalised boxes — the seam-dedup measure.
+function boxIoU(a, b) {
+  const x0 = Math.max(a.x, b.x);
+  const y0 = Math.max(a.y, b.y);
+  const x1 = Math.min(a.x + a.w, b.x + b.w);
+  const y1 = Math.min(a.y + a.h, b.y + b.h);
+  const inter = Math.max(0, x1 - x0) * Math.max(0, y1 - y0);
+  const union = a.w * a.h + b.w * b.h - inter;
+  // clamp — float error can push identical boxes a hair over 1
+  return union > 0 ? Math.min(1, Math.max(0, inter / union)) : 0;
+}
+
+function tileKeyOf(region) {
+  const f = (n) => n.toFixed(4);
+  return `${f(region.x)},${f(region.y)},${f(region.w)},${f(region.h)}`;
+}
+
+async function findCachedDetectionRun(sql, tenantId, key) {
+  const rows = await sql`
+    select * from public.detection_runs
+    where tenant_id = ${tenantId} and job_id = ${key.jobId}
+      and plan_id = ${key.planId} and page_index = ${key.pageIndex}
+      and page_sha256 = ${key.pageSha256} and tile_key = ${key.tileKey}
+      and prompt_version = ${key.promptVersion} and model = ${key.model}
+    limit 1`;
+  return rows.length ? rows[0] : null;
+}
+
+async function insertDetectionRun(sql, tenantId, run) {
+  const rows = await sql`
+    insert into public.detection_runs (
+      tenant_id, job_id, plan_id, page_index, page_sha256, tile_key,
+      tile_region, prompt_version, model, raw, input_tokens, output_tokens,
+      created_by_label
+    ) values (
+      ${tenantId}, ${run.jobId}, ${run.planId}, ${run.pageIndex}, ${run.pageSha256},
+      ${run.tileKey}, ${sql.json(run.tileRegion)}, ${run.promptVersion}, ${run.model},
+      ${sql.json(run.raw)}, ${run.inputTokens}, ${run.outputTokens}, ${run.createdByLabel}
+    ) returning *`;
+  return rows[0];
+}
+
+async function listDeviceDetectionsForPage(sql, tenantId, jobId, planId, pageIndex, pageSha256) {
+  return await sql`
+    select * from public.device_detections
+    where tenant_id = ${tenantId} and job_id = ${jobId}
+      and plan_id = ${planId} and page_index = ${pageIndex}
+      and page_sha256 = ${pageSha256}
+    order by created_at, id`;
+}
+
+async function listDeviceDetections(sql, tenantId, jobId) {
+  return await sql`
+    select * from public.device_detections
+    where tenant_id = ${tenantId} and job_id = ${jobId}
+    order by plan_id, page_index, created_at`;
+}
+
+// Insert one tile's detections, dropping duplicates: a device candidate that
+// overlaps (IoU > threshold) an EXISTING detection of the same legend entry
+// on the same raster is the same physical device seen from two tiles; an
+// uncertain-region candidate overlapping an existing uncertain region is the
+// same flagged area (this is also what makes a cached re-click idempotent).
+async function insertDeviceDetections(sql, tenantId, ctx, candidates, iouThreshold) {
+  const existing = await listDeviceDetectionsForPage(
+    sql, tenantId, ctx.jobId, ctx.planId, ctx.pageIndex, ctx.pageSha256,
+  );
+  const inserted = [];
+  let seamDuplicates = 0;
+  const kept = existing.map((e) => ({ bbox: e.bbox, legendEntryId: e.legend_entry_id, kind: e.kind }));
+  for (const c of candidates) {
+    const dup = kept.some(
+      (k) =>
+        k.kind === c.kind &&
+        (c.kind !== 'device' || k.legendEntryId === c.legendEntryId) &&
+        boxIoU(k.bbox, c.bbox) > iouThreshold,
+    );
+    if (dup) {
+      seamDuplicates += 1;
+      continue;
+    }
+    const rows = await sql`
+      insert into public.device_detections (
+        tenant_id, job_id, plan_id, page_index, page_sha256, run_id, kind,
+        legend_entry_id, label, bbox, confidence, note
+      ) values (
+        ${tenantId}, ${ctx.jobId}, ${ctx.planId}, ${ctx.pageIndex}, ${ctx.pageSha256},
+        ${ctx.runId}, ${c.kind}, ${c.legendEntryId}, ${c.label},
+        ${sql.json(c.bbox)}, ${c.confidence}, ${c.note}
+      ) returning *`;
+    inserted.push(rows[0]);
+    kept.push({ bbox: c.bbox, legendEntryId: c.legendEntryId, kind: c.kind });
+  }
+  return { inserted, seamDuplicates };
+}
+
 module.exports = {
   OVERRIDE_FIELDS,
   SHEET_TYPES,
@@ -483,6 +581,13 @@ module.exports = {
   SCHEDULE_COLUMNS,
   SCHEDULE_ROW_TRANSITIONS,
   DIFF_REGION_TRANSITIONS,
+  boxIoU,
+  tileKeyOf,
+  findCachedDetectionRun,
+  insertDetectionRun,
+  listDeviceDetections,
+  listDeviceDetectionsForPage,
+  insertDeviceDetections,
   findLiveDiff,
   insertPageDiff,
   listPageDiffs,

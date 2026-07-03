@@ -6,6 +6,8 @@
 //   'CAP_REACHED'       — 402 (per-job AI budget spent)
 
 import {
+  DetectDevicesResponseSchema,
+  DetectionsResponseSchema,
   DiffPagesResponseSchema,
   DiffsResponseSchema,
   ExtractLegendResponseSchema,
@@ -19,6 +21,8 @@ import {
   SheetsResponseSchema,
   UnderstandResponseSchema,
   type CropRegion,
+  type DetectDevicesResponse,
+  type DetectionsResponse,
   type DiffPagesResponse,
   type DiffsResponse,
   type ExtractLegendResponse,
@@ -309,5 +313,32 @@ export async function reviewDiffRegion(
       body: JSON.stringify({ regionId, status, ...opts }),
     },
     (b) => ReviewDiffRegionResponseSchema.parse(b),
+  );
+}
+
+// ─── #204: device detection ─────────────────────────────────────────────────
+
+export async function fetchDetections(jobId: string): Promise<DetectionsResponse> {
+  return request(
+    `/api/ai-drawings?jobId=${encodeURIComponent(jobId)}&action=detections`,
+    { method: "GET" },
+    (b) => DetectionsResponseSchema.parse(b),
+  );
+}
+
+export async function detectDevices(
+  jobId: string,
+  planId: string,
+  pageIndex: number,
+  tile: { region: CropRegion; dataUrl: string },
+): Promise<DetectDevicesResponse> {
+  return request(
+    `/api/ai-drawings?jobId=${encodeURIComponent(jobId)}&action=detect-devices`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ planId, pageIndex, tile }),
+    },
+    (b) => DetectDevicesResponseSchema.parse(b),
   );
 }

@@ -72,6 +72,12 @@ const MAX_SYMBOL_CROP_CHARS = 1_500_000; // symbol cells are small
 const SCHEDULE_PROMPT_VERSIONS = { lighting: 'sl-v1', switchboard: 'sb-v1' };
 const SCHEDULE_RUN_KINDS = { lighting: 'schedule-lighting', switchboard: 'schedule-switchboard' };
 
+// #204 device detection — per-tile vision against the REVIEWED vocabulary.
+const DETECTION_PROMPT_VERSION = 'dd-v1';
+const DETECTION_SEAM_IOU = 0.5; // same entry + overlap above this = tile-seam duplicate
+const MAX_TILE_DATAURL_CHARS = 4_000_000; // Vercel body ceiling, minus headroom
+const MAX_FEWSHOT_CROPS = 12; // legend reference images per call
+
 // ─── Request validation (Zod at the boundary) ──────────────────────────────
 const CropRegion = z.object({
   x: z.number().min(0).max(1),
@@ -143,6 +149,14 @@ const ReviewDiffRegionBody = z.object({
   regionId: z.string().min(1),
   status: z.enum(['reviewed', 'dismissed']),
   note: z.string().max(500).optional(),
+});
+const DetectDevicesBody = z.object({
+  planId: z.string().min(1),
+  pageIndex: z.number().int().min(0),
+  tile: z.object({
+    region: CropRegion, // the tile's window on the page, normalised
+    dataUrl: z.string().startsWith('data:image/').max(MAX_TILE_DATAURL_CHARS),
+  }),
 });
 
 // ─── Model output contract (validated before anything persists) ────────────
@@ -217,6 +231,25 @@ const ScheduleTableOut = z.object({
 const ScheduleModelOutput = z.object({
   isSchedulePresent: z.boolean(),
   tables: z.array(ScheduleTableOut).max(5),
+  notes: z.string().max(2000).nullable().optional(),
+});
+
+// #204 detection model contract. entryIndex refers to the numbered
+// vocabulary list in the prompt (mapped back to legend_entries server-side —
+// the model never echoes ids). Dense areas land in uncertainRegions instead
+// of confidently wrong detections (issue AC).
+const DetectionOut = z.object({
+  entryIndex: z.number().int().min(0),
+  bbox: NormBox,
+  confidence: z.number().min(0).max(1),
+});
+const UncertainRegionOut = z.object({
+  bbox: NormBox,
+  note: z.string().max(300).nullable().optional(),
+});
+const DetectionModelOutput = z.object({
+  detections: z.array(DetectionOut).max(300),
+  uncertainRegions: z.array(UncertainRegionOut).max(40),
   notes: z.string().max(2000).nullable().optional(),
 });
 
@@ -1230,6 +1263,267 @@ async function handleReviewScheduleRow(res, sql, tenantId, jobId, user, body) {
   return res.status(200).json({ row: scheduleRowView(updated) });
 }
 
+// ─── #204: device detection handlers ────────────────────────────────────────
+
+// Prompt (version: DETECTION_PROMPT_VERSION). `vocab` rows carry
+// {label, symbolText, refIndex|null} — refIndex points at the extra
+// reference image for that entry (few-shot from the legend crops).
+function detectionPrompt(vocab) {
+  const lines = vocab.map((v, i) => {
+    const ref = v.refIndex !== null ? ` — reference image #${v.refIndex + 1} shows this symbol` : '';
+    const sym = v.symbolText ? ` (drawn as: ${v.symbolText})` : '';
+    return `  ${i}: ${v.label}${sym}${ref}`;
+  });
+  return `You are locating electrical devices on ONE TILE cropped from a floor-plan sheet of an Australian construction drawing set.
+
+The FIRST image is the tile. Any further images are reference crops of this project's own legend symbols (numbered in the vocabulary below).
+
+THIS PROJECT'S VOCABULARY — detect ONLY these (index: label):
+${lines.join('\n')}
+
+For EVERY instance of a vocabulary symbol visible in the tile return:
+- entryIndex: the vocabulary index above
+- bbox: a tight box around the symbol in TILE-normalised coordinates {"x","y","w","h"} each 0..1 of THIS TILE
+- confidence: YOUR honest 0..1 estimate
+
+RULES — non-negotiable:
+- ONLY vocabulary symbols. Never invent device types; ignore text, dimensions, walls, furniture.
+- Where symbols are too dense, overlapping or degraded to count reliably, DO NOT guess instance-by-instance — return that area in uncertainRegions with a short note instead.
+- A symbol only partially visible at the tile edge still counts if identifiable.
+- If the tile contains no vocabulary symbols: {"detections": [], "uncertainRegions": [], "notes": "..."}.
+- Return ONLY strict JSON:
+{
+  "detections": [ { "entryIndex": 0, "bbox": {"x":0.31,"y":0.44,"w":0.02,"h":0.02}, "confidence": 0.9 } ],
+  "uncertainRegions": [ { "bbox": {"x":0.6,"y":0.1,"w":0.2,"h":0.15}, "note": "dense ceiling grid — symbols overlap" } ],
+  "notes": "one short caveat sentence, or null"
+}`;
+}
+
+function detectionView(r) {
+  return {
+    id: r.id,
+    planId: r.plan_id,
+    pageIndex: r.page_index,
+    pageSha256: r.page_sha256,
+    kind: r.kind,
+    legendEntryId: r.legend_entry_id,
+    label: r.label,
+    bbox: r.bbox,
+    confidence: r.confidence,
+    note: r.note,
+    runId: r.run_id,
+    createdAt: r.created_at,
+  };
+}
+
+// Map a tile-normalised box into page-normalised coordinates.
+function tileBoxToPage(tile, b) {
+  return {
+    x: tile.x + b.x * tile.w,
+    y: tile.y + b.y * tile.h,
+    w: b.w * tile.w,
+    h: b.h * tile.h,
+  };
+}
+
+async function handleDetectionsList(res, sql, tenantId, jobId) {
+  const rows = await store.listDeviceDetections(sql, tenantId, jobId);
+  return res.status(200).json({
+    detections: rows.map(detectionView),
+    promptVersion: DETECTION_PROMPT_VERSION,
+    model: AI_DRAWINGS_MODEL,
+  });
+}
+
+async function handleDetectDevices(res, sql, tenantId, jobId, user, body) {
+  const parsedBody = DetectDevicesBody.safeParse(body);
+  if (!parsedBody.success) {
+    return res.status(400).json({ error: parsedBody.error.issues[0]?.message || 'invalid body' });
+  }
+  const { planId, pageIndex, tile } = parsedBody.data;
+
+  const found = await readPlanPage(jobId, planId, pageIndex);
+  if (found.error) return res.status(found.status).json({ error: found.error });
+  const { page } = found;
+
+  // Detection is constrained matching against THIS project's reviewed
+  // vocabulary — without one there is nothing honest to match against.
+  const vocabRows = await store.acceptedLegendEntries(sql, tenantId, jobId);
+  if (vocabRows.length === 0) {
+    return res.status(409).json({
+      error: 'no reviewed legend vocabulary — extract and accept the legend first (#201)',
+    });
+  }
+
+  const tileKey = store.tileKeyOf(tile.region);
+  const cacheKey = {
+    jobId, planId, pageIndex,
+    pageSha256: page.sha256,
+    tileKey,
+    promptVersion: DETECTION_PROMPT_VERSION,
+    model: AI_DRAWINGS_MODEL,
+  };
+
+  let run = await store.findCachedDetectionRun(sql, tenantId, cacheKey);
+  const cached = !!run;
+  let vocab = null;
+  if (!run) {
+    const takeoff = await aiSpend.readTakeoff(jobId);
+    if (aiSpend.overBudget(takeoff)) {
+      return res.status(402).json({
+        error: 'cost cap reached for this job ($' + aiSpend.COST_CAP_USD + ')',
+        spend: takeoff.spend,
+      });
+    }
+    const m = tile.dataUrl.match(/^data:(image\/[a-z+.-]+);base64,(.+)$/s);
+    if (!m) return res.status(400).json({ error: 'tile.dataUrl must be a base64 image data URL' });
+
+    // Few-shot references: the reviewed vocabulary's symbol crops ride along
+    // as extra images (fetched from Blob), capped to keep the call bounded.
+    vocab = [];
+    const refImages = [];
+    for (const row of vocabRows) {
+      let refIndex = null;
+      if (row.symbol_crop_url && refImages.length < MAX_FEWSHOT_CROPS) {
+        try {
+          const png = await fetchPngAsBase64(row.symbol_crop_url);
+          refIndex = refImages.length;
+          refImages.push({ type: 'image', source: { type: 'base64', media_type: png.mediaType, data: png.base64 } });
+        } catch {
+          refIndex = null; // crop unreachable — the entry stays text-only
+        }
+      }
+      vocab.push({
+        entryId: row.id,
+        label: row.human_label || row.label,
+        symbolText: row.symbol_text,
+        refIndex,
+      });
+    }
+
+    const content = [
+      { type: 'image', source: { type: 'base64', media_type: m[1], data: m[2] } },
+      ...refImages,
+      { type: 'text', text: detectionPrompt(vocab) },
+    ];
+    let text, usage;
+    try {
+      const out = await aiComplete({
+        model: AI_DRAWINGS_MODEL,
+        maxTokens: 4000,
+        messages: [{ role: 'user', content }],
+      });
+      text = out.text;
+      usage = out.usage;
+    } catch (e) {
+      if (e instanceof AiError && e.code === 'UNCONFIGURED') {
+        return res.status(503).json({ error: 'AI is not configured in this environment' });
+      }
+      return res.status(502).json({ error: 'vision call failed: ' + e.message });
+    }
+    // The money is spent — record it BEFORE judging the output (honest cap).
+    await aiSpend.commitTakeoff(jobId, (t) => {
+      aiSpend.recordSpend(t, usage, 'detect-devices', { planId, pageIndex, tileKey, promptVersion: DETECTION_PROMPT_VERSION }, {
+        inputUsdPerToken: COST_PER_INPUT_TOKEN,
+        outputUsdPerToken: COST_PER_OUTPUT_TOKEN,
+      });
+    });
+    const json = extractJson(text);
+    if (!json || !DetectionModelOutput.safeParse(json).success) {
+      return res.status(502).json({
+        error: 'model returned unusable output — nothing was stored; try again',
+      });
+    }
+    try {
+      run = await store.insertDetectionRun(sql, tenantId, {
+        jobId, planId, pageIndex,
+        pageSha256: page.sha256,
+        tileKey,
+        tileRegion: tile.region,
+        promptVersion: DETECTION_PROMPT_VERSION,
+        model: AI_DRAWINGS_MODEL,
+        raw: { ...json, vocab: vocab.map((v) => ({ entryId: v.entryId, label: v.label })) },
+        inputTokens: usage ? Number(usage.inputTokens ?? usage.input_tokens ?? 0) : null,
+        outputTokens: usage ? Number(usage.outputTokens ?? usage.output_tokens ?? 0) : null,
+        createdByLabel: user.username || null,
+      });
+    } catch (e) {
+      const dup = e && (e.code === '23505' || /duplicate key/i.test(String(e.message || '')));
+      if (!dup) throw e;
+      run = await store.findCachedDetectionRun(sql, tenantId, cacheKey);
+      if (!run) throw e;
+    }
+  }
+
+  // Materialise detections from the run's raw output (idempotent: the IoU
+  // seam-dedup also absorbs a cached re-click). The vocabulary mapping is
+  // frozen INSIDE the run's raw so a later legend change can't re-label
+  // history.
+  const parsedOut = DetectionModelOutput.safeParse(run.raw);
+  if (!parsedOut.success) {
+    return res.status(502).json({ error: 'stored detection run is unreadable — re-run after a prompt bump' });
+  }
+  const runVocab = Array.isArray(run.raw.vocab) ? run.raw.vocab : [];
+  const candidates = [];
+  let offVocabulary = 0;
+  for (const d of parsedOut.data.detections) {
+    const entry = runVocab[d.entryIndex];
+    if (!entry) {
+      offVocabulary += 1; // model pointed outside the list — dropped, counted
+      continue;
+    }
+    candidates.push({
+      kind: 'device',
+      legendEntryId: entry.entryId,
+      label: entry.label,
+      bbox: tileBoxToPage(tile.region, d.bbox),
+      confidence: d.confidence,
+      note: null,
+    });
+  }
+  for (const u of parsedOut.data.uncertainRegions) {
+    candidates.push({
+      kind: 'uncertain-region',
+      legendEntryId: null,
+      label: null,
+      bbox: tileBoxToPage(tile.region, u.bbox),
+      confidence: null,
+      note: cleanValue(u.note),
+    });
+  }
+  const ctx = { jobId, planId, pageIndex, pageSha256: page.sha256, runId: run.id };
+  const { inserted, seamDuplicates } = await store.insertDeviceDetections(
+    sql, tenantId, ctx, candidates, DETECTION_SEAM_IOU,
+  );
+
+  if (inserted.length > 0) {
+    await appendAuditLog({
+      action: 'document.ai_extracted',
+      actorId: user.id,
+      actorName: user.username || 'Unknown',
+      actorRole: user.role || null,
+      jobId,
+      targetType: 'document',
+      targetId: planId,
+      summary: `AI located ${inserted.filter((d) => d.kind === 'device').length} device${inserted.filter((d) => d.kind === 'device').length === 1 ? '' : 's'} on page ${pageIndex + 1} (unverified)`,
+      metadata: { kind: 'device-detections', pageIndex, tileKey, promptVersion: DETECTION_PROMPT_VERSION },
+    }).catch(() => {});
+  }
+
+  const pageRows = await store.listDeviceDetectionsForPage(
+    sql, tenantId, jobId, planId, pageIndex, page.sha256,
+  );
+  const fresh = await aiSpend.readTakeoff(jobId);
+  return res.status(200).json({
+    cached,
+    inserted: inserted.length,
+    seamDuplicates,
+    offVocabulary,
+    detections: pageRows.map(detectionView),
+    spend: { totalUsd: fresh.spend.totalUsd, capUsd: aiSpend.COST_CAP_USD },
+  });
+}
+
 // ─── #203: revision diff handlers ───────────────────────────────────────────
 
 function pageDiffView(d) {
@@ -1432,7 +1726,7 @@ module.exports = async (req, res) => {
 
   if (
     req.method === 'GET' &&
-    (action === 'sheets' || action === 'legend' || action === 'schedules' || action === 'diffs')
+    (action === 'sheets' || action === 'legend' || action === 'schedules' || action === 'diffs' || action === 'detections')
   ) {
     const sql = dbOr503(res, 'read');
     if (!sql) return;
@@ -1440,6 +1734,7 @@ module.exports = async (req, res) => {
     if (action === 'legend') return handleLegendList(res, sql, tenantId, jobId);
     if (action === 'schedules') return handleSchedulesList(res, sql, tenantId, jobId);
     if (action === 'diffs') return handleDiffsList(res, sql, tenantId, jobId);
+    if (action === 'detections') return handleDetectionsList(res, sql, tenantId, jobId);
     return handleSheets(res, sql, tenantId, jobId);
   }
 
@@ -1459,6 +1754,7 @@ module.exports = async (req, res) => {
     if (action === 'review-schedule-row') return handleReviewScheduleRow(res, sql, tenantId, jobId, user, body);
     if (action === 'diff-pages') return handleDiffPages(res, sql, tenantId, jobId, user, body);
     if (action === 'review-diff-region') return handleReviewDiffRegion(res, sql, tenantId, jobId, user, body);
+    if (action === 'detect-devices') return handleDetectDevices(res, sql, tenantId, jobId, user, body);
     return res.status(400).json({ error: 'unknown action: ' + (action || '(none)') });
   }
 
@@ -1484,4 +1780,8 @@ module.exports.__test = {
   normaliseModelTable,
   pageDiffView,
   diffRegionView,
+  DETECTION_PROMPT_VERSION,
+  detectionPrompt,
+  detectionView,
+  tileBoxToPage,
 };
