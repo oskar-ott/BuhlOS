@@ -596,6 +596,47 @@ export const PageCableSchema = z.object({
 });
 export type PageCable = z.infer<typeof PageCableSchema>;
 
+// ─── #212: cross-sheet links ────────────────────────────────────────────────
+
+export const DuplicateCountWarningSchema = z.object({
+  otherPlanId: z.string(),
+  otherPageIndex: z.number().int(),
+  identifier: z.string(),
+  status: z.enum(["proposed", "confirmed"]),
+});
+export type DuplicateCountWarning = z.infer<typeof DuplicateCountWarningSchema>;
+
+export const SheetRefSchema = z.object({
+  id: z.string(),
+  planId: z.string(),
+  pageIndex: z.number().int(),
+  pageSha256: z.string(),
+  text: z.string(),
+  targetSheetNumber: z.string(),
+  bbox: CropRegionSchema.nullable(),
+  confidence: z.number().nullable(),
+  createdAt: z.string(),
+  /** Live resolution against the registry — null = honestly unresolved. */
+  resolved: z.object({ planId: z.string(), pageIndex: z.number().int() }).nullable(),
+});
+export type SheetRef = z.infer<typeof SheetRefSchema>;
+
+export const EntityLinkSchema = z.object({
+  id: z.string(),
+  kind: z.literal("same-board"),
+  identifier: z.string(),
+  a: z.object({ planId: z.string(), pageIndex: z.number().int() }),
+  b: z.object({ planId: z.string(), pageIndex: z.number().int() }),
+  confidence: z.number().nullable(),
+  evidence: z.string().nullable(),
+  origin: z.enum(["ai", "human"]),
+  status: z.enum(["proposed", "confirmed", "rejected"]),
+  createdAt: z.string(),
+  reviewedAt: z.string().nullable(),
+  reviewedBy: z.string().nullable(),
+});
+export type EntityLink = z.infer<typeof EntityLinkSchema>;
+
 export const CountReviewPageSchema = z.object({
   planId: z.string(),
   pageIndex: z.number().int(),
@@ -608,6 +649,8 @@ export const CountReviewPageSchema = z.object({
   byRoom: z.array(ByRoomRowSchema).optional().default([]),
   /** #211 */
   cable: PageCableSchema.optional().default({ pins: [], calibration: null, run: null }),
+  /** #212 */
+  duplicateCountWarnings: z.array(DuplicateCountWarningSchema).optional().default([]),
 });
 export type CountReviewPage = z.infer<typeof CountReviewPageSchema>;
 
@@ -660,3 +703,29 @@ export const CableRunResponseSchema = z.object({
   page: CountReviewPageSchema,
 });
 export type CableRunResponse = z.infer<typeof CableRunResponseSchema>;
+
+export const LinksResponseSchema = z.object({
+  refs: z.array(SheetRefSchema),
+  links: z.array(EntityLinkSchema),
+  promptVersion: z.string(),
+});
+export type LinksResponse = z.infer<typeof LinksResponseSchema>;
+
+export const ExtractRefsResponseSchema = z.object({
+  cached: z.boolean(),
+  inserted: z.number().int(),
+  refs: z.array(SheetRefSchema),
+  spend: z.object({ totalUsd: z.number(), capUsd: z.number() }).optional(),
+});
+export type ExtractRefsResponse = z.infer<typeof ExtractRefsResponseSchema>;
+
+export const ProposeLinksResponseSchema = z.object({
+  proposed: z.number().int(),
+  alreadyKnown: z.number().int(),
+  sightings: z.number().int(),
+  links: z.array(EntityLinkSchema),
+});
+export type ProposeLinksResponse = z.infer<typeof ProposeLinksResponseSchema>;
+
+export const LinkResponseSchema = z.object({ link: EntityLinkSchema });
+export type LinkResponse = z.infer<typeof LinkResponseSchema>;

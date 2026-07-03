@@ -927,9 +927,112 @@ async function acceptedCableRuns(sql, tenantId, jobId) {
     order by plan_id, page_index`;
 }
 
+// ─── #212: cross-sheet refs and entity links ────────────────────────────────
+
+async function listSheetRefs(sql, tenantId, jobId) {
+  return await sql`
+    select * from public.sheet_refs
+    where tenant_id = ${tenantId} and job_id = ${jobId} and status = 'live'
+    order by plan_id, page_index, created_at, id`;
+}
+
+async function refsForExtraction(sql, tenantId, extractionId) {
+  return await sql`
+    select id from public.sheet_refs
+    where tenant_id = ${tenantId} and extraction_id = ${extractionId}
+    limit 1`;
+}
+
+// Insert one extraction's refs, superseding the raster's previous live refs
+// (refs have no cross-run identity — re-extraction replaces the page's set).
+async function insertSheetRefs(sql, tenantId, ctx, refs) {
+  const inserted = [];
+  for (const r of refs) {
+    const rows = await sql`
+      insert into public.sheet_refs (
+        tenant_id, job_id, plan_id, page_index, page_sha256, text,
+        target_sheet_number, bbox, confidence, extraction_id, created_by_label
+      ) values (
+        ${tenantId}, ${ctx.jobId}, ${ctx.planId}, ${ctx.pageIndex}, ${ctx.pageSha256},
+        ${r.text}, ${r.targetSheetNumber}, ${r.bbox === null || r.bbox === undefined ? null : sql.json(r.bbox)},
+        ${r.confidence}, ${ctx.extractionId}, ${ctx.createdByLabel}
+      ) returning *`;
+    inserted.push(rows[0]);
+  }
+  const newIds = inserted.map((r) => r.id);
+  if (newIds.length) {
+    await sql`
+      update public.sheet_refs set status = 'superseded', superseded_by = ${newIds[0]}
+      where tenant_id = ${tenantId} and job_id = ${ctx.jobId}
+        and plan_id = ${ctx.planId} and page_index = ${ctx.pageIndex}
+        and page_sha256 = ${ctx.pageSha256}
+        and status = 'live' and id <> all(${newIds})`;
+  }
+  return inserted;
+}
+
+async function listEntityLinks(sql, tenantId, jobId) {
+  return await sql`
+    select * from public.entity_links
+    where tenant_id = ${tenantId} and job_id = ${jobId}
+    order by identifier, a_plan_id, a_page_index, b_plan_id, b_page_index`;
+}
+
+async function getEntityLink(sql, tenantId, jobId, linkId) {
+  const rows = await sql`
+    select * from public.entity_links
+    where tenant_id = ${tenantId} and job_id = ${jobId} and id = ${linkId}
+    limit 1`;
+  return rows.length ? rows[0] : null;
+}
+
+// Insert proposals; the (kind, identifier, pair) unique constraint makes
+// re-scans idempotent and keeps rejections sticky (conflicts are skipped).
+async function insertEntityLinks(sql, tenantId, jobId, proposals, origin, createdByLabel) {
+  const inserted = [];
+  let skipped = 0;
+  for (const p of proposals) {
+    const rows = await sql`
+      insert into public.entity_links (
+        tenant_id, job_id, kind, identifier, a_plan_id, a_page_index,
+        b_plan_id, b_page_index, confidence, evidence, origin, status,
+        created_by_label
+      ) values (
+        ${tenantId}, ${jobId}, ${p.kind}, ${p.identifier}, ${p.aPlanId}, ${p.aPageIndex},
+        ${p.bPlanId}, ${p.bPageIndex}, ${p.confidence}, ${p.evidence}, ${origin},
+        ${origin === 'human' ? 'confirmed' : 'proposed'}, ${createdByLabel}
+      )
+      on conflict (tenant_id, job_id, kind, identifier, a_plan_id, a_page_index, b_plan_id, b_page_index)
+      do nothing
+      returning *`;
+    if (rows.length) inserted.push(rows[0]);
+    else skipped += 1;
+  }
+  return { inserted, skipped };
+}
+
+async function reviewEntityLink(sql, tenantId, jobId, link, next) {
+  const rows = await sql`
+    update public.entity_links set
+      status = ${next.status},
+      reviewed_at = now(),
+      reviewed_by_label = ${next.reviewedByLabel}
+    where tenant_id = ${tenantId} and job_id = ${jobId}
+      and id = ${link.id} and status = ${link.status}
+    returning *`;
+  return rows.length ? rows[0] : null;
+}
+
 module.exports = {
   OVERRIDE_FIELDS,
   ROOM_TRANSITIONS,
+  listSheetRefs,
+  refsForExtraction,
+  insertSheetRefs,
+  listEntityLinks,
+  getEntityLink,
+  insertEntityLinks,
+  reviewEntityLink,
   listBoardPins,
   upsertBoardPin,
   deleteBoardPin,

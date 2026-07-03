@@ -50,6 +50,7 @@ const pageDiff = require('./_lib/page-diff');
 const countReview = require('./_lib/count-review');
 const roomAssign = require('./_lib/room-assign');
 const cable = require('./_lib/cable-estimate');
+const entityLinks = require('./_lib/entity-links');
 
 // ─── Config (env-configurable, bare current alias default — #378) ──────────
 const AI_DRAWINGS_MODEL = process.env.AI_DRAWINGS_MODEL || 'claude-opus-4-8';
@@ -84,6 +85,11 @@ const MAX_FEWSHOT_CROPS = 12; // legend reference images per call
 // #206 rooms — whole-page label + approximate-extent pass, same run-log cache.
 const ROOMS_PROMPT_VERSION = 'rv-v1';
 const KIND_ROOMS = 'rooms';
+
+// #212 cross-sheet references — callout detection pass, same run-log cache.
+// Entity-link proposals are PURE (exact identifier matches) — no model call.
+const REFS_PROMPT_VERSION = 'sr-v1';
+const KIND_REFS = 'sheet-refs';
 
 // ─── Request validation (Zod at the boundary) ──────────────────────────────
 const CropRegion = z.object({
@@ -259,6 +265,21 @@ const EstimateCableBody = z.object({
     .optional(),
 });
 const AcceptCableBody = z.object({ runId: z.string().min(1) });
+// #212 cross-sheet links
+const ExtractRefsBody = z.object({
+  planId: z.string().min(1),
+  pageIndex: z.number().int().min(0),
+});
+const ReviewLinkBody = z.object({
+  linkId: z.string().min(1),
+  status: z.enum(['confirmed', 'rejected']),
+});
+const AddLinkBody = z.object({
+  kind: z.literal('same-board'),
+  identifier: z.string().min(1).max(60),
+  a: z.object({ planId: z.string().min(1), pageIndex: z.number().int().min(0) }),
+  b: z.object({ planId: z.string().min(1), pageIndex: z.number().int().min(0) }),
+});
 
 // ─── Model output contract (validated before anything persists) ────────────
 const FieldOut = z.object({
@@ -363,6 +384,19 @@ const RoomOut = z.object({
 });
 const RoomsModelOutput = z.object({
   rooms: z.array(RoomOut).max(120),
+  notes: z.string().max(2000).nullable().optional(),
+});
+
+// #212 reference-callout model contract — callouts verbatim, target sheet
+// numbers exactly as printed, nothing invented.
+const RefOut = z.object({
+  text: z.string().min(1).max(200),
+  targetSheetNumber: z.string().min(1).max(40),
+  bbox: NormBox.nullable().optional(),
+  confidence: z.number().min(0).max(1),
+});
+const RefsModelOutput = z.object({
+  refs: z.array(RefOut).max(80),
   notes: z.string().max(2000).nullable().optional(),
 });
 
@@ -1912,6 +1946,14 @@ function assembleCountReviewPage(planId, pageIndex, pageSha256, jobRows) {
   const pagePins = jobRows.pins.filter(onRaster);
   const calibration = jobRows.calibrations.find(onRaster) || null;
   const cableRun = jobRows.cableRuns.find(onRaster) || null;
+  // #212: warn when a live link ties this page to ANOTHER page that also
+  // carries accepted counts — the same physical scope may be counted twice.
+  const countedPageKeys = new Set(
+    jobRows.accepted
+      .filter((a) => a.status === 'live')
+      .map((a) => entityLinks.pageKeyOf(a.plan_id, a.page_index)),
+  );
+  const warnings = entityLinks.duplicateCountWarnings(jobRows.links, countedPageKeys);
   return {
     planId,
     pageIndex,
@@ -1930,6 +1972,7 @@ function assembleCountReviewPage(planId, pageIndex, pageSha256, jobRows) {
       calibration: calibration ? calibrationView(calibration) : null,
       run: cableRun ? cableRunView(cableRun, cableRunStale(cableRun, markers, pagePins, calibration)) : null,
     },
+    duplicateCountWarnings: warnings.get(entityLinks.pageKeyOf(planId, pageIndex)) || [],
   };
 }
 
@@ -2219,7 +2262,7 @@ function cableRunStaleFromPage(page, run) {
 }
 
 async function loadJobReviewRows(sql, tenantId, jobId) {
-  const [detections, reviews, accepted, rooms, assignments, pins, calibrations, cableRuns] =
+  const [detections, reviews, accepted, rooms, assignments, pins, calibrations, cableRuns, links] =
     await Promise.all([
       store.listDeviceDetections(sql, tenantId, jobId),
       store.listDetectionReviews(sql, tenantId, jobId),
@@ -2229,8 +2272,9 @@ async function loadJobReviewRows(sql, tenantId, jobId) {
       store.listBoardPins(sql, tenantId, jobId),
       store.listCalibrations(sql, tenantId, jobId),
       store.listCableRuns(sql, tenantId, jobId),
+      store.listEntityLinks(sql, tenantId, jobId),
     ]);
-  return { detections, reviews, accepted, rooms, assignments, pins, calibrations, cableRuns };
+  return { detections, reviews, accepted, rooms, assignments, pins, calibrations, cableRuns, links };
 }
 
 async function handleCountReviewList(res, sql, tenantId, jobId) {
@@ -2807,6 +2851,341 @@ async function handleClearDeviceRoom(res, sql, tenantId, jobId, user, body) {
   return res.status(200).json({ page: pageBlock });
 }
 
+// ─── #212: cross-sheet reference + link handlers ────────────────────────────
+
+// Prompt (version: REFS_PROMPT_VERSION).
+function refsPrompt() {
+  return `You are reading ONE page of an Australian construction drawing set, looking ONLY for cross-sheet reference callouts.
+
+TASK — list every reference to ANOTHER sheet visible on this page:
+- Typical forms: "REFER E-501", "SEE DETAIL 3 / E-501", detail bubbles (a circle split by a line: detail number above, sheet number below), "REFER TO DWG E-201", section markers pointing at another sheet.
+- text: the callout VERBATIM as printed.
+- targetSheetNumber: the referenced sheet number EXACTLY as printed (e.g. "E-501").
+- bbox: a box around the callout in normalised 0..1 page coordinates, or null if hard to localise.
+- confidence: YOUR honest 0..1.
+
+RULES — non-negotiable:
+- ONLY references to OTHER sheets. Ignore the title block naming THIS sheet, revision tables, general notes without a sheet number.
+- Never invent sheet numbers. If the page has no cross-references: {"refs": [], "notes": "..."}.
+- Return ONLY strict JSON:
+{
+  "refs": [ { "text": "REFER E-501 FOR SWITCHBOARD DETAILS", "targetSheetNumber": "E-501", "bbox": {"x":0.72,"y":0.31,"w":0.12,"h":0.02}, "confidence": 0.9 } ],
+  "notes": "one short caveat sentence, or null"
+}`;
+}
+
+function sheetRefView(r, resolved) {
+  return {
+    id: r.id,
+    planId: r.plan_id,
+    pageIndex: r.page_index,
+    pageSha256: r.page_sha256,
+    text: r.text,
+    targetSheetNumber: r.target_sheet_number,
+    bbox: r.bbox,
+    confidence: r.confidence,
+    createdAt: r.created_at,
+    resolved: resolved ?? null,
+  };
+}
+
+function entityLinkView(l) {
+  return {
+    id: l.id,
+    kind: l.kind,
+    identifier: l.identifier,
+    a: { planId: l.a_plan_id, pageIndex: l.a_page_index },
+    b: { planId: l.b_plan_id, pageIndex: l.b_page_index },
+    confidence: l.confidence,
+    evidence: l.evidence,
+    origin: l.origin,
+    status: l.status,
+    createdAt: l.created_at,
+    reviewedAt: l.reviewed_at,
+    reviewedBy: l.reviewed_by_label,
+  };
+}
+
+// Effective sheet numbers for LIVE resolution (human overrides win, #197).
+async function effectiveSheetNumbers(sql, tenantId, jobId) {
+  const [rows, overrides] = await Promise.all([
+    store.listPlanSheets(sql, tenantId, jobId),
+    store.listOverrides(sql, tenantId, jobId),
+  ]);
+  return rows.map((row) => ({
+    planId: row.plan_id,
+    pageIndex: row.page_index,
+    sheetNumber: effectiveSheet(row, overrides).fields.sheetNumber.effective,
+  }));
+}
+
+async function handleLinksList(res, sql, tenantId, jobId) {
+  const [refs, links, sheets] = await Promise.all([
+    store.listSheetRefs(sql, tenantId, jobId),
+    store.listEntityLinks(sql, tenantId, jobId),
+    effectiveSheetNumbers(sql, tenantId, jobId),
+  ]);
+  const resolvedRefs = entityLinks.resolveRefs(refs, sheets);
+  return res.status(200).json({
+    refs: resolvedRefs.map((r) => sheetRefView(r, r.resolved)),
+    links: links.map(entityLinkView),
+    promptVersion: REFS_PROMPT_VERSION,
+  });
+}
+
+async function handleExtractRefs(res, sql, tenantId, jobId, user, body) {
+  const parsedBody = ExtractRefsBody.safeParse(body);
+  if (!parsedBody.success) {
+    return res.status(400).json({ error: parsedBody.error.issues[0]?.message || 'invalid body' });
+  }
+  const { planId, pageIndex } = parsedBody.data;
+  const found = await readPlanPage(jobId, planId, pageIndex);
+  if (found.error) return res.status(found.status).json({ error: found.error });
+  const { page } = found;
+
+  const cacheKey = {
+    jobId, planId, pageIndex,
+    pageSha256: page.sha256,
+    kind: KIND_REFS,
+    promptVersion: REFS_PROMPT_VERSION,
+    model: AI_DRAWINGS_MODEL,
+  };
+  let extraction = await store.findCachedExtraction(sql, tenantId, cacheKey);
+  const cached = !!extraction;
+  if (!extraction) {
+    const takeoff = await aiSpend.readTakeoff(jobId);
+    if (aiSpend.overBudget(takeoff)) {
+      return res.status(402).json({
+        error: 'cost cap reached for this job ($' + aiSpend.COST_CAP_USD + ')',
+        spend: takeoff.spend,
+      });
+    }
+    let content;
+    try {
+      const png = await fetchPngAsBase64(page.pngUrl);
+      content = [
+        { type: 'image', source: { type: 'base64', media_type: png.mediaType, data: png.base64 } },
+        { type: 'text', text: refsPrompt() },
+      ];
+    } catch (e) {
+      return res.status(502).json({ error: 'could not fetch page image: ' + e.message });
+    }
+    let text, usage;
+    try {
+      const out = await aiComplete({
+        model: AI_DRAWINGS_MODEL,
+        maxTokens: 4000,
+        messages: [{ role: 'user', content }],
+      });
+      text = out.text;
+      usage = out.usage;
+    } catch (e) {
+      if (e instanceof AiError && e.code === 'UNCONFIGURED') {
+        return res.status(503).json({ error: 'AI is not configured in this environment' });
+      }
+      return res.status(502).json({ error: 'vision call failed: ' + e.message });
+    }
+    // The money is spent — record it BEFORE judging the output (honest cap).
+    await aiSpend.commitTakeoff(jobId, (t) => {
+      aiSpend.recordSpend(t, usage, 'extract-refs', { planId, pageIndex, promptVersion: REFS_PROMPT_VERSION }, {
+        inputUsdPerToken: COST_PER_INPUT_TOKEN,
+        outputUsdPerToken: COST_PER_OUTPUT_TOKEN,
+      });
+    });
+    const json = extractJson(text);
+    if (!json || !RefsModelOutput.safeParse(json).success) {
+      return res.status(502).json({
+        error: 'model returned unusable output — nothing was stored; try again',
+      });
+    }
+    try {
+      extraction = await store.insertExtraction(sql, tenantId, {
+        jobId, planId, pageIndex,
+        pageSha256: page.sha256,
+        kind: KIND_REFS,
+        model: AI_DRAWINGS_MODEL,
+        promptVersion: REFS_PROMPT_VERSION,
+        raw: json,
+        sheetType: null, sheetTypeConfidence: null,
+        sheetNumber: null, sheetNumberConfidence: null,
+        sheetTitle: null, sheetTitleConfidence: null,
+        revision: null, revisionConfidence: null,
+        scale: null, scaleConfidence: null,
+        region: null,
+        inputTokens: usage ? Number(usage.inputTokens ?? usage.input_tokens ?? 0) : null,
+        outputTokens: usage ? Number(usage.outputTokens ?? usage.output_tokens ?? 0) : null,
+        createdByLabel: user.username || null,
+      });
+    } catch (e) {
+      const dup = e && (e.code === '23505' || /duplicate key/i.test(String(e.message || '')));
+      if (!dup) throw e;
+      extraction = await store.findCachedExtraction(sql, tenantId, cacheKey);
+      if (!extraction) throw e;
+    }
+  }
+
+  // Idempotent materialisation — a cached re-click inserts nothing.
+  const already = await store.refsForExtraction(sql, tenantId, extraction.id);
+  let inserted = [];
+  if (already.length === 0) {
+    const parsedOut = RefsModelOutput.safeParse(extraction.raw);
+    if (!parsedOut.success) {
+      return res.status(502).json({ error: 'stored refs run is unreadable — re-run after a prompt bump' });
+    }
+    inserted = await store.insertSheetRefs(
+      sql,
+      tenantId,
+      {
+        jobId, planId, pageIndex,
+        pageSha256: page.sha256,
+        extractionId: extraction.id,
+        createdByLabel: user.username || null,
+      },
+      parsedOut.data.refs.map((r) => ({
+        text: r.text.trim(),
+        targetSheetNumber: r.targetSheetNumber.trim(),
+        bbox: r.bbox ?? null,
+        confidence: r.confidence,
+      })),
+    );
+    if (inserted.length > 0) {
+      await appendAuditLog({
+        action: 'document.ai_extracted',
+        actorId: user.id,
+        actorName: user.username || 'Unknown',
+        actorRole: user.role || null,
+        jobId,
+        targetType: 'document',
+        targetId: planId,
+        summary: `AI found ${inserted.length} cross-sheet reference${inserted.length === 1 ? '' : 's'} on page ${pageIndex + 1}`,
+        metadata: { kind: 'sheet-refs', pageIndex, promptVersion: REFS_PROMPT_VERSION },
+      }).catch(() => {});
+    }
+  }
+
+  const sheets = await effectiveSheetNumbers(sql, tenantId, jobId);
+  const refs = await store.listSheetRefs(sql, tenantId, jobId);
+  const pageRefs = entityLinks
+    .resolveRefs(refs, sheets)
+    .filter((r) => r.plan_id === planId && r.page_index === pageIndex);
+  const fresh = await aiSpend.readTakeoff(jobId);
+  return res.status(200).json({
+    cached,
+    inserted: inserted.length,
+    refs: pageRefs.map((r) => sheetRefView(r, r.resolved)),
+    spend: { totalUsd: fresh.spend.totalUsd, capUsd: aiSpend.COST_CAP_USD },
+  });
+}
+
+// Pure scan — exact identifier matches across schedules (#207) and board
+// pins (#211). No model call, no spend. Rejections stay rejected.
+async function handleProposeLinks(res, sql, tenantId, jobId, user) {
+  const [tables, pins, existing] = await Promise.all([
+    store.listScheduleTables(sql, tenantId, jobId),
+    store.listBoardPins(sql, tenantId, jobId),
+    store.listEntityLinks(sql, tenantId, jobId),
+  ]);
+  const sightings = entityLinks.boardSightings(tables, pins);
+  // suppression happens in the pure fn (rejections stay rejected) — count
+  // the suppressed pairs so "already known" is honest on re-scans
+  const allPairs = entityLinks.proposeBoardLinks(sightings, []);
+  const proposals = entityLinks.proposeBoardLinks(sightings, existing);
+  const { inserted, skipped } = await store.insertEntityLinks(
+    sql, tenantId, jobId, proposals, 'ai', user.username || null,
+  );
+  const links = await store.listEntityLinks(sql, tenantId, jobId);
+  return res.status(200).json({
+    proposed: inserted.length,
+    alreadyKnown: allPairs.length - proposals.length + skipped,
+    sightings: sightings.length,
+    links: links.map(entityLinkView),
+  });
+}
+
+const LINK_TRANSITIONS = {
+  proposed: ['confirmed', 'rejected'],
+  confirmed: ['rejected'],
+  rejected: ['confirmed'],
+};
+
+async function handleReviewLink(res, sql, tenantId, jobId, user, body) {
+  const parsed = ReviewLinkBody.safeParse(body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0]?.message || 'invalid body' });
+  }
+  const { linkId, status } = parsed.data;
+  const link = await store.getEntityLink(sql, tenantId, jobId, linkId);
+  if (!link) return res.status(404).json({ error: 'link not found' });
+  const allowed = LINK_TRANSITIONS[link.status] || [];
+  if (!allowed.includes(status)) {
+    return res.status(409).json({ error: `cannot ${status} a ${link.status} link` });
+  }
+  const updated = await store.reviewEntityLink(sql, tenantId, jobId, link, {
+    status,
+    reviewedByLabel: user.username || 'Unknown',
+  });
+  if (!updated) return res.status(409).json({ error: 'link was reviewed concurrently — reload' });
+  await appendAuditLog({
+    action: 'document.ai_corrected',
+    actorId: user.id,
+    actorName: user.username || 'Unknown',
+    actorRole: user.role || null,
+    jobId,
+    targetType: 'document',
+    targetId: link.a_plan_id,
+    summary: `${status} the ${updated.identifier} cross-sheet link`,
+    metadata: { kind: 'entity-link', linkId, status },
+  }).catch(() => {});
+  return res.status(200).json({ link: entityLinkView(updated) });
+}
+
+async function handleAddLink(res, sql, tenantId, jobId, user, body) {
+  const parsed = AddLinkBody.safeParse(body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0]?.message || 'invalid body' });
+  }
+  const { kind, identifier, a, b } = parsed.data;
+  if (a.planId === b.planId && a.pageIndex === b.pageIndex) {
+    return res.status(400).json({ error: 'a link joins two DIFFERENT pages' });
+  }
+  // canonical ordering keeps the pair unique regardless of input order
+  const [first, second] = [a, b].sort((x, y) =>
+    entityLinks.pageKeyOf(x.planId, x.pageIndex).localeCompare(entityLinks.pageKeyOf(y.planId, y.pageIndex)),
+  );
+  const { inserted } = await store.insertEntityLinks(
+    sql,
+    tenantId,
+    jobId,
+    [{
+      kind,
+      identifier: entityLinks.normaliseIdentifier(identifier),
+      aPlanId: first.planId,
+      aPageIndex: first.pageIndex,
+      bPlanId: second.planId,
+      bPageIndex: second.pageIndex,
+      confidence: null,
+      evidence: 'added by ' + (user.username || 'a human'),
+    }],
+    'human',
+    user.username || null,
+  );
+  if (!inserted.length) {
+    return res.status(409).json({ error: 'this pair already has a link — review it instead' });
+  }
+  await appendAuditLog({
+    action: 'document.ai_corrected',
+    actorId: user.id,
+    actorName: user.username || 'Unknown',
+    actorRole: user.role || null,
+    jobId,
+    targetType: 'document',
+    targetId: first.planId,
+    summary: `linked ${inserted[0].identifier} across two sheets`,
+    metadata: { kind: 'entity-link', linkId: inserted[0].id, status: 'confirmed' },
+  }).catch(() => {});
+  return res.status(200).json({ link: entityLinkView(inserted[0]) });
+}
+
 // ─── Router ─────────────────────────────────────────────────────────────────
 
 module.exports = async (req, res) => {
@@ -2835,7 +3214,7 @@ module.exports = async (req, res) => {
   if (
     req.method === 'GET' &&
     (action === 'sheets' || action === 'legend' || action === 'schedules' || action === 'diffs' ||
-      action === 'detections' || action === 'count-review')
+      action === 'detections' || action === 'count-review' || action === 'links')
   ) {
     const sql = dbOr503(res, 'read');
     if (!sql) return;
@@ -2845,6 +3224,7 @@ module.exports = async (req, res) => {
     if (action === 'diffs') return handleDiffsList(res, sql, tenantId, jobId);
     if (action === 'detections') return handleDetectionsList(res, sql, tenantId, jobId);
     if (action === 'count-review') return handleCountReviewList(res, sql, tenantId, jobId);
+    if (action === 'links') return handleLinksList(res, sql, tenantId, jobId);
     return handleSheets(res, sql, tenantId, jobId);
   }
 
@@ -2878,6 +3258,10 @@ module.exports = async (req, res) => {
     if (action === 'calibrate-sheet') return handleCalibrateSheet(res, sql, tenantId, jobId, user, body);
     if (action === 'estimate-cable') return handleEstimateCable(res, sql, tenantId, jobId, user, body);
     if (action === 'accept-cable-estimate') return handleAcceptCableEstimate(res, sql, tenantId, jobId, user, body);
+    if (action === 'extract-refs') return handleExtractRefs(res, sql, tenantId, jobId, user, body);
+    if (action === 'propose-links') return handleProposeLinks(res, sql, tenantId, jobId, user);
+    if (action === 'review-link') return handleReviewLink(res, sql, tenantId, jobId, user, body);
+    if (action === 'add-link') return handleAddLink(res, sql, tenantId, jobId, user, body);
     return res.status(400).json({ error: 'unknown action: ' + (action || '(none)') });
   }
 
@@ -2916,4 +3300,8 @@ module.exports.__test = {
   cableRunStale,
   boardPinView,
   calibrationView,
+  REFS_PROMPT_VERSION,
+  refsPrompt,
+  sheetRefView,
+  entityLinkView,
 };

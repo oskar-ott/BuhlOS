@@ -65,6 +65,7 @@ function page(over: Partial<CountReviewPage>): CountReviewPage {
     rooms: [],
     byRoom: [],
     cable: { pins: [], calibration: null, run: null },
+    duplicateCountWarnings: [],
     counts: [
       {
         legendEntryId: "le_gpo",
@@ -344,6 +345,29 @@ describe("DeviceCountReviewCard (#205)", () => {
       ),
     );
     expect(html).toContain("Not calibrated — estimates need a known dimension");
+  });
+
+  it("surfaces the duplicate-count warning when a linked page also carries accepted counts (#212)", () => {
+    const p = page({
+      duplicateCountWarnings: [
+        { otherPlanId: "pl2", otherPageIndex: 0, identifier: "DB-1", status: "proposed" },
+      ],
+    });
+    const html = strip(
+      renderToString(
+        createElement(DeviceCountReviewCard, {
+          jobId: "j1",
+          pages: [p],
+          vocabulary,
+          lookup: { pngUrlFor: () => "https://blob.test/p.png", labelFor: () => "E-SET" },
+          onPage: () => undefined,
+        }),
+      ),
+    );
+    expect(html).toContain('data-testid="duplicate-count-warning"');
+    expect(html).toContain("Possible double-count");
+    expect(html).toContain("proposed as linked via DB-1");
+    expect(html).toContain("counted twice");
   });
 
   it("shows the all-verified page state when every count is accepted and fresh", () => {

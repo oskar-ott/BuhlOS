@@ -339,6 +339,21 @@ function PageReview({
           </Pill>
         ) : null}
       </div>
+      {page.duplicateCountWarnings.length > 0 ? (
+        <div
+          className="mt-1.5 rounded-card border border-dashed border-amber-500 px-3 py-1.5 text-xs text-text"
+          data-testid="duplicate-count-warning"
+          role="status"
+        >
+          Possible double-count: {page.duplicateCountWarnings
+            .map(
+              (w) =>
+                `${lookup.labelFor(w.otherPlanId)} p${w.otherPageIndex + 1} also carries accepted counts and is ${w.status === "confirmed" ? "linked" : "proposed as linked"} via ${w.identifier}`,
+            )
+            .join("; ")}{" "}
+          — check the same scope isn&rsquo;t counted twice before assembling a takeoff.
+        </div>
+      ) : null}
 
       {pngUrl ? (
         <div className="mt-2">

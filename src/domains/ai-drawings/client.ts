@@ -18,7 +18,11 @@ import {
   DiffPagesResponseSchema,
   DiffsResponseSchema,
   ExtractLegendResponseSchema,
+  ExtractRefsResponseSchema,
   ExtractScheduleResponseSchema,
+  LinkResponseSchema,
+  LinksResponseSchema,
+  ProposeLinksResponseSchema,
   LegendEntryResponseSchema,
   LegendListResponseSchema,
   OverrideResponseSchema,
@@ -41,7 +45,11 @@ import {
   type DiffPagesResponse,
   type DiffsResponse,
   type ExtractLegendResponse,
+  type ExtractRefsResponse,
   type ExtractScheduleResponse,
+  type LinkResponse,
+  type LinksResponse,
+  type ProposeLinksResponse,
   type LegendCategory,
   type LegendEntryResponse,
   type LegendListResponse,
@@ -600,5 +608,76 @@ export async function acceptCableEstimate(
       body: JSON.stringify({ runId }),
     },
     (b) => CableRunResponseSchema.parse(b),
+  );
+}
+
+// ─── #212: cross-sheet links ────────────────────────────────────────────────
+
+export async function fetchLinks(jobId: string): Promise<LinksResponse> {
+  return request(
+    `/api/ai-drawings?jobId=${encodeURIComponent(jobId)}&action=links`,
+    { method: "GET" },
+    (b) => LinksResponseSchema.parse(b),
+  );
+}
+
+export async function extractRefs(
+  jobId: string,
+  planId: string,
+  pageIndex: number,
+): Promise<ExtractRefsResponse> {
+  return request(
+    `/api/ai-drawings?jobId=${encodeURIComponent(jobId)}&action=extract-refs`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ planId, pageIndex }),
+    },
+    (b) => ExtractRefsResponseSchema.parse(b),
+  );
+}
+
+export async function proposeLinks(jobId: string): Promise<ProposeLinksResponse> {
+  return request(
+    `/api/ai-drawings?jobId=${encodeURIComponent(jobId)}&action=propose-links`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    },
+    (b) => ProposeLinksResponseSchema.parse(b),
+  );
+}
+
+export async function reviewLink(
+  jobId: string,
+  linkId: string,
+  status: "confirmed" | "rejected",
+): Promise<LinkResponse> {
+  return request(
+    `/api/ai-drawings?jobId=${encodeURIComponent(jobId)}&action=review-link`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ linkId, status }),
+    },
+    (b) => LinkResponseSchema.parse(b),
+  );
+}
+
+export async function addLink(
+  jobId: string,
+  identifier: string,
+  a: { planId: string; pageIndex: number },
+  b: { planId: string; pageIndex: number },
+): Promise<LinkResponse> {
+  return request(
+    `/api/ai-drawings?jobId=${encodeURIComponent(jobId)}&action=add-link`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ kind: "same-board", identifier, a, b }),
+    },
+    (b2) => LinkResponseSchema.parse(b2),
   );
 }
