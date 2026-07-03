@@ -28,6 +28,8 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ScopeOfWorkSection } from "./ScopeOfWorkSection";
+import { PlanStudioPanel } from "./PlanStudioPanel";
+import type { AcceptRoomsResponse } from "@/domains/ai-drawings/schema";
 import { ScopeReconciliationStatus } from "./ScopeReconciliationStatus";
 import { ClientContractSection } from "./ClientContractSection";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
@@ -126,6 +128,7 @@ type TabKey =
   | "scope"
   | "structure"
   | "modules"
+  | "planStudio"
   | DeliverKey
   | "crew"
   | "preview"
@@ -138,6 +141,7 @@ const TABS: ReadonlyArray<{ key: TabKey; label: string }> = [
   { key: "scope", label: "Scope" },
   { key: "structure", label: "Structure" },
   { key: "modules", label: "Field modules" },
+  { key: "planStudio", label: "Plan Studio" },
   { key: "plans", label: "Plans & docs" },
   { key: "materials", label: "Materials" },
   { key: "gear", label: "Gear" },
@@ -240,7 +244,7 @@ const SECTION_TESTID: Partial<Record<TabKey, string>> = {
 };
 
 const COCKPIT_GROUPS: ReadonlyArray<{ heading: string; keys: ReadonlyArray<TabKey> }> = [
-  { heading: "Build", keys: ["overview", "basics", "scope", "structure", "modules"] },
+  { heading: "Build", keys: ["overview", "basics", "scope", "structure", "modules", "planStudio"] },
   { heading: "Deliver", keys: ["plans", "materials", "gear", "itps", "risks", "crew"] },
   { heading: "Ship", keys: ["preview", "publish"] },
   { heading: "More", keys: ["more"] },
@@ -306,6 +310,7 @@ export function JobBuilderClient({
   reconciliation = null,
   assignableWorkers = [],
   workersLoadError = null,
+  planStudioEnabled = false,
 }: {
   job: Job;
   /** The confirmed scope reconciliation (server-loaded), or null/missing. Source
@@ -314,11 +319,30 @@ export function JobBuilderClient({
   /** Assignable field/LH crew (server-loaded) for the cockpit Crew section. */
   assignableWorkers?: ReadonlyArray<AssignableWorker>;
   workersLoadError?: string | null;
+  /** ai_drawings flag (admin-tier, dark) — gates the Plan Studio tab. */
+  planStudioEnabled?: boolean;
 }) {
   const router = useRouter();
   const [savedJob, setSavedJob] = useState<Job>(initialJob);
   const [form, setForm] = useState<JobBuilderForm>(() => jobToForm(initialJob));
   const [tab, setTab] = useState<TabKey>("basics");
+  // Plan Studio (#206) — the success banner shown on Structure after rooms are
+  // accepted into areas, and the reload that makes Structure reflect them.
+  const [planAreasBanner, setPlanAreasBanner] = useState<AcceptRoomsResponse | null>(null);
+  const handleAreasCreated = useCallback(
+    async (summary: AcceptRoomsResponse) => {
+      setPlanAreasBanner(summary);
+      // The client holds savedJob in state, so a router.refresh alone wouldn't
+      // update it — re-read the job so the new areas show in Structure.
+      const res = await getJobForEdit(savedJob.id);
+      if (res.ok) {
+        setSavedJob(res.data.job);
+        setForm(jobToForm(res.data.job));
+      }
+      setTab("structure");
+    },
+    [savedJob.id],
+  );
   // Honour a deep-link hash on mount (e.g. `…/builder#publish`). Runs once,
   // client-only; a non-tab hash leaves the default tab untouched.
   useEffect(() => {
@@ -534,7 +558,7 @@ export function JobBuilderClient({
   // status can read them without a TDZ trap.
   const cockpitNav: CockpitNavGroup[] = COCKPIT_GROUPS.map((g) => ({
     heading: g.heading,
-    items: g.keys.map((key) => ({
+    items: g.keys.filter((key) => planStudioEnabled || key !== "planStudio").map((key) => ({
       key,
       label: TABS.find((t) => t.key === key)!.label,
       status: sectionStatus(key),
@@ -923,6 +947,38 @@ export function JobBuilderClient({
   );
 
   /* ---- the active section node fed into the cockpit canvas ---- */
+  function renderPlanStudio() {
+    return <PlanStudioPanel jobId={savedJob.id} onAreasCreated={handleAreasCreated} />;
+  }
+
+  function renderPlanAreasBanner() {
+    if (!planAreasBanner) return null;
+    const madeSheets = planAreasBanner.sheets.filter((s) => s.created > 0);
+    const considered = planAreasBanner.sheets.reduce((n, s) => n + s.considered, 0);
+    return (
+      <Card className="border-state-success" role="status" data-testid="structure-plan-areas-banner">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <CardTitle>
+              {planAreasBanner.created} of {considered} area{planAreasBanner.created === 1 ? "" : "s"} created from
+              plans
+            </CardTitle>
+            <CardDescription className="mt-1">
+              {madeSheets.length > 0
+                ? madeSheets
+                    .map((s) => `${s.created} from ${s.planLabel}${s.revision ? ` Rev ${s.revision}` : ""}`)
+                    .join(" · ")
+                : "No new areas — every reviewed room was already created."}
+            </CardDescription>
+          </div>
+          <Button variant="ghost" size="sm" onClick={() => setPlanAreasBanner(null)}>
+            Dismiss
+          </Button>
+        </div>
+      </Card>
+    );
+  }
+
   function renderActiveSection() {
     switch (tab) {
       case "overview":
@@ -949,9 +1005,16 @@ export function JobBuilderClient({
       case "risks":
         return renderDeliverLink(tab);
       case "structure":
-        return renderStructure();
+        return (
+          <>
+            {planAreasBanner ? renderPlanAreasBanner() : null}
+            {renderStructure()}
+          </>
+        );
       case "modules":
         return renderModules();
+      case "planStudio":
+        return planStudioEnabled ? renderPlanStudio() : null;
       case "preview":
         return renderPreview();
       case "publish":

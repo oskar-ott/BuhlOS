@@ -115,6 +115,25 @@ describe("JobBuilderClient", () => {
     expect(html).not.toContain("Structure editing is locked");
     expect(html).not.toContain("until the builder can edit around archived items");
   });
+
+  // #206 Plan Studio — the rooms→areas tab is dark behind ai_drawings. The rail
+  // only lists it when the flag prop is on; off, it's invisible.
+  it("hides the Plan Studio tab unless the ai_drawings flag prop is on (dark)", () => {
+    const off = renderToString(
+      createElement(JobBuilderClient, {
+        job: makeJob({ id: "job-1", name: "Dark Job", status: "draft" }),
+      })
+    );
+    expect(off).not.toContain("Plan Studio");
+
+    const on = renderToString(
+      createElement(JobBuilderClient, {
+        job: makeJob({ id: "job-1", name: "Lit Job", status: "draft" }),
+        planStudioEnabled: true,
+      })
+    );
+    expect(on).toContain("Plan Studio");
+  });
 });
 
 /**
