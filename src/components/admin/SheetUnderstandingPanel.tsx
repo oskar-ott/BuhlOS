@@ -25,6 +25,8 @@ import {
   DETECTION_TILES,
   type CountReviewPage,
   type DeviceDetection,
+  type EntityLink,
+  type SheetRef,
   type DiffRegion,
   type LegendEntry,
   type PageDiff,
@@ -42,9 +44,11 @@ import {
   detectDevices,
   diffPages,
   extractLegend,
+  extractRefs,
   extractRooms,
   extractSchedule,
   fetchCountReview,
+  fetchLinks,
   fetchDetections,
   fetchDiffs,
   fetchLegend,
@@ -61,6 +65,7 @@ import { ScheduleTablesCard } from "@/components/admin/ScheduleTablesCard";
 import { RevisionDiffCard, type RevisionPair } from "@/components/admin/RevisionDiffCard";
 import { DeviceDetectionCard } from "@/components/admin/DeviceDetectionCard";
 import { DeviceCountReviewCard } from "@/components/admin/DeviceCountReviewCard";
+import { CrossSheetLinksCard } from "@/components/admin/CrossSheetLinksCard";
 
 /**
  * Epic 5 (#197) — AI sheet understanding: run + review-and-correct loop.
@@ -148,6 +153,8 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
   const [diffRegions, setDiffRegions] = useState<DiffRegion[]>([]);
   const [deviceDetections, setDeviceDetections] = useState<DeviceDetection[]>([]);
   const [countPages, setCountPages] = useState<CountReviewPage[]>([]);
+  const [sheetRefs, setSheetRefs] = useState<SheetRef[]>([]);
+  const [entityLinks, setEntityLinks] = useState<EntityLink[]>([]);
   const [comparing, setComparing] = useState<{ headPlanId: string; done: number; total: number } | null>(null);
   // one page-level extraction (legend OR schedule) at a time
   const [extractBusyKey, setExtractBusyKey] = useState<string | null>(null);
@@ -201,22 +208,31 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
     setStatus("loading");
     setStatusMessage("");
     try {
-      const [sheetsRes, plansRes, legendRes, schedulesRes, diffsRes, detectionsRes, countRes] =
-        await Promise.all([
-          fetchSheets(jobId),
-          fetch(`/api/plans?jobId=${encodeURIComponent(jobId)}`, {
-            cache: "no-store",
-            credentials: "same-origin",
-          }).then(async (r) => {
-            if (!r.ok) throw new Error(`Documents API ${r.status}`);
-            return PanelPlansResponseSchema.parse(await r.json());
-          }),
-          fetchLegend(jobId),
-          fetchSchedules(jobId),
-          fetchDiffs(jobId),
-          fetchDetections(jobId),
-          fetchCountReview(jobId),
-        ]);
+      const [
+        sheetsRes,
+        plansRes,
+        legendRes,
+        schedulesRes,
+        diffsRes,
+        detectionsRes,
+        countRes,
+        linksRes,
+      ] = await Promise.all([
+        fetchSheets(jobId),
+        fetch(`/api/plans?jobId=${encodeURIComponent(jobId)}`, {
+          cache: "no-store",
+          credentials: "same-origin",
+        }).then(async (r) => {
+          if (!r.ok) throw new Error(`Documents API ${r.status}`);
+          return PanelPlansResponseSchema.parse(await r.json());
+        }),
+        fetchLegend(jobId),
+        fetchSchedules(jobId),
+        fetchDiffs(jobId),
+        fetchDetections(jobId),
+        fetchCountReview(jobId),
+        fetchLinks(jobId),
+      ]);
       const nextSheets: Record<string, EffectiveSheet> = {};
       for (const s of sheetsRes.sheets) {
         nextSheets[sheetKey(s.planId, s.pageIndex)] = s;
@@ -241,6 +257,8 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
       setDiffRegions(diffsRes.regions);
       setDeviceDetections(detectionsRes.detections);
       setCountPages(countRes.pages);
+      setSheetRefs(linksRes.refs);
+      setEntityLinks(linksRes.links);
       setStatus("ready");
     } catch (err) {
       if (err instanceof AiDrawingsError && err.code === "STORE_UNAVAILABLE") {
@@ -431,6 +449,44 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
         }
       } finally {
         setComparing(null);
+      }
+    },
+    [jobId],
+  );
+
+  // #212: one refs pass per analysed page of a document (cached by sha —
+  // an unchanged page never bills twice).
+  const runFindRefs = useCallback(
+    async (plan: PanelPlan) => {
+      setRunNotice("");
+      setExtractBusyKey(sheetKey(plan.id, -1));
+      try {
+        let found = 0;
+        for (const page of plan.pages) {
+          try {
+            const out = await extractRefs(jobId, plan.id, page.pageIndex);
+            found += out.inserted;
+            if (out.spend) setSpend(out.spend);
+          } catch (err) {
+            if (err instanceof AiDrawingsError && err.code === "CAP_REACHED") {
+              setRunNotice(err.message);
+              return;
+            }
+            setRunNotice(
+              `Page ${page.pageIndex + 1} refs failed — ${err instanceof Error ? err.message : "error"}; continuing.`,
+            );
+          }
+        }
+        const linksRes = await fetchLinks(jobId);
+        setSheetRefs(linksRes.refs);
+        setEntityLinks(linksRes.links);
+        setRunNotice(
+          found > 0
+            ? `Found ${found} cross-sheet reference${found === 1 ? "" : "s"} — see References & links.`
+            : "No new cross-sheet references found (cached pages stay free).",
+        );
+      } finally {
+        setExtractBusyKey(null);
       }
     },
     [jobId],
@@ -689,6 +745,34 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
             </div>
           ) : null}
 
+          {(sheetRefs.length > 0 || entityLinks.length > 0 || scheduleTables.length > 0 || countPages.length > 0) ? (
+            <div className="mt-3">
+              <CrossSheetLinksCard
+                jobId={jobId}
+                refs={sheetRefs}
+                links={entityLinks}
+                lookup={{
+                  labelFor: (planId) => {
+                    const p = plans.find((pl) => pl.id === planId);
+                    return p ? planLabel(p) : "(document no longer on this job)";
+                  },
+                  pageOptions: plans.flatMap((p) =>
+                    p.pages.map((pg) => ({
+                      planId: p.id,
+                      pageIndex: pg.pageIndex,
+                      label: `${planLabel(p)} p${pg.pageIndex + 1}`,
+                    })),
+                  ),
+                }}
+                onLinks={(links) => {
+                  setEntityLinks(links);
+                  // link changes can flip duplicate-count warnings — refresh
+                  void fetchCountReview(jobId).then((r) => setCountPages(r.pages)).catch(() => {});
+                }}
+              />
+            </div>
+          ) : null}
+
           {deviceDetections.length > 0 ? (
             <div className="mt-3">
               <DeviceDetectionCard
@@ -754,6 +838,7 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
                   }
                   onDetectDevices={(pageIndex) => void runDetectDevices(plan, pageIndex)}
                   onExtractRooms={(pageIndex) => void runExtractRooms(plan, pageIndex)}
+                  onFindRefs={() => void runFindRefs(plan)}
                 />
               ))}
             </div>
@@ -819,6 +904,7 @@ function PlanSheets({
   onExtractSchedule,
   onDetectDevices,
   onExtractRooms,
+  onFindRefs,
 }: {
   jobId: string;
   plan: PanelPlan;
@@ -833,6 +919,7 @@ function PlanSheets({
   onExtractSchedule: (pageIndex: number, kind: ScheduleTableKind) => void;
   onDetectDevices: (pageIndex: number) => void;
   onExtractRooms: (pageIndex: number) => void;
+  onFindRefs: () => void;
 }) {
   const planRunning = running?.planId === plan.id;
   const analysed = plan.pages.filter(
@@ -854,24 +941,41 @@ function PlanSheets({
             {plan.status !== "current" ? ` · ${plan.status}` : ""}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={onRun}
-          disabled={anyRunning}
-          className={cn(
-            "inline-flex h-8 items-center gap-2 rounded-card border px-3 text-sm font-medium transition-colors",
-            anyRunning
-              ? "cursor-not-allowed border-border bg-surface-subtle text-text-muted"
-              : "border-brand-navy bg-brand-navy text-text-inverse hover:opacity-90",
-          )}
-        >
-          <ScanSearch aria-hidden="true" className="h-4 w-4" />
-          {planRunning
-            ? `Analysing ${running!.done}/${running!.total}…`
-            : analysed === plan.pages.length && analysed > 0
-              ? "Re-check pages"
-              : "Analyse pages"}
-        </button>
+        <span className="inline-flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onFindRefs}
+            disabled={anyRunning || analysed === 0}
+            title={analysed === 0 ? "Analyse pages first" : undefined}
+            className={cn(
+              "inline-flex h-8 items-center gap-2 rounded-card border px-3 text-sm font-medium transition-colors",
+              anyRunning || analysed === 0
+                ? "cursor-not-allowed border-border bg-surface-subtle text-text-muted"
+                : "border-border bg-surface text-text hover:bg-surface-subtle",
+            )}
+          >
+            <ScanSearch aria-hidden="true" className="h-4 w-4" />
+            Find references
+          </button>
+          <button
+            type="button"
+            onClick={onRun}
+            disabled={anyRunning}
+            className={cn(
+              "inline-flex h-8 items-center gap-2 rounded-card border px-3 text-sm font-medium transition-colors",
+              anyRunning
+                ? "cursor-not-allowed border-border bg-surface-subtle text-text-muted"
+                : "border-brand-navy bg-brand-navy text-text-inverse hover:opacity-90",
+            )}
+          >
+            <ScanSearch aria-hidden="true" className="h-4 w-4" />
+            {planRunning
+              ? `Analysing ${running!.done}/${running!.total}…`
+              : analysed === plan.pages.length && analysed > 0
+                ? "Re-check pages"
+                : "Analyse pages"}
+          </button>
+        </span>
       </div>
       <ul className="divide-y divide-border">
         {plan.pages.map((page) => {

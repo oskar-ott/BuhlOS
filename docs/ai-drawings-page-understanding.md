@@ -367,6 +367,41 @@ every run stores its full input snapshot (reproducible from that alone).
   measurement on a reference sheet, deviation reported alongside — joins
   the standing owner-preview session.
 
+## Cross-sheet references and links (#212)
+
+A drawing set is a web, not a pile. Two deliberately small structures:
+
+- **Reference callouts** ("Find references" per document, prompt `sr-v1`,
+  cached per raster): "REFER E-501", detail bubbles, section markers —
+  verbatim text + target sheet number + provenance. **Resolution is never
+  stored**: refs re-resolve on every read against the registry's effective
+  sheet numbers (#197 overrides win), so correcting a sheet number fixes
+  resolution instantly. Unresolved refs list honestly ("no analysed sheet
+  numbered E-999"). Spend kind `extract-refs`; re-extraction supersedes
+  the page's previous refs.
+- **Entity links** (v1 kind `same-board`): proposals come from a **pure
+  scan** — exact identifier matches between schedule boards (#207) and
+  board pins (#211), no model call, no spend. Identifiers normalise
+  (case/dashes/spacing) but nothing fuzzy. Proposals carry confidence +
+  evidence and **never take effect until a human confirms**; rejected
+  pairs persist so re-scans never re-propose them; confirmed links can be
+  unlinked, rejected ones re-confirmed. Humans add links by hand (born
+  confirmed, canonically ordered, duplicate pairs refused).
+- **Duplicate-count warnings**: any live link (proposed OR confirmed —
+  a proposal is already a reason to check) whose BOTH sides carry live
+  accepted counts flags each side in the counts card: "possible
+  double-count … check the same scope isn't counted twice before
+  assembling a takeoff." This is the #213 guard the issue asks for.
+- Storage: `sheet_refs` + `entity_links`
+  (migration `20260703200000_epic5_cross_sheet_links.sql`; run-log kind
+  CHECK widened with `sheet-refs`). Pure helpers in
+  `api/_lib/entity-links.js` (unit-tested). Audit: refs land under
+  `document.ai_extracted` (kind `sheet-refs`); link reviews and manual
+  links under `document.ai_corrected` (kind `entity-link`).
+- **Verification criterion prod-gated**: on a real multi-sheet set, a
+  human confirms/rejects every proposed link and confirmed links
+  round-trip both ways — joins the standing owner-preview session.
+
 ## Honest limits (deliberate, this slice)
 
 - **No server-side PDF/OCR pipeline** — pages must have been rendered by the
@@ -389,12 +424,16 @@ every run stores its full input snapshot (reproducible from that alone).
 - Room extents are **approximate bboxes**, not wall-tracing polygons
   (#206 v1 per its issue) — the redraw affordance is the correction path.
 - Cable estimates (#211) group per BOARD, not per circuit — circuit-level
-  grouping arrives with schematic circuit recognition (#209, deferred) or
-  #212's entity links; the board-pin v1 is per that issue's own scoping.
+  grouping arrives with schematic circuit recognition (#209, deferred);
+  #212's confirmed same-board links tie those boards across sheets but do
+  not yet regroup estimates.
+- Entity links (#212) are references + identity links only — the "full
+  project knowledge graph" stays deliberately out of scope per the issue.
 - Accuracy ACs (#201 legend listing, #202/#207 cell-level error rate,
   #204 detection precision/recall, #205 full-loop count match vs an
   independent hand count, #206 room names vs a human's room listing,
-  #211 estimate vs a human's scaled measurement with deviation reported)
+  #211 estimate vs a human's scaled measurement with deviation reported,
+  #212 confirm/reject every proposed link on a real multi-sheet set)
   need prod — same owner-preview session as the #197/#199 checks.
 - **The ≥10-page real-set end-to-end check (final #197 AC) needs production**
   (real Anthropic key + Supabase + a real drawing set) — run it there with

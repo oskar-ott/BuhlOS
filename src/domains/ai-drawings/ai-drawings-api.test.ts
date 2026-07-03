@@ -51,6 +51,8 @@ let roomAssignments: Row[];
 let boardPins: Row[];
 let calibrations: Row[];
 let cableRuns: Row[];
+let sheetRefsArr: Row[];
+let entityLinksArr: Row[];
 let blobPuts: Array<{ path: string; bytes: number }>;
 let auditEntries: Row[];
 let aiCalls: Array<Record<string, unknown>>;
@@ -218,6 +220,8 @@ beforeEach(() => {
   boardPins = [];
   calibrations = [];
   cableRuns = [];
+  sheetRefsArr = [];
+  entityLinksArr = [];
   blobPuts = [];
   auditEntries = [];
   detectionRaceWinner = null;
@@ -1223,6 +1227,114 @@ beforeEach(() => {
       },
       acceptedCableRuns: async (_sql: unknown, _t: string, jobId: string) =>
         cableRuns.filter((r) => r.job_id === jobId && r.status === "accepted"),
+      // ── #212 cross-sheet links (mirrors the real store's SQL semantics) ──
+      listSheetRefs: async (_sql: unknown, _t: string, jobId: string) =>
+        sheetRefsArr.filter((r) => r.job_id === jobId && r.status === "live"),
+      refsForExtraction: async (_sql: unknown, _t: string, extractionId: string) =>
+        sheetRefsArr.filter((r) => r.extraction_id === extractionId).slice(0, 1),
+      insertSheetRefs: async (_sql: unknown, _t: string, ctx: Row, refs: Row[]) => {
+        const inserted: Row[] = [];
+        for (const r of refs) {
+          const row: Row = {
+            id: `ref_${sheetRefsArr.length + 1}`,
+            job_id: ctx.jobId,
+            plan_id: ctx.planId,
+            page_index: ctx.pageIndex,
+            page_sha256: ctx.pageSha256,
+            text: r.text,
+            target_sheet_number: r.targetSheetNumber,
+            bbox: r.bbox,
+            confidence: r.confidence,
+            extraction_id: ctx.extractionId,
+            status: "live",
+            superseded_by: null,
+            created_at: new Date(1750000000000 + sheetRefsArr.length * 1000).toISOString(),
+            created_by_label: ctx.createdByLabel,
+          };
+          sheetRefsArr.push(row);
+          inserted.push(row);
+        }
+        const newIds = new Set(inserted.map((r) => r.id));
+        for (const r of sheetRefsArr) {
+          if (
+            r.job_id === ctx.jobId &&
+            r.plan_id === ctx.planId &&
+            r.page_index === ctx.pageIndex &&
+            r.page_sha256 === ctx.pageSha256 &&
+            r.status === "live" &&
+            !newIds.has(r.id)
+          ) {
+            r.status = "superseded";
+            r.superseded_by = inserted[0]?.id ?? null;
+          }
+        }
+        return inserted;
+      },
+      listEntityLinks: async (_sql: unknown, _t: string, jobId: string) =>
+        entityLinksArr.filter((l) => l.job_id === jobId),
+      getEntityLink: async (_sql: unknown, _t: string, jobId: string, id: string) =>
+        entityLinksArr.find((l) => l.job_id === jobId && l.id === id) ?? null,
+      insertEntityLinks: async (
+        _sql: unknown,
+        _t: string,
+        jobId: string,
+        proposals: Row[],
+        origin: string,
+        createdByLabel: string | null,
+      ) => {
+        const inserted: Row[] = [];
+        let skipped = 0;
+        for (const p of proposals) {
+          const dup = entityLinksArr.some(
+            (l) =>
+              l.job_id === jobId &&
+              l.kind === p.kind &&
+              l.identifier === p.identifier &&
+              l.a_plan_id === p.aPlanId &&
+              l.a_page_index === p.aPageIndex &&
+              l.b_plan_id === p.bPlanId &&
+              l.b_page_index === p.bPageIndex,
+          );
+          if (dup) {
+            skipped += 1;
+            continue;
+          }
+          const row: Row = {
+            id: `el_${entityLinksArr.length + 1}`,
+            job_id: jobId,
+            kind: p.kind,
+            identifier: p.identifier,
+            a_plan_id: p.aPlanId,
+            a_page_index: p.aPageIndex,
+            b_plan_id: p.bPlanId,
+            b_page_index: p.bPageIndex,
+            confidence: p.confidence,
+            evidence: p.evidence,
+            origin,
+            status: origin === "human" ? "confirmed" : "proposed",
+            created_at: new Date(1750000000000 + entityLinksArr.length * 1000).toISOString(),
+            created_by_label: createdByLabel,
+            reviewed_at: null,
+            reviewed_by_label: null,
+          };
+          entityLinksArr.push(row);
+          inserted.push(row);
+        }
+        return { inserted, skipped };
+      },
+      reviewEntityLink: async (_sql: unknown, _t: string, jobId: string, link: Row, next: Row) => {
+        const i = entityLinksArr.findIndex(
+          (l) => l.job_id === jobId && l.id === link.id && l.status === link.status,
+        );
+        if (i < 0) return null;
+        entityLinksArr[i] = {
+          ...entityLinksArr[i],
+          status: next.status,
+          reviewed_at: new Date().toISOString(),
+          reviewed_by_label: next.reviewedByLabel,
+        };
+        return entityLinksArr[i];
+      },
     },
   } as NodeJS.Module;
 
@@ -3412,5 +3524,257 @@ describe("cable estimates (#211)", () => {
     });
     expect(res.statusCode).toBe(400);
     expect(String(res.body.error)).toContain("too close");
+  });
+});
+
+describe("cross-sheet links (#212)", () => {
+  const REFS_OUTPUT = {
+    refs: [
+      {
+        text: "REFER E-501 FOR SWITCHBOARD DETAILS",
+        targetSheetNumber: "E-501",
+        bbox: { x: 0.7, y: 0.3, w: 0.12, h: 0.02 },
+        confidence: 0.9,
+      },
+      { text: "SEE DWG E-999", targetSheetNumber: "E-999", bbox: null, confidence: 0.6 },
+    ],
+    notes: null,
+  };
+
+  // give pl1 p1 the sheet number E-501 via the review loop so refs resolve
+  async function seedRegistrySheet() {
+    aiNextText = JSON.stringify({
+      ...GOOD_OUTPUT,
+      titleBlock: {
+        ...GOOD_OUTPUT.titleBlock,
+        sheetNumber: { value: "E-501", confidence: 0.95 },
+      },
+    });
+    await call("POST", { jobId: "j1", action: "understand-page" }, {
+      planId: "pl1",
+      pageIndex: 1,
+    });
+  }
+
+  const extractRefs = () =>
+    call("POST", { jobId: "j1", action: "extract-refs" }, { planId: "pl1", pageIndex: 0 });
+
+  it("detects callouts, resolves against the registry LIVE, lists unresolved honestly", async () => {
+    await seedRegistrySheet();
+    aiNextText = JSON.stringify(REFS_OUTPUT);
+    const res = await extractRefs();
+    expect(res.statusCode).toBe(200);
+    expect(res.body.cached).toBe(false);
+    expect(res.body.inserted).toBe(2);
+    const resolved = (res.body.refs as Row[]).find(
+      (r) => r.targetSheetNumber === "E-501",
+    ) as Row;
+    expect(resolved.resolved).toEqual({ planId: "pl1", pageIndex: 1 });
+    const unresolved = (res.body.refs as Row[]).find(
+      (r) => r.targetSheetNumber === "E-999",
+    ) as Row;
+    expect(unresolved.resolved).toBeNull(); // honestly unresolved
+    expect(spendLedger().calls.some((c) => c.kind === "extract-refs")).toBe(true);
+
+    // correcting a sheet number re-resolves WITHOUT re-extraction
+    const cleared = await call("POST", { jobId: "j1", action: "override" }, {
+      planId: "pl1",
+      pageIndex: 1,
+      field: "sheetNumber",
+      value: "E-000",
+    });
+    expect(cleared.statusCode).toBe(200);
+    const list = await call("GET", { jobId: "j1", action: "links" });
+    const after = (list.body.refs as Row[]).find((r) => r.targetSheetNumber === "E-501") as Row;
+    expect(after.resolved).toBeNull(); // registry moved; resolution followed
+  });
+
+  it("cached refs re-click: no second bill, no duplicate rows", async () => {
+    aiNextText = JSON.stringify(REFS_OUTPUT);
+    await extractRefs();
+    const res = await extractRefs();
+    expect(res.body.cached).toBe(true);
+    expect(res.body.inserted).toBe(0);
+    expect(aiCalls).toHaveLength(1);
+    expect(sheetRefsArr.filter((r) => r.status === "live")).toHaveLength(2);
+  });
+
+  it("proposes same-board links from exact identifier matches — pure, no AI call", async () => {
+    // a board on a schedule page and the same board pinned on a floor plan
+    scheduleTables.push({
+      id: "st_1",
+      job_id: "j1",
+      plan_id: "pl1",
+      page_index: 1,
+      page_sha256: "sha1",
+      table_kind: "switchboard",
+      board_identifier: "DB-1",
+      status: "live",
+    });
+    boardPins.push({
+      id: "bp_1",
+      job_id: "j1",
+      plan_id: "pl1",
+      page_index: 0,
+      page_sha256: "sha0",
+      board_identifier: "db 1", // normalises to DB 1... deliberately different
+      point: { x: 0.1, y: 0.1 },
+    });
+    boardPins.push({
+      id: "bp_2",
+      job_id: "j1",
+      plan_id: "pl2",
+      page_index: 0,
+      page_sha256: "sha0",
+      board_identifier: "db-1",
+      point: { x: 0.2, y: 0.2 },
+    });
+    const res = await call("POST", { jobId: "j1", action: "propose-links" }, {});
+    expect(res.statusCode).toBe(200);
+    expect(aiCalls).toHaveLength(0); // pure scan
+    // DB-1 sighted on pl1:1 (schedule) and pl2:0 (pin) → exactly one proposal;
+    // "db 1" normalises to "DB 1" ≠ "DB-1" so it stays unlinked
+    expect(res.body.proposed).toBe(1);
+    const link = (res.body.links as Row[]).find((l) => l.status === "proposed") as Row;
+    expect(link).toMatchObject({ kind: "same-board", identifier: "DB-1", origin: "ai" });
+
+    // re-scan is idempotent
+    const again = await call("POST", { jobId: "j1", action: "propose-links" }, {});
+    expect(again.body.proposed).toBe(0);
+    expect(again.body.alreadyKnown).toBeGreaterThanOrEqual(1);
+  });
+
+  it("links only take effect after confirmation; rejection is sticky across re-scans", async () => {
+    scheduleTables.push({
+      id: "st_1",
+      job_id: "j1",
+      plan_id: "pl1",
+      page_index: 1,
+      page_sha256: "sha1",
+      table_kind: "switchboard",
+      board_identifier: "MSB",
+      status: "live",
+    });
+    boardPins.push({
+      id: "bp_1",
+      job_id: "j1",
+      plan_id: "pl2",
+      page_index: 0,
+      page_sha256: "sha0",
+      board_identifier: "MSB",
+      point: { x: 0.5, y: 0.5 },
+    });
+    const first = await call("POST", { jobId: "j1", action: "propose-links" }, {});
+    const linkId = (first.body.links as Row[])[0]?.id as string;
+
+    const rejected = await call("POST", { jobId: "j1", action: "review-link" }, {
+      linkId,
+      status: "rejected",
+    });
+    expect(rejected.statusCode).toBe(200);
+    expect(rejected.body.link.status).toBe("rejected");
+
+    const rescan = await call("POST", { jobId: "j1", action: "propose-links" }, {});
+    expect(rescan.body.proposed).toBe(0); // stays rejected
+
+    // change of mind: rejected → confirmed is allowed
+    const confirmed = await call("POST", { jobId: "j1", action: "review-link" }, {
+      linkId,
+      status: "confirmed",
+    });
+    expect(confirmed.body.link.status).toBe("confirmed");
+    const audit = auditEntries.filter(
+      (a) => a.action === "document.ai_corrected" && (a.metadata as Row)?.kind === "entity-link",
+    );
+    expect(audit.length).toBe(2);
+  });
+
+  it("human-added links are born confirmed with canonical ordering; duplicates 409", async () => {
+    const res = await call("POST", { jobId: "j1", action: "add-link" }, {
+      kind: "same-board",
+      identifier: "db-2",
+      a: { planId: "pl2", pageIndex: 0 }, // deliberately out of order
+      b: { planId: "pl1", pageIndex: 0 },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body.link).toMatchObject({
+      identifier: "DB-2",
+      origin: "human",
+      status: "confirmed",
+      a: { planId: "pl1", pageIndex: 0 },
+      b: { planId: "pl2", pageIndex: 0 },
+    });
+    const dup = await call("POST", { jobId: "j1", action: "add-link" }, {
+      kind: "same-board",
+      identifier: "DB-2",
+      a: { planId: "pl1", pageIndex: 0 },
+      b: { planId: "pl2", pageIndex: 0 },
+    });
+    expect(dup.statusCode).toBe(409);
+    const self = await call("POST", { jobId: "j1", action: "add-link" }, {
+      kind: "same-board",
+      identifier: "DB-3",
+      a: { planId: "pl1", pageIndex: 0 },
+      b: { planId: "pl1", pageIndex: 0 },
+    });
+    expect(self.statusCode).toBe(400);
+  });
+
+  it("duplicate-count warnings surface on BOTH pages once both carry accepted counts", async () => {
+    // accepted counts on pl1:0 and pl2:0 + a proposed link between them
+    legendRows.push({
+      id: "le_gpo",
+      job_id: "j1",
+      origin: "ai",
+      status: "accepted",
+      label: "Double GPO",
+      normalized_label: "double gpo",
+      human_label: null,
+      symbol_text: null,
+      symbol_crop_url: null,
+    });
+    for (const [planId, sha] of [["pl1", "sha0"], ["pl2", "sha0"]] as const) {
+      deviceDetections.push({
+        id: `d_${planId}`,
+        job_id: "j1",
+        plan_id: planId,
+        page_index: 0,
+        page_sha256: sha,
+        run_id: "run_x",
+        kind: "device",
+        legend_entry_id: "le_gpo",
+        label: "Double GPO",
+        bbox: { x: 0.4, y: 0.4, w: 0.04, h: 0.04 },
+        confidence: 0.9,
+        note: null,
+        created_at: "2026-07-03T00:00:00.000Z",
+      });
+      await call("POST", { jobId: "j1", action: "accept-count" }, {
+        planId,
+        pageIndex: 0,
+        legendEntryId: "le_gpo",
+      });
+    }
+    await call("POST", { jobId: "j1", action: "add-link" }, {
+      kind: "same-board",
+      identifier: "DB-1",
+      a: { planId: "pl1", pageIndex: 0 },
+      b: { planId: "pl2", pageIndex: 0 },
+    });
+    const res = await call("GET", { jobId: "j1", action: "count-review" });
+    const pl1 = (res.body.pages as Row[]).find((p) => p.planId === "pl1") as Row;
+    const pl2 = (res.body.pages as Row[]).find((p) => p.planId === "pl2") as Row;
+    expect(pl1.duplicateCountWarnings).toEqual([
+      { otherPlanId: "pl2", otherPageIndex: 0, identifier: "DB-1", status: "confirmed" },
+    ]);
+    expect((pl2.duplicateCountWarnings as Row[])).toHaveLength(1);
+  });
+
+  it("502s on unusable refs output — spend recorded, nothing stored (P7)", async () => {
+    aiNextText = "there are some references around the edges";
+    const res = await extractRefs();
+    expect(res.statusCode).toBe(502);
+    expect(spendLedger().calls).toHaveLength(1);
+    expect(sheetRefsArr).toHaveLength(0);
   });
 });
