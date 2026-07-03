@@ -7,6 +7,16 @@
 // Append-only — this module exposes only `append()` and a read helper.
 // No update / delete API.
 //
+// #355: `append(payload, { blocking })` supports two durability classes.
+// Default best-effort: a write failure never blocks the parent mutation, but is
+// now OBSERVABLE (console.error + a best-effort #154 error-journal mirror)
+// instead of silently swallowed. Blocking: a write failure THROWS so a
+// compliance-relevant / destructive mutation can't outrun its audit entry
+// (today: the job-delete tombstone). This is NOT transactional — blobs have no
+// two-phase commit and the monthly journal still has a read-modify-write race
+// (#157 applies to the journal blobs themselves); "blocking" means the caller
+// LEARNS about a failed audit write, not that audit+mutation are atomic.
+//
 // Doc 28 §A.5 calls for this to live alongside the legacy
 // `api/_lib/job-audit.js` per-job log, not replace it. Both fire on
 // every evidence write so the legacy admin audit tab keeps working
@@ -296,6 +306,13 @@ const VALID_ACTIONS = new Set([
   // src/domains/audit-log/schema.ts AUDIT_ACTIONS.
   'scope.finding_resolved',
   'scope.finding_accepted',
+  // #355: destructive-delete TOMBSTONE. A job's per-job audit blob dies with the
+  // job (api/jobs.js DELETE), so a cross-surface tombstone is written to THIS
+  // durable journal BEFORE the erase, capturing who/when/jobId/summary so the
+  // deleted job's existence survives its own trail. Written with { blocking:true }
+  // — the erase must not outrun the tombstone. targetType 'job', targetId is the
+  // deleted job's id. Kept in sync with src/domains/audit-log/schema.ts AUDIT_ACTIONS.
+  'job.deleted',
 ]);
 const VALID_TARGET_TYPES = new Set([
   'evidence',
@@ -379,23 +396,84 @@ async function readMonth(yyyymm) {
   return Array.isArray(data && data.entries) ? data.entries : [];
 }
 
+// #355: silent drops become visible. A dropped audit entry — a rejected
+// unknown action, or a swallowed best-effort write failure — used to vanish
+// with no trace. Route the context (action, actor, target) to console.error so
+// the drop is at least searchable in the function logs, and, when clean, mirror
+// it into the #154 error journal so it also surfaces on the platform error
+// board. This helper NEVER throws (it wraps the mirror in its own try/catch, and
+// appendError is itself best-effort) so making a drop observable can't itself
+// take down the parent request.
+function _observeDrop(reason, payload, err) {
+  const p = payload && typeof payload === 'object' ? payload : {};
+  const ctx = {
+    action: String(p.action || ''),
+    actorId: String(p.actorId || ''),
+    targetType: String(p.targetType || ''),
+    targetId: String(p.targetId || ''),
+  };
+  console.error(
+    `audit-log append dropped (${reason})`,
+    ctx,
+    err && err.message ? `— ${err.message}` : ''
+  );
+  try {
+    // Lazy-require so a cycle or a reporter fault can't break audit-log load.
+    const { appendError } = require('./error-log');
+    void appendError({
+      source: 'api',
+      handler: 'audit-log.append',
+      message: `audit entry dropped (${reason})${err && err.message ? `: ${err.message}` : ''}`,
+      severity: 'warning',
+      jobId: p.jobId == null ? null : String(p.jobId),
+      metadata: { reason, ...ctx },
+    });
+  } catch (e) {
+    console.error('audit-log drop → error-log mirror failed (swallowed)', e && e.message);
+  }
+}
+
 /**
- * Append a single entry. Best-effort: caller wraps in `.catch(() => {})`
- * so a write failure on the journal never blocks the parent mutation.
+ * Append a single entry.
+ *
+ * Default (best-effort): a write failure or an unknown action never blocks the
+ * parent mutation — the failure is now OBSERVABLE (console.error + best-effort
+ * error-journal mirror, #355) rather than silently swallowed, and null is
+ * returned. Existing callers wrap in `.catch(() => {})` and are unchanged.
+ *
+ * Blocking (`append(payload, { blocking: true })`): a write failure THROWS to
+ * the caller so a compliance-relevant or destructive mutation cannot outrun its
+ * audit entry. An unknown action / invalid payload still returns null (a bad
+ * payload is a programming error, not a storage failure — blocking can't make an
+ * unregistered verb land). Used by the job-delete tombstone (#355).
  *
  * @param {{ action: string, actorId: string, actorName: string,
  *           actorRole?: string|null, jobId?: string|null,
  *           targetType: string, targetId: string, summary: string,
  *           metadata?: object }} payload
+ * @param {{ blocking?: boolean }} [options]
  */
-async function append(payload) {
-  if (!payload || typeof payload !== 'object') return null;
+async function append(payload, options = {}) {
+  const blocking = !!(options && options.blocking);
+  if (!payload || typeof payload !== 'object') {
+    _observeDrop('invalid-payload', payload);
+    return null;
+  }
   const action = String(payload.action || '');
   const targetType = String(payload.targetType || '');
-  if (!VALID_ACTIONS.has(action)) return null;
-  if (!VALID_TARGET_TYPES.has(targetType)) return null;
+  if (!VALID_ACTIONS.has(action)) {
+    _observeDrop('unknown-action', payload);
+    return null;
+  }
+  if (!VALID_TARGET_TYPES.has(targetType)) {
+    _observeDrop('unknown-target-type', payload);
+    return null;
+  }
   const targetId = String(payload.targetId || '');
-  if (!targetId) return null;
+  if (!targetId) {
+    _observeDrop('missing-target-id', payload);
+    return null;
+  }
 
   const ts = new Date().toISOString();
   const id = nanoid('al_');
@@ -415,15 +493,25 @@ async function append(payload) {
       : {}),
   };
 
-  const yyyymm = _yyyymm(ts);
-  const entries = await readMonth(yyyymm);
-  entries.push(entry);
-  let trimmed = entries;
-  if (entries.length > MAX_ENTRIES_PER_MONTH) {
-    trimmed = entries.slice(-TRIM_TO_PER_MONTH);
+  try {
+    const yyyymm = _yyyymm(ts);
+    const entries = await readMonth(yyyymm);
+    entries.push(entry);
+    let trimmed = entries;
+    if (entries.length > MAX_ENTRIES_PER_MONTH) {
+      trimmed = entries.slice(-TRIM_TO_PER_MONTH);
+    }
+    await writeBlob(_key(yyyymm), { entries: trimmed });
+    return entry;
+  } catch (err) {
+    // #355: blocking callers get the failure; best-effort callers get an
+    // observable drop (never swallowed silently) and null. Ordering caveat
+    // documented per-caller: the tombstone is written BEFORE the erase, so a
+    // throw here leaves the erase un-run (safe), not a phantom tombstone.
+    if (blocking) throw err;
+    _observeDrop('write-failed', payload, err);
+    return null;
   }
-  await writeBlob(_key(yyyymm), { entries: trimmed });
-  return entry;
 }
 
 function _shrinkMetadata(meta) {

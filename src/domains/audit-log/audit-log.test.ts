@@ -211,6 +211,8 @@ describe("AuditLogEntrySchema", () => {
       "job.contract_obligation_accepted",
       "job.contract_obligations_extracted",
       "job.created",
+      // #355: destructive-delete tombstone (sorts between created and handover_*).
+      "job.deleted",
       // #235 defect liability period (handover date set / cleared).
       "job.handover_cleared",
       "job.handover_set",
