@@ -46,6 +46,8 @@ let detectionRuns: Row[];
 let deviceDetections: Row[];
 let detectionReviews: Row[];
 let acceptedCounts: Row[];
+let roomRows: Row[];
+let roomAssignments: Row[];
 let blobPuts: Array<{ path: string; bytes: number }>;
 let auditEntries: Row[];
 let aiCalls: Array<Record<string, unknown>>;
@@ -208,6 +210,8 @@ beforeEach(() => {
   deviceDetections = [];
   detectionReviews = [];
   acceptedCounts = [];
+  roomRows = [];
+  roomAssignments = [];
   blobPuts = [];
   auditEntries = [];
   detectionRaceWinner = null;
@@ -927,6 +931,157 @@ beforeEach(() => {
         acceptedCounts.push(a);
         for (const p of prior) p.superseded_by = a.id;
         return a;
+      },
+      // ── #206 rooms (mirrors the real store's SQL semantics) ──
+      ROOM_TRANSITIONS: {
+        suggested: ["accepted", "edited", "rejected"],
+        accepted: ["edited", "rejected"],
+        edited: ["edited", "rejected"],
+        rejected: [],
+        superseded: [],
+      },
+      listRooms: async (_sql: unknown, _t: string, jobId: string) =>
+        roomRows.filter((r) => r.job_id === jobId && r.status !== "superseded"),
+      getRoom: async (_sql: unknown, _t: string, jobId: string, id: string) =>
+        roomRows.find((r) => r.job_id === jobId && r.id === id) ?? null,
+      roomsForExtraction: async (_sql: unknown, _t: string, extractionId: string) =>
+        roomRows.filter((r) => r.extraction_id === extractionId).slice(0, 1),
+      insertRoomSuggestions: async (_sql: unknown, _t: string, ctx: Row, rooms: Row[]) => {
+        const inserted: Row[] = [];
+        for (const r of rooms) {
+          const row: Row = {
+            id: `rm_${roomRows.length + 1}`,
+            job_id: ctx.jobId,
+            plan_id: ctx.planId,
+            page_index: ctx.pageIndex,
+            page_sha256: ctx.pageSha256,
+            origin: "ai",
+            status: "suggested",
+            name: r.name,
+            human_name: null,
+            bbox: r.bbox,
+            human_bbox: null,
+            confidence: r.confidence,
+            extraction_id: ctx.extractionId,
+            model: ctx.model,
+            prompt_version: ctx.promptVersion,
+            superseded_by: null,
+            created_at: new Date(1750000000000 + roomRows.length * 1000).toISOString(),
+            created_by_label: ctx.createdByLabel,
+            reviewed_at: null,
+            reviewed_by_label: null,
+            review_note: null,
+          };
+          roomRows.push(row);
+          inserted.push(row);
+        }
+        const newIds = new Set(inserted.map((r) => r.id));
+        for (const r of roomRows) {
+          if (
+            r.job_id === ctx.jobId &&
+            r.plan_id === ctx.planId &&
+            r.page_index === ctx.pageIndex &&
+            r.page_sha256 === ctx.pageSha256 &&
+            r.origin === "ai" &&
+            r.status === "suggested" &&
+            !newIds.has(r.id)
+          ) {
+            r.status = "superseded";
+            r.superseded_by = inserted[0]?.id ?? null;
+          }
+        }
+        return inserted;
+      },
+      reviewRoom: async (_sql: unknown, _t: string, jobId: string, room: Row, next: Row) => {
+        const i = roomRows.findIndex(
+          (r) => r.job_id === jobId && r.id === room.id && r.status === room.status,
+        );
+        if (i < 0) return null;
+        roomRows[i] = {
+          ...roomRows[i],
+          status: next.status,
+          human_name: next.humanName === undefined ? roomRows[i]!.human_name : next.humanName,
+          human_bbox: next.humanBbox === undefined ? roomRows[i]!.human_bbox : next.humanBbox,
+          review_note: next.note === undefined ? roomRows[i]!.review_note : next.note,
+          reviewed_at: new Date().toISOString(),
+          reviewed_by_label: next.reviewedByLabel,
+        };
+        return roomRows[i];
+      },
+      addHumanRoom: async (_sql: unknown, _t: string, row: Row) => {
+        const r: Row = {
+          id: `rm_${roomRows.length + 1}`,
+          job_id: row.jobId,
+          plan_id: row.planId,
+          page_index: row.pageIndex,
+          page_sha256: row.pageSha256,
+          origin: "human",
+          status: "accepted",
+          name: row.name,
+          human_name: null,
+          bbox: row.bbox,
+          human_bbox: null,
+          confidence: null,
+          extraction_id: null,
+          model: null,
+          prompt_version: null,
+          superseded_by: null,
+          created_at: new Date(1750000000000 + roomRows.length * 1000).toISOString(),
+          created_by_label: row.createdByLabel,
+          reviewed_at: new Date().toISOString(),
+          reviewed_by_label: row.createdByLabel,
+          review_note: null,
+        };
+        roomRows.push(r);
+        return r;
+      },
+      listRoomAssignments: async (_sql: unknown, _t: string, jobId: string) =>
+        roomAssignments.filter((a) => a.job_id === jobId),
+      upsertRoomAssignment: async (_sql: unknown, _t: string, o: Row) => {
+        const i = roomAssignments.findIndex(
+          (a) =>
+            a.job_id === o.jobId &&
+            a.plan_id === o.planId &&
+            a.page_index === o.pageIndex &&
+            a.page_sha256 === o.pageSha256 &&
+            a.marker_key === o.markerKey,
+        );
+        const row: Row = {
+          id: i >= 0 ? roomAssignments[i]!.id : `ra_${roomAssignments.length + 1}`,
+          job_id: o.jobId,
+          plan_id: o.planId,
+          page_index: o.pageIndex,
+          page_sha256: o.pageSha256,
+          marker_key: o.markerKey,
+          room_id: o.roomId,
+          corrected_at: new Date().toISOString(),
+          corrected_by_label: o.correctedByLabel,
+        };
+        if (i >= 0) roomAssignments[i] = row;
+        else roomAssignments.push(row);
+        return row;
+      },
+      deleteRoomAssignment: async (
+        _sql: unknown,
+        _t: string,
+        jobId: string,
+        planId: string,
+        pageIndex: number,
+        pageSha256: string,
+        markerKey: string,
+      ) => {
+        const before = roomAssignments.length;
+        roomAssignments = roomAssignments.filter(
+          (a) =>
+            !(
+              a.job_id === jobId &&
+              a.plan_id === planId &&
+              a.page_index === pageIndex &&
+              a.page_sha256 === pageSha256 &&
+              a.marker_key === markerKey
+            ),
+        );
+        return roomAssignments.length < before;
       },
     },
   } as NodeJS.Module;
@@ -2542,5 +2697,360 @@ describe("count review (#205)", () => {
     expect(res.statusCode).toBe(200);
     expect(res.body.accepted).toMatchObject({ count: 0, stale: false });
     expect(res.body.accepted.basis.markerKeys).toEqual([]);
+  });
+});
+
+describe("rooms and zones (#206)", () => {
+  // Same detection scene as #205: d1 (0.42,0.42), d2 (0.62,0.62),
+  // d3 downlight (0.215,0.215) — the room boxes below catch d1 and d2,
+  // d3 stays unzoned.
+  function seedRoomsScene() {
+    legendRows.push(
+      {
+        id: "le_gpo",
+        job_id: "j1",
+        origin: "ai",
+        status: "accepted",
+        label: "Double GPO",
+        normalized_label: "double gpo",
+        human_label: null,
+        symbol_text: null,
+        symbol_crop_url: null,
+      },
+      {
+        id: "le_dl",
+        job_id: "j1",
+        origin: "ai",
+        status: "edited",
+        label: "Downlight",
+        normalized_label: "downlight",
+        human_label: "LED downlight",
+        symbol_text: null,
+        symbol_crop_url: null,
+      },
+    );
+    deviceDetections.push(
+      {
+        id: "d1",
+        job_id: "j1",
+        plan_id: "pl1",
+        page_index: 0,
+        page_sha256: "sha0",
+        run_id: "run_x",
+        kind: "device",
+        legend_entry_id: "le_gpo",
+        label: "Double GPO",
+        bbox: { x: 0.4, y: 0.4, w: 0.04, h: 0.04 },
+        confidence: 0.9,
+        note: null,
+        created_at: "2026-07-03T00:00:00.000Z",
+      },
+      {
+        id: "d2",
+        job_id: "j1",
+        plan_id: "pl1",
+        page_index: 0,
+        page_sha256: "sha0",
+        run_id: "run_x",
+        kind: "device",
+        legend_entry_id: "le_gpo",
+        label: "Double GPO",
+        bbox: { x: 0.6, y: 0.6, w: 0.04, h: 0.04 },
+        confidence: 0.8,
+        note: null,
+        created_at: "2026-07-03T00:00:01.000Z",
+      },
+      {
+        id: "d3",
+        job_id: "j1",
+        plan_id: "pl1",
+        page_index: 0,
+        page_sha256: "sha0",
+        run_id: "run_x",
+        kind: "device",
+        legend_entry_id: "le_dl",
+        label: "LED downlight",
+        bbox: { x: 0.2, y: 0.2, w: 0.03, h: 0.03 },
+        confidence: 0.7,
+        note: null,
+        created_at: "2026-07-03T00:00:02.000Z",
+      },
+    );
+  }
+
+  const ROOMS_OUTPUT = {
+    rooms: [
+      { name: "KITCHEN", bbox: { x: 0.35, y: 0.35, w: 0.2, h: 0.2 }, confidence: 0.85 },
+      { name: "BED 2", bbox: { x: 0.55, y: 0.55, w: 0.2, h: 0.2 }, confidence: 0.6 },
+    ],
+    notes: null,
+  };
+
+  const extract = () =>
+    call("POST", { jobId: "j1", action: "extract-rooms" }, { planId: "pl1", pageIndex: 0 });
+
+  it("maps labelled rooms with approximate extents: cache row, spend, audit, grouping", async () => {
+    seedRoomsScene();
+    aiNextText = JSON.stringify(ROOMS_OUTPUT);
+    const res = await extract();
+    expect(res.statusCode).toBe(200);
+    expect(res.body.cached).toBe(false);
+    expect(res.body.inserted).toBe(2);
+    expect(res.body.page.rooms).toHaveLength(2);
+    expect(res.body.page.rooms[0]).toMatchObject({
+      name: "KITCHEN",
+      effectiveName: "KITCHEN",
+      status: "suggested",
+      origin: "ai",
+    });
+    // grouping: KITCHEN holds d1, BED 2 holds d2, d3 lands UNZONED (last)
+    const byRoom = res.body.page.byRoom as Row[];
+    expect(byRoom.map((r) => r.roomName)).toEqual(["BED 2", "KITCHEN", null]);
+    expect(byRoom[2]).toMatchObject({ roomId: null, total: 1 });
+    // markers carry their derived room
+    const d3 = (res.body.page.markers as Row[]).find((m) => m.key === "d:d3");
+    expect(d3).toMatchObject({ roomId: null, roomPinned: false });
+
+    expect(extractions).toHaveLength(1);
+    expect(extractions[0]?.kind).toBe("rooms");
+    expect(spendLedger().calls[0]?.kind).toBe("extract-rooms");
+    const audit = auditEntries.find(
+      (a) => a.action === "document.ai_extracted" && (a.metadata as Row)?.kind === "rooms",
+    );
+    expect(audit).toBeTruthy();
+    expect(String(audit?.summary)).toContain("unverified");
+  });
+
+  it("cached re-click: no second bill, no duplicate room rows", async () => {
+    seedRoomsScene();
+    aiNextText = JSON.stringify(ROOMS_OUTPUT);
+    await extract();
+    const res = await extract();
+    expect(res.statusCode).toBe(200);
+    expect(res.body.cached).toBe(true);
+    expect(res.body.inserted).toBe(0); // roomsForExtraction guard
+    expect(aiCalls).toHaveLength(1);
+    expect(spendLedger().calls).toHaveLength(1);
+    expect(roomRows.filter((r) => r.status === "suggested")).toHaveLength(2);
+  });
+
+  it("re-extraction supersedes ONLY prior AI suggestions — human-touched rooms persist", async () => {
+    seedRoomsScene();
+    roomRows.push(
+      {
+        id: "rm_old",
+        job_id: "j1",
+        plan_id: "pl1",
+        page_index: 0,
+        page_sha256: "sha0",
+        origin: "ai",
+        status: "suggested",
+        name: "OLD GUESS",
+        human_name: null,
+        bbox: { x: 0.1, y: 0.7, w: 0.1, h: 0.1 },
+        human_bbox: null,
+        confidence: 0.4,
+        extraction_id: "ex_prev",
+        model: "claude-opus-4-8",
+        prompt_version: "rv-v0",
+        superseded_by: null,
+        created_at: "2026-07-02T00:00:00.000Z",
+        created_by_label: "boss",
+        reviewed_at: null,
+        reviewed_by_label: null,
+        review_note: null,
+      },
+      {
+        id: "rm_kept",
+        job_id: "j1",
+        plan_id: "pl1",
+        page_index: 0,
+        page_sha256: "sha0",
+        origin: "ai",
+        status: "accepted",
+        name: "GARAGE",
+        human_name: null,
+        bbox: { x: 0.7, y: 0.1, w: 0.2, h: 0.2 },
+        human_bbox: null,
+        confidence: 0.9,
+        extraction_id: "ex_prev",
+        model: "claude-opus-4-8",
+        prompt_version: "rv-v0",
+        superseded_by: null,
+        created_at: "2026-07-02T00:00:00.000Z",
+        created_by_label: "boss",
+        reviewed_at: "2026-07-02T01:00:00.000Z",
+        reviewed_by_label: "boss",
+        review_note: null,
+      },
+    );
+    aiNextText = JSON.stringify(ROOMS_OUTPUT);
+    const res = await extract();
+    expect(res.statusCode).toBe(200);
+    expect(roomRows.find((r) => r.id === "rm_old")?.status).toBe("superseded");
+    expect(roomRows.find((r) => r.id === "rm_kept")?.status).toBe("accepted");
+    expect((res.body.page.rooms as Row[]).map((r) => r.name).sort()).toEqual([
+      "BED 2",
+      "GARAGE",
+      "KITCHEN",
+    ]);
+  });
+
+  it("rename and redraw are edited-status overrides that win on read and re-group instantly", async () => {
+    seedRoomsScene();
+    aiNextText = JSON.stringify(ROOMS_OUTPUT);
+    const first = await extract();
+    const kitchen = (first.body.page.rooms as Row[]).find((r) => r.name === "KITCHEN") as Row;
+
+    const renamed = await call("POST", { jobId: "j1", action: "review-room" }, {
+      roomId: kitchen.id,
+      status: "edited",
+      name: "KITCHEN/MEALS",
+    });
+    expect(renamed.statusCode).toBe(200);
+    expect(renamed.body.room).toMatchObject({
+      name: "KITCHEN",
+      effectiveName: "KITCHEN/MEALS",
+      status: "edited",
+    });
+
+    // redraw the box away from d1 — d1 must fall back to unzoned
+    const redrawn = await call("POST", { jobId: "j1", action: "review-room" }, {
+      roomId: kitchen.id,
+      status: "edited",
+      bbox: { x: 0.05, y: 0.05, w: 0.08, h: 0.08 },
+    });
+    expect(redrawn.statusCode).toBe(200);
+    expect(redrawn.body.room.effectiveName).toBe("KITCHEN/MEALS"); // rename survives redraw
+    const byRoom = redrawn.body.page.byRoom as Row[];
+    const unzoned = byRoom.find((r) => r.roomId === null) as Row;
+    expect(unzoned.total).toBe(2); // d1 + d3
+    // bare edited without a rename or redraw is meaningless
+    const bare = await call("POST", { jobId: "j1", action: "review-room" }, {
+      roomId: kitchen.id,
+      status: "edited",
+    });
+    expect(bare.statusCode).toBe(400);
+  });
+
+  it("rejecting a room drops it from grouping; its devices go unzoned, never dropped", async () => {
+    seedRoomsScene();
+    aiNextText = JSON.stringify(ROOMS_OUTPUT);
+    const first = await extract();
+    const bed = (first.body.page.rooms as Row[]).find((r) => r.name === "BED 2") as Row;
+    const res = await call("POST", { jobId: "j1", action: "review-room" }, {
+      roomId: bed.id,
+      status: "rejected",
+    });
+    expect(res.statusCode).toBe(200);
+    const byRoom = res.body.page.byRoom as Row[];
+    expect(byRoom.map((r) => r.roomName)).toEqual(["KITCHEN", null]);
+    expect((byRoom.find((r) => r.roomId === null) as Row).total).toBe(2); // d2 + d3
+    // total markers across groups never shrinks
+    const total = byRoom.reduce((n, r) => n + (r.total as number), 0);
+    expect(total).toBe(3);
+  });
+
+  it("a human adds a room; it is born accepted and groups immediately", async () => {
+    seedRoomsScene();
+    const res = await call("POST", { jobId: "j1", action: "add-room" }, {
+      planId: "pl1",
+      pageIndex: 0,
+      name: "RUMPUS",
+      bbox: { x: 0.15, y: 0.15, w: 0.15, h: 0.15 }, // catches d3 (0.215, 0.215)
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body.room).toMatchObject({ origin: "human", status: "accepted", name: "RUMPUS" });
+    const byRoom = res.body.page.byRoom as Row[];
+    const rumpus = byRoom.find((r) => r.roomName === "RUMPUS") as Row;
+    expect(rumpus.total).toBe(1);
+  });
+
+  it("pin a device to a room, pin it unzoned, clear back to geometry", async () => {
+    seedRoomsScene();
+    aiNextText = JSON.stringify(ROOMS_OUTPUT);
+    const first = await extract();
+    const kitchen = (first.body.page.rooms as Row[]).find((r) => r.name === "KITCHEN") as Row;
+
+    // pin the unzoned d3 INTO the kitchen
+    const pinned = await call("POST", { jobId: "j1", action: "assign-device-room" }, {
+      planId: "pl1",
+      pageIndex: 0,
+      markerKey: "d:d3",
+      roomId: kitchen.id,
+    });
+    expect(pinned.statusCode).toBe(200);
+    const d3 = (pinned.body.page.markers as Row[]).find((m) => m.key === "d:d3") as Row;
+    expect(d3).toMatchObject({ roomId: kitchen.id, roomPinned: true });
+    expect((pinned.body.page.byRoom as Row[]).some((r) => r.roomId === null)).toBe(false);
+
+    // park d1 explicitly unzoned despite sitting inside the kitchen box
+    const parked = await call("POST", { jobId: "j1", action: "assign-device-room" }, {
+      planId: "pl1",
+      pageIndex: 0,
+      markerKey: "d:d1",
+      roomId: null,
+    });
+    expect(parked.statusCode).toBe(200);
+    const d1 = (parked.body.page.markers as Row[]).find((m) => m.key === "d:d1") as Row;
+    expect(d1).toMatchObject({ roomId: null, roomPinned: true });
+
+    // clear the pin — d1 returns to geometric grouping (kitchen)
+    const cleared = await call("POST", { jobId: "j1", action: "clear-device-room" }, {
+      planId: "pl1",
+      pageIndex: 0,
+      markerKey: "d:d1",
+    });
+    expect(cleared.statusCode).toBe(200);
+    const d1After = (cleared.body.page.markers as Row[]).find((m) => m.key === "d:d1") as Row;
+    expect(d1After).toMatchObject({ roomId: kitchen.id, roomPinned: false });
+
+    const audits = auditEntries.filter(
+      (a) => (a.metadata as Row)?.kind === "room-assignment",
+    );
+    expect(audits.length).toBe(3); // pin + park + clear all recorded
+  });
+
+  it("guards: unknown marker 404, rejected-room pin 409, clearing a non-pin 404", async () => {
+    seedRoomsScene();
+    aiNextText = JSON.stringify(ROOMS_OUTPUT);
+    const first = await extract();
+    const bed = (first.body.page.rooms as Row[]).find((r) => r.name === "BED 2") as Row;
+
+    const ghost = await call("POST", { jobId: "j1", action: "assign-device-room" }, {
+      planId: "pl1",
+      pageIndex: 0,
+      markerKey: "d:nope",
+      roomId: bed.id,
+    });
+    expect(ghost.statusCode).toBe(404);
+
+    await call("POST", { jobId: "j1", action: "review-room" }, {
+      roomId: bed.id,
+      status: "rejected",
+    });
+    const toRejected = await call("POST", { jobId: "j1", action: "assign-device-room" }, {
+      planId: "pl1",
+      pageIndex: 0,
+      markerKey: "d:d2",
+      roomId: bed.id,
+    });
+    expect(toRejected.statusCode).toBe(409);
+
+    const clearNothing = await call("POST", { jobId: "j1", action: "clear-device-room" }, {
+      planId: "pl1",
+      pageIndex: 0,
+      markerKey: "d:d2",
+    });
+    expect(clearNothing.statusCode).toBe(404);
+  });
+
+  it("502s on unusable model output — spend recorded, no rooms stored (P7)", async () => {
+    seedRoomsScene();
+    aiNextText = "the kitchen is probably in the middle";
+    const res = await extract();
+    expect(res.statusCode).toBe(502);
+    expect(spendLedger().calls).toHaveLength(1);
+    expect(roomRows).toHaveLength(0);
   });
 });

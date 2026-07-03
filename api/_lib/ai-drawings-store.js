@@ -662,8 +662,157 @@ async function insertAcceptedCount(sql, tenantId, row) {
   return accepted;
 }
 
+// ─── #206: rooms and zones ───────────────────────────────────────────────────
+
+// Same review grammar as the legend machine; 'edited' covers BOTH rename and
+// redraw (the override columns carry which). Merge = redraw one + reject the
+// other; split = redraw + add — no extra transitions.
+const ROOM_TRANSITIONS = {
+  suggested: ['accepted', 'edited', 'rejected'],
+  accepted: ['edited', 'rejected'],
+  edited: ['edited', 'rejected'],
+  rejected: [],
+  superseded: [],
+};
+
+async function listRooms(sql, tenantId, jobId) {
+  return await sql`
+    select * from public.rooms
+    where tenant_id = ${tenantId} and job_id = ${jobId} and status <> 'superseded'
+    order by plan_id, page_index, created_at, id`;
+}
+
+async function getRoom(sql, tenantId, jobId, roomId) {
+  const rows = await sql`
+    select * from public.rooms
+    where tenant_id = ${tenantId} and job_id = ${jobId} and id = ${roomId}
+    limit 1`;
+  return rows.length ? rows[0] : null;
+}
+
+async function roomsForExtraction(sql, tenantId, extractionId) {
+  return await sql`
+    select id from public.rooms
+    where tenant_id = ${tenantId} and extraction_id = ${extractionId}
+    limit 1`;
+}
+
+// Insert one extraction's room suggestions. Re-extraction supersedes ONLY
+// prior AI 'suggested' rows on the same raster — human-touched rooms
+// (accepted / edited / rejected) always persist. Room names are NOT deduped:
+// two rooms legitimately share a label ("WIR" twice on a level).
+async function insertRoomSuggestions(sql, tenantId, ctx, rooms) {
+  const inserted = [];
+  for (const r of rooms) {
+    const rows = await sql`
+      insert into public.rooms (
+        tenant_id, job_id, plan_id, page_index, page_sha256, origin, status,
+        name, bbox, confidence, extraction_id, model, prompt_version,
+        created_by_label
+      ) values (
+        ${tenantId}, ${ctx.jobId}, ${ctx.planId}, ${ctx.pageIndex}, ${ctx.pageSha256},
+        'ai', 'suggested', ${r.name}, ${sql.json(r.bbox)}, ${r.confidence},
+        ${ctx.extractionId}, ${ctx.model}, ${ctx.promptVersion}, ${ctx.createdByLabel}
+      ) returning *`;
+    inserted.push(rows[0]);
+  }
+  const newIds = inserted.map((r) => r.id);
+  if (newIds.length) {
+    await sql`
+      update public.rooms set status = 'superseded', superseded_by = ${newIds[0]}
+      where tenant_id = ${tenantId} and job_id = ${ctx.jobId}
+        and plan_id = ${ctx.planId} and page_index = ${ctx.pageIndex}
+        and page_sha256 = ${ctx.pageSha256}
+        and origin = 'ai' and status = 'suggested'
+        and id <> all(${newIds})`;
+  }
+  return inserted;
+}
+
+async function reviewRoom(sql, tenantId, jobId, room, next) {
+  const rows = await sql`
+    update public.rooms set
+      status = ${next.status},
+      human_name = ${next.humanName === undefined ? room.human_name : next.humanName},
+      human_bbox = ${
+        next.humanBbox === undefined
+          ? room.human_bbox === null
+            ? null
+            : sql.json(room.human_bbox)
+          : next.humanBbox === null
+            ? null
+            : sql.json(next.humanBbox)
+      },
+      review_note = ${next.note === undefined ? room.review_note : next.note},
+      reviewed_at = now(),
+      reviewed_by_label = ${next.reviewedByLabel}
+    where tenant_id = ${tenantId} and job_id = ${jobId}
+      and id = ${room.id} and status = ${room.status}
+    returning *`;
+  return rows.length ? rows[0] : null;
+}
+
+async function addHumanRoom(sql, tenantId, row) {
+  const rows = await sql`
+    insert into public.rooms (
+      tenant_id, job_id, plan_id, page_index, page_sha256, origin, status,
+      name, bbox, created_by_label, reviewed_at, reviewed_by_label
+    ) values (
+      ${tenantId}, ${row.jobId}, ${row.planId}, ${row.pageIndex}, ${row.pageSha256},
+      'human', 'accepted', ${row.name}, ${sql.json(row.bbox)},
+      ${row.createdByLabel}, now(), ${row.createdByLabel}
+    ) returning *`;
+  return rows[0];
+}
+
+async function listRoomAssignments(sql, tenantId, jobId) {
+  return await sql`
+    select * from public.room_assignment_overrides
+    where tenant_id = ${tenantId} and job_id = ${jobId}
+    order by corrected_at, id`;
+}
+
+async function upsertRoomAssignment(sql, tenantId, o) {
+  const rows = await sql`
+    insert into public.room_assignment_overrides (
+      tenant_id, job_id, plan_id, page_index, page_sha256, marker_key,
+      room_id, corrected_by_label
+    ) values (
+      ${tenantId}, ${o.jobId}, ${o.planId}, ${o.pageIndex}, ${o.pageSha256},
+      ${o.markerKey}, ${o.roomId}, ${o.correctedByLabel}
+    )
+    on conflict (tenant_id, job_id, plan_id, page_index, page_sha256, marker_key)
+    do update set
+      room_id = excluded.room_id,
+      corrected_at = now(),
+      corrected_by_label = excluded.corrected_by_label
+    returning *`;
+  return rows[0];
+}
+
+// Clear a pin — the marker returns to automatic (geometric) grouping.
+async function deleteRoomAssignment(sql, tenantId, jobId, planId, pageIndex, pageSha256, markerKey) {
+  const rows = await sql`
+    delete from public.room_assignment_overrides
+    where tenant_id = ${tenantId} and job_id = ${jobId}
+      and plan_id = ${planId} and page_index = ${pageIndex}
+      and page_sha256 = ${pageSha256} and marker_key = ${markerKey}
+    returning id`;
+  return rows.length > 0;
+}
+
 module.exports = {
   OVERRIDE_FIELDS,
+  ROOM_TRANSITIONS,
+  listRooms,
+  getRoom,
+  roomsForExtraction,
+  insertRoomSuggestions,
+  reviewRoom,
+  addHumanRoom,
+  listRoomAssignments,
+  upsertRoomAssignment,
+  deleteRoomAssignment,
   SHEET_TYPES,
   LEGEND_CATEGORIES,
   LEGEND_TRANSITIONS,

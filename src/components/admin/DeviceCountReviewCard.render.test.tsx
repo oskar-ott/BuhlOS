@@ -23,6 +23,8 @@ function marker(over: Partial<CountReviewPage["markers"][number]>) {
     confidence: 0.9,
     status: "live" as const,
     appliedReviewIds: [],
+    roomId: null,
+    roomPinned: false,
     ...over,
   };
 }
@@ -60,6 +62,8 @@ function page(over: Partial<CountReviewPage>): CountReviewPage {
         createdAt: "2026-07-03T00:00:00.000Z",
       },
     ],
+    rooms: [],
+    byRoom: [],
     counts: [
       {
         legendEntryId: "le_gpo",
@@ -149,6 +153,88 @@ describe("DeviceCountReviewCard (#205)", () => {
     expect(html).toContain("changed since sign-off (4 accepted)");
     expect(html).toContain("Accept 4 as verified"); // re-accept CTA
     expect(html).toContain("(document no longer on this job");
+  });
+
+  it("renders rooms with review actions and the by-room grouping incl. the explicit unzoned bucket (#206)", () => {
+    const p = page({
+      rooms: [
+        {
+          id: "rm_1",
+          planId: "pl1",
+          pageIndex: 0,
+          pageSha256: "sha0",
+          origin: "ai",
+          status: "suggested",
+          name: "KITCHEN",
+          effectiveName: "KITCHEN",
+          bbox: { x: 0.35, y: 0.35, w: 0.2, h: 0.2 },
+          effectiveBbox: { x: 0.35, y: 0.35, w: 0.2, h: 0.2 },
+          confidence: 0.85,
+          createdAt: "2026-07-03T00:00:00.000Z",
+          reviewedAt: null,
+          reviewedBy: null,
+          reviewNote: null,
+        },
+        {
+          id: "rm_2",
+          planId: "pl1",
+          pageIndex: 0,
+          pageSha256: "sha0",
+          origin: "human",
+          status: "accepted",
+          name: "RUMPUS",
+          effectiveName: "RUMPUS",
+          bbox: { x: 0.1, y: 0.6, w: 0.2, h: 0.2 },
+          effectiveBbox: { x: 0.1, y: 0.6, w: 0.2, h: 0.2 },
+          confidence: null,
+          createdAt: "2026-07-03T00:00:00.000Z",
+          reviewedAt: "2026-07-03T00:00:00.000Z",
+          reviewedBy: "boss",
+          reviewNote: null,
+        },
+      ],
+      byRoom: [
+        {
+          roomId: "rm_1",
+          roomName: "KITCHEN",
+          total: 2,
+          entries: [{ legendEntryId: "le_gpo", label: "Double GPO", count: 2 }],
+        },
+        {
+          roomId: null,
+          roomName: null,
+          total: 1,
+          entries: [{ legendEntryId: "le_dl", label: "LED downlight", count: 1 }],
+        },
+      ],
+    });
+    const html = strip(
+      renderToString(
+        createElement(DeviceCountReviewCard, {
+          jobId: "j1",
+          pages: [p],
+          vocabulary,
+          lookup: { pngUrlFor: () => "https://blob.test/p.png", labelFor: () => "E-101" },
+          onPage: () => undefined,
+        }),
+      ),
+    );
+    expect(html).toContain('data-testid="rooms-section"');
+    expect(html).toContain("KITCHEN");
+    expect(html.match(/data-testid="room-row"/g) ?? []).toHaveLength(2);
+    // an AI suggestion carries its honest confidence; a human room says added
+    expect(html).toContain("AI · 85%");
+    expect(html).toContain("added");
+    // review affordances exist for rename / redraw / reject / accept
+    expect(html).toContain('aria-label="Accept room KITCHEN"');
+    expect(html).toContain('aria-label="Redraw room RUMPUS"');
+    expect(html).toContain("Not a room");
+    // by-room grouping with the unzoned bucket explicit and last
+    expect(html).toContain('data-testid="by-room-row"');
+    expect(html).toContain("2× Double GPO");
+    expect(html).toContain('data-testid="by-room-unzoned"');
+    expect(html).toContain("Unzoned (outside every room)");
+    expect(html).toContain("1× LED downlight");
   });
 
   it("shows the all-verified page state when every count is accepted and fresh", () => {

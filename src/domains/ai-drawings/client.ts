@@ -8,6 +8,9 @@
 import {
   AcceptCountResponseSchema,
   CountReviewResponseSchema,
+  ExtractRoomsResponseSchema,
+  ReviewRoomResponseSchema,
+  RoomAssignResponseSchema,
   DetectDevicesResponseSchema,
   DetectionsResponseSchema,
   DiffPagesResponseSchema,
@@ -25,6 +28,9 @@ import {
   UnderstandResponseSchema,
   type AcceptCountResponse,
   type CountReviewResponse,
+  type ExtractRoomsResponse,
+  type ReviewRoomResponse,
+  type RoomAssignResponse,
   type CropRegion,
   type DetectDevicesResponse,
   type DetectionsResponse,
@@ -413,5 +419,93 @@ export async function acceptCount(
       body: JSON.stringify({ planId, pageIndex, legendEntryId }),
     },
     (b) => AcceptCountResponseSchema.parse(b),
+  );
+}
+
+// ─── #206: rooms and zones ──────────────────────────────────────────────────
+
+export async function extractRooms(
+  jobId: string,
+  planId: string,
+  pageIndex: number,
+): Promise<ExtractRoomsResponse> {
+  return request(
+    `/api/ai-drawings?jobId=${encodeURIComponent(jobId)}&action=extract-rooms`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ planId, pageIndex }),
+    },
+    (b) => ExtractRoomsResponseSchema.parse(b),
+  );
+}
+
+export async function reviewRoom(
+  jobId: string,
+  roomId: string,
+  status: "accepted" | "edited" | "rejected",
+  opts: { name?: string; bbox?: CropRegion; note?: string } = {},
+): Promise<ReviewRoomResponse> {
+  return request(
+    `/api/ai-drawings?jobId=${encodeURIComponent(jobId)}&action=review-room`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ roomId, status, ...opts }),
+    },
+    (b) => ReviewRoomResponseSchema.parse(b),
+  );
+}
+
+export async function addRoom(
+  jobId: string,
+  planId: string,
+  pageIndex: number,
+  name: string,
+  bbox: CropRegion,
+): Promise<ReviewRoomResponse> {
+  return request(
+    `/api/ai-drawings?jobId=${encodeURIComponent(jobId)}&action=add-room`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ planId, pageIndex, name, bbox }),
+    },
+    (b) => ReviewRoomResponseSchema.parse(b),
+  );
+}
+
+export async function assignDeviceRoom(
+  jobId: string,
+  planId: string,
+  pageIndex: number,
+  markerKey: string,
+  roomId: string | null,
+): Promise<RoomAssignResponse> {
+  return request(
+    `/api/ai-drawings?jobId=${encodeURIComponent(jobId)}&action=assign-device-room`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ planId, pageIndex, markerKey, roomId }),
+    },
+    (b) => RoomAssignResponseSchema.parse(b),
+  );
+}
+
+export async function clearDeviceRoom(
+  jobId: string,
+  planId: string,
+  pageIndex: number,
+  markerKey: string,
+): Promise<RoomAssignResponse> {
+  return request(
+    `/api/ai-drawings?jobId=${encodeURIComponent(jobId)}&action=clear-device-room`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ planId, pageIndex, markerKey }),
+    },
+    (b) => RoomAssignResponseSchema.parse(b),
   );
 }

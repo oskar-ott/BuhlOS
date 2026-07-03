@@ -404,6 +404,10 @@ export const EffectiveMarkerSchema = z.object({
   confidence: z.number().nullable(),
   status: z.enum(["live", "deleted"]),
   appliedReviewIds: z.array(z.string()),
+  /** #206: containing room (derived; null = unzoned). */
+  roomId: z.string().nullable().optional().default(null),
+  /** #206: true when a human pinned this marker's room. */
+  roomPinned: z.boolean().optional().default(false),
 });
 export type EffectiveMarker = z.infer<typeof EffectiveMarkerSchema>;
 
@@ -462,6 +466,39 @@ export const CountRowSchema = z.object({
 });
 export type CountRow = z.infer<typeof CountRowSchema>;
 
+export const RoomSchema = z.object({
+  id: z.string(),
+  planId: z.string(),
+  pageIndex: z.number().int(),
+  pageSha256: z.string(),
+  origin: z.enum(["ai", "human"]),
+  status: z.enum(["suggested", "accepted", "edited", "rejected"]),
+  name: z.string(),
+  effectiveName: z.string(),
+  bbox: CropRegionSchema,
+  effectiveBbox: CropRegionSchema,
+  confidence: z.number().nullable(),
+  createdAt: z.string(),
+  reviewedAt: z.string().nullable(),
+  reviewedBy: z.string().nullable(),
+  reviewNote: z.string().nullable(),
+});
+export type Room = z.infer<typeof RoomSchema>;
+
+export const ByRoomRowSchema = z.object({
+  roomId: z.string().nullable(), // null = the explicit unzoned bucket
+  roomName: z.string().nullable(),
+  total: z.number().int(),
+  entries: z.array(
+    z.object({
+      legendEntryId: z.string().nullable(),
+      label: z.string().nullable(),
+      count: z.number().int(),
+    }),
+  ),
+});
+export type ByRoomRow = z.infer<typeof ByRoomRowSchema>;
+
 export const CountReviewPageSchema = z.object({
   planId: z.string(),
   pageIndex: z.number().int(),
@@ -469,6 +506,9 @@ export const CountReviewPageSchema = z.object({
   markers: z.array(EffectiveMarkerSchema),
   uncertain: z.array(DeviceDetectionSchema),
   counts: z.array(CountRowSchema),
+  /** #206 */
+  rooms: z.array(RoomSchema).optional().default([]),
+  byRoom: z.array(ByRoomRowSchema).optional().default([]),
 });
 export type CountReviewPage = z.infer<typeof CountReviewPageSchema>;
 
@@ -488,3 +528,24 @@ export const AcceptCountResponseSchema = z.object({
   page: CountReviewPageSchema,
 });
 export type AcceptCountResponse = z.infer<typeof AcceptCountResponseSchema>;
+
+// ─── #206: rooms ─────────────────────────────────────────────────────────────
+
+export const ExtractRoomsResponseSchema = z.object({
+  cached: z.boolean(),
+  inserted: z.number().int(),
+  page: CountReviewPageSchema,
+  spend: z.object({ totalUsd: z.number(), capUsd: z.number() }).optional(),
+});
+export type ExtractRoomsResponse = z.infer<typeof ExtractRoomsResponseSchema>;
+
+export const ReviewRoomResponseSchema = z.object({
+  room: RoomSchema,
+  page: CountReviewPageSchema,
+});
+export type ReviewRoomResponse = z.infer<typeof ReviewRoomResponseSchema>;
+
+export const RoomAssignResponseSchema = z.object({
+  page: CountReviewPageSchema,
+});
+export type RoomAssignResponse = z.infer<typeof RoomAssignResponseSchema>;

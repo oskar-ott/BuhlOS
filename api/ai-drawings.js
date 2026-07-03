@@ -48,6 +48,7 @@ const aiSpend = require('./_lib/ai-spend');
 const store = require('./_lib/ai-drawings-store');
 const pageDiff = require('./_lib/page-diff');
 const countReview = require('./_lib/count-review');
+const roomAssign = require('./_lib/room-assign');
 
 // ─── Config (env-configurable, bare current alias default — #378) ──────────
 const AI_DRAWINGS_MODEL = process.env.AI_DRAWINGS_MODEL || 'claude-opus-4-8';
@@ -78,6 +79,10 @@ const DETECTION_PROMPT_VERSION = 'dd-v1';
 const DETECTION_SEAM_IOU = 0.5; // same entry + overlap above this = tile-seam duplicate
 const MAX_TILE_DATAURL_CHARS = 4_000_000; // Vercel body ceiling, minus headroom
 const MAX_FEWSHOT_CROPS = 12; // legend reference images per call
+
+// #206 rooms — whole-page label + approximate-extent pass, same run-log cache.
+const ROOMS_PROMPT_VERSION = 'rv-v1';
+const KIND_ROOMS = 'rooms';
 
 // ─── Request validation (Zod at the boundary) ──────────────────────────────
 const CropRegion = z.object({
@@ -187,6 +192,39 @@ const AcceptCountBody = z.object({
   pageIndex: z.number().int().min(0),
   legendEntryId: z.string().min(1),
 });
+// #206 rooms
+const ExtractRoomsBody = z.object({
+  planId: z.string().min(1),
+  pageIndex: z.number().int().min(0),
+});
+const ReviewRoomBody = z
+  .object({
+    roomId: z.string().min(1),
+    status: z.enum(['accepted', 'edited', 'rejected']),
+    name: z.string().min(1).max(80).optional(), // rename
+    bbox: CropRegion.optional(), // redraw
+    note: z.string().max(500).optional(),
+  })
+  .refine((b) => b.status !== 'edited' || Boolean(b.name) || Boolean(b.bbox), {
+    message: 'edited requires a rename (name) or a redraw (bbox) — that is what distinguishes it from accept',
+  });
+const AddRoomBody = z.object({
+  planId: z.string().min(1),
+  pageIndex: z.number().int().min(0),
+  name: z.string().min(1).max(80),
+  bbox: CropRegion,
+});
+const AssignRoomBody = z.object({
+  planId: z.string().min(1),
+  pageIndex: z.number().int().min(0),
+  markerKey: z.string().min(3), // 'd:<id>' | 'r:<id>'
+  roomId: z.string().min(1).nullable(), // null = pin to the unzoned bucket
+});
+const ClearRoomAssignmentBody = z.object({
+  planId: z.string().min(1),
+  pageIndex: z.number().int().min(0),
+  markerKey: z.string().min(3),
+});
 
 // ─── Model output contract (validated before anything persists) ────────────
 const FieldOut = z.object({
@@ -279,6 +317,18 @@ const UncertainRegionOut = z.object({
 const DetectionModelOutput = z.object({
   detections: z.array(DetectionOut).max(300),
   uncertainRegions: z.array(UncertainRegionOut).max(40),
+  notes: z.string().max(2000).nullable().optional(),
+});
+
+// #206 rooms model contract — names verbatim, extents approximate, no
+// invented rooms (unlabelled space stays undetected; humans add rooms).
+const RoomOut = z.object({
+  name: z.string().min(1).max(80),
+  bbox: NormBox,
+  confidence: z.number().min(0).max(1),
+});
+const RoomsModelOutput = z.object({
+  rooms: z.array(RoomOut).max(120),
   notes: z.string().max(2000).nullable().optional(),
 });
 
@@ -1813,23 +1863,41 @@ function assembleCountReviewPage(planId, pageIndex, pageSha256, jobRows) {
       });
     }
   }
+  // #206: rooms on this raster + the by-room grouping view. Assignment is
+  // derived (pin > centre-in-bbox > unzoned) — nothing spatial is stored.
+  const pageRooms = jobRows.rooms.filter(
+    (r) => r.plan_id === planId && r.page_index === pageIndex && r.page_sha256 === pageSha256,
+  );
+  const pageAssignments = jobRows.assignments.filter(
+    (a) => a.plan_id === planId && a.page_index === pageIndex && a.page_sha256 === pageSha256,
+  );
+  const assignment = roomAssign.assignMarkers(markers, pageRooms, pageAssignments);
+  const pinnedKeys = new Set(pageAssignments.map((a) => a.marker_key));
   return {
     planId,
     pageIndex,
     pageSha256,
-    markers,
+    markers: markers.map((m) => ({
+      ...m,
+      roomId: m.status === 'live' ? (assignment.get(m.key) ?? null) : null,
+      roomPinned: pinnedKeys.has(m.key),
+    })),
     uncertain: uncertain.map(detectionView),
     counts: countRows,
+    rooms: pageRooms.map(roomView),
+    byRoom: roomAssign.groupByRoom(markers, pageRooms, pageAssignments),
   };
 }
 
 async function loadJobReviewRows(sql, tenantId, jobId) {
-  const [detections, reviews, accepted] = await Promise.all([
+  const [detections, reviews, accepted, rooms, assignments] = await Promise.all([
     store.listDeviceDetections(sql, tenantId, jobId),
     store.listDetectionReviews(sql, tenantId, jobId),
     store.listAcceptedCounts(sql, tenantId, jobId),
+    store.listRooms(sql, tenantId, jobId),
+    store.listRoomAssignments(sql, tenantId, jobId),
   ]);
-  return { detections, reviews, accepted };
+  return { detections, reviews, accepted, rooms, assignments };
 }
 
 async function handleCountReviewList(res, sql, tenantId, jobId) {
@@ -1847,6 +1915,7 @@ async function handleCountReviewList(res, sql, tenantId, jobId) {
   for (const a of jobRows.accepted) {
     if (a.status === 'live') pageKeys.add(a.plan_id + ':' + a.page_index);
   }
+  for (const r of jobRows.rooms) pageKeys.add(r.plan_id + ':' + r.page_index);
   const pages = [];
   for (const key of [...pageKeys].sort()) {
     const cut = key.lastIndexOf(':');
@@ -1858,7 +1927,7 @@ async function handleCountReviewList(res, sql, tenantId, jobId) {
   }
   // drop pages with nothing to show for the CURRENT raster and no sign-offs
   const visible = pages.filter(
-    (p) => p.markers.length > 0 || p.uncertain.length > 0 || p.counts.length > 0,
+    (p) => p.markers.length > 0 || p.uncertain.length > 0 || p.counts.length > 0 || p.rooms.length > 0,
   );
   return res.status(200).json({ pages: visible });
 }
@@ -2071,6 +2140,340 @@ async function handleAcceptCount(res, sql, tenantId, jobId, user, body) {
   return res.status(200).json({ accepted: acceptedCountView(accepted, false), page });
 }
 
+// ─── #206: rooms and zones handlers ─────────────────────────────────────────
+
+// Prompt (version: ROOMS_PROMPT_VERSION).
+function roomsPrompt() {
+  return `You are reading ONE floor-plan page of an Australian construction drawing set (usually electrical). Room names are often faint architectural underlay text.
+
+TASK — list every LABELLED room/zone visible on the plan:
+- name: the label EXACTLY as printed (e.g. "KITCHEN", "BED 2", "WIR"). Never invent, expand or translate names. The same name may appear more than once — list each instance separately.
+- bbox: an APPROXIMATE extent of that room as {"x","y","w","h"} normalised 0..1 of the page — a box roughly covering the room's floor area including its label. Precision is not expected; a human redraws boxes later.
+- confidence: YOUR honest 0..1 — faint/ambiguous underlay text should score LOW, not be guessed confidently.
+
+RULES — non-negotiable:
+- ONLY rooms that carry a printed label. Unlabelled space is simply not listed.
+- Ignore title block, legends, schedules, notes blocks, north arrows, grid references.
+- If the page is not a floor plan or has no labelled rooms: {"rooms": [], "notes": "..."}.
+- Return ONLY strict JSON:
+{
+  "rooms": [ { "name": "KITCHEN", "bbox": {"x":0.32,"y":0.41,"w":0.18,"h":0.14}, "confidence": 0.85 } ],
+  "notes": "one short caveat sentence, or null"
+}`;
+}
+
+function roomView(r) {
+  return {
+    id: r.id,
+    planId: r.plan_id,
+    pageIndex: r.page_index,
+    pageSha256: r.page_sha256,
+    origin: r.origin,
+    status: r.status,
+    name: r.name,
+    effectiveName: r.human_name || r.name,
+    bbox: r.bbox,
+    effectiveBbox: r.human_bbox || r.bbox,
+    confidence: r.confidence,
+    createdAt: r.created_at,
+    reviewedAt: r.reviewed_at,
+    reviewedBy: r.reviewed_by_label,
+    reviewNote: r.review_note,
+  };
+}
+
+async function handleExtractRooms(res, sql, tenantId, jobId, user, body) {
+  const parsedBody = ExtractRoomsBody.safeParse(body);
+  if (!parsedBody.success) {
+    return res.status(400).json({ error: parsedBody.error.issues[0]?.message || 'invalid body' });
+  }
+  const { planId, pageIndex } = parsedBody.data;
+  const found = await readPlanPage(jobId, planId, pageIndex);
+  if (found.error) return res.status(found.status).json({ error: found.error });
+  const { page } = found;
+
+  const cacheKey = {
+    jobId, planId, pageIndex,
+    pageSha256: page.sha256,
+    kind: KIND_ROOMS,
+    promptVersion: ROOMS_PROMPT_VERSION,
+    model: AI_DRAWINGS_MODEL,
+  };
+  let extraction = await store.findCachedExtraction(sql, tenantId, cacheKey);
+  const cached = !!extraction;
+  if (!extraction) {
+    const takeoff = await aiSpend.readTakeoff(jobId);
+    if (aiSpend.overBudget(takeoff)) {
+      return res.status(402).json({
+        error: 'cost cap reached for this job ($' + aiSpend.COST_CAP_USD + ')',
+        spend: takeoff.spend,
+      });
+    }
+    let content;
+    try {
+      const png = await fetchPngAsBase64(page.pngUrl);
+      content = [
+        { type: 'image', source: { type: 'base64', media_type: png.mediaType, data: png.base64 } },
+        { type: 'text', text: roomsPrompt() },
+      ];
+    } catch (e) {
+      return res.status(502).json({ error: 'could not fetch page image: ' + e.message });
+    }
+    let text, usage;
+    try {
+      const out = await aiComplete({
+        model: AI_DRAWINGS_MODEL,
+        maxTokens: 4000,
+        messages: [{ role: 'user', content }],
+      });
+      text = out.text;
+      usage = out.usage;
+    } catch (e) {
+      if (e instanceof AiError && e.code === 'UNCONFIGURED') {
+        return res.status(503).json({ error: 'AI is not configured in this environment' });
+      }
+      return res.status(502).json({ error: 'vision call failed: ' + e.message });
+    }
+    // The money is spent — record it BEFORE judging the output (honest cap).
+    await aiSpend.commitTakeoff(jobId, (t) => {
+      aiSpend.recordSpend(t, usage, 'extract-rooms', { planId, pageIndex, promptVersion: ROOMS_PROMPT_VERSION }, {
+        inputUsdPerToken: COST_PER_INPUT_TOKEN,
+        outputUsdPerToken: COST_PER_OUTPUT_TOKEN,
+      });
+    });
+    const json = extractJson(text);
+    if (!json || !RoomsModelOutput.safeParse(json).success) {
+      return res.status(502).json({
+        error: 'model returned unusable output — nothing was stored; try again',
+      });
+    }
+    try {
+      extraction = await store.insertExtraction(sql, tenantId, {
+        jobId, planId, pageIndex,
+        pageSha256: page.sha256,
+        kind: KIND_ROOMS,
+        model: AI_DRAWINGS_MODEL,
+        promptVersion: ROOMS_PROMPT_VERSION,
+        raw: json,
+        sheetType: null, sheetTypeConfidence: null,
+        sheetNumber: null, sheetNumberConfidence: null,
+        sheetTitle: null, sheetTitleConfidence: null,
+        revision: null, revisionConfidence: null,
+        scale: null, scaleConfidence: null,
+        region: null,
+        inputTokens: usage ? Number(usage.inputTokens ?? usage.input_tokens ?? 0) : null,
+        outputTokens: usage ? Number(usage.outputTokens ?? usage.output_tokens ?? 0) : null,
+        createdByLabel: user.username || null,
+      });
+    } catch (e) {
+      const dup = e && (e.code === '23505' || /duplicate key/i.test(String(e.message || '')));
+      if (!dup) throw e;
+      extraction = await store.findCachedExtraction(sql, tenantId, cacheKey);
+      if (!extraction) throw e;
+    }
+  }
+
+  // Materialise suggestions from the run — idempotent: a cached re-click
+  // finds this extraction's rooms already present and inserts nothing, so
+  // human review state is never trampled.
+  const already = await store.roomsForExtraction(sql, tenantId, extraction.id);
+  let inserted = [];
+  if (already.length === 0) {
+    const parsedOut = RoomsModelOutput.safeParse(extraction.raw);
+    if (!parsedOut.success) {
+      return res.status(502).json({ error: 'stored rooms run is unreadable — re-run after a prompt bump' });
+    }
+    inserted = await store.insertRoomSuggestions(
+      sql,
+      tenantId,
+      {
+        jobId, planId, pageIndex,
+        pageSha256: page.sha256,
+        extractionId: extraction.id,
+        model: AI_DRAWINGS_MODEL,
+        promptVersion: ROOMS_PROMPT_VERSION,
+        createdByLabel: user.username || null,
+      },
+      parsedOut.data.rooms.map((r) => ({
+        name: r.name.trim(),
+        bbox: r.bbox,
+        confidence: r.confidence,
+      })),
+    );
+    if (inserted.length > 0) {
+      await appendAuditLog({
+        action: 'document.ai_extracted',
+        actorId: user.id,
+        actorName: user.username || 'Unknown',
+        actorRole: user.role || null,
+        jobId,
+        targetType: 'document',
+        targetId: planId,
+        summary: `AI mapped ${inserted.length} room${inserted.length === 1 ? '' : 's'} on page ${pageIndex + 1} (approximate extents, unverified)`,
+        metadata: { kind: 'rooms', pageIndex, promptVersion: ROOMS_PROMPT_VERSION },
+      }).catch(() => {});
+    }
+  }
+
+  const pageBlock = await loadCountReviewPage(sql, tenantId, jobId, planId, pageIndex, page.sha256);
+  const fresh = await aiSpend.readTakeoff(jobId);
+  return res.status(200).json({
+    cached,
+    inserted: inserted.length,
+    page: pageBlock,
+    spend: { totalUsd: fresh.spend.totalUsd, capUsd: aiSpend.COST_CAP_USD },
+  });
+}
+
+async function handleReviewRoom(res, sql, tenantId, jobId, user, body) {
+  const parsed = ReviewRoomBody.safeParse(body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0]?.message || 'invalid body' });
+  }
+  const { roomId, status, name, bbox, note } = parsed.data;
+  const room = await store.getRoom(sql, tenantId, jobId, roomId);
+  if (!room) return res.status(404).json({ error: 'room not found' });
+  const allowed = store.ROOM_TRANSITIONS[room.status] || [];
+  if (!allowed.includes(status)) {
+    return res.status(409).json({ error: `cannot ${status} a ${room.status} room` });
+  }
+  const updated = await store.reviewRoom(sql, tenantId, jobId, room, {
+    status,
+    humanName: status === 'edited' && name ? name.trim() : undefined,
+    humanBbox: status === 'edited' && bbox ? bbox : undefined,
+    note: cleanValue(note),
+    reviewedByLabel: user.username || 'Unknown',
+  });
+  if (!updated) return res.status(409).json({ error: 'room was reviewed concurrently — reload' });
+  await appendAuditLog({
+    action: 'document.ai_corrected',
+    actorId: user.id,
+    actorName: user.username || 'Unknown',
+    actorRole: user.role || null,
+    jobId,
+    targetType: 'document',
+    targetId: room.plan_id,
+    summary:
+      status === 'edited'
+        ? `${name ? 'renamed' : 'redrew'} room ${updated.human_name || updated.name} on page ${room.page_index + 1}`
+        : `${status} room ${updated.human_name || updated.name} on page ${room.page_index + 1}`,
+    metadata: { kind: 'room', roomId, status },
+  }).catch(() => {});
+  const pageBlock = await loadCountReviewPage(
+    sql, tenantId, jobId, room.plan_id, room.page_index, room.page_sha256,
+  );
+  return res.status(200).json({ room: roomView(updated), page: pageBlock });
+}
+
+async function handleAddRoom(res, sql, tenantId, jobId, user, body) {
+  const parsed = AddRoomBody.safeParse(body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0]?.message || 'invalid body' });
+  }
+  const { planId, pageIndex, name, bbox } = parsed.data;
+  const found = await readPlanPage(jobId, planId, pageIndex);
+  if (found.error) return res.status(found.status).json({ error: found.error });
+  const inserted = await store.addHumanRoom(sql, tenantId, {
+    jobId,
+    planId,
+    pageIndex,
+    pageSha256: found.page.sha256,
+    name: name.trim(),
+    bbox,
+    createdByLabel: user.username || null,
+  });
+  await appendAuditLog({
+    action: 'document.ai_corrected',
+    actorId: user.id,
+    actorName: user.username || 'Unknown',
+    actorRole: user.role || null,
+    jobId,
+    targetType: 'document',
+    targetId: planId,
+    summary: `added room ${inserted.name} on page ${pageIndex + 1}`,
+    metadata: { kind: 'room', roomId: inserted.id, status: 'added' },
+  }).catch(() => {});
+  const pageBlock = await loadCountReviewPage(sql, tenantId, jobId, planId, pageIndex, found.page.sha256);
+  return res.status(200).json({ room: roomView(inserted), page: pageBlock });
+}
+
+async function handleAssignDeviceRoom(res, sql, tenantId, jobId, user, body) {
+  const parsed = AssignRoomBody.safeParse(body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0]?.message || 'invalid body' });
+  }
+  const { planId, pageIndex, markerKey, roomId } = parsed.data;
+  const found = await readPlanPage(jobId, planId, pageIndex);
+  if (found.error) return res.status(found.status).json({ error: found.error });
+  const pageSha256 = found.page.sha256;
+
+  const before = await loadCountReviewPage(sql, tenantId, jobId, planId, pageIndex, pageSha256);
+  const marker = before.markers.find((m) => m.key === markerKey);
+  if (!marker || marker.status !== 'live') {
+    return res.status(404).json({ error: 'marker not found on the current raster' });
+  }
+  let room = null;
+  if (roomId !== null) {
+    room = await store.getRoom(sql, tenantId, jobId, roomId);
+    if (!room) return res.status(404).json({ error: 'room not found' });
+    const live = room.status === 'suggested' || room.status === 'accepted' || room.status === 'edited';
+    if (!live || room.plan_id !== planId || room.page_index !== pageIndex || room.page_sha256 !== pageSha256) {
+      return res.status(409).json({ error: 'room is not live on this sheet raster' });
+    }
+  }
+  await store.upsertRoomAssignment(sql, tenantId, {
+    jobId,
+    planId,
+    pageIndex,
+    pageSha256,
+    markerKey,
+    roomId,
+    correctedByLabel: user.username || null,
+  });
+  await appendAuditLog({
+    action: 'document.ai_corrected',
+    actorId: user.id,
+    actorName: user.username || 'Unknown',
+    actorRole: user.role || null,
+    jobId,
+    targetType: 'document',
+    targetId: planId,
+    summary: roomId
+      ? `moved a ${marker.label || 'device'} marker to ${room.human_name || room.name} on page ${pageIndex + 1}`
+      : `parked a ${marker.label || 'device'} marker as unzoned on page ${pageIndex + 1}`,
+    metadata: { kind: 'room-assignment', markerKey, roomId },
+  }).catch(() => {});
+  const pageBlock = await loadCountReviewPage(sql, tenantId, jobId, planId, pageIndex, pageSha256);
+  return res.status(200).json({ page: pageBlock });
+}
+
+async function handleClearDeviceRoom(res, sql, tenantId, jobId, user, body) {
+  const parsed = ClearRoomAssignmentBody.safeParse(body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0]?.message || 'invalid body' });
+  }
+  const { planId, pageIndex, markerKey } = parsed.data;
+  const found = await readPlanPage(jobId, planId, pageIndex);
+  if (found.error) return res.status(found.status).json({ error: found.error });
+  const removed = await store.deleteRoomAssignment(
+    sql, tenantId, jobId, planId, pageIndex, found.page.sha256, markerKey,
+  );
+  if (!removed) return res.status(404).json({ error: 'no room pin on that marker' });
+  await appendAuditLog({
+    action: 'document.ai_corrected',
+    actorId: user.id,
+    actorName: user.username || 'Unknown',
+    actorRole: user.role || null,
+    jobId,
+    targetType: 'document',
+    targetId: planId,
+    summary: `returned a device marker to automatic room grouping on page ${pageIndex + 1}`,
+    metadata: { kind: 'room-assignment', markerKey, cleared: true },
+  }).catch(() => {});
+  const pageBlock = await loadCountReviewPage(sql, tenantId, jobId, planId, pageIndex, found.page.sha256);
+  return res.status(200).json({ page: pageBlock });
+}
+
 // ─── Router ─────────────────────────────────────────────────────────────────
 
 module.exports = async (req, res) => {
@@ -2132,6 +2535,11 @@ module.exports = async (req, res) => {
     if (action === 'review-marker') return handleReviewMarker(res, sql, tenantId, jobId, user, body);
     if (action === 'add-marker') return handleAddMarker(res, sql, tenantId, jobId, user, body);
     if (action === 'accept-count') return handleAcceptCount(res, sql, tenantId, jobId, user, body);
+    if (action === 'extract-rooms') return handleExtractRooms(res, sql, tenantId, jobId, user, body);
+    if (action === 'review-room') return handleReviewRoom(res, sql, tenantId, jobId, user, body);
+    if (action === 'add-room') return handleAddRoom(res, sql, tenantId, jobId, user, body);
+    if (action === 'assign-device-room') return handleAssignDeviceRoom(res, sql, tenantId, jobId, user, body);
+    if (action === 'clear-device-room') return handleClearDeviceRoom(res, sql, tenantId, jobId, user, body);
     return res.status(400).json({ error: 'unknown action: ' + (action || '(none)') });
   }
 
@@ -2164,4 +2572,7 @@ module.exports.__test = {
   reviewActionView,
   acceptedCountView,
   assembleCountReviewPage,
+  ROOMS_PROMPT_VERSION,
+  roomsPrompt,
+  roomView,
 };

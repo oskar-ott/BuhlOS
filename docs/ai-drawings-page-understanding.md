@@ -276,6 +276,51 @@ instance is a marker the human checked in place.
   correction stream doubles as the eval feedback loop for detection
   quality (issue "future considerations").
 
+## Rooms and zones (#206)
+
+Flat per-sheet counts are coarse; pricing works room-by-room. The pragmatic
+v1 per the issue: a **whole-page vision pass for room-label text plus
+approximate bbox extents** — deliberately NOT wall-tracing polygons; boxes a
+human can redraw beat over-promised geometry.
+
+- **Extraction** ("Map rooms" on floor-plan sheets): prompt `rv-v1`, cached
+  in the shared run log (`plan_sheet_extractions`, kind `rooms` — the kind
+  CHECK is widened per slice). Names come back VERBATIM (duplicate names
+  are legitimate — two "WIR" on one level), extents approximate, faint
+  underlay text scores low, unlabelled space is simply not listed. Spend
+  kind `extract-rooms`; materialisation is idempotent (a cached re-click
+  inserts nothing); re-extraction supersedes ONLY prior AI suggestions —
+  human-touched rooms persist.
+- **Review is the legend grammar** (`rooms` table): suggested →
+  accepted | edited | rejected; `edited` covers BOTH rename (`human_name`)
+  and redraw (`human_bbox`) — overrides win on read. Merge = redraw one +
+  reject the other; split = redraw + add. Humans add rooms (born
+  accepted) by naming then two-tap drawing a box on the overlay.
+- **Device grouping is derived, never stored**: marker centre
+  point-in-effective-bbox; overlapping rooms → smallest area wins;
+  outside every room → the **explicit unzoned bucket** (rendered
+  amber-dashed, never silently dropped). Redrawing a room re-groups
+  instantly. A human can pin any marker to a room — or explicitly to
+  unzoned — via `room_assignment_overrides` (pin > geometry; a pin to a
+  since-rejected room falls back to geometry; clearing the pin returns
+  the marker to automatic grouping).
+- **Where it surfaces**: the count-review card (#205) gains room boxes +
+  labels on the overlay, a Rooms list (accept/rename/redraw/reject/add),
+  a per-marker Room selector, and a by-room breakdown ("KITCHEN · 3 —
+  2× GPO, 1× downlight"). Accepted counts stay per (page raster, symbol
+  type) — the room breakdown is a VIEW over live markers, not a second
+  count grammar.
+- Audit: `document.ai_extracted` (kind `rooms`) on mapping;
+  `document.ai_corrected` (kinds `room` / `room-assignment`) on review,
+  add, pin and clear.
+- Storage: `rooms` + `room_assignment_overrides`
+  (migration `20260703160000_epic5_rooms.sql`). Zone definitions may
+  eventually map to job-bible site areas (Epic 4) — flagged, deliberately
+  NOT built here.
+- **Accuracy AC prod-gated**: detected room names vs a human's listing on
+  a reference floor plan, boundary errors visible in the overlay — joins
+  the standing owner-preview session.
+
 ## Honest limits (deliberate, this slice)
 
 - **No server-side PDF/OCR pipeline** — pages must have been rendered by the
@@ -295,11 +340,12 @@ instance is a marker the human checked in place.
   panel (per the issue: Epic 13's plans viewer owns rich rendering —
   coordinate, don't rival). No zoom/pan in the overlay yet; the markers sit
   on a fit-width raster.
-- Room/zone breakdown of counts ("12 GPOs in Kitchen") arrives with #206.
+- Room extents are **approximate bboxes**, not wall-tracing polygons
+  (#206 v1 per its issue) — the redraw affordance is the correction path.
 - Accuracy ACs (#201 legend listing, #202/#207 cell-level error rate,
   #204 detection precision/recall, #205 full-loop count match vs an
-  independent hand count) need prod — same owner-preview session as the
-  #197/#199 checks.
+  independent hand count, #206 room names vs a human's room listing)
+  need prod — same owner-preview session as the #197/#199 checks.
 - **The ≥10-page real-set end-to-end check (final #197 AC) needs production**
   (real Anthropic key + Supabase + a real drawing set) — run it there with
   the flag in owner-preview before closing the issue.
