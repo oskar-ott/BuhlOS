@@ -53,6 +53,8 @@ let calibrations: Row[];
 let cableRuns: Row[];
 let sheetRefsArr: Row[];
 let entityLinksArr: Row[];
+let takeoffsArr: Row[];
+let takeoffLinesArr: Row[];
 let blobPuts: Array<{ path: string; bytes: number }>;
 let auditEntries: Row[];
 let aiCalls: Array<Record<string, unknown>>;
@@ -222,6 +224,8 @@ beforeEach(() => {
   cableRuns = [];
   sheetRefsArr = [];
   entityLinksArr = [];
+  takeoffsArr = [];
+  takeoffLinesArr = [];
   blobPuts = [];
   auditEntries = [];
   detectionRaceWinner = null;
@@ -1334,6 +1338,142 @@ beforeEach(() => {
           reviewed_by_label: next.reviewedByLabel,
         };
         return entityLinksArr[i];
+      },
+      // ── #213 takeoffs (mirrors the real store's SQL semantics) ──
+      listTakeoffs: async (_sql: unknown, _t: string, jobId: string) =>
+        takeoffsArr.filter((t) => t.job_id === jobId && t.status !== "superseded"),
+      getTakeoff: async (_sql: unknown, _t: string, jobId: string, id: string) =>
+        takeoffsArr.find((t) => t.job_id === jobId && t.id === id) ?? null,
+      takeoffLinesFor: async (_sql: unknown, _t: string, ids: string[]) =>
+        takeoffLinesArr
+          .filter((l) => ids.includes(l.takeoff_id as string))
+          .sort((a, b) => (a.line_index as number) - (b.line_index as number)),
+      getTakeoffLine: async (_sql: unknown, _t: string, id: string) =>
+        takeoffLinesArr.find((l) => l.id === id) ?? null,
+      insertTakeoff: async (
+        _sql: unknown,
+        _t: string,
+        jobId: string,
+        header: Row,
+        lines: Row[],
+      ) => {
+        const prior = takeoffsArr.filter((t) => t.job_id === jobId && t.status === "draft");
+        for (const p of prior) p.status = "superseded";
+        const version =
+          Math.max(0, ...takeoffsArr.filter((t) => t.job_id === jobId).map((t) => t.version as number)) + 1;
+        const takeoff: Row = {
+          id: `to_${takeoffsArr.length + 1}`,
+          job_id: jobId,
+          version,
+          status: "draft",
+          warnings: header.warnings,
+          sources: header.sources,
+          superseded_by: null,
+          created_at: new Date().toISOString(),
+          created_by_label: header.createdByLabel,
+          signed_off_at: null,
+          signed_off_by_label: null,
+        };
+        takeoffsArr.push(takeoff);
+        for (const p of prior) p.superseded_by = takeoff.id;
+        const inserted: Row[] = [];
+        lines.forEach((l, i) => {
+          const row: Row = {
+            id: `tl_${takeoffLinesArr.length + 1}`,
+            takeoff_id: takeoff.id,
+            line_index: i,
+            source_type: l.sourceType,
+            description: l.description,
+            qty: l.qty,
+            human_qty: null,
+            unit: l.unit,
+            estimate: l.estimate,
+            flagged: l.flagged,
+            flag_reason: l.flagReason,
+            note: null,
+            adjusted_at: null,
+            adjusted_by_label: null,
+            provenance: l.provenance,
+          };
+          takeoffLinesArr.push(row);
+          inserted.push(row);
+        });
+        return { takeoff, lines: inserted };
+      },
+      adjustTakeoffLine: async (_sql: unknown, _t: string, lineId: string, next: Row) => {
+        const i = takeoffLinesArr.findIndex((l) => l.id === lineId);
+        if (i < 0) return null;
+        takeoffLinesArr[i] = {
+          ...takeoffLinesArr[i],
+          human_qty: next.humanQty,
+          note: next.note,
+          adjusted_at: new Date().toISOString(),
+          adjusted_by_label: next.adjustedByLabel,
+        };
+        return takeoffLinesArr[i];
+      },
+      addManualTakeoffLine: async (_sql: unknown, _t: string, takeoffId: string, line: Row) => {
+        const maxIndex = Math.max(
+          -1,
+          ...takeoffLinesArr
+            .filter((l) => l.takeoff_id === takeoffId)
+            .map((l) => l.line_index as number),
+        );
+        const row: Row = {
+          id: `tl_${takeoffLinesArr.length + 1}`,
+          takeoff_id: takeoffId,
+          line_index: maxIndex + 1,
+          source_type: "manual",
+          description: line.description,
+          qty: line.qty,
+          human_qty: null,
+          unit: line.unit,
+          estimate: false,
+          flagged: false,
+          flag_reason: null,
+          note: null,
+          adjusted_at: new Date().toISOString(),
+          adjusted_by_label: line.addedByLabel,
+          provenance: { addedBy: line.addedByLabel },
+        };
+        takeoffLinesArr.push(row);
+        return row;
+      },
+      signOffTakeoff: async (
+        _sql: unknown,
+        _t: string,
+        jobId: string,
+        takeoffId: string,
+        signedOffByLabel: string,
+      ) => {
+        const prior = takeoffsArr.filter(
+          (t) => t.job_id === jobId && t.status === "signed_off",
+        );
+        const i = takeoffsArr.findIndex(
+          (t) => t.job_id === jobId && t.id === takeoffId && t.status === "draft",
+        );
+        if (i < 0) return null;
+        for (const p of prior) {
+          p.status = "superseded";
+          p.superseded_by = takeoffId;
+        }
+        takeoffsArr[i] = {
+          ...takeoffsArr[i],
+          status: "signed_off",
+          signed_off_at: new Date().toISOString(),
+          signed_off_by_label: signedOffByLabel,
+        };
+        return takeoffsArr[i];
+      },
+      signedOffTakeoff: async (_sql: unknown, _t: string, jobId: string) => {
+        const t = takeoffsArr.find(
+          (x) => x.job_id === jobId && x.status === "signed_off",
+        );
+        if (!t) return null;
+        return {
+          takeoff: t,
+          lines: takeoffLinesArr.filter((l) => l.takeoff_id === t.id),
+        };
       },
     },
   } as NodeJS.Module;
@@ -3776,5 +3916,252 @@ describe("cross-sheet links (#212)", () => {
     expect(res.statusCode).toBe(502);
     expect(spendLedger().calls).toHaveLength(1);
     expect(sheetRefsArr).toHaveLength(0);
+  });
+});
+
+describe("takeoff assembly (#213)", () => {
+  // accepted device counts on two pages + an accepted lighting schedule row
+  // + an accepted cable run + a confirmed cross-sheet link (overlap warning)
+  function seedAcceptedEverything() {
+    acceptedCounts.push(
+      {
+        id: "ac_1",
+        job_id: "j1",
+        plan_id: "pl1",
+        page_index: 0,
+        page_sha256: "sha0",
+        legend_entry_id: "le_gpo",
+        label: "Double GPO",
+        count: 12,
+        basis: { markerKeys: ["d:d1"], markers: [], reviewIds: [] },
+        status: "live",
+        superseded_by: null,
+        accepted_at: "2026-07-03T00:00:00.000Z",
+        accepted_by_label: "boss",
+      },
+      {
+        id: "ac_2",
+        job_id: "j1",
+        plan_id: "pl2",
+        page_index: 0,
+        page_sha256: "sha0",
+        legend_entry_id: "le_gpo",
+        label: "Double GPO",
+        count: 4,
+        basis: { markerKeys: ["d:d9"], markers: [], reviewIds: [] },
+        status: "live",
+        superseded_by: null,
+        accepted_at: "2026-07-03T00:00:01.000Z",
+        accepted_by_label: "boss",
+      },
+    );
+    scheduleTables.push({
+      id: "st_1",
+      job_id: "j1",
+      plan_id: "pl1",
+      page_index: 1,
+      page_sha256: "sha1",
+      table_kind: "lighting",
+      board_identifier: null,
+      status: "live",
+    });
+    scheduleRowsArr.push(
+      {
+        id: "sr_1",
+        table_id: "st_1",
+        job_id: "j1",
+        row_index: 0,
+        status: "accepted",
+        cells: {
+          typeCode: { value: "L1", confidence: 0.9 },
+          description: { value: "LED DOWNLIGHT", confidence: 0.9 },
+          qty: { value: "24", confidence: 0.9 },
+        },
+        human_cells: null,
+      },
+      {
+        id: "sr_2",
+        table_id: "st_1",
+        job_id: "j1",
+        row_index: 1,
+        status: "suggested", // unreviewed — must NOT assemble
+        cells: { typeCode: { value: "L2", confidence: 0.9 } },
+        human_cells: null,
+      },
+    );
+    cableRuns.push({
+      id: "cr_1",
+      job_id: "j1",
+      plan_id: "pl1",
+      page_index: 0,
+      page_sha256: "sha0",
+      status: "accepted",
+      factors: { routingFactor: 1.15, riseDropMm: 4000, slackFactor: 1.1 },
+      inputs: {},
+      results: {
+        boards: [{ boardIdentifier: "DB-1", deviceCount: 12, totalMm: 184600 }],
+        totalMm: 184600,
+        deviceCount: 12,
+      },
+      superseded_by: null,
+      created_at: "2026-07-03T00:00:00.000Z",
+      created_by_label: "boss",
+      accepted_at: "2026-07-03T00:00:02.000Z",
+      accepted_by_label: "boss",
+    });
+    entityLinksArr.push({
+      id: "el_1",
+      job_id: "j1",
+      kind: "same-board",
+      identifier: "DB-1",
+      a_plan_id: "pl1",
+      a_page_index: 0,
+      b_plan_id: "pl2",
+      b_page_index: 0,
+      confidence: 0.9,
+      evidence: "test",
+      origin: "ai",
+      status: "confirmed",
+      created_at: "2026-07-03T00:00:00.000Z",
+      created_by_label: null,
+      reviewed_at: "2026-07-03T00:00:00.000Z",
+      reviewed_by_label: "boss",
+    });
+  }
+
+  const assemble = () => call("POST", { jobId: "j1", action: "assemble-takeoff" }, {});
+
+  it("409s with nothing accepted — unverified output never assembles", async () => {
+    const res = await assemble();
+    expect(res.statusCode).toBe(409);
+    expect(String(res.body.error)).toContain("nothing accepted");
+  });
+
+  it("assembles ONLY accepted rows: provenance per line, estimates labelled, overlap warnings carried", async () => {
+    seedAcceptedEverything();
+    const res = await assemble();
+    expect(res.statusCode).toBe(200);
+    const draft = res.body.draft;
+    expect(draft.status).toBe("draft");
+    expect(draft.version).toBe(1);
+    // 2 count lines + 1 accepted schedule row (suggested row excluded) + 1 cable line
+    expect(draft.lines).toHaveLength(4);
+    const types = draft.lines.map((l: Row) => l.sourceType);
+    expect(types).toEqual(["device-count", "device-count", "schedule-row", "cable-estimate"]);
+    // provenance resolves back to the exact rows
+    expect(draft.lines[0].provenance).toMatchObject({ acceptedCountId: "ac_1", planId: "pl1" });
+    expect(draft.lines[2].provenance).toMatchObject({ rowId: "sr_1", tableKind: "lighting" });
+    expect(draft.lines[3]).toMatchObject({ estimate: true, unit: "m", qty: 184.6 });
+    // both counted pages are linked → duplicate-scope warnings flag the lines
+    expect(draft.warnings.length).toBeGreaterThanOrEqual(1);
+    expect(draft.lines[0].flagged).toBe(true);
+    expect(String(draft.lines[0].flagReason)).toContain("duplicate scope");
+    const audit = auditEntries.find((a) => (a.metadata as Row)?.kind === "takeoff");
+    expect(String(audit?.summary)).toContain("draft");
+  });
+
+  it("adjustments are recorded and win; effectiveQty is the quoting number", async () => {
+    seedAcceptedEverything();
+    const res = await assemble();
+    const line = res.body.draft.lines[0];
+    const adjusted = await call("POST", { jobId: "j1", action: "adjust-takeoff-line" }, {
+      lineId: line.id,
+      qty: 10,
+      note: "two GPOs double-counted on the overlap",
+    });
+    expect(adjusted.statusCode).toBe(200);
+    expect(adjusted.body.line).toMatchObject({
+      qty: 12,
+      humanQty: 10,
+      effectiveQty: 10,
+      adjustedBy: "boss",
+      note: "two GPOs double-counted on the overlap",
+    });
+    // clearing returns to the assembled number
+    const cleared = await call("POST", { jobId: "j1", action: "adjust-takeoff-line" }, {
+      lineId: line.id,
+      qty: null,
+    });
+    expect(cleared.body.line).toMatchObject({ humanQty: null, effectiveQty: 12 });
+  });
+
+  it("manual lines join the draft; sign-off freezes everything (immutable)", async () => {
+    seedAcceptedEverything();
+    const res = await assemble();
+    const takeoffId = res.body.draft.id;
+    const added = await call("POST", { jobId: "j1", action: "add-takeoff-line" }, {
+      takeoffId,
+      description: "Temporary site board",
+      qty: 1,
+      unit: "ea",
+    });
+    expect(added.statusCode).toBe(200);
+    expect(added.body.line).toMatchObject({ sourceType: "manual", qty: 1 });
+
+    const signed = await call("POST", { jobId: "j1", action: "sign-off-takeoff" }, { takeoffId });
+    expect(signed.statusCode).toBe(200);
+    expect(signed.body.draft).toBeNull();
+    expect(signed.body.signedOff).toMatchObject({ status: "signed_off", signedOffBy: "boss" });
+    expect(signed.body.signedOff.lines).toHaveLength(5);
+    const audit = auditEntries.find((a) => a.action === "document.takeoff_signed_off");
+    expect(String(audit?.summary)).toContain("quoting source");
+
+    // immutability: adjusting or adding on a signed-off takeoff refuses
+    const adjust = await call("POST", { jobId: "j1", action: "adjust-takeoff-line" }, {
+      lineId: signed.body.signedOff.lines[0].id,
+      qty: 1,
+    });
+    expect(adjust.statusCode).toBe(409);
+    expect(String(adjust.body.error)).toContain("immutable");
+    const addAfter = await call("POST", { jobId: "j1", action: "add-takeoff-line" }, {
+      takeoffId,
+      description: "x",
+      qty: 1,
+      unit: "ea",
+    });
+    expect(addAfter.statusCode).toBe(409);
+  });
+
+  it("re-assembly supersedes the draft; signing the new version supersedes the old signed-off", async () => {
+    seedAcceptedEverything();
+    const v1 = await assemble();
+    await call("POST", { jobId: "j1", action: "sign-off-takeoff" }, {
+      takeoffId: v1.body.draft.id,
+    });
+    // more work gets accepted → assemble v2
+    acceptedCounts.push({
+      id: "ac_3",
+      job_id: "j1",
+      plan_id: "pl1",
+      page_index: 1,
+      page_sha256: "sha1",
+      legend_entry_id: "le_dl",
+      label: "LED downlight",
+      count: 24,
+      basis: { markerKeys: [], markers: [], reviewIds: [] },
+      status: "live",
+      superseded_by: null,
+      accepted_at: "2026-07-03T01:00:00.000Z",
+      accepted_by_label: "boss",
+    });
+    const v2 = await assemble();
+    expect(v2.body.draft.version).toBe(2);
+    expect(v2.body.signedOff.version).toBe(1); // v1 stays the quoting source until v2 signs
+    const signed = await call("POST", { jobId: "j1", action: "sign-off-takeoff" }, {
+      takeoffId: v2.body.draft.id,
+    });
+    expect(signed.body.signedOff.version).toBe(2);
+    expect(takeoffsArr.filter((t) => t.status === "superseded")).toHaveLength(1);
+    // Epic 7 seam returns exactly the latest signed-off
+    expect(takeoffsArr.filter((t) => t.status === "signed_off")).toHaveLength(1);
+  });
+
+  it("GET takeoff returns draft + signedOff views", async () => {
+    seedAcceptedEverything();
+    await assemble();
+    const res = await call("GET", { jobId: "j1", action: "takeoff" });
+    expect(res.statusCode).toBe(200);
+    expect(res.body.draft).not.toBeNull();
+    expect(res.body.signedOff).toBeNull();
   });
 });

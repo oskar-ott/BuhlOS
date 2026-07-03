@@ -729,3 +729,54 @@ export type ProposeLinksResponse = z.infer<typeof ProposeLinksResponseSchema>;
 
 export const LinkResponseSchema = z.object({ link: EntityLinkSchema });
 export type LinkResponse = z.infer<typeof LinkResponseSchema>;
+
+// ─── #213: takeoffs (Epic 7's consumption contract) ─────────────────────────
+
+export const TakeoffLineSchema = z.object({
+  id: z.string(),
+  lineIndex: z.number().int(),
+  sourceType: z.enum(["device-count", "schedule-row", "cable-estimate", "manual"]),
+  description: z.string(),
+  qty: z.number().nullable(),
+  humanQty: z.number().nullable(),
+  /** humanQty ?? qty — what quoting consumes. */
+  effectiveQty: z.number().nullable(),
+  unit: z.string(),
+  estimate: z.boolean(),
+  flagged: z.boolean(),
+  flagReason: z.string().nullable(),
+  note: z.string().nullable(),
+  adjustedAt: z.string().nullable(),
+  adjustedBy: z.string().nullable(),
+  provenance: z.record(z.string(), z.unknown()),
+});
+export type TakeoffLine = z.infer<typeof TakeoffLineSchema>;
+
+export const TakeoffSchema = z.object({
+  id: z.string(),
+  version: z.number().int(),
+  status: z.enum(["draft", "signed_off"]),
+  warnings: z.array(
+    z.object({
+      kind: z.string(),
+      planId: z.string(),
+      pageIndex: z.number().int(),
+      detail: z.string(),
+    }),
+  ),
+  createdAt: z.string(),
+  createdBy: z.string().nullable(),
+  signedOffAt: z.string().nullable(),
+  signedOffBy: z.string().nullable(),
+  lines: z.array(TakeoffLineSchema),
+});
+export type Takeoff = z.infer<typeof TakeoffSchema>;
+
+export const TakeoffViewsSchema = z.object({
+  draft: TakeoffSchema.nullable(),
+  signedOff: TakeoffSchema.nullable(),
+});
+export type TakeoffViews = z.infer<typeof TakeoffViewsSchema>;
+
+export const TakeoffLineResponseSchema = z.object({ line: TakeoffLineSchema });
+export type TakeoffLineResponse = z.infer<typeof TakeoffLineResponseSchema>;

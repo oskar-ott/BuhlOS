@@ -402,6 +402,48 @@ A drawing set is a web, not a pile. Two deliberately small structures:
   human confirms/rejects every proposed link and confirmed links
   round-trip both ways — joins the standing owner-preview session.
 
+## Takeoff assembly (#213)
+
+The capstone: verified extractions assembled into one signed-off quantity
+list. **Pure aggregation, no model calls** — correctness and provenance
+integrity are the entire job.
+
+- **Only accepted rows assemble**: verified device counts
+  (`liveAcceptedCounts`, #205), accepted/edited schedule rows (#202/#207 —
+  lighting rows carry their qty cell parsed strictly, a non-numeric qty
+  flags the line instead of inventing a number; switchboard rows assemble
+  as qty-1 circuit-scope lines), and accepted cable estimate runs (#211 —
+  their lines carry `estimate: true` all the way into quoting). Nothing
+  unverified is ever pulled in; with nothing accepted, assembly refuses.
+- **Provenance per line**: every line resolves back to the exact accepted
+  row and sheet (`acceptedCountId` / `rowId` / `cableRunId` + plan/page/
+  sha) — the walk-a-sample verification criterion runs on these links.
+- **Duplicate-scope warnings** (#212) ride into the assembly: lines on
+  linked counted pages flag themselves and the takeoff header lists the
+  warnings.
+- **Review → adjust → sign off**: adjustments (`human_qty` + note + who/
+  when) are recorded and win on read — the legacy prototype's one right
+  instinct (AI never overwrites human entries), kept. Manual lines can be
+  added to a draft. **Sign-off freezes the version** (audited
+  `document.takeoff_signed_off`); signed-off takeoffs are immutable —
+  changes mean assembling a new version (the old signed-off stays the
+  quoting source until the new draft signs).
+- **The Epic 7 contract**: `signedOffTakeoff(sql, tenantId, jobId)` (store)
+  returns the latest signed-off takeoff + lines; the typed shape is
+  `Takeoff`/`TakeoffLine` in `src/domains/ai-drawings/schema.ts`
+  (`effectiveQty` = human adjustment ?? assembled qty is the quoting
+  number). Quoting reads NOTHING else from this epic. The legacy blob
+  prototype (`ai-takeoff.json` count numbers) is superseded as a takeoff
+  source; its file stays only as the #510 spend ledger.
+- Storage: `takeoffs` + `takeoff_lines`
+  (migration `20260703220000_epic5_takeoffs.sql`), partial-unique one live
+  draft + one live signed_off per job. Assembler:
+  `api/_lib/takeoff-assemble.js` (pure, unit-tested).
+- **Verification criterion prod-gated**: on a real job, walk a sample of
+  line items back to their source sheets via provenance and confirm the
+  quantities match the accepted counts — joins the standing owner-preview
+  session.
+
 ## Honest limits (deliberate, this slice)
 
 - **No server-side PDF/OCR pipeline** — pages must have been rendered by the
@@ -433,7 +475,8 @@ A drawing set is a web, not a pile. Two deliberately small structures:
   #204 detection precision/recall, #205 full-loop count match vs an
   independent hand count, #206 room names vs a human's room listing,
   #211 estimate vs a human's scaled measurement with deviation reported,
-  #212 confirm/reject every proposed link on a real multi-sheet set)
+  #212 confirm/reject every proposed link on a real multi-sheet set,
+  #213 walk takeoff lines back to their sheets via provenance)
   need prod — same owner-preview session as the #197/#199 checks.
 - **The ≥10-page real-set end-to-end check (final #197 AC) needs production**
   (real Anthropic key + Supabase + a real drawing set) — run it there with

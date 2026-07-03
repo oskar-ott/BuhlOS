@@ -134,6 +134,9 @@ const VALID_ACTIONS = new Set([
   // and a human accepted an estimate (api/ai-drawings.js).
   'document.cable_estimated',
   'document.cable_estimate_accepted',
+  // #213: Epic 5 takeoff — an estimator signed off an assembled takeoff
+  // (api/ai-drawings.js). Only signed-off takeoffs reach quoting.
+  'document.takeoff_signed_off',
   // #189: per-job contacts maintained by the office.
   'contact.saved',
   'contact.removed',

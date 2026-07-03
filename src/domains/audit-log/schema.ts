@@ -137,6 +137,8 @@ export const AUDIT_ACTIONS = [
   // #211: Epic 5 cable estimates — calibration/run + human acceptance.
   "document.cable_estimated",
   "document.cable_estimate_accepted",
+  // #213: Epic 5 takeoff sign-off — the quoting gate.
+  "document.takeoff_signed_off",
   "contact.saved",
   "contact.removed",
   "credential.added",
