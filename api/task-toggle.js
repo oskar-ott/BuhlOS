@@ -35,6 +35,7 @@
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, canWrite, canViewDraftJobs, canViewArchivedJobs, isClientRole } = require('./_lib/auth');
 const { writeTaskStatusToPg } = require('./_lib/task-write');
+const { recordMirrorDrift } = require('./_lib/mirror-drift'); // DWD-04: surface Blob-ok/PG-fail drift
 
 const VALID_STATES = new Set(['not_started', 'in_progress', 'complete']);
 const VALID_STAGES = new Set(['roughIn', 'fitOff']);
@@ -149,6 +150,12 @@ module.exports = async (req, res) => {
   } catch (e) {
     return res.status(502).json({ error: 'write failed: ' + (e.message || 'unknown') });
   }
+
+  // DWD-04: the Blob write just succeeded — if the PG source write errored (not a
+  // gated/unmirrored skip) the two stores now diverge. Record it to the error
+  // journal so it surfaces on the owner console instead of waiting for the daily
+  // sync-check. Best-effort (never throws); does not affect the response.
+  await recordMirrorDrift({ domain: 'tasks', result: pgWrite, jobId, key: KEY });
 
   return res.status(200).json({
     jobId, areaId, stage, taskId,

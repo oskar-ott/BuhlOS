@@ -1,5 +1,5 @@
 import { createRequire } from "node:module";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 /**
  * J9 task-state dual-write mirror. Reconciles per-job task STATUS (data.json) →
@@ -109,5 +109,91 @@ describe("mirrorTasksIfEnabled / mirrorTasks — gates + best-effort", () => {
     expect(r.ran).toBe(false);
     expect(r.reason).toBe("error");
     expect(r.error).toMatch(/pooler down/);
+  });
+
+  // DWD-05: a job whose data.json can't be reconciled (malformed status →
+  // quarantine, or a resolve throw) must be (a) alarmed on the error journal and
+  // (b) retried next run, not permanently skipped. The cron keeps NO skip-list —
+  // it re-reads jobs.json and re-attempts every job each run — so the fix is the
+  // alarm; the retry is the loop's existing re-scan property (asserted below).
+  describe("DWD-05 — quarantine/failure alarm + self-heal by re-scan", () => {
+    // A jobs.json with one job, plus a per-job data.json with an UNKNOWN status
+    // (rejected by the projection gate → quarantine, no sql needed).
+    const jobsBlob = { jobs: [{ id: "j1", name: "Job 1", status: "active", areaGroups: [{ id: "g1", name: "G1", areas: [{ id: "a1", name: "A1", roughInTasks: [{ id: "t1", name: "T1" }] }] }], roughInTasks: [], fitOffTasks: [] }] };
+    const badData = { dwellings: { a1: { roughIn: { tasks: { t1: "blocked" } }, lastTouchedBy: "sparky" } }, snags: [], notes: [] };
+    // The legacyIdMap query interpolates the table name as a fragment (not into
+    // the joined strings) so jobs vs site_areas can't be told apart by text —
+    // return BOTH rows for every legacy_id lookup: jobMap resolves j1→uuid and
+    // areaMap resolves the composite area legacy id→sa1 (extra keys are harmless).
+    const areaLegacy = compositeLegacyId("j1", "a1");
+    const legacyRows = [{ id: "j1-uuid", legacy_id: "j1" }, { id: "sa1", legacy_id: areaLegacy }];
+    // A sql tag that resolves legacy-id maps (so the job resolves to a uuid) but
+    // never needs a tasks query on the quarantine path.
+    const okDb = () => Object.assign(
+      (first: unknown) => {
+        const q = Array.isArray(first) ? (first as string[]).join(" ") : "";
+        if (q.includes("from public.tenants")) return Promise.resolve([{ id: "T" }]);
+        if (q.includes("legacy_id")) return Promise.resolve(legacyRows);
+        return Promise.resolve([]);
+      },
+      { begin: async (fn: (tx: unknown) => unknown) => fn(() => Promise.resolve([])) },
+    );
+    const readBlob = async (key: string, fallback: unknown) =>
+      key === "jobs.json" ? jobsBlob : key === "jobs/j1/data.json" ? badData : fallback;
+
+    it("records the quarantine to the error journal (appendError) and counts it", async () => {
+      process.env.SUPABASE_DB_URL = "postgres://fake";
+      const appendError = vi.fn(async (_p: Record<string, unknown>) => ({}));
+      const r = await mirrorTasksIfEnabled({
+        isFlagOn: async () => true, getDb: okDb, readBlob, appendError, nowIso: "2026-06-21T00:00:00.000Z",
+      }) as { quarantined?: number; quarantinedJobs?: unknown[] };
+      expect(r.quarantined).toBe(1);
+      expect(appendError).toHaveBeenCalledTimes(1);
+      expect(appendError.mock.calls[0]![0]).toMatchObject({
+        handler: "task-mirror", severity: "warning", jobId: "j1",
+        metadata: { domain: "task-mirror", jobId: "j1", quarantined: true },
+      });
+    });
+
+    it("self-heals by re-scan: a second run re-attempts the SAME job (no skip-list)", async () => {
+      process.env.SUPABASE_DB_URL = "postgres://fake";
+      const appendError = vi.fn(async (_p: Record<string, unknown>) => ({}));
+      const deps = { isFlagOn: async () => true, getDb: okDb, readBlob, appendError, nowIso: "2026-06-21T00:00:00.000Z" };
+      const a = await mirrorTasksIfEnabled(deps) as { quarantined?: number };
+      const b = await mirrorTasksIfEnabled(deps) as { quarantined?: number };
+      // Re-attempted both runs — the job is never permanently quarantined.
+      expect(a.quarantined).toBe(1);
+      expect(b.quarantined).toBe(1);
+      expect(appendError).toHaveBeenCalledTimes(2);
+    });
+
+    it("records a per-job reconcile THROW (e.g. resolve failure) and keeps the run green", async () => {
+      process.env.SUPABASE_DB_URL = "postgres://fake";
+      const appendError = vi.fn(async (_p: Record<string, unknown>) => ({}));
+      // A data.json with a KNOWN status (passes the projection gate) so the run
+      // reaches the tasks query — which throws, exercising the catch path.
+      const goodData = { dwellings: { a1: { roughIn: { tasks: { t1: "complete" } }, lastTouchedBy: "sparky" } }, snags: [], notes: [] };
+      const throwOnTasks = () => Object.assign(
+        (first: unknown) => {
+          const q = Array.isArray(first) ? (first as string[]).join(" ") : "";
+          if (q.includes("from public.tenants")) return Promise.resolve([{ id: "T" }]);
+          if (q.includes("from public.tasks")) throw new Error("area→uuid resolve failed");
+          if (q.includes("legacy_id")) return Promise.resolve(legacyRows);
+          return Promise.resolve([]);
+        },
+        { begin: async (fn: (tx: unknown) => unknown) => fn(() => Promise.resolve([])) },
+      );
+      const rb = async (key: string, fb: unknown) => (key === "jobs.json" ? jobsBlob : key === "jobs/j1/data.json" ? goodData : fb);
+      const r = await mirrorTasksIfEnabled({
+        isFlagOn: async () => true, getDb: throwOnTasks, readBlob: rb, appendError, nowIso: "2026-06-21T00:00:00.000Z",
+      }) as { ran?: boolean; failed?: number };
+      expect(r.ran).toBe(true); // the run survives — one job failing doesn't sink it
+      expect(r.failed).toBe(1);
+      expect(appendError).toHaveBeenCalledTimes(1);
+      expect(appendError.mock.calls[0]![0]).toMatchObject({
+        handler: "task-mirror", severity: "warning", jobId: "j1",
+        metadata: { domain: "task-mirror", jobId: "j1", failed: true },
+      });
+    });
   });
 });

@@ -21,6 +21,7 @@
 
 const { isFlagOn } = require('./feature-flags');
 const { getDb } = require('./supabase-db');
+const { appendError } = require('./error-log'); // DWD-05: alarm on a quarantined/failed job
 const { buildTaskProjection } = require('../../scripts/importers/lib/task-projection');
 const { decomposeLegacyId } = require('../../scripts/importers/lib/structure-legacy-id');
 
@@ -117,6 +118,8 @@ async function mirrorTasksIfEnabled(deps = {}) {
   const tenantSlug = deps.tenantSlug || 'buhl';
   const nowIso = deps.nowIso || new Date().toISOString();
   const startedMs = deps.nowMs ? deps.nowMs() : Date.now();
+  // DWD-05 alarm sink (injectable for tests). Best-effort — never throws.
+  const recordError = deps.appendError || appendError;
 
   if (!process.env.SUPABASE_DB_URL) return { ran: false, reason: 'no supabase env' };
   if (!(await flagOn('supabase_dual_write_tasks'))) return { ran: false, reason: 'flag off' };
@@ -132,17 +135,39 @@ async function mirrorTasksIfEnabled(deps = {}) {
   const jobs = (jobsBlob && jobsBlob.jobs) || [];
   const summary = { ran: true, jobs: jobs.length, attempted: 0, changed: 0, eventsInserted: 0, unresolved: 0, quarantined: 0, failed: 0, quarantinedJobs: [] };
 
+  // DWD-05 SELF-HEAL BY RE-SCAN: this loop re-reads jobs.json and re-attempts
+  // EVERY job on every run — there is no persistent skip-list, so a job that
+  // quarantines (malformed data.json / bad status) or throws (area→uuid resolve
+  // failure) is NOT permanently skipped: it is retried on the very next cron run,
+  // and self-heals once its data or its PG structure is fixed. The only addition
+  // needed is visibility — record the quarantine/failure to the error journal so
+  // a persistently stuck job surfaces on the owner console instead of only being
+  // countable in the summary. Best-effort: recordError (appendError) never throws.
   for (const job of jobs) {
     const jobId = jobMap.get(job.id);
     if (!jobId) { summary.unresolved += 1; continue; } // job not in PG (structure not mirrored)
     try {
       const data = await readBlob(`jobs/${job.id}/data.json`, { dwellings: {}, snags: [], notes: [] });
       const r = await reconcileJobTasks(sql, { tenantId, jobId, areaMap, nowIso }, job.id, job, data);
-      if (r.quarantined) { summary.quarantined += 1; summary.quarantinedJobs.push({ job: job.id, issues: r.issues }); continue; }
+      if (r.quarantined) {
+        summary.quarantined += 1; summary.quarantinedJobs.push({ job: job.id, issues: r.issues });
+        await recordError({
+          source: 'api', handler: 'task-mirror', severity: 'warning', statusCode: null, jobId: job.id,
+          message: `task mirror quarantined job ${job.id}: ${r.reason || 'projection not clean'} (retried next run)`,
+          metadata: { domain: 'task-mirror', jobId: job.id, quarantined: true, issues: r.issues },
+        });
+        continue;
+      }
       summary.attempted += r.attempted; summary.changed += r.changed; summary.eventsInserted += r.eventsInserted; summary.unresolved += r.unresolved;
     } catch (err) {
       summary.failed += 1;
-      console.warn(`[task-mirror] job ${job.id} reconcile failed (best-effort, Blob authoritative):`, err && err.message ? err.message : err);
+      const msg = err && err.message ? err.message : String(err);
+      console.warn(`[task-mirror] job ${job.id} reconcile failed (best-effort, Blob authoritative):`, msg);
+      await recordError({
+        source: 'api', handler: 'task-mirror', severity: 'warning', statusCode: null, jobId: job.id,
+        message: `task mirror failed job ${job.id}: ${msg} (retried next run)`,
+        metadata: { domain: 'task-mirror', jobId: job.id, failed: true, error: msg },
+      });
     }
   }
   summary.latencyMs = (deps.nowMs ? deps.nowMs() : Date.now()) - startedMs;

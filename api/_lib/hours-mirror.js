@@ -36,13 +36,13 @@
 // remove ALL added latency, move the mirror off the request path (Vercel
 // waitUntil / the #160 outbox) — a later rung.
 
-// Max wall-clock the mirror may add to an hours save. getDb's connect_timeout is
-// 10s; this bounds the user-facing delay well under that. A healthy warm pooler
-// returns in well under a second.
-const MIRROR_TIMEOUT_MS = 5000;
-
 const { isFlagOn } = require('./feature-flags');
 const { getDb } = require('./supabase-db');
+// Shared timeout race + budget (#152). MIRROR_TIMEOUT_MS sits ABOVE getDb's
+// connect_timeout (10s) so a cold pooler connect isn't guaranteed to be aborted
+// before it completes — see api/_lib/with-timeout.js. A healthy warm pooler
+// returns in well under a second.
+const { withTimeout, MIRROR_TIMEOUT_MS } = require('./with-timeout');
 const {
   timeEntryRowFromBlob,
   upsertTimeEntries,
@@ -52,18 +52,6 @@ const {
   VALID_TIME_ENTRY_STATUSES,
 } = require('./hours-pg');
 const { buildAllocationRows, reconcileAllocations } = require('./alloc-pg');
-
-// Race a promise against a timeout. On timeout the underlying query is left to
-// settle on its own (best-effort), but the caller is unblocked. The timer is
-// unref'd + cleared so it never keeps the process alive.
-function withTimeout(promise, ms, label) {
-  let timer;
-  const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
-    if (timer && typeof timer.unref === 'function') timer.unref();
-  });
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
-}
 
 // Belt-and-braces: the API already validated via validateEntryShape, but never
 // hand the upsert a row that would trip a schema CHECK (it would throw and be

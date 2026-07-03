@@ -93,4 +93,14 @@ describe("writeTaskStatusToPg (PG-as-source Stage A)", () => {
     expect(r.pg).toBe(false);
     expect(r.reason).toBe("error");
   });
+
+  it("DWD-02: a hung pooler is bounded by withTimeout — pg:false reason 'error', toggle never hangs", async () => {
+    process.env.SUPABASE_DB_URL = "postgres://fake";
+    // sql tag whose first query never resolves → the race times out (swallowed).
+    const hang = () => () => new Promise(() => {});
+    const r = await writeTaskStatusToPg({ ...base, state: "complete", isFlagOn: async () => true, getDb: hang, timeoutMs: 20 });
+    expect(r.pg).toBe(false);
+    expect(r.reason).toBe("error");
+    expect(r.error).toMatch(/timed out/);
+  });
 });
