@@ -192,6 +192,49 @@ the newer revision.
   tests (added element found, drift absorbed, mask honoured, noise
   refused).
 
+## Device detection (#204)
+
+Locating instances of **this project's reviewed legend vocabulary** on floor
+plans. Detection is constrained matching, never invention: with no
+accepted/edited legend entries the action refuses (409 — "extract and accept
+the legend first"), and the model may only point at vocabulary indices;
+anything off-list is dropped and counted (`offVocabulary`).
+
+- **Tiling**: the browser crops the page into an overlapping 2×2 grid
+  (`DETECTION_TILES`, 12% overlap) and runs one vision call per tile —
+  small symbols survive at usable resolution where a whole-sheet pass
+  would blur them. Tile-normalised boxes map back to page coordinates
+  server-side (`tileBoxToPage`).
+- **Few-shot from the project's own legend**: reviewed entries' symbol
+  crops (#201) ride along as reference images (capped at 12; an
+  unreachable crop degrades that entry to text-only). Human labels win
+  over AI labels in the vocabulary.
+- **Seam dedupe**: a device candidate overlapping (IoU > 0.5) an existing
+  detection of the same legend entry on the same raster is the same
+  physical device seen from two tiles; uncertain regions dedupe by
+  overlap alone. This is also what makes a cached re-click idempotent.
+- **Vocabulary frozen per run**: the entryIndex→legend-entry mapping is
+  stored inside the run's raw output — later legend edits can never
+  re-label detection history.
+- **Uncertainty is a first-class output**: dense/degraded areas the model
+  refuses to count instance-by-instance arrive as `uncertain-region` rows
+  ("needs a human count"), not guessed markers (P7).
+- **Everything is unverified**: the panel card frames every figure as
+  "found (raw)"; each detection is inspectable back to its exact spot on
+  the sheet (padded canvas crop). Nothing here feeds a takeoff — that is
+  #205's overlay review.
+- Storage: `detection_runs` (tile-keyed cache: page sha + tile + prompt
+  `dd-v1` + model) + `device_detections`
+  (migration `20260703120000_epic5_device_detections.sql`); spend kind
+  `detect-devices` in the shared #510 ledger; audit
+  `document.ai_extracted` (kind `device-detections`).
+- **Eval harness shipped, accuracy AC prod-gated**: the greedy-IoU scorer
+  (`src/domains/ai-drawings/detection-eval.ts`) computes per-label
+  precision/recall/F1 against a hand-labelled reference sheet
+  (`DetectionReference` contract; metrics are `null` where undefined,
+  never fake). Building the reference set needs a real plan — same
+  owner-preview session as the other accuracy ACs.
+
 ## Honest limits (deliberate, this slice)
 
 - **No server-side PDF/OCR pipeline** — pages must have been rendered by the
@@ -207,10 +250,11 @@ the newer revision.
   a review-side register — they do NOT write into `circuitBoards[]` (the
   engineering schedule keeps its single writer); feeding verified rows
   across is a #213-adjacent follow-up.
-- No revision diff yet (#203), no device recognition (#204/#205).
-- Accuracy ACs (#201 legend listing, #202/#207 cell-level error rate on
-  real schedules) need prod — same owner-preview session as the #197/#199
-  checks.
+- No verified counts yet: #204 locates and flags; the delete/add/reclassify
+  overlay review that turns detections into accepted counts is #205.
+- Accuracy ACs (#201 legend listing, #202/#207 cell-level error rate,
+  #204 detection precision/recall on a hand-labelled sheet) need prod —
+  same owner-preview session as the #197/#199 checks.
 - **The ≥10-page real-set end-to-end check (final #197 AC) needs production**
   (real Anthropic key + Supabase + a real drawing set) — run it there with
   the flag in owner-preview before closing the issue.

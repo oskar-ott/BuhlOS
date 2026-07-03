@@ -347,3 +347,46 @@ export const ReviewDiffRegionResponseSchema = z.object({
   region: DiffRegionSchema,
 });
 export type ReviewDiffRegionResponse = z.infer<typeof ReviewDiffRegionResponseSchema>;
+
+// ─── #204: device detection ─────────────────────────────────────────────────
+
+export const DeviceDetectionSchema = z.object({
+  id: z.string(),
+  planId: z.string(),
+  pageIndex: z.number().int(),
+  pageSha256: z.string(),
+  kind: z.enum(["device", "uncertain-region"]),
+  legendEntryId: z.string().nullable(),
+  label: z.string().nullable(),
+  bbox: CropRegionSchema,
+  confidence: z.number().nullable(),
+  note: z.string().nullable(),
+  runId: z.string(),
+  createdAt: z.string(),
+});
+export type DeviceDetection = z.infer<typeof DeviceDetectionSchema>;
+
+export const DetectionsResponseSchema = z.object({
+  detections: z.array(DeviceDetectionSchema),
+  promptVersion: z.string(),
+  model: z.string(),
+});
+export type DetectionsResponse = z.infer<typeof DetectionsResponseSchema>;
+
+export const DetectDevicesResponseSchema = z.object({
+  cached: z.boolean(),
+  inserted: z.number().int(),
+  seamDuplicates: z.number().int(),
+  offVocabulary: z.number().int(),
+  detections: z.array(DeviceDetectionSchema),
+  spend: z.object({ totalUsd: z.number(), capUsd: z.number() }).optional(),
+});
+export type DetectDevicesResponse = z.infer<typeof DetectDevicesResponseSchema>;
+
+/** The overlapping 2×2 tiling used for detection (12% seam overlap). */
+export const DETECTION_TILES: readonly CropRegion[] = [
+  { x: 0, y: 0, w: 0.56, h: 0.56 },
+  { x: 0.44, y: 0, w: 0.56, h: 0.56 },
+  { x: 0, y: 0.44, w: 0.56, h: 0.56 },
+  { x: 0.44, y: 0.44, w: 0.56, h: 0.56 },
+];

@@ -22,6 +22,8 @@ import {
   type CropRegion,
   type EffectiveSheet,
   type FieldState,
+  DETECTION_TILES,
+  type DeviceDetection,
   type DiffRegion,
   type LegendEntry,
   type PageDiff,
@@ -36,9 +38,11 @@ import {
   AiDrawingsError,
   attachLegendCrop,
   clearOverride,
+  detectDevices,
   diffPages,
   extractLegend,
   extractSchedule,
+  fetchDetections,
   fetchDiffs,
   fetchLegend,
   fetchSchedules,
@@ -52,6 +56,7 @@ import { SheetRegistryCard } from "@/components/admin/SheetRegistryCard";
 import { LegendVocabularyCard } from "@/components/admin/LegendVocabularyCard";
 import { ScheduleTablesCard } from "@/components/admin/ScheduleTablesCard";
 import { RevisionDiffCard, type RevisionPair } from "@/components/admin/RevisionDiffCard";
+import { DeviceDetectionCard } from "@/components/admin/DeviceDetectionCard";
 
 /**
  * Epic 5 (#197) — AI sheet understanding: run + review-and-correct loop.
@@ -137,6 +142,7 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
   const [scheduleColumns, setScheduleColumns] = useState<Record<string, string[]>>({});
   const [pageDiffs, setPageDiffs] = useState<PageDiff[]>([]);
   const [diffRegions, setDiffRegions] = useState<DiffRegion[]>([]);
+  const [deviceDetections, setDeviceDetections] = useState<DeviceDetection[]>([]);
   const [comparing, setComparing] = useState<{ headPlanId: string; done: number; total: number } | null>(null);
   // one page-level extraction (legend OR schedule) at a time
   const [extractBusyKey, setExtractBusyKey] = useState<string | null>(null);
@@ -190,19 +196,21 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
     setStatus("loading");
     setStatusMessage("");
     try {
-      const [sheetsRes, plansRes, legendRes, schedulesRes, diffsRes] = await Promise.all([
-        fetchSheets(jobId),
-        fetch(`/api/plans?jobId=${encodeURIComponent(jobId)}`, {
-          cache: "no-store",
-          credentials: "same-origin",
-        }).then(async (r) => {
-          if (!r.ok) throw new Error(`Documents API ${r.status}`);
-          return PanelPlansResponseSchema.parse(await r.json());
-        }),
-        fetchLegend(jobId),
-        fetchSchedules(jobId),
-        fetchDiffs(jobId),
-      ]);
+      const [sheetsRes, plansRes, legendRes, schedulesRes, diffsRes, detectionsRes] =
+        await Promise.all([
+          fetchSheets(jobId),
+          fetch(`/api/plans?jobId=${encodeURIComponent(jobId)}`, {
+            cache: "no-store",
+            credentials: "same-origin",
+          }).then(async (r) => {
+            if (!r.ok) throw new Error(`Documents API ${r.status}`);
+            return PanelPlansResponseSchema.parse(await r.json());
+          }),
+          fetchLegend(jobId),
+          fetchSchedules(jobId),
+          fetchDiffs(jobId),
+          fetchDetections(jobId),
+        ]);
       const nextSheets: Record<string, EffectiveSheet> = {};
       for (const s of sheetsRes.sheets) {
         nextSheets[sheetKey(s.planId, s.pageIndex)] = s;
@@ -225,6 +233,7 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
       setScheduleColumns(schedulesRes.columns);
       setPageDiffs(diffsRes.diffs);
       setDiffRegions(diffsRes.regions);
+      setDeviceDetections(detectionsRes.detections);
       setStatus("ready");
     } catch (err) {
       if (err instanceof AiDrawingsError && err.code === "STORE_UNAVAILABLE") {
@@ -420,6 +429,47 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
     [jobId],
   );
 
+  // #204: tile the page in the browser (overlapping 2×2) and run one vision
+  // call per tile — the server dedupes seam duplicates by IoU.
+  const runDetectDevices = useCallback(
+    async (plan: PanelPlan, pageIndex: number) => {
+      const page = plan.pages.find((p) => p.pageIndex === pageIndex);
+      if (!page) return;
+      setRunNotice("");
+      setExtractBusyKey(sheetKey(plan.id, pageIndex));
+      try {
+        for (let i = 0; i < DETECTION_TILES.length; i += 1) {
+          const region = DETECTION_TILES[i]!;
+          const dataUrl = await cropRegionFromPng(page.pngUrl, region, 3_600_000, 64);
+          if (!dataUrl) {
+            setRunNotice(
+              "Couldn't crop tiles in this browser (image blocked) — detection needs the tile crops.",
+            );
+            return;
+          }
+          try {
+            await detectDevices(jobId, plan.id, pageIndex, { region, dataUrl });
+          } catch (err) {
+            if (err instanceof AiDrawingsError && (err.code === "CAP_REACHED" || err.status === 409)) {
+              setRunNotice(err.message);
+              return; // budget spent or no reviewed vocabulary — stop honestly
+            }
+            setRunNotice(
+              `Tile ${i + 1}/${DETECTION_TILES.length} failed — ${err instanceof Error ? err.message : "error"}; continuing.`,
+            );
+          }
+        }
+        const detectionsRes = await fetchDetections(jobId);
+        setDeviceDetections(detectionsRes.detections);
+        const spendRes = await fetchSheets(jobId);
+        setSpend(spendRes.spend);
+      } finally {
+        setExtractBusyKey(null);
+      }
+    },
+    [jobId],
+  );
+
   const totals = useMemo(() => {
     const rows = Object.values(sheets);
     return {
@@ -564,6 +614,24 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
             </div>
           ) : null}
 
+          {deviceDetections.length > 0 ? (
+            <div className="mt-3">
+              <DeviceDetectionCard
+                detections={deviceDetections}
+                lookup={{
+                  pngUrlFor: (planId, pageIndex) =>
+                    plans
+                      .find((p) => p.id === planId)
+                      ?.pages.find((pg) => pg.pageIndex === pageIndex)?.pngUrl ?? null,
+                  labelFor: (planId) => {
+                    const p = plans.find((pl) => pl.id === planId);
+                    return p ? planLabel(p) : "(document no longer on this job)";
+                  },
+                }}
+              />
+            </div>
+          ) : null}
+
           {scheduleTables.length > 0 ? (
             <div className="mt-3">
               <ScheduleTablesCard
@@ -609,6 +677,7 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
                   onExtractSchedule={(pageIndex, kind) =>
                     void runExtractSchedule(plan, pageIndex, kind)
                   }
+                  onDetectDevices={(pageIndex) => void runDetectDevices(plan, pageIndex)}
                 />
               ))}
             </div>
@@ -672,6 +741,7 @@ function PlanSheets({
   extractBusyKey,
   onExtractLegend,
   onExtractSchedule,
+  onDetectDevices,
 }: {
   jobId: string;
   plan: PanelPlan;
@@ -684,6 +754,7 @@ function PlanSheets({
   extractBusyKey: string | null;
   onExtractLegend: (pageIndex: number) => void;
   onExtractSchedule: (pageIndex: number, kind: ScheduleTableKind) => void;
+  onDetectDevices: (pageIndex: number) => void;
 }) {
   const planRunning = running?.planId === plan.id;
   const analysed = plan.pages.filter(
@@ -748,6 +819,11 @@ function PlanSheets({
                     ? (kind) => onExtractSchedule(page.pageIndex, kind)
                     : undefined
                 }
+                onDetectDevices={
+                  sheet?.fields.sheetType.effective === "floorPlan" && !anyRunning
+                    ? () => onDetectDevices(page.pageIndex)
+                    : undefined
+                }
               />
             </li>
           );
@@ -768,6 +844,7 @@ function SheetRow({
   extractBusy = false,
   onExtractLegend,
   onExtractSchedule,
+  onDetectDevices,
 }: {
   jobId: string;
   planId: string;
@@ -779,7 +856,15 @@ function SheetRow({
   extractBusy?: boolean;
   onExtractLegend?: () => void;
   onExtractSchedule?: (kind: ScheduleTableKind) => void;
+  onDetectDevices?: () => void;
 }) {
+  // While an extraction runs every callback is withdrawn (anyRunning), so the
+  // busy row keeps showing only the button group its sheet type owns.
+  const effectiveType = sheet?.fields.sheetType.effective;
+  const showLegend = Boolean(onExtractLegend) || (extractBusy && effectiveType === "legend");
+  const showSchedule =
+    Boolean(onExtractSchedule) || (extractBusy && effectiveType === "schedule");
+  const showDetect = Boolean(onDetectDevices) || (extractBusy && effectiveType === "floorPlan");
   return (
     <div>
       <div className="flex flex-wrap items-center gap-2">
@@ -803,7 +888,7 @@ function SheetRow({
           view page
           <ExternalLink aria-hidden="true" className="h-3 w-3" />
         </a>
-        {onExtractLegend || (extractBusy && !onExtractSchedule) ? (
+        {showLegend ? (
           <button
             type="button"
             onClick={onExtractLegend}
@@ -819,7 +904,7 @@ function SheetRow({
             {extractBusy ? "Extracting legend…" : "Extract legend"}
           </button>
         ) : null}
-        {onExtractSchedule || (extractBusy && !onExtractLegend) ? (
+        {showSchedule ? (
           <>
             <button
               type="button"
@@ -850,6 +935,22 @@ function SheetRow({
               Extract board schedule
             </button>
           </>
+        ) : null}
+        {showDetect ? (
+          <button
+            type="button"
+            onClick={onDetectDevices}
+            disabled={!onDetectDevices || extractBusy}
+            className={cn(
+              "inline-flex h-7 items-center gap-1.5 rounded-card border px-2.5 text-xs font-medium",
+              extractBusy || !onDetectDevices
+                ? "cursor-not-allowed border-border bg-surface-subtle text-text-muted"
+                : "border-border bg-surface text-text hover:bg-surface-subtle",
+            )}
+          >
+            <ScanSearch aria-hidden="true" className="h-3.5 w-3.5" />
+            {extractBusy ? "Detecting devices…" : "Detect devices"}
+          </button>
         ) : null}
       </div>
       {sheet ? (

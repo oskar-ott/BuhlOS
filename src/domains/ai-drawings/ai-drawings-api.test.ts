@@ -42,6 +42,8 @@ let scheduleTables: Row[];
 let scheduleRowsArr: Row[];
 let pageDiffsArr: Row[];
 let diffRegionsArr: Row[];
+let detectionRuns: Row[];
+let deviceDetections: Row[];
 let blobPuts: Array<{ path: string; bytes: number }>;
 let auditEntries: Row[];
 let aiCalls: Array<Record<string, unknown>>;
@@ -49,6 +51,7 @@ let aiNextText: string;
 let aiFail: { code: string } | null;
 let dbAvailable: boolean;
 let insertRaceWinner: Row | null; // simulates a concurrent run winning the unique index
+let detectionRaceWinner: Row | null; // same, for the detection_runs unique index
 let auth: { signSession: (payload: Record<string, unknown>) => string };
 let handler: (req: Record<string, unknown>, res: Res) => Promise<unknown>;
 type EffectiveFieldShape = {
@@ -176,6 +179,18 @@ const normalizeLabel = (label: string) =>
 
 const LIVE_LEGEND = new Set(["suggested", "accepted", "edited"]);
 
+type Box = { x: number; y: number; w: number; h: number };
+// mirrors the real store's clamped IoU
+function fakeBoxIoU(a: Box, b: Box): number {
+  const x0 = Math.max(a.x, b.x);
+  const y0 = Math.max(a.y, b.y);
+  const x1 = Math.min(a.x + a.w, b.x + b.w);
+  const y1 = Math.min(a.y + a.h, b.y + b.h);
+  const inter = Math.max(0, x1 - x0) * Math.max(0, y1 - y0);
+  const union = a.w * a.h + b.w * b.h - inter;
+  return union > 0 ? Math.min(1, Math.max(0, inter / union)) : 0;
+}
+
 beforeEach(() => {
   process.env.SESSION_SECRET = "test-session-secret-long-enough";
   blob = new Map();
@@ -187,8 +202,11 @@ beforeEach(() => {
   scheduleRowsArr = [];
   pageDiffsArr = [];
   diffRegionsArr = [];
+  detectionRuns = [];
+  deviceDetections = [];
   blobPuts = [];
   auditEntries = [];
+  detectionRaceWinner = null;
 
   requireFromHere.cache[vercelBlobPath] = {
     id: vercelBlobPath,
@@ -207,6 +225,7 @@ beforeEach(() => {
   dbAvailable = true;
   insertRaceWinner = null;
   process.env.FLAG_AI_DRAWINGS = "1";
+  delete process.env.AI_DRAWINGS_MODEL; // tests pin the default model id
 
   delete requireFromHere.cache[handlerPath];
   delete requireFromHere.cache[aiSpendPath];
@@ -721,6 +740,119 @@ beforeEach(() => {
           reviewed_by_label: next.reviewedByLabel,
         };
         return diffRegionsArr[i];
+      },
+      // ── #204 device detection (mirrors the real store's SQL semantics) ──
+      boxIoU: fakeBoxIoU,
+      tileKeyOf: (region: Box) =>
+        `${region.x.toFixed(4)},${region.y.toFixed(4)},${region.w.toFixed(4)},${region.h.toFixed(4)}`,
+      findCachedDetectionRun: async (_sql: unknown, _t: string, key: Row) =>
+        detectionRuns.find(
+          (r) =>
+            r.job_id === key.jobId &&
+            r.plan_id === key.planId &&
+            r.page_index === key.pageIndex &&
+            r.page_sha256 === key.pageSha256 &&
+            r.tile_key === key.tileKey &&
+            r.prompt_version === key.promptVersion &&
+            r.model === key.model,
+        ) ?? null,
+      insertDetectionRun: async (_sql: unknown, _t: string, run: Row) => {
+        if (detectionRaceWinner) {
+          detectionRuns.push(detectionRaceWinner);
+          detectionRaceWinner = null;
+          const err = new Error(
+            "duplicate key value violates unique constraint",
+          ) as Error & { code: string };
+          err.code = "23505";
+          throw err;
+        }
+        const r: Row = {
+          id: `run_${detectionRuns.length + 1}`,
+          job_id: run.jobId,
+          plan_id: run.planId,
+          page_index: run.pageIndex,
+          page_sha256: run.pageSha256,
+          tile_key: run.tileKey,
+          tile_region: run.tileRegion,
+          prompt_version: run.promptVersion,
+          model: run.model,
+          raw: run.raw,
+          input_tokens: run.inputTokens,
+          output_tokens: run.outputTokens,
+          created_by_label: run.createdByLabel,
+        };
+        detectionRuns.push(r);
+        return r;
+      },
+      listDeviceDetectionsForPage: async (
+        _sql: unknown,
+        _t: string,
+        jobId: string,
+        planId: string,
+        pageIndex: number,
+        pageSha256: string,
+      ) =>
+        deviceDetections.filter(
+          (d) =>
+            d.job_id === jobId &&
+            d.plan_id === planId &&
+            d.page_index === pageIndex &&
+            d.page_sha256 === pageSha256,
+        ),
+      listDeviceDetections: async (_sql: unknown, _t: string, jobId: string) =>
+        deviceDetections.filter((d) => d.job_id === jobId),
+      insertDeviceDetections: async (
+        _sql: unknown,
+        _t: string,
+        ctx: Row,
+        candidates: Row[],
+        iouThreshold: number,
+      ) => {
+        const existing = deviceDetections.filter(
+          (d) =>
+            d.job_id === ctx.jobId &&
+            d.plan_id === ctx.planId &&
+            d.page_index === ctx.pageIndex &&
+            d.page_sha256 === ctx.pageSha256,
+        );
+        const inserted: Row[] = [];
+        let seamDuplicates = 0;
+        const kept = existing.map((e) => ({
+          bbox: e.bbox as Box,
+          legendEntryId: e.legend_entry_id,
+          kind: e.kind,
+        }));
+        for (const c of candidates) {
+          const dup = kept.some(
+            (k) =>
+              k.kind === c.kind &&
+              (c.kind !== "device" || k.legendEntryId === c.legendEntryId) &&
+              fakeBoxIoU(k.bbox, c.bbox as Box) > iouThreshold,
+          );
+          if (dup) {
+            seamDuplicates += 1;
+            continue;
+          }
+          const row: Row = {
+            id: `dd_${deviceDetections.length + 1}`,
+            job_id: ctx.jobId,
+            plan_id: ctx.planId,
+            page_index: ctx.pageIndex,
+            page_sha256: ctx.pageSha256,
+            run_id: ctx.runId,
+            kind: c.kind,
+            legend_entry_id: c.legendEntryId,
+            label: c.label,
+            bbox: c.bbox,
+            confidence: c.confidence,
+            note: c.note,
+            created_at: new Date().toISOString(),
+          };
+          deviceDetections.push(row);
+          inserted.push(row);
+          kept.push({ bbox: c.bbox as Box, legendEntryId: c.legendEntryId, kind: c.kind });
+        }
+        return { inserted, seamDuplicates };
       },
     },
   } as NodeJS.Module;
@@ -1743,5 +1875,262 @@ describe("revision diffs (#203)", () => {
     expect(list.statusCode).toBe(200);
     expect(list.body.diffs).toHaveLength(1);
     expect(list.body.regions.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("device detection (#204)", () => {
+  const TILE = {
+    region: { x: 0, y: 0, w: 0.5, h: 0.5 },
+    dataUrl: "data:image/png;base64,dGlsZQ==",
+  };
+
+  // Two reviewed vocabulary entries: one with a symbol crop (few-shot ref
+  // image), one edited whose human label must win over the AI label.
+  function seedVocabulary() {
+    legendRows.push(
+      {
+        id: "le_gpo",
+        job_id: "j1",
+        origin: "ai",
+        status: "accepted",
+        label: "Double GPO",
+        normalized_label: "double gpo",
+        human_label: null,
+        symbol_text: "=GPO=",
+        symbol_crop_url: "https://blob.test/crops/gpo.png",
+      },
+      {
+        id: "le_dl",
+        job_id: "j1",
+        origin: "ai",
+        status: "edited",
+        label: "Downlight",
+        normalized_label: "downlight",
+        human_label: "LED downlight",
+        symbol_text: null,
+        symbol_crop_url: null,
+      },
+    );
+  }
+
+  const MODEL_OUTPUT = {
+    detections: [
+      { entryIndex: 0, bbox: { x: 0.8, y: 0.8, w: 0.08, h: 0.08 }, confidence: 0.9 },
+      { entryIndex: 1, bbox: { x: 0.2, y: 0.2, w: 0.06, h: 0.06 }, confidence: 0.75 },
+      { entryIndex: 7, bbox: { x: 0.1, y: 0.6, w: 0.05, h: 0.05 }, confidence: 0.7 },
+    ],
+    uncertainRegions: [
+      { bbox: { x: 0.5, y: 0.1, w: 0.3, h: 0.2 }, note: "dense ceiling grid" },
+    ],
+    notes: null,
+  };
+
+  const detect = (tile: typeof TILE = TILE) =>
+    call("POST", { jobId: "j1", action: "detect-devices" }, {
+      planId: "pl1",
+      pageIndex: 0,
+      tile,
+    });
+
+  it("409s without a reviewed legend vocabulary — nothing honest to match against", async () => {
+    const res = await detect();
+    expect(res.statusCode).toBe(409);
+    expect(String(res.body.error)).toContain("legend");
+    expect(aiCalls).toHaveLength(0);
+    expect(spendLedger()).toBeUndefined();
+  });
+
+  it("suggested-only entries do NOT count as vocabulary", async () => {
+    legendRows.push({
+      id: "le_sugg",
+      job_id: "j1",
+      origin: "ai",
+      status: "suggested",
+      label: "GPO",
+      normalized_label: "gpo",
+      human_label: null,
+      symbol_text: null,
+      symbol_crop_url: null,
+    });
+    const res = await detect();
+    expect(res.statusCode).toBe(409);
+  });
+
+  it("locates vocabulary symbols: few-shot crops ride along, tile boxes map to page coords, vocab frozen, spend + audit recorded", async () => {
+    seedVocabulary();
+    aiNextText = JSON.stringify(MODEL_OUTPUT);
+    const res = await detect();
+    expect(res.statusCode).toBe(200);
+    expect(res.body.cached).toBe(false);
+    expect(res.body.inserted).toBe(3); // 2 devices + 1 uncertain region
+    expect(res.body.offVocabulary).toBe(1); // entryIndex 7 points outside the list — dropped, counted
+    expect(res.body.seamDuplicates).toBe(0);
+
+    // one vision call: tile image first, then ONE reference crop (only
+    // le_gpo has one), then the vocabulary prompt with human labels
+    expect(aiCalls).toHaveLength(1);
+    const msg = (
+      aiCalls[0] as { messages: Array<{ content: Array<Record<string, unknown>> }> }
+    ).messages[0]!;
+    expect(msg.content[0]?.type).toBe("image");
+    expect(msg.content.filter((c) => c.type === "image")).toHaveLength(2);
+    const prompt = String(msg.content.find((c) => c.type === "text")?.text);
+    expect(prompt).toContain("0: Double GPO");
+    expect(prompt).toContain("(drawn as: =GPO=)");
+    expect(prompt).toContain("reference image #1");
+    expect(prompt).toContain("1: LED downlight"); // human label wins
+
+    // tile-normalised boxes land in page coordinates (tile is the top-left half-page)
+    const gpo = (res.body.detections as Row[]).find((d) => d.label === "Double GPO")!;
+    expect(gpo.kind).toBe("device");
+    expect(gpo.legendEntryId).toBe("le_gpo");
+    expect(gpo.bbox).toEqual({ x: 0.4, y: 0.4, w: 0.04, h: 0.04 });
+    const unc = (res.body.detections as Row[]).find((d) => d.kind === "uncertain-region")!;
+    expect(unc.note).toBe("dense ceiling grid");
+    expect(unc.bbox).toEqual({ x: 0.25, y: 0.05, w: 0.15, h: 0.1 });
+
+    // the vocabulary mapping is frozen inside the run — later legend
+    // changes can never re-label detection history
+    expect(detectionRuns).toHaveLength(1);
+    expect((detectionRuns[0]?.raw as Row).vocab).toEqual([
+      { entryId: "le_gpo", label: "Double GPO" },
+      { entryId: "le_dl", label: "LED downlight" },
+    ]);
+
+    expect(spendLedger().calls).toHaveLength(1);
+    expect(spendLedger().calls[0]?.kind).toBe("detect-devices");
+    const audit = auditEntries.find(
+      (a) =>
+        a.action === "document.ai_extracted" &&
+        (a.metadata as Row)?.kind === "device-detections",
+    );
+    expect(audit).toBeTruthy();
+    expect(String(audit?.summary)).toContain("2 devices");
+    expect(String(audit?.summary)).toContain("unverified");
+  });
+
+  it("re-clicking the same tile serves the cached run — no second bill, no duplicate rows", async () => {
+    seedVocabulary();
+    aiNextText = JSON.stringify(MODEL_OUTPUT);
+    await detect();
+    const res = await detect();
+    expect(res.statusCode).toBe(200);
+    expect(res.body.cached).toBe(true);
+    expect(aiCalls).toHaveLength(1);
+    expect(spendLedger().calls).toHaveLength(1);
+    // IoU dedupe absorbs the re-materialise — devices AND the uncertain region
+    expect(res.body.inserted).toBe(0);
+    expect(res.body.seamDuplicates).toBe(3);
+    expect(deviceDetections).toHaveLength(3);
+  });
+
+  it("dedupes the same physical device seen from two overlapping tiles (seam)", async () => {
+    seedVocabulary();
+    // tile 1 (top-left): device lands at page {0.4, 0.4}
+    aiNextText = JSON.stringify({
+      detections: [{ entryIndex: 0, bbox: { x: 0.8, y: 0.8, w: 0.08, h: 0.08 }, confidence: 0.9 }],
+      uncertainRegions: [],
+      notes: null,
+    });
+    await detect();
+    // tile 2 overlaps tile 1: the SAME device maps to the same page box,
+    // plus one genuinely new device further along
+    aiNextText = JSON.stringify({
+      detections: [
+        { entryIndex: 0, bbox: { x: 0.3, y: 0.3, w: 0.08, h: 0.08 }, confidence: 0.85 },
+        { entryIndex: 0, bbox: { x: 0.6, y: 0.6, w: 0.08, h: 0.08 }, confidence: 0.8 },
+      ],
+      uncertainRegions: [],
+      notes: null,
+    });
+    const res = await detect({
+      region: { x: 0.25, y: 0.25, w: 0.5, h: 0.5 },
+      dataUrl: TILE.dataUrl,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body.cached).toBe(false);
+    expect(res.body.seamDuplicates).toBe(1);
+    expect(res.body.inserted).toBe(1);
+    expect(deviceDetections.filter((d) => d.kind === "device")).toHaveLength(2);
+    expect(aiCalls).toHaveLength(2); // different tile → different cache key → billed
+    expect(spendLedger().calls).toHaveLength(2);
+  });
+
+  it("402s before spending once the per-job cap is reached", async () => {
+    seedVocabulary();
+    blob.set("jobs/j1/ai-takeoff.json", {
+      legendVersion: 0,
+      legendItems: [],
+      legendSource: null,
+      dwellings: {},
+      sheetClassifications: {},
+      sheetCache: {},
+      spend: { totalUsd: 9999, calls: [] },
+      createdAt: null,
+      updatedAt: null,
+      __rev: 1,
+    });
+    const res = await detect();
+    expect(res.statusCode).toBe(402);
+    expect(aiCalls).toHaveLength(0);
+    expect(detectionRuns).toHaveLength(0);
+  });
+
+  it("502s on unusable model output — spend recorded, NOTHING stored (P7)", async () => {
+    seedVocabulary();
+    aiNextText = "I think I can see some GPOs all over the place";
+    const res = await detect();
+    expect(res.statusCode).toBe(502);
+    expect(spendLedger().calls).toHaveLength(1); // the money is honestly gone
+    expect(detectionRuns).toHaveLength(0);
+    expect(deviceDetections).toHaveLength(0);
+  });
+
+  it("loses the run-insert race gracefully — serves the winner, single bill from this request", async () => {
+    seedVocabulary();
+    aiNextText = JSON.stringify(MODEL_OUTPUT);
+    detectionRaceWinner = {
+      id: "run_won",
+      job_id: "j1",
+      plan_id: "pl1",
+      page_index: 0,
+      page_sha256: "sha0",
+      tile_key: "0.0000,0.0000,0.5000,0.5000",
+      tile_region: TILE.region,
+      prompt_version: "dd-v1",
+      model: "claude-opus-4-8",
+      raw: {
+        ...MODEL_OUTPUT,
+        vocab: [
+          { entryId: "le_gpo", label: "Double GPO" },
+          { entryId: "le_dl", label: "LED downlight" },
+        ],
+      },
+      input_tokens: 1,
+      output_tokens: 1,
+      created_by_label: "other-session",
+    };
+    const res = await detect();
+    expect(res.statusCode).toBe(200);
+    expect(res.body.inserted).toBe(3); // materialised from the winner's raw
+    expect(detectionRuns).toHaveLength(1); // only the winner's row exists
+    expect(spendLedger().calls).toHaveLength(1);
+  });
+
+  it("400s a tile payload that is not an image data URL", async () => {
+    seedVocabulary();
+    const res = await detect({ region: TILE.region, dataUrl: "data:text/html;base64,x" });
+    expect(res.statusCode).toBe(400);
+    expect(aiCalls).toHaveLength(0);
+  });
+
+  it("GET detections lists every stored detection for the job", async () => {
+    seedVocabulary();
+    aiNextText = JSON.stringify(MODEL_OUTPUT);
+    await detect();
+    const res = await call("GET", { jobId: "j1", action: "detections" });
+    expect(res.statusCode).toBe(200);
+    expect(res.body.detections).toHaveLength(3);
+    expect(res.body.promptVersion).toBe("dd-v1");
   });
 });
