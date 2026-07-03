@@ -164,6 +164,34 @@ switchboard mapper on top. Same flag, run-log cache and spend cap.
 - A very long schedule can overrun the 4k output cap — the run then fails
   honestly (502, nothing stored); chunked extraction is a known follow-up.
 
+## Revision diff (#203)
+
+"Rev C arrived — what changed?" Classic computer vision, **no model call,
+no spend**: `api/_lib/page-diff.js` (pure `pngjs`) grayscales both rasters,
+finds the best translation (render drift; near-tie candidates exact-rescored
+— sparse sampling aliases 1px offsets), masks the title block (its revision
+table always changes), and clusters per-block changes into region bboxes on
+the newer revision.
+
+- **Pairing**: the register's supersede lineage proposes "Compare Rev C
+  against Rev B"; pages pair by index. One click compares the pair
+  page-by-page (client-orchestrated).
+- **Walk-through**: every region renders before/after strips
+  (canvas-cropped from both rasters) and is marked reviewed/dismissed —
+  flippable reviewer bookkeeping, audited (`document.revision_diffed` /
+  `document.diff_region_reviewed`).
+- **Honesty is structural**: every diff stores and displays its **basis**
+  (alignment quality, pixel threshold, mask, algo version) — "no changes"
+  never appears without it; byte-identical rasters say so and skip the
+  compute; un-alignable pairs are refused with the reason (422) and nothing
+  is stored; the diff shows *where* pixels changed — the human judges what
+  it means.
+- Storage: `page_diffs` + `diff_regions`
+  (migration `20260703100000_epic5_page_diffs.sql`); cache = one live diff
+  per (base sha, head sha, algo). Engine covered by synthetic-PNG unit
+  tests (added element found, drift absorbed, mask honoured, noise
+  refused).
+
 ## Honest limits (deliberate, this slice)
 
 - **No server-side PDF/OCR pipeline** — pages must have been rendered by the

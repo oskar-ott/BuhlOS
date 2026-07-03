@@ -46,6 +46,7 @@ const { append: appendAuditLog } = require('./_lib/audit-log');
 const { getDb } = require('./_lib/supabase-db');
 const aiSpend = require('./_lib/ai-spend');
 const store = require('./_lib/ai-drawings-store');
+const pageDiff = require('./_lib/page-diff');
 
 // ─── Config (env-configurable, bare current alias default — #378) ──────────
 const AI_DRAWINGS_MODEL = process.env.AI_DRAWINGS_MODEL || 'claude-opus-4-8';
@@ -128,6 +129,19 @@ const ReviewScheduleRowBody = z.object({
   status: z.enum(['accepted', 'edited', 'rejected']),
   // per-cell corrections: { col: 'fixed text' | null } — null = cell is empty
   cells: z.record(z.string().max(80), z.string().max(300).nullable()).optional(),
+  note: z.string().max(500).optional(),
+});
+const PageRef = z.object({
+  planId: z.string().min(1),
+  pageIndex: z.number().int().min(0),
+});
+const DiffPagesBody = z.object({
+  base: PageRef, // older revision
+  head: PageRef, // newer revision — regions land in head coordinates
+});
+const ReviewDiffRegionBody = z.object({
+  regionId: z.string().min(1),
+  status: z.enum(['reviewed', 'dismissed']),
   note: z.string().max(500).optional(),
 });
 
@@ -333,11 +347,15 @@ function extractJson(text) {
   return null;
 }
 
-// Fetch a stored page PNG and return base64 + media type (plans.js pattern).
-async function fetchPngAsBase64(url) {
+// Fetch a stored page PNG as a Buffer (plans.js pattern).
+async function fetchPngBuffer(url) {
   const r = await fetch(url + '?t=' + Date.now(), { cache: 'no-store' });
   if (!r.ok) throw new Error('fetch png failed: ' + r.status);
-  const buf = Buffer.from(await r.arrayBuffer());
+  return Buffer.from(await r.arrayBuffer());
+}
+
+async function fetchPngAsBase64(url) {
+  const buf = await fetchPngBuffer(url);
   return { base64: buf.toString('base64'), mediaType: 'image/png' };
 }
 
@@ -1212,6 +1230,181 @@ async function handleReviewScheduleRow(res, sql, tenantId, jobId, user, body) {
   return res.status(200).json({ row: scheduleRowView(updated) });
 }
 
+// ─── #203: revision diff handlers ───────────────────────────────────────────
+
+function pageDiffView(d) {
+  return {
+    id: d.id,
+    basePlanId: d.base_plan_id,
+    basePageIndex: d.base_page_index,
+    basePageSha256: d.base_page_sha256,
+    headPlanId: d.head_plan_id,
+    headPageIndex: d.head_page_index,
+    headPageSha256: d.head_page_sha256,
+    algoVersion: d.algo_version,
+    identical: d.identical,
+    alignment: d.alignment,
+    basis: d.basis,
+    regionCount: d.region_count,
+    createdAt: d.created_at,
+  };
+}
+
+function diffRegionView(r) {
+  return {
+    id: r.id,
+    diffId: r.diff_id,
+    regionIndex: r.region_index,
+    bbox: r.bbox,
+    areaCells: r.area_cells,
+    status: r.status,
+    reviewedAt: r.reviewed_at,
+    reviewedBy: r.reviewed_by_label,
+    reviewNote: r.review_note,
+  };
+}
+
+async function handleDiffsList(res, sql, tenantId, jobId) {
+  const diffs = await store.listPageDiffs(sql, tenantId, jobId);
+  const regions = await store.listDiffRegionsForDiffs(sql, tenantId, diffs.map((d) => d.id));
+  return res.status(200).json({
+    diffs: diffs.map(pageDiffView),
+    regions: regions.map(diffRegionView),
+    algoVersion: pageDiff.ALGO_VERSION,
+  });
+}
+
+async function handleDiffPages(res, sql, tenantId, jobId, user, body) {
+  const parsed = DiffPagesBody.safeParse(body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0]?.message || 'invalid body' });
+  }
+  const { base, head } = parsed.data;
+  if (base.planId === head.planId && base.pageIndex === head.pageIndex) {
+    return res.status(400).json({ error: 'base and head are the same page' });
+  }
+  const baseFound = await readPlanPage(jobId, base.planId, base.pageIndex);
+  if (baseFound.error) return res.status(baseFound.status).json({ error: 'base: ' + baseFound.error });
+  const headFound = await readPlanPage(jobId, head.planId, head.pageIndex);
+  if (headFound.error) return res.status(headFound.status).json({ error: 'head: ' + headFound.error });
+
+  const baseSha = baseFound.page.sha256;
+  const headSha = headFound.page.sha256;
+
+  // Cache: one live diff per (base sha, head sha, algo) — reruns are free.
+  const cached = await store.findLiveDiff(sql, tenantId, jobId, baseSha, headSha, pageDiff.ALGO_VERSION);
+  if (cached) {
+    const regions = await store.listDiffRegionsForDiffs(sql, tenantId, [cached.id]);
+    return res.status(200).json({
+      cached: true,
+      diff: pageDiffView(cached),
+      regions: regions.map(diffRegionView),
+    });
+  }
+
+  const ctx = {
+    jobId,
+    basePlanId: base.planId,
+    basePageIndex: base.pageIndex,
+    basePageSha256: baseSha,
+    headPlanId: head.planId,
+    headPageIndex: head.pageIndex,
+    headPageSha256: headSha,
+    algoVersion: pageDiff.ALGO_VERSION,
+    createdByLabel: user.username || null,
+  };
+
+  let diffRow;
+  let regions = [];
+  if (baseSha === headSha) {
+    // Byte-identical rasters — nothing to fetch, nothing to compute.
+    diffRow = await store.insertPageDiff(sql, tenantId, {
+      ...ctx,
+      identical: true,
+      alignment: null,
+      basis: { byteIdentical: true },
+    }, []);
+  } else {
+    let headBuf, baseBuf;
+    try {
+      [headBuf, baseBuf] = await Promise.all([
+        fetchPngBuffer(headFound.page.pngUrl),
+        fetchPngBuffer(baseFound.page.pngUrl),
+      ]);
+    } catch (e) {
+      return res.status(502).json({ error: 'could not fetch page images: ' + e.message });
+    }
+    const result = pageDiff.diffPages(headBuf, baseBuf);
+    if (!result.ok) {
+      // Honest refusal — nothing stored, the reason goes to the human.
+      return res.status(422).json({
+        error: result.reason,
+        alignment: result.alignment || null,
+        basis: result.basis || null,
+      });
+    }
+    diffRow = await store.insertPageDiff(sql, tenantId, {
+      ...ctx,
+      identical: false,
+      alignment: result.alignment,
+      basis: result.basis,
+    }, result.regions);
+    regions = await store.listDiffRegionsForDiffs(sql, tenantId, [diffRow.id]);
+  }
+
+  await appendAuditLog({
+    action: 'document.revision_diffed',
+    actorId: user.id,
+    actorName: user.username || 'Unknown',
+    actorRole: user.role || null,
+    jobId,
+    targetType: 'document',
+    targetId: head.planId,
+    summary: diffRow.identical
+      ? `compared page ${head.pageIndex + 1} revisions — byte-identical`
+      : `compared page ${head.pageIndex + 1} revisions — ${diffRow.region_count} changed region${diffRow.region_count === 1 ? '' : 's'}`,
+    metadata: { basePlanId: base.planId, headPlanId: head.planId, regionCount: diffRow.region_count, algoVersion: pageDiff.ALGO_VERSION },
+  }).catch(() => {});
+
+  return res.status(200).json({
+    cached: false,
+    diff: pageDiffView(diffRow),
+    regions: regions.map(diffRegionView),
+  });
+}
+
+async function handleReviewDiffRegion(res, sql, tenantId, jobId, user, body) {
+  const parsed = ReviewDiffRegionBody.safeParse(body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0]?.message || 'invalid body' });
+  }
+  const { regionId, status, note } = parsed.data;
+  const region = await store.getDiffRegion(sql, tenantId, jobId, regionId);
+  if (!region) return res.status(404).json({ error: 'diff region not found' });
+  const allowed = store.DIFF_REGION_TRANSITIONS[region.status] || [];
+  if (!allowed.includes(status)) {
+    return res.status(409).json({ error: `cannot mark a ${region.status} region ${status}` });
+  }
+  const updated = await store.reviewDiffRegion(sql, tenantId, jobId, region, {
+    status,
+    note: cleanValue(note),
+    reviewedByLabel: user.username || 'Unknown',
+  });
+  if (!updated) return res.status(409).json({ error: 'region was reviewed concurrently — reload' });
+  await appendAuditLog({
+    action: 'document.diff_region_reviewed',
+    actorId: user.id,
+    actorName: user.username || 'Unknown',
+    actorRole: user.role || null,
+    jobId,
+    targetType: 'document',
+    targetId: 'revision-diff',
+    summary: `marked change region ${updated.region_index + 1} ${status}`,
+    metadata: { regionId, status },
+  }).catch(() => {});
+  return res.status(200).json({ region: diffRegionView(updated) });
+}
+
 // ─── Router ─────────────────────────────────────────────────────────────────
 
 module.exports = async (req, res) => {
@@ -1237,12 +1430,16 @@ module.exports = async (req, res) => {
     return res.status(403).json({ error: 'cannot manage this job' });
   }
 
-  if (req.method === 'GET' && (action === 'sheets' || action === 'legend' || action === 'schedules')) {
+  if (
+    req.method === 'GET' &&
+    (action === 'sheets' || action === 'legend' || action === 'schedules' || action === 'diffs')
+  ) {
     const sql = dbOr503(res, 'read');
     if (!sql) return;
     const tenantId = await store.resolveTenantId(sql);
     if (action === 'legend') return handleLegendList(res, sql, tenantId, jobId);
     if (action === 'schedules') return handleSchedulesList(res, sql, tenantId, jobId);
+    if (action === 'diffs') return handleDiffsList(res, sql, tenantId, jobId);
     return handleSheets(res, sql, tenantId, jobId);
   }
 
@@ -1260,6 +1457,8 @@ module.exports = async (req, res) => {
     if (action === 'attach-legend-crop') return handleAttachLegendCrop(res, sql, tenantId, jobId, user, body);
     if (action === 'extract-schedule') return handleExtractSchedule(res, sql, tenantId, jobId, user, body);
     if (action === 'review-schedule-row') return handleReviewScheduleRow(res, sql, tenantId, jobId, user, body);
+    if (action === 'diff-pages') return handleDiffPages(res, sql, tenantId, jobId, user, body);
+    if (action === 'review-diff-region') return handleReviewDiffRegion(res, sql, tenantId, jobId, user, body);
     return res.status(400).json({ error: 'unknown action: ' + (action || '(none)') });
   }
 
@@ -1283,4 +1482,6 @@ module.exports.__test = {
   schedulePrompt,
   scheduleRowView,
   normaliseModelTable,
+  pageDiffView,
+  diffRegionView,
 };

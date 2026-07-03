@@ -6,22 +6,28 @@
 //   'CAP_REACHED'       — 402 (per-job AI budget spent)
 
 import {
+  DiffPagesResponseSchema,
+  DiffsResponseSchema,
   ExtractLegendResponseSchema,
   ExtractScheduleResponseSchema,
   LegendEntryResponseSchema,
   LegendListResponseSchema,
   OverrideResponseSchema,
+  ReviewDiffRegionResponseSchema,
   ReviewScheduleRowResponseSchema,
   SchedulesResponseSchema,
   SheetsResponseSchema,
   UnderstandResponseSchema,
   type CropRegion,
+  type DiffPagesResponse,
+  type DiffsResponse,
   type ExtractLegendResponse,
   type ExtractScheduleResponse,
   type LegendCategory,
   type LegendEntryResponse,
   type LegendListResponse,
   type OverrideResponse,
+  type ReviewDiffRegionResponse,
   type ReviewScheduleRowResponse,
   type ScheduleTableKind,
   type SchedulesResponse,
@@ -260,5 +266,48 @@ export async function reviewScheduleRow(
       body: JSON.stringify({ rowId, status, ...opts }),
     },
     (b) => ReviewScheduleRowResponseSchema.parse(b),
+  );
+}
+
+// ─── #203: revision diffs ───────────────────────────────────────────────────
+
+export async function fetchDiffs(jobId: string): Promise<DiffsResponse> {
+  return request(
+    `/api/ai-drawings?jobId=${encodeURIComponent(jobId)}&action=diffs`,
+    { method: "GET" },
+    (b) => DiffsResponseSchema.parse(b),
+  );
+}
+
+export async function diffPages(
+  jobId: string,
+  base: { planId: string; pageIndex: number },
+  head: { planId: string; pageIndex: number },
+): Promise<DiffPagesResponse> {
+  return request(
+    `/api/ai-drawings?jobId=${encodeURIComponent(jobId)}&action=diff-pages`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ base, head }),
+    },
+    (b) => DiffPagesResponseSchema.parse(b),
+  );
+}
+
+export async function reviewDiffRegion(
+  jobId: string,
+  regionId: string,
+  status: "reviewed" | "dismissed",
+  opts: { note?: string } = {},
+): Promise<ReviewDiffRegionResponse> {
+  return request(
+    `/api/ai-drawings?jobId=${encodeURIComponent(jobId)}&action=review-diff-region`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ regionId, status, ...opts }),
+    },
+    (b) => ReviewDiffRegionResponseSchema.parse(b),
   );
 }
