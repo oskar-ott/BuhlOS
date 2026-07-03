@@ -137,10 +137,38 @@ export const ITP_RESULT_PHOTO_URL_MAX = 400;
  *  textarea sizing stays consistent. */
 export const ITP_OVERRIDE_JUSTIFICATION_MAX = 500;
 
+/** #289 — the independence-override record persisted ON the instance at
+ *  sign-off time (see api/job-itps.js signoff handler). Captures the
+ *  justification plus the context that forced it (the recorded-by-signer
+ *  ratio, who signed, when) so the compliance pack can render it straight
+ *  from the instance — no audit-log join, so it can't age out of a window.
+ *  `.passthrough()` keeps future fields (e.g. a recorder breakdown) from
+ *  breaking older readers. */
+export const ITPSignOffOverrideSchema = z
+  .object({
+    justification: z.string().min(1).max(ITP_OVERRIDE_JUSTIFICATION_MAX),
+    /** Recorded-by-signer ratio at sign-off — what tripped the rule. */
+    ratio: z.number().min(0).max(1),
+    /** Username of the signer who supplied the override. */
+    by: z.string(),
+    /** ISO timestamp of the sign-off moment. */
+    at: z.string(),
+  })
+  .passthrough();
+
 /** Independence threshold for sign-off: if the signing user recorded
- *  more than this fraction of points, an override justification is
- *  required. 0.5 = "majority". Configurable here so a future field
- *  observation can tune it without touching service.ts call sites. */
+ *  STRICTLY MORE than this fraction of points, an override justification
+ *  is required. 0.5 = "majority" — the current, deliberately-lenient rule.
+ *
+ *  THE SINGLE SOURCE OF TRUTH for the threshold. service.ts imports this
+ *  constant directly; api/job-itps.js mirrors it as a literal
+ *  (SIGNOFF_INDEPENDENCE_THRESHOLD) under the existing comment contract —
+ *  the two must stay in lockstep (itp.test.ts asserts the values match).
+ *
+ *  #289: tightening this to 0 (ANY self-recorded point → justification
+ *  required, i.e. strict four-eyes) is an OWNER decision, not made here —
+ *  see the PR proposing it. When ratified it is a one-line flip of this
+ *  constant + the api mirror; every call site already reads through here. */
 export const ITP_SIGNOFF_INDEPENDENCE_THRESHOLD = 0.5;
 
 /* ---------------------------------------------------------------------
@@ -293,6 +321,15 @@ export const ITPInstanceSchema = z
 
     signedOffBy: z.string().optional(),
     signedOffAt: z.string().optional(),
+
+    /** #289 — when the sign-off tripped the independence rule and an
+     *  override justification was supplied, it is PERSISTED here on the
+     *  instance (not only in audit-log metadata). This is what makes the
+     *  #286 compliance pack read the justification from the instance
+     *  itself, so an override can never "age out" of a time-windowed
+     *  audit scan. Absent = an independent (non-override) sign-off.
+     *  Cleared on reopen alongside the sign-off stamps. */
+    signOffOverride: ITPSignOffOverrideSchema.nullish(),
 
     archived: z.boolean().optional(),
     archivedAt: z.string().optional(),

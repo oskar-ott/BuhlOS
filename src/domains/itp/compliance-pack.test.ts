@@ -174,6 +174,83 @@ describe("buildCompliancePack — sign-off + overrides + determinism", () => {
     expect(pack.overridesNote).toContain("12 months");
   });
 
+  it("#289: reads the override from the instance's persisted signOffOverride, even when the audit window is EMPTY (aged out)", () => {
+    // The audit map is {} — this simulates an override that has aged out of
+    // the time-windowed audit scan. Because the instance carries the
+    // override, the pack still renders it.
+    const pack = build(
+      [
+        inst("i1", {
+          status: "signed-off",
+          signedOffBy: "boss",
+          signedOffAt: "2023-01-03T00:00:00.000Z", // years ago, outside any window
+          signOffOverride: {
+            justification: "Solo call-out — I recorded and signed",
+            ratio: 1,
+            by: "boss",
+            at: "2023-01-03T00:00:00.000Z",
+          },
+        } as Partial<ITPInstance>),
+      ],
+      {} // audit-sourced overrides: none survive the window
+    );
+    expect(pack.instances[0]!.signOff).toEqual({
+      signedOffBy: "boss",
+      signedOffAt: "2023-01-03T00:00:00.000Z",
+      overrideJustification: "Solo call-out — I recorded and signed",
+    });
+  });
+
+  it("#289: the persisted instance override WINS over a stale audit-sourced value", () => {
+    const pack = build(
+      [
+        inst("i1", {
+          status: "signed-off",
+          signedOffBy: "boss",
+          signedOffAt: "2026-06-03T00:00:00.000Z",
+          signOffOverride: {
+            justification: "Persisted, authoritative reason",
+            ratio: 0.8,
+            by: "boss",
+            at: "2026-06-03T00:00:00.000Z",
+          },
+        } as Partial<ITPInstance>),
+      ],
+      { i1: "Stale audit-log copy" }
+    );
+    expect(pack.instances[0]!.signOff!.overrideJustification).toBe(
+      "Persisted, authoritative reason"
+    );
+  });
+
+  it("#289: falls back to the audit-sourced override for a legacy instance with no signOffOverride", () => {
+    const pack = build(
+      [
+        inst("i1", {
+          status: "signed-off",
+          signedOffBy: "boss",
+          signedOffAt: "2026-06-03T00:00:00.000Z",
+          // no signOffOverride — signed off before #289
+        } as Partial<ITPInstance>),
+      ],
+      { i1: "Recorded most points myself — solo job" }
+    );
+    expect(pack.instances[0]!.signOff!.overrideJustification).toBe(
+      "Recorded most points myself — solo job"
+    );
+  });
+
+  it("#289: an independent sign-off (no override, no audit entry) has null justification", () => {
+    const pack = build([
+      inst("i1", {
+        status: "signed-off",
+        signedOffBy: "boss",
+        signedOffAt: "2026-06-03T00:00:00.000Z",
+      } as Partial<ITPInstance>),
+    ]);
+    expect(pack.instances[0]!.signOff!.overrideJustification).toBeNull();
+  });
+
   it("deterministic: same data → same pack; instances ordered by createdAt", () => {
     const data = [
       inst("i_b", { createdAt: "2026-06-02T00:00:00.000Z" }),
