@@ -1213,6 +1213,101 @@ describe("DELETE /api/jobs — QA test-job cleanup", () => {
       "qa-seed-field-active-job",
     ]);
   });
+
+  // #355: destructive-delete tombstone. The per-job audit blob dies with the
+  // job, so a durable `job.deleted` entry is written (blocking) to the
+  // cross-surface monthly journal BEFORE `jobs/<id>/audit.json` is erased.
+  function auditEntries(): Array<Record<string, unknown>> {
+    const rows: Array<Record<string, unknown>> = [];
+    for (const [key, val] of blob.entries()) {
+      if (
+        key.startsWith("audit/") &&
+        val &&
+        Array.isArray((val as { entries?: unknown[] }).entries)
+      ) {
+        rows.push(...(val as { entries: Array<Record<string, unknown>> }).entries);
+      }
+    }
+    return rows;
+  }
+
+  it("#355: writes a durable job.deleted tombstone that SURVIVES the erase", async () => {
+    seedTestJobs();
+    const res = await call({
+      method: "DELETE",
+      userId: "u_admin",
+      role: "admin",
+      query: { id: "smoke-test-1-job-b" },
+    });
+    expect(res.statusCode).toBe(200);
+    // Per-job trail is gone…
+    expect(blob.has("jobs/smoke-test-1-job-b/audit.json")).toBe(false);
+    // …but the cross-surface tombstone survives, capturing who/what.
+    const tombstone = auditEntries().find(
+      (e) => e.action === "job.deleted" && e.targetId === "smoke-test-1-job-b"
+    );
+    expect(tombstone).toBeDefined();
+    expect(tombstone).toMatchObject({
+      action: "job.deleted",
+      actorId: "u_admin",
+      targetType: "job",
+      jobId: "smoke-test-1-job-b",
+    });
+    expect(String(tombstone?.summary)).toMatch(/SMOKE_TEST_1_Job_Builder/);
+  });
+
+  it("#355: the tombstone is written BEFORE audit.json is erased", async () => {
+    seedTestJobs();
+    // Order-probe: at the moment the per-job audit.json is erased, the durable
+    // tombstone must already be present in the journal. jobs.js binds deleteBlob
+    // at module load, so we install an instrumented deleteBlob on the cached
+    // blob exports and re-require the handler so it captures the wrapped fn.
+    let tombstonePresentAtErase: boolean | null = null;
+    (requireFromHere.cache[blobPath]!.exports as { deleteBlob: unknown }).deleteBlob = vi.fn(
+      async (key: string) => {
+        if (key === "jobs/smoke-test-1-job-b/audit.json") {
+          const rows = auditEntries();
+          tombstonePresentAtErase = rows.some(
+            (e) => e.action === "job.deleted" && e.targetId === "smoke-test-1-job-b"
+          );
+        }
+        blob.delete(key);
+      }
+    );
+    delete requireFromHere.cache[jobsPath];
+    handler = requireFromHere(jobsPath);
+
+    const res = await call({
+      method: "DELETE",
+      userId: "u_admin",
+      role: "admin",
+      query: { id: "smoke-test-1-job-b" },
+    });
+    expect(res.statusCode).toBe(200);
+    // audit.json was erased AND the tombstone already existed when it was.
+    expect(tombstonePresentAtErase).toBe(true);
+  });
+
+  it("#355: a failed tombstone write ABORTS the erase (503, audit.json intact)", async () => {
+    seedTestJobs();
+    // jobs.json write succeeds; the tombstone (audit/ key) write throws.
+    writeBlobMock.mockImplementation(async (key: string, data: unknown) => {
+      if (key.startsWith("audit/")) throw new Error("journal write boom");
+      blob.set(key, clone(data));
+    });
+    const res = await call({
+      method: "DELETE",
+      userId: "u_admin",
+      role: "admin",
+      query: { id: "smoke-test-1-job-b" },
+    });
+    expect(res.statusCode).toBe(503);
+    // Generic message — no storage internals leaked to the caller.
+    expect((res.body as { error: string }).error).toMatch(/audit write failed/i);
+    expect((res.body as { error: string }).error).not.toMatch(/boom|blob|journal write/i);
+    // The per-job audit blob is STILL intact — the trail was never lost.
+    expect(blob.has("jobs/smoke-test-1-job-b/audit.json")).toBe(true);
+  });
 });
 
 describe("POST /api/jobs?action=duplicate (#190)", () => {

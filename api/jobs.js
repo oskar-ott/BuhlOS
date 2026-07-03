@@ -1240,19 +1240,47 @@ module.exports = async (req, res) => {
       data.jobs = data.jobs.filter(j => !dropIds.has(j.id));
       await writeBlob('jobs.json', data);
 
-      // Per-job blobs are unreachable once the rows are gone; sweep the
-      // known keys best-effort (deleteBlob already swallows + logs
-      // failures). Sweeping after the single jobs.json write keeps the
-      // jobs document the only read-modify-write in the request.
+      // #355: the per-job audit blob dies with the job, so BEFORE we erase it,
+      // write a durable tombstone to the cross-surface journal capturing
+      // who/when/jobId/summary. Written with { blocking: true } — the erase
+      // must not outrun the tombstone. Append-before-erase means a journal
+      // write failure throws here (500) with the audit.json still intact, so
+      // the trail is never lost; the caller retries. The jobs.json row is
+      // already gone, but the tombstone (or the surviving per-job blob on a
+      // throw) preserves the record either way.
+      try {
+        for (const job of deletable) {
+          await appendAuditLog(
+            {
+              action: 'job.deleted',
+              actorId: me.id,
+              actorName: me.username || me.name || 'someone',
+              actorRole: me.role || null,
+              jobId: job.id,
+              targetType: 'job',
+              targetId: job.id,
+              summary: `test job deleted — "${job.name}" (${job.status})`.slice(0, 240),
+              metadata: { name: job.name, status: job.status, reason: 'test-data-cleanup' },
+            },
+            { blocking: true }
+          );
+        }
+      } catch (err) {
+        // Server-side detail only; the caller gets a generic 503 (no storage
+        // internals leaked) and the per-job audit blob is still intact.
+        console.error('job-delete tombstone failed — aborting erase', err && err.message);
+        return res.status(503).json({ error: 'audit write failed — job not deleted' });
+      }
+
+      // Tombstone landed. Now sweep the per-job blobs best-effort (deleteBlob
+      // already swallows + logs failures). Sweeping after the single jobs.json
+      // write keeps the jobs document the only read-modify-write in the request.
       for (const job of deletable) {
         await deleteBlob(`jobs/${job.id}/data.json`);
         await deleteBlob(`jobs/${job.id}/tags.json`);
         await deleteBlob(`jobs/${job.id}/audit.json`);
       }
 
-      // The per-job audit blob dies with the job, so the deletion itself is
-      // logged to the function output only — enough to trace who removed
-      // test data without keeping a tombstone store for it.
       for (const job of deletable) {
         console.log(`test job deleted: ${job.id} ("${job.name}") by ${me.username || me.id}`);
       }

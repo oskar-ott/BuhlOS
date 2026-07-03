@@ -255,6 +255,11 @@ export const AUDIT_ACTIONS = [
   // with api/_lib/audit-log.js VALID_ACTIONS.
   "scope.finding_resolved",
   "scope.finding_accepted",
+  // #355: destructive-delete tombstone. Written (blocking) to the durable
+  // cross-surface journal BEFORE api/jobs.js DELETE erases the per-job
+  // audit blob, so a deleted job's existence survives its own trail.
+  // targetType 'job'. Kept in sync with api/_lib/audit-log.js VALID_ACTIONS.
+  "job.deleted",
 ] as const;
 export const AuditActionSchema = z.enum(AUDIT_ACTIONS);
 
