@@ -30,6 +30,7 @@ import { Button } from "@/components/ui/Button";
 import { ScopeOfWorkSection } from "./ScopeOfWorkSection";
 import { PlanStudioPanel } from "./PlanStudioPanel";
 import type { AcceptRoomsResponse } from "@/domains/ai-drawings/schema";
+import { acceptedAreaRefsFrom } from "@/domains/ai-drawings/room-rev-diff";
 import { ScopeReconciliationStatus } from "./ScopeReconciliationStatus";
 import { ClientContractSection } from "./ClientContractSection";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
@@ -948,7 +949,13 @@ export function JobBuilderClient({
 
   /* ---- the active section node fed into the cockpit canvas ---- */
   function renderPlanStudio() {
-    return <PlanStudioPanel jobId={savedJob.id} onAreasCreated={handleAreasCreated} />;
+    return (
+      <PlanStudioPanel
+        jobId={savedJob.id}
+        acceptedAreas={acceptedAreaRefsFrom(savedJob.areaGroups ?? [])}
+        onAreasCreated={handleAreasCreated}
+      />
+    );
   }
 
   function renderPlanAreasBanner() {

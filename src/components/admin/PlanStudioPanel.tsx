@@ -15,6 +15,7 @@ import {
   reviewRoom,
 } from "@/domains/ai-drawings/client";
 import type { AcceptRoomsResponse, CountReviewPage } from "@/domains/ai-drawings/schema";
+import { diffRoomsVsAcceptedAreas, type AcceptedAreaRef } from "@/domains/ai-drawings/room-rev-diff";
 
 /**
  * Plan Studio — the Job Builder's rooms→areas surface (#206), dark behind the
@@ -52,14 +53,18 @@ type Load =
 
 interface Props {
   jobId: string;
+  /** Areas already accepted from plans (with provenance) — the set the detected
+   *  rooms are diffed against to surface plan-rev changes (renamed / removed). */
+  acceptedAreas: AcceptedAreaRef[];
   /** Called after areas are created so the builder can reload the job + banner. */
   onAreasCreated: (summary: AcceptRoomsResponse) => void;
 }
 
-export function PlanStudioPanel({ jobId, onAreasCreated }: Props) {
+export function PlanStudioPanel({ jobId, acceptedAreas, onAreasCreated }: Props) {
   const [load, setLoad] = useState<Load>({ phase: "loading" });
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [dismissedChanges, setDismissedChanges] = useState<Set<string>>(new Set());
 
   const refresh = useCallback(async () => {
     try {
@@ -98,6 +103,36 @@ export function PlanStudioPanel({ jobId, onAreasCreated }: Props) {
           })),
         )
       : [];
+
+  // #206 re-analysis — how the latest plan differs from the areas already
+  // accepted (renamed / removed). Added rooms are actionable in the list below;
+  // nothing here changes an accepted area automatically ("never overwrite").
+  const diff = diffRoomsVsAcceptedAreas({
+    rooms:
+      load.phase === "ready"
+        ? load.pages.flatMap((p) =>
+            (p.rooms ?? []).map((r) => ({
+              roomId: r.id,
+              planId: p.planId,
+              name: r.effectiveName,
+              bbox: r.effectiveBbox,
+              status: r.status,
+            })),
+          )
+        : [],
+    accepted: acceptedAreas,
+  });
+  const changes = [
+    ...diff.renamed.map((p) => ({
+      key: `ren:${p.area.areaId}`,
+      label: `“${p.area.name}” may be renamed to “${p.room.name}” on the latest plan`,
+    })),
+    ...diff.removed.map((a) => ({
+      key: `rem:${a.areaId}`,
+      label: `“${a.name}” isn’t on the current plan anymore`,
+    })),
+  ].filter((c) => !dismissedChanges.has(c.key));
+  const dismissChange = (key: string) => setDismissedChanges((s) => new Set(s).add(key));
 
   const suggested = rooms.filter((r) => r.status === "suggested");
   const reviewed = rooms.filter((r) => r.status === "accepted" || r.status === "edited");
@@ -173,6 +208,26 @@ export function PlanStudioPanel({ jobId, onAreasCreated }: Props) {
           </Link>
         </div>
       </Card>
+
+      {changes.length > 0 ? (
+        <Card className="border-state-warning" data-testid="plan-studio-changes">
+          <CardTitle>Changes vs your accepted areas</CardTitle>
+          <CardDescription className="mt-1">
+            The latest plan differs from areas you already accepted. Nothing changes
+            automatically — review, then rename or archive the area in Structure.
+          </CardDescription>
+          <ul className="mt-3 divide-y divide-border">
+            {changes.map((c) => (
+              <li key={c.key} className="flex items-center justify-between gap-2 py-2 text-sm">
+                <span className="text-text">{c.label}</span>
+                <Button variant="ghost" size="sm" onClick={() => dismissChange(c.key)}>
+                  Dismiss
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
 
       {load.phase === "loading" ? (
         <Card>
