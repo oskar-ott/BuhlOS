@@ -47,6 +47,8 @@ import {
 } from "@/domains/jobs/job-interface-data";
 import { hasSiteContext, statusLabel, statusTone } from "@/domains/jobs/format";
 import { isVisibleToField, summariseStructure } from "@/domains/jobs/builder";
+import { progressPct as canonicalProgressPct } from "@/domains/jobs/progress";
+import { readEstimatedHours } from "@/domains/analytics/job-estimate";
 import type { Job } from "@/domains/jobs/types";
 import { isFlagEnabled } from "../../../../../api/_lib/feature-flags.js";
 import { JobViewToggle } from "@/components/admin/JobViewToggle";
@@ -324,7 +326,19 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
         {aiAssistantEnabled ? <JobSummaryCard jobId={job.id} /> : null}
         {/* Operational loop — what's actually happening on the job, derived
             from real time-entry / evidence / audit-log data (read-only). */}
-        <JobLabourSummary entries={data.hours.entries} jobId={job.id} fetchError={data.hours.error} />
+        <JobLabourSummary
+          entries={data.hours.entries}
+          jobId={job.id}
+          fetchError={data.hours.error}
+          estimatedHours={readEstimatedHours(job)}
+          progressPct={
+            typeof job.statsTasksTotal === "number" && typeof job.statsTasksComplete === "number"
+              ? canonicalProgressPct({ total: job.statsTasksTotal, complete: job.statsTasksComplete })
+              : typeof job.statsPct === "number"
+                ? Math.round(job.statsPct)
+                : null
+          }
+        />
         {/* #327: per-job profitability (cost-rate based). Client-fetched so the
             expensive approved-hours walk never blocks the hub render; admin-tier
             only (hidden for an LH/non-admin viewer). */}

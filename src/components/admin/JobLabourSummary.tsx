@@ -1,11 +1,12 @@
 import type { Route } from "next";
-import { ArrowRight, CheckCircle2, Clock } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, Clock, Info } from "lucide-react";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { formatDateLabel, formatHoursLabel } from "@/domains/timesheets/format";
 import {
   groupJobHoursByWorker,
   summariseJobHours,
 } from "@/domains/jobs/job-hours";
+import { classifyTimeOverrun, timeOverrunView } from "@/domains/analytics/time-overrun";
 import type { TimeEntry } from "@/domains/timesheets/types";
 
 /**
@@ -51,16 +52,40 @@ export function JobLabourSummary({
   entries,
   jobId,
   fetchError,
+  estimatedHours = null,
+  progressPct = null,
 }: {
   entries: ReadonlyArray<TimeEntry>;
   jobId: string;
   fetchError: string | null;
+  /**
+   * #343 time-overrun input: the job's estimated labour HOURS. `null` today for
+   * every job (the quote→job converter drops per-line estimatedHours and
+   * `labourEstimate` is dollars), so the flag renders "No time estimate set"
+   * honestly rather than guessing. The moment jobs seed a real hours estimate,
+   * this prop carries it with no other change here.
+   */
+  estimatedHours?: number | null;
+  /** #343 completion signal — the canonical pooled progress % (0–100 or null). */
+  progressPct?: number | null;
 }) {
   // /api/job-hours feeds submitted + approved; summariseJobHours buckets by
   // status (it ignores any other status defensively). Numbers are real, never
   // fabricated; the per-worker breakdown is over the same set.
   const summary = summariseJobHours(entries, jobId);
   const workers = groupJobHoursByWorker(entries, jobId).slice(0, WORKER_LIMIT);
+
+  // #343 time-overrun flag: hours consumed (approved + submitted, exactly the
+  // scope this card already loads — never rejected/draft) vs the canonical
+  // completion %, against an injected labour-HOURS estimate. Pure classifier;
+  // renders honestly with no estimate rather than fabricating one.
+  const overrun = timeOverrunView(
+    classifyTimeOverrun({
+      estimatedHours,
+      hoursConsumed: summary.approvedHours + summary.pendingHours,
+      progressPct,
+    }),
+  );
 
   return (
     <Card>
@@ -121,6 +146,38 @@ export function JobLabourSummary({
           ) : null}
         </>
       )}
+
+      {/* #343 — time-overrun early-warning. Honest by construction: with no
+          labour-hours estimate (every job today) this is a muted "No time
+          estimate set" note, never a fabricated ratio. When an estimate exists
+          and hours outpace progress it escalates to a warning/critical line
+          showing its exact math. */}
+      {overrun.show ? (
+        overrun.tone === "warning" || overrun.tone === "critical" ? (
+          <p
+            className={`mt-3 flex items-start gap-1.5 rounded-card border px-3 py-2 text-sm ${
+              overrun.tone === "critical"
+                ? "border-red-200 bg-red-50 text-red-900"
+                : "border-amber-200 bg-amber-50 text-amber-900"
+            }`}
+            role="alert"
+          >
+            <AlertTriangle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              <span className="font-display font-semibold">{overrun.headline}</span>
+              {" — "}
+              {overrun.detail}
+            </span>
+          </p>
+        ) : (
+          <p className="mt-3 flex items-start gap-1.5 text-sm text-text-muted">
+            <Info aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              <span className="font-medium text-text">{overrun.headline}</span> — {overrun.detail}
+            </span>
+          </p>
+        )
+      ) : null}
 
       <div className="mt-4">
         <a
