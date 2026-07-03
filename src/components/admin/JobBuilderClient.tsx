@@ -312,6 +312,7 @@ export function JobBuilderClient({
   assignableWorkers = [],
   workersLoadError = null,
   planStudioEnabled = false,
+  planTasksEnabled = false,
 }: {
   job: Job;
   /** The confirmed scope reconciliation (server-loaded), or null/missing. Source
@@ -322,6 +323,8 @@ export function JobBuilderClient({
   workersLoadError?: string | null;
   /** ai_drawings flag (admin-tier, dark) — gates the Plan Studio tab. */
   planStudioEnabled?: boolean;
+  /** ai_plan_tasks flag (admin-tier, dark) — gates the tasks-from-fittings review. */
+  planTasksEnabled?: boolean;
 }) {
   const router = useRouter();
   const [savedJob, setSavedJob] = useState<Job>(initialJob);
@@ -953,6 +956,7 @@ export function JobBuilderClient({
       <PlanStudioPanel
         jobId={savedJob.id}
         acceptedAreas={acceptedAreaRefsFrom(savedJob.areaGroups ?? [])}
+        planTasksEnabled={planTasksEnabled}
         onAreasCreated={handleAreasCreated}
       />
     );

@@ -16,6 +16,7 @@ import {
 } from "@/domains/ai-drawings/client";
 import type { AcceptRoomsResponse, CountReviewPage } from "@/domains/ai-drawings/schema";
 import { diffRoomsVsAcceptedAreas, type AcceptedAreaRef } from "@/domains/ai-drawings/room-rev-diff";
+import { suggestTasksFromFittings } from "@/domains/ai-drawings/tasks-from-fittings";
 
 /**
  * Plan Studio — the Job Builder's rooms→areas surface (#206), dark behind the
@@ -56,11 +57,13 @@ interface Props {
   /** Areas already accepted from plans (with provenance) — the set the detected
    *  rooms are diffed against to surface plan-rev changes (renamed / removed). */
   acceptedAreas: AcceptedAreaRef[];
+  /** ai_plan_tasks flag — gates the review-only "tasks from fittings" section. */
+  planTasksEnabled: boolean;
   /** Called after areas are created so the builder can reload the job + banner. */
   onAreasCreated: (summary: AcceptRoomsResponse) => void;
 }
 
-export function PlanStudioPanel({ jobId, acceptedAreas, onAreasCreated }: Props) {
+export function PlanStudioPanel({ jobId, acceptedAreas, planTasksEnabled, onAreasCreated }: Props) {
   const [load, setLoad] = useState<Load>({ phase: "loading" });
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -133,6 +136,26 @@ export function PlanStudioPanel({ jobId, acceptedAreas, onAreasCreated }: Props)
     })),
   ].filter((c) => !dismissedChanges.has(c.key));
   const dismissChange = (key: string) => setDismissedChanges((s) => new Set(s).add(key));
+
+  // #213 — review-only task suggestions from the detected fitting counts
+  // (aggregated across every sheet's by-room totals). Gated on its OWN flag.
+  const fittingCounts = new Map<string, number>();
+  if (planTasksEnabled && load.phase === "ready") {
+    for (const p of load.pages) {
+      for (const br of p.byRoom ?? []) {
+        for (const e of br.entries) {
+          if (e.label && e.count > 0) {
+            fittingCounts.set(e.label, (fittingCounts.get(e.label) ?? 0) + e.count);
+          }
+        }
+      }
+    }
+  }
+  const taskSuggestions = suggestTasksFromFittings(
+    Array.from(fittingCounts, ([label, count]) => ({ label, count })),
+  );
+  const hasTaskSuggestions =
+    taskSuggestions.roughIn.length + taskSuggestions.fitOff.length + taskSuggestions.unmatched.length > 0;
 
   const suggested = rooms.filter((r) => r.status === "suggested");
   const reviewed = rooms.filter((r) => r.status === "accepted" || r.status === "edited");
@@ -327,6 +350,43 @@ export function PlanStudioPanel({ jobId, acceptedAreas, onAreasCreated }: Props)
                 </li>
               ))}
             </ul>
+          ) : null}
+        </Card>
+      ) : null}
+
+      {planTasksEnabled && hasTaskSuggestions ? (
+        <Card data-testid="plan-studio-task-suggestions">
+          <CardTitle>Suggested tasks from fittings</CardTitle>
+          <CardDescription className="mt-1">
+            Derived from the detected fitting counts. Review-only — add the ones you want as
+            job-level tasks in the Structure tab. Nothing is added automatically.
+          </CardDescription>
+          {taskSuggestions.roughIn.length > 0 ? (
+            <div className="mt-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">Rough-in</p>
+              <ul className="mt-1 list-disc pl-5 text-sm text-text">
+                {taskSuggestions.roughIn.map((t) => (
+                  <li key={t.name}>{t.name}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {taskSuggestions.fitOff.length > 0 ? (
+            <div className="mt-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">Fit-off</p>
+              <ul className="mt-1 list-disc pl-5 text-sm text-text">
+                {taskSuggestions.fitOff.map((t) => (
+                  <li key={t.name}>{t.name}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {taskSuggestions.unmatched.length > 0 ? (
+            <p className="mt-3 text-xs text-text-muted">
+              {taskSuggestions.unmatched.length} fitting type
+              {taskSuggestions.unmatched.length === 1 ? "" : "s"} didn&rsquo;t map to a standard task — add
+              those by hand.
+            </p>
           ) : null}
         </Card>
       ) : null}

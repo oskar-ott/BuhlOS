@@ -21,7 +21,12 @@ import { PlanStudioPanel } from "./PlanStudioPanel";
 describe("PlanStudioPanel (#206)", () => {
   it("renders the header, upload, link-out and initial loading state", () => {
     const html = renderToString(
-      createElement(PlanStudioPanel, { jobId: "j1", acceptedAreas: [], onAreasCreated: () => undefined }),
+      createElement(PlanStudioPanel, {
+        jobId: "j1",
+        acceptedAreas: [],
+        planTasksEnabled: false,
+        onAreasCreated: () => undefined,
+      }),
     );
     expect(html).toContain("Plan Studio");
     // honest accept contract up front (AI proposes, human accepts)

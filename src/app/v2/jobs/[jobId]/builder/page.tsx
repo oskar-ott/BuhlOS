@@ -99,6 +99,7 @@ export default async function JobBuilderPage({ params }: PageParams) {
   // Plan Studio (#206 rooms→areas) is dark behind ai_drawings (admin-tier). This
   // page is already admin-gated, so the check just resolves the flag's state.
   const planStudioEnabled = await isFlagEnabled("ai_drawings", session);
+  const planTasksEnabled = await isFlagEnabled("ai_plan_tasks", session);
 
   return (
     <BuilderShell jobId={jobId} title={result.job.name}>
@@ -110,6 +111,7 @@ export default async function JobBuilderPage({ params }: PageParams) {
         assignableWorkers={workers.workers}
         workersLoadError={workers.error}
         planStudioEnabled={planStudioEnabled}
+        planTasksEnabled={planTasksEnabled}
       />
     </BuilderShell>
   );
