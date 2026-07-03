@@ -152,6 +152,8 @@ const REQUIRED_SOURCES = [
   'src/app/phil/jobs/[jobId]/photos/page.tsx', // #242 — read-only field photo gallery
   'src/app/phil/hours/page.tsx',
   'src/app/phil/gear/page.tsx',
+  'src/app/phil/gear/scan/page.tsx', // #303 — scan-to-claim landing (the sacred QR URL /phil/gear/scan?asset=<id>)
+  'src/app/(admin)/gear/labels/page.tsx', // #303 — A4 QR label print sheet (print document)
   'src/app/v2/phil/page.tsx',
   // Shell components (their markers are enforced by check-shell-contract.js).
   'src/components/admin/AdminShell.tsx',

@@ -1,22 +1,26 @@
 import { z } from "zod";
 import { httpDelete, httpGet, httpPost, httpPut, type HttpResult } from "@/lib/http";
 import {
+  ClaimGearPayloadSchema,
   CreateGearAssetPayloadSchema,
   GearDetailResponseSchema,
   GearListResponseSchema,
   GearMutationResponseSchema,
   MarkGearGoodPayloadSchema,
   ReportGearPayloadSchema,
+  ScanInfoResponseSchema,
   TransferGearPayloadSchema,
   UpdateGearAssetPayloadSchema,
 } from "./schema";
 import type {
+  ClaimGearPayload,
   CreateGearAssetPayload,
   GearDetailResponse,
   GearListResponse,
   GearMutationResponse,
   MarkGearGoodPayload,
   ReportGearPayload,
+  ScanInfoResponse,
   TransferGearPayload,
   UpdateGearAssetPayload,
 } from "./types";
@@ -253,6 +257,45 @@ export function markGearGood(
   );
 }
 
+/**
+ * #303 scan-to-claim. Claim an in-storage asset scanned from its QR label.
+ * Server-gated: only assignable holder roles, only when the asset is in storage
+ * (409 with a pointer to the request-transfer path otherwise), fresh-read race
+ * guard. Writes a `{ from:null, to:me }` history row.
+ */
+export function claimGear(
+  payload: ClaimGearPayload
+): Promise<HttpResult<GearMutationResponse>> {
+  const parsed = ClaimGearPayloadSchema.safeParse(payload);
+  if (!parsed.success) {
+    return Promise.resolve({
+      ok: false,
+      error: {
+        status: 0,
+        body: parsed.error.format(),
+        message: parsed.error.issues.map((i) => i.message).join("; "),
+      },
+    });
+  }
+  return httpPost<GearMutationResponse>("/api/assets?action=claim", parsed.data, {
+    schema: GearMutationResponseSchema,
+    init: { cache: "no-store", credentials: "same-origin" },
+  });
+}
+
+/**
+ * #303 scan landing read. The summary-only view of a scanned asset — enough to
+ * render it and pick the ONE right action, without the full detail/history
+ * payload that the normal GET ?id= would 403 for a non-holder.
+ */
+export function getScanInfo(assetId: string): Promise<HttpResult<ScanInfoResponse>> {
+  return httpPost<ScanInfoResponse>(
+    "/api/assets?action=scan-info",
+    { assetId },
+    { schema: ScanInfoResponseSchema, init: { cache: "no-store", credentials: "same-origin" } },
+  );
+}
+
 export const gearClient = {
   listGear,
   getGearDetail,
@@ -260,4 +303,6 @@ export const gearClient = {
   transferGear,
   reportGear,
   markGearGood,
+  claimGear,
+  getScanInfo,
 } as const;

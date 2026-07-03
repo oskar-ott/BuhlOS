@@ -105,9 +105,34 @@ export default async function GearRegisterPage() {
           <GearRegisterClient initialAssets={assets} holders={holders} />
         )}
 
+        {/* #303: QR labels are now REAL — print a sheet, cut, stick. Scanning a
+            sticker opens the tool in Phil (claim from storage / return if held).
+            The old "QR on the roadmap" UC copy is replaced by the working
+            entry point, per the no-fake-UI rule (in reverse). */}
+        {assets.length > 0 && !fetchError ? (
+          <Card>
+            <CardTitle>QR labels</CardTitle>
+            <CardDescription>
+              Print a sheet of QR stickers for the register — one per tool, with
+              its name and code under each code. A worker scans the sticker with
+              their phone camera and the tool opens in Phil: claim it from
+              storage, or return it if they’re holding it. Reprints stay valid —
+              the code never changes.
+            </CardDescription>
+            <div className="mt-3">
+              <Link
+                href="/gear/labels"
+                className="inline-flex h-10 items-center rounded-card bg-brand-navy px-4 text-sm font-medium text-text-inverse hover:bg-accent-ink"
+              >
+                Print QR labels
+              </Link>
+            </div>
+          </Card>
+        ) : null}
+
         <UnderConstructionPanel
-          feature="Bulk operations · QR scanning · label printing"
-          description="Create, edit and archive now live on the register above (#389). Still to come: bulk assign / bulk retire, camera-based QR scanning, and label printer (Nimbot/Brother) integration."
+          feature="Bulk operations · in-app camera scan · label printer"
+          description="Create, edit, archive and QR labels (#303) are live. Still to come: bulk assign / bulk retire, an in-app camera scanner (for now the phone’s own camera opens the sticker), and label-printer (Nimbot/Brother) integration."
         />
       </div>
     </AdminShell>

@@ -99,6 +99,7 @@ Confirmed in code. These are the intended destinations for new navigation.
 | `/hours/weekly` | `src/app/(admin)/hours/weekly/page.tsx` | Weekly closeout / payroll readiness (PR #113). |
 | `/hours/period` | `src/app/(admin)/hours/period/page.tsx` | Pay-period roll-up — Xero-ready approved-hours preview (#131; admin-tier; reuses the export dry-run + weekly-closeout engines, no Xero). |
 | `/gear` | `src/app/(admin)/gear/page.tsx` | Gear register. |
+| `/gear/labels` | `src/app/(admin)/gear/labels/page.tsx` | **QR label print sheet** (#303). A chromeless A4 print document (no `AdminShell` — SHELL_EXEMPT §8.1) of QR stickers, one per in-service asset (name + code under each). Each QR encodes the ABSOLUTE `/phil/gear/scan?asset=<id>` URL (id, not state, so reprints stay valid forever). `?ids=a,b,c` narrows to a selection; no `ids` prints the whole register. QR generated server-side (dependency-free `src/domains/gear/qr.ts`). Reached from the register's "Print QR labels" card. Admin-tier gated. |
 | `/employees` | `src/app/(admin)/employees/page.tsx` | People / onboarding (O1+). |
 | `/employees/[id]` | `src/app/(admin)/employees/[id]/page.tsx` | Employee detail. |
 | `/observations` | `src/app/(admin)/observations/page.tsx` | **Observations Inbox** (PR 3). Cross-job field-to-office triage: blockers, plan mismatches, material needs, RFIs, variations, defects, site instructions. Admin-tier gated (matches the `/api/observations` cross-job gate). |
@@ -124,7 +125,35 @@ Confirmed in code. These are the intended destinations for new navigation.
 | `/phil/jobs/[jobId]/photos` | `.../photos/page.tsx` | Read-only photo gallery (#242, the field "Job Bible"). Browse every photo on the job, date-grouped + filterable. Reuses the gated `/api/evidence` + `/api/photos-catalog` reads — a tradie sees their own evidence; the catalog (snag/ITP/dwelling) is leading-hand+, so a tradie gets an honest "office-side" note, never a silent gap. Linked from the job home only when there's at least one photo (hidden-until-real). Browse-only — capture stays on the job home. |
 | `/phil/hours` | `src/app/phil/hours/page.tsx` | Hours history / fix-and-resubmit. |
 | `/phil/gear` | `src/app/phil/gear/page.tsx` | My gear (return / report damaged / missing). |
+| `/phil/gear/scan` | `src/app/phil/gear/scan/page.tsx` | **Scan-to-claim landing** (#303). The destination a printed QR label opens: `?asset=<id>` shows the scanned tool and the ONE right action — in-storage → **Claim** (the only field write path onto an unheld asset), held-by-me → return/report (the existing actions), held-by-other → honest "held by <name>" + **Request transfer** (reuses #306), retired/unknown → honest state. Gated field/LH (`PhilShell`); logged-out → `/v2/login?next=<scan url>` resumes here. **The URL is SACRED** — printed stickers depend on it, like `/sw.js`; the scheme + reserved siblings are §4.1. Data via `POST /api/assets?action=scan-info` (summary read) + `?action=claim` (write). |
 | `/phil/onboarding` | `src/app/phil/onboarding/page.tsx` | First-run tour (gated phil). |
+
+### 4.1 The sacred scan-URL scheme (#303, cross-epic contract with #275)
+
+A printed QR sticker is **forever**. The URL it encodes must never change shape,
+or every label already stuck to a tool stops working — treat `/phil/gear/scan`
+the way §11 treats `/sw.js`: change behaviour behind it, never the path or its
+query contract. The single source of truth is `src/domains/gear/scan-url.ts`
+(pure builder/parser, unit-tested in `scan-url.test.ts`).
+
+The QR encodes an **absolute** URL so any phone's default camera app opens it in
+the browser (no in-app scanner needed for v1) and lands in the login flow when
+signed out (`/v2/login?next=` round-trips it back). The URL carries the id
+**only** — no names or PII (stickers get photographed and shared).
+
+**The query param names the label's kind — it IS the namespace** that stops a
+future non-asset label being misread as an asset:
+
+| URL | Kind | Status |
+| --- | --- | --- |
+| `/phil/gear/scan?asset=<id>` | asset | **Live** (#303) |
+| `/phil/gear/scan?location=<id>` | location | **Reserved** — van + warehouse check-in (#275/#307/#322) |
+| `/phil/gear/scan?box=<id>` | box | **Reserved** — shelf + bin labels (#275) |
+
+Only `asset` is live; the landing page recognises the reserved siblings and
+shows an honest "not built yet" rather than crashing. #275 (site-capture) is
+**blocked on this scheme** and consumes it — do not change the param names or the
+path without re-checking that contract.
 
 ## 5. Transitional routes (live, but the URL/shape will change)
 
@@ -243,6 +272,7 @@ The legacy estate must stay dead. `scripts/check-legacy-quarantine.js`
 | `/phil/jobs/[jobId]/plans` | Phil | `phil/jobs/[jobId]/plans` | PhilShell | canonical | field/LH | job detail "Open plan viewer" (gated on `plans` module) | read-only Plan Viewer; **current revisions only**; unauth → 307 `/v2/login` |
 | `/phil/hours` | Phil | `phil/hours` | PhilShell | canonical | field/LH | my-day, rejected banner | hours history / fix |
 | `/phil/gear` | Phil | `phil/gear` | PhilShell | canonical | field/LH | tab "Gear" | my gear |
+| `/phil/gear/scan` | Phil | `phil/gear/scan` | PhilShell | canonical | field/LH | printed QR label (native camera), my-gear back-link | scan-to-claim landing (#303); the SACRED QR URL (§4.1); unauth → 307 `/v2/login?next=<scan url>` (resumes here); in-storage → Claim, held-by-me → return/report, held-by-other → request transfer (#306) |
 | `/phil/onboarding` | Phil | `phil/onboarding` | PhilShell | canonical | field/LH | v2/phil "Start the tour" | first-run tour |
 | `/v2/phil` | Phil | `v2/phil` | PhilShell | transitional | field/LH | tab "More" / "Snag" (UC) | profile/More placeholder |
 | `/phil/invite/[token]` | Phil | `phil/invite/[token]` | (own) | transitional | **public** | invite email | worker setup, no session yet |
@@ -261,6 +291,8 @@ failure that has happened (or could) if the row is left unguarded.
 | `/command-centre` | BuhlOS | AdminShell | `src/app/(admin)/command-centre/page.tsx` | canonical | blank after login / wrong shell | `check-shell-contract`, `middleware.test`, `auth-routing.spec` |
 | `/v2/jobs/[jobId]/itps/pack` | BuhlOS | none (print document) | `src/app/v2/jobs/[jobId]/itps/pack/page.tsx` | canonical | admin chrome printing onto a builder-facing deliverable | `check-shell-contract` (SHELL_EXEMPT — #286; session-gated lh surface) |
 | `/v2/jobs/[jobId]/claims/[claimId]/print` | BuhlOS | none (print document) | `src/app/v2/jobs/[jobId]/claims/[claimId]/print/page.tsx` | canonical | admin chrome printing onto a builder-facing claim | `check-shell-contract` (SHELL_EXEMPT — #372; admin-gated, flag `progress_claims`) |
+| `/gear/labels` | BuhlOS | none (print document) | `src/app/(admin)/gear/labels/page.tsx` | canonical | admin chrome printing onto cut-and-stick QR labels | `check-shell-contract` (SHELL_EXEMPT — #303; admin-gated, flag `gear`), `check-route-ownership` (required source) |
+| `/phil/gear/scan` | Phil | PhilShell | `src/app/phil/gear/scan/page.tsx` | canonical | wrong shell / blank / the SACRED QR URL drifting | `check-shell-contract`, `check-route-ownership` (required source), `assets-api.test` (claim/scan-info gates), `scan-url.test` (frozen path + namespace) |
 | `/hours` · `/hours/approvals` · `/hours/weekly` · `/gear` · `/employees` · `/employees/[id]` · `/observations` · `/material-requests` · `/expenses` | BuhlOS | AdminShell | `src/app/(admin)/**` | canonical | blank / wrong shell | `check-shell-contract`, `middleware.test`, `check-route-ownership` |
 | `/defects` | BuhlOS | AdminShell | `src/app/(admin)/defects/page.tsx` | canonical | blank / wrong shell / nav drift | `check-shell-contract`, `middleware.test`, `check-route-ownership` (approved nav + required source), `auth-routing.spec` |
 | `/reports` | BuhlOS | AdminShell | `src/app/(admin)/reports/page.tsx` | canonical | blank / wrong shell / nav drift / numbers drifting from sources | `check-shell-contract`, `middleware.test`, `check-route-ownership` (approved nav + required source), `auth-routing.spec`, `owner-numbers.test` (per-tile definitions) |

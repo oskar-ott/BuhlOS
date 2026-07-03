@@ -3,7 +3,6 @@ import { cookies, headers } from "next/headers";
 import { isFlagEnabled } from "../../../../api/_lib/feature-flags.js";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { UnderConstructionPanel } from "@/components/ui/UnderConstructionPanel";
 import { PhilPageIntro } from "@/components/phil/ui/PhilPageIntro";
 import { PhilNotice } from "@/components/phil/ui/PhilNotice";
 import { PhilBackLink } from "@/components/phil/ui/PhilBackLink";
@@ -76,10 +75,14 @@ export default async function PhilGearPage() {
           <PhilGearList initialAssets={assets} viewerId={session.userId ?? ""} />
         )}
 
-        <UnderConstructionPanel
-          feature="QR scan check-out"
-          description="Tap-to-scan from the van or depot is on the roadmap. For now, admin or a leading hand transfers gear to you through the office register, and you can return or report condition here."
-        />
+        {/* #303: scanning is now REAL. There's no in-app scanner button yet —
+            you use your phone's own camera on the sticker, which opens the tool
+            here. This note explains that instead of promising a roadmap item. */}
+        <PhilNotice tone="info" title="Scan a tool sticker" role="status">
+          Point your phone camera at the QR sticker on a tool. It opens the tool
+          here — claim it if it’s in storage, or return it if you’re holding it.
+          No typing, no hunting through the list.
+        </PhilNotice>
       </div>
     </PhilShell>
   );

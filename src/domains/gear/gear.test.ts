@@ -575,6 +575,8 @@ describe("enum surface area", () => {
         "transfer_accepted",
         "transfer_declined",
         "transfer_expired",
+        // #303 scan-to-claim
+        "claim",
       ].sort()
     );
   });

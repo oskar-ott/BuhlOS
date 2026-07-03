@@ -86,6 +86,9 @@ const SHELL_EXEMPT = new Map([
   // (browser print → Save as PDF → keyed into Payapps) — admin chrome would
   // print onto an external deliverable. Session-gated like the rest of /v2.
   ['src/app/v2/jobs/[jobId]/claims/[claimId]/print/page.tsx', 'printable progress claim — print document, deliberately chromeless (route-ownership §8.1)'],
+  // #303: the QR label sheet is a PRINT DOCUMENT (browser print → cut → stick).
+  // Admin chrome would print sidebar ink onto the labels. Session-gated admin.
+  ['src/app/(admin)/gear/labels/page.tsx', 'printable QR label sheet — print document, deliberately chromeless (route-ownership §8.1)'],
 ]);
 
 // ── helpers ──────────────────────────────────────────────────────────

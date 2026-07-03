@@ -84,9 +84,16 @@ export function middleware(req: NextRequest) {
   const session = decodeSessionCookie(cookie);
 
   if (!session?.role) {
+    // Preserve the FULL original path + query as `next` so a deep link with a
+    // query resumes intact after sign-in — e.g. a logged-out QR scan lands on
+    // /v2/login?next=/phil/gear/scan?asset=<id> and returns to the exact tool
+    // (#303). The login form only honours a `next` that startsWith("/"), which
+    // `pathname + search` always does. Set on the raw search string (not
+    // searchParams.set, which would double-encode the nested query).
+    const originalTarget = pathname + (req.nextUrl.search || "");
     const url = req.nextUrl.clone();
     url.pathname = "/v2/login";
-    url.searchParams.set("next", pathname);
+    url.search = `?next=${encodeURIComponent(originalTarget)}`;
     return NextResponse.redirect(url);
   }
 
