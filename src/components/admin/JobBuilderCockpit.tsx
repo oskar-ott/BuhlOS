@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { AlertTriangle, CheckCircle2, ClipboardList } from "lucide-react";
 import type { BuilderReadiness } from "@/domains/jobs/builder";
 import { StatusChip, type StatusTone } from "@/components/ui/StatusChip";
+import { Bar, type BarTone } from "@/components/ui/Bar";
 import { cn } from "@/lib/cn";
 
 /**
@@ -27,6 +28,10 @@ export interface CockpitNavItem {
   status: CockpitSectionStatus;
   /** Preserved data-testid for the section's nav button (smoke + deep-links). */
   testId?: string;
+  /** Wave 2 (job_builder_redesign) — live step sub-label ("4 to triage",
+   *  "9 on"). Real counts only; omitted when the data is absent (P7). Rendered
+   *  only while `redesign` is on. */
+  sub?: string;
 }
 
 export interface CockpitNavGroup {
@@ -66,6 +71,9 @@ interface JobBuilderCockpitProps {
   /** Whether the review queue is the active canvas. */
   reviewActive?: boolean;
   onOpenReview?: () => void;
+  /** Wave 2 (job_builder_redesign) — rail readiness bar + step sub-labels.
+   *  Off (default) = today's rail, byte-for-byte. */
+  redesign?: boolean;
   canvas: ReactNode;
   inspector: ReactNode;
 }
@@ -79,9 +87,18 @@ export function JobBuilderCockpit({
   reviewCount,
   reviewActive,
   onOpenReview,
+  redesign = false,
   canvas,
   inspector,
 }: JobBuilderCockpitProps) {
+  // Wave 2 (job_builder_redesign) — the rail readiness summary rolls up the
+  // nav items' OWN statuses (the same real per-section scoring the row icons
+  // show); "none" items are un-scored sections and don't count either way.
+  const scored = nav.flatMap((g) => g.items).filter((i) => i.status !== "none");
+  const okCount = scored.filter((i) => i.status === "ok").length;
+  const warnCount = scored.filter((i) => i.status === "warn").length;
+  const blockCount = scored.filter((i) => i.status === "block").length;
+  const railTone: BarTone = blockCount > 0 ? "danger" : warnCount > 0 ? "warning" : "success";
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[15rem_minmax(0,1fr)] xl:grid-cols-[15rem_minmax(0,1fr)_19rem]">
       {/* LEFT — readiness meter + section nav */}
@@ -96,6 +113,18 @@ export function JobBuilderCockpit({
             </span>
             <StatusChip tone={READINESS_TONE[readiness.tone]}>{readiness.stateLabel}</StatusChip>
           </div>
+          {redesign && scored.length > 0 ? (
+            <div className="mt-3" data-testid="cockpit-rail-readiness">
+              <Bar
+                pct={(okCount / scored.length) * 100}
+                tone={railTone}
+                aria-label="Sections ready"
+              />
+              <p className="mt-1.5 font-mono text-[12px] text-text-muted">
+                {`${okCount} ready · ${warnCount} review · ${blockCount} block`}
+              </p>
+            </div>
+          ) : null}
           <div className="mt-3 grid grid-cols-2 gap-2">
             <button
               type="button"
@@ -172,7 +201,24 @@ export function JobBuilderCockpit({
                       : "text-text-muted hover:bg-surface-subtle hover:text-text"
                   )}
                 >
-                  <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                  {redesign && item.sub ? (
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate">{item.label}</span>
+                      <span
+                        data-testid="cockpit-nav-sub"
+                        className={cn(
+                          "block truncate font-mono text-[12px] font-normal",
+                          // NOT text-text-inverse/70 — that token is hex, so the
+                          // opacity modifier renders dark ink on the navy row.
+                          activeKey === item.key ? "text-white/70" : "text-text-muted"
+                        )}
+                      >
+                        {item.sub}
+                      </span>
+                    </span>
+                  ) : (
+                    <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                  )}
                   <SectionEnd status={item.status} />
                 </button>
               ))}

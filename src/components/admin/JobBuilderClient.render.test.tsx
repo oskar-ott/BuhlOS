@@ -162,6 +162,40 @@ describe("JobBuilderClient", () => {
     expect(on).not.toContain("ITPs / QA");
     // Crew survives (it isn't a link-out hub)
     expect(on).toContain("Crew");
+
+    // Wave 2 — live step sub-labels ride the same flag. A bare job with
+    // default modules shows the real "9 on" count (9 of the 10 field-module
+    // toggles default ON; itps defaults off). OFF renders no sub-labels.
+    expect(off).not.toContain('data-testid="cockpit-nav-sub"');
+    expect(on).toContain('data-testid="cockpit-nav-sub"');
+    expect(on).toContain("9 on");
+  });
+
+  // Wave 2 — the header eyebrow (mono ref · site line above the job name) is
+  // flag-gated and only ever shows fields that exist.
+  it("shows the header eyebrow (ref · site) only when the redesign flag prop is on", () => {
+    const job = makeJob({
+      id: "job-1",
+      name: "Eyebrow Job",
+      status: "draft",
+      ref: "J-2041",
+      siteAddress: "1 Smith St",
+    });
+    const off = renderToString(createElement(JobBuilderClient, { job }));
+    expect(off).not.toContain('data-testid="builder-header-eyebrow"');
+
+    const on = renderToString(createElement(JobBuilderClient, { job, redesignEnabled: true }));
+    expect(on).toContain('data-testid="builder-header-eyebrow"');
+    expect(on).toContain("Ref J-2041 · 1 Smith St");
+
+    // A job with neither ref nor address renders no eyebrow at all (P7).
+    const bare = renderToString(
+      createElement(JobBuilderClient, {
+        job: makeJob({ id: "job-2", name: "Bare Job", status: "draft" }),
+        redesignEnabled: true,
+      })
+    );
+    expect(bare).not.toContain('data-testid="builder-header-eyebrow"');
   });
 });
 

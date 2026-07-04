@@ -35,6 +35,7 @@ import { acceptedAreaRefsFrom } from "@/domains/ai-drawings/room-rev-diff";
 import { ScopeReconciliationStatus } from "./ScopeReconciliationStatus";
 import { ClientContractSection } from "./ClientContractSection";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
+import { KpiStrip } from "@/components/ui/KpiStrip";
 import { Pill } from "@/components/ui/Pill";
 import {
   captureStructurePreset,
@@ -74,6 +75,7 @@ import { ReviewQueue, type ReviewClause } from "./ReviewQueue";
 import { JobAssignmentPanel } from "./JobAssignmentPanel";
 import { classifyScopeClause } from "./jobControlAuthoringClient";
 import type { AssignableWorker } from "@/domains/users/types";
+import { isAssignedToJob } from "@/domains/users/assignment";
 import { certaintyForClassification, type CertaintyState } from "@/domains/jobs/certainty";
 import type { ScopeClassification } from "@/domains/job-control/reconciliation";
 import type {
@@ -469,6 +471,35 @@ export function JobBuilderClient({
     return "ok";
   }
 
+  /** Wave 2 (job_builder_redesign) — live rail sub-labels. Real counts only
+   *  (P7): a section whose data is absent (e.g. the crew list failed to load)
+   *  gets NO sub-label, never an invented number. Reads the SAVED job — the
+   *  same honesty rule as sectionStatus. Called only from the cockpitNav build
+   *  (after untriagedClauses exists), like sectionStatus. */
+  function sectionSub(key: TabKey): string | undefined {
+    if (!redesignEnabled) return undefined;
+    if (key === "scope") {
+      return untriagedClauses.length > 0 ? `${untriagedClauses.length} to triage` : undefined;
+    }
+    if (key === "structure") {
+      const s = summariseStructure(savedJob);
+      return `${s.areaCount} area${s.areaCount === 1 ? "" : "s"}`;
+    }
+    if (key === "modules") {
+      const on = MODULE_TOGGLES.filter((m) => moduleEnabled(savedJob, m.key)).length;
+      return `${on} on`;
+    }
+    if (key === "crew") {
+      // Assignment lives on the workers (users.assignedJobIds), not the job.
+      // The server-loaded list is the page-load truth; if it failed to load
+      // there is no real number to show.
+      if (workersLoadError) return undefined;
+      const n = assignableWorkers.filter((w) => isAssignedToJob(w, savedJob.id)).length;
+      return `${n} assigned`;
+    }
+    return undefined;
+  }
+
   function goToIssue(issue: ReadinessIssue) {
     setTab(ISSUE_SECTION[issue.code] ?? "publish");
   }
@@ -585,6 +616,7 @@ export function JobBuilderClient({
         label: TABS.find((t) => t.key === key)!.label,
         status: sectionStatus(key),
         testId: SECTION_TESTID[key],
+        sub: sectionSub(key),
       })),
   }));
 
@@ -726,12 +758,29 @@ export function JobBuilderClient({
     set(stage === "roughIn" ? "roughInTasks" : "fitOffTasks", rows);
   }
 
+  // Wave 2 (job_builder_redesign) — the header eyebrow (the PageHead idiom:
+  // mono-uppercase ref · site line above the title). PageHead itself doesn't
+  // fit this header's composition (inline status pill + visibility line +
+  // save column), so the eyebrow matches its classes inline. Only the fields
+  // that exist; both absent → no line at all (P7).
+  const headerEyebrow = [savedJob.ref ? `Ref ${savedJob.ref}` : null, savedJob.siteAddress || null]
+    .filter(Boolean)
+    .join(" · ");
+
   return (
     <div className="space-y-4">
       {/* Header: name, status, dirty/save */}
       <Card>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
+            {redesignEnabled && headerEyebrow ? (
+              <p
+                data-testid="builder-header-eyebrow"
+                className="mb-1 font-mono text-[12px] uppercase tracking-wider text-text-muted"
+              >
+                {headerEyebrow}
+              </p>
+            ) : null}
             <div className="flex items-center gap-2">
               <CardTitle className="break-words">{savedJob.name}</CardTitle>
               <Pill tone={statusTone(savedJob.status)}>{statusLabel(savedJob.status)}</Pill>
@@ -799,6 +848,7 @@ export function JobBuilderClient({
         reviewCount={untriagedClauses.length}
         reviewActive={reviewOpen}
         onOpenReview={openReview}
+        redesign={redesignEnabled}
         canvas={
           reviewOpen ? (
             <ReviewQueue
@@ -1098,26 +1148,53 @@ export function JobBuilderClient({
           <CardDescription className="mt-1">
             The running rollup of what stands between this job and the field.
           </CardDescription>
-          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-            {stats.map((s) => (
-              <button
-                key={s.label}
-                type="button"
-                onClick={() => setTab(s.to)}
-                className="rounded-card border border-border bg-surface-subtle px-3 py-2 text-left transition-colors hover:border-brand-navy"
-              >
-                <span
-                  className={cn(
-                    "block font-mono text-lg font-semibold",
-                    s.danger && s.value > 0 ? "text-state-danger" : "text-text"
-                  )}
+          {redesignEnabled ? (
+            /* Wave 2 (job_builder_redesign) — the same four REAL numbers on the
+               KpiStrip primitive (prototype density). KpiStrip carries no
+               per-cell onClick, so the redesigned tiles are static — the rail
+               still jumps to every section (the OFF state keeps the clickable
+               grid). Tone map: blockers>0 reads danger, warnings>0 amber. */
+            <KpiStrip
+              className="mt-3"
+              cells={[
+                {
+                  lbl: "Blockers",
+                  num: readiness.blockingCount,
+                  sub: "stop publish",
+                  tone: readiness.blockingCount > 0 ? "warn" : "default",
+                },
+                {
+                  lbl: "Warnings",
+                  num: readiness.warningCount,
+                  sub: "advisory",
+                  tone: readiness.warningCount > 0 ? "amber" : "default",
+                },
+                { lbl: "Scope to triage", num: untriagedClauses.length },
+                { lbl: "Areas", num: struct.areaCount },
+              ]}
+            />
+          ) : (
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {stats.map((s) => (
+                <button
+                  key={s.label}
+                  type="button"
+                  onClick={() => setTab(s.to)}
+                  className="rounded-card border border-border bg-surface-subtle px-3 py-2 text-left transition-colors hover:border-brand-navy"
                 >
-                  {s.value}
-                </span>
-                <span className="block text-[11px] text-text-muted">{s.label}</span>
-              </button>
-            ))}
-          </div>
+                  <span
+                    className={cn(
+                      "block font-mono text-lg font-semibold",
+                      s.danger && s.value > 0 ? "text-state-danger" : "text-text"
+                    )}
+                  >
+                    {s.value}
+                  </span>
+                  <span className="block text-[11px] text-text-muted">{s.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
           {readiness.blockers.length > 0 ? (
             <ul className="mt-3 space-y-1.5">
               {readiness.blockers.slice(0, 3).map((b) => (
