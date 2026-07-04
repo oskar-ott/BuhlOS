@@ -1591,6 +1591,9 @@ describe("gates", () => {
 });
 
 // #206 rooms→areas accept bridge — reviewed rooms become real job areas.
+type TestArea = { id?: string; name: string; aiSourceId?: string; provenance?: { rev?: string } };
+type TestGroup = { name: string; areas: TestArea[] };
+type TestJob = { id: string; name: string; areaGroups: TestGroup[] };
 describe("accept-rooms → job areas", () => {
   function seedRoom(over: Record<string, unknown> = {}) {
     const row = {
@@ -1628,14 +1631,14 @@ describe("accept-rooms → job areas", () => {
     expect(res.statusCode).toBe(200);
     expect(res.body.created).toBe(2);
 
-    const job = (blob.get("jobs.json") as { jobs: Array<Record<string, any>> }).jobs[0]!;
+    const job = (blob.get("jobs.json") as { jobs: TestJob[] }).jobs[0]!;
     expect(job.areaGroups).toHaveLength(1);
-    expect(job.areaGroups[0].name).toBe("Level 1");
-    expect(job.areaGroups[0].areas.map((a: Record<string, unknown>) => a.name)).toEqual(["KITCHEN", "BED 2"]);
+    expect(job.areaGroups[0]!.name).toBe("Level 1");
+    expect(job.areaGroups[0]!.areas.map((a) => a.name)).toEqual(["KITCHEN", "BED 2"]);
     // provenance persisted + real ar_ ids minted by validateAreaGroups
-    expect(job.areaGroups[0].areas[0].aiSourceId).toBe("aidr:room:rm_1");
-    expect(String(job.areaGroups[0].areas[0].id)).toMatch(/^ar_/);
-    expect(job.areaGroups[0].areas[0].provenance.rev).toBe("B");
+    expect(job.areaGroups[0]!.areas[0]!.aiSourceId).toBe("aidr:room:rm_1");
+    expect(String(job.areaGroups[0]!.areas[0]!.id)).toMatch(/^ar_/);
+    expect(job.areaGroups[0]!.areas[0]!.provenance!.rev).toBe("B");
   });
 
   it("is idempotent — a second accept creates nothing and doesn't grow the areas", async () => {
@@ -1649,8 +1652,8 @@ describe("accept-rooms → job areas", () => {
     expect(second.body.created).toBe(0);
     expect(second.body.skipped[0].reason).toBe("already-created");
 
-    const job = (blob.get("jobs.json") as { jobs: Array<Record<string, any>> }).jobs[0]!;
-    const areaCount = job.areaGroups.reduce((n: number, g: Record<string, any>) => n + g.areas.length, 0);
+    const job = (blob.get("jobs.json") as { jobs: TestJob[] }).jobs[0]!;
+    const areaCount = job.areaGroups.reduce((n, g) => n + g.areas.length, 0);
     expect(areaCount).toBe(1);
   });
 
