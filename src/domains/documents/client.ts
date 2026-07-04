@@ -2,6 +2,7 @@ import { httpGet, httpPatch, httpPost, type HttpResult } from "@/lib/http";
 import {
   DocumentListResponseSchema,
   LinkDocumentAreasResponseSchema,
+  SetDocumentVisibilityResponseSchema,
   SetPagesResponseSchema,
   UploadDocumentResponseSchema,
   AckMutationResponseSchema,
@@ -12,6 +13,8 @@ import type {
   DocumentListResponse,
   LinkDocumentAreasPayload,
   LinkDocumentAreasResponse,
+  SetDocumentVisibilityPayload,
+  SetDocumentVisibilityResponse,
   SetPagesResponse,
   UploadDocumentPayload,
   UploadDocumentResponse,
@@ -129,6 +132,29 @@ export function linkDocumentAreas(
   );
 }
 
+/**
+ * Wave 4b: set whether the field can see a document. `false` removes the
+ * row from every non-admin GET (the server filter in api/plans.js is the
+ * enforcement — the Phil plans viewer just renders what it's given);
+ * `true` restores the visible-by-default behaviour a record without the
+ * field has. Admin listings are unaffected either way.
+ */
+export function setDocumentFieldVisibility(
+  jobId: string,
+  planId: string,
+  visibleToField: boolean,
+): Promise<HttpResult<SetDocumentVisibilityResponse>> {
+  const payload: SetDocumentVisibilityPayload = { visibleToField };
+  return httpPatch<SetDocumentVisibilityResponse>(
+    `/api/plans?jobId=${encodeURIComponent(jobId)}&id=${encodeURIComponent(planId)}`,
+    payload,
+    {
+      schema: SetDocumentVisibilityResponseSchema,
+      init: { cache: "no-store", credentials: "same-origin" },
+    },
+  );
+}
+
 /** #299: admin rollup — acked / outstanding for one revision. */
 export function planAcks(
   jobId: string,
@@ -145,4 +171,5 @@ export const documentsClient = {
   uploadDocument,
   setPlanPages,
   linkDocumentAreas,
+  setDocumentFieldVisibility,
 } as const;

@@ -596,6 +596,15 @@ module.exports = async (req, res) => {
     if (!includeArchived && !isAdminRole(user.role)) {
       plans = plans.filter(p => p.status !== 'archived');
     }
+    // Job Builder redesign Wave 4b: per-file field visibility. A row whose
+    // visibleToField === false never reaches a non-admin viewer (field + LH
+    // — the Phil plans surface). Absent = visible, so every pre-existing
+    // row behaves exactly as before. Unlike archived there is NO query-param
+    // bypass — hiding is an enforcement, not a view preference. Clients
+    // never reach this line (403 at the top of the handler).
+    if (!isAdminRole(user.role)) {
+      plans = plans.filter(p => p.visibleToField !== false);
+    }
     return res.status(200).json({ plans });
   }
 
@@ -860,6 +869,15 @@ module.exports = async (req, res) => {
         return res.status(400).json({ error: 'discipline must be one of: ' + VALID_DISCIPLINES.join(', ') });
       }
       data.plans[idx].discipline = d;
+    }
+    // Wave 4b: per-file field visibility (additive). Strict boolean only —
+    // the default-true tri-state (absent = visible) belongs to the stored
+    // record; junk must never coerce into an accidental hide/show.
+    if (body.visibleToField !== undefined) {
+      if (typeof body.visibleToField !== 'boolean') {
+        return res.status(400).json({ error: 'visibleToField must be a boolean' });
+      }
+      data.plans[idx].visibleToField = body.visibleToField;
     }
     // Maintain the back-reference symmetry: if admin set `supersedes`,
     // bidirectionally link the older plan and flip its status. Reset the

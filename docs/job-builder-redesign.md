@@ -82,11 +82,25 @@ UX; and pixel-fidelity polish via the #792 primitives.
   noted follow-up). While `job_builder_redesign` is ON the five per-hub link-out
   tabs collapse into this step; OFF is today's rail, byte-for-byte. The per-wave
   flag props also collapsed into one `redesignEnabled` prop (spec + deliver).
-- **Wave 4b — Documents step (follow-up, not started).** File list + per-file
-  visible-to-crew toggles + the auto-fill extract-card UX on `job-doc-import`.
-  NOTE: a per-file crew-visibility toggle is **new data model** work (the Document
-  record has status, not a visibility field — field visibility is currently the
-  plans module toggle), so this is its own deliberate slice, not bundled here.
+- **Wave 4b — Documents step (landed).** The builder's **Documents** tab
+  (`DocumentsSection`, joining the Build group while `job_builder_redesign` is ON):
+  the job's document register (title · category · status pill) with upload (the
+  shell-neutral `DocumentUploadButton`) and a per-file **"Visible to field"**
+  toggle. The AI auto-fill extract-card UX stays out of scope (see "Optional /
+  later" below).
+  - **Concept:** per-file field visibility — the office keeps a document (head
+    contract, commercial PDF) on the job without publishing it to the crew.
+  - **Where stored:** `Document.visibleToField` (additive boolean, **default
+    true** — an absent field means visible, so every pre-existing row behaves
+    exactly as before).
+  - **Who consumes:** `api/plans.js` — PATCH accepts the boolean (the builder tab
+    is the writer); the GET list filters `visibleToField === false` rows out for
+    every **non-admin** viewer (field + LH), so the Phil plans viewer only ever
+    receives what the crew may see. Clients stay 403'd from the endpoint entirely.
+  - **Enforced now:** yes, server-side (not a client-side hide; no query-param
+    bypass, unlike the archived filter).
+  - **Limitations:** visibility is per-file, not per-page; admin surfaces are
+    unaffected (admins always see everything, hidden rows honestly labelled).
 
 Optional / later (large, own decisions): AI document auto-fill beyond current import;
 promoting the redesign to admin default (a governance change — needs the flag proven
