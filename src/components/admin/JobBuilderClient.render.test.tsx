@@ -162,6 +162,11 @@ describe("JobBuilderClient", () => {
     expect(on).not.toContain("ITPs / QA");
     // Crew survives (it isn't a link-out hub)
     expect(on).toContain("Crew");
+    // Wave 4b — the Documents step joins the Build group when redesign is ON,
+    // and is absent from today's rail when OFF. Scoped to the exact rail label
+    // ("Documents" also appears mid-sentence in the More tab's copy).
+    expect(on).toContain(">Documents<");
+    expect(off).not.toContain(">Documents<");
 
     // Wave 2 — live step sub-labels ride the same flag. A bare job with
     // default modules shows the real "9 on" count (9 of the 10 field-module

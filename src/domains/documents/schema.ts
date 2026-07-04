@@ -131,6 +131,14 @@ export const DocumentSchema = z
     status: DocumentStatusSchema.optional(),
     notes: z.string().optional(),
 
+    /** Job Builder redesign Wave 4b: per-file field visibility. ABSENT =
+     *  VISIBLE — default-true semantics so every pre-existing row keeps
+     *  today's behaviour byte-for-byte. Only an explicit `false` hides the
+     *  row from non-admin viewers: api/plans.js filters it out of the GET
+     *  list server-side, so a hidden file never reaches the Phil plans
+     *  viewer. Admin listings always include it. */
+    visibleToField: z.boolean().optional(),
+
     /** Revision lineage. Both empty on the first revision of a
      *  drawing; `supersedes` points back, `supersededBy` points
      *  forward. */
@@ -208,6 +216,17 @@ export const LinkDocumentAreasPayloadSchema = z.object({
 });
 
 export const LinkDocumentAreasResponseSchema = z.object({
+  plan: DocumentSchema,
+});
+
+/** Wave 4b: PATCH ?id= per-file field-visibility payload. An explicit
+ *  boolean each way — the default-true tri-state (absent = visible) is a
+ *  property of the stored record, never of this wire payload. */
+export const SetDocumentVisibilityPayloadSchema = z.object({
+  visibleToField: z.boolean(),
+});
+
+export const SetDocumentVisibilityResponseSchema = z.object({
   plan: DocumentSchema,
 });
 

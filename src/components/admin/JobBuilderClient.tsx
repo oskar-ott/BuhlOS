@@ -30,6 +30,7 @@ import { Button } from "@/components/ui/Button";
 import { ScopeOfWorkSection } from "./ScopeOfWorkSection";
 import { PlanStudioPanel } from "./PlanStudioPanel";
 import { ProductSpecSection } from "./ProductSpecSection";
+import { DocumentsSection } from "./DocumentsSection";
 import type { AcceptRoomsResponse } from "@/domains/ai-drawings/schema";
 import { acceptedAreaRefsFrom } from "@/domains/ai-drawings/room-rev-diff";
 import { ScopeReconciliationStatus } from "./ScopeReconciliationStatus";
@@ -129,6 +130,7 @@ type DeliverKey = "plans" | "materials" | "gear" | "itps" | "risks";
 type TabKey =
   | "overview"
   | "basics"
+  | "documents"
   | "scope"
   | "structure"
   | "modules"
@@ -144,6 +146,7 @@ type TabKey =
 const TABS: ReadonlyArray<{ key: TabKey; label: string }> = [
   { key: "overview", label: "Overview" },
   { key: "basics", label: "Basics" },
+  { key: "documents", label: "Documents" },
   { key: "scope", label: "Scope" },
   { key: "structure", label: "Structure" },
   { key: "modules", label: "Field modules" },
@@ -252,7 +255,7 @@ const SECTION_TESTID: Partial<Record<TabKey, string>> = {
 };
 
 const COCKPIT_GROUPS: ReadonlyArray<{ heading: string; keys: ReadonlyArray<TabKey> }> = [
-  { heading: "Build", keys: ["overview", "basics", "scope", "structure", "modules", "planStudio", "spec"] },
+  { heading: "Build", keys: ["overview", "basics", "documents", "scope", "structure", "modules", "planStudio", "spec"] },
   { heading: "Deliver", keys: ["deliver", "plans", "materials", "gear", "itps", "risks", "crew"] },
   { heading: "Ship", keys: ["preview", "publish"] },
   { heading: "More", keys: ["more"] },
@@ -334,8 +337,9 @@ export function JobBuilderClient({
   /** ai_plan_tasks flag (admin-tier, dark) — gates the tasks-from-fittings review. */
   planTasksEnabled?: boolean;
   /** job_builder_redesign flag (admin-tier, dark) — gates the redesign-campaign
-   *  tabs: Spec & circuits (Wave 3) + the consolidated Deliver step (Wave 4).
-   *  When ON, the five individual Deliver link-out tabs collapse into "Deliver". */
+   *  tabs: Spec & circuits (Wave 3) + the consolidated Deliver step (Wave 4a)
+   *  + the Documents step with per-file field visibility (Wave 4b). When ON,
+   *  the five individual Deliver link-out tabs collapse into "Deliver". */
   redesignEnabled?: boolean;
 }) {
   const router = useRouter();
@@ -444,6 +448,7 @@ export function JobBuilderClient({
       key === "crew" ||
       key === "spec" ||
       key === "deliver" ||
+      key === "documents" ||
       key in DELIVER_LINKS
     ) {
       return "none";
@@ -608,9 +613,14 @@ export function JobBuilderClient({
     items: g.keys
       .filter((key) => planStudioEnabled || key !== "planStudio")
       // Redesign campaign (job_builder_redesign): ON shows Spec & circuits +
-      // the single Deliver step and hides the five per-hub link-out tabs the
-      // Deliver cards replace; OFF is today's rail, byte-for-byte.
-      .filter((key) => (redesignEnabled ? !(key in DELIVER_LINKS) : key !== "spec" && key !== "deliver"))
+      // Documents (Wave 4b) + the single Deliver step and hides the five
+      // per-hub link-out tabs the Deliver cards replace; OFF is today's
+      // rail, byte-for-byte.
+      .filter((key) =>
+        redesignEnabled
+          ? !(key in DELIVER_LINKS)
+          : key !== "spec" && key !== "deliver" && key !== "documents"
+      )
       .map((key) => ({
         key,
         label: TABS.find((t) => t.key === key)!.label,
@@ -1075,6 +1085,9 @@ export function JobBuilderClient({
         );
       case "scope":
         return renderScope();
+      case "documents":
+        // Wave 4b — the Documents step (register + per-file field visibility).
+        return redesignEnabled ? <DocumentsSection jobId={savedJob.id} /> : null;
       case "crew":
         return renderCrew();
       case "plans":

@@ -7,6 +7,8 @@ import type {
   DocumentStatusSchema,
   LinkDocumentAreasPayloadSchema,
   LinkDocumentAreasResponseSchema,
+  SetDocumentVisibilityPayloadSchema,
+  SetDocumentVisibilityResponseSchema,
   UploadDocumentPayloadSchema,
   UploadDocumentResponseSchema,
   SetPagesResponseSchema,
@@ -34,4 +36,10 @@ export type LinkDocumentAreasPayload = z.infer<
 >;
 export type LinkDocumentAreasResponse = z.infer<
   typeof LinkDocumentAreasResponseSchema
+>;
+export type SetDocumentVisibilityPayload = z.infer<
+  typeof SetDocumentVisibilityPayloadSchema
+>;
+export type SetDocumentVisibilityResponse = z.infer<
+  typeof SetDocumentVisibilityResponseSchema
 >;

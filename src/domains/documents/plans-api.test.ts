@@ -500,3 +500,51 @@ describe("spec area/stage linkage (#196)", () => {
     expect(created.stage).toBeUndefined();
   });
 });
+
+// ── Job Builder redesign Wave 4b: per-file field visibility ────────────────
+
+describe("per-file field visibility (Wave 4b)", () => {
+  function listedIds(res: Res): string[] {
+    return (res.body as { plans: Array<{ id: string }> }).plans.map((p) => p.id);
+  }
+
+  it("PATCH persists visibleToField:false and back to true; junk is a 400", async () => {
+    const hide = await call("PATCH", { jobId: "j1", id: "pl_b" }, { visibleToField: false });
+    expect(hide.statusCode).toBe(200);
+    expect((hide.body as { plan: { visibleToField?: boolean } }).plan.visibleToField).toBe(false);
+    expect(plansInStore().find((p) => p.id === "pl_b")!.visibleToField).toBe(false);
+
+    const show = await call("PATCH", { jobId: "j1", id: "pl_b" }, { visibleToField: true });
+    expect(show.statusCode).toBe(200);
+    expect(plansInStore().find((p) => p.id === "pl_b")!.visibleToField).toBe(true);
+
+    // Strict boolean — a string must never coerce into an accidental hide.
+    const junk = await call("PATCH", { jobId: "j1", id: "pl_b" }, { visibleToField: "nope" });
+    expect(junk.statusCode).toBe(400);
+    expect(plansInStore().find((p) => p.id === "pl_b")!.visibleToField).toBe(true);
+  });
+
+  it("field GET excludes a hidden document; the admin GET still includes it", async () => {
+    await call("PATCH", { jobId: "j1", id: "pl_b" }, { visibleToField: false });
+
+    const field = await callAs(ELEC, "GET", { jobId: "j1" });
+    expect(field.statusCode).toBe(200);
+    expect(listedIds(field)).not.toContain("pl_b");
+    // …and there is no query-param bypass for the field, unlike archived.
+    const bypass = await callAs(ELEC, "GET", { jobId: "j1", includeArchived: "1" });
+    expect(listedIds(bypass)).not.toContain("pl_b");
+
+    const admin = await call("GET", { jobId: "j1" });
+    expect(listedIds(admin)).toContain("pl_b"); // admins always see everything
+  });
+
+  it("a document WITHOUT the field is visible to the field (absent = default true)", async () => {
+    const res = await callAs(ELEC, "GET", { jobId: "j1" });
+    expect(res.statusCode).toBe(200);
+    // none of the fixture rows carry visibleToField — every non-archived row
+    // reaches the field exactly as before this feature existed.
+    expect(listedIds(res)).toEqual(
+      expect.arrayContaining(["pl_a", "pl_b", "pl_old", "pl_spec"]),
+    );
+  });
+});
