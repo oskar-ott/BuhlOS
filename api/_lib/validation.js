@@ -42,6 +42,22 @@ function validateAreaGroups(raw, fieldName) {
         const st = a.spaceType.trim().slice(0, 60);
         if (st) out.spaceType = st;
       }
+      // AI provenance (#206 rooms→areas bridge). An area proposed by the plan
+      // analyser carries a stable source id (idempotency key) + a small
+      // provenance object (plan + rev + region). Server-trusted, additive.
+      // The builder form never authors these, so the PUT remap (carryMeta)
+      // re-attaches them by name; they are preserved here whenever present so
+      // the accept endpoint's direct write and any round-trip keep them.
+      if (a.aiSourceId !== undefined && a.aiSourceId !== null && a.aiSourceId !== '') {
+        if (typeof a.aiSourceId !== 'string') return { ok: false, error: `${f}[${gi}].areas[${ai}].aiSourceId must be a string` };
+        const src = a.aiSourceId.trim().slice(0, 200);
+        if (src) out.aiSourceId = src;
+      }
+      if (a.provenance !== undefined && a.provenance !== null) {
+        if (typeof a.provenance !== 'object' || Array.isArray(a.provenance))
+          return { ok: false, error: `${f}[${gi}].areas[${ai}].provenance must be an object` };
+        out.provenance = a.provenance;
+      }
       // Universal archive flag (rigidity audit R2). Areas with progress
       // can't be hard-deleted, so archive becomes the universal "remove"
       // verb. Filters out of mobile / default admin lists; reachable via

@@ -96,6 +96,14 @@ export const JobAreaSchema = z
     id: z.string(),
     name: z.string(),
     spaceType: z.string().nullable().optional(),
+    // Provenance for an AI-proposed area (#206 rooms→areas bridge). When an
+    // area is accepted from a detected plan room, `aiSourceId` is the stable
+    // idempotency key (`aidr:room:<roomId>`) and `provenance` records the plan
+    // + rev + region it came from. Server-trusted + additive; the builder form
+    // doesn't author these, so the PUT remap re-attaches them (api/jobs.js
+    // carryMeta) and a manual structure edit can't silently strip them.
+    aiSourceId: z.string().nullable().optional(),
+    provenance: z.record(z.string(), z.unknown()).nullable().optional(),
     archived: z.boolean().optional(),
     order: z.number().optional(),
     // Per-area task overrides. When absent, the area inherits job-level

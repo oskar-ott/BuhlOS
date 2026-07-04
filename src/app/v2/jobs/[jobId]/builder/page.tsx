@@ -6,6 +6,7 @@ import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { JobBuilderClient } from "@/components/admin/JobBuilderClient";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
+import { isFlagEnabled } from "../../../../../../api/_lib/feature-flags.js";
 import { JobDetailResponseSchema } from "@/domains/jobs/schema";
 import type { Job } from "@/domains/jobs/types";
 import {
@@ -95,6 +96,10 @@ export default async function JobBuilderPage({ params }: PageParams) {
   // `missing` view when the job hasn't been reconciled, so the builder never
   // fakes certainty. This page is already admin-gated, which the reader requires.
   const reconciliation = await loadReconciliation(jobId);
+  // Plan Studio (#206 rooms→areas) is dark behind ai_drawings (admin-tier). This
+  // page is already admin-gated, so the check just resolves the flag's state.
+  const planStudioEnabled = await isFlagEnabled("ai_drawings", session);
+  const planTasksEnabled = await isFlagEnabled("ai_plan_tasks", session);
 
   return (
     <BuilderShell jobId={jobId} title={result.job.name}>
@@ -105,6 +110,8 @@ export default async function JobBuilderPage({ params }: PageParams) {
         reconciliation={reconciliation}
         assignableWorkers={workers.workers}
         workersLoadError={workers.error}
+        planStudioEnabled={planStudioEnabled}
+        planTasksEnabled={planTasksEnabled}
       />
     </BuilderShell>
   );

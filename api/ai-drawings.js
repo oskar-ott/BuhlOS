@@ -52,6 +52,11 @@ const roomAssign = require('./_lib/room-assign');
 const cable = require('./_lib/cable-estimate');
 const entityLinks = require('./_lib/entity-links');
 const takeoffAssemble = require('./_lib/takeoff-assemble');
+// #206 rooms→areas bridge — accept reviewed rooms into the job's Structure.
+const { writeBlob } = require('./_lib/blob');
+const { mirrorJobToPg } = require('./_lib/jobs-mirror');
+const { validateAreaGroups } = require('./_lib/validation');
+const roomToArea = require('./_lib/room-to-area');
 
 // ─── Config (env-configurable, bare current alias default — #378) ──────────
 const AI_DRAWINGS_MODEL = process.env.AI_DRAWINGS_MODEL || 'claude-opus-4-8';
@@ -3422,6 +3427,111 @@ async function handleSignOffTakeoff(res, sql, tenantId, jobId, user, body) {
 
 // ─── Router ─────────────────────────────────────────────────────────────────
 
+// ─── #206: accept reviewed rooms → job Structure AREAS ───────────────────────
+
+const AcceptRoomsBody = z.object({
+  // Optional allow-list of room ids to accept. Omitted → every currently
+  // reviewed (accepted|edited) room on the job is considered. Suggested /
+  // rejected rooms are never turned into areas.
+  roomIds: z.array(z.string()).max(500).optional(),
+});
+
+// Turn the human-reviewed rooms into real areas on the job. AI PROPOSES,
+// HUMAN ACCEPTS: this is the explicit accept — nothing here runs a model, and
+// only rooms an admin already reviewed become areas. Writes go to the same
+// jobs.json + PG mirror path the builder PUT uses, through the shared
+// validateAreaGroups guard (live-id uniqueness). Idempotent via aiSourceId.
+async function handleAcceptRooms(res, sql, tenantId, jobId, user, body) {
+  // Creating job structure is an admin action (the builder is admin-only);
+  // a leading hand can review rooms but not author areas.
+  if (!isAdminRole(user.role)) {
+    return res.status(403).json({ error: 'only an admin can create job areas' });
+  }
+  const parsedBody = AcceptRoomsBody.safeParse(body);
+  if (!parsedBody.success) {
+    return res.status(400).json({ error: parsedBody.error.issues[0]?.message || 'invalid body' });
+  }
+
+  // Rooms from the ai-drawings store (roomView → effectiveName/bbox).
+  const rows = await store.listRooms(sql, tenantId, jobId);
+  let rooms = rows.map(roomView);
+  if (parsedBody.data.roomIds && parsedBody.data.roomIds.length) {
+    // Selection mode — accept exactly these rooms. Pass them through as-is so
+    // the mapper's human-accept gate reports any not-yet-reviewed selection
+    // back as skipped 'not-reviewed' (honest feedback on a bad pick).
+    const want = new Set(parsedBody.data.roomIds.map(String));
+    rooms = rooms.filter((r) => want.has(String(r.id)));
+  } else {
+    // Accept-all mode — only rooms the admin has already reviewed are in
+    // scope; still-suggested rooms simply aren't candidates (not reported as
+    // skipped, which would spam the response on a freshly-detected job).
+    rooms = rooms.filter((r) => r.status === 'accepted' || r.status === 'edited');
+  }
+
+  // Plan register — group naming (level/sheet) + provenance (rev).
+  const index = await readBlob('jobs/' + jobId + '/plans-index.json', { plans: [] });
+  const plans = (index.plans || []).map((p) => ({
+    id: p.id,
+    label: p.drawingNumber || p.title || p.fileName || p.id,
+    level: p.level || null,
+    revision: p.revision || null,
+  }));
+
+  const data = await readBlob('jobs.json', { jobs: [] });
+  const job = (data.jobs || []).find((j) => j.id === jobId);
+  if (!job) return res.status(404).json({ error: 'job not found' });
+
+  const merge = roomToArea.buildRoomAreaMerge({
+    rooms,
+    plans,
+    existingGroups: job.areaGroups || [],
+  });
+
+  // Nothing new (idempotent re-accept, or nothing reviewed yet) — honest 200,
+  // no write.
+  if (merge.created.length === 0) {
+    return res.status(200).json({
+      ok: true,
+      created: 0,
+      skipped: merge.skipped,
+      sheets: merge.sheets,
+    });
+  }
+
+  const validated = validateAreaGroups(merge.groups, 'areaGroups');
+  if (!validated.ok) return res.status(400).json({ error: validated.error });
+  job.areaGroups = validated.groups;
+
+  await writeBlob('jobs.json', data);
+  // Best-effort structure dual-write (Blob authoritative; never throws here).
+  await mirrorJobToPg(job.id);
+
+  const sheetCount = merge.sheets.filter((s) => s.created > 0).length;
+  await appendAuditLog({
+    action: 'job.areas_from_plan',
+    actorId: user.id,
+    actorName: user.username || 'Unknown',
+    actorRole: user.role || null,
+    jobId,
+    targetType: 'job',
+    targetId: jobId,
+    summary: `Created ${merge.created.length} area${merge.created.length === 1 ? '' : 's'} from ${sheetCount} plan sheet${sheetCount === 1 ? '' : 's'} (reviewed rooms)`,
+    metadata: { created: merge.created.length, skipped: merge.skipped.length, sheets: merge.sheets },
+  }).catch(() => {});
+
+  const liveAreaCount = (job.areaGroups || []).reduce(
+    (n, g) => n + (Array.isArray(g.areas) ? g.areas.filter((a) => !a.archived).length : 0),
+    0,
+  );
+  return res.status(200).json({
+    ok: true,
+    created: merge.created.length,
+    skipped: merge.skipped,
+    sheets: merge.sheets,
+    areaCount: liveAreaCount,
+  });
+}
+
 module.exports = async (req, res) => {
   setNoCache(res);
   if (req.method === 'OPTIONS') return res.status(200).end();
@@ -3486,6 +3596,7 @@ module.exports = async (req, res) => {
     if (action === 'extract-rooms') return handleExtractRooms(res, sql, tenantId, jobId, user, body);
     if (action === 'review-room') return handleReviewRoom(res, sql, tenantId, jobId, user, body);
     if (action === 'add-room') return handleAddRoom(res, sql, tenantId, jobId, user, body);
+    if (action === 'accept-rooms') return handleAcceptRooms(res, sql, tenantId, jobId, user, body);
     if (action === 'assign-device-room') return handleAssignDeviceRoom(res, sql, tenantId, jobId, user, body);
     if (action === 'clear-device-room') return handleClearDeviceRoom(res, sql, tenantId, jobId, user, body);
     if (action === 'pin-board') return handlePinBoard(res, sql, tenantId, jobId, user, body);

@@ -692,6 +692,29 @@ export const RoomAssignResponseSchema = z.object({
 });
 export type RoomAssignResponse = z.infer<typeof RoomAssignResponseSchema>;
 
+// #206 rooms→areas accept bridge — the result of turning reviewed rooms into
+// job Structure areas. Honest about what was created vs skipped (and why):
+// `created` counts new areas, `skipped[].reason` is 'not-reviewed' |
+// 'empty-name' | 'already-created', `sheets` breaks it down per plan for the
+// Structure banner.
+export const AcceptRoomsResponseSchema = z.object({
+  ok: z.boolean(),
+  created: z.number(),
+  skipped: z.array(z.object({ roomId: z.string(), reason: z.string() })),
+  sheets: z.array(
+    z.object({
+      planId: z.string(),
+      planLabel: z.string(),
+      revision: z.string().nullable(),
+      level: z.string().nullable(),
+      created: z.number(),
+      considered: z.number(),
+    }),
+  ),
+  areaCount: z.number().optional(),
+});
+export type AcceptRoomsResponse = z.infer<typeof AcceptRoomsResponseSchema>;
+
 export const CalibrateResponseSchema = z.object({
   calibration: SheetCalibrationSchema,
   page: CountReviewPageSchema,
