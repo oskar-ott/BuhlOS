@@ -956,6 +956,18 @@ module.exports = async (req, res) => {
         const cf = (payloadEntry && payloadEntry.customFields !== undefined) ? payloadEntry.customFields
           : (existingEntry ? existingEntry.customFields : undefined);
         if (cf !== undefined) out.customFields = cf;
+        // AI provenance (#206 rooms→areas bridge). aiSourceId + provenance are
+        // server-owned metadata the builder form doesn't round-trip, so — like
+        // archived/order/customFields — the remap must re-attach them from the
+        // matched stored entry or a structure PUT silently strips the link back
+        // to the plan room (and breaks accept idempotency). Prefer the payload
+        // value if it carries one, else the stored entry's.
+        const aiSourceId = (payloadEntry && payloadEntry.aiSourceId) ? payloadEntry.aiSourceId
+          : (existingEntry && existingEntry.aiSourceId) ? existingEntry.aiSourceId : undefined;
+        if (aiSourceId) out.aiSourceId = aiSourceId;
+        const provenance = (payloadEntry && payloadEntry.provenance !== undefined) ? payloadEntry.provenance
+          : (existingEntry ? existingEntry.provenance : undefined);
+        if (provenance !== undefined) out.provenance = provenance;
         return out;
       };
 

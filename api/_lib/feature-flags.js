@@ -470,6 +470,18 @@ const REGISTRY = {
     target: 'admin-tier',
     expires: '2026-12-31',
   },
+  // Plan Studio — suggest tasks from detected fittings (#213 adjacent): a
+  // REVIEW-ONLY proposal of job-level rough-in / fit-off tasks derived from the
+  // AI fitting counts. Its OWN flag (separate from ai_drawings) so the
+  // rooms→areas bridge ships without the task-suggestion step. Keys off
+  // job-level task templates + canonical task identity — never deepens
+  // area-owned task arrays (task-led ADR) — and never auto-seeds. Dark.
+  ai_plan_tasks: {
+    description: 'Suggest job tasks from AI-detected plan fittings — review-only, admin adds them to the job-level task templates (#213). Dark.',
+    default: false,
+    target: 'admin-tier',
+    expires: '2026-12-31',
+  },
   // Per-job ITP / QA (#474/#476): hold/witness/record points + office sign-off.
   // Unlike the registers above, ITPs are ALREADY LIVE — so this is a KILL SWITCH,
   // not a launch gate: default ON (killSwitch:true), and the owner can turn the
@@ -607,6 +619,7 @@ const FLAG_PRESENTATION = {
   ai_office_daily_summary: { label: 'AI office daily summary', domain: 'Company', surface: 'BuhlOS', previewHref: '/reports' },
   ai_drawings: { label: 'AI drawings — sheet understanding', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/v2/jobs' },
   job_builder_redesign: { label: 'Job Builder redesign', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/v2/jobs/new' },
+  ai_plan_tasks: { label: 'AI plan tasks from fittings', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/v2/jobs' },
 
   // #760 kill-switches. `core: true` = load-bearing spine; the board warns
   // before the owner turns one off.
