@@ -62,6 +62,12 @@ const PROTECTED: ReadonlyArray<{ prefix: string; surface: Surface }> = [
   { prefix: "/settings", surface: "admin" },
   { prefix: "/v2/phil", surface: "phil" },
   { prefix: "/v2/jobs", surface: "lh" },
+  // #271 / Epic 16 — the modern client portal (read-only, client role only).
+  // Gated here so a non-client who navigates to /portal is bounced to their own
+  // landing and an anonymous visitor is sent to /v2/login?next=. Clients still
+  // LAND on the kept static /client (landingFor unchanged) until the cutover PR
+  // — /portal is reached by navigation for now (route-ownership §12.1).
+  { prefix: "/portal", surface: "portal" },
   { prefix: "/phil/my-day", surface: "phil" },
   { prefix: "/phil/hours", surface: "phil" },
   { prefix: "/phil/gear", surface: "phil" },
@@ -119,6 +125,7 @@ export const config = {
     "/settings/:path*",
     "/v2/phil/:path*",
     "/v2/jobs/:path*",
+    "/portal/:path*",
     "/phil/my-day/:path*",
     "/phil/hours/:path*",
     "/phil/gear/:path*",

@@ -246,6 +246,8 @@ The legacy estate must stay dead. `scripts/check-legacy-quarantine.js`
 | `/phil/onboarding` | Phil | `phil/onboarding` | PhilShell | canonical | field/LH | v2/phil "Start the tour" | first-run tour |
 | `/v2/phil` | Phil | `v2/phil` | PhilShell | transitional | field/LH | tab "More" / "Snag" (UC) | profile/More placeholder |
 | `/phil/invite/[token]` | Phil | `phil/invite/[token]` | (own) | transitional | **public** | invite email | worker setup, no session yet |
+| `/portal` | Client portal | `portal/page.tsx` | `PortalShell` (own) | transitional | **client** | reached by navigation (landingFor still → `/client` until cutover, §12.1) | modern client portal home (#271 / Epic 16); the signed-in client's OWN active jobs, sanitised via `GET /api/portal-jobs`; unauth → 307 `/v2/login?next=/portal`; non-client → 307 `landingFor(role)` |
+| `/portal/jobs/[jobId]` | Client portal | `portal/jobs/[jobId]/page.tsx` | `PortalShell` (own) | transitional | **client** | portal home cards | single sanitised job overview (name / site address / overall progress) via `GET /api/portal-job?jobId=`; a job the client doesn't own → `notFound()` (API 404s; existence not confirmed); unauth → 307 `/v2/login?next=`; non-client → 307 |
 
 ### 8.1 Shell + guard coverage matrix
 
@@ -279,6 +281,7 @@ failure that has happened (or could) if the row is left unguarded.
 | `/v2/jobs/[jobId]/plans` | BuhlOS | AdminShell | `…/plans/page.tsx` | transitional | wrong shell | `check-shell-contract`, `check-route-ownership` (required source) |
 | `/v2/quotes` · `/v2/quotes/[quoteId]` | BuhlOS | AdminShell | `src/app/v2/quotes/**` | transitional | wrong shell / nav drift / LH reaching commercial figures | `check-shell-contract`, `check-route-ownership` (approved nav + required sources), `middleware.test`, `auth-routing.spec` |
 | `/v2/phil` | Phil | PhilShell | `src/app/v2/phil/page.tsx` | transitional | renders the admin shell | `check-shell-contract` (cross-shell), `middleware.test` |
+| `/portal` · `/portal/jobs/[jobId]` | Client portal | PortalShell (own) | `src/app/portal/**` | transitional | a client sees another client's job / raw job payload / internal data; a non-client reaches the portal | `check-route-ownership` (required sources), `middleware.test` (client-only gate + unauth `next=`), `client-portal-scoping-api.test` (ownership matrix + allowlist assertions) |
 | `/phil` · `/phil/app` | legacy | legacy `phil.html` | `public/phil.html` (vercel) | legacy | bare `/phil` linked from modern nav | `check-route-ownership` (forbidden `/phil`) |
 | `/phil/my-day` · `/phil/hours` · `/phil/gear` · `/phil/jobs` · `/phil/jobs/[jobId]` (+ itps) · `/phil/onboarding` | Phil | PhilShell | `src/app/phil/**` | canonical | renders admin shell / blank | `check-shell-contract`, `middleware.test`, `phil.spec` |
 | `/phil/jobs/[jobId]/plans` | Phil | PhilShell | `…/plans/page.tsx` | canonical | wrong shell | `check-shell-contract`, `check-route-ownership` (required source) |
@@ -450,9 +453,14 @@ before a preview even builds.
 
 ## 12. Future migration plan (safe order)
 
-1. **Rebuild the client portal** (#271 / Epic 16) — then retire
-   `public/client.html`, the two `/client` rewrites, `theme.css` +
-   `css/buhlos.css`, and the `as Route` cast in landing call sites.
+1. **Rebuild the client portal** (#271 / Epic 16) — the modern portal now
+   exists at `/portal` (foundation shipped: read-only shell + scoped own-jobs
+   list + sanitised single-job overview; see `docs/client-portal.md`). The
+   **cutover** is the remaining step: retire `public/client.html`, the two
+   `/client` rewrites, `theme.css` + `css/buhlos.css`; flip
+   `landingFor(client)` from `/client` to `/portal` and drop the `as Route`
+   cast in landing call sites; and update `check-legacy-quarantine` +
+   `check-route-ownership` §10 together in that PR.
 2. **`/admin/jobs` cutover** — build the modern Jobs index at `/admin/jobs`,
    flip the sidebar href, re-point the `/admin/jobs*` (and `/v2/jobs*`)
    redirect entries, and update §6 + the guards together.

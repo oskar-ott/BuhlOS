@@ -15,7 +15,7 @@ import {
  * for middleware redirects.
  */
 
-export type Surface = "admin" | "phil" | "lh" | "client";
+export type Surface = "admin" | "phil" | "lh" | "client" | "portal";
 
 export function canAccessSurface(role: unknown, surface: Surface): boolean {
   switch (surface) {
@@ -26,6 +26,12 @@ export function canAccessSurface(role: unknown, surface: Surface): boolean {
     case "lh":
       return isLeadingHandRole(role) || isAdminRole(role);
     case "client":
+      return isClientRole(role);
+    // The modern client portal (#271 / Epic 16) — the read-only surface that
+    // will replace the kept static /client page. Client role only. landingFor
+    // still sends clients to /client until the cutover PR (route-ownership
+    // §12.1), so a client reaches /portal by navigation, not by default.
+    case "portal":
       return isClientRole(role);
   }
 }
