@@ -100,8 +100,8 @@ export default async function JobBuilderPage({ params }: PageParams) {
   // page is already admin-gated, so the check just resolves the flag's state.
   const planStudioEnabled = await isFlagEnabled("ai_drawings", session);
   const planTasksEnabled = await isFlagEnabled("ai_plan_tasks", session);
-  // Spec & circuits (Wave 3 of the Job Builder redesign) rides the campaign flag.
-  const specEnabled = await isFlagEnabled("job_builder_redesign", session);
+  // The redesign-campaign tabs (Spec & circuits, Deliver) ride the campaign flag.
+  const redesignEnabled = await isFlagEnabled("job_builder_redesign", session);
 
   return (
     <BuilderShell jobId={jobId} title={result.job.name}>
@@ -114,7 +114,7 @@ export default async function JobBuilderPage({ params }: PageParams) {
         workersLoadError={workers.error}
         planStudioEnabled={planStudioEnabled}
         planTasksEnabled={planTasksEnabled}
-        specEnabled={specEnabled}
+        redesignEnabled={redesignEnabled}
       />
     </BuilderShell>
   );
@@ -165,8 +165,11 @@ async function loadJob(
   try {
     // includeArchived=1 — the admin-editor read. Lets the builder render
     // archived structure as read-only rows next to the editable live structure (#377).
+    // withStats=1 — the same per-job stats enrichment the job hub loads; the
+    // redesign's Deliver step renders its hub counts from it (Wave 4), so the
+    // builder never invents a number (P7). Cost matches the hub page's read.
     const res = await fetch(
-      `${base}/api/jobs?id=${encodeURIComponent(jobId)}&includeArchived=1`,
+      `${base}/api/jobs?id=${encodeURIComponent(jobId)}&includeArchived=1&withStats=1`,
       {
         cache: "no-store",
         headers: cookieValue

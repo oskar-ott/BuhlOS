@@ -132,6 +132,7 @@ type TabKey =
   | "modules"
   | "planStudio"
   | "spec"
+  | "deliver"
   | DeliverKey
   | "crew"
   | "preview"
@@ -146,6 +147,7 @@ const TABS: ReadonlyArray<{ key: TabKey; label: string }> = [
   { key: "modules", label: "Field modules" },
   { key: "planStudio", label: "Plan Studio" },
   { key: "spec", label: "Spec & circuits" },
+  { key: "deliver", label: "Deliver" },
   { key: "plans", label: "Plans & docs" },
   { key: "materials", label: "Materials" },
   { key: "gear", label: "Gear" },
@@ -249,7 +251,7 @@ const SECTION_TESTID: Partial<Record<TabKey, string>> = {
 
 const COCKPIT_GROUPS: ReadonlyArray<{ heading: string; keys: ReadonlyArray<TabKey> }> = [
   { heading: "Build", keys: ["overview", "basics", "scope", "structure", "modules", "planStudio", "spec"] },
-  { heading: "Deliver", keys: ["plans", "materials", "gear", "itps", "risks", "crew"] },
+  { heading: "Deliver", keys: ["deliver", "plans", "materials", "gear", "itps", "risks", "crew"] },
   { heading: "Ship", keys: ["preview", "publish"] },
   { heading: "More", keys: ["more"] },
 ];
@@ -316,7 +318,7 @@ export function JobBuilderClient({
   workersLoadError = null,
   planStudioEnabled = false,
   planTasksEnabled = false,
-  specEnabled = false,
+  redesignEnabled = false,
 }: {
   job: Job;
   /** The confirmed scope reconciliation (server-loaded), or null/missing. Source
@@ -329,8 +331,10 @@ export function JobBuilderClient({
   planStudioEnabled?: boolean;
   /** ai_plan_tasks flag (admin-tier, dark) — gates the tasks-from-fittings review. */
   planTasksEnabled?: boolean;
-  /** job_builder_redesign flag (admin-tier, dark) — gates the Spec & circuits tab (Wave 3). */
-  specEnabled?: boolean;
+  /** job_builder_redesign flag (admin-tier, dark) — gates the redesign-campaign
+   *  tabs: Spec & circuits (Wave 3) + the consolidated Deliver step (Wave 4).
+   *  When ON, the five individual Deliver link-out tabs collapse into "Deliver". */
+  redesignEnabled?: boolean;
 }) {
   const router = useRouter();
   const [savedJob, setSavedJob] = useState<Job>(initialJob);
@@ -436,6 +440,8 @@ export function JobBuilderClient({
       key === "more" ||
       key === "overview" ||
       key === "crew" ||
+      key === "spec" ||
+      key === "deliver" ||
       key in DELIVER_LINKS
     ) {
       return "none";
@@ -570,7 +576,10 @@ export function JobBuilderClient({
     heading: g.heading,
     items: g.keys
       .filter((key) => planStudioEnabled || key !== "planStudio")
-      .filter((key) => specEnabled || key !== "spec")
+      // Redesign campaign (job_builder_redesign): ON shows Spec & circuits +
+      // the single Deliver step and hides the five per-hub link-out tabs the
+      // Deliver cards replace; OFF is today's rail, byte-for-byte.
+      .filter((key) => (redesignEnabled ? !(key in DELIVER_LINKS) : key !== "spec" && key !== "deliver"))
       .map((key) => ({
         key,
         label: TABS.find((t) => t.key === key)!.label,
@@ -1036,7 +1045,9 @@ export function JobBuilderClient({
       case "planStudio":
         return planStudioEnabled ? renderPlanStudio() : null;
       case "spec":
-        return specEnabled ? <ProductSpecSection jobId={savedJob.id} /> : null;
+        return redesignEnabled ? <ProductSpecSection jobId={savedJob.id} /> : null;
+      case "deliver":
+        return redesignEnabled ? renderDeliver() : null;
       case "preview":
         return renderPreview();
       case "publish":
@@ -1161,6 +1172,87 @@ export function JobBuilderClient({
   }
 
   /* ===================== DELIVER (link-out facets) ==================== */
+  /**
+   * Wave 4 (job_builder_redesign) — the consolidated Deliver step: one card per
+   * live hub, kept in sync with the job, each opening its own BuhlOS surface.
+   * Counts come from the SAME ?withStats=1 read the job hub uses (loaded with
+   * the builder page) — a hub whose count isn't in that aggregate shows no
+   * number at all rather than an invented one (P7). Replaces the five per-hub
+   * link-out tabs while the flag is on; they return untouched when it's off.
+   */
+  function renderDeliver() {
+    const s = savedJob;
+    const countLine = (key: DeliverKey): string | null => {
+      if (key === "plans") {
+        return typeof s.statsDocumentsCurrent === "number"
+          ? `${s.statsDocumentsCurrent} current document${s.statsDocumentsCurrent === 1 ? "" : "s"}`
+          : null;
+      }
+      if (key === "itps") {
+        return typeof s.statsItpsActive === "number"
+          ? `${s.statsItpsActive} active ITP${s.statsItpsActive === 1 ? "" : "s"}`
+          : null;
+      }
+      if (key === "gear") {
+        if (typeof s.statsExpiredTags === "number" && typeof s.statsExpiringTags === "number") {
+          if (s.statsExpiredTags === 0 && s.statsExpiringTags === 0) return "test tags current";
+          return `${s.statsExpiredTags} expired · ${s.statsExpiringTags} expiring tags`;
+        }
+        return null;
+      }
+      // Materials + Risks/RFIs: their counts aren't in the withStats aggregate —
+      // the card links out without a number (never a fake one).
+      return null;
+    };
+    return (
+      <div className="space-y-4">
+        <Card>
+          <CardTitle>Deliver</CardTitle>
+          <CardDescription className="mt-1">
+            Live hubs — plans, materials, gear, QA and RFIs — kept in sync with the job. Each
+            opens on its own BuhlOS surface; the builder links out rather than duplicating it.
+            Counts are from the last page load.
+          </CardDescription>
+        </Card>
+        <div className="grid gap-4 md:grid-cols-2" data-testid="deliver-hub-cards">
+          {(Object.keys(DELIVER_LINKS) as DeliverKey[]).map((key) => {
+            const cfg = DELIVER_LINKS[key];
+            const moduleOn = cfg.module ? moduleEnabled(savedJob, cfg.module) : null;
+            const count = countLine(key);
+            return (
+              <Card key={key} data-testid="deliver-hub-card">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <CardTitle>{cfg.label}</CardTitle>
+                    <CardDescription className="mt-1">{cfg.desc}</CardDescription>
+                  </div>
+                  {moduleOn !== null ? (
+                    <Pill tone={moduleOn ? "success" : "neutral"}>
+                      Field module {moduleOn ? "on" : "off"}
+                    </Pill>
+                  ) : null}
+                </div>
+                {count ? (
+                  <p className="mt-3 font-mono text-sm text-text" data-testid="deliver-hub-count">
+                    {count}
+                  </p>
+                ) : null}
+                <div className="mt-3">
+                  <Link
+                    href={cfg.path(savedJob.id) as Route}
+                    className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-2"
+                  >
+                    Opens in BuhlOS <span aria-hidden="true">→</span>
+                  </Link>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
   function renderDeliverLink(key: DeliverKey) {
     const cfg = DELIVER_LINKS[key];
     const moduleOn = cfg.module ? moduleEnabled(savedJob, cfg.module) : null;

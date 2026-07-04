@@ -135,23 +135,33 @@ describe("JobBuilderClient", () => {
     expect(on).toContain("Plan Studio");
   });
 
-  // Wave 3 — the Spec & circuits tab is dark behind job_builder_redesign. The
-  // rail only lists it when the flag prop is on; off, it's invisible.
-  it("hides the Spec & circuits tab unless the job_builder_redesign flag prop is on (dark)", () => {
+  // Waves 3+4 — the redesign-campaign tabs are dark behind job_builder_redesign.
+  // OFF: today's rail byte-for-byte (five per-hub link tabs, no Spec/Deliver).
+  // ON: Spec & circuits + the single Deliver step; the five link tabs collapse.
+  it("swaps the rail's Deliver tabs only when the job_builder_redesign flag prop is on", () => {
     const off = renderToString(
       createElement(JobBuilderClient, {
         job: makeJob({ id: "job-1", name: "Dark Job", status: "draft" }),
       })
     );
     expect(off).not.toContain("Spec &amp; circuits");
+    // today's five link-out tabs still present
+    expect(off).toContain("Plans &amp; docs");
+    expect(off).toContain("Materials");
+    expect(off).toContain("ITPs / QA");
 
     const on = renderToString(
       createElement(JobBuilderClient, {
         job: makeJob({ id: "job-1", name: "Lit Job", status: "draft" }),
-        specEnabled: true,
+        redesignEnabled: true,
       })
     );
     expect(on).toContain("Spec &amp; circuits");
+    // the five per-hub tabs collapse into the one Deliver step
+    expect(on).not.toContain("Plans &amp; docs");
+    expect(on).not.toContain("ITPs / QA");
+    // Crew survives (it isn't a link-out hub)
+    expect(on).toContain("Crew");
   });
 });
 

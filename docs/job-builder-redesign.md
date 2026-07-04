@@ -71,10 +71,22 @@ UX; and pixel-fidelity polish via the #792 primitives.
   links out to the shipped circuit schedule (reuse, don't duplicate). Phil does NOT
   consume the spec yet (office register only — stated honestly in the schema).
   Landed out of order (before Wave 2) because Wave 2 depends on the still-open #792.
-- **Wave 4 — Deliver + Documents steps.** Consolidate the separate link-out tabs into
-  the prototype's single **Deliver** hub-cards step (real counts + "Opens in BuhlOS")
-  and a **Documents** step (file list + visible-to-crew toggles); wire the auto-fill
-  extract-card UX onto the existing `job-doc-import`. Flag-gated + tested.
+- **Wave 4a — Deliver hub-cards step (landed).** The prototype's single **Deliver**
+  step: one card per live hub (Plans & docs · Materials · Gear · ITPs/QA · Risks &
+  RFIs) with a module pill + an "Opens in BuhlOS" link-out. **Real counts only** —
+  the builder page now loads the job with `&withStats=1` (the same enrichment the
+  job hub uses; comparable cost), so Plans (`statsDocumentsCurrent`), ITPs
+  (`statsItpsActive`) and Gear (expired/expiring tags) show live numbers, while
+  Materials and Risks/RFIs (not in the aggregate) show **no number at all** rather
+  than an invented one (P7 — adding those counts to the withStats aggregate is the
+  noted follow-up). While `job_builder_redesign` is ON the five per-hub link-out
+  tabs collapse into this step; OFF is today's rail, byte-for-byte. The per-wave
+  flag props also collapsed into one `redesignEnabled` prop (spec + deliver).
+- **Wave 4b — Documents step (follow-up, not started).** File list + per-file
+  visible-to-crew toggles + the auto-fill extract-card UX on `job-doc-import`.
+  NOTE: a per-file crew-visibility toggle is **new data model** work (the Document
+  record has status, not a visibility field — field visibility is currently the
+  plans module toggle), so this is its own deliberate slice, not bundled here.
 
 Optional / later (large, own decisions): AI document auto-fill beyond current import;
 promoting the redesign to admin default (a governance change — needs the flag proven
