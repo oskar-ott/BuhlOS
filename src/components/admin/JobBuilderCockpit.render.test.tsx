@@ -98,4 +98,54 @@ describe("JobBuilderCockpit", () => {
     const html = render("basics"); // base render passes no review props
     expect(html).not.toContain('data-testid="cockpit-open-review"');
   });
+
+  // Wave 2 (job_builder_redesign) — the rail readiness summary is flag-gated:
+  // ON shows the Bar (progressbar aria) + the mono counts line rolled up from
+  // the nav items' own statuses; OFF renders today's rail with neither.
+  it("shows the rail readiness bar + counts line when redesign is on", () => {
+    const html = renderToString(
+      createElement(JobBuilderCockpit, {
+        readiness,
+        nav,
+        activeKey: "basics",
+        onSelect: () => {},
+        redesign: true,
+        canvas: createElement("div", {}, "C"),
+        inspector: createElement("div", {}, "I"),
+      })
+    );
+    expect(html).toContain('data-testid="cockpit-rail-readiness"');
+    expect(html).toContain('role="progressbar"');
+    // fixture nav: basics ok · structure block · publish ok → 2 / 0 / 1
+    expect(html).toContain("2 ready · 0 review · 1 block");
+  });
+
+  it("renders no rail readiness bar when redesign is off (today's rail)", () => {
+    const html = render("basics"); // base render passes no redesign prop
+    expect(html).not.toContain('data-testid="cockpit-rail-readiness"');
+    expect(html).not.toContain('role="progressbar"');
+  });
+
+  it("renders a step sub-label only when redesign is on", () => {
+    const navWithSub: CockpitNavGroup[] = [
+      {
+        heading: "Build",
+        items: [{ key: "structure", label: "Structure", status: "ok", sub: "3 areas" }],
+      },
+    ];
+    const base = {
+      readiness,
+      nav: navWithSub,
+      activeKey: "basics",
+      onSelect: () => {},
+      canvas: createElement("div", {}, "C"),
+      inspector: createElement("div", {}, "I"),
+    };
+    const on = renderToString(createElement(JobBuilderCockpit, { ...base, redesign: true }));
+    expect(on).toContain('data-testid="cockpit-nav-sub"');
+    expect(on).toContain("3 areas");
+    const off = renderToString(createElement(JobBuilderCockpit, base));
+    expect(off).not.toContain('data-testid="cockpit-nav-sub"');
+    expect(off).not.toContain("3 areas");
+  });
 });
