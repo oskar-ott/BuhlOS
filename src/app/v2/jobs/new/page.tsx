@@ -4,8 +4,10 @@ import { cookies } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { NewJobForm } from "@/components/admin/NewJobForm";
 import { StartFromBlueprintCard } from "@/components/admin/StartFromBlueprintCard";
+import { NewJobRedesign } from "@/components/admin/NewJobRedesign";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canCreateJob } from "@/lib/auth/permissions";
+import { isFlagEnabled } from "../../../../../api/_lib/feature-flags.js";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +38,10 @@ export default async function NewJobPage() {
     redirect("/v2/jobs");
   }
 
+  // Job Builder redesign (Wave 1), dark behind job_builder_redesign (admin-tier).
+  // Off → the current New Job screen, unchanged. This page is already admin-gated.
+  const redesign = await isFlagEnabled("job_builder_redesign", session);
+
   return (
     <AdminShell
       title="New job"
@@ -48,10 +54,14 @@ export default async function NewJobPage() {
         </Link>
       }
     >
-      <div className="mx-auto max-w-2xl space-y-4">
-        <StartFromBlueprintCard />
-        <NewJobForm />
-      </div>
+      {redesign ? (
+        <NewJobRedesign />
+      ) : (
+        <div className="mx-auto max-w-2xl space-y-4">
+          <StartFromBlueprintCard />
+          <NewJobForm />
+        </div>
+      )}
     </AdminShell>
   );
 }
