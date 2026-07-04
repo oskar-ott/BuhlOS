@@ -134,6 +134,25 @@ describe("JobBuilderClient", () => {
     );
     expect(on).toContain("Plan Studio");
   });
+
+  // Wave 3 — the Spec & circuits tab is dark behind job_builder_redesign. The
+  // rail only lists it when the flag prop is on; off, it's invisible.
+  it("hides the Spec & circuits tab unless the job_builder_redesign flag prop is on (dark)", () => {
+    const off = renderToString(
+      createElement(JobBuilderClient, {
+        job: makeJob({ id: "job-1", name: "Dark Job", status: "draft" }),
+      })
+    );
+    expect(off).not.toContain("Spec &amp; circuits");
+
+    const on = renderToString(
+      createElement(JobBuilderClient, {
+        job: makeJob({ id: "job-1", name: "Lit Job", status: "draft" }),
+        specEnabled: true,
+      })
+    );
+    expect(on).toContain("Spec &amp; circuits");
+  });
 });
 
 /**

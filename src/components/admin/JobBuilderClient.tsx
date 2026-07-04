@@ -29,6 +29,7 @@ import {
 import { Button } from "@/components/ui/Button";
 import { ScopeOfWorkSection } from "./ScopeOfWorkSection";
 import { PlanStudioPanel } from "./PlanStudioPanel";
+import { ProductSpecSection } from "./ProductSpecSection";
 import type { AcceptRoomsResponse } from "@/domains/ai-drawings/schema";
 import { acceptedAreaRefsFrom } from "@/domains/ai-drawings/room-rev-diff";
 import { ScopeReconciliationStatus } from "./ScopeReconciliationStatus";
@@ -130,6 +131,7 @@ type TabKey =
   | "structure"
   | "modules"
   | "planStudio"
+  | "spec"
   | DeliverKey
   | "crew"
   | "preview"
@@ -143,6 +145,7 @@ const TABS: ReadonlyArray<{ key: TabKey; label: string }> = [
   { key: "structure", label: "Structure" },
   { key: "modules", label: "Field modules" },
   { key: "planStudio", label: "Plan Studio" },
+  { key: "spec", label: "Spec & circuits" },
   { key: "plans", label: "Plans & docs" },
   { key: "materials", label: "Materials" },
   { key: "gear", label: "Gear" },
@@ -245,7 +248,7 @@ const SECTION_TESTID: Partial<Record<TabKey, string>> = {
 };
 
 const COCKPIT_GROUPS: ReadonlyArray<{ heading: string; keys: ReadonlyArray<TabKey> }> = [
-  { heading: "Build", keys: ["overview", "basics", "scope", "structure", "modules", "planStudio"] },
+  { heading: "Build", keys: ["overview", "basics", "scope", "structure", "modules", "planStudio", "spec"] },
   { heading: "Deliver", keys: ["plans", "materials", "gear", "itps", "risks", "crew"] },
   { heading: "Ship", keys: ["preview", "publish"] },
   { heading: "More", keys: ["more"] },
@@ -313,6 +316,7 @@ export function JobBuilderClient({
   workersLoadError = null,
   planStudioEnabled = false,
   planTasksEnabled = false,
+  specEnabled = false,
 }: {
   job: Job;
   /** The confirmed scope reconciliation (server-loaded), or null/missing. Source
@@ -325,6 +329,8 @@ export function JobBuilderClient({
   planStudioEnabled?: boolean;
   /** ai_plan_tasks flag (admin-tier, dark) — gates the tasks-from-fittings review. */
   planTasksEnabled?: boolean;
+  /** job_builder_redesign flag (admin-tier, dark) — gates the Spec & circuits tab (Wave 3). */
+  specEnabled?: boolean;
 }) {
   const router = useRouter();
   const [savedJob, setSavedJob] = useState<Job>(initialJob);
@@ -562,12 +568,15 @@ export function JobBuilderClient({
   // status can read them without a TDZ trap.
   const cockpitNav: CockpitNavGroup[] = COCKPIT_GROUPS.map((g) => ({
     heading: g.heading,
-    items: g.keys.filter((key) => planStudioEnabled || key !== "planStudio").map((key) => ({
-      key,
-      label: TABS.find((t) => t.key === key)!.label,
-      status: sectionStatus(key),
-      testId: SECTION_TESTID[key],
-    })),
+    items: g.keys
+      .filter((key) => planStudioEnabled || key !== "planStudio")
+      .filter((key) => specEnabled || key !== "spec")
+      .map((key) => ({
+        key,
+        label: TABS.find((t) => t.key === key)!.label,
+        status: sectionStatus(key),
+        testId: SECTION_TESTID[key],
+      })),
   }));
 
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -1026,6 +1035,8 @@ export function JobBuilderClient({
         return renderModules();
       case "planStudio":
         return planStudioEnabled ? renderPlanStudio() : null;
+      case "spec":
+        return specEnabled ? <ProductSpecSection jobId={savedJob.id} /> : null;
       case "preview":
         return renderPreview();
       case "publish":
