@@ -100,6 +100,8 @@ export default async function JobBuilderPage({ params }: PageParams) {
   // page is already admin-gated, so the check just resolves the flag's state.
   const planStudioEnabled = await isFlagEnabled("ai_drawings", session);
   const planTasksEnabled = await isFlagEnabled("ai_plan_tasks", session);
+  // Spec & circuits (Wave 3 of the Job Builder redesign) rides the campaign flag.
+  const specEnabled = await isFlagEnabled("job_builder_redesign", session);
 
   return (
     <BuilderShell jobId={jobId} title={result.job.name}>
@@ -112,6 +114,7 @@ export default async function JobBuilderPage({ params }: PageParams) {
         workersLoadError={workers.error}
         planStudioEnabled={planStudioEnabled}
         planTasksEnabled={planTasksEnabled}
+        specEnabled={specEnabled}
       />
     </BuilderShell>
   );

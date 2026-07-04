@@ -60,10 +60,17 @@ UX; and pixel-fidelity polish via the #792 primitives.
   Publish to prototype density + microcopy. Flag-gated; reuse all existing domain
   wiring. **Coordinate with #849–852** (the Plan Studio tab): both edit the tab set —
   keep both.
-- **Wave 3 — Spec & circuits: Product-spec tab.** New small domain (product-spec
-  lines per system: qty/product/cut-out/supplier + per-system edge-case note),
-  Zod-validated, persisted on the job, surfaced as a builder tab beside the existing
-  circuit schedule. Flag-gated + tested.
+- **Wave 3 — Spec & circuits: Product-spec tab (landed).** The product half of the
+  prototype's §5.7: per-system product lines (qty · product · who supplies, "" = we
+  supply) + a per-system edge-case note. Storage: `job.productSpec` on the job record
+  (the switchboards/circuits precedent — rides JobSchema passthrough, one job GET
+  carries it); `api/job-spec.js` is the only writer (GET job-visible, PUT
+  canManageJob, validation mirroring job-circuits, ids preserved/minted, qty junk →
+  null never a fake 0). Typed twin `src/domains/job-spec/` (Zod + client). Builder
+  tab "Spec & circuits" gated by `job_builder_redesign`; the Power/circuits half
+  links out to the shipped circuit schedule (reuse, don't duplicate). Phil does NOT
+  consume the spec yet (office register only — stated honestly in the schema).
+  Landed out of order (before Wave 2) because Wave 2 depends on the still-open #792.
 - **Wave 4 — Deliver + Documents steps.** Consolidate the separate link-out tabs into
   the prototype's single **Deliver** hub-cards step (real counts + "Opens in BuhlOS")
   and a **Documents** step (file list + visible-to-crew toggles); wire the auto-fill
