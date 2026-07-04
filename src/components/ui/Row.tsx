@@ -24,7 +24,7 @@ export function Row({ title, meta, right, onClick, className, children }: RowPro
           <div className="truncate font-display text-sm font-semibold text-text">{title}</div>
         ) : null}
         {meta ? (
-          <div className="mt-0.5 font-mono text-[11px] uppercase tracking-wider text-text-muted">
+          <div className="mt-0.5 font-mono text-[12px] uppercase tracking-wider text-text-muted">
             {meta}
           </div>
         ) : null}

@@ -57,7 +57,7 @@ export function Seg<T extends string>({
             {o.count !== undefined ? (
               <span
                 className={cn(
-                  "rounded-pill px-1.5 font-mono text-[10px] font-semibold tabular-nums",
+                  "rounded-pill px-1.5 font-mono text-[12px] font-semibold tabular-nums",
                   active ? "bg-white/20 text-text-inverse" : "bg-surface-subtle text-text-muted"
                 )}
               >

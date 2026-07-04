@@ -19,7 +19,7 @@ export function SevBadge({ sev, className }: { sev: Severity; className?: string
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-[3px] px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider",
+        "inline-flex items-center rounded-[3px] px-1.5 py-0.5 font-mono text-[12px] font-semibold uppercase tracking-wider",
         s.cls,
         className
       )}

@@ -16,7 +16,7 @@ const TONE: Record<AvatarTone, string> = {
 };
 
 const SIZE: Record<AvatarSize, string> = {
-  sm: "h-7 w-7 text-[11px]",
+  sm: "h-7 w-7 text-[12px]",
   lg: "h-9 w-9 text-[13px]",
 };
 

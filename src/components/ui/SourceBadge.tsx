@@ -9,7 +9,7 @@ export function SourceBadge({ source, className }: { source: string; className?:
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-[3px] border border-border bg-surface-subtle px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-text-muted",
+        "inline-flex items-center rounded-[3px] border border-border bg-surface-subtle px-1.5 py-0.5 font-mono text-[12px] font-semibold uppercase tracking-wider text-text-muted",
         className
       )}
     >

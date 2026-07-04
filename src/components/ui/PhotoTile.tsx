@@ -21,7 +21,7 @@ export function PhotoTile({
       )}
       aria-hidden="true"
     >
-      <span className="font-mono text-[10px] uppercase tracking-wider text-text-muted">
+      <span className="font-mono text-[12px] uppercase tracking-wider text-text-muted">
         {caption}
       </span>
     </div>

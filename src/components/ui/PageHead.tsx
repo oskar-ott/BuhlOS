@@ -21,7 +21,7 @@ export function PageHead({ title, sub, actions, className }: PageHeadProps) {
           {title}
         </h1>
         {sub ? (
-          <p className="mt-1 font-mono text-[11px] uppercase tracking-wider text-text-muted">
+          <p className="mt-1 font-mono text-[12px] uppercase tracking-wider text-text-muted">
             {sub}
           </p>
         ) : null}

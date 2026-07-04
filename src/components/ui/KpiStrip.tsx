@@ -32,11 +32,11 @@ export function KpiStrip({ cells, className }: { cells: ReadonlyArray<KpiCell>; 
     >
       {cells.map((c) => (
         <div key={c.lbl} className="bg-surface px-3 py-2.5">
-          <p className="font-mono text-[10px] uppercase tracking-wider text-text-muted">{c.lbl}</p>
+          <p className="font-mono text-[12px] uppercase tracking-wider text-text-muted">{c.lbl}</p>
           <p className={cn("mt-0.5 font-display text-2xl font-bold tabular-nums", NUM_TONE[c.tone ?? "default"])}>
             {c.num}
           </p>
-          {c.sub ? <p className="mt-0.5 text-[11px] text-text-muted">{c.sub}</p> : null}
+          {c.sub ? <p className="mt-0.5 text-[12px] text-text-muted">{c.sub}</p> : null}
         </div>
       ))}
     </div>

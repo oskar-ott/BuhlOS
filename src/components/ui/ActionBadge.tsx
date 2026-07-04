@@ -9,7 +9,7 @@ export function ActionBadge({ exact, className }: { exact: boolean; className?: 
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-[3px] px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider",
+        "inline-flex items-center rounded-[3px] px-1.5 py-0.5 font-mono text-[12px] font-semibold uppercase tracking-wider",
         exact
           ? "bg-brand-navy text-text-inverse"
           : "border border-border bg-surface-subtle text-text-muted",
