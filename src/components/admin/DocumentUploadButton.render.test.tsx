@@ -44,4 +44,25 @@ describe("DocumentUploadButton", () => {
     expect(html).not.toContain("Drawing number");
     expect(html).toContain("Certificate");
   });
+
+  it("accepts multiple files — except in revision mode, which names ONE predecessor", () => {
+    const normal = renderToString(
+      createElement(DocumentUploadButton, { jobId: "j1", defaultOpen: true }),
+    );
+    // React SSR renders the boolean attribute as multiple=""
+    expect(normal).toMatch(/data-testid="document-upload-file"[^>]*multiple=""|multiple=""[^>]*data-testid="document-upload-file"/);
+    expect(normal).toContain("25 MB each");
+
+    const revise = renderToString(
+      createElement(DocumentUploadButton, {
+        jobId: "j1",
+        defaultOpen: true,
+        revises: { id: "pl_1", drawingNumber: "E-101", revision: "B" },
+      }),
+    );
+    expect(revise).not.toContain('multiple=""');
+    // batch UI never appears in the SSR state (no files picked yet)
+    expect(revise).not.toContain("applies to all");
+    expect(normal).not.toContain("applies to all");
+  });
 });

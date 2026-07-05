@@ -18,20 +18,26 @@ import { loadPdfJs } from "@/lib/pdfjs-loader";
  * uploaders — keep it shell-neutral (no page-specific assumptions).
  *
  * Flow:
- *   1. Pick a file (PDF/image, ≤ 25 MB) + metadata. Drawing number /
- *      revision only apply to drawings — shown for the plan category.
- *   2. POST the dataUrl. A same-number current revision is auto-superseded
- *      by the server, which says so via `revisionWarning` (surfaced as a
- *      notice — it's a statement of what happened, not a question).
+ *   1. Pick file(s) (PDF/image, ≤ 25 MB each) + metadata. ONE file keeps the
+ *      full per-file form (title / drawing number / revision — unchanged).
+ *      SEVERAL files switch to batch mode: one shared category (+ discipline),
+ *      titles default to each file's name on the register, and the per-file
+ *      drawing number / revision stay blank (they're per-drawing facts — edit
+ *      them on the register afterwards, never invented here).
+ *   2. POST each dataUrl SEQUENTIALLY (bounded memory; the serverless body
+ *      cap applies per call). A same-number current revision is auto-
+ *      superseded by the server, which says so via `revisionWarning`.
  *   3. PDFs only: render each page to PNG in-browser (PDF.js @ 180 DPI,
  *      same recipe as the deleted estate) and register them one call at a
  *      time — the takeoff + overlay pipeline depends on these per-page
  *      PNGs, and this was their only ingestion path. Page-prep failure
  *      degrades honestly: the document is already saved; the viewer falls
  *      back to the raw file.
+ *   4. Batch mode finishes with a PER-FILE result list (uploaded / failed
+ *      with the reason) — a mid-batch failure never hides what did land.
  *
  * The server is the permission gate (admin tier any job, LH their assigned
- * jobs) — a 403 surfaces in the error banner.
+ * jobs) — a 403 surfaces in the error banner / per-file result.
  */
 
 const MAX_BYTES = 25 * 1024 * 1024;
@@ -47,6 +53,7 @@ interface Props {
    * #299: "New revision" mode. Names the predecessor register row — the
    * server inherits drawingNumber/discipline/title/level and supersedes it
    * atomically, so the form shrinks to file + revision + what-changed.
+   * Single-file by nature (one predecessor).
    */
   revises?: {
     id: string;
@@ -56,10 +63,27 @@ interface Props {
   };
 }
 
+interface BatchResult {
+  name: string;
+  ok: boolean;
+  error?: string;
+  pagesPrepared?: number | null;
+  pagePrepError?: string | null;
+  revisionWarning?: string | null;
+}
+
 type Phase =
   | { kind: "form" }
   | { kind: "uploading" }
   | { kind: "rendering"; page: number; total: number }
+  | {
+      kind: "batch";
+      index: number; // 1-based file position
+      total: number;
+      stage: "uploading" | "rendering";
+      page?: number;
+      pages?: number;
+    }
   | {
       kind: "done";
       revisionWarning: string | null;
@@ -67,7 +91,8 @@ type Phase =
       notified: number | null;
       pagesPrepared: number | null;
       pagePrepError: string | null;
-    };
+    }
+  | { kind: "batchDone"; results: BatchResult[] };
 
 function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -87,7 +112,7 @@ export function DocumentUploadButton({
   const router = useRouter();
   const [open, setOpen] = useState(defaultOpen);
   const [phase, setPhase] = useState<Phase>({ kind: "form" });
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState<string>(defaultCategory);
   const [drawingNumber, setDrawingNumber] = useState("");
@@ -97,11 +122,12 @@ export function DocumentUploadButton({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const reviseName = revises ? (revises.drawingNumber || revises.title || "this drawing") : null;
 
-  const busy = phase.kind === "uploading" || phase.kind === "rendering";
+  const busy = phase.kind === "uploading" || phase.kind === "rendering" || phase.kind === "batch";
+  const batchMode = !revises && files.length > 1;
 
   function reset() {
     setPhase({ kind: "form" });
-    setFile(null);
+    setFiles([]);
     setTitle("");
     setCategory(defaultCategory);
     setDrawingNumber("");
@@ -116,7 +142,51 @@ export function DocumentUploadButton({
     reset();
   }
 
+  /**
+   * PDFs: per-page PNG ingestion for the viewer/takeoff pipeline. Best-effort
+   * enhancement — the document is already saved; the viewer copes without it.
+   */
+  async function preparePdfPages(
+    file: File,
+    planId: string,
+    onPage: (page: number, total: number) => void,
+  ): Promise<{ pagesPrepared: number | null; pagePrepError: string | null }> {
+    if (file.type !== "application/pdf") return { pagesPrepared: null, pagePrepError: null };
+    try {
+      const pdfjs = await loadPdfJs();
+      const pdf = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
+      for (let i = 1; i <= pdf.numPages; i++) {
+        onPage(i, pdf.numPages);
+        const page = await pdf.getPage(i);
+        const viewport = page.getViewport({ scale: RENDER_DPI / 72 });
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.floor(viewport.width);
+        canvas.height = Math.floor(viewport.height);
+        const ctx = canvas.getContext("2d");
+        if (!ctx) throw new Error("canvas unavailable");
+        ctx.fillStyle = "#fff";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        await page.render({ canvasContext: ctx, viewport }).promise;
+        const pngDataUrl = canvas.toDataURL("image/png");
+        canvas.width = 0;
+        canvas.height = 0;
+        const registered = await setPlanPages(jobId, planId, {
+          pageIndex: i - 1,
+          pngDataUrl,
+        });
+        if (!registered.ok) throw new Error(registered.error.message);
+      }
+      return { pagesPrepared: pdf.numPages, pagePrepError: null };
+    } catch (err) {
+      return {
+        pagesPrepared: null,
+        pagePrepError: err instanceof Error ? err.message : "page render failed",
+      };
+    }
+  }
+
   async function submit() {
+    const file = files[0];
     if (!file) return;
     setErrorMessage(null);
     if (file.size > MAX_BYTES) {
@@ -154,48 +224,16 @@ export function DocumentUploadButton({
         return;
       }
 
-      // PDFs: per-page PNG ingestion for the viewer/takeoff pipeline.
-      let pagesPrepared: number | null = null;
-      let pagePrepError: string | null = null;
-      if (file.type === "application/pdf") {
-        try {
-          const pdfjs = await loadPdfJs();
-          const pdf = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
-          for (let i = 1; i <= pdf.numPages; i++) {
-            setPhase({ kind: "rendering", page: i, total: pdf.numPages });
-            const page = await pdf.getPage(i);
-            const viewport = page.getViewport({ scale: RENDER_DPI / 72 });
-            const canvas = document.createElement("canvas");
-            canvas.width = Math.floor(viewport.width);
-            canvas.height = Math.floor(viewport.height);
-            const ctx = canvas.getContext("2d");
-            if (!ctx) throw new Error("canvas unavailable");
-            ctx.fillStyle = "#fff";
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            await page.render({ canvasContext: ctx, viewport }).promise;
-            const pngDataUrl = canvas.toDataURL("image/png");
-            canvas.width = 0;
-            canvas.height = 0;
-            const registered = await setPlanPages(jobId, uploaded.data.plan.id, {
-              pageIndex: i - 1,
-              pngDataUrl,
-            });
-            if (!registered.ok) throw new Error(registered.error.message);
-          }
-          pagesPrepared = pdf.numPages;
-        } catch (err) {
-          // The document itself is saved — page prep is a best-effort
-          // enhancement, and the viewer copes without it.
-          pagePrepError = err instanceof Error ? err.message : "page render failed";
-        }
-      }
+      const prep = await preparePdfPages(file, uploaded.data.plan.id, (page, total) =>
+        setPhase({ kind: "rendering", page, total }),
+      );
 
       setPhase({
         kind: "done",
         revisionWarning: uploaded.data.revisionWarning,
         notified: uploaded.data.notified ?? null,
-        pagesPrepared,
-        pagePrepError,
+        pagesPrepared: prep.pagesPrepared,
+        pagePrepError: prep.pagePrepError,
       });
       router.refresh();
     } catch (err) {
@@ -204,8 +242,66 @@ export function DocumentUploadButton({
     }
   }
 
+  /**
+   * Batch mode: upload the selected files one after another (bounded memory,
+   * one serverless body per call). A failure records honestly and the batch
+   * carries on — what landed is never hidden by what didn't.
+   */
+  async function submitBatch() {
+    if (files.length < 2) return;
+    setErrorMessage(null);
+    const results: BatchResult[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i]!;
+      setPhase({ kind: "batch", index: i + 1, total: files.length, stage: "uploading" });
+      if (file.size > MAX_BYTES) {
+        results.push({ name: file.name, ok: false, error: "too large — 25 MB max" });
+        continue;
+      }
+      try {
+        const dataUrl = await readFileAsDataUrl(file);
+        const uploaded = await uploadDocument(jobId, {
+          dataUrl,
+          fileName: file.name,
+          // Title defaults to the file name on the register (displayTitle);
+          // drawing number / revision are per-drawing facts — never invented
+          // in a batch. Edit them on the register afterwards.
+          title: "",
+          category,
+          drawingNumber: "",
+          revision: "",
+          discipline: category === "plan" ? discipline : undefined,
+        });
+        if (!uploaded.ok) {
+          results.push({ name: file.name, ok: false, error: uploaded.error.message });
+          continue;
+        }
+        const prep = await preparePdfPages(file, uploaded.data.plan.id, (page, pages) =>
+          setPhase({ kind: "batch", index: i + 1, total: files.length, stage: "rendering", page, pages }),
+        );
+        results.push({
+          name: file.name,
+          ok: true,
+          pagesPrepared: prep.pagesPrepared,
+          pagePrepError: prep.pagePrepError,
+          revisionWarning: uploaded.data.revisionWarning,
+        });
+      } catch (err) {
+        results.push({
+          name: file.name,
+          ok: false,
+          error: err instanceof Error ? err.message : "Upload failed",
+        });
+      }
+    }
+    setPhase({ kind: "batchDone", results });
+    router.refresh();
+  }
+
   const inputClass =
     "h-10 w-full rounded-card border border-border bg-surface px-3 text-sm";
+
+  const doneOk = phase.kind === "batchDone" ? phase.results.filter((r) => r.ok).length : 0;
 
   return (
     <>
@@ -261,6 +357,45 @@ export function DocumentUploadButton({
                   </Button>
                 </div>
               </div>
+            ) : phase.kind === "batchDone" ? (
+              <div className="space-y-3" data-testid="document-upload-batch-done">
+                <p className="text-text">
+                  {doneOk} of {phase.results.length} document{phase.results.length === 1 ? "" : "s"} uploaded.
+                </p>
+                <ul className="space-y-1.5">
+                  {phase.results.map((r) => (
+                    <li key={r.name} className="rounded-card border border-border px-3 py-2">
+                      <span className="block truncate font-medium text-text">
+                        {r.ok ? "✓" : "✗"} {r.name}
+                      </span>
+                      {!r.ok && r.error ? (
+                        <span className="block text-[12px] text-state-danger">{r.error}</span>
+                      ) : null}
+                      {r.ok && r.pagesPrepared != null ? (
+                        <span className="block text-[12px] text-text-muted">
+                          {r.pagesPrepared} page{r.pagesPrepared === 1 ? "" : "s"} prepared
+                        </span>
+                      ) : null}
+                      {r.ok && r.pagePrepError ? (
+                        <span className="block text-[12px] text-state-warning">
+                          saved, but page preparation failed ({r.pagePrepError})
+                        </span>
+                      ) : null}
+                      {r.ok && r.revisionWarning ? (
+                        <span className="block text-[12px] text-state-warning">{r.revisionWarning}</span>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+                <div className="flex gap-2">
+                  <Button variant="secondary" className="flex-1" onClick={close}>
+                    Close
+                  </Button>
+                  <Button className="flex-1" onClick={reset}>
+                    Upload more
+                  </Button>
+                </div>
+              </div>
             ) : (
               <>
                 {errorMessage ? (
@@ -270,11 +405,14 @@ export function DocumentUploadButton({
                 ) : null}
 
                 <label className="block">
-                  <span className="text-text-muted">File (PDF or image, up to 25 MB)</span>
+                  <span className="text-text-muted">
+                    {revises ? "File (PDF or image, up to 25 MB)" : "Files (PDF or image, up to 25 MB each)"}
+                  </span>
                   <input
                     type="file"
                     accept="application/pdf,image/*"
-                    onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                    multiple={!revises}
+                    onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
                     className="mt-1 block w-full text-sm"
                     data-testid="document-upload-file"
                   />
@@ -312,7 +450,62 @@ export function DocumentUploadButton({
                   </>
                 ) : null}
 
-                {!revises ? (
+                {!revises && batchMode ? (
+                  <>
+                    <ul
+                      className="max-h-40 space-y-1 overflow-y-auto rounded-card border border-border p-2"
+                      data-testid="document-upload-batch-list"
+                    >
+                      {files.map((f) => (
+                        <li key={f.name} className="flex items-baseline justify-between gap-2">
+                          <span className="min-w-0 truncate text-text">{f.name}</span>
+                          <span className="shrink-0 font-mono text-[12px] text-text-muted">
+                            {(f.size / (1024 * 1024)).toFixed(1)} MB
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                    <label className="block">
+                      <span className="text-text-muted">Category (applies to all)</span>
+                      <select
+                        value={category}
+                        onChange={(e) => setCategory(e.target.value)}
+                        className={inputClass}
+                        data-testid="document-upload-category"
+                      >
+                        {DOCUMENT_CATEGORIES.map((c) => (
+                          <option key={c} value={c}>
+                            {categoryLabel(c)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {category === "plan" ? (
+                      <label className="block">
+                        <span className="text-text-muted">Discipline (applies to all)</span>
+                        <select
+                          value={discipline}
+                          onChange={(e) => setDiscipline(e.target.value)}
+                          className={inputClass}
+                          data-testid="document-upload-discipline"
+                        >
+                          {DOCUMENT_DISCIPLINES.map((dd) => (
+                            <option key={dd} value={dd}>
+                              {dd[0]!.toUpperCase() + dd.slice(1)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : null}
+                    <p className="rounded-card bg-surface-subtle px-3 py-2 text-[12px] text-text-muted">
+                      Each file&rsquo;s title defaults to its file name, and drawing number /
+                      revision stay blank — they&rsquo;re per-drawing facts, so set them on the
+                      register afterwards rather than guessing here.
+                    </p>
+                  </>
+                ) : null}
+
+                {!revises && !batchMode ? (
                 <>
                 <label className="block">
                   <span className="text-text-muted">Title</span>
@@ -392,6 +585,14 @@ export function DocumentUploadButton({
                     Preparing page {phase.page} of {phase.total} for the viewer…
                   </p>
                 ) : null}
+                {phase.kind === "batch" ? (
+                  <p className="text-text-muted" role="status" data-testid="document-upload-batch-progress">
+                    File {phase.index} of {phase.total}
+                    {phase.stage === "rendering" && phase.page && phase.pages
+                      ? ` — preparing page ${phase.page} of ${phase.pages}…`
+                      : " — uploading…"}
+                  </p>
+                ) : null}
 
                 <div className="flex gap-2">
                   <Button variant="secondary" className="flex-1" onClick={close} disabled={busy}>
@@ -399,15 +600,19 @@ export function DocumentUploadButton({
                   </Button>
                   <Button
                     className="flex-1"
-                    onClick={() => void submit()}
-                    disabled={busy || !file}
+                    onClick={() => void (batchMode ? submitBatch() : submit())}
+                    disabled={busy || files.length === 0}
                     data-testid="document-upload-submit"
                   >
                     {phase.kind === "uploading"
                       ? "Uploading…"
                       : phase.kind === "rendering"
                         ? "Preparing pages…"
-                        : "Upload"}
+                        : phase.kind === "batch"
+                          ? `Uploading ${phase.index}/${phase.total}…`
+                          : batchMode
+                            ? `Upload ${files.length} documents`
+                            : "Upload"}
                   </Button>
                 </div>
               </>
