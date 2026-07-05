@@ -399,6 +399,36 @@ describe("groupByDrawing", () => {
     expect(groups[1]!.documents).toHaveLength(1);
   });
 
+  it("keeps DISTINCT un-numbered documents separate — not a fake revision chain", () => {
+    // Two different plans with NO drawing number are NOT revisions of each other:
+    // each must be its own single-document group (regression — a blank number used
+    // to collapse every un-numbered file into one bogus "N previous revisions" chain).
+    const planNd1: Document = {
+      id: "pl_nd1",
+      url: "https://x/1",
+      title: "Power & Data layout",
+      category: "plan",
+      status: "current",
+      uploadedAt: "2026-05-01T08:00:00.000Z",
+    };
+    const planNd2: Document = {
+      id: "pl_nd2",
+      url: "https://x/2",
+      title: "Emergency lighting layout",
+      category: "plan",
+      status: "current",
+      uploadedAt: "2026-05-02T08:00:00.000Z",
+    };
+    const groups = groupByDrawing([planNd1, planNd2]);
+    expect(groups).toHaveLength(2);
+    expect(groups.every((g) => g.drawingNumber === null)).toBe(true);
+    expect(groups.every((g) => g.documents.length === 1)).toBe(true);
+    expect(groups.flatMap((g) => g.documents.map((d) => d.id)).sort()).toEqual([
+      "pl_nd1",
+      "pl_nd2",
+    ]);
+  });
+
   it("preserves first-seen order of distinct drawing numbers", () => {
     const groups = groupByDrawing([planC, planA, planB]);
     expect(groups.map((g) => g.drawingNumber)).toEqual(["M-100", "E-200"]);
