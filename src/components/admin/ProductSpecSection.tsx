@@ -47,6 +47,8 @@ export function ProductSpecSection({ jobId }: Props) {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<string | null>(null);
+  // Inline arm/confirm for destructive removes (house rule: no window.confirm).
+  const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     const res = await getJobSpec(jobId);
@@ -67,6 +69,18 @@ export function ProductSpecSection({ jobId }: Props) {
     setSystems(fn);
     setDirty(true);
     setSavedAt(null);
+  }
+
+  // First click arms a row (by key), second click on the same row removes it;
+  // arming a different row re-targets. Matches the ClaimsRegister/DefectsRegister
+  // inline confirm rather than a browser dialog (house rule: no window.confirm).
+  function askRemove(key: string, doRemove: () => void) {
+    if (confirmRemove === key) {
+      doRemove();
+      setConfirmRemove(null);
+    } else {
+      setConfirmRemove(key);
+    }
   }
 
   function addSystem() {
@@ -237,11 +251,23 @@ export function ProductSpecSection({ jobId }: Props) {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => removeSystem(si)}
+                  onClick={() => askRemove(`sys:${si}`, () => removeSystem(si))}
                   disabled={saving}
-                  aria-label={`Remove system ${s.name || si + 1}`}
+                  aria-label={
+                    confirmRemove === `sys:${si}`
+                      ? `Confirm remove system ${s.name || si + 1} — click again`
+                      : `Remove system ${s.name || si + 1}`
+                  }
+                  title={
+                    confirmRemove === `sys:${si}`
+                      ? "Click again to remove this system and its lines"
+                      : undefined
+                  }
                 >
-                  <Trash2 className="h-4 w-4" aria-hidden="true" />
+                  <Trash2
+                    className={confirmRemove === `sys:${si}` ? "h-4 w-4 text-state-danger" : "h-4 w-4"}
+                    aria-hidden="true"
+                  />
                 </Button>
               </div>
 
@@ -282,7 +308,7 @@ export function ProductSpecSection({ jobId }: Props) {
                                 const n = Number(raw);
                                 if (Number.isFinite(n) && n >= 0) updateLine(si, li, { qty: Math.round(n) });
                               }}
-                              placeholder="—"
+                              placeholder="Qty"
                               aria-label="Quantity"
                             />
                           </td>
@@ -300,7 +326,7 @@ export function ProductSpecSection({ jobId }: Props) {
                               className={inputClass}
                               value={l.supplier}
                               onChange={(e) => updateLine(si, li, { supplier: e.target.value })}
-                              placeholder=""
+                              placeholder="Blank = we supply"
                               aria-label="Who supplies"
                             />
                           </td>
@@ -308,11 +334,21 @@ export function ProductSpecSection({ jobId }: Props) {
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => removeLine(si, li)}
+                              onClick={() => askRemove(`line:${si}:${li}`, () => removeLine(si, li))}
                               disabled={saving}
-                              aria-label="Remove line"
+                              aria-label={
+                                confirmRemove === `line:${si}:${li}`
+                                  ? "Confirm remove line — click again"
+                                  : "Remove line"
+                              }
+                              title={confirmRemove === `line:${si}:${li}` ? "Click again to remove" : undefined}
                             >
-                              <Trash2 className="h-4 w-4" aria-hidden="true" />
+                              <Trash2
+                                className={
+                                  confirmRemove === `line:${si}:${li}` ? "h-4 w-4 text-state-danger" : "h-4 w-4"
+                                }
+                                aria-hidden="true"
+                              />
                             </Button>
                           </td>
                         </tr>
