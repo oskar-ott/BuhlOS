@@ -186,6 +186,14 @@ describe("JobBuilderClient", () => {
     expect(off).not.toContain('data-testid="cockpit-nav-sub"');
     expect(on).toContain('data-testid="cockpit-nav-sub"');
     expect(on).toContain("9 on");
+
+    // UI/UX polish — the redesign rail reads in WORK order: scope before the
+    // documents step, and Plan Studio (whose output feeds Structure) before
+    // Structure. The legacy (off) rail keeps its original order untouched.
+    expect(on.indexOf(">Scope<")).toBeGreaterThan(-1);
+    expect(on.indexOf(">Scope<")).toBeLessThan(on.indexOf(">Documents<"));
+    expect(on.indexOf(">Plan Studio<")).toBeGreaterThan(-1);
+    expect(on.indexOf(">Plan Studio<")).toBeLessThan(on.indexOf(">Structure<"));
   });
 
   // Wave 2 — the header eyebrow (mono ref · site line above the job name) is

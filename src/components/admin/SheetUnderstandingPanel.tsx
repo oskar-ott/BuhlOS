@@ -626,13 +626,18 @@ export function SheetUnderstandingPanel({
   );
 
   if (status === "unavailable") {
+    // Show the ACTUAL reason unwrapped — the message is already a complete,
+    // actionable sentence (missing ANTHROPIC_API_KEY vs no extraction store).
+    // Wrapping every case in store phrasing mis-diagnosed a missing key as a
+    // store problem.
     return (
       <Card>
-        <CardTitle>AI sheet understanding</CardTitle>
+        <CardTitle>Plan analysis</CardTitle>
         <CardDescription className="mt-1">
-          The extraction store isn&rsquo;t reachable in this environment
-          {statusMessage ? <> — {statusMessage}</> : null}. Nothing is analysed
-          or shown here until it is.
+          {statusMessage
+            ? `Not available here: ${statusMessage}`
+            : "Not available in this environment."}{" "}
+          Nothing is analysed or shown until it is.
         </CardDescription>
       </Card>
     );
@@ -642,12 +647,12 @@ export function SheetUnderstandingPanel({
     <Card>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <CardTitle>AI sheet understanding</CardTitle>
+          <CardTitle>Plan analysis</CardTitle>
           <CardDescription className="mt-1">
-            Reads each page&rsquo;s sheet type + title block (number, title,
-            rev, scale) so later AI features know which drawing they&rsquo;re
-            on. Every value shows the model&rsquo;s confidence — correct
-            anything it got wrong; your corrections always win.
+            Analyse a plan to read its title block (number, title, rev, scale)
+            and suggest rooms and fittings. Every value shows the model&rsquo;s
+            confidence — correct anything it got wrong; your corrections always
+            win.
           </CardDescription>
         </div>
         {spend ? <SpendMeter spend={spend} /> : null}
@@ -655,7 +660,7 @@ export function SheetUnderstandingPanel({
 
       {status === "loading" ? (
         <p className="mt-3 text-sm text-text-muted" role="status">
-          Loading sheet understanding…
+          Loading plan analysis…
         </p>
       ) : null}
 
@@ -664,7 +669,7 @@ export function SheetUnderstandingPanel({
           className="mt-3 rounded-card border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"
           role="alert"
         >
-          Couldn&rsquo;t load sheet understanding — {statusMessage}.{" "}
+          Couldn&rsquo;t load plan analysis — {statusMessage}.{" "}
           <button type="button" className="underline" onClick={() => void load()}>
             Retry
           </button>
@@ -967,7 +972,7 @@ function PlanSheets({
   ).length;
   return (
     <section
-      aria-label={`Sheet understanding for ${planLabel(plan)}`}
+      aria-label={`Plan analysis for ${planLabel(plan)}`}
       className="rounded-card border border-border bg-surface"
     >
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2.5">

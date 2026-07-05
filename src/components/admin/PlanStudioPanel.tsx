@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import type { Route } from "next";
 import { ExternalLink, Sparkles } from "lucide-react";
@@ -77,6 +77,10 @@ interface Props {
   /** Bump to refetch the detected rooms (e.g. the in-builder analysis panel just
    *  mapped new rooms). Optional — omitted everywhere else, behaviour unchanged. */
   refreshToken?: number;
+  /** The analysis surface, rendered BETWEEN the upload header and the detected
+   *  rooms so the tab reads top-down as the actual flow: upload → analyse →
+   *  review → accept. The builder passes SheetUnderstandingPanel here. */
+  analysisSlot?: ReactNode;
 }
 
 export function PlanStudioPanel({
@@ -85,6 +89,7 @@ export function PlanStudioPanel({
   planTasksEnabled,
   onAreasCreated,
   refreshToken = 0,
+  analysisSlot,
 }: Props) {
   const [load, setLoad] = useState<Load>({ phase: "loading" });
   const [busy, setBusy] = useState(false);
@@ -265,6 +270,10 @@ export function PlanStudioPanel({
         </div>
       </Card>
 
+      {/* Step 2 — analyse. Slotted here so the page reads top-down as the
+          actual flow (upload above, detected rooms + accept below). */}
+      {analysisSlot}
+
       {changes.length > 0 ? (
         <Card className="border-state-warning" data-testid="plan-studio-changes">
           <CardTitle>Changes vs your accepted areas</CardTitle>
@@ -319,7 +328,7 @@ export function PlanStudioPanel({
               <CardTitle>Rooms detected on this job&rsquo;s plans</CardTitle>
               <CardDescription className="mt-1">
                 {rooms.length === 0
-                  ? "No rooms yet. Upload a plan, then run Analyse in the analysis panel below — detected rooms appear here to accept."
+                  ? "No rooms yet. Upload a plan, then run Analyse in the analysis panel above — detected rooms appear here to accept."
                   : `${reviewed.length} reviewed · ${suggested.length} awaiting review`}
               </CardDescription>
             </div>

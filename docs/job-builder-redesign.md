@@ -146,6 +146,16 @@ UX; and pixel-fidelity polish via the #792 primitives.
   - **Unsaved-edit safety:** a browser `beforeunload` warning joins the in-app
     tab guard while anything is dirty.
 
+- **UI/UX polish (landed).** Professionalisation pass after the stability slice:
+  the redesign rail's **Build group reads in work order** (basics → scope →
+  documents → Plan Studio → structure → spec → modules; legacy rail untouched);
+  the Plan Studio tab composes **top-down as the flow** (upload header → analysis
+  panel via a new `analysisSlot` prop → detected rooms → accept); the analysis
+  panel is titled **"Plan analysis"** in plain language (was "AI sheet
+  understanding") and its unavailable state shows the actual reason unwrapped
+  (missing `ANTHROPIC_API_KEY` vs missing store); **"Unsaved changes"** renders in
+  the warning tone so dirty state reads as attention.
+
 Optional / later (large, own decisions): the richer AI auto-fill **extract-card** UX
 (accept-cards across the whole register) and OCR for scanned PDFs; binding analysis
 results to a specific document revision (re-diff #851 already warns on drift);
