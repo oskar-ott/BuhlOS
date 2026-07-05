@@ -226,6 +226,14 @@ export const JobSchema = z
      *  Drives the "Documents N" chip on /v2/jobs and the section nav
      *  on /v2/jobs/[jobId]. */
     statsDocumentsCurrent: z.number().optional(),
+    /** Job Builder redesign follow-up: material requests still in motion
+     *  (requested/approved/ordered — delivered + cancelled are done).
+     *  Drives the builder Deliver card's Materials count. */
+    statsMaterialRequestsOpen: z.number().optional(),
+    /** Job Builder redesign follow-up: RFIs awaiting an answer
+     *  (open | sent — answered + closed are resolved). Drives the builder
+     *  Deliver card's Risks & RFIs count. */
+    statsRfisOpen: z.number().optional(),
   })
   .passthrough();
 

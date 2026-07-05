@@ -125,6 +125,20 @@ async function loadCrewCountByJob() {
 // job; fine at both the list and single-job scale. Fails soft per job — the
 // caller still gets the core job with stats absent rather than a 500.
 async function enrichJobsWithStats(jobs, crewCountByJob) {
+  // Deliver-card counts (Job Builder redesign follow-up): material requests
+  // live in ONE global blob, so read it once per enrichment — not per job —
+  // and count the still-in-motion requests (requested/approved/ordered;
+  // delivered + cancelled are done) per job. Fail-soft to an empty map.
+  const openMaterialsByJob = {};
+  try {
+    const mr = await readBlob('material-requests.json', { requests: [] });
+    for (const r of (mr && Array.isArray(mr.requests) ? mr.requests : [])) {
+      if (!r || !r.jobId) continue;
+      if (r.status === 'requested' || r.status === 'approved' || r.status === 'ordered') {
+        openMaterialsByJob[r.jobId] = (openMaterialsByJob[r.jobId] || 0) + 1;
+      }
+    }
+  } catch { /* stats absent beats a 500 — the cards just show no number */ }
   // Tag-expiry totals come from per-job tags.json. Parse dd/mm/yyyy and
   // count expired (already past) + soon (≤14 days).
   const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -141,7 +155,7 @@ async function enrichJobsWithStats(jobs, crewCountByJob) {
 
   return Promise.all(jobs.map(async j => {
     try {
-      const [d, tagsBlob, itpsBlob, plansBlob] = await Promise.all([
+      const [d, tagsBlob, itpsBlob, plansBlob, rfisBlob] = await Promise.all([
         readBlob(`jobs/${j.id}/data.json`, { dwellings: {}, snags: [] }),
         readBlob(`jobs/${j.id}/tags.json`, { tags: [] }).catch(() => ({ tags: [] })),
         // E1a: per-job ITP instances live on a separate blob, not on
@@ -152,6 +166,10 @@ async function enrichJobsWithStats(jobs, crewCountByJob) {
         // api/plans.js. Missing blob (no plans uploaded yet) falls back to
         // { plans: [] } so statsDocumentsCurrent reads as 0 not a reject.
         readBlob(`jobs/${j.id}/plans-index.json`, { plans: [] }).catch(() => ({ plans: [] })),
+        // Deliver-card RFI count: per-job register (api/rfis.js). Rides the
+        // same parallel fan-out, so wall-clock cost ≈ unchanged. Missing blob
+        // (no RFIs raised) falls back to { rfis: [] }.
+        readBlob(`jobs/${j.id}/rfis.json`, { rfis: [] }).catch(() => ({ rfis: [] })),
       ]);
       const stats = computeJobStats(j, d);
       let expiredTags = 0, expiringTags = 0;
@@ -192,6 +210,13 @@ async function enrichJobsWithStats(jobs, crewCountByJob) {
         const st = p.status;
         if (!st || st === 'current') documentsCurrent++;
       }
+      // Deliver-card RFI count: awaiting an answer = open | sent (answered
+      // and closed are resolved; api/rfis.js owns the lifecycle).
+      const rfisArr = Array.isArray(rfisBlob && rfisBlob.rfis) ? rfisBlob.rfis : [];
+      let rfisOpen = 0;
+      for (const r of rfisArr) {
+        if (r && (r.status === 'open' || r.status === 'sent')) rfisOpen++;
+      }
       return Object.assign({}, j, {
         statsPct:               stats.pct,
         statsTasksTotal:        stats.tasksTotal,
@@ -206,6 +231,8 @@ async function enrichJobsWithStats(jobs, crewCountByJob) {
         statsItpsActive:        itpsActive,
         statsItpsNeedsReview:   itpsNeedsReview,
         statsDocumentsCurrent:  documentsCurrent,
+        statsMaterialRequestsOpen: openMaterialsByJob[j.id] || 0,
+        statsRfisOpen:          rfisOpen,
       });
     } catch (e) {
       // Fail soft — caller still gets the core job, stats just absent.
@@ -218,6 +245,8 @@ async function enrichJobsWithStats(jobs, crewCountByJob) {
         statsItpsActive: 0,
         statsItpsNeedsReview: 0,
         statsDocumentsCurrent: 0,
+        statsMaterialRequestsOpen: 0,
+        statsRfisOpen: 0,
       });
     }
   }));

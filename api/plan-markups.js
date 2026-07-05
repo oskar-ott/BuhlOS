@@ -116,6 +116,13 @@ module.exports = async (req, res) => {
       if (plan.status && plan.status !== 'current') {
         return res.status(200).json({ markups: [] });
       }
+      // Job Builder redesign Wave 4b follow-through: a plan hidden from the
+      // field (Document.visibleToField === false — filtered out of the
+      // api/plans.js field GET) must not leak its markups to a viewer who
+      // guesses the planId either. Absent = visible, matching the list.
+      if (plan.visibleToField === false) {
+        return res.status(200).json({ markups: [] });
+      }
       markups = markups.filter((m) => m.visibleToPhil === true);
     }
     return res.status(200).json({ markups });

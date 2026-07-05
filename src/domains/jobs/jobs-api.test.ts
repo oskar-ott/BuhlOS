@@ -252,6 +252,27 @@ describe("GET /api/jobs?id=…&withStats=1 — single-job hub stats truthfulness
     blob.set("jobs/job-active/itps.json", {
       instances: [{ id: "i1", status: "witnessed" }],
     });
+    // Deliver-card counts (Job Builder redesign follow-up): material requests
+    // in the ONE global blob (still-in-motion statuses count; delivered/
+    // cancelled + other jobs' requests don't) and the per-job RFI register
+    // (open|sent count; answered/closed don't).
+    blob.set("material-requests.json", {
+      requests: [
+        { id: "m1", jobId: "job-active", status: "requested" },
+        { id: "m2", jobId: "job-active", status: "ordered" },
+        { id: "m3", jobId: "job-active", status: "delivered" },
+        { id: "m4", jobId: "job-active", status: "cancelled" },
+        { id: "m5", jobId: "job-other", status: "requested" },
+      ],
+    });
+    blob.set("jobs/job-active/rfis.json", {
+      rfis: [
+        { id: "r1", status: "open" },
+        { id: "r2", status: "sent" },
+        { id: "r3", status: "answered" },
+        { id: "r4", status: "closed" },
+      ],
+    });
 
     const res = await call({
       method: "GET",
@@ -269,6 +290,8 @@ describe("GET /api/jobs?id=…&withStats=1 — single-job hub stats truthfulness
     expect(job.statsSnagsV2Active).toBe(1);
     expect(job.statsItpsActive).toBe(1);
     expect(job.statsItpsNeedsReview).toBe(1);
+    expect(job.statsMaterialRequestsOpen).toBe(2); // requested + ordered; not delivered/cancelled/other-job
+    expect(job.statsRfisOpen).toBe(2); // open + sent; not answered/closed
   });
 });
 
