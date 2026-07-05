@@ -78,6 +78,23 @@ describe("PageHead + KpiStrip", () => {
     expect(html).toContain("—");
     expect(html).toContain("text-state-danger"); // warn tone
   });
+
+  it("KpiStrip: a cell with onClick becomes a labelled button; a plain cell stays static", () => {
+    const html = r(
+      createElement(KpiStrip, {
+        cells: [
+          { lbl: "Blockers", num: 3, onClick: () => {}, ariaLabel: "Blockers: 3 — open Publish" },
+          { lbl: "Areas", num: 7 },
+        ],
+      })
+    );
+    // The clickable cell is a real button carrying its accessible label…
+    expect(html).toContain("<button");
+    expect(html).toContain('aria-label="Blockers: 3 — open Publish"');
+    // …and it's the ONLY button — the plain "Areas" cell stays a div.
+    expect(html.match(/<button/g)?.length).toBe(1);
+    expect(html).toContain("Areas");
+  });
 });
 
 describe("Seg", () => {
