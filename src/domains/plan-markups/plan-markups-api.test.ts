@@ -373,3 +373,41 @@ describe("GET visibility — office vs field", () => {
     expect((all.body as { markups: unknown[] }).markups).toHaveLength(2);
   });
 });
+
+describe("per-file field visibility (Job Builder redesign Wave 4b follow-through)", () => {
+  it("markups on a field-hidden plan never reach the field, even by direct planId", async () => {
+    // A current plan the office hid from the crew (visibleToField: false is
+    // filtered out of the api/plans.js field GET) — guessing the planId must
+    // not leak its markups either.
+    blob.set("jobs/job-1/plans-index.json", {
+      plans: [
+        { id: "plan-hidden", status: "current", visibleToField: false, drawingNumber: "C-01", revision: "A", pages: [{ pageIndex: 0 }] },
+      ],
+    });
+    blob.set("jobs/job-1/drawing-markups.json", {
+      markups: [
+        { id: "mk_hidden", jobId: "job-1", planId: "plan-hidden", pageIndex: 0, type: "pin", x: 0.5, y: 0.5, visibleToPhil: true, archived: false },
+      ],
+    });
+
+    const field = await call({ method: "GET", userId: "u_field", role: "electrician", query: { jobId: "job-1", planId: "plan-hidden", page: "0" } });
+    expect(field.statusCode).toBe(200);
+    expect((field.body as { markups: unknown[] }).markups).toEqual([]);
+
+    // The office still sees everything — hiding is a field filter, not a delete.
+    const admin = await call({ method: "GET", userId: "u_admin", role: "admin", query: { jobId: "job-1", planId: "plan-hidden", page: "0" } });
+    expect(admin.statusCode).toBe(200);
+    expect((admin.body as { markups: Array<{ id: string }> }).markups.map((m) => m.id)).toEqual(["mk_hidden"]);
+  });
+
+  it("a plan WITHOUT the field behaves exactly as before (absent = visible)", async () => {
+    blob.set("jobs/job-1/drawing-markups.json", {
+      markups: [
+        { id: "mk_vis", jobId: "job-1", planId: "plan-current", pageIndex: 0, type: "pin", x: 0.5, y: 0.5, visibleToPhil: true, archived: false },
+      ],
+    });
+    const field = await call({ method: "GET", userId: "u_field", role: "electrician", query: { jobId: "job-1", planId: "plan-current", page: "0" } });
+    expect(field.statusCode).toBe(200);
+    expect((field.body as { markups: Array<{ id: string }> }).markups.map((m) => m.id)).toEqual(["mk_vis"]);
+  });
+});

@@ -1290,8 +1290,17 @@ export function JobBuilderClient({
         }
         return null;
       }
-      // Materials + Risks/RFIs: their counts aren't in the withStats aggregate —
-      // the card links out without a number (never a fake one).
+      if (key === "materials") {
+        return typeof s.statsMaterialRequestsOpen === "number"
+          ? `${s.statsMaterialRequestsOpen} open request${s.statsMaterialRequestsOpen === 1 ? "" : "s"}`
+          : null;
+      }
+      if (key === "risks") {
+        return typeof s.statsRfisOpen === "number"
+          ? `${s.statsRfisOpen} open RFI${s.statsRfisOpen === 1 ? "" : "s"}`
+          : null;
+      }
+      // Anything else: no number in the withStats aggregate → no invented one.
       return null;
     };
     return (
