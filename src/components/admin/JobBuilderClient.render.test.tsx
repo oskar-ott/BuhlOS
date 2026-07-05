@@ -116,23 +116,35 @@ describe("JobBuilderClient", () => {
     expect(html).not.toContain("until the builder can edit around archived items");
   });
 
-  // #206 Plan Studio — the rooms→areas tab is dark behind ai_drawings. The rail
-  // only lists it when the flag prop is on; off, it's invisible.
-  it("hides the Plan Studio tab unless the ai_drawings flag prop is on (dark)", () => {
-    const off = renderToString(
+  // #206 Plan Studio — discoverable, not hidden. In the REDESIGN rail it's always
+  // listed: ai_drawings ON = the live step; OFF = a "behind flag" sub + a flagged-off
+  // canvas (the "where is Plan Studio?" fix). The legacy (redesign-off) rail stays
+  // byte-for-byte — it lists Plan Studio only when ai_drawings is on.
+  it("Plan Studio: hidden on the legacy rail when dark, discoverable 'behind flag' on the redesign rail", () => {
+    const legacyDark = renderToString(
       createElement(JobBuilderClient, {
         job: makeJob({ id: "job-1", name: "Dark Job", status: "draft" }),
       })
     );
-    expect(off).not.toContain("Plan Studio");
+    expect(legacyDark).not.toContain("Plan Studio");
 
-    const on = renderToString(
+    const redesignDark = renderToString(
+      createElement(JobBuilderClient, {
+        job: makeJob({ id: "job-1", name: "Redesign Job", status: "draft" }),
+        redesignEnabled: true,
+      })
+    );
+    expect(redesignDark).toContain("Plan Studio");
+    expect(redesignDark).toContain("behind flag");
+
+    const lit = renderToString(
       createElement(JobBuilderClient, {
         job: makeJob({ id: "job-1", name: "Lit Job", status: "draft" }),
         planStudioEnabled: true,
       })
     );
-    expect(on).toContain("Plan Studio");
+    expect(lit).toContain("Plan Studio");
+    expect(lit).not.toContain("behind flag");
   });
 
   // Waves 3+4 — the redesign-campaign tabs are dark behind job_builder_redesign.
