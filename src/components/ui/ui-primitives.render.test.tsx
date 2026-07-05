@@ -9,6 +9,7 @@ import { SourceBadge } from "./SourceBadge";
 import { ActionBadge } from "./ActionBadge";
 import { PageHead } from "./PageHead";
 import { KpiStrip } from "./KpiStrip";
+import { ReadinessRing } from "./ReadinessRing";
 import { Seg } from "./Seg";
 import { PhotoTile } from "./PhotoTile";
 import { Row } from "./Row";
@@ -94,6 +95,34 @@ describe("PageHead + KpiStrip", () => {
     // …and it's the ONLY button — the plain "Areas" cell stays a div.
     expect(html.match(/<button/g)?.length).toBe(1);
     expect(html).toContain("Areas");
+  });
+});
+
+describe("ReadinessRing", () => {
+  it("renders the real % + label with an accessible summary and tone arc", () => {
+    const html = r(
+      createElement(ReadinessRing, {
+        pct: 67,
+        tone: "warning",
+        label: "Ready — with warnings",
+        sub: "2 to review",
+      })
+    );
+    expect(html).toContain("67"); // the real ratio, shown in the ring
+    expect(html).toContain("Ready — with warnings");
+    expect(html).toContain("2 to review");
+    expect(html).toContain('role="img"');
+    expect(html).toContain("Readiness 67%"); // accessible summary
+    expect(html).toContain("text-state-warning"); // tone arc colour
+  });
+
+  it("clamps an out-of-range ratio (never a fabricated over-100)", () => {
+    expect(r(createElement(ReadinessRing, { pct: 250, tone: "success", label: "Ready" }))).toContain(
+      "Readiness 100%"
+    );
+    expect(r(createElement(ReadinessRing, { pct: -10, tone: "danger", label: "Blocked" }))).toContain(
+      "Readiness 0%"
+    );
   });
 });
 

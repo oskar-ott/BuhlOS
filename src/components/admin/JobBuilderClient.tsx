@@ -37,6 +37,7 @@ import { ScopeReconciliationStatus } from "./ScopeReconciliationStatus";
 import { ClientContractSection } from "./ClientContractSection";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
+import { ReadinessRing } from "@/components/ui/ReadinessRing";
 import {
   captureStructurePreset,
   getJobForEdit,
@@ -651,6 +652,18 @@ export function JobBuilderClient({
       })),
   }));
 
+  // Compact readiness ring (updated design) — an HONEST proportion: the same
+  // per-section ready/total the rail bar rolls up, never an invented score (P7).
+  const scoredSections = cockpitNav.flatMap((g) => g.items).filter((i) => i.status !== "none");
+  const readySections = scoredSections.filter((i) => i.status === "ok").length;
+  const readinessPct = scoredSections.length > 0 ? (readySections / scoredSections.length) * 100 : 100;
+  const readinessSub =
+    readiness.blockingCount > 0
+      ? `${readiness.blockingCount} blocking`
+      : readiness.warningCount > 0
+        ? `${readiness.warningCount} to review`
+        : "Clear to publish";
+
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewSession, setReviewSession] = useState<ReviewClause[]>([]);
   const [reviewIndex, setReviewIndex] = useState(0);
@@ -829,21 +842,31 @@ export function JobBuilderClient({
               )}
             </CardDescription>
           </div>
-          <div className="flex shrink-0 flex-col items-end gap-1">
-            <Button
-              data-testid="save-changes"
-              onClick={save}
-              disabled={!dirty || saving || !basicsValid}
-            >
-              <Save className="h-4 w-4" aria-hidden="true" />
-              {saving ? "Saving…" : dirty ? "Save changes" : savedTick ? "Saved ✓" : "Saved"}
-            </Button>
-            <span
-              data-testid="save-state"
-              className="text-[11px] uppercase tracking-wider text-text-muted"
-            >
-              {dirty ? "Unsaved changes" : "All changes saved"}
-            </span>
+          <div className="flex shrink-0 items-start gap-4">
+            {redesignEnabled ? (
+              <ReadinessRing
+                pct={readinessPct}
+                tone={readiness.tone}
+                label={readiness.stateLabel}
+                sub={readinessSub}
+              />
+            ) : null}
+            <div className="flex flex-col items-end gap-1">
+              <Button
+                data-testid="save-changes"
+                onClick={save}
+                disabled={!dirty || saving || !basicsValid}
+              >
+                <Save className="h-4 w-4" aria-hidden="true" />
+                {saving ? "Saving…" : dirty ? "Save changes" : savedTick ? "Saved ✓" : "Saved"}
+              </Button>
+              <span
+                data-testid="save-state"
+                className="text-[11px] uppercase tracking-wider text-text-muted"
+              >
+                {dirty ? "Unsaved changes" : "All changes saved"}
+              </span>
+            </div>
           </div>
         </div>
         {saveError ? (
