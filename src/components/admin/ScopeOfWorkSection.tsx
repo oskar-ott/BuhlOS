@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, PanelRight } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -37,6 +37,7 @@ export function ScopeOfWorkSection({
   certaintyByClauseId,
   selectedClauseId = null,
   onInspectClause,
+  onDirtyChange,
 }: {
   job: Job;
   /** Per-clause certainty (clauseId → state) — from the confirmed reconciliation
@@ -47,6 +48,8 @@ export function ScopeOfWorkSection({
   selectedClauseId?: string | null;
   /** Open a saved clause in the cockpit Inspector. */
   onInspectClause?: (clauseId: string, title: string, detail: string) => void;
+  /** Report unsaved-edit state up so the builder can guard tab navigation. */
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const router = useRouter();
   const [items, setItems] = useState<DraftItem[]>(() =>
@@ -59,6 +62,12 @@ export function ScopeOfWorkSection({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<string | null>(null);
+
+  // Report unsaved edits up (builder tab-nav guard); clear on unmount.
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
 
   const patch = (key: string, p: Partial<DraftItem>) => {
     setItems((prev) => prev.map((i) => (i.key === key ? { ...i, ...p } : i)));

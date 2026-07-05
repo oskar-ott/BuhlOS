@@ -31,6 +31,8 @@ type Load =
 
 interface Props {
   jobId: string;
+  /** Report unsaved-edit state up so the builder can guard tab navigation. */
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 let uid = 0;
@@ -40,7 +42,7 @@ function localId(prefix: string): string {
   return `${prefix}local_${uid}`;
 }
 
-export function ProductSpecSection({ jobId }: Props) {
+export function ProductSpecSection({ jobId, onDirtyChange }: Props) {
   const [load, setLoad] = useState<Load>({ phase: "loading" });
   const [systems, setSystems] = useState<ProductSpecSystem[]>([]);
   const [dirty, setDirty] = useState(false);
@@ -64,6 +66,12 @@ export function ProductSpecSection({ jobId }: Props) {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Report unsaved edits up (builder tab-nav guard); clear on unmount.
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
 
   function mutate(fn: (prev: ProductSpecSystem[]) => ProductSpecSystem[]) {
     setSystems(fn);

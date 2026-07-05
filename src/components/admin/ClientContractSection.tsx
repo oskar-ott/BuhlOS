@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
@@ -26,7 +26,14 @@ import type { Job } from "@/domains/jobs/types";
  * wholesale builder save (buildUpdatePayload) still omits money fields, so
  * this section can't be clobbered by an unrelated Basics save.
  */
-export function ClientContractSection({ job }: { job: Job }) {
+export function ClientContractSection({
+  job,
+  onDirtyChange,
+}: {
+  job: Job;
+  /** Report unsaved-edit state up so the builder can guard tab navigation. */
+  onDirtyChange?: (dirty: boolean) => void;
+}) {
   const router = useRouter();
   const [clientReference, setClientReference] = useState(job.clientReference ?? "");
   const [contractValue, setContractValue] = useState(
@@ -37,6 +44,12 @@ export function ClientContractSection({ job }: { job: Job }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<string | null>(null);
+
+  // Report unsaved edits up (builder tab-nav guard); clear on unmount.
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
 
   const touch = () => {
     setDirty(true);
