@@ -967,7 +967,7 @@ export function JobBuilderClient({
                       )}
                     >
                       <span className="min-w-0 truncate font-medium">{preset.name}</span>
-                      <span className={active ? "text-text-inverse/80" : "text-text-muted"}>
+                      <span className={active ? "text-white/80" : "text-text-muted"}>
                         {preset.group.areas.length} areas
                       </span>
                     </button>

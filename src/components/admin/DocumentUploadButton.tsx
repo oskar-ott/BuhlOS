@@ -425,8 +425,8 @@ export function DocumentUploadButton({
                   {doneOk} of {phase.results.length} document{phase.results.length === 1 ? "" : "s"} uploaded.
                 </p>
                 <ul className="space-y-1.5">
-                  {phase.results.map((r) => (
-                    <li key={r.name} className="rounded-card border border-border px-3 py-2">
+                  {phase.results.map((r, i) => (
+                    <li key={`${i}-${r.name}`} className="rounded-card border border-border px-3 py-2">
                       <span className="block truncate font-medium text-text">
                         {r.ok ? "✓" : "✗"} {r.name}
                       </span>
@@ -474,7 +474,19 @@ export function DocumentUploadButton({
                     type="file"
                     accept="application/pdf,image/*"
                     multiple={!revises}
-                    onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
+                    onChange={(e) => {
+                      const picked = Array.from(e.target.files ?? []);
+                      setFiles(picked);
+                      // Entering batch: drop any single-file AI/manual category +
+                      // discipline so a one-file guess isn't silently carried in as
+                      // the "applies to all" default (see the batch note below).
+                      if (picked.length > 1) {
+                        setCategory(defaultCategory);
+                        setDiscipline("electrical");
+                        setAutofilled(false);
+                        setAutofillError(null);
+                      }
+                    }}
                     className="mt-1 block w-full text-sm"
                     data-testid="document-upload-file"
                   />
@@ -518,8 +530,8 @@ export function DocumentUploadButton({
                       className="max-h-40 space-y-1 overflow-y-auto rounded-card border border-border p-2"
                       data-testid="document-upload-batch-list"
                     >
-                      {files.map((f) => (
-                        <li key={f.name} className="flex items-baseline justify-between gap-2">
+                      {files.map((f, i) => (
+                        <li key={`${i}-${f.name}`} className="flex items-baseline justify-between gap-2">
                           <span className="min-w-0 truncate text-text">{f.name}</span>
                           <span className="shrink-0 font-mono text-[12px] text-text-muted">
                             {(f.size / (1024 * 1024)).toFixed(1)} MB

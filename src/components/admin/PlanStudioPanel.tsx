@@ -309,7 +309,9 @@ export function PlanStudioPanel({ jobId, acceptedAreas, planTasksEnabled, onArea
                   disabled={busy}
                   data-testid="plan-studio-create-areas"
                 >
-                  Create {reviewed.length} area{reviewed.length === 1 ? "" : "s"} from reviewed rooms
+                  {busy
+                    ? "Creating areas…"
+                    : `Create ${reviewed.length} area${reviewed.length === 1 ? "" : "s"} from reviewed rooms`}
                 </Button>
               ) : null}
             </div>
@@ -334,7 +336,15 @@ export function PlanStudioPanel({ jobId, acceptedAreas, planTasksEnabled, onArea
                   </div>
                   <div className="flex items-center gap-2">
                     <Pill tone={r.status === "suggested" ? "neutral" : r.status === "rejected" ? "danger" : "success"}>
-                      {r.status}
+                      {r.status === "suggested"
+                        ? "AI suggestion"
+                        : r.status === "accepted"
+                          ? "Accepted"
+                          : r.status === "rejected"
+                            ? "Rejected"
+                            : r.status === "edited"
+                              ? "Edited"
+                              : r.status}
                     </Pill>
                     {r.status === "suggested" ? (
                       <>
@@ -342,7 +352,7 @@ export function PlanStudioPanel({ jobId, acceptedAreas, planTasksEnabled, onArea
                           Accept
                         </Button>
                         <Button variant="ghost" size="sm" disabled={busy} onClick={() => reviewOne(r.id, "rejected")}>
-                          Dismiss
+                          Reject
                         </Button>
                       </>
                     ) : null}
