@@ -30,6 +30,8 @@ describe("SheetUnderstandingPanel (#197)", () => {
     );
     expect(html).toContain("Plan analysis");
     expect(html).toContain("Loading plan analysis");
+    // an ACTIVE spinner, so the load never reads as frozen/broken
+    expect(html).toContain("animate-spin");
     // states the review contract up front
     expect(html).toContain("your corrections always win");
   });
