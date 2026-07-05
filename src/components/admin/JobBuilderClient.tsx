@@ -28,7 +28,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ScopeOfWorkSection } from "./ScopeOfWorkSection";
-import { PlanStudioPanel } from "./PlanStudioPanel";
+import dynamic from "next/dynamic";
 import { ProductSpecSection } from "./ProductSpecSection";
 import { DocumentsSection } from "./DocumentsSection";
 import type { AcceptRoomsResponse } from "@/domains/ai-drawings/schema";
@@ -126,6 +126,38 @@ import { cn } from "@/lib/cn";
  */
 
 type DeliverKey = "plans" | "materials" | "gear" | "itps" | "risks";
+
+// The two AI panels are the heaviest components the builder can render
+// (SheetUnderstandingPanel alone is ~1.4k lines + the overlay/schedule dep
+// graph) and both are dark behind ai_drawings — so they're code-split out of
+// the builder bundle and only fetched when the Plan Studio tab actually
+// renders. ssr:false: they're fetch-on-mount client panels with no SSR value.
+const PlanStudioPanel = dynamic(
+  () => import("./PlanStudioPanel").then((m) => m.PlanStudioPanel),
+  {
+    ssr: false,
+    loading: () => (
+      <Card>
+        <p className="text-sm text-text-muted" role="status">
+          Loading Plan Studio…
+        </p>
+      </Card>
+    ),
+  },
+);
+const SheetUnderstandingPanel = dynamic(
+  () => import("./SheetUnderstandingPanel").then((m) => m.SheetUnderstandingPanel),
+  {
+    ssr: false,
+    loading: () => (
+      <Card>
+        <p className="text-sm text-text-muted" role="status">
+          Loading plan analysis…
+        </p>
+      </Card>
+    ),
+  },
+);
 
 type TabKey =
   | "overview"
@@ -433,6 +465,25 @@ export function JobBuilderClient({
     () => JSON.stringify(form) !== JSON.stringify(savedForm),
     [form, savedForm]
   );
+
+  // Browser-level companion to the in-app tab guard (#869): closing the tab /
+  // hard-navigating away with unsaved edits (the builder form OR a dirty
+  // own-save section) gets the browser's native "leave site?" prompt. Attached
+  // only while something is actually dirty.
+  useEffect(() => {
+    if (!dirty && dirtyTab === null) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      // Chrome requires returnValue to be set for the prompt to show.
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty, dirtyTab]);
+
+  // Plan Studio staleness bridge: the analysis panel bumps this after mapping
+  // new rooms so the accept panel refetches (see renderPlanStudio).
+  const [planStudioRefresh, setPlanStudioRefresh] = useState(0);
 
   const basicsErrors = validateJobBasics(
     {
@@ -1108,13 +1159,26 @@ export function JobBuilderClient({
 
   /* ---- the active section node fed into the cockpit canvas ---- */
   function renderPlanStudio() {
+    // One place, whole flow: upload (Plan Studio header) → ANALYSE (the full
+    // sheet-understanding panel, same component the documents page mounts) →
+    // accept rooms into areas (Plan Studio). Previously analyse lived only on
+    // /documents, which read as "upload here, then go somewhere else" — the
+    // single most confusing step of the builder. onRoomsChanged bumps the
+    // accept panel so freshly mapped rooms appear without a manual refresh.
     return (
-      <PlanStudioPanel
-        jobId={savedJob.id}
-        acceptedAreas={acceptedAreaRefsFrom(savedJob.areaGroups ?? [])}
-        planTasksEnabled={planTasksEnabled}
-        onAreasCreated={handleAreasCreated}
-      />
+      <div className="space-y-4">
+        <PlanStudioPanel
+          jobId={savedJob.id}
+          acceptedAreas={acceptedAreaRefsFrom(savedJob.areaGroups ?? [])}
+          planTasksEnabled={planTasksEnabled}
+          onAreasCreated={handleAreasCreated}
+          refreshToken={planStudioRefresh}
+        />
+        <SheetUnderstandingPanel
+          jobId={savedJob.id}
+          onRoomsChanged={() => setPlanStudioRefresh((n) => n + 1)}
+        />
+      </div>
     );
   }
 

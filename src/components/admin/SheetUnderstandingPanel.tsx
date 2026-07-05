@@ -138,7 +138,16 @@ interface RunState {
   total: number;
 }
 
-export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
+export function SheetUnderstandingPanel({
+  jobId,
+  onRoomsChanged,
+}: {
+  jobId: string;
+  /** Fired after an analysis maps new rooms — lets a sibling accept surface
+   *  (the builder's Plan Studio) refetch instead of going stale. Optional;
+   *  omitted on the documents page, where no sibling consumes it. */
+  onRoomsChanged?: () => void;
+}) {
   const [status, setStatus] = useState<PanelStatus>("loading");
   const [statusMessage, setStatusMessage] = useState<string>("");
   const [sheets, setSheets] = useState<Record<string, EffectiveSheet>>({});
@@ -268,7 +277,13 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
       setTakeoffViews(takeoffRes);
       setStatus("ready");
     } catch (err) {
-      if (err instanceof AiDrawingsError && err.code === "STORE_UNAVAILABLE") {
+      if (
+        err instanceof AiDrawingsError &&
+        (err.code === "STORE_UNAVAILABLE" || err.code === "UNCONFIGURED")
+      ) {
+        // Both are "this environment can't run AI" states with an honest,
+        // actionable message (missing store vs missing ANTHROPIC_API_KEY) —
+        // show the message rather than a generic error.
         setStatus("unavailable");
         setStatusMessage(err.message);
       } else {
@@ -521,13 +536,15 @@ export function SheetUnderstandingPanel({ jobId }: { jobId: string }) {
             ? "Rooms already mapped for this sheet (cached — no new AI spend)."
             : `Mapped ${out.inserted} room${out.inserted === 1 ? "" : "s"} — approximate boxes; review them in the counts card.`,
         );
+        // New rooms exist server-side — let the sibling accept surface refetch.
+        onRoomsChanged?.();
       } catch (err) {
         setRunNotice(err instanceof Error ? err.message : "Room mapping failed");
       } finally {
         setExtractBusyKey(null);
       }
     },
-    [jobId],
+    [jobId, onRoomsChanged],
   );
 
   // #204: tile the page in the browser (overlapping 2×2) and run one vision

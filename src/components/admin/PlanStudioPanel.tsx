@@ -52,6 +52,19 @@ type Load =
   | { phase: "error"; message: string }
   | { phase: "ready"; pages: CountReviewPage[] };
 
+/** Plain-sentence action failures. The two states an admin can actually act on
+ *  (budget cap, missing API key) get explicit copy; everything else surfaces the
+ *  server's honest message with the caller's fallback. */
+function actionErrorText(err: unknown, fallback: string): string {
+  if (err instanceof AiDrawingsError && err.code === "CAP_REACHED") {
+    return "This job has reached its AI budget cap — reviewing and accepting rooms already detected still works, but new AI analysis doesn't.";
+  }
+  if (err instanceof AiDrawingsError && err.code === "UNCONFIGURED") {
+    return err.message; // already the friendly set-the-key sentence
+  }
+  return err instanceof Error ? err.message : fallback;
+}
+
 interface Props {
   jobId: string;
   /** Areas already accepted from plans (with provenance) — the set the detected
@@ -61,9 +74,18 @@ interface Props {
   planTasksEnabled: boolean;
   /** Called after areas are created so the builder can reload the job + banner. */
   onAreasCreated: (summary: AcceptRoomsResponse) => void;
+  /** Bump to refetch the detected rooms (e.g. the in-builder analysis panel just
+   *  mapped new rooms). Optional — omitted everywhere else, behaviour unchanged. */
+  refreshToken?: number;
 }
 
-export function PlanStudioPanel({ jobId, acceptedAreas, planTasksEnabled, onAreasCreated }: Props) {
+export function PlanStudioPanel({
+  jobId,
+  acceptedAreas,
+  planTasksEnabled,
+  onAreasCreated,
+  refreshToken = 0,
+}: Props) {
   const [load, setLoad] = useState<Load>({ phase: "loading" });
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -74,6 +96,12 @@ export function PlanStudioPanel({ jobId, acceptedAreas, planTasksEnabled, onArea
       const res = await fetchCountReview(jobId);
       setLoad({ phase: "ready", pages: res.pages });
     } catch (err) {
+      if (err instanceof AiDrawingsError && err.code === "UNCONFIGURED") {
+        // Missing ANTHROPIC_API_KEY — a different problem (and fix) from the
+        // store being absent; the client's message says exactly what to set.
+        setLoad({ phase: "unavailable", message: err.message });
+        return;
+      }
       if (err instanceof AiDrawingsError && err.code === "STORE_UNAVAILABLE") {
         setLoad({
           phase: "unavailable",
@@ -91,7 +119,9 @@ export function PlanStudioPanel({ jobId, acceptedAreas, planTasksEnabled, onArea
 
   useEffect(() => {
     void refresh();
-  }, [refresh]);
+    // refreshToken: the builder bumps it when the analysis panel below mints new
+    // rooms, so this accept list never goes stale after an in-place analyse.
+  }, [refresh, refreshToken]);
 
   const rooms: PlanRoomRow[] =
     load.phase === "ready"
@@ -169,10 +199,13 @@ export function PlanStudioPanel({ jobId, acceptedAreas, planTasksEnabled, onArea
       setActionError(null);
       try {
         await fn();
-        await refresh();
       } catch (err) {
-        setActionError(err instanceof Error ? err.message : "That action failed — nothing was changed.");
+        setActionError(actionErrorText(err, "That action failed."));
       } finally {
+        // Refresh in FINALLY, not only on success: a bulk action (accept-all)
+        // can half-apply before failing, so always re-sync to the server's
+        // real state rather than leaving a stale list under an error banner.
+        await refresh();
         setBusy(false);
       }
     },
@@ -198,7 +231,7 @@ export function PlanStudioPanel({ jobId, acceptedAreas, planTasksEnabled, onArea
         await refresh();
         onAreasCreated(summary);
       } catch (err) {
-        setActionError(err instanceof Error ? err.message : "Couldn't create areas — nothing was changed.");
+        setActionError(actionErrorText(err, "Couldn't create areas — nothing was changed."));
       } finally {
         setBusy(false);
       }
@@ -215,8 +248,8 @@ export function PlanStudioPanel({ jobId, acceptedAreas, planTasksEnabled, onArea
               <Pill tone="neutral">AI — review &amp; accept</Pill>
             </div>
             <CardDescription className="mt-1">
-              Upload a plan, then turn the rooms the AI read on it into this job&rsquo;s areas.
-              Nothing is created until you accept it.
+              Upload a plan, run the analysis below, then turn the rooms the AI read into
+              this job&rsquo;s areas. Nothing is created until you accept it.
             </CardDescription>
           </div>
           <DocumentUploadButton jobId={jobId} defaultCategory="plan" />
@@ -286,11 +319,21 @@ export function PlanStudioPanel({ jobId, acceptedAreas, planTasksEnabled, onArea
               <CardTitle>Rooms detected on this job&rsquo;s plans</CardTitle>
               <CardDescription className="mt-1">
                 {rooms.length === 0
-                  ? "No rooms yet. Upload a plan and analyse it on the plan review, then accept the rooms here."
+                  ? "No rooms yet. Upload a plan, then run Analyse in the analysis panel below — detected rooms appear here to accept."
                   : `${reviewed.length} reviewed · ${suggested.length} awaiting review`}
               </CardDescription>
             </div>
             <div className="flex flex-wrap gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => void refresh()}
+                disabled={busy}
+                aria-label="Refresh the detected rooms"
+                data-testid="plan-studio-refresh"
+              >
+                Refresh
+              </Button>
               {highConfidenceSuggested.length > 0 ? (
                 <Button
                   variant="secondary"
