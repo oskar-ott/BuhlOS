@@ -216,10 +216,15 @@ export function groupByDrawing(
 ): ReadonlyArray<DocumentGroup> {
   const order: string[] = [];
   const buckets = new Map<string, Document[]>();
-  const NULL_KEY = "__no_drawing__";
+  const NULL_PREFIX = "__no_drawing__:";
   for (const d of docs) {
     const raw = String(d.drawingNumber ?? "").trim();
-    const key = raw || NULL_KEY;
+    // A real drawing number groups its revisions together. A BLANK one is NOT a
+    // shared identity — two un-numbered files are different documents, not
+    // revisions of each other — so each gets its own bucket (keyed by id) and
+    // never collapses into a fake revision chain. (The server agrees: it only
+    // auto-supersedes when the drawing number is non-blank — api/plans.js.)
+    const key = raw || `${NULL_PREFIX}${d.id}`;
     let bucket = buckets.get(key);
     if (!bucket) {
       bucket = [];
@@ -234,7 +239,7 @@ export function groupByDrawing(
       String(b.uploadedAt ?? "").localeCompare(String(a.uploadedAt ?? "")),
     );
     return {
-      drawingNumber: key === NULL_KEY ? null : key,
+      drawingNumber: key.startsWith(NULL_PREFIX) ? null : key,
       documents: bucket,
     };
   });
