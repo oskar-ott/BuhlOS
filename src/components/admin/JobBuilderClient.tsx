@@ -36,7 +36,6 @@ import { acceptedAreaRefsFrom } from "@/domains/ai-drawings/room-rev-diff";
 import { ScopeReconciliationStatus } from "./ScopeReconciliationStatus";
 import { ClientContractSection } from "./ClientContractSection";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
-import { KpiStrip } from "@/components/ui/KpiStrip";
 import { Pill } from "@/components/ui/Pill";
 import {
   captureStructurePreset,
@@ -1220,6 +1219,49 @@ export function JobBuilderClient({
       { label: "Scope to triage", value: untriagedClauses.length, to: "scope" },
       { label: "Areas", value: struct.areaCount, to: "structure" },
     ];
+    // Updated-design Overview tiles: status left-border + a big number-first count
+    // + a two-line label. Only blockers/warnings carry a status accent; the tiles
+    // stay clickable jump targets (requestTab is unsaved-edit-guard aware).
+    const overviewTiles: Array<{
+      num: number;
+      unit?: string;
+      label: string;
+      sub: string;
+      accent: "danger" | "amber" | "none";
+      to: TabKey;
+    }> = [
+      {
+        num: readiness.blockingCount,
+        label: "Publish blockers",
+        sub: "Must fix before publish",
+        accent: readiness.blockingCount > 0 ? "danger" : "none",
+        to: "publish",
+      },
+      {
+        num: readiness.warningCount,
+        label: "Warnings",
+        sub: "Review, won't block",
+        accent: readiness.warningCount > 0 ? "amber" : "none",
+        to: "publish",
+      },
+      {
+        num: struct.areaCount,
+        unit: struct.areaCount === 1 ? "area" : "areas",
+        label: "Structure",
+        sub: `across ${struct.areaGroupCount} group${struct.areaGroupCount === 1 ? "" : "s"}`,
+        accent: "none",
+        to: "structure",
+      },
+      {
+        num: untriagedClauses.length,
+        unit: untriagedClauses.length === 1 ? "clause" : "clauses",
+        label: "Unclassified scope",
+        sub: untriagedClauses.length > 0 ? "Awaiting triage" : "All classified",
+        accent: "none",
+        to: "scope",
+      },
+    ];
+    const publishIssuesOverview = [...readiness.blockers, ...readiness.warnings];
     return (
       <div className="space-y-4">
         <Card>
@@ -1249,44 +1291,42 @@ export function JobBuilderClient({
             The running rollup of what stands between this job and the field.
           </CardDescription>
           {redesignEnabled ? (
-            /* Wave 2 (job_builder_redesign) — the same four REAL numbers on the
-               KpiStrip primitive (prototype density), each a jump target matching
-               the OFF-state grid (blockers/warnings→Publish, scope→Scope,
-               areas→Structure) via requestTab (unsaved-edit guard aware). Tone
-               map: blockers>0 reads danger, warnings>0 amber. */
-            <KpiStrip
-              className="mt-3"
-              cells={[
-                {
-                  lbl: "Blockers",
-                  num: readiness.blockingCount,
-                  sub: "stop publish",
-                  tone: readiness.blockingCount > 0 ? "warn" : "default",
-                  onClick: () => requestTab("publish"),
-                  ariaLabel: `Blockers: ${readiness.blockingCount} — open Publish`,
-                },
-                {
-                  lbl: "Warnings",
-                  num: readiness.warningCount,
-                  sub: "advisory",
-                  tone: readiness.warningCount > 0 ? "amber" : "default",
-                  onClick: () => requestTab("publish"),
-                  ariaLabel: `Warnings: ${readiness.warningCount} — open Publish`,
-                },
-                {
-                  lbl: "Scope to triage",
-                  num: untriagedClauses.length,
-                  onClick: () => requestTab("scope"),
-                  ariaLabel: `Scope to triage: ${untriagedClauses.length} — open Scope`,
-                },
-                {
-                  lbl: "Areas",
-                  num: struct.areaCount,
-                  onClick: () => requestTab("structure"),
-                  ariaLabel: `Areas: ${struct.areaCount} — open Structure`,
-                },
-              ]}
-            />
+            /* Updated-design Overview tiles (job_builder_redesign): number-first
+               status tiles with a coloured left accent for blockers/warnings, each
+               a jump target via requestTab (unsaved-edit guard aware). */
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {overviewTiles.map((t) => (
+                <button
+                  key={t.label}
+                  type="button"
+                  onClick={() => requestTab(t.to)}
+                  aria-label={`${t.label}: ${t.num}${t.unit ? ` ${t.unit}` : ""}`}
+                  className={cn(
+                    "rounded-card border border-border bg-surface px-3 py-2.5 text-left transition-colors hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-navy",
+                    t.accent === "danger" && "border-l-[3px] border-l-state-danger",
+                    t.accent === "amber" && "border-l-[3px] border-l-state-warning"
+                  )}
+                >
+                  <span className="flex items-baseline gap-1">
+                    <span
+                      className={cn(
+                        "font-display text-2xl font-bold tabular-nums",
+                        t.accent === "danger"
+                          ? "text-state-danger"
+                          : t.accent === "amber"
+                            ? "text-state-warning"
+                            : "text-text"
+                      )}
+                    >
+                      {t.num}
+                    </span>
+                    {t.unit ? <span className="text-xs text-text-muted">{t.unit}</span> : null}
+                  </span>
+                  <span className="mt-0.5 block text-sm font-medium text-text">{t.label}</span>
+                  <span className="block text-xs text-text-muted">{t.sub}</span>
+                </button>
+              ))}
+            </div>
           ) : (
             <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
               {stats.map((s) => (
@@ -1309,14 +1349,60 @@ export function JobBuilderClient({
               ))}
             </div>
           )}
-          {readiness.blockers.length > 0 ? (
-            <ul className="mt-3 space-y-1.5">
-              {readiness.blockers.slice(0, 3).map((b) => (
-                <li key={b.code} className="flex items-start gap-2 text-sm text-state-danger">
-                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" /> {b.message}
-                </li>
-              ))}
-            </ul>
+          {!redesignEnabled ? (
+            // Legacy Overview — unchanged (byte-for-byte when the flag is off).
+            readiness.blockers.length > 0 ? (
+              <ul className="mt-3 space-y-1.5">
+                {readiness.blockers.slice(0, 3).map((b) => (
+                  <li key={b.code} className="flex items-start gap-2 text-sm text-state-danger">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" /> {b.message}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-3 inline-flex items-center gap-1.5 text-sm text-state-success">
+                <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> No blockers — clear to publish.
+              </p>
+            )
+          ) : publishIssuesOverview.length > 0 ? (
+            // Updated design — "what's stopping publish": blockers + warnings, each
+            // with a section breadcrumb (the honest target step, not a faked path)
+            // and a guard-aware Fix/Triage jump.
+            <div className="mt-3">
+              <p className="font-mono text-xs text-text-muted">
+                {readiness.blockingCount} blocker{readiness.blockingCount === 1 ? "" : "s"} ·{" "}
+                {readiness.warningCount} warning{readiness.warningCount === 1 ? "" : "s"}
+              </p>
+              <ul className="mt-1.5 space-y-1.5">
+                {publishIssuesOverview.slice(0, 5).map((it) => {
+                  const target = ISSUE_SECTION[it.code] ?? "publish";
+                  const crumb = TABS.find((t) => t.key === target)?.label ?? "Publish";
+                  const isError = it.severity === "error";
+                  return (
+                    <li key={`${it.source}-${it.code}`} className="flex items-start gap-2 text-sm">
+                      <AlertTriangle
+                        className={cn(
+                          "mt-0.5 h-4 w-4 shrink-0",
+                          isError ? "text-state-danger" : "text-state-warning"
+                        )}
+                        aria-hidden="true"
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className={isError ? "text-state-danger" : "text-text"}>{it.message}</span>
+                        <span className="ml-1.5 font-mono text-xs text-text-muted">→ {crumb}</span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => goToIssue(it)}
+                        className="shrink-0 text-xs font-medium text-brand-navy hover:underline"
+                      >
+                        {target === "scope" ? "Triage" : "Fix"} →
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
           ) : (
             <p className="mt-3 inline-flex items-center gap-1.5 text-sm text-state-success">
               <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> No blockers — clear to publish.
