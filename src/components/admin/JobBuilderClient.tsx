@@ -1217,10 +1217,10 @@ export function JobBuilderClient({
           </CardDescription>
           {redesignEnabled ? (
             /* Wave 2 (job_builder_redesign) — the same four REAL numbers on the
-               KpiStrip primitive (prototype density). KpiStrip carries no
-               per-cell onClick, so the redesigned tiles are static — the rail
-               still jumps to every section (the OFF state keeps the clickable
-               grid). Tone map: blockers>0 reads danger, warnings>0 amber. */
+               KpiStrip primitive (prototype density), each a jump target matching
+               the OFF-state grid (blockers/warnings→Publish, scope→Scope,
+               areas→Structure) via requestTab (unsaved-edit guard aware). Tone
+               map: blockers>0 reads danger, warnings>0 amber. */
             <KpiStrip
               className="mt-3"
               cells={[
@@ -1229,15 +1229,29 @@ export function JobBuilderClient({
                   num: readiness.blockingCount,
                   sub: "stop publish",
                   tone: readiness.blockingCount > 0 ? "warn" : "default",
+                  onClick: () => requestTab("publish"),
+                  ariaLabel: `Blockers: ${readiness.blockingCount} — open Publish`,
                 },
                 {
                   lbl: "Warnings",
                   num: readiness.warningCount,
                   sub: "advisory",
                   tone: readiness.warningCount > 0 ? "amber" : "default",
+                  onClick: () => requestTab("publish"),
+                  ariaLabel: `Warnings: ${readiness.warningCount} — open Publish`,
                 },
-                { lbl: "Scope to triage", num: untriagedClauses.length },
-                { lbl: "Areas", num: struct.areaCount },
+                {
+                  lbl: "Scope to triage",
+                  num: untriagedClauses.length,
+                  onClick: () => requestTab("scope"),
+                  ariaLabel: `Scope to triage: ${untriagedClauses.length} — open Scope`,
+                },
+                {
+                  lbl: "Areas",
+                  num: struct.areaCount,
+                  onClick: () => requestTab("structure"),
+                  ariaLabel: `Areas: ${struct.areaCount} — open Structure`,
+                },
               ]}
             />
           ) : (

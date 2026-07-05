@@ -13,6 +13,10 @@ export interface KpiCell {
   num: string | number;
   sub?: string;
   tone?: KpiTone;
+  /** When set, the cell becomes a button (e.g. jump to the related section). */
+  onClick?: () => void;
+  /** Accessible label for a clickable cell (defaults to "lbl: num"). */
+  ariaLabel?: string;
 }
 
 const NUM_TONE: Record<KpiTone, string> = {
@@ -30,15 +34,32 @@ export function KpiStrip({ cells, className }: { cells: ReadonlyArray<KpiCell>; 
         className
       )}
     >
-      {cells.map((c) => (
-        <div key={c.lbl} className="bg-surface px-3 py-2.5">
-          <p className="font-mono text-[12px] uppercase tracking-wider text-text-muted">{c.lbl}</p>
-          <p className={cn("mt-0.5 font-display text-2xl font-bold tabular-nums", NUM_TONE[c.tone ?? "default"])}>
-            {c.num}
-          </p>
-          {c.sub ? <p className="mt-0.5 text-[12px] text-text-muted">{c.sub}</p> : null}
-        </div>
-      ))}
+      {cells.map((c) => {
+        const body = (
+          <>
+            <p className="font-mono text-[12px] uppercase tracking-wider text-text-muted">{c.lbl}</p>
+            <p className={cn("mt-0.5 font-display text-2xl font-bold tabular-nums", NUM_TONE[c.tone ?? "default"])}>
+              {c.num}
+            </p>
+            {c.sub ? <p className="mt-0.5 text-[12px] text-text-muted">{c.sub}</p> : null}
+          </>
+        );
+        return c.onClick ? (
+          <button
+            key={c.lbl}
+            type="button"
+            onClick={c.onClick}
+            aria-label={c.ariaLabel ?? `${c.lbl}: ${c.num}`}
+            className="bg-surface px-3 py-2.5 text-left transition-colors hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-navy"
+          >
+            {body}
+          </button>
+        ) : (
+          <div key={c.lbl} className="bg-surface px-3 py-2.5">
+            {body}
+          </div>
+        );
+      })}
     </div>
   );
 }
