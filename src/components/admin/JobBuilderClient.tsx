@@ -346,6 +346,20 @@ export function JobBuilderClient({
   const [savedJob, setSavedJob] = useState<Job>(initialJob);
   const [form, setForm] = useState<JobBuilderForm>(() => jobToForm(initialJob));
   const [tab, setTab] = useState<TabKey>("basics");
+  // Unsaved-changes guard: a section with its own Save (basics contract / scope /
+  // product spec) reports its dirty state up via onDirtyChange; leaving while
+  // dirty opens a confirm instead of silently unmounting the section and losing
+  // the edits. Only USER navigation routes through requestTab; programmatic jumps
+  // (hash init, post-accept → Structure) use setTab directly.
+  const [dirtyTab, setDirtyTab] = useState<TabKey | null>(null);
+  const [pendingTab, setPendingTab] = useState<TabKey | null>(null);
+  function requestTab(target: TabKey) {
+    if (dirtyTab && dirtyTab !== target) setPendingTab(target);
+    else setTab(target);
+  }
+  const onBasicsDirty = useCallback((d: boolean) => setDirtyTab(d ? "basics" : null), []);
+  const onScopeDirty = useCallback((d: boolean) => setDirtyTab(d ? "scope" : null), []);
+  const onSpecDirty = useCallback((d: boolean) => setDirtyTab(d ? "spec" : null), []);
   // Plan Studio (#206) — the success banner shown on Structure after rooms are
   // accepted into areas, and the reload that makes Structure reflect them.
   const [planAreasBanner, setPlanAreasBanner] = useState<AcceptRoomsResponse | null>(null);
@@ -506,7 +520,7 @@ export function JobBuilderClient({
   }
 
   function goToIssue(issue: ReadinessIssue) {
-    setTab(ISSUE_SECTION[issue.code] ?? "publish");
+    requestTab(ISSUE_SECTION[issue.code] ?? "publish");
   }
 
   // §4 certainty: per-clause certainty derived from the CONFIRMED reconciliation
@@ -849,11 +863,11 @@ export function JobBuilderClient({
         activeKey={tab}
         onSelect={(k) => {
           setReviewOpen(false);
-          setTab(k as TabKey);
+          requestTab(k as TabKey);
         }}
         onMeterClick={() => {
           setReviewOpen(false);
-          setTab("publish");
+          requestTab("publish");
         }}
         reviewCount={untriagedClauses.length}
         reviewActive={reviewOpen}
@@ -1025,6 +1039,40 @@ export function JobBuilderClient({
           )}
         </div>
       </Modal>
+
+      {pendingTab ? (
+        <Modal
+          open
+          onClose={() => setPendingTab(null)}
+          title="Unsaved changes"
+          className="max-w-sm"
+        >
+          <div className="space-y-4 text-sm">
+            <p className="text-text-muted">
+              You have unsaved changes in{" "}
+              <span className="font-medium text-text">
+                {TABS.find((t) => t.key === dirtyTab)?.label ?? "this section"}
+              </span>
+              . Leave without saving them?
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" onClick={() => setPendingTab(null)}>
+                Stay
+              </Button>
+              <Button
+                onClick={() => {
+                  const target = pendingTab;
+                  setDirtyTab(null);
+                  setPendingTab(null);
+                  if (target) setTab(target);
+                }}
+              >
+                Leave without saving
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
     </div>
   );
 
@@ -1079,7 +1127,7 @@ export function JobBuilderClient({
             {/* #228: client + contract commercial context — admin-only, its
                 own PUT (the scopeOfWork precedent). */}
             <div className="mt-4">
-              <ClientContractSection job={savedJob} />
+              <ClientContractSection job={savedJob} onDirtyChange={onBasicsDirty} />
             </div>
           </>
         );
@@ -1112,7 +1160,9 @@ export function JobBuilderClient({
       case "planStudio":
         return planStudioEnabled ? renderPlanStudio() : null;
       case "spec":
-        return redesignEnabled ? <ProductSpecSection jobId={savedJob.id} /> : null;
+        return redesignEnabled ? (
+          <ProductSpecSection jobId={savedJob.id} onDirtyChange={onSpecDirty} />
+        ) : null;
       case "deliver":
         return redesignEnabled ? renderDeliver() : null;
       case "preview":
@@ -1196,7 +1246,7 @@ export function JobBuilderClient({
                 <button
                   key={s.label}
                   type="button"
-                  onClick={() => setTab(s.to)}
+                  onClick={() => requestTab(s.to)}
                   className="rounded-card border border-border bg-surface-subtle px-3 py-2 text-left transition-colors hover:border-brand-navy"
                 >
                   <span
@@ -1245,7 +1295,7 @@ export function JobBuilderClient({
                 : " Draft — office-only."}
             </p>
           )}
-          <Button size="sm" variant="ghost" className="mt-3" onClick={() => setTab("preview")}>
+          <Button size="sm" variant="ghost" className="mt-3" onClick={() => requestTab("preview")}>
             <Eye className="h-4 w-4" aria-hidden="true" /> Open Phil preview
           </Button>
         </Card>
@@ -1423,6 +1473,7 @@ export function JobBuilderClient({
           certaintyByClauseId={certaintyByClauseId}
           selectedClauseId={selectedRow?.entity === "clause" ? selectedRow.id : null}
           onInspectClause={selectClause}
+          onDirtyChange={onScopeDirty}
         />
 
         {/* The confirmed scope-vs-quote reconciliation (RAG + findings + clause
