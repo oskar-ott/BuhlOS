@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
-import { setPlanPages, uploadDocument } from "@/domains/documents/client";
+import { setPlanPages, suggestDocMetadata, uploadDocument } from "@/domains/documents/client";
 import { DOCUMENT_CATEGORIES, DOCUMENT_DISCIPLINES } from "@/domains/documents/schema";
 import { categoryLabel } from "@/domains/documents/format";
 import { loadPdfJs } from "@/lib/pdfjs-loader";
@@ -49,6 +49,13 @@ interface Props {
   defaultCategory?: (typeof DOCUMENT_CATEGORIES)[number];
   /** Render the form open immediately (render tests only). */
   defaultOpen?: boolean;
+  /**
+   * AI metadata auto-fill (behind the `ai_drawings` flag — the caller passes
+   * the resolved boolean). When true, single-file non-revise mode shows a
+   * "Fill from file" button that reads the picked file and proposes the
+   * metadata fields; it never auto-submits. Off in batch + revise mode.
+   */
+  aiAutofill?: boolean;
   /**
    * #299: "New revision" mode. Names the predecessor register row — the
    * server inherits drawingNumber/discipline/title/level and supersedes it
@@ -103,10 +110,20 @@ function readFileAsDataUrl(file: File): Promise<string> {
   });
 }
 
+/** Plain-sentence copy for the AI auto-fill failure statuses. */
+function autofillErrorFor(status: number): string {
+  if (status === 402) return "This job has reached its AI budget — fill the fields in by hand.";
+  if (status === 403) return "You don't have access to auto-fill on this job.";
+  if (status === 413) return "That file is too big to read — fill the fields in by hand.";
+  if (status === 503) return "AI isn't set up on this server — fill the fields in by hand.";
+  return "Couldn't read the file this time — fill the fields in by hand.";
+}
+
 export function DocumentUploadButton({
   jobId,
   defaultCategory = "plan",
   defaultOpen = false,
+  aiAutofill = false,
   revises,
 }: Props) {
   const router = useRouter();
@@ -120,6 +137,11 @@ export function DocumentUploadButton({
   const [revision, setRevision] = useState("");
   const [changeSummary, setChangeSummary] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // AI auto-fill (single-file non-revise only): busy flag, inline error and a
+  // note shown once a suggestion has filled the form.
+  const [autofilling, setAutofilling] = useState(false);
+  const [autofillError, setAutofillError] = useState<string | null>(null);
+  const [autofilled, setAutofilled] = useState(false);
   const reviseName = revises ? (revises.drawingNumber || revises.title || "this drawing") : null;
 
   const busy = phase.kind === "uploading" || phase.kind === "rendering" || phase.kind === "batch";
@@ -134,6 +156,46 @@ export function DocumentUploadButton({
     setRevision("");
     setChangeSummary("");
     setErrorMessage(null);
+    setAutofilling(false);
+    setAutofillError(null);
+    setAutofilled(false);
+  }
+
+  /**
+   * AI auto-fill: read the picked file and PROPOSE the metadata fields. Fills
+   * only what the suggestion offers (a field the model omits is left as the
+   * admin left it) and never submits — the admin still checks and saves. The
+   * error map keeps each failure a plain sentence.
+   */
+  async function fillFromFile() {
+    const file = files[0];
+    if (!file) return;
+    setAutofillError(null);
+    setAutofilled(false);
+    setAutofilling(true);
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      const res = await suggestDocMetadata(jobId, {
+        dataUrl,
+        fileName: file.name,
+        mimeType: file.type || undefined,
+      });
+      if (!res.ok) {
+        setAutofillError(autofillErrorFor(res.error.status));
+        return;
+      }
+      const s = res.data.suggestion;
+      if (s.title) setTitle(s.title);
+      if (s.category) setCategory(s.category);
+      if (s.discipline) setDiscipline(s.discipline);
+      if (s.drawingNumber) setDrawingNumber(s.drawingNumber);
+      if (s.revision) setRevision(s.revision);
+      setAutofilled(true);
+    } catch {
+      setAutofillError("Couldn't read the file to fill from it.");
+    } finally {
+      setAutofilling(false);
+    }
   }
 
   function close() {
@@ -318,7 +380,7 @@ export function DocumentUploadButton({
         <Modal
           open
           onClose={close}
-          title={revises ? `New revision — ${reviseName}` : "Upload a document"}
+          title={revises ? `New revision — ${reviseName}` : "Add a document"}
           className="max-w-lg"
         >
           <div className="space-y-4 text-sm">
@@ -343,9 +405,9 @@ export function DocumentUploadButton({
                   </p>
                 ) : null}
                 {phase.pagePrepError ? (
-                  <p className="rounded-card border border-state-warning px-3 py-2 text-state-warning" role="status">
-                    The file is saved, but page preparation failed ({phase.pagePrepError}). The
-                    viewer will show the raw file.
+                  <p className="text-text-muted" role="status">
+                    Saved. Couldn&rsquo;t pre-render the pages for the plan viewer — it&rsquo;ll show
+                    the file itself.
                   </p>
                 ) : null}
                 <div className="flex gap-2">
@@ -377,8 +439,8 @@ export function DocumentUploadButton({
                         </span>
                       ) : null}
                       {r.ok && r.pagePrepError ? (
-                        <span className="block text-[12px] text-state-warning">
-                          saved, but page preparation failed ({r.pagePrepError})
+                        <span className="block text-[12px] text-text-muted">
+                          Saved. Couldn&rsquo;t pre-render the pages — the viewer will show the file itself.
                         </span>
                       ) : null}
                       {r.ok && r.revisionWarning ? (
@@ -507,6 +569,29 @@ export function DocumentUploadButton({
 
                 {!revises && !batchMode ? (
                 <>
+                {aiAutofill && files.length > 0 ? (
+                  <div className="space-y-2">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => void fillFromFile()}
+                      disabled={autofilling || busy}
+                      data-testid="document-autofill"
+                    >
+                      {autofilling ? "Reading…" : "✨ Fill from file"}
+                    </Button>
+                    {autofillError ? (
+                      <p className="text-xs text-state-danger" role="alert">
+                        {autofillError}
+                      </p>
+                    ) : null}
+                    {autofilled && !autofillError ? (
+                      <p className="text-xs text-text-muted" role="status">
+                        AI suggested from the file — check before saving.
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
                 <label className="block">
                   <span className="text-text-muted">Title</span>
                   <input

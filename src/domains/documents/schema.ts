@@ -258,6 +258,26 @@ export const DocumentListResponseSchema = z.object({
   plans: z.array(DocumentSchema),
 });
 
+/** POST /api/doc-metadata?jobId= — AI reads a picked file and PROPOSES
+ *  register metadata (it writes nothing). `category` / `discipline` are
+ *  OMITTED when the model's value isn't in the closed set, so the caller
+ *  leaves that field untouched rather than filling a wrong bucket.
+ *  `drawingNumber` / `revision` are "" unless the sheet clearly showed one.
+ *  `source` records how the proposal was derived (text / vision / filename)
+ *  so the UI can be honest about a scanned PDF that had no text layer. */
+export const SuggestDocMetadataResponseSchema = z.object({
+  suggestion: z.object({
+    title: z.string(),
+    category: DocumentCategorySchema.optional(),
+    discipline: DocumentDisciplineSchema.optional(),
+    drawingNumber: z.string(),
+    revision: z.string(),
+  }),
+  confidence: z.number().nullable(),
+  source: z.enum(["pdf-text", "vision", "filename"]),
+  spend: z.object({ totalUsd: z.number(), capUsd: z.number() }),
+});
+
 export const ApiErrorBodySchema = z.object({
   error: z.string(),
 });

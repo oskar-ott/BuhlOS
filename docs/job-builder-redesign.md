@@ -86,8 +86,8 @@ UX; and pixel-fidelity polish via the #792 primitives.
   (`DocumentsSection`, joining the Build group while `job_builder_redesign` is ON):
   the job's document register (title · category · status pill) with upload (the
   shell-neutral `DocumentUploadButton`) and a per-file **"Visible to field"**
-  toggle. The AI auto-fill extract-card UX stays out of scope (see "Optional /
-  later" below).
+  toggle. (Per-field AI auto-fill + a row-level "Open" view landed in Wave 4c
+  below; the richer extract-card UX stays out of scope — see "Optional / later".)
   - **Concept:** per-file field visibility — the office keeps a document (head
     contract, commercial PDF) on the job without publishing it to the crew.
   - **Where stored:** `Document.visibleToField` (additive boolean, **default
@@ -102,9 +102,34 @@ UX; and pixel-fidelity polish via the #792 primitives.
   - **Limitations:** visibility is per-file, not per-page; admin surfaces are
     unaffected (admins always see everything, hidden rows honestly labelled).
 
-Optional / later (large, own decisions): AI document auto-fill beyond current import;
-promoting the redesign to admin default (a governance change — needs the flag proven
-on preview first, per `docs/feature-flags.md`).
+- **Wave 4c — upload flow: AI metadata auto-fill · view · pdf.js self-host (landed).**
+  Three field-driven fixes to the Documents step, all still dark behind the flags:
+  - **AI metadata auto-fill** (behind `ai_drawings`, resolved by the caller as
+    `aiAutofillEnabled`): the single-file uploader shows a **"✨ Fill from file"**
+    button that reads the picked file and **proposes** title / category / discipline /
+    drawing № / revision via `POST /api/doc-metadata` — it fills the editable form and
+    **never submits** (house rule: AI assists, the human saves). PDFs use the shared
+    `pdf-text.js` text layer (no OCR pretence — a scanned PDF with no text layer falls
+    back to the file name); images ≤5 MB use a vision block; anything else is
+    filename-only. Metered through the shared per-job AI ledger (`ai-spend.js`, $5 cap):
+    flag-dark → 404, unconfigured → 503, cap reached → 402 (before any spend), off-enum
+    category/discipline **dropped, not coerced** (P7). Off in batch + revise mode.
+  - **View a document:** each register row now carries an **"Open"** link
+    (`Document.url`, new tab) mirroring `DocumentsList` — works for every category
+    (contract, cert, photo…), not just plans.
+  - **pdf.js self-host:** page-prep loaded pdf.js from a jsdelivr URL that 404'd
+    (4.0.379 ships ESM only — there is no UMD `pdf.min.js`), so page pre-render was
+    dead everywhere, not merely on CDN-blocked networks. The pinned legacy build
+    (`pdf.min.mjs` + `pdf.worker.min.mjs`) is now committed under `public/pdfjs` and
+    served same-origin via a `type="module"` shim (a failed load rejects rather than
+    hangs; the "couldn't pre-render" note is muted, not alarming). `pdfjs-dist` pinned
+    as a devDependency; `unpdf` added as the runtime PDF-text dep (byte-identical to the
+    copy on the in-flight AI-batch branch — a trivial future merge).
+
+Optional / later (large, own decisions): the richer AI auto-fill **extract-card** UX
+(accept-cards across the whole register) and OCR for scanned PDFs; promoting the
+redesign to admin default (a governance change — needs the flag proven on preview
+first, per `docs/feature-flags.md`).
 
 ## Coordination with in-flight PRs
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Eye, EyeOff, FileText, Image as ImageIcon, RefreshCw } from "lucide-react";
+import { ExternalLink, Eye, EyeOff, FileText, Image as ImageIcon, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
@@ -41,9 +41,12 @@ type Load =
 
 interface Props {
   jobId: string;
+  /** AI metadata auto-fill on the uploader (behind `ai_drawings`, resolved by
+   *  the caller). Off by default so the register stays unchanged when dark. */
+  aiAutofillEnabled?: boolean;
 }
 
-export function DocumentsSection({ jobId }: Props) {
+export function DocumentsSection({ jobId, aiAutofillEnabled = false }: Props) {
   const [load, setLoad] = useState<Load>({ phase: "loading" });
   const [docs, setDocs] = useState<Document[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -100,7 +103,7 @@ export function DocumentsSection({ jobId }: Props) {
             >
               <RefreshCw className="mr-1 h-4 w-4" aria-hidden="true" /> Refresh
             </Button>
-            <DocumentUploadButton jobId={jobId} />
+            <DocumentUploadButton jobId={jobId} aiAutofill={aiAutofillEnabled} />
           </div>
         </div>
         <p
@@ -168,6 +171,21 @@ export function DocumentsSection({ jobId }: Props) {
                     <p className="mt-0.5 text-xs text-text-muted">{categoryLabel(doc.category)}</p>
                   </div>
                   <Pill tone={statusTone(doc.status)}>{statusLabel(doc.status)}</Pill>
+                  <a
+                    href={doc.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label={`Open ${displayTitle(doc)} (opens in a new tab)`}
+                    data-testid="document-open"
+                    className={cn(
+                      "inline-flex shrink-0 items-center gap-1.5 rounded-pill border border-border bg-surface px-2.5 py-1 text-xs font-medium text-text transition-colors",
+                      "hover:border-border-strong hover:bg-surface-subtle",
+                      "focus:outline-none focus:ring-2 focus:ring-brand-navy",
+                    )}
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                    Open
+                  </a>
                   <button
                     type="button"
                     role="switch"

@@ -9,6 +9,7 @@ import type {
   LinkDocumentAreasResponseSchema,
   SetDocumentVisibilityPayloadSchema,
   SetDocumentVisibilityResponseSchema,
+  SuggestDocMetadataResponseSchema,
   UploadDocumentPayloadSchema,
   UploadDocumentResponseSchema,
   SetPagesResponseSchema,
@@ -43,3 +44,14 @@ export type SetDocumentVisibilityPayload = z.infer<
 export type SetDocumentVisibilityResponse = z.infer<
   typeof SetDocumentVisibilityResponseSchema
 >;
+export type SuggestDocMetadataResponse = z.infer<
+  typeof SuggestDocMetadataResponseSchema
+>;
+
+/** Request body for suggestDocMetadata — the picked file as a data: URL plus
+ *  the hints (fileName / mimeType) that sharpen the proposal. */
+export interface SuggestDocMetadataPayload {
+  dataUrl: string;
+  fileName?: string;
+  mimeType?: string;
+}

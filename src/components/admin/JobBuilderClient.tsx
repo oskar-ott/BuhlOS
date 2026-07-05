@@ -1087,7 +1087,11 @@ export function JobBuilderClient({
         return renderScope();
       case "documents":
         // Wave 4b — the Documents step (register + per-file field visibility).
-        return redesignEnabled ? <DocumentsSection jobId={savedJob.id} /> : null;
+        // planStudioEnabled already resolves ai_drawings — reuse it to gate the
+        // uploader's AI metadata auto-fill (no new flag).
+        return redesignEnabled ? (
+          <DocumentsSection jobId={savedJob.id} aiAutofillEnabled={planStudioEnabled} />
+        ) : null;
       case "crew":
         return renderCrew();
       case "plans":

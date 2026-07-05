@@ -45,6 +45,37 @@ describe("DocumentUploadButton", () => {
     expect(html).toContain("Certificate");
   });
 
+  it("aiAutofill: renders the single-file form and does NOT leak the Fill button pre-file-pick", () => {
+    const html = renderToString(
+      createElement(DocumentUploadButton, {
+        jobId: "j1",
+        defaultOpen: true,
+        aiAutofill: true,
+      }),
+    );
+    // The form still renders unchanged…
+    expect(html).toContain("Title");
+    expect(html).toContain("Drawing number");
+    // …and the auto-fill button only appears after a file is picked (SSR can't
+    // pick one), so it must NOT be in the initial markup.
+    expect(html).not.toContain("Fill from file");
+    expect(html).not.toContain("document-autofill");
+  });
+
+  it("aiAutofill never leaks into batch or revise SSR states", () => {
+    // Revise mode: the AI auto-fill button is off by design there.
+    const revise = renderToString(
+      createElement(DocumentUploadButton, {
+        jobId: "j1",
+        defaultOpen: true,
+        aiAutofill: true,
+        revises: { id: "pl_1", drawingNumber: "E-101", revision: "B" },
+      }),
+    );
+    expect(revise).not.toContain("Fill from file");
+    expect(revise).not.toContain("document-autofill");
+  });
+
   it("accepts multiple files — except in revision mode, which names ONE predecessor", () => {
     const normal = renderToString(
       createElement(DocumentUploadButton, { jobId: "j1", defaultOpen: true }),
