@@ -5,12 +5,14 @@ import {
   AlertTriangle,
   Check,
   ExternalLink,
+  Loader2,
   Pencil,
   RotateCcw,
   ScanSearch,
   X,
 } from "lucide-react";
 import { z } from "zod";
+import { Bar } from "@/components/ui/Bar";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
 import { cn } from "@/lib/cn";
@@ -659,7 +661,8 @@ export function SheetUnderstandingPanel({
       </div>
 
       {status === "loading" ? (
-        <p className="mt-3 text-sm text-text-muted" role="status">
+        <p className="mt-3 inline-flex items-center gap-2 text-sm text-text-muted" role="status">
+          <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
           Loading plan analysis…
         </p>
       ) : null}
@@ -1013,7 +1016,11 @@ function PlanSheets({
                 : "border-brand-navy bg-brand-navy text-text-inverse hover:opacity-90",
             )}
           >
-            <ScanSearch aria-hidden="true" className="h-4 w-4" />
+            {planRunning ? (
+              <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+            ) : (
+              <ScanSearch aria-hidden="true" className="h-4 w-4" />
+            )}
             {planRunning
               ? `Analysing ${running!.done}/${running!.total}…`
               : analysed === plan.pages.length && analysed > 0
@@ -1022,6 +1029,23 @@ function PlanSheets({
           </button>
         </span>
       </div>
+      {planRunning ? (
+        // A working AI run looks IDLE without this — each page takes the model
+        // a while, so show live progress (real done/total, never a fake %) the
+        // whole time instead of only a quiet button label.
+        <div className="border-b border-border px-4 py-2.5" role="status" data-testid="analysis-progress">
+          <Bar
+            pct={running!.total > 0 ? (running!.done / running!.total) * 100 : 0}
+            tone="warning"
+            aria-label="Analysis progress"
+          />
+          <p className="mt-1.5 inline-flex items-center gap-2 text-xs text-text-muted">
+            <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
+            Analysing page {Math.min(running!.done + 1, running!.total)} of {running!.total} — the
+            AI reads each page; this can take a minute per page. Leave this tab open.
+          </p>
+        </div>
+      ) : null}
       <ul className="divide-y divide-border">
         {plan.pages.map((page) => {
           const sheet = sheets[sheetKey(plan.id, page.pageIndex)];
@@ -1134,7 +1158,11 @@ function SheetRow({
                 : "border-border bg-surface text-text hover:bg-surface-subtle",
             )}
           >
-            <ScanSearch aria-hidden="true" className="h-3.5 w-3.5" />
+            {extractBusy ? (
+              <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <ScanSearch aria-hidden="true" className="h-3.5 w-3.5" />
+            )}
             {extractBusy ? "Extracting legend…" : "Extract legend"}
           </button>
         ) : null}
@@ -1151,7 +1179,11 @@ function SheetRow({
                   : "border-border bg-surface text-text hover:bg-surface-subtle",
               )}
             >
-              <ScanSearch aria-hidden="true" className="h-3.5 w-3.5" />
+              {extractBusy ? (
+                <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <ScanSearch aria-hidden="true" className="h-3.5 w-3.5" />
+              )}
               {extractBusy ? "Extracting…" : "Extract lighting schedule"}
             </button>
             <button
@@ -1165,8 +1197,12 @@ function SheetRow({
                   : "border-border bg-surface text-text hover:bg-surface-subtle",
               )}
             >
-              <ScanSearch aria-hidden="true" className="h-3.5 w-3.5" />
-              Extract board schedule
+              {extractBusy ? (
+                <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <ScanSearch aria-hidden="true" className="h-3.5 w-3.5" />
+              )}
+              {extractBusy ? "Extracting…" : "Extract board schedule"}
             </button>
           </>
         ) : null}
@@ -1183,7 +1219,11 @@ function SheetRow({
                   : "border-border bg-surface text-text hover:bg-surface-subtle",
               )}
             >
-              <ScanSearch aria-hidden="true" className="h-3.5 w-3.5" />
+              {extractBusy ? (
+                <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <ScanSearch aria-hidden="true" className="h-3.5 w-3.5" />
+              )}
               {extractBusy ? "Working…" : "Detect devices"}
             </button>
             <button
@@ -1197,8 +1237,12 @@ function SheetRow({
                   : "border-border bg-surface text-text hover:bg-surface-subtle",
               )}
             >
-              <ScanSearch aria-hidden="true" className="h-3.5 w-3.5" />
-              Map rooms
+              {extractBusy ? (
+                <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <ScanSearch aria-hidden="true" className="h-3.5 w-3.5" />
+              )}
+              {extractBusy ? "Mapping rooms…" : "Map rooms"}
             </button>
           </>
         ) : null}

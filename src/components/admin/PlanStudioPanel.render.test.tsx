@@ -35,8 +35,10 @@ describe("PlanStudioPanel (#206)", () => {
     expect(html).toContain("Open the full plan review");
     // the builder-side upload path
     expect(html).toContain("Upload a document");
-    // initial state before the client-side fetch resolves
+    // initial state before the client-side fetch resolves — with an ACTIVE
+    // spinner, so a wait never reads as frozen/broken
     expect(html).toContain("Loading detected rooms");
+    expect(html).toContain("animate-spin");
   });
 
   it("renders the analysisSlot BETWEEN the upload header and the rooms area (top-down flow)", () => {

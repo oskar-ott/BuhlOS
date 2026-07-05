@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { setPlanPages, suggestDocMetadata, uploadDocument } from "@/domains/documents/client";
@@ -590,7 +591,14 @@ export function DocumentUploadButton({
                       disabled={autofilling || busy}
                       data-testid="document-autofill"
                     >
-                      {autofilling ? "Reading…" : "✨ Fill from file"}
+                      {autofilling ? (
+                        <>
+                          <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+                          Reading the file…
+                        </>
+                      ) : (
+                        "✨ Fill from file"
+                      )}
                     </Button>
                     {autofillError ? (
                       <p className="text-xs text-state-danger" role="alert">
@@ -678,12 +686,18 @@ export function DocumentUploadButton({
                 ) : null}
 
                 {phase.kind === "rendering" ? (
-                  <p className="text-text-muted" role="status">
+                  <p className="inline-flex items-center gap-2 text-text-muted" role="status">
+                    <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
                     Preparing page {phase.page} of {phase.total} for the viewer…
                   </p>
                 ) : null}
                 {phase.kind === "batch" ? (
-                  <p className="text-text-muted" role="status" data-testid="document-upload-batch-progress">
+                  <p
+                    className="inline-flex items-center gap-2 text-text-muted"
+                    role="status"
+                    data-testid="document-upload-batch-progress"
+                  >
+                    <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
                     File {phase.index} of {phase.total}
                     {phase.stage === "rendering" && phase.page && phase.pages
                       ? ` — preparing page ${phase.page} of ${phase.pages}…`
@@ -701,6 +715,9 @@ export function DocumentUploadButton({
                     disabled={busy || files.length === 0}
                     data-testid="document-upload-submit"
                   >
+                    {busy ? (
+                      <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+                    ) : null}
                     {phase.kind === "uploading"
                       ? "Uploading…"
                       : phase.kind === "rendering"

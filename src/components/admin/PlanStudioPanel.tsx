@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import type { Route } from "next";
-import { ExternalLink, Sparkles } from "lucide-react";
+import { ExternalLink, Loader2, Sparkles } from "lucide-react";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Pill } from "@/components/ui/Pill";
@@ -296,7 +296,8 @@ export function PlanStudioPanel({
 
       {load.phase === "loading" ? (
         <Card>
-          <p className="text-sm text-text-muted" role="status">
+          <p className="inline-flex items-center gap-2 text-sm text-text-muted" role="status">
+            <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
             Loading detected rooms…
           </p>
         </Card>
@@ -361,9 +362,14 @@ export function PlanStudioPanel({
                   disabled={busy}
                   data-testid="plan-studio-create-areas"
                 >
-                  {busy
-                    ? "Creating areas…"
-                    : `Create ${reviewed.length} area${reviewed.length === 1 ? "" : "s"} from reviewed rooms`}
+                  {busy ? (
+                    <>
+                      <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+                      Creating areas…
+                    </>
+                  ) : (
+                    `Create ${reviewed.length} area${reviewed.length === 1 ? "" : "s"} from reviewed rooms`
+                  )}
                 </Button>
               ) : null}
             </div>
