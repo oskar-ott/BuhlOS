@@ -463,6 +463,7 @@ export function JobBuilderClient({
       key === "spec" ||
       key === "deliver" ||
       key === "documents" ||
+      key === "planStudio" ||
       key in DELIVER_LINKS
     ) {
       return "none";
@@ -496,6 +497,9 @@ export function JobBuilderClient({
    *  same honesty rule as sectionStatus. Called only from the cockpitNav build
    *  (after untriagedClauses exists), like sectionStatus. */
   function sectionSub(key: TabKey): string | undefined {
+    // Plan Studio advertises its flag state regardless of the redesign flag, so
+    // it's discoverable even when ai_drawings is off (no more "where is it?").
+    if (key === "planStudio") return planStudioEnabled ? undefined : "behind flag";
     if (!redesignEnabled) return undefined;
     if (key === "scope") {
       return untriagedClauses.length > 0 ? `${untriagedClauses.length} to triage` : undefined;
@@ -625,7 +629,11 @@ export function JobBuilderClient({
   const cockpitNav: CockpitNavGroup[] = COCKPIT_GROUPS.map((g) => ({
     heading: g.heading,
     items: g.keys
-      .filter((key) => planStudioEnabled || key !== "planStudio")
+      // Plan Studio stays in the REDESIGN rail even when ai_drawings is off — it
+      // shows a "behind flag" sub + a flagged-off canvas so it's discoverable, not
+      // hidden. The legacy (redesign-off) rail keeps today's behaviour (only when
+      // ai_drawings is on), so OFF stays byte-for-byte.
+      .filter((key) => key !== "planStudio" || planStudioEnabled || redesignEnabled)
       // Redesign campaign (job_builder_redesign): ON shows Spec & circuits +
       // Documents (Wave 4b) + the single Deliver step and hides the five
       // per-hub link-out tabs the Deliver cards replace; OFF is today's
@@ -1088,6 +1096,31 @@ export function JobBuilderClient({
     );
   }
 
+  /** Flagged-off Plan Studio: shown (not hidden) so the step is discoverable.
+   *  Honest about the gate — our flags are owner-controlled, so there's no fake
+   *  in-page toggle; it points at the real enable path. */
+  function renderPlanStudioLocked() {
+    return (
+      <Card>
+        <div className="flex items-center gap-2">
+          <CardTitle>Plan Studio</CardTitle>
+          <span className="rounded-pill bg-surface-subtle px-2 py-0.5 font-mono text-xs text-text-muted">
+            ai_drawings · off
+          </span>
+        </div>
+        <CardDescription className="mt-1">
+          AI reads a visible plan and proposes rooms as areas and a fittings takeoff —
+          you accept, edit or dismiss every line. Nothing auto-applies.
+        </CardDescription>
+        <p className="mt-3 rounded-card bg-surface-subtle px-3 py-2 text-sm text-text-muted">
+          It&rsquo;s behind the <span className="font-mono text-xs">ai_drawings</span> flag,
+          which is off for you. An owner can switch it on from the owner console — the
+          rest of the builder works without it.
+        </p>
+      </Card>
+    );
+  }
+
   function renderPlanAreasBanner() {
     if (!planAreasBanner) return null;
     const madeSheets = planAreasBanner.sheets.filter((s) => s.created > 0);
@@ -1158,7 +1191,7 @@ export function JobBuilderClient({
       case "modules":
         return renderModules();
       case "planStudio":
-        return planStudioEnabled ? renderPlanStudio() : null;
+        return planStudioEnabled ? renderPlanStudio() : renderPlanStudioLocked();
       case "spec":
         return redesignEnabled ? (
           <ProductSpecSection jobId={savedJob.id} onDirtyChange={onSpecDirty} />
