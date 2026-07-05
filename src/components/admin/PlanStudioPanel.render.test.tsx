@@ -38,4 +38,22 @@ describe("PlanStudioPanel (#206)", () => {
     // initial state before the client-side fetch resolves
     expect(html).toContain("Loading detected rooms");
   });
+
+  it("renders the analysisSlot BETWEEN the upload header and the rooms area (top-down flow)", () => {
+    const html = renderToString(
+      createElement(PlanStudioPanel, {
+        jobId: "j1",
+        acceptedAreas: [],
+        planTasksEnabled: false,
+        onAreasCreated: () => undefined,
+        analysisSlot: createElement("div", {}, "ANALYSIS_SLOT_MARKER"),
+      }),
+    );
+    const upload = html.indexOf("Upload a document");
+    const slot = html.indexOf("ANALYSIS_SLOT_MARKER");
+    const rooms = html.indexOf("Loading detected rooms");
+    expect(upload).toBeGreaterThan(-1);
+    expect(slot).toBeGreaterThan(upload); // analyse sits below upload…
+    expect(rooms).toBeGreaterThan(slot); // …and above the detected-rooms/accept area
+  });
 });

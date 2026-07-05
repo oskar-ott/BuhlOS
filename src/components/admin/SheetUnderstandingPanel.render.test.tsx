@@ -28,8 +28,8 @@ describe("SheetUnderstandingPanel (#197)", () => {
     const html = renderToString(
       createElement(SheetUnderstandingPanel, { jobId: "j1" }),
     );
-    expect(html).toContain("AI sheet understanding");
-    expect(html).toContain("Loading sheet understanding");
+    expect(html).toContain("Plan analysis");
+    expect(html).toContain("Loading plan analysis");
     // states the review contract up front
     expect(html).toContain("your corrections always win");
   });
@@ -42,7 +42,7 @@ describe("SheetUnderstandingPanel (#197)", () => {
         fetchError: null,
       }),
     );
-    expect(off).not.toContain("AI sheet understanding");
+    expect(off).not.toContain("Plan analysis");
 
     const on = renderToString(
       createElement(DocumentsList, {
@@ -52,6 +52,6 @@ describe("SheetUnderstandingPanel (#197)", () => {
         aiDrawingsEnabled: true,
       }),
     );
-    expect(on).toContain("AI sheet understanding");
+    expect(on).toContain("Plan analysis");
   });
 });

@@ -293,6 +293,22 @@ const COCKPIT_GROUPS: ReadonlyArray<{ heading: string; keys: ReadonlyArray<TabKe
   { heading: "More", keys: ["more"] },
 ];
 
+// Redesign-on Build order — the rail reads in the order the work actually
+// happens: basics → scope → plans & documents → analyse (Plan Studio) →
+// structure (areas/tasks the analysis feeds) → product spec → field modules.
+// The legacy (flag-off) rail keeps COCKPIT_GROUPS' order byte-for-byte. Same
+// key set as the Build group above — only the order differs.
+const REDESIGN_BUILD_ORDER: ReadonlyArray<TabKey> = [
+  "overview",
+  "basics",
+  "scope",
+  "documents",
+  "planStudio",
+  "structure",
+  "spec",
+  "modules",
+];
+
 /**
  * The delivery facets that live on their own dedicated job surfaces. The cockpit
  * surfaces each as a section that links out — it does NOT duplicate the editor
@@ -679,7 +695,7 @@ export function JobBuilderClient({
   // status can read them without a TDZ trap.
   const cockpitNav: CockpitNavGroup[] = COCKPIT_GROUPS.map((g) => ({
     heading: g.heading,
-    items: g.keys
+    items: (redesignEnabled && g.heading === "Build" ? REDESIGN_BUILD_ORDER : g.keys)
       // Plan Studio stays in the REDESIGN rail even when ai_drawings is off — it
       // shows a "behind flag" sub + a flagged-off canvas so it's discoverable, not
       // hidden. The legacy (redesign-off) rail keeps today's behaviour (only when
@@ -913,7 +929,12 @@ export function JobBuilderClient({
               </Button>
               <span
                 data-testid="save-state"
-                className="text-[11px] uppercase tracking-wider text-text-muted"
+                className={cn(
+                  "text-[11px] uppercase tracking-wider",
+                  // Dirty is the state that needs the eye — read as attention,
+                  // not the same muted grey as "all saved".
+                  dirty ? "font-semibold text-state-warning" : "text-text-muted"
+                )}
               >
                 {dirty ? "Unsaved changes" : "All changes saved"}
               </span>
@@ -1159,26 +1180,27 @@ export function JobBuilderClient({
 
   /* ---- the active section node fed into the cockpit canvas ---- */
   function renderPlanStudio() {
-    // One place, whole flow: upload (Plan Studio header) → ANALYSE (the full
-    // sheet-understanding panel, same component the documents page mounts) →
-    // accept rooms into areas (Plan Studio). Previously analyse lived only on
-    // /documents, which read as "upload here, then go somewhere else" — the
-    // single most confusing step of the builder. onRoomsChanged bumps the
-    // accept panel so freshly mapped rooms appear without a manual refresh.
+    // One place, whole flow, read top-down: upload (Plan Studio header) →
+    // ANALYSE (the analysis panel, slotted between — the same component the
+    // documents page mounts) → review detected rooms → accept into areas.
+    // Previously analyse lived only on /documents, which read as "upload here,
+    // then go somewhere else" — the single most confusing step of the builder.
+    // onRoomsChanged bumps the accept panel so freshly mapped rooms appear
+    // without a manual refresh.
     return (
-      <div className="space-y-4">
-        <PlanStudioPanel
-          jobId={savedJob.id}
-          acceptedAreas={acceptedAreaRefsFrom(savedJob.areaGroups ?? [])}
-          planTasksEnabled={planTasksEnabled}
-          onAreasCreated={handleAreasCreated}
-          refreshToken={planStudioRefresh}
-        />
-        <SheetUnderstandingPanel
-          jobId={savedJob.id}
-          onRoomsChanged={() => setPlanStudioRefresh((n) => n + 1)}
-        />
-      </div>
+      <PlanStudioPanel
+        jobId={savedJob.id}
+        acceptedAreas={acceptedAreaRefsFrom(savedJob.areaGroups ?? [])}
+        planTasksEnabled={planTasksEnabled}
+        onAreasCreated={handleAreasCreated}
+        refreshToken={planStudioRefresh}
+        analysisSlot={
+          <SheetUnderstandingPanel
+            jobId={savedJob.id}
+            onRoomsChanged={() => setPlanStudioRefresh((n) => n + 1)}
+          />
+        }
+      />
     );
   }
 
