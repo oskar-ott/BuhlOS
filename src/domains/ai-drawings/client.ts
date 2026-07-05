@@ -2,6 +2,10 @@
 //
 // Every function throws AiDrawingsError with the server's honest message on
 // non-2xx, and a typed `code` for the states the UI treats specially:
+//   'UNCONFIGURED'      — 503 whose body says AI is not configured (no
+//                         ANTHROPIC_API_KEY on the server). Distinct from the
+//                         store being absent — the fix is an env var, so the UI
+//                         must say so instead of blaming the store.
 //   'STORE_UNAVAILABLE' — 503 (no Supabase in this environment — preview/dev)
 //   'CAP_REACHED'       — 402 (per-job AI budget spent)
 
@@ -71,6 +75,7 @@ import {
 } from "./schema";
 
 export type AiDrawingsErrorCode =
+  | "UNCONFIGURED"
   | "STORE_UNAVAILABLE"
   | "CAP_REACHED"
   | "HTTP"
@@ -109,12 +114,26 @@ async function request<T>(
       body && typeof body === "object" && "error" in body
         ? String((body as { error: unknown }).error)
         : `AI drawings API ${res.status}`;
-    const code =
+    // Two very different 503s hide behind one status: "AI is not configured"
+    // (no ANTHROPIC_API_KEY — fix = set the env var) vs "extraction store
+    // unavailable" (no Supabase here — fix = use a deploy that has it). The
+    // server's body distinguishes them; blaming the store for a missing key
+    // sent people debugging the wrong thing, so classify by body.
+    const code: AiDrawingsErrorCode =
       res.status === 503
-        ? "STORE_UNAVAILABLE"
+        ? /not configured/i.test(message)
+          ? "UNCONFIGURED"
+          : "STORE_UNAVAILABLE"
         : res.status === 402
           ? "CAP_REACHED"
           : "HTTP";
+    if (code === "UNCONFIGURED") {
+      throw new AiDrawingsError(
+        code,
+        "AI isn't set up on this server — the ANTHROPIC_API_KEY environment variable is missing. Uploads and everything else still work; set the key (exact name) and redeploy to enable AI analysis.",
+        res.status,
+      );
+    }
     throw new AiDrawingsError(code, message, res.status);
   }
   try {

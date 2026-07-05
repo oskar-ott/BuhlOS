@@ -60,7 +60,27 @@ export default async function JobBuilderPage({ params }: PageParams) {
     redirect(`/v2/jobs/${jobId}`);
   }
 
-  const result = await loadJob(raw, jobId);
+  // Flags first (one cached flags.json read — 5s TTL — serves all three), so
+  // the job read can skip the withStats enrichment when nothing consumes it.
+  // Plan Studio (#206 rooms→areas) is dark behind ai_drawings (admin-tier); the
+  // redesign-campaign tabs (Spec & circuits, Deliver) ride the campaign flag.
+  // This page is already admin-gated, so the checks just resolve flag state.
+  const planStudioEnabled = await isFlagEnabled("ai_drawings", session);
+  const planTasksEnabled = await isFlagEnabled("ai_plan_tasks", session);
+  const redesignEnabled = await isFlagEnabled("job_builder_redesign", session);
+
+  // The three loads are independent — run them in PARALLEL instead of the old
+  // sequential job → users → reconciliation waterfall (three back-to-back
+  // round-trips was the single biggest builder-load cost).
+  //   - reconciliation (#366): the real source of per-clause certainty for the
+  //     cockpit Inspector; degrades to a `missing` view, never fakes certainty.
+  //   - withStats only when the redesign's Deliver tab (its sole consumer) can
+  //     render: flag-off, the enrichment was 6 pure-waste blob reads per load.
+  const [result, workers, reconciliation] = await Promise.all([
+    loadJob(raw, jobId, { withStats: redesignEnabled }),
+    loadAssignableWorkers(raw),
+    loadReconciliation(jobId),
+  ]);
 
   if (result.kind === "not_found" || result.kind === "forbidden") {
     return (
@@ -89,19 +109,6 @@ export default async function JobBuilderPage({ params }: PageParams) {
       </BuilderShell>
     );
   }
-
-  const workers = await loadAssignableWorkers(raw);
-  // Confirmed scope reconciliation (#366) — the real source of per-clause
-  // certainty for the cockpit Inspector. Read-only blob read; degrades to a
-  // `missing` view when the job hasn't been reconciled, so the builder never
-  // fakes certainty. This page is already admin-gated, which the reader requires.
-  const reconciliation = await loadReconciliation(jobId);
-  // Plan Studio (#206 rooms→areas) is dark behind ai_drawings (admin-tier). This
-  // page is already admin-gated, so the check just resolves the flag's state.
-  const planStudioEnabled = await isFlagEnabled("ai_drawings", session);
-  const planTasksEnabled = await isFlagEnabled("ai_plan_tasks", session);
-  // The redesign-campaign tabs (Spec & circuits, Deliver) ride the campaign flag.
-  const redesignEnabled = await isFlagEnabled("job_builder_redesign", session);
 
   return (
     <BuilderShell jobId={jobId} title={result.job.name}>
@@ -156,7 +163,8 @@ type LoadResult =
 
 async function loadJob(
   cookieValue: string | undefined,
-  jobId: string
+  jobId: string,
+  opts: { withStats: boolean }
 ): Promise<LoadResult> {
   const h = await headers();
   const host = h.get("x-forwarded-host") ?? h.get("host");
@@ -165,11 +173,12 @@ async function loadJob(
   try {
     // includeArchived=1 — the admin-editor read. Lets the builder render
     // archived structure as read-only rows next to the editable live structure (#377).
-    // withStats=1 — the same per-job stats enrichment the job hub loads; the
-    // redesign's Deliver step renders its hub counts from it (Wave 4), so the
-    // builder never invents a number (P7). Cost matches the hub page's read.
+    // withStats=1 — the same per-job stats enrichment the job hub loads (6 extra
+    // blob reads server-side); ONLY the redesign's Deliver step consumes it
+    // (Wave 4 real counts, P7), so the caller passes withStats=redesignEnabled
+    // and every flag-off load skips the cost entirely.
     const res = await fetch(
-      `${base}/api/jobs?id=${encodeURIComponent(jobId)}&includeArchived=1&withStats=1`,
+      `${base}/api/jobs?id=${encodeURIComponent(jobId)}&includeArchived=1${opts.withStats ? "&withStats=1" : ""}`,
       {
         cache: "no-store",
         headers: cookieValue

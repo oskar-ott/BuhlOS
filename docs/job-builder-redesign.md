@@ -126,10 +126,31 @@ UX; and pixel-fidelity polish via the #792 primitives.
     as a devDependency; `unpdf` added as the runtime PDF-text dep (byte-identical to the
     copy on the in-flight AI-batch branch — a trivial future merge).
 
+- **Stability recovery (landed).** Field-testing verdict ("slow, buggy, confusing")
+  drove a focused recovery slice:
+  - **One-place plan flow:** the builder's Plan Studio tab now mounts the full
+    sheet-analysis panel (`SheetUnderstandingPanel` — the same component the
+    documents page uses) under the accept panel, so upload → **analyse** → accept
+    happens in one tab; freshly mapped rooms auto-refresh the accept list
+    (`onRoomsChanged` → `refreshToken`), plus a manual Refresh.
+  - **AI failures are actionable:** the ai-drawings client now distinguishes the
+    two 503s — `UNCONFIGURED` (missing `ANTHROPIC_API_KEY`; the message names the
+    exact env var, from a real incident where the key was saved as "Antropic") vs
+    `STORE_UNAVAILABLE` — and Plan Studio has explicit `CAP_REACHED` copy. Bulk
+    accept re-syncs in `finally` so a half-applied batch never shows a stale list.
+  - **Faster loads:** the builder page resolves flags first, then runs its three
+    loads (job · workers · reconciliation) in **parallel** instead of sequentially,
+    and only requests the `withStats` enrichment (6 extra blob reads) when the
+    redesign's Deliver tab — its sole consumer — can render. The two AI panels are
+    code-split (`next/dynamic`) out of the builder bundle.
+  - **Unsaved-edit safety:** a browser `beforeunload` warning joins the in-app
+    tab guard while anything is dirty.
+
 Optional / later (large, own decisions): the richer AI auto-fill **extract-card** UX
-(accept-cards across the whole register) and OCR for scanned PDFs; promoting the
-redesign to admin default (a governance change — needs the flag proven on preview
-first, per `docs/feature-flags.md`).
+(accept-cards across the whole register) and OCR for scanned PDFs; binding analysis
+results to a specific document revision (re-diff #851 already warns on drift);
+promoting the redesign to admin default (a governance change — needs the flag proven
+on preview first, per `docs/feature-flags.md`).
 
 ## Coordination with in-flight PRs
 
