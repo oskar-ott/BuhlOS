@@ -4,6 +4,7 @@ import {
   LinkDocumentAreasResponseSchema,
   SetDocumentVisibilityResponseSchema,
   SetPagesResponseSchema,
+  SuggestDocMetadataResponseSchema,
   UploadDocumentResponseSchema,
   AckMutationResponseSchema,
   MyAcksResponseSchema,
@@ -16,6 +17,8 @@ import type {
   SetDocumentVisibilityPayload,
   SetDocumentVisibilityResponse,
   SetPagesResponse,
+  SuggestDocMetadataPayload,
+  SuggestDocMetadataResponse,
   UploadDocumentPayload,
   UploadDocumentResponse,
 } from "./types";
@@ -155,6 +158,26 @@ export function setDocumentFieldVisibility(
   );
 }
 
+/**
+ * AI reads a picked file (data: URL) and PROPOSES register metadata — it
+ * writes nothing. The caller fills the editable form from the suggestion and
+ * saves through uploadDocument as usual. Flag-dark (`ai_drawings`) → 404;
+ * unconfigured → 503; cost cap → 402; unusable model reply → 502.
+ */
+export function suggestDocMetadata(
+  jobId: string,
+  payload: SuggestDocMetadataPayload,
+): Promise<HttpResult<SuggestDocMetadataResponse>> {
+  return httpPost<SuggestDocMetadataResponse>(
+    `/api/doc-metadata?jobId=${encodeURIComponent(jobId)}`,
+    payload,
+    {
+      schema: SuggestDocMetadataResponseSchema,
+      init: { cache: "no-store", credentials: "same-origin" },
+    },
+  );
+}
+
 /** #299: admin rollup — acked / outstanding for one revision. */
 export function planAcks(
   jobId: string,
@@ -172,4 +195,5 @@ export const documentsClient = {
   setPlanPages,
   linkDocumentAreas,
   setDocumentFieldVisibility,
+  suggestDocMetadata,
 } as const;

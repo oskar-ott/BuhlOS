@@ -1,16 +1,29 @@
 /**
- * PDF.js CDN loader (#379) — the same pinned legacy build + worker the
- * deleted admin estate used for the takeoff pipeline, as a module-level
- * singleton. Script-injected from the CDN instead of bundled: pdfjs-dist
- * is ~1.5 MB, only the upload flow needs it, and the worker file resolves
- * itself relative to the same base with zero Next bundler config.
+ * PDF.js loader — SELF-HOSTED under /public/pdfjs, version-pinned (#379).
+ *
+ * Was script-injected from jsdelivr, which was fragile two ways: it broke on
+ * any network that blocks the CDN, AND the pinned URL
+ * (pdfjs-dist@4.0.379/legacy/build/pdf.min.js) 404'd outright — 4.0.379 ships
+ * ESM only, there is no UMD `pdf.min.js` that sets `window.pdfjsLib`. So the
+ * whole page-prep path was dead, not merely CDN-dependent.
+ *
+ * Now the pinned legacy build (`pdf.min.mjs` + `pdf.worker.min.mjs`) is
+ * committed under public/pdfjs and served same-origin. Because the build is
+ * ESM, a classic <script> can't create the global — we inject a
+ * `type="module"` shim that dynamically imports the local module and hangs
+ * the namespace on `window.pdfjsLib`, keeping the rest of the contract
+ * identical: a module-level singleton, the workerSrc pointing at the
+ * co-located worker, and callers still awaiting `loadPdfJs()`.
+ *
+ * The files are pinned to the pdfjs-dist devDependency (4.0.379). To bump:
+ * change the version there and re-copy both files from
+ * node_modules/pdfjs-dist/legacy/build.
  *
  * Browser-only — callers live in "use client" components behind user
  * interaction, never during SSR.
  */
 
-const PDFJS_VER = "4.0.379";
-const PDFJS_BASE = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VER}/legacy/build`;
+const PDFJS_BASE = "/pdfjs";
 
 export interface PdfJsPage {
   getViewport(opts: { scale: number }): { width: number; height: number };
@@ -45,22 +58,48 @@ export function loadPdfJs(): Promise<PdfJsLib> {
   if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
   if (loading) return loading;
   loading = new Promise<PdfJsLib>((resolve, reject) => {
-    const s = document.createElement("script");
-    s.src = `${PDFJS_BASE}/pdf.min.js`;
-    s.onload = () => {
-      const lib = window.pdfjsLib;
-      if (!lib) {
+    // A module shim: DYNAMICALLY import the self-hosted ESM build so a failed
+    // fetch/parse (missing file, broken deploy) becomes a caught rejection we
+    // can surface — a static `import … from` inside an inline module would
+    // reject the module's own evaluation WITHOUT firing the element's onerror,
+    // hanging this promise forever. We publish the namespace on
+    // window.pdfjsLib and signal via one-shot ready/error events, keeping
+    // callers' `await loadPdfJs()` contract intact.
+    window.addEventListener(
+      "pdfjs:ready",
+      () => {
+        const lib = window.pdfjsLib;
+        if (!lib) {
+          loading = null;
+          reject(new Error("PDF.js loaded but pdfjsLib missing"));
+          return;
+        }
+        lib.GlobalWorkerOptions.workerSrc = `${PDFJS_BASE}/pdf.worker.min.mjs`;
+        resolve(lib);
+      },
+      { once: true },
+    );
+    window.addEventListener(
+      "pdfjs:error",
+      (e: Event) => {
         loading = null;
-        reject(new Error("PDF.js loaded but pdfjsLib missing"));
-        return;
-      }
-      lib.GlobalWorkerOptions.workerSrc = `${PDFJS_BASE}/pdf.worker.min.js`;
-      resolve(lib);
-    };
-    s.onerror = () => {
-      loading = null;
-      reject(new Error("PDF.js failed to load — check your connection"));
-    };
+        const detail = (e as CustomEvent).detail;
+        reject(
+          new Error(typeof detail === "string" && detail ? detail : "PDF.js failed to load"),
+        );
+      },
+      { once: true },
+    );
+    const s = document.createElement("script");
+    s.type = "module";
+    s.textContent = `import("${PDFJS_BASE}/pdf.min.mjs").then(function (m) {
+  window.pdfjsLib = m;
+  window.dispatchEvent(new Event("pdfjs:ready"));
+}).catch(function (err) {
+  window.dispatchEvent(new CustomEvent("pdfjs:error", { detail: "PDF.js failed to load: " + ((err && err.message) || err) }));
+});`;
+    // Belt-and-suspenders: if the inline module itself can't be evaluated.
+    s.onerror = () => window.dispatchEvent(new Event("pdfjs:error"));
     document.head.appendChild(s);
   });
   return loading;
