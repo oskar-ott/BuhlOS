@@ -8,7 +8,7 @@ vi.mock("next/navigation", () => ({
 
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
-import { SheetUnderstandingPanel } from "./SheetUnderstandingPanel";
+import { SheetUnderstandingPanel, partitionPanelPlans } from "./SheetUnderstandingPanel";
 import { DocumentsList } from "./DocumentsList";
 import type { Job } from "@/domains/jobs/types";
 
@@ -55,5 +55,42 @@ describe("SheetUnderstandingPanel (#197)", () => {
       }),
     );
     expect(on).toContain("Plan analysis");
+  });
+});
+
+describe("partitionPanelPlans", () => {
+  const base = {
+    title: "",
+    fileName: "",
+    drawingNumber: "",
+    revision: "",
+    status: "current",
+    supersedes: "",
+    pages: [] as { pageIndex: number; pngUrl: string }[],
+    url: "",
+    mimeType: "",
+  };
+  const page = { pageIndex: 0, pngUrl: "https://x/p0.png" };
+
+  it("page-less documents surface as 'unprepared' instead of being silently dropped", () => {
+    // Regression: docs uploaded while page-prep was broken (and image files,
+    // which never got pages) used to vanish from the analysis panel — the
+    // "only some of my documents can be analysed" report.
+    const { ready, unprepared } = partitionPanelPlans([
+      { ...base, id: "pl_ok", pages: [page] },
+      { ...base, id: "pl_stuck_pdf", mimeType: "application/pdf" },
+      { ...base, id: "pl_stuck_png", mimeType: "image/png" },
+    ]);
+    expect(ready.map((p) => p.id)).toEqual(["pl_ok"]);
+    expect(unprepared.map((p) => p.id)).toEqual(["pl_stuck_pdf", "pl_stuck_png"]);
+  });
+
+  it("archived documents stay out of BOTH buckets (with or without pages)", () => {
+    const { ready, unprepared } = partitionPanelPlans([
+      { ...base, id: "pl_arch_pages", status: "archived", pages: [page] },
+      { ...base, id: "pl_arch_bare", status: "archived" },
+    ]);
+    expect(ready).toEqual([]);
+    expect(unprepared).toEqual([]);
   });
 });

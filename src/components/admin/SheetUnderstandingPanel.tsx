@@ -17,6 +17,11 @@ import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
 import { cn } from "@/lib/cn";
 import {
+  fetchDocumentBuffer,
+  prepareImagePlanPage,
+  preparePdfPlanPages,
+} from "@/domains/documents/page-prep";
+import {
   SHEET_FIELD_LABELS,
   SHEET_TYPES,
   SHEET_TYPE_LABELS,
@@ -105,6 +110,9 @@ const PanelPlanSchema = z.object({
   status: z.string().optional().default("current"),
   supersedes: z.string().optional().default(""),
   pages: z.array(PanelPageSchema).optional().default([]),
+  // For the retro "Prepare pages" path — the stored file + its type.
+  url: z.string().optional().default(""),
+  mimeType: z.string().optional().default(""),
 });
 const PanelPlansResponseSchema = z.object({
   plans: z.array(z.unknown()),
@@ -114,6 +122,37 @@ type PanelPlan = z.infer<typeof PanelPlanSchema>;
 function planLabel(p: PanelPlan): string {
   const name = p.drawingNumber || p.title || p.fileName || p.id;
   return p.revision ? `${name} · Rev ${p.revision}` : name;
+}
+
+/**
+ * Split the register into what analysis can work on vs what it can't YET.
+ * Analysis runs off page images, so a document without prepared pages is
+ * unanalysable — previously those rows were silently dropped here, which read
+ * as "only some of my documents can be analysed" with no explanation. Now they
+ * surface as `unprepared` with a retro "Prepare pages" path. Archived rows
+ * stay out of both buckets. Exported for tests.
+ */
+export function partitionPanelPlans(rows: PanelPlan[]): {
+  ready: PanelPlan[];
+  unprepared: PanelPlan[];
+} {
+  const ready: PanelPlan[] = [];
+  const unprepared: PanelPlan[] = [];
+  for (const p of rows) {
+    if (p.status === "archived") continue;
+    if (p.pages.length > 0) ready.push(p);
+    else unprepared.push(p);
+  }
+  return { ready, unprepared };
+}
+
+/** Can the retro prep path render this document? (PDF via pdf.js; image via
+ *  canvas re-encode.) Anything else is honestly not preparable client-side. */
+function prepKind(p: PanelPlan): "pdf" | "image" | null {
+  const mime = p.mimeType.toLowerCase();
+  if (mime === "application/pdf" || /\.pdf$/i.test(p.fileName)) return "pdf";
+  if (mime.startsWith("image/")) return "image";
+  return null;
 }
 
 // Bottom-right quadrant-ish crop — title blocks conventionally live there.
@@ -157,6 +196,12 @@ export function SheetUnderstandingPanel({
   const [model, setModel] = useState<string>("");
   const [spend, setSpend] = useState<SheetSpend | null>(null);
   const [plans, setPlans] = useState<PanelPlan[]>([]);
+  // Documents the register holds but analysis can't see yet (no page images) —
+  // surfaced with a retro "Prepare pages" action instead of silently dropped.
+  const [unpreparedPlans, setUnpreparedPlans] = useState<PanelPlan[]>([]);
+  const [prepBusyId, setPrepBusyId] = useState<string | null>(null);
+  const [prepProgress, setPrepProgress] = useState<{ done: number; total: number } | null>(null);
+  const [prepErrors, setPrepErrors] = useState<Record<string, string>>({});
   const [running, setRunning] = useState<RunState | null>(null);
   const [runNotice, setRunNotice] = useState<string>("");
   const [legendEntries, setLegendEntries] = useState<LegendEntry[]>([]);
@@ -257,15 +302,15 @@ export function SheetUnderstandingPanel({
       const parsedPlans: PanelPlan[] = [];
       for (const raw of plansRes.plans) {
         const p = PanelPlanSchema.safeParse(raw);
-        if (p.success && p.data.pages.length > 0 && p.data.status !== "archived") {
-          parsedPlans.push(p.data);
-        }
+        if (p.success) parsedPlans.push(p.data);
       }
+      const { ready, unprepared } = partitionPanelPlans(parsedPlans);
       setSheets(nextSheets);
       setReviewThreshold(sheetsRes.reviewThreshold);
       setModel(sheetsRes.model);
       setSpend(sheetsRes.spend);
-      setPlans(parsedPlans);
+      setPlans(ready);
+      setUnpreparedPlans(unprepared);
       setLegendEntries(legendRes.entries);
       setScheduleTables(schedulesRes.tables);
       setScheduleRows(schedulesRes.rows);
@@ -298,6 +343,50 @@ export function SheetUnderstandingPanel({
   useEffect(() => {
     void load();
   }, [load]);
+
+  /** Retro page-prep for a document analysis can't see yet: fetch the stored
+   *  file, render it to page PNGs client-side (the same helper the uploader
+   *  uses), register them, then reload — the document moves into the
+   *  analysable list. Failures land next to the row, never silently. */
+  const runPreparePages = useCallback(
+    async (plan: PanelPlan) => {
+      const kind = prepKind(plan);
+      setPrepErrors((prev) => ({ ...prev, [plan.id]: "" }));
+      if (!plan.url || !kind) {
+        setPrepErrors((prev) => ({
+          ...prev,
+          [plan.id]: !plan.url
+            ? "This document has no stored file URL — re-upload it."
+            : "This file type can't be rendered to pages here (PDF or image only).",
+        }));
+        return;
+      }
+      setPrepBusyId(plan.id);
+      setPrepProgress(null);
+      try {
+        if (kind === "pdf") {
+          const buffer = await fetchDocumentBuffer(plan.url);
+          await preparePdfPlanPages(jobId, plan.id, buffer, (page, total) =>
+            setPrepProgress({ done: page, total }),
+          );
+        } else {
+          const res = await fetch(plan.url, { credentials: "omit", cache: "no-store" });
+          if (!res.ok) throw new Error(`couldn't fetch the file (${res.status})`);
+          await prepareImagePlanPage(jobId, plan.id, await res.blob());
+        }
+        await load();
+      } catch (err) {
+        setPrepErrors((prev) => ({
+          ...prev,
+          [plan.id]: err instanceof Error ? err.message : "page preparation failed",
+        }));
+      } finally {
+        setPrepBusyId(null);
+        setPrepProgress(null);
+      }
+    },
+    [jobId, load],
+  );
 
   const runPlan = useCallback(
     async (plan: PanelPlan) => {
@@ -863,8 +952,9 @@ export function SheetUnderstandingPanel({
 
           {plans.length === 0 ? (
             <p className="mt-3 rounded-card border border-dashed border-border bg-surface-subtle p-4 text-center text-sm text-text-muted">
-              No documents with rendered pages yet — upload a PDF drawing set
-              first; its pages render on upload.
+              {unpreparedPlans.length > 0
+                ? "No documents are analysable yet — the ones below need their pages prepared first."
+                : "No documents with rendered pages yet — upload a PDF drawing set first; its pages render on upload."}
             </p>
           ) : (
             <div className="mt-3 space-y-3">
@@ -891,6 +981,74 @@ export function SheetUnderstandingPanel({
               ))}
             </div>
           )}
+          {/* OUTSIDE the plans.length branch on purpose: when EVERY document is
+              page-less (uploads from the broken-pdf.js window), this section is
+              the only way out — it must render even when the registry is empty. */}
+          {unpreparedPlans.length > 0 ? (
+            <section
+              aria-label="Documents not ready to analyse"
+              className="mt-3 rounded-card border border-border bg-surface"
+              data-testid="unprepared-plans"
+            >
+                  <div className="border-b border-border px-4 py-3">
+                    <CardTitle>
+                      Not ready to analyse ({unpreparedPlans.length})
+                    </CardTitle>
+                    <CardDescription className="mt-1">
+                      These documents have no page images yet, so the analysis
+                      can&rsquo;t see them — usually older uploads or image files.
+                      The files themselves are saved; prepare pages to make them
+                      analysable.
+                    </CardDescription>
+                  </div>
+                  <ul className="divide-y divide-border">
+                    {unpreparedPlans.map((p) => {
+                      const busy = prepBusyId === p.id;
+                      const error = prepErrors[p.id];
+                      return (
+                        <li
+                          key={p.id}
+                          className="flex flex-wrap items-center justify-between gap-2 px-4 py-3"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium text-text">
+                              {planLabel(p)}
+                            </p>
+                            {p.fileName && p.fileName !== planLabel(p) ? (
+                              <p className="truncate text-xs text-text-muted">{p.fileName}</p>
+                            ) : null}
+                            {error ? (
+                              <p className="text-xs text-state-danger" role="alert">
+                                {error}
+                              </p>
+                            ) : null}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => void runPreparePages(p)}
+                            disabled={prepBusyId !== null}
+                            className={cn(
+                              "inline-flex h-8 shrink-0 items-center gap-2 rounded-card border px-3 text-sm font-medium transition-colors",
+                              prepBusyId !== null
+                                ? "cursor-not-allowed border-border bg-surface-subtle text-text-muted"
+                                : "border-brand-navy bg-brand-navy text-text-inverse hover:opacity-90",
+                            )}
+                          >
+                            {busy ? (
+                              <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+                            ) : null}
+                            {busy
+                              ? prepProgress
+                                ? `Preparing page ${prepProgress.done} of ${prepProgress.total}…`
+                                : "Preparing…"
+                              : "Prepare pages"}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+            </section>
+          ) : null}
         </>
       ) : null}
     </Card>
