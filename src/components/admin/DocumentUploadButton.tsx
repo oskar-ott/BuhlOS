@@ -5,10 +5,10 @@ import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
-import { setPlanPages, suggestDocMetadata, uploadDocument } from "@/domains/documents/client";
+import { suggestDocMetadata, uploadDocument } from "@/domains/documents/client";
+import { preparePdfPlanPages } from "@/domains/documents/page-prep";
 import { DOCUMENT_CATEGORIES, DOCUMENT_DISCIPLINES } from "@/domains/documents/schema";
 import { categoryLabel } from "@/domains/documents/format";
-import { loadPdfJs } from "@/lib/pdfjs-loader";
 
 /**
  * Document upload (#379) — restores the capability the legacy cutover
@@ -42,7 +42,6 @@ import { loadPdfJs } from "@/lib/pdfjs-loader";
  */
 
 const MAX_BYTES = 25 * 1024 * 1024;
-const RENDER_DPI = 180;
 
 interface Props {
   jobId: string;
@@ -208,6 +207,8 @@ export function DocumentUploadButton({
   /**
    * PDFs: per-page PNG ingestion for the viewer/takeoff pipeline. Best-effort
    * enhancement — the document is already saved; the viewer copes without it.
+   * The render itself is the SHARED page-prep helper (page-prep.ts), which the
+   * analysis panel also uses to retro-prepare page-less documents.
    */
   async function preparePdfPages(
     file: File,
@@ -216,30 +217,8 @@ export function DocumentUploadButton({
   ): Promise<{ pagesPrepared: number | null; pagePrepError: string | null }> {
     if (file.type !== "application/pdf") return { pagesPrepared: null, pagePrepError: null };
     try {
-      const pdfjs = await loadPdfJs();
-      const pdf = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
-      for (let i = 1; i <= pdf.numPages; i++) {
-        onPage(i, pdf.numPages);
-        const page = await pdf.getPage(i);
-        const viewport = page.getViewport({ scale: RENDER_DPI / 72 });
-        const canvas = document.createElement("canvas");
-        canvas.width = Math.floor(viewport.width);
-        canvas.height = Math.floor(viewport.height);
-        const ctx = canvas.getContext("2d");
-        if (!ctx) throw new Error("canvas unavailable");
-        ctx.fillStyle = "#fff";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        await page.render({ canvasContext: ctx, viewport }).promise;
-        const pngDataUrl = canvas.toDataURL("image/png");
-        canvas.width = 0;
-        canvas.height = 0;
-        const registered = await setPlanPages(jobId, planId, {
-          pageIndex: i - 1,
-          pngDataUrl,
-        });
-        if (!registered.ok) throw new Error(registered.error.message);
-      }
-      return { pagesPrepared: pdf.numPages, pagePrepError: null };
+      const pages = await preparePdfPlanPages(jobId, planId, await file.arrayBuffer(), onPage);
+      return { pagesPrepared: pages, pagePrepError: null };
     } catch (err) {
       return {
         pagesPrepared: null,
