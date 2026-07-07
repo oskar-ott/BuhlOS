@@ -75,8 +75,9 @@ const APPROVED_ADMIN_HREFS = new Set([
 const APPROVED_PHIL_HREFS = new Set([
   '/phil/my-day',
   '/phil/jobs',
+  '/phil/hours', // phil_sharpened (dark) — the Hours tab slot on the sharpened bar
   '/phil/gear',
-  '/v2/phil', // transitional — "More" / profile placeholder
+  '/v2/phil', // transitional — "More" / profile placeholder; sharpened bar reaches it via the header avatar
 ]);
 
 // A live nav href that matches any of these is a legacy/obsolete link that
@@ -270,7 +271,10 @@ checkNav('src/components/admin/nav.ts', ['NAV_GROUPS'], APPROVED_ADMIN_HREFS, 'A
 // (the "More" tab is a <button> opening the IA sheet, so it has no href and is
 // not matched). Every tab href must be an approved admin route.
 checkNav('src/components/admin/AdminMobileTabBar.tsx', ['TAB_ITEMS'], APPROVED_ADMIN_HREFS, 'AdminMobileTabBar');
-checkNav('src/components/phil/PhilTabBar.tsx', ['LEFT_TABS', 'RIGHT_TABS'], APPROVED_PHIL_HREFS, 'PhilTabBar');
+// SHARPENED_RIGHT_TABS is the flag-gated (phil_sharpened, dark) right-slot
+// variant — Hours · Gear; validated like the default arrays so the sharpened
+// bar can't drift to an unapproved route while dark.
+checkNav('src/components/phil/PhilTabBar.tsx', ['LEFT_TABS', 'RIGHT_TABS', 'SHARPENED_RIGHT_TABS'], APPROVED_PHIL_HREFS, 'PhilTabBar');
 
 // ── 6. landingFor() role -> landing map ──────────────────────────────
 // Assert the canonical map, especially that field workers land on the Phil

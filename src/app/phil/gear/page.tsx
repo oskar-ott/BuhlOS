@@ -12,6 +12,7 @@ import { canAccessSurface } from "@/lib/auth/permissions";
 import { GearListResponseSchema } from "@/domains/gear/schema";
 import type { GearAsset } from "@/domains/gear/types";
 import { PhilGearList } from "@/components/phil/PhilGearList";
+import { philInitials, philSharpenedFlags } from "@/lib/phil/sharpened";
 
 export const dynamic = "force-dynamic";
 
@@ -42,10 +43,19 @@ export default async function PhilGearPage() {
     notFound();
   }
 
-  const { assets, fetchError } = await loadMyGear(raw);
+  // Sharpened-chrome flag (cached flags.json read) — server-resolved boolean.
+  const [{ assets, fetchError }, sharpenedFlags] = await Promise.all([
+    loadMyGear(raw),
+    philSharpenedFlags(session),
+  ]);
 
   return (
-    <PhilShell title="My gear" userId={session.userId ?? ""}>
+    <PhilShell
+      title="My gear"
+      userId={session.userId ?? ""}
+      sharpened={sharpenedFlags.sharpened}
+      accountInitials={philInitials(session.name ?? session.username)}
+    >
       <div className="space-y-4">
         <PhilBackLink href="/phil/my-day">My day</PhilBackLink>
 

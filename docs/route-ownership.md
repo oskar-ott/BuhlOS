@@ -355,10 +355,17 @@ lists in the guard **and** §8 / §8.1 here in the same PR.
 - **Phil bottom tab bar** (`src/components/phil/PhilTabBar.tsx`) — a 4-tab +
   centre Capture FAB layout. The `live` tabs (`LEFT_TABS` Today/Jobs, `RIGHT_TABS`
   Gear/More) may only link to approved Phil routes: `/phil/my-day`, `/phil/jobs`,
-  `/phil/gear`, `/v2/phil`. The centre **Capture FAB** replaced the old
-  non-working `Snag` tab — it is a `<button>` (opens the capture launcher), not a
-  nav `<Link>`, so it carries no route. The guard parses both tab arrays and
+  `/phil/hours`, `/phil/gear`, `/v2/phil`. The centre **Capture FAB** replaced the
+  old non-working `Snag` tab — it is a `<button>` (opens the capture launcher),
+  not a nav `<Link>`, so it carries no route. The guard parses the tab arrays and
   treats every tab as live (the `status` field was dropped with the FAB rework).
+  Under the dark `phil_sharpened` flag the bar swaps its right slots to a third
+  parsed array (`SHARPENED_RIGHT_TABS` **Hours** `/phil/hours` · **Gear**
+  `/phil/gear`) — the 5-slot sharpened nav is Today · Jobs · [Capture] · Hours ·
+  Gear, with **More leaving the bar**; the account screen `/v2/phil` stays
+  approved and is reached via the sharpened header avatar (`PhilHeader`). Flag
+  off, the bar is the unchanged 4-tab layout; flipping the flag is a governed
+  change to the ratified Phil package (P15).
 - **No modern nav component may link to a legacy `public/*.html` route or a
   legacy/deprecated URL.** The forbidden set is `*.html`, `/admin/*`,
   `/admin-legacy`, `/buhlos/*`, `/dev/site-office*`, `/my-day`, `/my-gear`,

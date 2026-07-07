@@ -482,6 +482,32 @@ const REGISTRY = {
     target: 'admin-tier',
     expires: '2026-12-31',
   },
+  // Phil "sharpened" field-surface redesign (campaign). Re-skins the ratified
+  // Phil package in coordinated WAVES behind this dark gate (Wave 1 = design
+  // system + global nav; screen re-skins follow). Behavioural change to the
+  // ratified Phil package, so it flips ONLY via governance (P15 —
+  // docs/phil-governance.md §3): build + preview dark, ratify with field
+  // evidence, then flip. Global target — the surface under test is the field
+  // worker's, not the admin tier's.
+  phil_sharpened: {
+    description: "Phil field-surface redesign ('sharpened'): 5-slot global nav (Today·Jobs·Capture·Hours·Gear, account on header avatar) + screen re-skins. Behavioural change to the ratified Phil package — flips only via governance (P15). Dark.",
+    default: false,
+    target: 'global',
+    expires: '2026-12-31',
+  },
+  // The #133 tabbed-job experiment: four in-page rooms (Now·Work·Proof·Site +
+  // Capture) on /phil/jobs/[jobId]. Judged by the tabs criterion
+  // (phil-constitution-ratification.md): critical state never hidden behind a
+  // tab; interruption recovery ≤1 gesture. Its own flag (separate from
+  // phil_sharpened) so the re-skin can ship without the room navigation; the
+  // resolver helper (src/lib/phil/sharpened.ts) only turns rooms on when
+  // phil_sharpened is also on. Dark until #132/#133 clears it.
+  phil_job_rooms: {
+    description: 'In-job four-rooms navigation (Now·Work·Proof·Site + Capture) on /phil/jobs/[jobId] — the #133 tabbed-job experiment, judged by the tabs criterion (critical state never hidden; ≤1-gesture recovery). Requires phil_sharpened. Dark.',
+    default: false,
+    target: 'global',
+    expires: '2026-12-31',
+  },
   // Per-job ITP / QA (#474/#476): hold/witness/record points + office sign-off.
   // Unlike the registers above, ITPs are ALREADY LIVE — so this is a KILL SWITCH,
   // not a launch gate: default ON (killSwitch:true), and the owner can turn the
@@ -620,6 +646,8 @@ const FLAG_PRESENTATION = {
   ai_drawings: { label: 'AI drawings — sheet understanding', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/v2/jobs' },
   job_builder_redesign: { label: 'Job Builder redesign', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/v2/jobs/new' },
   ai_plan_tasks: { label: 'AI plan tasks from fittings', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/v2/jobs' },
+  phil_sharpened: { label: 'Phil sharpened redesign', domain: 'Phil', surface: 'Phil', previewHref: '/phil/my-day' },
+  phil_job_rooms: { label: 'Phil in-job rooms (#133)', domain: 'Phil', surface: 'Phil', previewHref: '/phil/jobs' },
 
   // #760 kill-switches. `core: true` = load-bearing spine; the board warns
   // before the owner turns one off.

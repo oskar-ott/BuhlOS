@@ -40,6 +40,8 @@ Non-protected feature flags also carry presentation metadata (`label`, `domain`,
 | `supabase_read_admin_tasks` | global | 2026-12-31 | Serve the ADMIN task-status read (`/api/data`) from Postgres, per-job parity-gated, with a Blob fallback (#152, J11) |
 | `supabase_read_admin_evidence` | global | 2026-12-31 | Serve the ADMIN evidence-metadata read (`/api/data`) from Postgres, per-job parity-gated, with a Blob fallback (#152) |
 | `supabase_read_phil_evidence` | global | 2026-12-31 | Serve the FIELD/Phil evidence-metadata read (`/api/data`) from Postgres, per-job parity-gated, with a Blob fallback (#152) |
+| `phil_sharpened` | global | 2026-12-31 | Phil field-surface redesign ("sharpened"): 5-slot global nav (Today·Jobs·Capture·Hours·Gear, account on the header avatar) + screen re-skins. Behavioural change to the ratified Phil package — flips only via governance (P15) |
+| `phil_job_rooms` | global | 2026-12-31 | In-job four-rooms navigation (Now·Work·Proof·Site + Capture) on `/phil/jobs/[jobId]` — the #133 tabbed-job experiment, judged by the tabs criterion. Requires `phil_sharpened` |
 
 ## Flipping a flag
 

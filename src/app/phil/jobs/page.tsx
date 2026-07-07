@@ -9,6 +9,7 @@ import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { JobListResponseSchema } from "@/domains/jobs/schema";
 import type { Job } from "@/domains/jobs/types";
+import { philInitials, philSharpenedFlags } from "@/lib/phil/sharpened";
 
 export const dynamic = "force-dynamic";
 
@@ -46,7 +47,12 @@ export default async function PhilJobsPage() {
   // session ever lacks an id (no prefs read, no Recent group).
   const viewerId = session.userId ?? session.sub ?? "";
 
-  const { jobs, fetchError } = await loadJobs(raw);
+  // Sharpened-chrome flag rides alongside the jobs read (cached flags.json,
+  // no extra blob round-trip). Server-resolved boolean only.
+  const [{ jobs, fetchError }, sharpenedFlags] = await Promise.all([
+    loadJobs(raw),
+    philSharpenedFlags(session),
+  ]);
 
   // Hide archived + draft rows on the Phil surface even if a future admin
   // opens /phil/jobs directly. The server already withholds these from
@@ -57,7 +63,12 @@ export default async function PhilJobsPage() {
   );
 
   return (
-    <PhilShell title="Jobs" userId={viewerId}>
+    <PhilShell
+      title="Jobs"
+      userId={viewerId}
+      sharpened={sharpenedFlags.sharpened}
+      accountInitials={philInitials(session.name ?? session.username)}
+    >
       <div className="space-y-4">
         <PhilPageIntro
           title="Jobs"

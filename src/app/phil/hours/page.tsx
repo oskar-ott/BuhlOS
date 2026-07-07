@@ -17,6 +17,7 @@ import { canResubmitInPhil, type AssignableJob } from "@/domains/timesheets/resu
 import { BUSINESS_TIMEZONE, localDateString } from "@/domains/timesheets/service";
 import { JobListResponseSchema } from "@/domains/jobs/schema";
 import { isVisibleToField } from "@/domains/jobs/builder";
+import { philInitials, philSharpenedFlags } from "@/lib/phil/sharpened";
 import {
   formatDateLabel,
   formatHoursLabel,
@@ -78,13 +79,20 @@ export default async function PhilHoursPage({
 
   // History + the worker's active assigned jobs in parallel — the jobs feed
   // the resubmit form's attribution guard so a fix can't land jobId:null.
-  const [{ entries, fetchError }, assignedJobs] = await Promise.all([
+  const [{ entries, fetchError }, assignedJobs, sharpenedFlags] = await Promise.all([
     loadHistory(raw),
     loadAssignedJobs(raw),
+    // Sharpened-chrome flag (cached flags.json read) — server-resolved boolean.
+    philSharpenedFlags(session),
   ]);
 
   return (
-    <PhilShell title="Hours history" userId={session.userId ?? ""}>
+    <PhilShell
+      title="Hours history"
+      userId={session.userId ?? ""}
+      sharpened={sharpenedFlags.sharpened}
+      accountInitials={philInitials(session.name ?? session.username)}
+    >
       <div className="space-y-4">
         <PhilBackLink href="/phil/my-day">My day</PhilBackLink>
 

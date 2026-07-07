@@ -33,6 +33,40 @@
   --state-warning: #b45309;
   --state-info: #1d4ed8;
 
+  /*
+   * State badge tints (Phil "sharpened" design system §1 — one badge
+   * language, five colours). Each tone is a coherent quad: a pale pill
+   * background + border, a dark readable label text, and a solid 6px dot.
+   * The base --state-* tokens above stay the SOLID accents (rails, icons);
+   * these subtle sets exist because the solid tokens can't be tinted via
+   * opacity without losing contrast control (see PhilNotice's note).
+   * Values are the exact prompt literals — keep the quads together.
+   */
+  --state-neutral-dot: #94a3b8;
+  --state-neutral-subtle-bg: #f1f5f9;
+  --state-neutral-subtle-border: #dfe6ee;
+  --state-neutral-subtle-text: #475569;
+
+  --state-info-dot: #2f6be0;
+  --state-info-subtle-bg: #e9f0fd;
+  --state-info-subtle-border: #bcd2f5;
+  --state-info-subtle-text: #1745b8;
+
+  --state-warning-dot: #d08214;
+  --state-warning-subtle-bg: #fbf1e0;
+  --state-warning-subtle-border: #f0d6a6;
+  --state-warning-subtle-text: #8a4b08;
+
+  --state-danger-dot: #c02626;
+  --state-danger-subtle-bg: #fdecec;
+  --state-danger-subtle-border: #f4c9c9;
+  --state-danger-subtle-text: #a01919;
+
+  --state-success-dot: #1f9350;
+  --state-success-subtle-bg: #e7f4ec;
+  --state-success-subtle-border: #b4ddc4;
+  --state-success-subtle-text: #12683a;
+
   /* Density — regular by default. Compact and roomy variants below. */
   --density-unit: 0.25rem;
 }

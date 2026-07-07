@@ -33,6 +33,7 @@ import { buildPhilNeedsYou } from "@/domains/phil/needs-you";
 import { buildMyDayHero } from "@/domains/phil/my-day-hero";
 import { PhilMyDayHero } from "@/components/phil/PhilMyDayHero";
 import { buildPhilGreeting, hourInTimeZone } from "@/domains/phil/greeting";
+import { philSharpenedFlags } from "@/lib/phil/sharpened";
 import styles from "@/components/phil/myDay.module.css";
 
 export const dynamic = "force-dynamic";
@@ -92,9 +93,16 @@ export default async function MyDayPage({
   // Load the worker's recent entries AND their active assigned jobs in
   // parallel. The jobs feed the LogHoursSheet job-attribution block so a
   // field submission is tied to a real active job instead of jobId: null.
-  const [{ todayEntry, recentEntries, fetchError }, assignedJobs, profile] = await Promise.all(
-    [loadEntries(raw, fixDate), loadAssignedJobs(raw), loadWorkerProfile(raw)]
-  );
+  // The sharpened-redesign chrome flag rides the same parallel wave (it's a
+  // cached flags.json read, not a per-page blob round-trip). Resolved
+  // server-side; only the boolean reaches the client (docs/feature-flags.md).
+  const [{ todayEntry, recentEntries, fetchError }, assignedJobs, profile, sharpenedFlags] =
+    await Promise.all([
+      loadEntries(raw, fixDate),
+      loadAssignedJobs(raw),
+      loadWorkerProfile(raw),
+      philSharpenedFlags(session),
+    ]);
 
   // Hero priority state ("a day was sent back") is driven by REJECTED HOURS,
   // which buildPhilNeedsYou derives purely from the time entries already loaded
@@ -154,7 +162,12 @@ export default async function MyDayPage({
   const soleJobId = soleJob?.id ?? null;
 
   return (
-    <PhilShell title="My day" userId={session.userId ?? ""}>
+    <PhilShell
+      title="My day"
+      userId={session.userId ?? ""}
+      sharpened={sharpenedFlags.sharpened}
+      accountInitials={initials}
+    >
       <div className={styles.surface}>
         <header className={styles.greetBar}>
           <div className="min-w-0">

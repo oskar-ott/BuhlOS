@@ -41,6 +41,8 @@ export type FlagKey =
   | "ai_drawings" // #197 Epic 5 page understanding — dark launch-gate
   | "job_builder_redesign" // BuhlOS Job Builder redesign campaign — dark launch-gate
   | "ai_plan_tasks" // #213 suggest job tasks from plan fittings — dark launch-gate
+  | "phil_sharpened" // Phil field-surface redesign campaign — dark launch-gate; flips via governance (P15)
+  | "phil_job_rooms" // #133 in-job four-rooms experiment — dark launch-gate; requires phil_sharpened
   | "itp"
   // #760 owner feature-control kill-switches (LIVE features, default ON)
   | "jobs"

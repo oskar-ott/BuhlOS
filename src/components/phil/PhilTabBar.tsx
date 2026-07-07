@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import type { Route } from "next";
-import { Calendar, Briefcase, Camera, ChevronRight, MapPin, MoreHorizontal, Wrench } from "lucide-react";
+import { Calendar, Briefcase, Camera, ChevronRight, Clock, MapPin, MoreHorizontal, Wrench } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { PhilOfflineLink } from "./PhilOfflineLink";
 import { PhilCaptureLauncher, type IncomingCapturePhoto } from "./PhilCaptureLauncher";
@@ -53,6 +53,12 @@ interface Tab {
  *
  * Active tab indicator (doc 27 §7.1): brand-yellow dot below the icon +
  * label colour change.
+ *
+ * Sharpened mode (phil_sharpened, dark — the field-surface redesign): the
+ * right slots become Hours(/phil/hours) · Gear(/phil/gear); More leaves the
+ * bar (account moves to the PhilHeader avatar → /v2/phil) and the active
+ * indicator becomes a 3px yellow TOP underline. The FAB, testids, camera
+ * behaviour and long-press recents are identical in both modes.
  */
 const LEFT_TABS: ReadonlyArray<Tab> = [
   { label: "Today", href: "/phil/my-day", icon: Calendar, activeFor: ["/phil/my-day"] },
@@ -64,13 +70,64 @@ const RIGHT_TABS: ReadonlyArray<Tab> = [
   { label: "More", href: "/v2/phil", icon: MoreHorizontal, activeFor: ["/v2/phil"] },
 ];
 
+// Sharpened right slots (phil_sharpened, dark): Hours joins the bar and
+// More/(/v2/phil) leaves it — account moves to the header avatar (PhilHeader),
+// which keeps /v2/phil reachable so the approved-href contract still lists it.
+// Left slots (Today · Jobs) and the centre Capture FAB are shared with the
+// default bar. Parsed by scripts/check-route-ownership.js like LEFT_TABS.
+const SHARPENED_RIGHT_TABS: ReadonlyArray<Tab> = [
+  { label: "Hours", href: "/phil/hours", icon: Clock, activeFor: ["/phil/hours"] },
+  { label: "Gear", href: "/phil/gear", icon: Wrench, activeFor: ["/phil/gear"] },
+];
+
 function isTabActive(tab: Tab, pathname: string): boolean {
   return tab.activeFor.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
 
-function TabLink({ tab, pathname }: { tab: Tab; pathname: string }) {
+function TabLink({
+  tab,
+  pathname,
+  sharpened = false,
+}: {
+  tab: Tab;
+  pathname: string;
+  /** Sharpened visual: 3px yellow TOP underline instead of the under-label dot. */
+  sharpened?: boolean;
+}) {
   const Icon = tab.icon;
   const isActive = isTabActive(tab, pathname);
+  if (sharpened) {
+    return (
+      <PhilOfflineLink
+        href={tab.href}
+        aria-current={isActive ? "page" : undefined}
+        className="relative flex flex-1 flex-col items-center justify-center"
+      >
+        {/* Active tab = 3px yellow top underline (sharpened §1 nav). */}
+        <span
+          aria-hidden="true"
+          className={cn(
+            "absolute inset-x-4 top-0 h-[3px] rounded-b-pill",
+            isActive ? "bg-accent-yellow" : "bg-transparent",
+          )}
+        />
+        <span className="flex flex-col items-center justify-center gap-0.5">
+          <Icon
+            aria-hidden="true"
+            className={cn("h-5 w-5", isActive ? "text-brand-navy" : "text-text-muted")}
+          />
+          <span
+            className={cn(
+              "text-[12px] uppercase tracking-wider",
+              isActive ? "font-semibold text-brand-navy" : "font-medium text-text-muted",
+            )}
+          >
+            {tab.label}
+          </span>
+        </span>
+      </PhilOfflineLink>
+    );
+  }
   return (
     <PhilOfflineLink
       href={tab.href}
@@ -110,9 +167,18 @@ interface PhilTabBarProps {
    * recents and the sheet never opens — the plain camera tap is unchanged.
    */
   userId?: string;
+  /**
+   * phil_sharpened (dark): render the 5-slot sharpened bar — Today · Jobs ·
+   * [Capture] · Hours · Gear, active tab = 3px yellow top underline. Resolved
+   * SERVER-SIDE (src/lib/phil/sharpened.ts) and passed as a boolean; when
+   * false/absent the bar is byte-identical to the ratified default
+   * (Today · Jobs · [Capture] · Gear · More). Behavioural change to the
+   * ratified Phil package — the flag flips only via governance (P15).
+   */
+  sharpened?: boolean;
 }
 
-export function PhilTabBar({ userId = "" }: PhilTabBarProps) {
+export function PhilTabBar({ userId = "", sharpened = false }: PhilTabBarProps) {
   const pathname = usePathname() ?? "";
   const [launcherOpen, setLauncherOpen] = useState(false);
   const [incoming, setIncoming] = useState<IncomingCapturePhoto | null>(null);
@@ -222,7 +288,7 @@ export function PhilTabBar({ userId = "" }: PhilTabBarProps) {
         className="sticky bottom-0 flex h-16 shrink-0 items-stretch border-t border-border bg-surface pb-[env(safe-area-inset-bottom)]"
       >
         {LEFT_TABS.map((tab) => (
-          <TabLink key={tab.href} tab={tab} pathname={pathname} />
+          <TabLink key={tab.href} tab={tab} pathname={pathname} sharpened={sharpened} />
         ))}
 
         {/* Centre Capture button — the universal field action, present on
@@ -251,8 +317,8 @@ export function PhilTabBar({ userId = "" }: PhilTabBarProps) {
           </span>
         </div>
 
-        {RIGHT_TABS.map((tab) => (
-          <TabLink key={tab.href} tab={tab} pathname={pathname} />
+        {(sharpened ? SHARPENED_RIGHT_TABS : RIGHT_TABS).map((tab) => (
+          <TabLink key={tab.href} tab={tab} pathname={pathname} sharpened={sharpened} />
         ))}
       </nav>
 

@@ -16,6 +16,16 @@ interface PhilShellProps {
    * plain camera tap is unaffected.
    */
   userId?: string;
+  /**
+   * phil_sharpened (dark): the field-surface redesign's global chrome —
+   * 5-slot tab bar (Today · Jobs · [Capture] · Hours · Gear) + the header
+   * account avatar. Resolve SERVER-SIDE via philSharpenedFlags()
+   * (src/lib/phil/sharpened.ts) and pass the boolean; never the flags blob.
+   * False/absent = today's chrome, byte-identical.
+   */
+  sharpened?: boolean;
+  /** Worker initials for the sharpened header avatar (optional, honest-null). */
+  accountInitials?: string | null;
 }
 
 /**
@@ -29,13 +39,19 @@ interface PhilShellProps {
  * push subscription so crews migrating from the legacy pages keep their
  * hour reminders without re-opting-in.
  */
-export function PhilShell({ children, title, userId }: PhilShellProps) {
+export function PhilShell({
+  children,
+  title,
+  userId,
+  sharpened = false,
+  accountInitials = null,
+}: PhilShellProps) {
   return (
     <div
       data-testid="phil-shell"
       className="mx-auto flex min-h-screen w-full max-w-md flex-col bg-surface"
     >
-      <PhilHeader title={title} />
+      <PhilHeader title={title} sharpened={sharpened} accountInitials={accountInitials} />
       {/* The provider lets in-page quick-action tiles open the global Capture
           launcher (mounted inside PhilTabBar) preset to one action. Wraps both
           the content and the tab bar so the request flows from a tile to the
@@ -51,7 +67,7 @@ export function PhilShell({ children, title, userId }: PhilShellProps) {
             {children}
           </PullToRefresh>
         </main>
-        <PhilTabBar userId={userId} />
+        <PhilTabBar userId={userId} sharpened={sharpened} />
       </CaptureLauncherProvider>
       <PwaRegistrar />
     </div>
