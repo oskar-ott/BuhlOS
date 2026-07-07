@@ -758,7 +758,7 @@ export type LinkResponse = z.infer<typeof LinkResponseSchema>;
 export const TakeoffLineSchema = z.object({
   id: z.string(),
   lineIndex: z.number().int(),
-  sourceType: z.enum(["device-count", "schedule-row", "cable-estimate", "manual"]),
+  sourceType: z.enum(["device-count", "schedule-row", "cable-estimate", "manual", "legend-qty"]),
   description: z.string(),
   qty: z.number().nullable(),
   humanQty: z.number().nullable(),
