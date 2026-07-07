@@ -4,12 +4,15 @@ import { isFlagEnabled } from "../../../../../../../api/_lib/feature-flags.js";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { ITPRecording } from "@/components/phil/ITPRecording";
+import { PhilItpSharpened } from "@/components/phil/PhilItpSharpened";
 import { PhilNotice } from "@/components/phil/ui/PhilNotice";
 import { PhilBackLink } from "@/components/phil/ui/PhilBackLink";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
+import { philInitials, philSharpenedFlags } from "@/lib/phil/sharpened";
 import { JobDetailResponseSchema } from "@/domains/jobs/schema";
 import { ITPListResponseSchema } from "@/domains/itp/schema";
+import { SnagListResponseSchema } from "@/domains/snags/schema";
 import type { Job } from "@/domains/jobs/types";
 import type { ITPInstance } from "@/domains/itp/types";
 
@@ -62,14 +65,21 @@ export default async function PhilItpRecordingPage({ params }: PageParams) {
     notFound();
   }
 
-  const [jobResult, itpsResult] = await Promise.all([
+  const [jobResult, itpsResult, sharpenedFlags] = await Promise.all([
     loadJob(raw, jobId),
     loadItps(raw, jobId),
+    // Sharpened-chrome flag (cached flags.json read) — server-resolved boolean.
+    philSharpenedFlags(session),
   ]);
+  const accountInitials = philInitials(session.name ?? session.username);
 
   if (jobResult.kind === "not_found" || jobResult.kind === "forbidden") {
     return (
-      <PhilShell title="ITP">
+      <PhilShell
+        title="ITP"
+        sharpened={sharpenedFlags.sharpened}
+        accountInitials={accountInitials}
+      >
         <div className="space-y-4">
           <PhilBackLink href="/phil/jobs">All jobs</PhilBackLink>
           <Card>
@@ -93,7 +103,11 @@ export default async function PhilItpRecordingPage({ params }: PageParams) {
           ? itpsResult.message
           : "Network error";
     return (
-      <PhilShell title="ITP">
+      <PhilShell
+        title="ITP"
+        sharpened={sharpenedFlags.sharpened}
+        accountInitials={accountInitials}
+      >
         <div className="space-y-4">
           <PhilBackLink href={`/phil/jobs/${encodeURIComponent(jobId)}`}>
             Back to job
@@ -109,7 +123,11 @@ export default async function PhilItpRecordingPage({ params }: PageParams) {
   const instance = itpsResult.instances.find((i) => i.id === instanceId);
   if (!instance) {
     return (
-      <PhilShell title="ITP">
+      <PhilShell
+        title="ITP"
+        sharpened={sharpenedFlags.sharpened}
+        accountInitials={accountInitials}
+      >
         <div className="space-y-4">
           <PhilBackLink href={`/phil/jobs/${encodeURIComponent(jobId)}`}>
             Back to job
@@ -126,16 +144,39 @@ export default async function PhilItpRecordingPage({ params }: PageParams) {
     );
   }
 
+  const viewer = {
+    id: session.userId ?? session.sub ?? "",
+    role: String(session.role ?? ""),
+  };
+
+  // ── Sharpened Checks/ITP detail (phil_sharpened, dark — Wave 4a) ─────────
+  // Same instance + same writers, re-skinned per §2.8: title block, the real
+  // sign-off chain, required-proof projection, the existing point cards, and
+  // a sticky submit-for-review primary. The snags read feeds the honest
+  // "Snag raised" tag (#520 origin links); when it fails, the tag simply
+  // doesn't render (never fabricated). Flag off falls through below,
+  // byte-identical.
+  if (sharpenedFlags.sharpened) {
+    const snagPointIds = await loadItpSnagPointIds(raw, jobId, instanceId);
+    return (
+      <PhilShell
+        title={instance.templateSnapshot?.name?.trim() || "ITP"}
+        sharpened
+        accountInitials={accountInitials}
+      >
+        <PhilItpSharpened
+          job={jobResult.job}
+          instance={instance}
+          viewer={viewer}
+          initialSnagPointIds={snagPointIds}
+        />
+      </PhilShell>
+    );
+  }
+
   return (
     <PhilShell title={instance.templateSnapshot?.name?.trim() || "ITP"}>
-      <ITPRecording
-        job={jobResult.job}
-        instance={instance}
-        viewer={{
-          id: session.userId ?? session.sub ?? "",
-          role: String(session.role ?? ""),
-        }}
-      />
+      <ITPRecording job={jobResult.job} instance={instance} viewer={viewer} />
     </PhilShell>
   );
 }
@@ -215,5 +256,47 @@ async function loadItps(
       kind: "error",
       message: err instanceof Error ? err.message : "Network error",
     };
+  }
+}
+
+/**
+ * Point ids on this instance that already have a snag raised from them —
+ * the real #520 origin links (snag.itpInstanceId / snag.itpPointId), read
+ * from the same /api/snags list the job snag panel uses. Sharpened-only
+ * (one extra read, flag-gated) and NON-FATAL: any failure returns [] so
+ * the screen renders without the tag rather than erroring or inventing one.
+ */
+async function loadItpSnagPointIds(
+  cookieValue: string | undefined,
+  jobId: string,
+  instanceId: string,
+): Promise<string[]> {
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  const base = host ? `${proto}://${host}` : "http://localhost:3000";
+  try {
+    const res = await fetch(
+      `${base}/api/snags?jobId=${encodeURIComponent(jobId)}`,
+      {
+        cache: "no-store",
+        headers: cookieValue
+          ? { cookie: `${SESSION_COOKIE}=${cookieValue}` }
+          : undefined,
+      },
+    );
+    if (!res.ok) return [];
+    const body = await res.json();
+    const parsed = SnagListResponseSchema.safeParse(body);
+    if (!parsed.success) return [];
+    const ids = new Set<string>();
+    for (const snag of parsed.data.snags) {
+      if (snag.itpInstanceId === instanceId && snag.itpPointId) {
+        ids.add(snag.itpPointId);
+      }
+    }
+    return [...ids];
+  } catch {
+    return [];
   }
 }
