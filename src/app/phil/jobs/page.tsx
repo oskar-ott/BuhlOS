@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { PhilJobsList } from "@/components/phil/PhilJobsList";
+import { PhilJobsSharpened } from "@/components/phil/PhilJobsSharpened";
 import { PhilPageIntro } from "@/components/phil/ui/PhilPageIntro";
 import { PhilNotice } from "@/components/phil/ui/PhilNotice";
 import { RefreshButton } from "@/components/ui/RefreshButton";
@@ -9,6 +10,7 @@ import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { JobListResponseSchema } from "@/domains/jobs/schema";
 import type { Job } from "@/domains/jobs/types";
+import { philInitials, philSharpenedFlags } from "@/lib/phil/sharpened";
 
 export const dynamic = "force-dynamic";
 
@@ -46,7 +48,12 @@ export default async function PhilJobsPage() {
   // session ever lacks an id (no prefs read, no Recent group).
   const viewerId = session.userId ?? session.sub ?? "";
 
-  const { jobs, fetchError } = await loadJobs(raw);
+  // Sharpened-chrome flag rides alongside the jobs read (cached flags.json,
+  // no extra blob round-trip). Server-resolved boolean only.
+  const [{ jobs, fetchError }, sharpenedFlags] = await Promise.all([
+    loadJobs(raw),
+    philSharpenedFlags(session),
+  ]);
 
   // Hide archived + draft rows on the Phil surface even if a future admin
   // opens /phil/jobs directly. The server already withholds these from
@@ -56,8 +63,45 @@ export default async function PhilJobsPage() {
     (j) => j.status !== "archived" && j.status !== "draft"
   );
 
+  // ── Sharpened Jobs (phil_sharpened, dark — Wave 2a) ──────────────────────
+  // Same data (one /api/jobs?withStats=1 read), restyled projection. The
+  // recent/pinned/long-press behaviour and testids carry over inside
+  // PhilJobsSharpened. Flag off falls through below, byte-identical.
+  if (sharpenedFlags.sharpened) {
+    return (
+      <PhilShell
+        title="Jobs"
+        userId={viewerId}
+        sharpened
+        rfiRegister={sharpenedFlags.rfiRegister}
+        jobRoomsEnabled={sharpenedFlags.jobRooms}
+        accountInitials={philInitials(session.name ?? session.username)}
+      >
+        <div className="space-y-4">
+          {fetchError ? (
+            <PhilNotice tone="warning" title="Couldn’t load your jobs" role="alert">
+              <p>{fetchError}. If it keeps failing, ask the office to check the API.</p>
+              <div className="mt-3">
+                <RefreshButton />
+              </div>
+            </PhilNotice>
+          ) : null}
+
+          <PhilJobsSharpened initialJobs={visible} userId={viewerId} />
+        </div>
+      </PhilShell>
+    );
+  }
+
   return (
-    <PhilShell title="Jobs" userId={viewerId}>
+    <PhilShell
+      title="Jobs"
+      userId={viewerId}
+      sharpened={sharpenedFlags.sharpened}
+      rfiRegister={sharpenedFlags.rfiRegister}
+      jobRoomsEnabled={sharpenedFlags.jobRooms}
+      accountInitials={philInitials(session.name ?? session.username)}
+    >
       <div className="space-y-4">
         <PhilPageIntro
           title="Jobs"

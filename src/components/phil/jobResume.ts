@@ -1,4 +1,5 @@
 import type { JobStage } from "@/domains/jobs/types";
+import { isPhilJobRoom, type PhilJobRoom } from "./philJobRooms";
 
 /**
  * Phil — resume where you left off on a job (#425).
@@ -8,12 +9,25 @@ import type { JobStage } from "@/domains/jobs/types";
  * re-opening the job should land back on the area + stage the worker was in,
  * not the top of the list.
  *
+ * Rooms extension (phil_job_rooms — #133 "interruption recovery costs ≤1
+ * gesture"): the record OPTIONALLY carries the last room + whether the area
+ * drill-in was open, so re-entry lands back in the exact room+area. Both
+ * fields are additive and validated on read — an old record (no room) and a
+ * flag-off write (which never sets them) round-trip byte-identically.
+ *
  * Pure + injectable: storage is a parameter (defaults to window.localStorage)
  * so this is unit-testable in the node test env and SSR-safe (no window → no-op).
  * Best-effort by design — private mode / quota / bad JSON never throw into render.
  */
 
-export type JobResume = { areaId: string; stage: JobStage };
+export type JobResume = {
+  areaId: string;
+  stage: JobStage;
+  /** Last room shown (rooms mode only). Absent on flag-off / legacy records. */
+  room?: PhilJobRoom;
+  /** Whether the Work room's area drill-in was open (rooms mode only). */
+  areaOpen?: boolean;
+};
 
 type StorageLike = Pick<Storage, "getItem" | "setItem">;
 
@@ -44,7 +58,13 @@ export function readJobResume(
     const stage = (parsed as { stage?: unknown }).stage;
     if (typeof areaId !== "string" || !areaId) return null;
     if (typeof stage !== "string" || !STAGES.has(stage)) return null;
-    return { areaId, stage: stage as JobStage };
+    const resume: JobResume = { areaId, stage: stage as JobStage };
+    // Optional rooms fields — validated, dropped when unknown (forward-compat).
+    const room = (parsed as { room?: unknown }).room;
+    if (isPhilJobRoom(room)) resume.room = room;
+    const areaOpen = (parsed as { areaOpen?: unknown }).areaOpen;
+    if (typeof areaOpen === "boolean") resume.areaOpen = areaOpen;
+    return resume;
   } catch {
     return null;
   }
@@ -58,10 +78,15 @@ export function writeJobResume(
 ): void {
   if (!storage || !jobId || !resume || !resume.areaId) return;
   try {
-    storage.setItem(
-      KEY_PREFIX + jobId,
-      JSON.stringify({ areaId: resume.areaId, stage: resume.stage }),
-    );
+    // Rooms fields are written ONLY when provided, so a flag-off write stays
+    // byte-identical to today's record.
+    const record: Record<string, unknown> = {
+      areaId: resume.areaId,
+      stage: resume.stage,
+    };
+    if (resume.room !== undefined) record.room = resume.room;
+    if (resume.areaOpen !== undefined) record.areaOpen = resume.areaOpen;
+    storage.setItem(KEY_PREFIX + jobId, JSON.stringify(record));
   } catch {
     /* private mode / quota — resume is best-effort, never throws into render */
   }

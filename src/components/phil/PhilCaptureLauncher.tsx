@@ -42,6 +42,9 @@ import { effectiveTasks, stageLabel, visibleAreaGroups } from "@/domains/jobs/fo
 import type { Job, JobStage } from "@/domains/jobs/types";
 import { CapturePhotoTray, type TrayPhoto } from "./CapturePhotoTray";
 import { CaptureTargetPickers } from "./CaptureTargetPickers";
+import { PhilCaptureSharpened } from "./PhilCaptureSharpened";
+import { usePhilRfiRegister, usePhilSharpened } from "./philSharpenedContext";
+import { shouldResetCompositionOnOpen, type CapturePurposeKey } from "./captureSharpened";
 import { useSheetHistory } from "./useSheetHistory";
 import {
   buildObservationPayload,
@@ -162,6 +165,20 @@ export function PhilCaptureLauncher({
   // the worker never has to type a title to send.
   const [officeDetail, setOfficeDetail] = useState("");
   const [officeError, setOfficeError] = useState<string | null>(null);
+
+  // Sharpened re-skin (phil_sharpened, dark) — resolved server-side, carried
+  // via PhilShell's context (this launcher is mounted by PhilTabBar, which
+  // doesn't own its design). False (or no provider) = the current sheet,
+  // byte-identical. The purpose chip + branch text live HERE, like `note`,
+  // so an accidental close keeps a half-typed question/snag title (P8).
+  const sharpened = usePhilSharpened();
+  // rfi_register (same server-resolved context): whether the sharpened sheet
+  // may offer the RFI chip — the raise 404s while the register is off, so a
+  // rendered chip would be a dead selection (P7).
+  const rfiRegister = usePhilRfiRegister();
+  const [purpose, setPurpose] = useState<CapturePurposeKey>("progress");
+  const [rfiQuestion, setRfiQuestion] = useState("");
+  const [snagTitle, setSnagTitle] = useState("");
 
   // No-photo observation loop state (pre-existing flow).
   const [noteFlow, setNoteFlow] = useState<NoteFlow>(null);
@@ -351,6 +368,31 @@ export function PhilCaptureLauncher({
     if (jobsState.v !== "ready") return;
     setSelectedJobId((prev) => prev ?? preselectCaptureJob(jobsState.jobs, initialJobId ?? null));
   }, [jobsState, initialJobId]);
+
+  // The kept composition (purpose / RFI question / snag title) belongs to the
+  // job it was written against — selectedJobId, which survives close by design
+  // (P8). Opening with a DIFFERENT explicit job context (the FAB on another
+  // job's home) must not reopen a composed Job-A RFI while the worker stands
+  // on Job B: reset the composition and let the explicit context win the
+  // selection (the preselect above never overrides a stale prev). Same-job
+  // reopen and no-context opens (My Day FAB) keep everything. Runs once per
+  // open, after jobs land, so the incoming id is validated as a REAL job.
+  const openReconciledRef = useRef(false);
+  useEffect(() => {
+    if (!open) {
+      openReconciledRef.current = false;
+      return;
+    }
+    if (openReconciledRef.current || jobsState.v !== "ready") return;
+    openReconciledRef.current = true;
+    const incoming = initialJobId ?? null;
+    if (incoming && shouldResetCompositionOnOpen(incoming, selectedJobId, jobsState.jobs)) {
+      setPurpose("progress");
+      setRfiQuestion("");
+      setSnagTitle("");
+      setSelectedJobId(incoming);
+    }
+  }, [open, jobsState, initialJobId, selectedJobId]);
 
   // Fetch the selected job's detail (area groups) so the optional context
   // pickers are real. Fails soft — context stays unavailable, capture works.
@@ -746,6 +788,47 @@ export function PhilCaptureLauncher({
               onMaterialsNote={setObsMaterialsNote}
               onSubmit={(job, option) => void submitNote(job, option)}
               onDone={closeWithHistory}
+            />
+          ) : sharpened && !destOffice ? (
+            /* ── Sharpened capture (§2.5, phil_sharpened) — same mechanics,
+                  re-skinned. The office destination + note loop fall back to
+                  the flows below, unchanged. ── */
+            <PhilCaptureSharpened
+              photos={photos}
+              setPhotos={setPhotos}
+              photoHint={photoHint}
+              maxPhotos={MAX_PHOTOS}
+              onRequestCamera={onRequestCamera}
+              jobsLoading={jobsState.v === "loading"}
+              jobsError={jobsState.v === "error" ? jobsState.message : null}
+              onRetryJobs={() => void loadJobs()}
+              jobs={jobs}
+              selectedJobId={selectedJobId}
+              onSelectJob={setSelectedJobId}
+              fromJobContext={Boolean(initialJobId && selectedJobId === initialJobId)}
+              detailJob={detailJob}
+              jobDetailState={jobDetail.v}
+              flatAreas={flatAreas}
+              stage={stage}
+              areaId={areaId}
+              taskId={taskId}
+              onStageChange={setStage}
+              onAreaChange={setAreaId}
+              onTaskChange={setTaskId}
+              note={note}
+              onNoteChange={setNote}
+              purpose={purpose}
+              onPurposeChange={setPurpose}
+              rfiRegister={rfiRegister}
+              rfiQuestion={rfiQuestion}
+              onRfiQuestionChange={setRfiQuestion}
+              snagTitle={snagTitle}
+              onSnagTitleChange={setSnagTitle}
+              online={online}
+              onWriteNoteInstead={startNoteFlow}
+              canWriteNote={jobsState.v === "ready" && jobs.length > 0}
+              onSendToOffice={() => setDestOffice(true)}
+              onClose={closeWithHistory}
             />
           ) : (
             /* ── Camera-first capture ───────────────────────────────────── */

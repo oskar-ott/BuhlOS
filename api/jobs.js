@@ -5,7 +5,7 @@ const { redactJobForViewer } = require('./_lib/job-redaction');
 const { readAdminJobsWithPgOverlay, readPhilJobsWithPgOverlay } = require('./_lib/job-read-projection');
 const { recordJobsRead } = require('./_lib/job-read-diagnostics');
 const { mirrorJobToPg } = require('./_lib/jobs-mirror');
-const { isFlagOnSync } = require('./_lib/feature-flags');
+const { isFlagOnSync, isFlagEnabled } = require('./_lib/feature-flags');
 const { readJobsSummary, readFieldJobStats, countActiveSnagsV2, countActiveItps } = require('./_lib/jobs-summary');
 const { readJobDetailProjection } = require('./_lib/job-detail-projection');
 const { readAdminJobDetailFromPg, persistAdminExtras } = require('./_lib/job-detail-pg');
@@ -250,6 +250,126 @@ async function enrichJobsWithStats(jobs, crewCountByJob) {
       });
     }
   }));
+}
+
+// Phil sharpened W2b — the flag-gated FIELD create ("+ New job" on /phil/jobs).
+// Reached only for a field/leading-hand caller with `phil_sharpened` enabled
+// (the POST gate above this in the handler). Accepts a RESTRICTED body —
+// { name (required), code (required, IV####), siteAddress? } and NOTHING else:
+// structure / money / modules / client fields in the body are ignored, so a
+// field phone can never smuggle a full admin create through this branch.
+// Routes through createJob (THE one sanctioned jobs.json job writer — one
+// jobs.json write) with safe defaults: status 'active', empty structure.
+// After the create, the CREATOR is auto-assigned (one users.json write) —
+// field job visibility is users.json assignedJobIds, so without this the
+// worker could never see the job they just made.
+// Auto-assign the creator — ONE users.json write, mutating only the
+// creator's assignedJobIds (same read-modify-write shape as api/crew.js).
+// Idempotent: already-assigned means no write at all, so the retry path
+// re-runs it safely. If it fails the job exists but is invisible to the
+// worker, so we say exactly that (P7 — honest failure) rather than
+// pretending success. Returns the error response when it failed, null on ok.
+async function assignJobToCreator(me, jobId, code, res) {
+  try {
+    const usersData = await readBlob('users.json', { users: [] });
+    const creator = (usersData.users || []).find(u => u && u.id === me.id);
+    if (!creator) throw new Error('creator not found in users.json');
+    if (!(creator.assignedJobIds || []).includes(jobId)) {
+      creator.assignedJobIds = [...(creator.assignedJobIds || []), jobId];
+      await writeBlob('users.json', usersData);
+    }
+    return null;
+  } catch (e) {
+    console.error('phil field create: auto-assign failed', e && e.message);
+    return res.status(500).json({
+      error: `The job was created as ${code} but couldn't be put on your list — ask the office to assign you to it. Don't create it again.`,
+    });
+  }
+}
+
+async function handlePhilFieldCreate(req, res, me, data) {
+  const body = req.body || {};
+
+  const name = typeof body.name === 'string' ? body.name.trim() : '';
+  if (!name) return res.status(400).json({ error: 'name required' });
+
+  // Code is REQUIRED on the field path (it's the whole point of the form —
+  // hours/invoices line up under the one ref). ServiceMate-range and
+  // 7000-series custom refs are both just IV#### codes server-side; format +
+  // uniqueness are enforced in createJob (400 bad format / 409 duplicate).
+  const code = typeof body.code === 'string' ? body.code.trim().toUpperCase() : '';
+  if (!/^IV\d{4}$/.test(code)) {
+    return res.status(400).json({ error: 'code must be IV followed by 4 digits (e.g. IV0041)' });
+  }
+
+  // Retry idempotency: this create can take longer than the client's write
+  // timeout (multi-blob-write path), so a worker may retry a create that
+  // ALREADY LANDED. If the clashing code belongs to a job THIS SAME worker
+  // created (createdByUserId stamp, phil path only) with the SAME name, that
+  // retry is the same intent — return 200 with the existing job instead of
+  // 409ing the worker against their own invisible job. Also re-runs the
+  // auto-assign, so a first attempt that died between the two writes heals
+  // here. Genuine clashes (different user or different name) keep the 409
+  // from createJob below, message unchanged.
+  const clash = (data.jobs || []).find(
+    j => j && typeof j.code === 'string' && j.code.toUpperCase() === code,
+  );
+  if (clash) {
+    const sameCreator = clash.createdByUserId === me.id;
+    const sameName =
+      typeof clash.name === 'string' &&
+      clash.name.trim().toLowerCase() === name.toLowerCase();
+    if (sameCreator && sameName) {
+      const assignErr = await assignJobToCreator(me, clash.id, code, res);
+      if (assignErr) return assignErr;
+      return res.status(200).json({
+        job: redactJobForViewer(
+          { ...projectJobStructure(clash), modules: effectiveModules(clash) },
+          me.role,
+        ),
+      });
+    }
+  }
+
+  // Whitelist-only input: exactly these fields reach createJob (the creator
+  // stamp is server-set — never from the body).
+  const input = { name, code, status: 'active', createdByUserId: me.id };
+  if (typeof body.siteAddress === 'string' && body.siteAddress.trim()) {
+    input.siteAddress = body.siteAddress.trim();
+  }
+
+  const result = await createJob(data, input);
+  if (!result.ok) {
+    // createJob's duplicate-code 409 names the clashing job and its 400
+    // id-collision message confirms a name exists — fine for the office,
+    // but on this field path either would let any phil_sharpened worker
+    // enumerate company job names/codes they can't otherwise see. Return
+    // generic text; the field form only needs "taken, pick another".
+    if (result.status === 409) {
+      return res.status(409).json({ error: `code ${code} is already in use — pick another, or check with the office` });
+    }
+    if (result.status === 400 && /already exists/i.test(String(result.error || ''))) {
+      return res.status(400).json({ error: 'a job with that name already exists — use a different name' });
+    }
+    return res.status(result.status).json({ error: result.error });
+  }
+  const job = result.job;
+
+  const assignErr = await assignJobToCreator(me, job.id, code, res);
+  if (assignErr) return assignErr;
+
+  // Canonical audit journal (#581 pattern) — best-effort after the writes,
+  // source 'phil' so the office can see it was born in the field.
+  await appendAuditLog(
+    buildJobCreatedEntry({ actor: me, job, source: 'phil' }),
+  ).catch(() => {});
+
+  return res.status(200).json({
+    job: redactJobForViewer(
+      { ...projectJobStructure(job), modules: effectiveModules(job) },
+      me.role,
+    ),
+  });
 }
 
 module.exports = async (req, res) => {
@@ -721,17 +841,36 @@ module.exports = async (req, res) => {
     return res.status(200).json({ job: { ...projectJobStructure(job), modules: effectiveModules(job) } });
   }
 
-  // POST — create (admin only)
+  // POST — create. FULL create stays deliberately literal-admin. One narrow,
+  // flag-gated widening exists for the Phil sharpened redesign (below).
   if (req.method === 'POST') {
-    // role-literal-ok: job CREATE is deliberately literal-admin (documented in src/lib/auth/permissions.ts + /v2/jobs/new) — widening is a product decision
-    if (me.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
+    // role-literal-ok: FULL job CREATE is deliberately literal-admin (documented
+    // in src/lib/auth/permissions.ts + /v2/jobs/new) — widening is a product
+    // decision. That decision was made, flag-dark, for ONE restricted shape:
+    // a phil-surface field/leading-hand caller with `phil_sharpened` enabled
+    // may create a name+code(+siteAddress) job ("+ New job" on /phil/jobs,
+    // Phil sharpened W2b). The user ratifies the widening by flipping the
+    // flag (P15 governance); flag off = literal-admin, byte-identical.
+    // role-literal-ok: full-body create stays literal-admin — see block above
+    if (me.role !== 'admin') {
+      const philCreator = isFieldRole(me.role) || isLeadingHandRole(me.role);
+      if (!philCreator) return res.status(403).json({ error: 'forbidden' });
+      if (!(await isFlagEnabled('phil_sharpened', me))) {
+        return res.status(403).json({ error: 'forbidden' });
+      }
+      return handlePhilFieldCreate(req, res, me, data);
+    }
     // The validation + construction + seed writes live in the shared
     // createJob lib (api/_lib/job-create.js) so won-quote conversion
     // (api/quotes.js handleConvert, #244) writes jobs through THE SAME
     // sanctioned path — there is no second raw writeBlob('jobs.json') job
     // writer anywhere. slugify / sanitizeModules / validateJobBasics are the
     // canonical copies in this module, passed in so they have one definition.
-    const result = await createJob(data, req.body || {});
+    // createdByUserId is a server-set stamp (phil field create) — never
+    // client-writable, so strip it from the admin body to keep this path
+    // bit-for-bit as before the stamp existed.
+    const { createdByUserId: _ignoredCreatedBy, ...adminCreateBody } = req.body || {};
+    const result = await createJob(data, adminCreateBody);
     if (!result.ok) return res.status(result.status).json({ error: result.error });
     const job = result.job;
     // #581: record Job Builder job creation in the canonical audit journal —

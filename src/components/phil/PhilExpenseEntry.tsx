@@ -16,7 +16,13 @@ import type { ExpenseItem } from "@/domains/expenses/types";
  * BUG-C-003 lesson — never put the outcome UI inside a sheet that closes).
  * One tap → SubmitExpenseSheet → a confirmation the worker can see.
  */
-export function PhilExpenseEntry() {
+export function PhilExpenseEntry({
+  headerClassName = "mb-2 text-xs font-semibold uppercase tracking-wider text-text-muted",
+}: {
+  /** Section-heading classes. Default = today's header, byte-identical; the
+   *  sharpened My Day passes its own section-label style. */
+  headerClassName?: string;
+} = {}) {
   const [open, setOpen] = useState(false);
   const [result, setResult] = useState<
     { kind: "ok"; item: ExpenseItem } | { kind: "error"; message: string } | null
@@ -24,10 +30,7 @@ export function PhilExpenseEntry() {
 
   return (
     <section aria-labelledby="phil-expense-entry">
-      <h2
-        id="phil-expense-entry"
-        className="mb-2 text-xs font-semibold uppercase tracking-wider text-text-muted"
-      >
+      <h2 id="phil-expense-entry" className={headerClassName}>
         Reimbursements
       </h2>
 

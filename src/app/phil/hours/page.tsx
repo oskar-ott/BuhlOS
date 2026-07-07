@@ -9,6 +9,7 @@ import { PhilNotice } from "@/components/phil/ui/PhilNotice";
 import { PhilBackLink } from "@/components/phil/ui/PhilBackLink";
 import { RejectedHoursResubmitSheet } from "@/components/phil/RejectedHoursResubmitSheet";
 import { PhilWeekSummary } from "@/components/phil/PhilWeekSummary";
+import { PhilHoursSharpened } from "@/components/phil/PhilHoursSharpened";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { TimeEntryListResponseSchema } from "@/domains/timesheets/schema";
@@ -17,6 +18,7 @@ import { canResubmitInPhil, type AssignableJob } from "@/domains/timesheets/resu
 import { BUSINESS_TIMEZONE, localDateString } from "@/domains/timesheets/service";
 import { JobListResponseSchema } from "@/domains/jobs/schema";
 import { isVisibleToField } from "@/domains/jobs/builder";
+import { philInitials, philSharpenedFlags } from "@/lib/phil/sharpened";
 import {
   formatDateLabel,
   formatHoursLabel,
@@ -78,13 +80,55 @@ export default async function PhilHoursPage({
 
   // History + the worker's active assigned jobs in parallel — the jobs feed
   // the resubmit form's attribution guard so a fix can't land jobId:null.
-  const [{ entries, fetchError }, assignedJobs] = await Promise.all([
+  const [{ entries, fetchError }, assignedJobs, sharpenedFlags] = await Promise.all([
     loadHistory(raw),
     loadAssignedJobs(raw),
+    // Sharpened-chrome flag (cached flags.json read) — server-resolved boolean.
+    philSharpenedFlags(session),
   ]);
 
+  // ── Sharpened Hours (phil_sharpened, dark — Wave 2c) ─────────────────────
+  // Same data (the full /api/time-entries history + the worker's assigned
+  // jobs), re-projected as collapsible week cards with the EXISTING log /
+  // fix-and-resubmit flows mounted here (in sharpened mode the Hours tab is
+  // the worker's logging home). Flag off falls through below, byte-identical.
+  if (sharpenedFlags.sharpened) {
+    return (
+      <PhilShell
+        title="Hours"
+        userId={session.userId ?? ""}
+        sharpened
+        rfiRegister={sharpenedFlags.rfiRegister}
+        jobRoomsEnabled={sharpenedFlags.jobRooms}
+        accountInitials={philInitials(session.name ?? session.username)}
+      >
+        <div className="space-y-4">
+          {fetchError ? (
+            <PhilNotice tone="warning" title="Couldn’t load your hours" role="alert">
+              {fetchError}. Pull to refresh, or ask the office if it keeps happening.
+            </PhilNotice>
+          ) : (
+            <PhilHoursSharpened
+              entries={entries}
+              todayISO={todayISO}
+              assignedJobs={assignedJobs.jobs}
+              jobsError={assignedJobs.error}
+            />
+          )}
+        </div>
+      </PhilShell>
+    );
+  }
+
   return (
-    <PhilShell title="Hours history" userId={session.userId ?? ""}>
+    <PhilShell
+      title="Hours history"
+      userId={session.userId ?? ""}
+      sharpened={sharpenedFlags.sharpened}
+      rfiRegister={sharpenedFlags.rfiRegister}
+      jobRoomsEnabled={sharpenedFlags.jobRooms}
+      accountInitials={philInitials(session.name ?? session.username)}
+    >
       <div className="space-y-4">
         <PhilBackLink href="/phil/my-day">My day</PhilBackLink>
 
@@ -233,7 +277,7 @@ async function loadHistory(cookieValue: string | undefined): Promise<{
  * back to an unattributed entry.
  */
 async function loadAssignedJobs(cookieValue: string | undefined): Promise<{
-  jobs: ReadonlyArray<AssignableJob>;
+  jobs: ReadonlyArray<AssignableJob & { ref: string | null }>;
   error: boolean;
 }> {
   const h = await headers();
@@ -252,7 +296,10 @@ async function loadAssignedJobs(cookieValue: string | undefined): Promise<{
     if (!parsed.success) return { jobs: [], error: true };
     const jobs = parsed.data.jobs
       .filter((j) => isVisibleToField(j))
-      .map((j) => ({ id: j.id, name: j.name }));
+      // A real job code rides along for the sharpened code chips (the W2b
+      // IV#### `code` when set, else the free-text `ref`, else an honestly
+      // absent chip) — AssignableJob consumers ignore the extra field.
+      .map((j) => ({ id: j.id, name: j.name, ref: j.code ?? j.ref ?? null }));
     return { jobs, error: false };
   } catch {
     return { jobs: [], error: true };

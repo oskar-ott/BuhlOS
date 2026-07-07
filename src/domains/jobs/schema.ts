@@ -142,6 +142,11 @@ export const JobSchema = z
     name: z.string(),
     status: JobStatusSchema.optional(),
     ref: z.string().nullable().optional(),
+    /** Short shared job code, strictly IV#### (Phil sharpened W2b, "+ New
+     *  job"). Validated + uniqueness-checked server-side on create
+     *  (api/_lib/job-create.js); optional/absent on every job created before
+     *  the field existed. Distinct from the free-text `ref` basics field. */
+    code: z.string().nullable().optional(),
 
     clientUserId: z.string().nullable().optional(),
     type: z.string().nullable().optional(),
