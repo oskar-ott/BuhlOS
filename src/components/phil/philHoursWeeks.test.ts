@@ -225,6 +225,30 @@ describe("buildJobBreakdown", () => {
     expect(rows[0]!.known).toBe(true);
     expect(rows[2]!.known).toBe(false);
   });
+
+  it("reuses the allocation's server-enriched jobName for an off-roster job — same rule as the day rows", () => {
+    const rows = buildJobBreakdown(
+      [
+        entry({
+          date: MONDAY,
+          status: "approved",
+          allocations: [
+            // Enriched: the server sent the real name of a job the worker is
+            // no longer assigned to — the breakdown must not relabel it
+            // "A job you're no longer on" while the day row shows "Old Depot".
+            { jobId: "gone-named", jobName: "Old Depot", hours: 3 },
+            // Not enriched: no name exists anywhere — the honest label stays.
+            { jobId: "gone-bare", hours: 2 },
+          ],
+        }),
+      ],
+      JOBS,
+    );
+    const named = rows.find((r) => r.jobId === "gone-named")!;
+    expect(named).toMatchObject({ name: "Old Depot", ref: null, hours: 3, known: false });
+    const bare = rows.find((r) => r.jobId === "gone-bare")!;
+    expect(bare).toMatchObject({ name: UNKNOWN_JOB_LABEL, hours: 2, known: false });
+  });
 });
 
 describe("week labels", () => {

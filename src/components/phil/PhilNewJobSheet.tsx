@@ -6,11 +6,14 @@ import { Check, ChevronLeft, Link2, Loader2, MapPin, SquarePen, Wand2 } from "lu
 import { PhilNotice } from "./ui/PhilNotice";
 import { philWrite } from "@/domains/phil/write-client";
 import { cn } from "@/lib/cn";
+import type { Job } from "@/domains/jobs/types";
 import {
   CODE_PREFIX,
   canCreateJobInput,
   codeFromDigits,
+  newJobCodeClash,
   nextFree7000,
+  realCodesOnList,
   recoverJobIdAfterTimeout,
   sanitizeDigits,
 } from "./philNewJobForm";
@@ -44,9 +47,11 @@ interface PhilNewJobSheetProps {
   open: boolean;
   /** Cancel / after-create dismissal — returns to the list. */
   onClose: () => void;
-  /** REAL IV#### codes on the worker's job list (drives the reference row +
-   *  the next-free-7000 default). Empty for most workers today. */
-  existingCodes: ReadonlyArray<string>;
+  /** The worker's OWN job list (id + name + code is all the form needs).
+   *  Drives the reference row + the next-free-7000 default, the duplicate-
+   *  code pre-guard ("that's {name} — already on your list"), and the
+   *  pre-submit id snapshot the timeout-recovery probe checks against. */
+  jobs: ReadonlyArray<Pick<Job, "id" | "name" | "code">>;
   /** Initial toggle side. Default ServiceMate (the prototype's lead side). */
   initialMode?: NewJobCodeMode;
 }
@@ -66,10 +71,14 @@ function parseCreated(raw: unknown): CreatedJob | null {
 export function PhilNewJobSheet({
   open,
   onClose,
-  existingCodes,
+  jobs,
   initialMode = "servicemate",
 }: PhilNewJobSheetProps) {
   const router = useRouter();
+
+  // Real codes off this worker's own list — the reference row + the
+  // next-free-7000 default. Nothing invented: no codes → empty (P7).
+  const existingCodes = useMemo(() => realCodesOnList(jobs), [jobs]);
 
   const [name, setName] = useState("");
   const [mode, setMode] = useState<NewJobCodeMode>(initialMode);
@@ -93,17 +102,25 @@ export function PhilNewJobSheet({
   }, [open, onClose, submitting]);
 
   const digits = mode === "servicemate" ? smDigits : customDigits;
-  const canCreate = canCreateJobInput(name, digits) && !submitting;
+  // Pre-guard: the composed code already belongs to a job on the worker's
+  // OWN list — Create would only earn a guaranteed 409, so it stays disabled
+  // with an honest inline hint instead. Their own list leaks nothing; the
+  // server stays the real enforcement for codes on jobs they can't see.
+  const codeClash = useMemo(() => newJobCodeClash(jobs, digits), [jobs, digits]);
+  const canCreate = canCreateJobInput(name, digits) && !codeClash && !submitting;
 
   const onNextFree = useCallback(() => {
     setCustomDigits(nextFree7000(existingCodes) ?? "");
   }, [existingCodes]);
 
   const onSubmit = useCallback(async () => {
-    if (!canCreateJobInput(name, digits) || submitting) return;
+    if (!canCreateJobInput(name, digits) || codeClash || submitting) return;
     setSubmitting(true);
     setError(null);
     const code = codeFromDigits(digits);
+    // Snapshot the list as it stood at submit — the timeout-recovery probe
+    // may only claim success for a job that was NOT already here.
+    const preSubmitJobIds = new Set(jobs.map((j) => j.id));
     const body: Record<string, string> = {
       name: name.trim(),
       code,
@@ -117,21 +134,30 @@ export function PhilNewJobSheet({
     }
     // TIMEOUT is the one failure where the create may still have LANDED (the
     // multi-blob-write create can outlive the write budget). Before showing
-    // "may not have sent", one cheap list read: if the submitted code is now
-    // on the worker's list, the create succeeded — navigate as normal instead
-    // of inviting a retry that would only bounce off their own job. Every
+    // "may not have sent", one cheap list read: if the submitted code sits on
+    // a job that was NOT on the worker's list before submit, the create
+    // succeeded — navigate as normal instead of inviting a retry that would
+    // only bounce off their own job. A match that WAS already there means the
+    // create didn't happen (that code is taken) — say exactly that. Every
     // other failure kind means no server confirmation existed; the honest
     // failure line stands.
     if (result.error.kind === "timeout") {
-      const recoveredId = await recoverJobIdAfterTimeout(code);
-      if (recoveredId) {
-        router.push(`/phil/jobs/${encodeURIComponent(recoveredId)}`);
+      const recovery = await recoverJobIdAfterTimeout(code, preSubmitJobIds);
+      if (recovery.outcome === "created") {
+        router.push(`/phil/jobs/${encodeURIComponent(recovery.id)}`);
+        return;
+      }
+      if (recovery.outcome === "preexisting") {
+        setError(
+          `${code} is already taken by a job on your list — this one wasn't created. Pick another code.`,
+        );
+        setSubmitting(false);
         return;
       }
     }
     setError(result.error.message || "Couldn't create the job. Try again.");
     setSubmitting(false);
-  }, [name, digits, siteAddress, submitting, router]);
+  }, [name, digits, codeClash, jobs, siteAddress, submitting, router]);
 
   if (!open) return null;
 
@@ -284,6 +310,20 @@ export function PhilNewJobSheet({
                 </>
               )}
             </div>
+
+            {/* Duplicate-code pre-guard hint — the code belongs to a job on
+                the worker's OWN list, so naming it leaks nothing. Create
+                stays disabled while this shows. */}
+            {codeClash ? (
+              <p
+                data-testid="phil-new-job-code-taken"
+                role="alert"
+                className="text-[13px] font-medium text-state-danger"
+              >
+                That&apos;s {codeClash.name} — already on your list. Pick another
+                code.
+              </p>
+            ) : null}
 
             {mode === "servicemate" ? (
               <>

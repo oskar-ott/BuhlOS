@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { EVIDENCE_NOTE_MAX } from "@/domains/evidence/schema";
 import type { JobContact } from "@/domains/contacts/schema";
+import type { CaptureBatchPhotoResult } from "@/domains/evidence/capture-batch";
+import type { EvidenceItem } from "@/domains/evidence/types";
+import type { TrayPhoto } from "./CapturePhotoTray";
 import {
+  applyBatchResultToTray,
   availableCapturePurposes,
   buildBlockingObservationPayload,
   canMarkBlocked,
@@ -9,10 +13,15 @@ import {
   COVERED_WORK_TAG,
   deriveRfiSubject,
   noteForPurpose,
+  partialBatchFailureMessage,
   RFI_OFFICE_RECIPIENT,
   RFI_SUBJECT_MAX,
+  rfiBlockedOutcome,
   rfiPhotoNote,
   rfiRecipients,
+  sendableTrayBatch,
+  shouldResetCompositionOnOpen,
+  unreadableTrayPhotos,
 } from "./captureSharpened";
 
 /**
@@ -111,6 +120,139 @@ describe("rfiRecipients — REAL options only", () => {
     const list = rfiRecipients(contacts);
     expect(list[1]!.askedOf).toBe("dave@builder.example");
     expect(list[2]!.askedOf).toBe("Marco Ferraro");
+  });
+});
+
+/* ── Partial-batch honesty (F1) ─────────────────────────────────────────── */
+
+function tray(
+  id: string,
+  status: TrayPhoto["status"],
+  dataUrl: string | null = `data:image/jpeg;base64,${id}`,
+): TrayPhoto {
+  return { id, file: { name: `${id}.jpg`, size: 1024 } as unknown as File, dataUrl, status };
+}
+const okResult = (id: string, evidenceId: string): CaptureBatchPhotoResult => ({
+  id,
+  ok: true,
+  evidence: { id: evidenceId } as EvidenceItem,
+});
+const failResult = (id: string, message: string): CaptureBatchPhotoResult => ({
+  id,
+  ok: false,
+  failedAt: "upload",
+  message,
+});
+
+describe("sendableTrayBatch / unreadableTrayPhotos — a failed photo is never silently dropped", () => {
+  it("sends ready AND retryable-failed photos; never a resizing or unreadable one", () => {
+    const photos = [
+      tray("a", "ready"),
+      tray("b", "failed"), // upload failed — bytes still good, retryable
+      tray("c", "resizing", null),
+      tray("d", "failed", null), // resize failed — no bytes, can never send
+    ];
+    expect(sendableTrayBatch(photos).map((p) => p.id)).toEqual(["a", "b"]);
+    expect(unreadableTrayPhotos(photos).map((p) => p.id)).toEqual(["d"]);
+  });
+});
+
+describe("applyBatchResultToTray — partial failure keeps the failures, and the retry re-sends ONLY them", () => {
+  it("3 photos, 2nd fails: saved leave the tray, the failure stays with its honest message", () => {
+    const photos = [tray("a", "ready"), tray("b", "ready"), tray("c", "ready")];
+    const after = applyBatchResultToTray(photos, [
+      okResult("a", "ev_a"),
+      failResult("b", "Couldn't upload the photo (500)."),
+      okResult("c", "ev_c"),
+    ]);
+    expect(after.map((p) => p.id)).toEqual(["b"]);
+    expect(after[0]!.status).toBe("failed");
+    expect(after[0]!.error).toBe("Couldn't upload the photo (500).");
+  });
+
+  it("the RETRY batch contains ONLY the failed photo — the saved ids are never re-uploaded (no duplicate evidence)", () => {
+    const photos = [tray("a", "ready"), tray("b", "ready"), tray("c", "ready")];
+    const after = applyBatchResultToTray(photos, [
+      okResult("a", "ev_a"),
+      failResult("b", "Photo uploaded but didn't save (503)."),
+      okResult("c", "ev_c"),
+    ]);
+    expect(sendableTrayBatch(after).map((p) => p.id)).toEqual(["b"]);
+  });
+
+  it("photos outside the attempt (still resizing) are untouched", () => {
+    const photos = [tray("a", "ready"), tray("z", "resizing", null)];
+    const after = applyBatchResultToTray(photos, [okResult("a", "ev_a")]);
+    expect(after).toEqual([tray("z", "resizing", null)]);
+  });
+});
+
+describe("partialBatchFailureMessage — the honest split (P7)", () => {
+  it("claims exactly what saved and what didn't, and promises a failed-only retry", () => {
+    expect(partialBatchFailureMessage(2, 1, "progress")).toBe(
+      "2 saved · 1 didn't send — it's still here. Retry sends only the ones that failed.",
+    );
+    expect(partialBatchFailureMessage(1, 2, "covered")).toBe(
+      "1 saved · 2 didn't send — they're still here. Retry sends only the ones that failed.",
+    );
+  });
+
+  it("never claims a save when nothing landed", () => {
+    expect(partialBatchFailureMessage(0, 1, "progress")).toBe(
+      "That photo didn't send — it's still here. Nothing was sent.",
+    );
+    expect(partialBatchFailureMessage(0, 3, "progress")).toBe(
+      "3 photos didn't send — they're still here. Nothing was sent.",
+    );
+  });
+
+  it("snag/RFI say the raise hasn't happened — photos up is not a raise", () => {
+    expect(partialBatchFailureMessage(2, 1, "snag")).toContain("The snag hasn't been raised yet.");
+    expect(partialBatchFailureMessage(2, 1, "rfi")).toContain("The RFI hasn't been sent yet.");
+    expect(partialBatchFailureMessage(0, 1, "rfi")).toContain("The RFI hasn't been sent yet.");
+  });
+});
+
+/* ── Composition ↔ job context (F2) ─────────────────────────────────────── */
+
+describe("shouldResetCompositionOnOpen — a Job-A composition never reopens on Job B", () => {
+  const jobs = [{ id: "job-a" }, { id: "job-b" }];
+
+  it("resets when the incoming context is a REAL job different from the composition's", () => {
+    expect(shouldResetCompositionOnOpen("job-b", "job-a", jobs)).toBe(true);
+  });
+
+  it("same-job reopen keeps everything (P8)", () => {
+    expect(shouldResetCompositionOnOpen("job-a", "job-a", jobs)).toBe(false);
+  });
+
+  it("a no-context open (My Day FAB) keeps everything (P8)", () => {
+    expect(shouldResetCompositionOnOpen(null, "job-a", jobs)).toBe(false);
+    expect(shouldResetCompositionOnOpen(undefined, "job-a", jobs)).toBe(false);
+  });
+
+  it("an incoming id that isn't one of the worker's real jobs never resets", () => {
+    expect(shouldResetCompositionOnOpen("job-x", "job-a", jobs)).toBe(false);
+  });
+
+  it("no remembered job → nothing lifted belongs anywhere yet, no reset", () => {
+    expect(shouldResetCompositionOnOpen("job-b", null, jobs)).toBe(false);
+  });
+});
+
+/* ── Blocked truth (F3) ─────────────────────────────────────────────────── */
+
+describe("rfiBlockedOutcome — the receipt can never contradict a created observation", () => {
+  it("a created observation means blocked, even if the checkbox was unticked afterwards", () => {
+    expect(rfiBlockedOutcome("obs_1", false, true)).toBe(true);
+    expect(rfiBlockedOutcome("obs_1", false, false)).toBe(true);
+    expect(rfiBlockedOutcome("obs_1", true, true)).toBe(true);
+  });
+
+  it("no observation yet → blocked is the ticked checkbox on a full task coordinate", () => {
+    expect(rfiBlockedOutcome(null, true, true)).toBe(true);
+    expect(rfiBlockedOutcome(null, true, false)).toBe(false);
+    expect(rfiBlockedOutcome(null, false, true)).toBe(false);
   });
 });
 

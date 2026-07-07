@@ -1,13 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
+import type { Job } from "@/domains/jobs/types";
 import {
   canCreateJobInput,
   codeFromDigits,
   findJobIdByCode,
+  jobOnListWithCode,
+  newJobCodeClash,
   nextFree7000,
   realCodesOnList,
   recoverJobIdAfterTimeout,
   sanitizeDigits,
 } from "./philNewJobForm";
+
+const listJob = (id: string, name: string, code?: string | null) =>
+  ({ id, name, code }) as Pick<Job, "id" | "name" | "code">;
 
 describe("sanitizeDigits", () => {
   it("keeps only digits, capped at 4", () => {
@@ -80,46 +86,102 @@ describe("findJobIdByCode — the timeout-recovery probe", () => {
   });
 });
 
-describe("recoverJobIdAfterTimeout — only a REAL list hit counts as success", () => {
+describe("recoverJobIdAfterTimeout — only a NEW list hit counts as success", () => {
   const okResponse = (body: unknown) =>
     ({ ok: true, json: async () => body }) as unknown as Response;
+  const noPriorJobs = new Set<string>();
 
-  it("returns the created job's id when the code is now on the list", async () => {
+  it("returns created + the job's id when the code landed on a job that was NOT there before submit", async () => {
     const fetchImpl = vi.fn(async () =>
-      okResponse({ jobs: [{ id: "payneham-rd-bakery", code: "IV0038" }] }),
+      okResponse({
+        jobs: [
+          { id: "job-active", code: "IV0041" },
+          { id: "payneham-rd-bakery", code: "IV0038" },
+        ],
+      }),
     ) as unknown as typeof fetch;
-    await expect(recoverJobIdAfterTimeout("IV0038", fetchImpl)).resolves.toBe(
-      "payneham-rd-bakery",
-    );
+    await expect(
+      recoverJobIdAfterTimeout("IV0038", new Set(["job-active"]), fetchImpl),
+    ).resolves.toEqual({ outcome: "created", id: "payneham-rd-bakery" });
     expect(fetchImpl).toHaveBeenCalledWith("/api/jobs", { cache: "no-store" });
   });
 
-  it("returns null when the code is NOT on the list (the create truly failed)", async () => {
+  it("a PRE-EXISTING job carrying the code is never claimed as success — the create didn't happen", async () => {
+    // The worker already had payneham-rd-bakery (code IV0038) on their list
+    // before tapping Create: the server would have 409'd this create, so a
+    // list hit on that job proves failure, not success.
+    const fetchImpl = vi.fn(async () =>
+      okResponse({ jobs: [{ id: "payneham-rd-bakery", code: "IV0038" }] }),
+    ) as unknown as typeof fetch;
+    await expect(
+      recoverJobIdAfterTimeout("IV0038", new Set(["payneham-rd-bakery"]), fetchImpl),
+    ).resolves.toEqual({ outcome: "preexisting" });
+  });
+
+  it("returns unknown when the code is NOT on the list (the create truly failed)", async () => {
     const fetchImpl = vi.fn(async () =>
       okResponse({ jobs: [{ id: "job-active", code: "IV0041" }] }),
     ) as unknown as typeof fetch;
-    await expect(recoverJobIdAfterTimeout("IV0038", fetchImpl)).resolves.toBeNull();
+    await expect(
+      recoverJobIdAfterTimeout("IV0038", noPriorJobs, fetchImpl),
+    ).resolves.toEqual({ outcome: "unknown" });
   });
 
-  it("returns null on a non-2xx reply, a junk body, or a thrown fetch — never a false success", async () => {
+  it("returns unknown on a non-2xx reply, a junk body, or a thrown fetch — never a false success", async () => {
     const bad = ({ ok: false, json: async () => ({}) }) as unknown as Response;
     await expect(
-      recoverJobIdAfterTimeout("IV0038", (async () => bad) as unknown as typeof fetch),
-    ).resolves.toBeNull();
+      recoverJobIdAfterTimeout("IV0038", noPriorJobs, (async () => bad) as unknown as typeof fetch),
+    ).resolves.toEqual({ outcome: "unknown" });
     await expect(
       recoverJobIdAfterTimeout(
         "IV0038",
+        noPriorJobs,
         (async () => okResponse({ nope: true })) as unknown as typeof fetch,
       ),
-    ).resolves.toBeNull();
+    ).resolves.toEqual({ outcome: "unknown" });
     await expect(
       recoverJobIdAfterTimeout(
         "IV0038",
+        noPriorJobs,
         (async () => {
           throw new TypeError("network down");
         }) as unknown as typeof fetch,
       ),
-    ).resolves.toBeNull();
+    ).resolves.toEqual({ outcome: "unknown" });
+  });
+});
+
+describe("jobOnListWithCode / newJobCodeClash — the duplicate-code pre-guard", () => {
+  const jobs = [
+    listJob("job-active", "Active Site", "IV0041"),
+    listJob("payneham-rd-bakery", "Payneham Rd Bakery", "iv0038"), // stored case may differ
+    listJob("bare", "No code job", null),
+  ];
+
+  it("names the worker's own job already carrying the code, case-insensitively", () => {
+    expect(jobOnListWithCode(jobs, "IV0038")).toEqual({
+      id: "payneham-rd-bakery",
+      name: "Payneham Rd Bakery",
+    });
+    expect(jobOnListWithCode(jobs, "iv0041")).toEqual({ id: "job-active", name: "Active Site" });
+  });
+
+  it("is null for a free code or a malformed one", () => {
+    expect(jobOnListWithCode(jobs, "IV9999")).toBeNull();
+    expect(jobOnListWithCode(jobs, "not-a-code")).toBeNull();
+    expect(jobOnListWithCode([], "IV0041")).toBeNull();
+  });
+
+  it("newJobCodeClash disables Create only on a COMPLETE clashing entry — silent mid-type", () => {
+    // The clash (Create disabled + inline hint) fires on 4 typed digits…
+    expect(newJobCodeClash(jobs, "0038")).toEqual({
+      id: "payneham-rd-bakery",
+      name: "Payneham Rd Bakery",
+    });
+    // …but never nags a partial entry, and a free code stays clash-free.
+    expect(newJobCodeClash(jobs, "003")).toBeNull();
+    expect(newJobCodeClash(jobs, "")).toBeNull();
+    expect(newJobCodeClash(jobs, "7002")).toBeNull();
   });
 });
 

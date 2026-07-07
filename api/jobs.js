@@ -339,7 +339,20 @@ async function handlePhilFieldCreate(req, res, me, data) {
   }
 
   const result = await createJob(data, input);
-  if (!result.ok) return res.status(result.status).json({ error: result.error });
+  if (!result.ok) {
+    // createJob's duplicate-code 409 names the clashing job and its 400
+    // id-collision message confirms a name exists — fine for the office,
+    // but on this field path either would let any phil_sharpened worker
+    // enumerate company job names/codes they can't otherwise see. Return
+    // generic text; the field form only needs "taken, pick another".
+    if (result.status === 409) {
+      return res.status(409).json({ error: `code ${code} is already in use — pick another, or check with the office` });
+    }
+    if (result.status === 400 && /already exists/i.test(String(result.error || ''))) {
+      return res.status(400).json({ error: 'a job with that name already exists — use a different name' });
+    }
+    return res.status(result.status).json({ error: result.error });
+  }
   const job = result.job;
 
   const assignErr = await assignJobToCreator(me, job.id, code, res);

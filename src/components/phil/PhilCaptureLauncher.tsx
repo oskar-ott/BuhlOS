@@ -44,7 +44,7 @@ import { CapturePhotoTray, type TrayPhoto } from "./CapturePhotoTray";
 import { CaptureTargetPickers } from "./CaptureTargetPickers";
 import { PhilCaptureSharpened } from "./PhilCaptureSharpened";
 import { usePhilRfiRegister, usePhilSharpened } from "./philSharpenedContext";
-import type { CapturePurposeKey } from "./captureSharpened";
+import { shouldResetCompositionOnOpen, type CapturePurposeKey } from "./captureSharpened";
 import { useSheetHistory } from "./useSheetHistory";
 import {
   buildObservationPayload,
@@ -368,6 +368,31 @@ export function PhilCaptureLauncher({
     if (jobsState.v !== "ready") return;
     setSelectedJobId((prev) => prev ?? preselectCaptureJob(jobsState.jobs, initialJobId ?? null));
   }, [jobsState, initialJobId]);
+
+  // The kept composition (purpose / RFI question / snag title) belongs to the
+  // job it was written against — selectedJobId, which survives close by design
+  // (P8). Opening with a DIFFERENT explicit job context (the FAB on another
+  // job's home) must not reopen a composed Job-A RFI while the worker stands
+  // on Job B: reset the composition and let the explicit context win the
+  // selection (the preselect above never overrides a stale prev). Same-job
+  // reopen and no-context opens (My Day FAB) keep everything. Runs once per
+  // open, after jobs land, so the incoming id is validated as a REAL job.
+  const openReconciledRef = useRef(false);
+  useEffect(() => {
+    if (!open) {
+      openReconciledRef.current = false;
+      return;
+    }
+    if (openReconciledRef.current || jobsState.v !== "ready") return;
+    openReconciledRef.current = true;
+    const incoming = initialJobId ?? null;
+    if (incoming && shouldResetCompositionOnOpen(incoming, selectedJobId, jobsState.jobs)) {
+      setPurpose("progress");
+      setRfiQuestion("");
+      setSnagTitle("");
+      setSelectedJobId(incoming);
+    }
+  }, [open, jobsState, initialJobId, selectedJobId]);
 
   // Fetch the selected job's detail (area groups) so the optional context
   // pickers are real. Fails soft — context stays unavailable, capture works.

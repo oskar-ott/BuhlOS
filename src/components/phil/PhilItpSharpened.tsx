@@ -475,7 +475,9 @@ function ReadingRow({
   const recorded = Boolean(result?.at);
   const verdict = valuePassFail(point, result);
   const value =
-    recorded && (typeof result?.value === "number" || typeof result?.value === "string")
+    recorded &&
+    (typeof result?.value === "number" ||
+      (typeof result?.value === "string" && result.value.trim() !== ""))
       ? `${result.value}${point.unit ? ` ${point.unit}` : ""}`
       : null;
   return (
@@ -509,6 +511,13 @@ function ReadingRow({
           )}
         >
           {value}
+        </span>
+      ) : recorded ? (
+        // Stamped but value-less (a note-only record): the glyph says
+        // recorded — the text must agree with it, not claim "not recorded".
+        // Matches formatProgress, which counts any stamped point as done.
+        <span className="shrink-0 text-[12px] text-text-muted">
+          recorded · no reading value
         </span>
       ) : (
         <span className="shrink-0 text-[12px] text-text-muted">

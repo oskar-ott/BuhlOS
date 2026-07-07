@@ -3,6 +3,8 @@ import type { CreateObservationPayload } from "@/domains/observations/types";
 import { OBSERVATION_DESCRIPTION_MAX } from "@/domains/observations/schema";
 import type { JobStage } from "@/domains/jobs/types";
 import { EVIDENCE_NOTE_MAX } from "@/domains/evidence/schema";
+import type { CaptureBatchPhotoResult } from "@/domains/evidence/capture-batch";
+import type { TrayPhoto } from "./CapturePhotoTray";
 
 /**
  * Pure helpers for the SHARPENED Capture sheet (§2.5 of the Phil redesign,
@@ -68,6 +70,142 @@ export function availableCapturePurposes(
   return rfiRegisterOn
     ? CAPTURE_PURPOSES
     : CAPTURE_PURPOSES.filter((p) => p.key !== "rfi");
+}
+
+/* ── Partial-batch honesty — the tray ↔ batch contract ─────────────────────
+ *
+ * A save attempt and its retry share ONE rule set (mirrors the proven
+ * non-sharpened launcher: `partial` state + `retryFailed`):
+ *   - what saved LEAVES the tray and keeps its evidence id — a retry never
+ *     re-uploads it (no duplicate evidence);
+ *   - what failed STAYS, marked with its honest per-photo message, and is
+ *     part of the NEXT attempt's batch — never silently dropped (P8);
+ *   - a snag/RFI raise happens only once every tray photo has saved or been
+ *     explicitly removed by the worker (P7 — the raise must never carry
+ *     fewer photos than the worker sees in the batch).
+ */
+
+/**
+ * The photos a save attempt actually sends: ready photos AND failed photos
+ * whose bytes are still good (an upload/create failure keeps the dataUrl —
+ * the retry re-sends exactly those). A failed photo is NEVER silently
+ * excluded from a batch: it goes up with the attempt or the attempt honestly
+ * fails before anything downstream (the snag/RFI raise) happens. Photos
+ * still resizing are the caller's gate (`resizing` blocks save); resize
+ * failures have no dataUrl and can never send — see unreadableTrayPhotos.
+ */
+export function sendableTrayBatch(
+  photos: ReadonlyArray<TrayPhoto>,
+): { id: string; dataUrl: string }[] {
+  return photos
+    .filter((p) => (p.status === "ready" || p.status === "failed") && p.dataUrl)
+    .map((p) => ({ id: p.id, dataUrl: p.dataUrl! }));
+}
+
+/**
+ * Photos that can NEVER send — the resize failed, so there are no bytes to
+ * upload. A snag/RFI raise is blocked while one sits in the tray (the worker
+ * removes it — its tile says why — then raises); a plain photo save simply
+ * has nothing to send for it, same as the non-sharpened launcher.
+ */
+export function unreadableTrayPhotos(
+  photos: ReadonlyArray<TrayPhoto>,
+): TrayPhoto[] {
+  return photos.filter((p) => p.status === "failed" && !p.dataUrl);
+}
+
+/**
+ * Reconcile the tray after a batch attempt: saved photos LEAVE (the caller
+ * keeps their evidence ids — a retry never re-uploads them), failed photos
+ * STAY with their honest per-photo message, and photos outside the attempt
+ * (still resizing, unreadable) are untouched.
+ */
+export function applyBatchResultToTray(
+  photos: ReadonlyArray<TrayPhoto>,
+  results: ReadonlyArray<CaptureBatchPhotoResult>,
+): TrayPhoto[] {
+  const savedIds = new Set(results.filter((r) => r.ok).map((r) => r.id));
+  const failedById = new Map<string, string>();
+  for (const r of results) {
+    if (!r.ok) failedById.set(r.id, r.message);
+  }
+  return photos
+    .filter((p) => !savedIds.has(p.id))
+    .map((p) =>
+      failedById.has(p.id)
+        ? { ...p, status: "failed" as const, error: failedById.get(p.id) }
+        : p,
+    );
+}
+
+/**
+ * The honest split after a partial batch failure (P7): what's up is claimed
+ * — `savedTotal` counts EVERY evidence row created so far in this save
+ * chain, across retries — and what isn't is still here. For snag/RFI it also
+ * says the raise hasn't happened, so a worker never walks off believing a
+ * snag/RFI went up on the strength of the photos alone.
+ */
+export function partialBatchFailureMessage(
+  savedTotal: number,
+  failedCount: number,
+  purpose: CapturePurposeKey,
+): string {
+  const raiseSuffix =
+    purpose === "snag"
+      ? " The snag hasn't been raised yet."
+      : purpose === "rfi"
+        ? " The RFI hasn't been sent yet."
+        : "";
+  if (savedTotal === 0) {
+    const base =
+      failedCount === 1
+        ? "That photo didn't send — it's still here. Nothing was sent."
+        : `${failedCount} photos didn't send — they're still here. Nothing was sent.`;
+    return `${base}${raiseSuffix}`;
+  }
+  const savedPart = savedTotal === 1 ? "1 saved" : `${savedTotal} saved`;
+  const failedPart =
+    failedCount === 1
+      ? "1 didn't send — it's still here"
+      : `${failedCount} didn't send — they're still here`;
+  return `${savedPart} · ${failedPart}.${raiseSuffix} Retry sends only the ones that failed.`;
+}
+
+/**
+ * The lifted composition belongs to a job. The launcher deliberately keeps
+ * purpose / RFI question / snag title / selected job across close (P8 — an
+ * accidental backdrop tap loses nothing). But OPENING with a DIFFERENT
+ * explicit job context (the FAB on another job's home) must not reopen a
+ * composed Job-A RFI while the worker stands on Job B — a wrong-job
+ * submission waiting to happen. Reset only when the incoming context is a
+ * REAL job different from the one the composition was written against;
+ * a no-context open (the My Day FAB) and a same-job reopen keep everything.
+ */
+export function shouldResetCompositionOnOpen(
+  initialJobId: string | null | undefined,
+  compositionJobId: string | null,
+  jobs: ReadonlyArray<{ id: string }>,
+): boolean {
+  if (!initialJobId || !compositionJobId) return false;
+  if (initialJobId === compositionJobId) return false;
+  return jobs.some((j) => j.id === initialJobId);
+}
+
+/**
+ * The truth of "blocked" on the RFI receipt. Once the blocking observation
+ * EXISTS on the server (`observationId` set), the raise links it and the
+ * receipt says blocked — regardless of the checkbox, which locks in the UI
+ * (unticking can't delete an observation; the office clears blockers).
+ * Before it exists, blocked is a plan: the ticked checkbox on a full task
+ * coordinate.
+ */
+export function rfiBlockedOutcome(
+  observationId: string | null,
+  markBlocked: boolean,
+  blockable: boolean,
+): boolean {
+  if (observationId) return true;
+  return markBlocked && blockable;
 }
 
 /** Office-visible tag on the evidence note for the Covered-work purpose. */

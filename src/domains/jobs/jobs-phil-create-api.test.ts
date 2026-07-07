@@ -278,11 +278,34 @@ describe("POST /api/jobs — flag ON field create (phil_sharpened)", () => {
     expect(jobsWriteCount()).toBe(0);
   });
 
-  it("rejects a duplicate code with 409 and preserves the store", async () => {
+  it("rejects a duplicate code with 409 and preserves the store — WITHOUT naming the clashing job", async () => {
     const res = await post("u_field", "electrician", { name: "Dup", code: "IV7001" });
     expect(res.statusCode).toBe(409);
+    const msg = String((res.body as { error: string }).error);
+    // Generic field-path text: the code (which the caller typed) + guidance.
+    expect(msg).toContain("IV7001");
+    expect(msg).toContain("already in use");
+    // SECURITY: the clashing job's name must never leak to a field caller —
+    // createJob's admin message ("already used by …") would let any
+    // phil_sharpened worker enumerate company job names by probing codes.
+    expect(msg).not.toContain("Custom ref job");
+    expect(msg).not.toContain("used by");
     expect(jobsWriteCount()).toBe(0);
     expect(usersWriteCount()).toBe(0);
+  });
+
+  it("a duplicate NAME 400s with generic text — the derived id/internal wording never leaks", async () => {
+    // Land a job first, then a DIFFERENT worker reuses the name with a fresh
+    // code — createJob's id collision ("job id already exists") must surface
+    // as the generic field message only.
+    const first = await post("u_field", "electrician", { name: "Slow Site", code: "IV0038" });
+    expect(first.statusCode).toBe(200);
+    const res = await post("u_lh", "lh", { name: "Slow Site", code: "IV7002" });
+    expect(res.statusCode).toBe(400);
+    const msg = String((res.body as { error: string }).error);
+    expect(msg).toBe("a job with that name already exists — use a different name");
+    expect(msg).not.toContain("slow-site");
+    expect(msg).not.toContain("job id");
   });
 
   it("a retried create (same worker, same name, same code) is IDEMPOTENT — 200 with the existing job, no second job, no second audit entry", async () => {
@@ -333,25 +356,32 @@ describe("POST /api/jobs — flag ON field create (phil_sharpened)", () => {
     ).toContain(id);
   });
 
-  it("a GENUINE clash keeps the 409 — same code from a different worker", async () => {
+  it("a GENUINE clash keeps the 409 — same code from a different worker, clashing name withheld", async () => {
     const first = await post("u_field", "electrician", { name: "Slow Site", code: "IV0038" });
     expect(first.statusCode).toBe(200);
     const other = await post("u_lh", "lh", { name: "Norwood Depot", code: "IV0038" });
     expect(other.statusCode).toBe(409);
-    expect(String((other.body as { error: string }).error)).toContain("IV0038");
+    const msg = String((other.body as { error: string }).error);
+    expect(msg).toContain("IV0038");
+    // SECURITY: the other worker's job name never leaks through the 409.
+    expect(msg).not.toContain("Slow Site");
+    expect(msg).not.toContain("used by");
   });
 
-  it("a GENUINE clash keeps the 409 — same worker but a different job name", async () => {
+  it("a GENUINE clash keeps the 409 — same worker but a different job name, name still withheld", async () => {
     const first = await post("u_field", "electrician", { name: "Slow Site", code: "IV0038" });
     expect(first.statusCode).toBe(200);
     const other = await post("u_field", "electrician", { name: "Different Place", code: "IV0038" });
     expect(other.statusCode).toBe(409);
+    expect(String((other.body as { error: string }).error)).not.toContain("Slow Site");
   });
 
   it("pre-existing coded jobs (no creator stamp) always 409 — never claimed by a retry", async () => {
     // job-active carries IV0041 but predates the createdByUserId stamp.
     const res = await post("u_field", "electrician", { name: "Active", code: "IV0041" });
     expect(res.statusCode).toBe(409);
+    // Generic text only — no "already used by …" enumeration surface.
+    expect(String((res.body as { error: string }).error)).not.toContain("used by");
   });
 
   it("the body can never smuggle the creator stamp — it is server-set", async () => {

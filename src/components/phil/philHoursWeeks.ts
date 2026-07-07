@@ -13,9 +13,10 @@ import { isoWeekNumber } from "./philWeek";
  *     current week. Nothing is fabricated; a week with no entries simply
  *     isn't rendered (except the current week, which hosts today's logging).
  *   - The per-job breakdown sums REAL allocation hours; job names resolve
- *     from the worker's real assigned jobs. An allocation on a job that's no
- *     longer assigned is shown truthfully as "A job you're no longer on",
- *     never guessed; a null-job allocation reads "No job recorded".
+ *     from the worker's real assigned jobs, falling back to the allocation's
+ *     server-enriched `jobName` (the same rule the day rows use). Only when
+ *     neither exists does a row read "A job you're no longer on" — never
+ *     guessed; a null-job allocation reads "No job recorded".
  *   - "Send this week to the office" maps onto the REAL submission model:
  *     every Phil logging path already submits at creation (status:
  *     "submitted" — see buildStandardDayPayload et al), so there is no
@@ -143,19 +144,27 @@ export function buildJobBreakdown(
   entries: ReadonlyArray<TimeEntry>,
   assignedJobs: ReadonlyArray<HoursJobRef>,
 ): HoursJobBreakdownRow[] {
-  const byJob = new Map<string | null, number>();
+  const byJob = new Map<string | null, { hours: number; jobName: string | null }>();
   for (const entry of entries) {
     for (const a of entry.allocations ?? []) {
       const key = a.jobId ?? null;
-      byJob.set(key, (byJob.get(key) ?? 0) + (a.hours ?? 0));
+      const agg = byJob.get(key) ?? { hours: 0, jobName: null };
+      agg.hours += a.hours ?? 0;
+      // Server-enriched allocations carry the real jobName even for jobs the
+      // worker is no longer assigned to — reuse it, matching the day rows'
+      // rule (allocationLabel: a.jobName ?? UNKNOWN_JOB_LABEL).
+      if (!agg.jobName && typeof a.jobName === "string" && a.jobName.trim()) {
+        agg.jobName = a.jobName.trim();
+      }
+      byJob.set(key, agg);
     }
   }
   const rows: HoursJobBreakdownRow[] = [];
-  for (const [jobId, hours] of byJob) {
+  for (const [jobId, { hours, jobName }] of byJob) {
     const job = jobId ? assignedJobs.find((j) => j.id === jobId) : undefined;
     rows.push({
       jobId,
-      name: job ? job.name : jobId ? UNKNOWN_JOB_LABEL : NO_JOB_LABEL,
+      name: job ? job.name : jobId ? (jobName ?? UNKNOWN_JOB_LABEL) : NO_JOB_LABEL,
       ref: job?.ref ?? null,
       hours: Math.round(hours * 100) / 100,
       known: Boolean(job),

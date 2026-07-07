@@ -40,7 +40,6 @@ import {
   philJobCommandInputFromListSignals,
 } from "@/domains/phil/job-command-list-input";
 import { PhilNewJobSheet } from "./PhilNewJobSheet";
-import { realCodesOnList } from "./philNewJobForm";
 
 /**
  * Phil Jobs — sharpened re-skin (phil_sharpened, dark; Wave 2a).
@@ -58,8 +57,10 @@ import { realCodesOnList } from "./philNewJobForm";
  *     field-create body to /api/jobs (name + IV#### code + optional address;
  *     server gate = field/LH + phil_sharpened, api/jobs.js).
  *   - "On today" hero: the only real active-job signal in the list data is
- *     exactly-one-assigned (same signal as My Day's "On the job") — with 2+
- *     jobs no hero renders (we never guess which site they're on). No crew
+ *     exactly-one-assigned (same signal as My Day's "On the job") AND that
+ *     job's status is actually 'active' — with 2+ jobs no hero renders (we
+ *     never guess which site they're on), and a lone Complete/On-hold job
+ *     lists plainly with its truthful badge (P7). No crew
  *     avatars (crew comes from /api/time-entries-on-site on the job page,
  *     not this list payload) and no "Synced" pill (there is no per-job sync
  *     state to be truthful about) — honest absence over decoration.
@@ -144,15 +145,17 @@ export function PhilJobsSharpened({ initialJobs, userId = "" }: Props) {
   // precedent). Server gate: field/LH + phil_sharpened (this screen already
   // renders only when the flag is on for this viewer).
   const [newJobOpen, setNewJobOpen] = useState(false);
-  // Real codes off this worker's own list — feed the form's reference row +
-  // next-free-7000 default. Nothing invented: no codes → empty (P7).
-  const existingCodes = useMemo(() => realCodesOnList(initialJobs), [initialJobs]);
 
   // The one honest "On today" signal in this payload: exactly one assigned
-  // job. The hero IS that job's entry — it must not repeat in the register
-  // below ("Your jobs" counts the OTHERS), so with a hero and nothing else
-  // the register section drops entirely: one job, shown once.
-  const heroJob = initialJobs.length === 1 ? initialJobs[0]! : null;
+  // job AND it is actually active — a lone Complete/On-hold job is not "on
+  // today" and renders in the plain register with its truthful badge instead.
+  // The hero IS that job's entry — it must not repeat in the register below
+  // ("Your jobs" counts the OTHERS), so with a hero and nothing else the
+  // register section drops entirely: one job, shown once.
+  const heroJob =
+    initialJobs.length === 1 && initialJobs[0]!.status === "active"
+      ? initialJobs[0]!
+      : null;
   const registerJobs = useMemo(
     () => (heroJob ? fullList.filter((j) => j.id !== heroJob.id) : fullList),
     [heroJob, fullList],
@@ -250,7 +253,7 @@ export function PhilJobsSharpened({ initialJobs, userId = "" }: Props) {
         <PhilNewJobSheet
           open
           onClose={() => setNewJobOpen(false)}
-          existingCodes={existingCodes}
+          jobs={initialJobs}
         />
       ) : null}
     </div>

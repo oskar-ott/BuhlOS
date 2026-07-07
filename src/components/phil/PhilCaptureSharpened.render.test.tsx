@@ -71,6 +71,23 @@ function trayPhoto(id: string): TrayPhoto {
   };
 }
 
+/** A photo whose upload failed — bytes still good, so a retry can re-send it. */
+function failedPhoto(id: string): TrayPhoto {
+  return { ...trayPhoto(id), status: "failed", error: "Couldn't upload the photo (500)." };
+}
+
+/** A photo whose RESIZE failed — no bytes at all; it can never send. */
+function unreadablePhoto(id: string): TrayPhoto {
+  return { ...trayPhoto(id), dataUrl: null, status: "failed", error: "Couldn't read this photo." };
+}
+
+/** The `<button …>` open tag carrying the given testid, for disabled checks. */
+function buttonTag(html: string, testid: string): string {
+  const idx = html.indexOf(`data-testid="${testid}"`);
+  expect(idx).toBeGreaterThan(-1);
+  return html.slice(html.lastIndexOf("<button", idx), html.indexOf(">", idx) + 1);
+}
+
 describe("PhilCaptureSharpened — first paint", () => {
   it("renders the viewfinder, the real shutter and honest copy (no auto-file claims)", () => {
     const html = render();
@@ -134,6 +151,56 @@ describe("PhilCaptureSharpened — first paint", () => {
     expect(html).toContain('data-testid="capture-snag-title"');
     expect(html).toContain("snag list");
     expect(html).toContain("Save &amp; raise the snag");
+  });
+});
+
+describe("PhilCaptureSharpened — partial-failure honesty (F1)", () => {
+  it("a retryable failed photo keeps Save actionable for a photo purpose — the retry path is never dead", () => {
+    // After a partial batch failure the tray holds ONLY failed photos (saved
+    // ones left). canSave must count them as actionable or Retry is inert.
+    const html = render({ photos: [failedPhoto("a")] });
+    expect(buttonTag(html, "capture-sharpened-save")).not.toContain('disabled=""');
+  });
+
+  it("an unreadable photo alone (no bytes) cannot be saved as a photo batch", () => {
+    const html = render({ photos: [unreadablePhoto("a")] });
+    expect(buttonTag(html, "capture-sharpened-save")).toContain('disabled=""');
+  });
+
+  it("an unreadable photo BLOCKS a snag raise with the honest reason — never a raise with fewer photos than the batch shows", () => {
+    const html = render({
+      purpose: "snag",
+      snagTitle: "GPO ring damaged at riser",
+      photos: [trayPhoto("a"), unreadablePhoto("b")],
+    });
+    expect(html).toContain('data-testid="capture-unreadable-guard"');
+    expect(html).toContain("raise the snag");
+    expect(buttonTag(html, "capture-sharpened-save")).toContain('disabled=""');
+  });
+
+  it("an unreadable photo blocks the RFI send too; a retryable failure does NOT (it goes up with the raise)", () => {
+    const blockedHtml = render({
+      purpose: "rfi",
+      rfiQuestion: "Where does the panel go?",
+      photos: [unreadablePhoto("b")],
+    });
+    expect(blockedHtml).toContain('data-testid="capture-unreadable-guard"');
+    expect(buttonTag(blockedHtml, "capture-sharpened-save")).toContain('disabled=""');
+
+    // A retryable failure is IN the send batch — the raise only proceeds once
+    // it saves (saveBatch fails first otherwise), so Save stays actionable.
+    const retryableHtml = render({
+      purpose: "rfi",
+      rfiQuestion: "Where does the panel go?",
+      photos: [failedPhoto("a")],
+    });
+    expect(retryableHtml).not.toContain('data-testid="capture-unreadable-guard"');
+    expect(buttonTag(retryableHtml, "capture-sharpened-save")).not.toContain('disabled=""');
+  });
+
+  it("the unreadable guard belongs to the raise purposes only — a progress save mirrors the launcher (failed tiles say why)", () => {
+    const html = render({ photos: [trayPhoto("a"), unreadablePhoto("b")] });
+    expect(html).not.toContain('data-testid="capture-unreadable-guard"');
   });
 });
 

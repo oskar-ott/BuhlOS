@@ -83,6 +83,29 @@ describe("PhilJobsSharpened", () => {
     expect(many).not.toContain("On today");
   });
 
+  it("a lone NON-ACTIVE job is never framed 'On today' — it lists plainly with its truthful badge", () => {
+    for (const [status, badge] of [
+      ["complete", ">Complete<"],
+      ["on_hold", ">On hold<"],
+    ] as const) {
+      const html = renderToString(
+        createElement(PhilJobsSharpened, {
+          initialJobs: [mk("a", "Wrapped Up Estate", { status } as Partial<Job>)],
+        }),
+      );
+      // No hero, no yellow active rule — the job isn't on today (P7).
+      expect(html, status).not.toContain("phil-jobs-on-today");
+      expect(html, status).not.toContain("On today");
+      expect(html, status).not.toContain("border-l-accent-yellow");
+      // It still renders exactly once, in the register, honestly badged
+      // (one row link — its aria-label — not a hero AND a row).
+      expect(html, status).toContain("Your jobs · 1");
+      expect(html, status).toContain('data-testid="phil-jobs-all"');
+      expect(html.match(/Open Wrapped Up Estate/g), status).toHaveLength(1);
+      expect(html, status).toContain(badge);
+    }
+  });
+
   it("the hero job never repeats in the register — one job renders ONCE (hero only, no 'Your jobs · 1')", () => {
     const html = renderToString(
       createElement(PhilJobsSharpened, {

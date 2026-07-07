@@ -28,16 +28,21 @@ import { JobContactsResponseSchema } from "@/domains/contacts/schema";
 import type { Job, JobStage } from "@/domains/jobs/types";
 import type { LaunchableJob } from "./philCapture";
 import {
+  applyBatchResultToTray,
   availableCapturePurposes,
   buildBlockingObservationPayload,
   canMarkBlocked,
   deriveRfiSubject,
   noteForPurpose,
+  partialBatchFailureMessage,
   purposeByKey,
   RFI_OFFICE_RECIPIENT,
   RFI_QUESTION_MAX,
+  rfiBlockedOutcome,
   rfiPhotoNote,
   rfiRecipients,
+  sendableTrayBatch,
+  unreadableTrayPhotos,
   type CapturePurposeKey,
   type RfiRecipient,
 } from "./captureSharpened";
@@ -226,6 +231,11 @@ export function PhilCaptureSharpened({
   const selectedJob = jobs.find((j) => j.id === selectedJobId) ?? null;
   const areaName = areaId ? (flatAreas.find((a) => a.id === areaId)?.name ?? null) : null;
   const readyPhotos = photos.filter((p) => p.status === "ready" && p.dataUrl);
+  // The batch a save/retry actually sends: ready photos AND retryable
+  // failures (bytes still good) — a failed photo is never silently dropped.
+  const sendable = sendableTrayBatch(photos);
+  // Failed with NO bytes (resize failed) — can never send; blocks a raise.
+  const unreadable = unreadableTrayPhotos(photos);
   const resizing = photos.some((p) => p.status === "resizing");
   const latestPreview = [...readyPhotos].reverse()[0] ?? null;
   const busy = submit.v === "sending";
@@ -278,18 +288,32 @@ export function PhilCaptureSharpened({
     !resizing &&
     !!selectedJob &&
     (purpose === "snag"
-      ? snagTitle.trim().length > 0
+      ? // A raise needs every tray photo up (or removed): an unreadable photo
+        // blocks it honestly; a retryable failure goes up WITH the raise.
+        snagTitle.trim().length > 0 && unreadable.length === 0
       : purpose === "rfi"
-        ? rfiQuestion.trim().length > 0
-        : readyPhotos.length > 0) &&
+        ? rfiQuestion.trim().length > 0 && unreadable.length === 0
+        : // Failed-but-retryable counts as actionable — the Retry path must
+          // never be dead after a partial batch failure. And if the worker
+          // REMOVES the failed photos instead, the save can still complete on
+          // the strength of what already landed (savedEvidenceIdsRef) — those
+          // photos are filed and deserve their receipt. (Reading the ref at
+          // render is safe: every push is followed by a submit-state render.)
+          sendable.length > 0 || savedEvidenceIdsRef.current.length > 0) &&
     note.length <= EVIDENCE_NOTE_MAX;
 
   /** Save the tray through the existing two-step evidence path. Returns true
-   *  when every photo landed; failures stay in the tray with their message. */
+   *  when every photo landed; failures stay in the tray with their message.
+   *  The batch is `sendable` — ready photos plus retryable failures — so a
+   *  retry re-sends ONLY what failed (saved photos already left the tray and
+   *  keep their ids in savedEvidenceIdsRef; never re-uploaded). */
   const saveBatch = useCallback(
     async (caption: string): Promise<boolean> => {
       if (!selectedJob) return false;
-      const batch = readyPhotos.map((p) => ({ id: p.id, dataUrl: p.dataUrl! }));
+      const batch = sendableTrayBatch(photos);
+      // Empty = genuinely no photos in play (a photo-less snag/RFI) — never
+      // "the failures got excluded": failed-with-bytes photos are IN the
+      // batch, and unreadable ones block the raise via canSave.
       if (batch.length === 0) return true;
       safeSetSubmit({
         v: "sending",
@@ -316,32 +340,26 @@ export function PhilCaptureSharpened({
       for (const r of result.results) {
         if (r.ok) savedEvidenceIdsRef.current.push(r.evidence.id);
       }
-      const failedById = new Map<string, string>();
-      for (const r of result.results) {
-        if (!r.ok) failedById.set(r.id, r.message);
-      }
       if (mountedRef.current) {
-        setPhotos((cur) =>
-          cur
-            .filter((p) => failedById.has(p.id) || p.status !== "ready")
-            .map((p) =>
-              failedById.has(p.id)
-                ? { ...p, status: "failed" as const, error: failedById.get(p.id) }
-                : p,
-            ),
-        );
+        // Saved photos leave the tray; failures stay with their message.
+        setPhotos((cur) => applyBatchResultToTray(cur, result.results));
       }
       if (!result.allSaved) {
-        const n = result.failedIds.length;
+        // The honest split (P7): already-saved ids are claimed as up; failed
+        // ones are still here; snag/RFI say the raise hasn't happened.
         safeSetSubmit({
           v: "failed",
-          message: `${n === 1 ? "One photo" : `${n} photos`} didn't save — ${n === 1 ? "it's" : "they're"} still here. Nothing else was sent.`,
+          message: partialBatchFailureMessage(
+            savedEvidenceIdsRef.current.length,
+            result.failedIds.length,
+            purpose,
+          ),
         });
         return false;
       }
       return true;
     },
-    [selectedJob, readyPhotos, stage, areaId, taskId, setPhotos, safeSetSubmit],
+    [selectedJob, photos, purpose, stage, areaId, taskId, setPhotos, safeSetSubmit],
   );
 
   const handleSave = useCallback(async () => {
@@ -405,35 +423,35 @@ export function PhilCaptureSharpened({
     const ok = await saveBatch(rfiPhotoNote(subject));
     if (!ok) return;
 
-    let blocked = false;
-    if (markBlocked && blockable && stage && areaId && taskId) {
-      if (!observationIdRef.current) {
-        safeSetSubmit({ v: "sending", detail: "Marking the work blocked…" });
-        const obs = await philWrite<{ id: string }>(
-          `/api/observations?jobId=${encodeURIComponent(selectedJob.id)}`,
-          buildBlockingObservationPayload({
-            subject,
-            question: rfiQuestion.trim(),
-            stage,
-            areaId,
-            taskId,
-            linkedEvidenceId: savedEvidenceIdsRef.current[0] ?? null,
-          }),
-          (raw) => {
-            const o = (raw as { observation?: { id?: unknown } } | null)?.observation;
-            return o && typeof o.id === "string" ? { id: o.id } : null;
-          },
-        );
-        if (!obs.ok) {
-          safeSetSubmit({
-            v: "failed",
-            message: `Couldn't mark the work blocked — the RFI wasn't sent yet. ${obs.error.message}`,
-          });
-          return;
-        }
-        observationIdRef.current = obs.data.id;
+    // Once the blocking observation EXISTS, blocked is a fact, not a checkbox:
+    // the raise links it and the receipt says so (the checkbox is locked in
+    // the UI — unticking can't delete an observation; the office clears it).
+    const blocked = rfiBlockedOutcome(observationIdRef.current, markBlocked, blockable);
+    if (blocked && !observationIdRef.current && stage && areaId && taskId) {
+      safeSetSubmit({ v: "sending", detail: "Marking the work blocked…" });
+      const obs = await philWrite<{ id: string }>(
+        `/api/observations?jobId=${encodeURIComponent(selectedJob.id)}`,
+        buildBlockingObservationPayload({
+          subject,
+          question: rfiQuestion.trim(),
+          stage,
+          areaId,
+          taskId,
+          linkedEvidenceId: savedEvidenceIdsRef.current[0] ?? null,
+        }),
+        (raw) => {
+          const o = (raw as { observation?: { id?: unknown } } | null)?.observation;
+          return o && typeof o.id === "string" ? { id: o.id } : null;
+        },
+      );
+      if (!obs.ok) {
+        safeSetSubmit({
+          v: "failed",
+          message: `Couldn't mark the work blocked — the RFI wasn't sent yet. ${obs.error.message}`,
+        });
+        return;
       }
-      blocked = true;
+      observationIdRef.current = obs.data.id;
     }
 
     safeSetSubmit({ v: "sending", detail: "Sending the RFI…" });
@@ -487,6 +505,25 @@ export function PhilCaptureSharpened({
     onSnagTitleChange,
     onRfiQuestionChange,
   ]);
+
+  /** Retry after a failure — the launcher's proven `retryFailed` semantics:
+   *  failed photos (their bytes are still good) flip back to ready and ONLY
+   *  they go up again — saved photos already left the tray and keep their
+   *  evidence ids in savedEvidenceIdsRef, so nothing is ever re-uploaded (no
+   *  duplicate evidence). The save chain then resumes where it stopped: a
+   *  snag raise / blocking observation / RFI raise reuses what already
+   *  landed. (handleSave reads the same sendable set, so the flip is honest
+   *  tray UI, not a data dependency.) */
+  const retryFailed = useCallback(() => {
+    setPhotos((cur) =>
+      cur.map((p) =>
+        p.status === "failed" && p.dataUrl
+          ? { ...p, status: "ready" as const, error: undefined }
+          : p,
+      ),
+    );
+    void handleSave();
+  }, [setPhotos, handleSave]);
 
   const captureAnother = useCallback(() => {
     setSubmit({ v: "idle" });
@@ -784,7 +821,29 @@ export function PhilCaptureSharpened({
             ) : null}
           </fieldset>
 
-          {blockable ? (
+          {observationIdRef.current !== null ? (
+            /* The blocking observation already EXISTS (a prior attempt created
+               it before the raise failed) — the checkbox locks so the receipt
+               can never contradict the server: unticking wouldn't delete it.
+               (Every path that sets the ref also sets submit state, so this
+               render always follows the mutation.) */
+            <label
+              className="flex min-h-[44px] items-center gap-3 rounded-card border border-border bg-surface-subtle px-3 py-2"
+              data-testid="capture-rfi-block-locked"
+            >
+              <input
+                type="checkbox"
+                checked
+                disabled
+                readOnly
+                data-testid="capture-rfi-block"
+                className="h-5 w-5 shrink-0 accent-brand-navy"
+              />
+              <span className="text-sm text-text">
+                Work here&rsquo;s already marked blocked — the office can clear it.
+              </span>
+            </label>
+          ) : blockable ? (
             <label className="flex min-h-[44px] cursor-pointer items-center gap-3 rounded-card border border-border bg-surface px-3 py-2">
               <input
                 type="checkbox"
@@ -1027,7 +1086,22 @@ export function PhilCaptureSharpened({
 
       {submit.v === "sending" ? <PhilSyncBanner state="sending" detail={submit.detail} /> : null}
       {submit.v === "failed" ? (
-        <PhilSyncBanner state="failed" detail={submit.message} onRetry={() => void handleSave()} />
+        <PhilSyncBanner state="failed" detail={submit.message} onRetry={retryFailed} />
+      ) : null}
+
+      {/* A raise must never quietly ship fewer photos than the batch shows:
+          an unreadable photo (resize failed — no bytes to send) blocks the
+          snag/RFI until the worker removes it from the tray. */}
+      {(purpose === "snag" || purpose === "rfi") && unreadable.length > 0 ? (
+        <p
+          className="text-[12px] text-state-danger"
+          role="alert"
+          data-testid="capture-unreadable-guard"
+        >
+          {unreadable.length === 1 ? "A photo" : `${unreadable.length} photos`} in the batch
+          couldn&rsquo;t be read — remove {unreadable.length === 1 ? "it" : "them"} from the tray
+          before you {purpose === "snag" ? "raise the snag" : "send the RFI"}.
+        </p>
       ) : null}
 
       <PhilActionButton

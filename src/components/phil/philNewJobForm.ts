@@ -59,6 +59,42 @@ export function realCodesOnList(
 }
 
 /**
+ * The job on the worker's OWN list already carrying the code the form has
+ * composed — the client-side pre-guard. Matching against their own list
+ * leaks nothing (they can already see these jobs), and the server stays the
+ * real enforcement for codes on jobs they can't see. Returns the clashing
+ * job's id + name so the form can say "that's {name} — already on your
+ * list" instead of letting Create fire into a guaranteed 409.
+ */
+export function jobOnListWithCode(
+  jobs: ReadonlyArray<Pick<Job, "id" | "name" | "code">>,
+  code: string,
+): { id: string; name: string } | null {
+  const want = code.trim().toUpperCase();
+  if (!CODE_RE.test(want)) return null;
+  for (const j of jobs) {
+    if (typeof j.code !== "string" || typeof j.id !== "string" || !j.id) continue;
+    if (j.code.trim().toUpperCase() === want) {
+      return { id: j.id, name: j.name };
+    }
+  }
+  return null;
+}
+
+/**
+ * The pre-guard as the form uses it: the clashing own-list job for the 4
+ * digits currently typed, or null while the entry is incomplete (no nagging
+ * mid-type) or the code is free on the worker's list.
+ */
+export function newJobCodeClash(
+  jobs: ReadonlyArray<Pick<Job, "id" | "name" | "code">>,
+  digits: string,
+): { id: string; name: string } | null {
+  if (!/^\d{4}$/.test(digits)) return null;
+  return jobOnListWithCode(jobs, codeFromDigits(digits));
+}
+
+/**
  * Find the id of the job carrying `code` in a GET /api/jobs list reply —
  * the timeout-recovery probe. A create POST can outlive the client write
  * budget (multi-blob-write path) yet still land; if the submitted code is
@@ -88,25 +124,46 @@ export function findJobIdByCode(
   return null;
 }
 
+/** What the timeout-recovery probe concluded. */
+export type TimeoutRecovery =
+  /** A job with the submitted code appeared that was NOT on the worker's
+   *  list before submit — the create landed; navigate to it. */
+  | { outcome: "created"; id: string }
+  /** The code belongs to a job that was ALREADY on the worker's list before
+   *  submit — the create can't have happened (the server 409s duplicate
+   *  codes). Success must not be claimed off someone else's job. */
+  | { outcome: "preexisting" }
+  /** Probe failed or the code isn't on the list — no evidence either way. */
+  | { outcome: "unknown" };
+
 /**
  * After a philWrite TIMEOUT (and only a timeout — every other failure means
  * the server definitely didn't confirm), one cheap list read decides whether
- * the create actually landed: returns the created job's id when the code is
- * on the worker's list, null otherwise (including any fetch/parse error —
- * recovery is best-effort; the honest failure line is the fallback).
+ * the create actually landed. `preSubmitJobIds` is the snapshot of job ids
+ * on the worker's list when Create was tapped: only a job whose id was NOT
+ * in that snapshot counts as "my create landed". A pre-existing job merely
+ * sharing the code is an honest failure, never a success — otherwise a
+ * duplicate code would navigate the worker into an unrelated existing job
+ * claiming the create worked. Any fetch/parse error is "unknown" — recovery
+ * is best-effort; the honest failure line is the fallback.
  */
 export async function recoverJobIdAfterTimeout(
   code: string,
+  preSubmitJobIds: ReadonlySet<string>,
   fetchImpl: typeof fetch = fetch,
-): Promise<string | null> {
+): Promise<TimeoutRecovery> {
   try {
     const res = await fetchImpl("/api/jobs", { cache: "no-store" });
-    if (!res.ok) return null;
+    if (!res.ok) return { outcome: "unknown" };
     const raw = (await res.json()) as { jobs?: unknown };
-    if (!raw || !Array.isArray(raw.jobs)) return null;
-    return findJobIdByCode(raw.jobs, code);
+    if (!raw || !Array.isArray(raw.jobs)) return { outcome: "unknown" };
+    const id = findJobIdByCode(raw.jobs, code);
+    if (!id) return { outcome: "unknown" };
+    return preSubmitJobIds.has(id)
+      ? { outcome: "preexisting" }
+      : { outcome: "created", id };
   } catch {
-    return null;
+    return { outcome: "unknown" };
   }
 }
 

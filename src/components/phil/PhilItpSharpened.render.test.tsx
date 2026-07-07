@@ -135,6 +135,17 @@ describe("PhilItpSharpened — required proof (real kinds, real counts)", () => 
     expect(html).toContain("0/1");
   });
 
+  it("a STAMPED value-less reading agrees with its recorded glyph — never 'not recorded'", () => {
+    // p1 is stamped (result.at set) but carries no reading value — a
+    // note-only record. formatProgress counts it done (1/3), so the row must
+    // say recorded too, not contradict its own green check.
+    const html = render(instance({ results: { p1: result({ value: null }) } }));
+    expect(html).toContain("1 of 3 points recorded"); // stamped = done
+    expect(html).toContain("recorded · no reading value");
+    // p3 is truly unrecorded — the plain fallback stays for it.
+    expect(html).toContain("not recorded");
+  });
+
   it("a failed reading renders its real value in the danger tone", () => {
     const html = render(instance({ results: { p3: result({ value: 0.9 }) } }));
     // 0.9 Ω against max 0.5 — the real recorded number, marked failed.

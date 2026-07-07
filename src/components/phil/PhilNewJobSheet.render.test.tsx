@@ -19,12 +19,15 @@ vi.mock("next/navigation", () => ({
 
 const noop = () => {};
 
+/** A worker's-own-list job as the sheet needs it (id + name + code). */
+const listJob = (id: string, code: string) => ({ id, name: `Job ${id}`, code });
+
 function render(props: Partial<Parameters<typeof PhilNewJobSheet>[0]> = {}) {
   return renderToString(
     createElement(PhilNewJobSheet, {
       open: true,
       onClose: noop,
-      existingCodes: [],
+      jobs: [],
       ...props,
     }),
   );
@@ -79,7 +82,10 @@ describe("PhilNewJobSheet", () => {
     const fresh = render({ initialMode: "custom" });
     expect(fresh).toContain('value="7001"');
 
-    const taken = render({ initialMode: "custom", existingCodes: ["IV7001", "IV7002"] });
+    const taken = render({
+      initialMode: "custom",
+      jobs: [listJob("a", "IV7001"), listJob("b", "IV7002")],
+    });
     expect(taken).toContain('value="7003"');
   });
 
@@ -88,11 +94,30 @@ describe("PhilNewJobSheet", () => {
     expect(none).not.toContain('data-testid="phil-new-job-recent-codes"');
     expect(none).not.toContain("Already on your list");
 
-    const some = render({ existingCodes: ["IV0041", "IV0038", "IV0027", "IV0012"] });
+    const some = render({
+      jobs: [
+        listJob("a", "IV0041"),
+        listJob("b", "IV0038"),
+        listJob("c", "IV0027"),
+        listJob("d", "IV0012"),
+      ],
+    });
     expect(some).toContain('data-testid="phil-new-job-recent-codes"');
     // Reference only, capped at 3 — they're taken codes, not tap-to-fill.
     expect(some).toContain("IV0041 · IV0038 · IV0027");
     expect(some).not.toContain("IV0012");
+  });
+
+  it("the duplicate-code pre-guard hint never renders at rest (digits start empty or next-free)", () => {
+    // The clash logic itself is unit-covered in philNewJobForm.test.ts
+    // (newJobCodeClash — pre-guard disables); SSR can't type into the input,
+    // so here we pin that the hint doesn't render without a real clash.
+    const html = render({
+      initialMode: "custom",
+      jobs: [listJob("a", "IV7001"), listJob("b", "IV0041")],
+    });
+    expect(html).not.toContain('data-testid="phil-new-job-code-taken"');
+    expect(html).not.toContain("already on your list. Pick another code.");
   });
 
   it("Create is disabled until the form is valid (empty form ⇒ disabled)", () => {
@@ -104,7 +129,7 @@ describe("PhilNewJobSheet", () => {
   it("Create is enabled once name + 4 digits exist (custom side prefilled by next-free)", () => {
     // With a prefilled custom code the only missing piece is the name — we
     // can't type in SSR, so pin the inverse: digits alone still disable it.
-    const html = render({ initialMode: "custom", existingCodes: [] });
+    const html = render({ initialMode: "custom", jobs: [] });
     const idx = html.indexOf('data-testid="phil-new-job-create"');
     const btn = html.slice(Math.max(0, idx - 600), idx + 200);
     expect(btn).toContain("disabled"); // no name yet — still disabled
