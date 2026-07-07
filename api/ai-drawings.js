@@ -1513,11 +1513,15 @@ async function handleDetectDevices(res, sql, tenantId, jobId, user, body) {
   const { page } = found;
 
   // Detection is constrained matching against THIS project's reviewed
-  // vocabulary — without one there is nothing honest to match against.
+  // vocabulary — without one there is nothing honest to match against. The
+  // message is user-facing (the panel surfaces it verbatim), so it names the
+  // exact next action and never leaks issue numbers.
   const vocabRows = await store.acceptedLegendEntries(sql, tenantId, jobId);
   if (vocabRows.length === 0) {
     return res.status(409).json({
-      error: 'no reviewed legend vocabulary — extract and accept the legend first (#201)',
+      code: 'NO_LEGEND',
+      error:
+        'No accepted legend yet — run "Extract legend" on the plan page and accept the entries it finds, then detect devices. Detection only counts symbols your legend defines.',
     });
   }
 
