@@ -35,6 +35,8 @@ const SOURCE_LABEL: Record<TakeoffLine["sourceType"], string> = {
   "schedule-row": "schedule",
   "cable-estimate": "cable est.",
   manual: "manual",
+  // #882 — the legend schedule's own tabulated quantity, human-accepted.
+  "legend-qty": "from the legend",
 };
 
 export function TakeoffCard({
@@ -311,10 +313,15 @@ function TakeoffLineRow({
   const [draftNote, setDraftNote] = useState("");
 
   const provenanceText = () => {
-    const p = line.provenance as { planId?: string; pageIndex?: number };
+    const p = line.provenance as { planId?: string; pageIndex?: number; located?: number };
     if (line.sourceType === "manual") return `added by ${line.adjustedBy ?? "a human"}`;
     if (p.planId === undefined || p.pageIndex === undefined) return "";
-    return `${lookup.labelFor(p.planId)} p${(p.pageIndex ?? 0) + 1}`;
+    const base = `${lookup.labelFor(p.planId)} p${(p.pageIndex ?? 0) + 1}`;
+    // #882 — verified markers spot-check a legend quantity, never replace it.
+    if (line.sourceType === "legend-qty" && typeof p.located === "number" && p.located > 0) {
+      return `${base} · spot-check: ${p.located} of ${line.qty ?? "?"} located on the sheets`;
+    }
+    return base;
   };
 
   const save = async () => {

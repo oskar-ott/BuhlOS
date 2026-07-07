@@ -21,6 +21,7 @@ import {
   prepareImagePlanPage,
   preparePdfPlanPages,
 } from "@/domains/documents/page-prep";
+import { normalizeLegendLabel, parseLegendQty } from "@/domains/ai-drawings/legend-qty";
 import {
   SHEET_FIELD_LABELS,
   SHEET_TYPES,
@@ -923,6 +924,22 @@ export function SheetUnderstandingPanel({
                     const p = plans.find((pl) => pl.id === planId);
                     return p ? planLabel(p) : "(document no longer on this job)";
                   },
+                  // #882 — a group whose label the ACCEPTED legend tabulates
+                  // shows "legend says N" so raw markers never read as the count.
+                  legendQtyFor: (label) => {
+                    const norm = normalizeLegendLabel(label);
+                    const entry = legendEntries.find(
+                      (e) =>
+                        (e.status === "accepted" || e.status === "edited") &&
+                        (normalizeLegendLabel(e.effectiveLabel) === norm ||
+                          normalizeLegendLabel(e.label) === norm),
+                    );
+                    if (!entry) return null;
+                    return (
+                      parseLegendQty(entry.description) ??
+                      parseLegendQty(entry.effectiveLabel)
+                    );
+                  },
                 }}
               />
             </div>
@@ -1219,7 +1236,15 @@ function PlanSheets({
                 onSheet={onSheet}
                 extractBusy={extractBusyKey === sheetKey(plan.id, page.pageIndex)}
                 onExtractLegend={
-                  sheet?.fields.sheetType.effective === "legend" && !anyRunning
+                  // Legend sheets AND floor plans: on small jobs the legend is
+                  // almost always printed ON the floor plan, and detection is
+                  // gated on an accepted legend — hiding the button here made
+                  // device detection unreachable on single-sheet drawing sets.
+                  // extractLegend already answers "No legend found on page N"
+                  // honestly when a plan genuinely carries none.
+                  (sheet?.fields.sheetType.effective === "legend" ||
+                    sheet?.fields.sheetType.effective === "floorPlan") &&
+                  !anyRunning
                     ? () => onExtractLegend(page.pageIndex)
                     : undefined
                 }
@@ -1277,7 +1302,9 @@ function SheetRow({
   // While an extraction runs every callback is withdrawn (anyRunning), so the
   // busy row keeps showing only the button group its sheet type owns.
   const effectiveType = sheet?.fields.sheetType.effective;
-  const showLegend = Boolean(onExtractLegend) || (extractBusy && effectiveType === "legend");
+  const showLegend =
+    Boolean(onExtractLegend) ||
+    (extractBusy && (effectiveType === "legend" || effectiveType === "floorPlan"));
   const showSchedule =
     Boolean(onExtractSchedule) || (extractBusy && effectiveType === "schedule");
   const showDetect = Boolean(onDetectDevices) || (extractBusy && effectiveType === "floorPlan");

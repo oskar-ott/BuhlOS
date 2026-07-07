@@ -2645,7 +2645,11 @@ describe("device detection (#204)", () => {
   it("409s without a reviewed legend vocabulary — nothing honest to match against", async () => {
     const res = await detect();
     expect(res.statusCode).toBe(409);
-    expect(String(res.body.error)).toContain("legend");
+    expect(res.body.code).toBe("NO_LEGEND");
+    // The panel shows this verbatim to the office: it must name the exact next
+    // action ("Extract legend") and never leak issue numbers at the user.
+    expect(String(res.body.error)).toContain("Extract legend");
+    expect(String(res.body.error)).not.toMatch(/#\d/);
     expect(aiCalls).toHaveLength(0);
     expect(spendLedger()).toBeUndefined();
   });

@@ -1513,11 +1513,15 @@ async function handleDetectDevices(res, sql, tenantId, jobId, user, body) {
   const { page } = found;
 
   // Detection is constrained matching against THIS project's reviewed
-  // vocabulary — without one there is nothing honest to match against.
+  // vocabulary — without one there is nothing honest to match against. The
+  // message is user-facing (the panel surfaces it verbatim), so it names the
+  // exact next action and never leaks issue numbers.
   const vocabRows = await store.acceptedLegendEntries(sql, tenantId, jobId);
   if (vocabRows.length === 0) {
     return res.status(409).json({
-      error: 'no reviewed legend vocabulary — extract and accept the legend first (#201)',
+      code: 'NO_LEGEND',
+      error:
+        'No accepted legend yet — run "Extract legend" on the plan page and accept the entries it finds, then detect devices. Detection only counts symbols your legend defines.',
     });
   }
 
@@ -3264,11 +3268,14 @@ async function handleTakeoffGet(res, sql, tenantId, jobId) {
 
 // Assemble a fresh DRAFT from the accepted seams — pure aggregation, no AI.
 async function handleAssembleTakeoff(res, sql, tenantId, jobId, user) {
-  const [acceptedCounts, scheduleTables, links, cableRuns] = await Promise.all([
+  const [acceptedCounts, scheduleTables, links, cableRuns, legendEntries] = await Promise.all([
     store.liveAcceptedCounts(sql, tenantId, jobId),
     store.listScheduleTables(sql, tenantId, jobId),
     store.listEntityLinks(sql, tenantId, jobId),
     store.acceptedCableRuns(sql, tenantId, jobId),
+    // #882 — accepted entries whose own text tabulates a quantity ("49 EA")
+    // assemble as legend-qty lines; detection demotes to spot-check for them.
+    store.acceptedLegendEntries(sql, tenantId, jobId),
   ]);
   const scheduleRows = await store.listScheduleRowsForTables(
     sql, tenantId, scheduleTables.map((t) => t.id),
@@ -3282,11 +3289,12 @@ async function handleAssembleTakeoff(res, sql, tenantId, jobId, user) {
     scheduleTables,
     scheduleRows,
     cableRuns,
+    legendEntries,
     warningsByPage,
   });
   if (!lines.length) {
     return res.status(409).json({
-      error: 'nothing accepted to assemble — verify device counts (and optionally schedules/cable) first',
+      error: 'nothing accepted to assemble — accept legend entries and verify device counts (and optionally schedules/cable) first',
     });
   }
   const { takeoff, lines: insertedLines } = await store.insertTakeoff(
@@ -3301,6 +3309,7 @@ async function handleAssembleTakeoff(res, sql, tenantId, jobId, user) {
           .filter((r) => r.status === 'accepted' || r.status === 'edited')
           .map((r) => r.id),
         cableRunIds: cableRuns.map((r) => r.id),
+        legendEntryIds: legendEntries.map((e) => e.id),
       },
       createdByLabel: user.username || null,
     },
