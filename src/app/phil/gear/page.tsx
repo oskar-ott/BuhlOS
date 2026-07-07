@@ -12,6 +12,7 @@ import { canAccessSurface } from "@/lib/auth/permissions";
 import { GearListResponseSchema } from "@/domains/gear/schema";
 import type { GearAsset } from "@/domains/gear/types";
 import { PhilGearList } from "@/components/phil/PhilGearList";
+import { PhilGearSharpened } from "@/components/phil/PhilGearSharpened";
 import { philInitials, philSharpenedFlags } from "@/lib/phil/sharpened";
 
 export const dynamic = "force-dynamic";
@@ -48,6 +49,45 @@ export default async function PhilGearPage() {
     loadMyGear(raw),
     philSharpenedFlags(session),
   ]);
+
+  // ── Sharpened Gear (phil_sharpened, dark — Wave 2c) ──────────────────────
+  // Same /api/assets read, restyled projection: Needs sorting (real urgent
+  // items only) · Your gear · On loan (real hired gear), with every existing
+  // action preserved inside PhilGearSharpened. No "Scan a tag" — no scan
+  // path exists (the honest under-construction note below says so). Flag
+  // off falls through below, byte-identical.
+  if (sharpenedFlags.sharpened) {
+    return (
+      <PhilShell
+        title="Gear"
+        userId={session.userId ?? ""}
+        sharpened
+        accountInitials={philInitials(session.name ?? session.username)}
+      >
+        <div className="space-y-4">
+          {fetchError ? (
+            <PhilNotice tone="warning" title="Couldn’t load gear" role="alert">
+              {fetchError}. Pull to refresh, or ask the office if it keeps happening.
+            </PhilNotice>
+          ) : null}
+
+          {assets.length === 0 && !fetchError ? (
+            <EmptyState
+              title="Nothing in your name"
+              description="When admin or a leading hand transfers something to you, it'll show up here."
+            />
+          ) : (
+            <PhilGearSharpened initialAssets={assets} viewerId={session.userId ?? ""} />
+          )}
+
+          <UnderConstructionPanel
+            feature="Scan a tag"
+            description="Tap-to-scan from the van or depot is on the roadmap. For now, admin or a leading hand transfers gear to you through the office register, and you can return or report condition here."
+          />
+        </div>
+      </PhilShell>
+    );
+  }
 
   return (
     <PhilShell

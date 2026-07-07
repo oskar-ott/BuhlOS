@@ -26,7 +26,10 @@ interface Props {
   viewerId: string;
 }
 
-type ConfirmAction = {
+/** Exported for PhilGearSharpened (Wave 2c) — the sharpened re-skin reuses
+ *  the SAME confirm/hand-over sheets and history toggle rather than
+ *  reimplementing the gear actions. Render behaviour here is unchanged. */
+export type ConfirmAction = {
   asset: GearAsset;
   kind: "return" | ReportKind;
 } | null;
@@ -303,7 +306,7 @@ export function PhilGearList({ initialAssets, viewerId }: Props) {
   );
 }
 
-function ConfirmActionSheet({
+export function ConfirmActionSheet({
   confirm,
   onCancel,
   onConfirm,
@@ -371,7 +374,7 @@ function ConfirmActionSheet({
   );
 }
 
-function HandOverSheet({
+export function HandOverSheet({
   asset,
   viewerId,
   isPending,
@@ -462,7 +465,7 @@ function HandOverSheet({
 
 /** #306: the asset's full transfer/report/handshake timeline, loaded on
  *  demand from the same per-asset history blob the admin drawer reads. */
-function AssetHistoryToggle({ assetId }: { assetId: string }) {
+export function AssetHistoryToggle({ assetId }: { assetId: string }) {
   const [open, setOpen] = useState(false);
   const [entries, setEntries] = useState<ReadonlyArray<GearHistoryEntry> | null>(null);
   const [error, setError] = useState<string | null>(null);
