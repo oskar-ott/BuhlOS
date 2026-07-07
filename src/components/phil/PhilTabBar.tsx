@@ -3,7 +3,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import type { Route } from "next";
-import { Calendar, Briefcase, Camera, ChevronRight, Clock, MapPin, MoreHorizontal, Wrench } from "lucide-react";
+import {
+  Calendar,
+  Briefcase,
+  Camera,
+  ChevronRight,
+  Clock,
+  Hammer,
+  Map as RoomMapIcon,
+  MapPin,
+  MoreHorizontal,
+  ShieldCheck,
+  Wrench,
+  Zap,
+} from "lucide-react";
 import { cn } from "@/lib/cn";
 import { PhilOfflineLink } from "./PhilOfflineLink";
 import { PhilCaptureLauncher, type IncomingCapturePhoto } from "./PhilCaptureLauncher";
@@ -14,6 +27,11 @@ import {
   type LaunchableJob,
 } from "./philCapture";
 import { useCaptureLauncher, type QuickCaptureRequest } from "./captureLauncherContext";
+import {
+  usePhilJobRoomsBarBinding,
+  type PhilJobRoomsBarBinding,
+} from "./philJobRoomsBar";
+import type { PhilJobRoom } from "./philJobRooms";
 import { useLongPress } from "./useLongPress";
 import { readJobListPrefs } from "./jobListPrefs";
 import { PhilShortcutSheet } from "./PhilShortcutSheet";
@@ -82,6 +100,110 @@ const SHARPENED_RIGHT_TABS: ReadonlyArray<Tab> = [
 
 function isTabActive(tab: Tab, pathname: string): boolean {
   return tab.activeFor.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+}
+
+// ── In-job room tabs (phil_job_rooms, dark — the filed #133 experiment) ─────
+// While a job screen has REGISTERED a rooms binding (philJobRoomsBar), the four
+// flanking slots rebind to the job's rooms: Now · Work · [Capture] · Proof ·
+// Site. They are IN-PAGE tabs (buttons driving the job screen's client state),
+// not route links — the guard's approved-href contract is untouched — and the
+// centre Capture FAB, its camera input and the launcher are IDENTICAL in both
+// modes. Nothing registered (every screen today; the job screen while the flag
+// is off) ⇒ this list never renders and the bar is byte-identical.
+interface RoomTabDef {
+  room: PhilJobRoom;
+  label: string;
+  icon: typeof Zap;
+}
+
+const LEFT_ROOM_TABS: ReadonlyArray<RoomTabDef> = [
+  { room: "now", label: "Now", icon: Zap },
+  { room: "work", label: "Work", icon: Hammer },
+];
+
+const RIGHT_ROOM_TABS: ReadonlyArray<RoomTabDef> = [
+  { room: "proof", label: "Proof", icon: ShieldCheck },
+  { room: "site", label: "Site", icon: RoomMapIcon },
+];
+
+/** Live badge count for a room tab — real derived counts from the binding
+ *  (needs-you / blocked / proof owed); Site carries none. Never invented. */
+function roomBadgeCount(room: PhilJobRoom, binding: PhilJobRoomsBarBinding): number {
+  switch (room) {
+    case "now":
+      return binding.badges.now;
+    case "work":
+      return binding.badges.work;
+    case "proof":
+      return binding.badges.proof;
+    default:
+      return 0;
+  }
+}
+
+/**
+ * One in-job room tab. Visuals follow the sharpened tab language (3px yellow
+ * top underline, navy active icon/label) — rooms only exist inside the
+ * sharpened package. The badge is the #133 criterion instrumentation
+ * ("critical state is never hidden behind navigation"): a navy count pill,
+ * red on Now (the needs-you signal is the critical one). Tapping the ACTIVE
+ * tab pops its room back to the root (the binding owns that semantics).
+ */
+function RoomTab({
+  tab,
+  binding,
+}: {
+  tab: RoomTabDef;
+  binding: PhilJobRoomsBarBinding;
+}) {
+  const Icon = tab.icon;
+  const isActive = binding.active === tab.room;
+  const badge = roomBadgeCount(tab.room, binding);
+  return (
+    <button
+      type="button"
+      data-testid={`phil-room-tab-${tab.room}`}
+      aria-current={isActive ? "true" : undefined}
+      aria-label={badge > 0 ? `${tab.label} — ${badge} flagged` : tab.label}
+      onClick={() => binding.onSelect(tab.room)}
+      className="relative flex min-h-[44px] flex-1 flex-col items-center justify-center"
+    >
+      <span
+        aria-hidden="true"
+        className={cn(
+          "absolute inset-x-4 top-0 h-[3px] rounded-b-pill",
+          isActive ? "bg-accent-yellow" : "bg-transparent",
+        )}
+      />
+      <span className="relative flex flex-col items-center justify-center gap-0.5">
+        <span className="relative">
+          <Icon
+            aria-hidden="true"
+            className={cn("h-5 w-5", isActive ? "text-brand-navy" : "text-text-muted")}
+          />
+          {badge > 0 ? (
+            <span
+              aria-hidden="true"
+              className={cn(
+                "absolute -right-3 -top-1.5 min-w-[18px] rounded-pill px-1 text-center text-[12px] font-bold leading-[18px] text-white",
+                tab.room === "now" ? "bg-state-danger" : "bg-brand-navy",
+              )}
+            >
+              {badge}
+            </span>
+          ) : null}
+        </span>
+        <span
+          className={cn(
+            "text-[12px] uppercase tracking-wider",
+            isActive ? "font-semibold text-brand-navy" : "font-medium text-text-muted",
+          )}
+        >
+          {tab.label}
+        </span>
+      </span>
+    </button>
+  );
 }
 
 function TabLink({
@@ -180,6 +302,10 @@ interface PhilTabBarProps {
 
 export function PhilTabBar({ userId = "", sharpened = false }: PhilTabBarProps) {
   const pathname = usePathname() ?? "";
+  // In-job rooms binding (phil_job_rooms): non-null ONLY while a job screen has
+  // registered its rooms — the flanking slots then render room tabs. The FAB
+  // and every capture path below run identically in both modes.
+  const roomsBinding = usePhilJobRoomsBarBinding();
   const [launcherOpen, setLauncherOpen] = useState(false);
   const [incoming, setIncoming] = useState<IncomingCapturePhoto | null>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -284,12 +410,16 @@ export function PhilTabBar({ userId = "", sharpened = false }: PhilTabBarProps) 
         onChange={onCameraChange}
       />
       <nav
-        aria-label="Phil tabs"
+        aria-label={roomsBinding ? "Job rooms" : "Phil tabs"}
         className="sticky bottom-0 flex h-16 shrink-0 items-stretch border-t border-border bg-surface pb-[env(safe-area-inset-bottom)]"
       >
-        {LEFT_TABS.map((tab) => (
-          <TabLink key={tab.href} tab={tab} pathname={pathname} sharpened={sharpened} />
-        ))}
+        {roomsBinding
+          ? LEFT_ROOM_TABS.map((tab) => (
+              <RoomTab key={tab.room} tab={tab} binding={roomsBinding} />
+            ))
+          : LEFT_TABS.map((tab) => (
+              <TabLink key={tab.href} tab={tab} pathname={pathname} sharpened={sharpened} />
+            ))}
 
         {/* Centre Capture button — the universal field action, present on
             every Phil screen. Lifted above the bar so it reads as primary. */}
@@ -317,9 +447,13 @@ export function PhilTabBar({ userId = "", sharpened = false }: PhilTabBarProps) 
           </span>
         </div>
 
-        {(sharpened ? SHARPENED_RIGHT_TABS : RIGHT_TABS).map((tab) => (
-          <TabLink key={tab.href} tab={tab} pathname={pathname} sharpened={sharpened} />
-        ))}
+        {roomsBinding
+          ? RIGHT_ROOM_TABS.map((tab) => (
+              <RoomTab key={tab.room} tab={tab} binding={roomsBinding} />
+            ))
+          : (sharpened ? SHARPENED_RIGHT_TABS : RIGHT_TABS).map((tab) => (
+              <TabLink key={tab.href} tab={tab} pathname={pathname} sharpened={sharpened} />
+            ))}
       </nav>
 
       {/* FAB long-press: capture straight into a recent job (#146). */}

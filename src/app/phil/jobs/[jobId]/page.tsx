@@ -15,6 +15,7 @@ import { PhilBackLink } from "@/components/phil/ui/PhilBackLink";
 import { RefreshButton } from "@/components/ui/RefreshButton";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
+import { philInitials, philSharpenedFlags } from "@/lib/phil/sharpened";
 import { JobDetailResponseSchema, JobListResponseSchema } from "@/domains/jobs/schema";
 import { TagListResponseSchema, type TagItem } from "@/domains/tags/schema";
 import { JobContactsResponseSchema, type JobContact } from "@/domains/contacts/schema";
@@ -84,6 +85,14 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
   const viewerId = session.userId ?? session.sub ?? "";
   const viewerRole = String(session.role ?? "");
 
+  // Sharpened chrome + the in-job four-rooms takeover (phil_job_rooms — the
+  // filed #133 experiment). Resolved ONCE server-side (cached flags.json);
+  // philSharpenedFlags enforces jobRooms ⇒ sharpened, so with either flag off
+  // the job screen (and its chrome) renders exactly as today. Booleans only —
+  // never the flags blob (docs/feature-flags.md).
+  const sharpenedFlags = await philSharpenedFlags(session);
+  const accountInitials = philInitials(session.name ?? session.username);
+
   // Gate the fast shell behind the SAME flag as the jobs-summary read path
   // (FLAG_PHIL_JOBS_SUMMARY_READ). The shell sources its header from /api/jobs,
   // which is summary-fast ONLY when that flag is on; with the flag OFF the list
@@ -98,10 +107,23 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
   if (!summaryShellOn) {
     // Flag off → prior behaviour: block on the full load, render directly.
     return (
-      <PhilShell title="Job" userId={viewerId}>
+      <PhilShell
+        title="Job"
+        userId={viewerId}
+        sharpened={sharpenedFlags.sharpened}
+        accountInitials={accountInitials}
+      >
         {/* #145: remember this open so the jobs list can surface it in Recent. */}
         <PhilJobViewRecorder userId={viewerId} jobId={jobId} />
-        {await PhilJobDetailFull({ raw, jobId, captureToken, viewerId, viewerRole, streamTaskState: false })}
+        {await PhilJobDetailFull({
+          raw,
+          jobId,
+          captureToken,
+          viewerId,
+          viewerRole,
+          streamTaskState: false,
+          jobRooms: sharpenedFlags.jobRooms,
+        })}
       </PhilShell>
     );
   }
@@ -117,7 +139,12 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
   const shellHeader = await loadJobShell(raw, jobId);
 
   return (
-    <PhilShell title={shellHeader?.name ?? "Job"} userId={viewerId}>
+    <PhilShell
+      title={shellHeader?.name ?? "Job"}
+      userId={viewerId}
+      sharpened={sharpenedFlags.sharpened}
+      accountInitials={accountInitials}
+    >
       {/* #145: remember this open so the jobs list can surface it in Recent. */}
       <PhilJobViewRecorder userId={viewerId} jobId={jobId} />
       <Suspense fallback={<PhilJobDetailShell header={shellHeader} />}>
@@ -128,6 +155,7 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
           viewerId={viewerId}
           viewerRole={viewerRole}
           streamTaskState
+          jobRooms={sharpenedFlags.jobRooms}
         />
       </Suspense>
     </PhilShell>
@@ -150,6 +178,7 @@ async function PhilJobDetailFull({
   viewerId,
   viewerRole,
   streamTaskState,
+  jobRooms,
 }: {
   raw: string | undefined;
   jobId: string;
@@ -162,6 +191,9 @@ async function PhilJobDetailFull({
    *  PhilJobDetail as a promise, so the job structure (the LCP element) paints
    *  ~3s sooner. Flag-off keeps the original 11-read blocking load verbatim. */
   streamTaskState: boolean;
+  /** phil_job_rooms (dark, #133): render the four-rooms takeover. Resolved by
+   *  the page via philSharpenedFlags (jobRooms ⇒ sharpened enforced there). */
+  jobRooms: boolean;
 }) {
   // Start the streamed taskState read in parallel with the wave-one reads, but
   // DON'T await it here — it resolves into PhilJobDetail behind a nested Suspense.
@@ -272,6 +304,7 @@ async function PhilJobDetailFull({
       autoCaptureToken={captureToken}
       safetyEnabled={safetyEnabled}
       certificatesEnabled={certificatesEnabled}
+      rooms={jobRooms}
     />
   );
 }

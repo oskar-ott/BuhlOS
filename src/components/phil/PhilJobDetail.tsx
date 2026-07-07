@@ -76,6 +76,18 @@ import {
   countsForArea,
   soleStage,
 } from "./philJobWorkTree";
+import { deriveAttention } from "./PhilJobAttention";
+import {
+  blockedCountByArea,
+  blockedTasks,
+  jobWorkCounts,
+  owedProofCountByArea,
+  owedProofItems,
+  type PhilJobRoom,
+} from "./philJobRooms";
+import { usePhilJobRoomsBarRegistration } from "./philJobRoomsBar";
+import { PhilJobRoomsView } from "./PhilJobRoomsView";
+import { PhilJobRoomArea } from "./PhilJobRoomArea";
 
 interface Props {
   job: Job;
@@ -156,6 +168,15 @@ interface Props {
   safetyEnabled?: boolean;
   /** #231: mount the hidden-until-real Certificates home section (flag-gated by the page). */
   certificatesEnabled?: boolean;
+  /**
+   * phil_job_rooms (dark — the filed #133 experiment): render this job as the
+   * FOUR ROOMS takeover (Now · Work · [Capture] · Proof · Site with the in-job
+   * bottom bar) instead of the one-scroll page. Resolved SERVER-SIDE via
+   * philSharpenedFlags (which enforces jobRooms ⇒ sharpened) and passed as a
+   * boolean. False/absent = the current job screen, byte-identical. The rooms
+   * are in-page client state on this same route — no new URLs.
+   */
+  rooms?: boolean;
 }
 
 /**
@@ -228,6 +249,7 @@ export function PhilJobDetail({
   autoCaptureToken,
   safetyEnabled = false,
   certificatesEnabled = false,
+  rooms = false,
 }: Props) {
   // Opens the global Capture launcher preset to one option (here, the
   // "Variation / change" worker option) — the SAME flow My Day's quick tiles
@@ -275,6 +297,15 @@ export function PhilJobDetail({
     flatAreas[0]?.id ?? null
   );
   const [stage, setStage] = useState<JobStage>("roughIn");
+
+  // ── Four-rooms takeover state (phil_job_rooms — #133; in-page, no routes) ──
+  // The active room, whether the Work room's area drill-in is open (it reuses
+  // selectedAreaId/stage above — one source of truth for "where am I"), and a
+  // seq that bumps on every room select so re-selecting the active tab resets
+  // the room to its root (nav semantics; the view keys its content off it).
+  const [room, setRoom] = useState<PhilJobRoom>("now");
+  const [roomAreaOpen, setRoomAreaOpen] = useState(false);
+  const [roomResetSeq, setRoomResetSeq] = useState(0);
 
   const [captureOpen, setCaptureOpen] = useState(false);
   const [evidenceItems, setEvidenceItems] = useState<ReadonlyArray<EvidenceItem>>(
@@ -436,13 +467,26 @@ export function PhilJobDetail({
     if (saved && flatAreas.some((a) => a.id === saved.areaId)) {
       setSelectedAreaId(saved.areaId);
       setStage(saved.stage);
+      // Rooms extension (#133 — "interruption recovery ≤1 gesture"): land back
+      // in the last room, with the area drill-in re-opened if it was open.
+      if (rooms && saved.room) {
+        setRoom(saved.room);
+        if (saved.areaOpen && saved.room === "work") setRoomAreaOpen(true);
+      }
     }
-  }, [job.id, flatAreas]);
+  }, [job.id, flatAreas, rooms]);
 
   useEffect(() => {
     if (!selectedAreaId) return;
-    writeJobResume(job.id, { areaId: selectedAreaId, stage: viewedStage });
-  }, [job.id, selectedAreaId, viewedStage]);
+    // Flag-off writes the exact record it writes today; rooms mode adds the
+    // room + drill-in fields so re-entry lands by place.
+    writeJobResume(
+      job.id,
+      rooms
+        ? { areaId: selectedAreaId, stage: viewedStage, room, areaOpen: roomAreaOpen }
+        : { areaId: selectedAreaId, stage: viewedStage },
+    );
+  }, [job.id, selectedAreaId, viewedStage, rooms, room, roomAreaOpen]);
 
   // Canonical task index (#480) for this job — rebuilt only when the plan or the
   // recorded state changes. This is now the SOURCE for the worker task rows
@@ -459,10 +503,11 @@ export function PhilJobDetail({
   // shown ONLY when this is a real, loaded 100% (total > 0 && pct === 100). It is
   // gated below on the task-state load flags so a job whose state is still
   // streaming or failed to load NEVER flashes a false 100% (P7).
-  const jobProgress = useMemo(
-    () => rollUpTaskProgress(canonicalTasks).job,
+  const taskRollup = useMemo(
+    () => rollUpTaskProgress(canonicalTasks),
     [canonicalTasks],
   );
+  const jobProgress = taskRollup.job;
   const jobComplete =
     !taskStatePending &&
     !taskStateErr &&
@@ -637,6 +682,107 @@ export function PhilJobDetail({
   const areaNames = useMemo(
     () => Object.fromEntries(flatAreas.map((a) => [a.id, a.name] as const)),
     [flatAreas],
+  );
+
+  // ── Rooms derivations (phil_job_rooms — the #133 badge instrumentation) ──
+  // Computed ONLY in rooms mode; every count is derived from data already on
+  // this page (attention signals, observation blockers over the canonical
+  // index, compiled proof requirements + links) — never invented (P7). These
+  // are the live tab-bar badges: Now = needs-you, Work = blocked, Proof =
+  // proof owed, so critical state stays visible from every room.
+  const roomAttention = useMemo(
+    () =>
+      rooms
+        ? deriveAttention({
+            job,
+            snags: initialSnags ?? [],
+            itps: initialItps ?? [],
+            viewerId: viewer?.id ?? null,
+            inductionDone: Boolean(myInduction),
+          })
+        : { items: [], total: 0 },
+    [rooms, job, initialSnags, initialItps, viewer, myInduction],
+  );
+  const roomBlocked = useMemo(
+    () => (rooms ? blockedTasks(canonicalTasks, jobTaskBlockers) : []),
+    [rooms, canonicalTasks, jobTaskBlockers],
+  );
+  const roomOwedProof = useMemo(
+    () => (rooms ? owedProofItems(workPackages ?? [], evidenceLinks) : []),
+    [rooms, workPackages, evidenceLinks],
+  );
+  const roomWorkCounts = useMemo(
+    () => jobWorkCounts(canonicalTasks, roomBlocked),
+    [canonicalTasks, roomBlocked],
+  );
+  const roomBlockedByArea = useMemo(() => blockedCountByArea(roomBlocked), [roomBlocked]);
+  const roomOwedByArea = useMemo(() => owedProofCountByArea(roomOwedProof), [roomOwedProof]);
+
+  // Selecting a room (or re-selecting the active one) lands on that room's
+  // root — sub-screens pop, and the seq remounts the room content at its top.
+  const handleSelectRoom = useCallback((next: PhilJobRoom) => {
+    setRoom(next);
+    setRoomAreaOpen(false);
+    setRoomResetSeq((s) => s + 1);
+  }, []);
+
+  // Open an area INSIDE the rooms flow (Work → Area). Same selection + sole-
+  // stage sync as the flag-off selectArea, minus the long-page scroll.
+  const openRoomArea = useCallback(
+    (areaId: string) => {
+      setSelectedAreaId(areaId);
+      const fullArea = flatAreas.find((a) => a.id === areaId) ?? null;
+      if (fullArea) {
+        const only = soleStage(areaStageAvailability(job, fullArea));
+        if (only) setStage(only);
+      }
+      setRoom("work");
+      setRoomAreaOpen(true);
+      setRoomResetSeq((s) => s + 1);
+    },
+    [flatAreas, job],
+  );
+  const closeRoomArea = useCallback(() => setRoomAreaOpen(false), []);
+
+  // Register the in-job bar binding while rooms are active; cleared on
+  // unmount so the global sharpened bar returns the moment the job is left.
+  const setRoomsBar = usePhilJobRoomsBarRegistration();
+  useEffect(() => {
+    if (!rooms) return;
+    setRoomsBar({
+      active: room,
+      badges: {
+        now: roomAttention.total,
+        work: roomWorkCounts.blocked,
+        proof: roomOwedProof.length,
+      },
+      onSelect: handleSelectRoom,
+    });
+  }, [
+    rooms,
+    room,
+    roomAttention.total,
+    roomWorkCounts.blocked,
+    roomOwedProof.length,
+    handleSelectRoom,
+    setRoomsBar,
+  ]);
+  useEffect(() => () => setRoomsBar(null), [setRoomsBar]);
+
+  // Rooms capture entries — all EXISTING paths, nothing new: Photo = the job
+  // CaptureSheet (same call as the flag-off "Capture evidence" button); Note /
+  // Issue = the global launcher preset to its existing worker options.
+  const openJobCapture = useCallback(() => {
+    setCaptureBanner(null);
+    setCaptureOpen(true);
+  }, []);
+  const captureNote = useCallback(
+    () => openQuickCapture({ kind: "worker", optionKey: "note" }),
+    [openQuickCapture],
+  );
+  const captureIssue = useCallback(
+    () => openQuickCapture({ kind: "worker", optionKey: "defect" }),
+    [openQuickCapture],
   );
 
   // The drill-in renders below the whole area list, so on a long list a
@@ -941,6 +1087,193 @@ export function PhilJobDetail({
     job as { circuitBoards?: ReadonlyArray<{ circuits?: ReadonlyArray<{ install?: string }> }> }
   ).circuitBoards;
   const hasCircuitSchedule = (circuitBoards?.length ?? 0) > 0;
+
+  // Site-induction card state (#332) — shared verbatim by both renders.
+  const siteInduction = job.inductionRequired
+    ? myInduction
+      ? { state: "done" as const, completedAt: myInduction.completedAt }
+      : {
+          state: "required" as const,
+          completedAt: null,
+          onConfirm: handleConfirmInduction,
+          saving: inductionSaving,
+          error: inductionError,
+        }
+    : null;
+
+  // The modal sheets are IDENTICAL in both modes — same components, same
+  // handlers, same non-optimistic write paths (capture → evidence, structured
+  // test record → proof link, defect → snag). Extracted so the rooms takeover
+  // and the one-scroll page can't drift apart.
+  const sheets = (
+    <>
+      <CaptureSheet
+        open={captureOpen}
+        job={job}
+        initialContext={{ stage, areaId: selectedAreaId }}
+        onClose={() => {
+          setCaptureOpen(false);
+          setPendingProofLink(null);
+        }}
+        onCaptured={handleCaptured}
+        onFailed={handleCaptureFailed}
+        onCancel={() => {
+          // #230: the worker dismissed the sheet without a photo — resolve any
+          // waiting Services request with null so its "Opening camera" clears.
+          const servicesResolver = servicesCaptureResolverRef.current;
+          if (servicesResolver) {
+            servicesCaptureResolverRef.current = null;
+            servicesResolver(null);
+          }
+        }}
+      />
+
+      <PhilTestRecordCard
+        open={testRecordOpen}
+        jobName={job.name}
+        requirementLabel={testRecordTarget?.label}
+        saving={testRecordSaving}
+        errorMessage={testRecordError}
+        savedResult={testRecordSaved}
+        onClose={() => {
+          setTestRecordOpen(false);
+          setTestRecordTarget(null);
+          setTestRecordError(null);
+          setTestRecordSaved(null);
+        }}
+        onSubmit={handleSubmitTestRecord}
+        onReportDefect={handleTestRecordDefect}
+      />
+
+      {/* #520: defect raised FROM a failed test result — the existing snag
+          sheet, pre-filled with the real readings + origin testRecordId. */}
+      <ReportSnagSheet
+        open={testDefectSheet !== null}
+        job={job}
+        initialContext={testDefectSheet?.context ?? { stage: null, areaId: null }}
+        recentEvidence={evidenceItems}
+        prefill={testDefectSheet?.prefill ?? null}
+        originRefs={
+          testDefectSheet ? { testRecordId: testDefectSheet.testRecordId } : null
+        }
+        onClose={() => setTestDefectSheet(null)}
+        onCreated={() => {
+          setTestDefectSheet(null);
+          setCaptureBanner({ tone: "success", message: "Defect reported." });
+          window.setTimeout(() => setCaptureBanner(null), 1500);
+        }}
+        onFailed={() => {
+          /* the sheet surfaces its own inline error */
+        }}
+      />
+    </>
+  );
+
+  // ── Four-rooms takeover (phil_job_rooms — the filed #133 experiment) ─────
+  // In-page rooms over the SAME state/handlers/derived data as the one-scroll
+  // page below; the in-job bar is registered via philJobRoomsBar. Flag off ⇒
+  // this branch never runs and the current screen renders byte-identically.
+  if (rooms) {
+    return (
+      <>
+        {taskStatePromise ? (
+          <Suspense fallback={null}>
+            <TaskStateHydrator
+              promise={taskStatePromise}
+              onResolved={handleTaskStateResolved}
+            />
+          </Suspense>
+        ) : null}
+
+        <PhilJobRoomsView
+          job={job}
+          room={room}
+          roomResetSeq={roomResetSeq}
+          onGoToRoom={handleSelectRoom}
+          areaOpen={roomAreaOpen && selectedArea !== null}
+          onOpenArea={openRoomArea}
+          areaView={
+            selectedArea ? (
+              <PhilJobRoomArea
+                jobId={job.id}
+                areaId={selectedArea.id}
+                areaName={selectedArea.name}
+                spaceType={selectedArea.spaceType}
+                stages={selectedStages}
+                stage={viewedStage}
+                onStageChange={setStage}
+                tasks={workerTasks}
+                areaSpecs={areaSpecs}
+                taskStatePending={taskStatePending}
+                taskStateError={taskStateErr}
+                taskError={taskError}
+                pendingTaskIds={pendingTaskIds}
+                onToggleTask={handleToggleTask}
+                taskContextById={taskContextById}
+                readinessByTaskId={taskReadinessById}
+                onCaptureProof={handleCaptureProof}
+                onFlagVariation={handleFlagVariation}
+                proofActionState={proofStatus}
+                canCaptureProof={Boolean(jcRevision)}
+                proofReviews={proofReviews}
+                onSubmitForReview={handleSubmitForReview}
+                proofSubmitStatus={proofSubmitStatus}
+                canSubmitForReview={Boolean(jcRevision)}
+                owedProof={roomOwedProof}
+                onBack={closeRoomArea}
+                onCapturePhoto={openJobCapture}
+                onCaptureNote={captureNote}
+                onCaptureIssue={captureIssue}
+              />
+            ) : null
+          }
+          attention={roomAttention}
+          evidenceItems={evidenceItems}
+          captureBanner={captureBanner}
+          areaNames={areaNames}
+          viewer={viewer}
+          onEvidenceUpdated={(updated) =>
+            setEvidenceItems((prev) =>
+              prev.map((it) => (it.id === updated.id ? updated : it)),
+            )
+          }
+          onOpenCapture={openJobCapture}
+          groups={groups}
+          workCounts={roomWorkCounts}
+          taskStatePending={taskStatePending}
+          taskStateErr={taskStateErr}
+          jobComplete={jobComplete}
+          rollup={taskRollup}
+          blockedByArea={roomBlockedByArea}
+          owedByArea={roomOwedByArea}
+          areaCountMaps={areaCountMaps}
+          workPackages={workPackages}
+          evidenceLinks={evidenceLinks}
+          snags={initialSnags ?? []}
+          snagContext={{ stage, areaId: selectedAreaId }}
+          owedProof={roomOwedProof}
+          proofReviews={proofReviews}
+          itps={initialItps ?? []}
+          tags={initialTags ?? []}
+          tagsError={tagsError}
+          hasCircuitSchedule={hasCircuitSchedule}
+          circuitBoards={circuitBoards}
+          certificatesEnabled={certificatesEnabled}
+          documents={initialDocuments}
+          documentsError={documentsError ?? null}
+          contacts={initialContacts}
+          serviceLocations={initialServiceLocations}
+          serviceLocationsError={serviceLocationsError ?? null}
+          canWriteServiceLocations={canAddServiceLocation(viewer?.role)}
+          onCapturePhotoForServices={handleCapturePhotoForServices}
+          siteInduction={siteInduction}
+          safetyEnabled={safetyEnabled}
+        />
+
+        {sheets}
+      </>
+    );
+  }
 
   return (
     <div className="space-y-4 pb-2">
@@ -1284,22 +1617,7 @@ export function PhilJobDetail({
           induction). Demoted to the bottom "reference" zone so the active work
           loop (Work + Capture) leads the page. Keeps #phil-job-site so the
           attention strip's induction item still scrolls here. */}
-      <PhilJobSiteCard
-        job={job}
-        induction={
-          job.inductionRequired
-            ? myInduction
-              ? { state: "done", completedAt: myInduction.completedAt }
-              : {
-                  state: "required",
-                  completedAt: null,
-                  onConfirm: handleConfirmInduction,
-                  saving: inductionSaving,
-                  error: inductionError,
-                }
-            : null
-        }
-      />
+      <PhilJobSiteCard job={job} induction={siteInduction} />
 
       {/* Services on site (#230) — where the pit / board / meter / temp supply
           are, with optional photos, so anyone can find them. Reference-zone slot
@@ -1341,65 +1659,7 @@ export function PhilJobDetail({
         <PhilJobDeferredNote />
       </section>
 
-      <CaptureSheet
-        open={captureOpen}
-        job={job}
-        initialContext={{ stage, areaId: selectedAreaId }}
-        onClose={() => {
-          setCaptureOpen(false);
-          setPendingProofLink(null);
-        }}
-        onCaptured={handleCaptured}
-        onFailed={handleCaptureFailed}
-        onCancel={() => {
-          // #230: the worker dismissed the sheet without a photo — resolve any
-          // waiting Services request with null so its "Opening camera" clears.
-          const servicesResolver = servicesCaptureResolverRef.current;
-          if (servicesResolver) {
-            servicesCaptureResolverRef.current = null;
-            servicesResolver(null);
-          }
-        }}
-      />
-
-      <PhilTestRecordCard
-        open={testRecordOpen}
-        jobName={job.name}
-        requirementLabel={testRecordTarget?.label}
-        saving={testRecordSaving}
-        errorMessage={testRecordError}
-        savedResult={testRecordSaved}
-        onClose={() => {
-          setTestRecordOpen(false);
-          setTestRecordTarget(null);
-          setTestRecordError(null);
-          setTestRecordSaved(null);
-        }}
-        onSubmit={handleSubmitTestRecord}
-        onReportDefect={handleTestRecordDefect}
-      />
-
-      {/* #520: defect raised FROM a failed test result — the existing snag
-          sheet, pre-filled with the real readings + origin testRecordId. */}
-      <ReportSnagSheet
-        open={testDefectSheet !== null}
-        job={job}
-        initialContext={testDefectSheet?.context ?? { stage: null, areaId: null }}
-        recentEvidence={evidenceItems}
-        prefill={testDefectSheet?.prefill ?? null}
-        originRefs={
-          testDefectSheet ? { testRecordId: testDefectSheet.testRecordId } : null
-        }
-        onClose={() => setTestDefectSheet(null)}
-        onCreated={() => {
-          setTestDefectSheet(null);
-          setCaptureBanner({ tone: "success", message: "Defect reported." });
-          window.setTimeout(() => setCaptureBanner(null), 1500);
-        }}
-        onFailed={() => {
-          /* the sheet surfaces its own inline error */
-        }}
-      />
+      {sheets}
     </div>
   );
 }

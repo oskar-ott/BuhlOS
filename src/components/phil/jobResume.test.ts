@@ -67,4 +67,46 @@ describe("jobResume", () => {
     writeJobResume("job-1", { areaId: "", stage: "roughIn" }, store);
     expect(store._map.size).toBe(0);
   });
+
+  // ── Rooms extension (phil_job_rooms — #133 ≤1-gesture recovery) ──────────
+  it("round-trips the room + open drill-in (rooms mode)", () => {
+    const store = fakeStorage();
+    writeJobResume(
+      "job-1",
+      { areaId: "a1", stage: "roughIn", room: "work", areaOpen: true },
+      store,
+    );
+    expect(readJobResume("job-1", store)).toEqual<JobResume>({
+      areaId: "a1",
+      stage: "roughIn",
+      room: "work",
+      areaOpen: true,
+    });
+  });
+
+  it("a flag-off write stays byte-identical — no rooms keys in the record", () => {
+    const store = fakeStorage();
+    writeJobResume("job-1", { areaId: "a1", stage: "fitOff" }, store);
+    expect(store._map.get("phil-job-resume:job-1")).toBe(
+      JSON.stringify({ areaId: "a1", stage: "fitOff" }),
+    );
+  });
+
+  it("a legacy record (no room) still reads; an unknown room is dropped", () => {
+    const legacy = fakeStorage({
+      "phil-job-resume:job-1": JSON.stringify({ areaId: "a1", stage: "roughIn" }),
+    });
+    expect(readJobResume("job-1", legacy)).toEqual({ areaId: "a1", stage: "roughIn" });
+
+    const tampered = fakeStorage({
+      "phil-job-resume:job-1": JSON.stringify({
+        areaId: "a1",
+        stage: "roughIn",
+        room: "garage",
+        areaOpen: "yes",
+      }),
+    });
+    // Unknown room + non-boolean areaOpen are dropped; the place survives.
+    expect(readJobResume("job-1", tampered)).toEqual({ areaId: "a1", stage: "roughIn" });
+  });
 });
