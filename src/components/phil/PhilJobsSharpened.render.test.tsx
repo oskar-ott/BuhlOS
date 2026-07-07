@@ -22,11 +22,36 @@ describe("PhilJobsSharpened", () => {
     expect(html).not.toContain("phil-jobs-on-today");
   });
 
-  it("omits '+ New job' entirely this wave — no dead button (P7)", () => {
+  it("shows the navy '+ New job' header button (Wave 2b) with the sheet closed", () => {
     const html = renderToString(
       createElement(PhilJobsSharpened, { initialJobs: [mk("a", "Alpha")] }),
     );
-    expect(html).not.toContain("New job");
+    expect(html).toContain('data-testid="phil-new-job-open"');
+    expect(html).toContain("New job");
+    expect(html).toContain("bg-brand-navy");
+    // The create form itself is in-page client state — never SSR'd open.
+    expect(html).not.toContain('data-testid="phil-new-job-sheet"');
+  });
+
+  it("keeps '+ New job' available on the honest empty state (first job is a create)", () => {
+    const html = renderToString(createElement(PhilJobsSharpened, { initialJobs: [] }));
+    expect(html).toContain('data-testid="phil-new-job-open"');
+    expect(html).toContain("No jobs assigned yet");
+  });
+
+  it("chips the real `code` field, falling back to legacy `ref` (unchanged rows)", () => {
+    const html = renderToString(
+      createElement(PhilJobsSharpened, {
+        initialJobs: [
+          mk("a", "Coded", { code: "IV7001", ref: "OLD-REF" } as Partial<Job>),
+          mk("b", "Ref only", { ref: "IV0038" } as Partial<Job>),
+          mk("c", "Bare"),
+        ],
+      }),
+    );
+    expect(html).toContain("IV7001"); // code wins over ref
+    expect(html).not.toContain("OLD-REF");
+    expect(html).toContain("IV0038"); // no code → today's ref rendering
   });
 
   it("shows the On-today hero only for the exactly-one-assigned signal", () => {

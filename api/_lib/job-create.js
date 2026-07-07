@@ -28,8 +28,9 @@ const { slugify, sanitizeModules, validateJobBasics } = require('./job-fields');
  *                         Mutated in place (job pushed) and persisted here —
  *                         the caller does NOT writeBlob('jobs.json') itself.
  * @param {object} input   The create payload (same field set api/jobs.js POST
- *                         accepts): name, id?, clientUserId?, type?, status?,
- *                         areaGroups?, roughInTasks?, fitOffTasks?, modules?,
+ *                         accepts): name, id?, code? (IV#### short ref),
+ *                         clientUserId?, type?, status?, areaGroups?,
+ *                         roughInTasks?, fitOffTasks?, modules?,
  *                         customFields?, + Job Basics, + fromQuoteId?.
  *
  * @returns {Promise<{ ok: true, job: object } | { ok: false, status: number, error: string }>}
@@ -53,6 +54,31 @@ async function createJob(data, input) {
   if (!jobId) return { ok: false, status: 400, error: 'invalid id' };
   if (data.jobs.find(j => j.id === jobId))
     return { ok: false, status: 400, error: 'job id already exists' };
+
+  // Optional job code (Phil sharpened W2b): the short site/office shared ref,
+  // strictly `IV` + 4 digits (e.g. IV0041 — ServiceMate-range and 7000-series
+  // custom refs are both just codes here). Normalised to uppercase; unique
+  // across all jobs (case-insensitive) — a duplicate is a 409 so the caller
+  // can surface "that code is taken" rather than a generic 400. Additive:
+  // omitted/null/'' means no code, exactly as every existing job. Distinct
+  // from the free-text `ref` basics field, which stays untouched.
+  let code = null;
+  if (body.code !== undefined && body.code !== null && body.code !== '') {
+    if (typeof body.code !== 'string') {
+      return { ok: false, status: 400, error: 'code must be a string' };
+    }
+    const c = body.code.trim().toUpperCase();
+    if (!/^IV\d{4}$/.test(c)) {
+      return { ok: false, status: 400, error: 'code must be IV followed by 4 digits (e.g. IV0041)' };
+    }
+    const clash = data.jobs.find(
+      j => j && typeof j.code === 'string' && j.code.toUpperCase() === c
+    );
+    if (clash) {
+      return { ok: false, status: 409, error: `code ${c} is already used by "${clash.name || clash.id}"` };
+    }
+    code = c;
+  }
 
   // Validate type if provided
   if (type) {
@@ -115,6 +141,7 @@ async function createJob(data, input) {
   const job = {
     id: jobId,
     name,
+    ...(code ? { code } : {}),
     clientUserId: clientUserId || null,
     type: type || null,
     areaGroups: parsedGroups,

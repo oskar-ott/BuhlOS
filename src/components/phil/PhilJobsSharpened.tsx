@@ -11,6 +11,7 @@ import {
   Clock,
   ListChecks,
   Map as MapIcon,
+  Plus,
   ShieldCheck,
   Star,
 } from "lucide-react";
@@ -38,6 +39,8 @@ import {
   philJobActionHref,
   philJobCommandInputFromListSignals,
 } from "@/domains/phil/job-command-list-input";
+import { PhilNewJobSheet } from "./PhilNewJobSheet";
+import { realCodesOnList } from "./philNewJobForm";
 
 /**
  * Phil Jobs — sharpened re-skin (phil_sharpened, dark; Wave 2a).
@@ -50,8 +53,10 @@ import {
  *     glove-sized pin control, and the long-press row-actions sheet (#146)
  *     all carry over with their load-bearing testids
  *     (phil-jobs-recent / phil-jobs-all / phil-job-pin-*).
- *   - "+ New job" is OMITTED this wave — the create form is Wave 2b, and a
- *     dead button is fake UI (P7). Omit, don't fake.
+ *   - "+ New job" (Wave 2b): the navy header button opens PhilNewJobSheet —
+ *     an in-page full-screen form (no new route) posting the RESTRICTED
+ *     field-create body to /api/jobs (name + IV#### code + optional address;
+ *     server gate = field/LH + phil_sharpened, api/jobs.js).
  *   - "On today" hero: the only real active-job signal in the list data is
  *     exactly-one-assigned (same signal as My Day's "On the job") — with 2+
  *     jobs no hero renders (we never guess which site they're on). No crew
@@ -134,6 +139,15 @@ export function PhilJobsSharpened({ initialJobs, userId = "" }: Props) {
   const pinnedSet = useMemo(() => new Set(prefs.pinned), [prefs.pinned]);
   const canPin = userId.length > 0;
 
+  // "+ New job" (Wave 2b) — in-page client state, no new route. The sheet is
+  // only MOUNTED while open (it covers the tab bar at z-50, CaptureSheet
+  // precedent). Server gate: field/LH + phil_sharpened (this screen already
+  // renders only when the flag is on for this viewer).
+  const [newJobOpen, setNewJobOpen] = useState(false);
+  // Real codes off this worker's own list — feed the form's reference row +
+  // next-free-7000 default. Nothing invented: no codes → empty (P7).
+  const existingCodes = useMemo(() => realCodesOnList(initialJobs), [initialJobs]);
+
   // The one honest "On today" signal in this payload: exactly one assigned
   // job. It stays in the register below too (the hero is a shortcut, the
   // list is the record — and the pin/long-press controls live on the row).
@@ -141,16 +155,21 @@ export function PhilJobsSharpened({ initialJobs, userId = "" }: Props) {
 
   return (
     <div className="space-y-4" data-testid="phil-jobs-sharpened">
-      {/* Header: title only. "+ New job" is Wave 2b — omitted, not faked. */}
-      <header className="flex items-baseline justify-between gap-3">
+      {/* Header: title + navy "+ New job" (Wave 2b — prototype §2.2). The job
+          count lives on the "Your jobs · N" register heading below. */}
+      <header className="flex items-center justify-between gap-3">
         <h1 className="font-display text-2xl font-extrabold tracking-[-0.02em] text-text">
           Jobs
         </h1>
-        {initialJobs.length > 0 ? (
-          <span className="font-display text-[12px] font-bold uppercase tracking-[0.09em] text-text-muted">
-            {initialJobs.length} {initialJobs.length === 1 ? "job" : "jobs"}
-          </span>
-        ) : null}
+        <button
+          type="button"
+          onClick={() => setNewJobOpen(true)}
+          data-testid="phil-new-job-open"
+          className="inline-flex min-h-[44px] shrink-0 items-center gap-1.5 rounded-card bg-brand-navy px-4 font-display text-sm font-bold text-text-inverse transition hover:brightness-110 active:scale-[0.98] focus-visible:outline-brand-navy"
+        >
+          <Plus aria-hidden="true" className="h-4 w-4" />
+          New job
+        </button>
       </header>
 
       {initialJobs.length === 0 ? (
@@ -213,6 +232,16 @@ export function PhilJobsSharpened({ initialJobs, userId = "" }: Props) {
           </section>
         </>
       )}
+
+      {/* Mounted only while open: the sheet reads the router, and a closed
+          create form shouldn't cost the list anything. */}
+      {newJobOpen ? (
+        <PhilNewJobSheet
+          open
+          onClose={() => setNewJobOpen(false)}
+          existingCodes={existingCodes}
+        />
+      ) : null}
     </div>
   );
 }
@@ -222,6 +251,9 @@ export function PhilJobsSharpened({ initialJobs, userId = "" }: Props) {
 function OnTodayCard({ job }: { job: Job }) {
   const address = (job.siteAddress ?? "").trim();
   const summary = jobOpenWorkSummary(jobOpenWork(job));
+  // Code chip: the real IV#### `code` field (Wave 2b) when present, else the
+  // legacy free-text `ref` — jobs without either render exactly as before.
+  const chip = job.code ?? job.ref;
   return (
     <section aria-labelledby="phil-jobs-on-today-heading" className="space-y-1.5">
       <h2
@@ -236,9 +268,9 @@ function OnTodayCard({ job }: { job: Job }) {
         className="flex min-h-[72px] items-center gap-3 rounded-card border border-border border-l-[5px] border-l-accent-yellow bg-surface-raised p-4 shadow-card hover:bg-surface-subtle"
       >
         <span className="min-w-0 flex-1">
-          {job.ref ? (
+          {chip ? (
             <span className="block font-display text-[12px] font-bold uppercase tracking-[0.06em] text-text-muted [font-variant-numeric:tabular-nums]">
-              {job.ref}
+              {chip}
             </span>
           ) : null}
           <span className="block truncate font-display text-[17px] font-bold tracking-[-0.014em] text-text">
@@ -279,6 +311,8 @@ function SharpJobRow({
   // a fabricated "all clear" (same contract as philJobsListSignals).
   const summary = jobOpenWorkSummary(jobOpenWork(job));
   const statusLine = [address, summary].filter(Boolean).join(" · ");
+  // Code chip: real `code` (IV####, Wave 2b) first, legacy `ref` fallback.
+  const chip = job.code ?? job.ref;
 
   // Long-press → this job's top actions, from the SAME command model as the
   // job page (#146). Additive: a plain tap still opens the job.
@@ -305,9 +339,9 @@ function SharpJobRow({
           {...rowLongPress}
         >
           <span className="min-w-0 flex-1">
-            {job.ref ? (
+            {chip ? (
               <span className="block font-display text-[12px] font-bold uppercase tracking-[0.06em] text-text-muted [font-variant-numeric:tabular-nums]">
-                {job.ref}
+                {chip}
               </span>
             ) : null}
             <span className="block truncate font-display text-base font-semibold text-text">

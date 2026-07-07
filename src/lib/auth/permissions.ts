@@ -31,16 +31,26 @@ export function canAccessSurface(role: unknown, surface: Surface): boolean {
 }
 
 /**
- * Job CREATE is literal-`admin`, NOT the admin tier. POST /api/jobs gates on
- * `me.role !== 'admin'` (api/jobs.js) — deliberately narrower than EDIT/build,
- * which use canManageJob (admin tier OR LH-on-job). We can't widen the POST
- * gate: list visibility for "all jobs" is also literal-admin, so a boss who
- * created a job wouldn't see it in their own list.
+ * FULL job CREATE is literal-`admin`, NOT the admin tier. POST /api/jobs gates
+ * on `me.role !== 'admin'` (api/jobs.js) — deliberately narrower than
+ * EDIT/build, which use canManageJob (admin tier OR LH-on-job). We can't widen
+ * the FULL-create gate: list visibility for "all jobs" is also literal-admin,
+ * so a boss who created a job wouldn't see it in their own list.
  *
- * Mirror that here so the "New job" button and /v2/jobs/new are gated to the
- * same set the server will accept — a boss/pm (admin tier, not 'admin') never
- * lands on a create form whose submit would 403. Build/edit entry points stay
- * on canAccessSurface(role, "admin").
+ * ONE flag-gated widening exists (Phil sharpened W2b, the recorded product
+ * decision): a field/leading-hand caller with `phil_sharpened` enabled may
+ * POST a RESTRICTED body — { name, code (IV####), siteAddress? } only — via
+ * handlePhilFieldCreate in api/jobs.js. The server auto-assigns the creator
+ * (assignedJobIds) so the visibility caveat above doesn't apply to that path.
+ * Flag off = literal-admin, unchanged. Flipping the flag is the governance
+ * step (P15) that ratifies the widening.
+ *
+ * This helper still mirrors the FULL-create gate: it guards the admin "New
+ * job" button and /v2/jobs/new, which submit the full builder body — a
+ * boss/pm (admin tier, not 'admin') never lands on a create form whose submit
+ * would 403. Phil's "+ New job" form has its own gate (the sharpened flag +
+ * phil surface) and does NOT use this helper. Build/edit entry points stay on
+ * canAccessSurface(role, "admin").
  */
 export function canCreateJob(role: unknown): boolean {
   return normaliseRole(role) === "admin";
