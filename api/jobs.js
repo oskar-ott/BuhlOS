@@ -838,6 +838,7 @@ module.exports = async (req, res) => {
     // may create a name+code(+siteAddress) job ("+ New job" on /phil/jobs,
     // Phil sharpened W2b). The user ratifies the widening by flipping the
     // flag (P15 governance); flag off = literal-admin, byte-identical.
+    // role-literal-ok: full-body create stays literal-admin — see block above
     if (me.role !== 'admin') {
       const philCreator = isFieldRole(me.role) || isLeadingHandRole(me.role);
       if (!philCreator) return res.status(403).json({ error: 'forbidden' });
