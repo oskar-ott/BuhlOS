@@ -88,6 +88,7 @@ beforeEach(() => {
         users: [
           { id: "u_boss", username: "boss", role: "boss", assignedJobIds: [] },
           { id: "u_field", username: "sparky", role: "electrician", assignedJobIds: ["job-1"] },
+          { id: "u_field2", username: "offsite", role: "electrician", assignedJobIds: [] },
         ],
       },
     ],
@@ -129,6 +130,7 @@ beforeEach(() => {
 
 afterEach(() => {
   delete process.env.FLAG_RFI_REGISTER;
+  delete process.env.FLAG_PHIL_SHARPENED;
 });
 
 describe("api/rfis — gate", () => {
@@ -143,6 +145,72 @@ describe("api/rfis — gate", () => {
     expect((await call({ method: "GET", role: "electrician", userId: "u_field" })).statusCode).toBe(
       403
     );
+  });
+});
+
+describe("api/rfis — field raise (phil_sharpened widening)", () => {
+  const fieldRaise = (userId: string, over: Record<string, unknown> = {}) =>
+    call({
+      method: "POST",
+      role: "electrician",
+      userId,
+      body: { subject: "Where does the panel go?", question: "Drawing A-101 is silent.", ...over },
+    });
+
+  it("flag OFF → an assigned field worker's POST raise 403s exactly as today", async () => {
+    expect((await fieldRaise("u_field")).statusCode).toBe(403);
+  });
+
+  it("flag ON → an UNASSIGNED field worker still 403s", async () => {
+    process.env.FLAG_PHIL_SHARPENED = "1";
+    expect((await fieldRaise("u_field2")).statusCode).toBe(403);
+  });
+
+  it("flag ON → an assigned field worker raises: 201, real sequential ref, open, raisedBy the worker", async () => {
+    process.env.FLAG_PHIL_SHARPENED = "1";
+    const res = await fieldRaise("u_field", {
+      askedOf: "dave@builder.example",
+      areaId: "area-1",
+      observationId: "obs_1",
+    });
+    expect(res.statusCode).toBe(201);
+    const rfi = rfiOf(res);
+    expect(rfi.ref).toBe("RFI-001");
+    expect(rfi.status).toBe("open");
+    expect(rfi.raisedById).toBe("u_field");
+    expect(rfi.askedOf).toBe("dave@builder.example");
+    expect(rfi.areaId).toBe("area-1");
+    expect(rfi.observationId).toBe("obs_1");
+    // Refs stay sequential across raisers.
+    expect(rfiOf(await raise({ subject: "Admin follow-up" })).ref).toBe("RFI-002");
+  });
+
+  it("flag ON → raise is the ONLY widened door: GET / send / answer / close / PATCH stay 403", async () => {
+    process.env.FLAG_PHIL_SHARPENED = "1";
+    const id = String(rfiOf(await fieldRaise("u_field")).id);
+    const field = { role: "electrician", userId: "u_field" };
+    expect((await call({ method: "GET", ...field })).statusCode).toBe(403);
+    expect(
+      (await call({ method: "POST", query: { action: "send" }, body: { id }, ...field })).statusCode,
+    ).toBe(403);
+    expect(
+      (await call({ method: "POST", query: { action: "answer" }, body: { id, answer: "x" }, ...field }))
+        .statusCode,
+    ).toBe(403);
+    expect(
+      (await call({ method: "POST", query: { action: "close" }, body: { id, reason: "x" }, ...field }))
+        .statusCode,
+    ).toBe(403);
+    expect(
+      (await call({ method: "PATCH", query: { id }, body: { subject: "edit" }, ...field })).statusCode,
+    ).toBe(403);
+  });
+
+  it("flag ON → the admin path is unchanged", async () => {
+    process.env.FLAG_PHIL_SHARPENED = "1";
+    const res = await raise();
+    expect(res.statusCode).toBe(201);
+    expect(rfiOf(res).raisedById).toBe("u_boss");
   });
 });
 

@@ -12,11 +12,19 @@
 // converting one INTO an RFI is the next slice). Dark behind `rfi_register`.
 // Per-job store jobs/<jobId>/rfis.json (like snags); no cross-job index in v1.
 //
+// ONE narrow, flag-gated widening (Phil sharpened capture — the RFI chip):
+// a field/leading-hand worker ASSIGNED to the job may POST raise (and ONLY
+// raise — no send/answer/close/PATCH/GET) when `phil_sharpened` is enabled
+// for them. The raised RFI gets the same sequential ref, status open,
+// raisedBy = the worker. Both flags must be on (rfi_register stays the
+// register's master switch — raising into a store the office can't see would
+// be a black hole). Flag off ⇒ the admin/manager-only gate, byte-identical.
+//
 // "Send" performs a REAL email (api/_lib/email.js) and only stamps sentAt on a
 // successful send — the status never claims sent without an actual send.
 
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, canManageJob, isAdminRole } = require('./_lib/auth');
+const { requireAuth, canManageJob, isAdminRole, isFieldRole, isLeadingHandRole } = require('./_lib/auth');
 const { isFlagEnabled } = require('./_lib/feature-flags');
 const { append: appendAuditLog } = require('./_lib/audit-log');
 const { sendEmail, isEmailConfigured, companyName } = require('./_lib/email');
@@ -67,11 +75,22 @@ module.exports = async (req, res) => {
 
   const jobId = (req.query && req.query.jobId) || '';
   if (!jobId) return res.status(400).json({ error: 'jobId required' });
-  // Office-side register: admin / managing LH only.
-  if (!isAdminRole(user.role) && !canManageJob(user, jobId)) {
-    return res.status(403).json({ error: 'admin / manager only' });
-  }
   const action = (req.query && req.query.action) || '';
+  // Office-side register: admin / managing LH only — with ONE narrow widening:
+  // a field/LH worker assigned to this job may POST raise (and only raise)
+  // when `phil_sharpened` is enabled for them (see the header comment). Any
+  // other method/action from a non-manager keeps today's 403, byte-identical.
+  if (!isAdminRole(user.role) && !canManageJob(user, jobId)) {
+    const philFieldRaise =
+      req.method === 'POST' &&
+      !action &&
+      (isFieldRole(user.role) || isLeadingHandRole(user.role)) &&
+      (user.assignedJobIds || []).includes(jobId) &&
+      (await isFlagEnabled('phil_sharpened', user));
+    if (!philFieldRaise) {
+      return res.status(403).json({ error: 'admin / manager only' });
+    }
+  }
 
   // ---- GET list ----
   if (req.method === 'GET') {

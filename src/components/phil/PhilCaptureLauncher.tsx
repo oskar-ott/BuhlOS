@@ -42,6 +42,9 @@ import { effectiveTasks, stageLabel, visibleAreaGroups } from "@/domains/jobs/fo
 import type { Job, JobStage } from "@/domains/jobs/types";
 import { CapturePhotoTray, type TrayPhoto } from "./CapturePhotoTray";
 import { CaptureTargetPickers } from "./CaptureTargetPickers";
+import { PhilCaptureSharpened } from "./PhilCaptureSharpened";
+import { usePhilSharpened } from "./philSharpenedContext";
+import type { CapturePurposeKey } from "./captureSharpened";
 import { useSheetHistory } from "./useSheetHistory";
 import {
   buildObservationPayload,
@@ -162,6 +165,16 @@ export function PhilCaptureLauncher({
   // the worker never has to type a title to send.
   const [officeDetail, setOfficeDetail] = useState("");
   const [officeError, setOfficeError] = useState<string | null>(null);
+
+  // Sharpened re-skin (phil_sharpened, dark) — resolved server-side, carried
+  // via PhilShell's context (this launcher is mounted by PhilTabBar, which
+  // doesn't own its design). False (or no provider) = the current sheet,
+  // byte-identical. The purpose chip + branch text live HERE, like `note`,
+  // so an accidental close keeps a half-typed question/snag title (P8).
+  const sharpened = usePhilSharpened();
+  const [purpose, setPurpose] = useState<CapturePurposeKey>("progress");
+  const [rfiQuestion, setRfiQuestion] = useState("");
+  const [snagTitle, setSnagTitle] = useState("");
 
   // No-photo observation loop state (pre-existing flow).
   const [noteFlow, setNoteFlow] = useState<NoteFlow>(null);
@@ -746,6 +759,46 @@ export function PhilCaptureLauncher({
               onMaterialsNote={setObsMaterialsNote}
               onSubmit={(job, option) => void submitNote(job, option)}
               onDone={closeWithHistory}
+            />
+          ) : sharpened && !destOffice ? (
+            /* ── Sharpened capture (§2.5, phil_sharpened) — same mechanics,
+                  re-skinned. The office destination + note loop fall back to
+                  the flows below, unchanged. ── */
+            <PhilCaptureSharpened
+              photos={photos}
+              setPhotos={setPhotos}
+              photoHint={photoHint}
+              maxPhotos={MAX_PHOTOS}
+              onRequestCamera={onRequestCamera}
+              jobsLoading={jobsState.v === "loading"}
+              jobsError={jobsState.v === "error" ? jobsState.message : null}
+              onRetryJobs={() => void loadJobs()}
+              jobs={jobs}
+              selectedJobId={selectedJobId}
+              onSelectJob={setSelectedJobId}
+              fromJobContext={Boolean(initialJobId && selectedJobId === initialJobId)}
+              detailJob={detailJob}
+              jobDetailState={jobDetail.v}
+              flatAreas={flatAreas}
+              stage={stage}
+              areaId={areaId}
+              taskId={taskId}
+              onStageChange={setStage}
+              onAreaChange={setAreaId}
+              onTaskChange={setTaskId}
+              note={note}
+              onNoteChange={setNote}
+              purpose={purpose}
+              onPurposeChange={setPurpose}
+              rfiQuestion={rfiQuestion}
+              onRfiQuestionChange={setRfiQuestion}
+              snagTitle={snagTitle}
+              onSnagTitleChange={setSnagTitle}
+              online={online}
+              onWriteNoteInstead={startNoteFlow}
+              canWriteNote={jobsState.v === "ready" && jobs.length > 0}
+              onSendToOffice={() => setDestOffice(true)}
+              onClose={closeWithHistory}
             />
           ) : (
             /* ── Camera-first capture ───────────────────────────────────── */

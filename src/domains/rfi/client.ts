@@ -1,8 +1,12 @@
 import { RfisResponseSchema, type RfisResponse } from "./schema";
+import { philWrite, type PhilWriteResult } from "@/domains/phil/write-client";
 
 /**
  * Browser client for the RFI register (#276). Admin/manager only — raise, send
- * to the builder, record the answer, close.
+ * to the builder, record the answer, close. Plus `philRaiseRfi`: the field's
+ * flag-gated raise (Phil sharpened capture), routed through philWrite so the
+ * write is bounded + non-optimistic and returns the CREATED rfi (the real ref
+ * for the "RFI sent" receipt).
  */
 
 export async function fetchRfis(jobId: string): Promise<RfisResponse> {
@@ -26,6 +30,47 @@ export async function raiseRfi(
   }
 ): Promise<void> {
   await post(jobId, "", input);
+}
+
+/** The slice of the created RFI the Phil capture receipt needs. */
+export interface PhilRaisedRfi {
+  id: string;
+  ref: string;
+  status: string;
+}
+
+/**
+ * Field raise (Phil sharpened §2.5 RFI branch) — POST /api/rfis?jobId=X with
+ * no action. Server gate: admin/manager as today, OR a field/LH worker
+ * assigned to the job with `phil_sharpened` enabled (api/rfis.js). Returns
+ * the created RFI (real sequential ref) via the philWrite honesty contract:
+ * bounded timeout, typed failure, success only on a parsed server reply.
+ */
+export function philRaiseRfi(
+  jobId: string,
+  input: {
+    subject: string;
+    question: string;
+    askedOf?: string;
+    areaId?: string | null;
+    observationId?: string | null;
+  },
+): Promise<PhilWriteResult<PhilRaisedRfi>> {
+  return philWrite<PhilRaisedRfi>(
+    `/api/rfis?jobId=${encodeURIComponent(jobId)}`,
+    {
+      subject: input.subject,
+      question: input.question,
+      ...(input.askedOf ? { askedOf: input.askedOf } : {}),
+      ...(input.areaId ? { areaId: input.areaId } : {}),
+      ...(input.observationId ? { observationId: input.observationId } : {}),
+    },
+    (raw) => {
+      const rfi = (raw as { rfi?: { id?: unknown; ref?: unknown; status?: unknown } } | null)?.rfi;
+      if (!rfi || typeof rfi.id !== "string" || typeof rfi.ref !== "string") return null;
+      return { id: rfi.id, ref: rfi.ref, status: typeof rfi.status === "string" ? rfi.status : "open" };
+    },
+  );
 }
 
 export async function sendRfi(jobId: string, id: string, to?: string): Promise<void> {
