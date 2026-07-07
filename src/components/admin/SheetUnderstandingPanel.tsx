@@ -1219,7 +1219,15 @@ function PlanSheets({
                 onSheet={onSheet}
                 extractBusy={extractBusyKey === sheetKey(plan.id, page.pageIndex)}
                 onExtractLegend={
-                  sheet?.fields.sheetType.effective === "legend" && !anyRunning
+                  // Legend sheets AND floor plans: on small jobs the legend is
+                  // almost always printed ON the floor plan, and detection is
+                  // gated on an accepted legend — hiding the button here made
+                  // device detection unreachable on single-sheet drawing sets.
+                  // extractLegend already answers "No legend found on page N"
+                  // honestly when a plan genuinely carries none.
+                  (sheet?.fields.sheetType.effective === "legend" ||
+                    sheet?.fields.sheetType.effective === "floorPlan") &&
+                  !anyRunning
                     ? () => onExtractLegend(page.pageIndex)
                     : undefined
                 }
@@ -1277,7 +1285,9 @@ function SheetRow({
   // While an extraction runs every callback is withdrawn (anyRunning), so the
   // busy row keeps showing only the button group its sheet type owns.
   const effectiveType = sheet?.fields.sheetType.effective;
-  const showLegend = Boolean(onExtractLegend) || (extractBusy && effectiveType === "legend");
+  const showLegend =
+    Boolean(onExtractLegend) ||
+    (extractBusy && (effectiveType === "legend" || effectiveType === "floorPlan"));
   const showSchedule =
     Boolean(onExtractSchedule) || (extractBusy && effectiveType === "schedule");
   const showDetect = Boolean(onDetectDevices) || (extractBusy && effectiveType === "floorPlan");

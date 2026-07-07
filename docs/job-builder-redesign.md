@@ -156,11 +156,23 @@ UX; and pixel-fidelity polish via the #792 primitives.
   (missing `ANTHROPIC_API_KEY` vs missing store); **"Unsaved changes"** renders in
   the warning tone so dirty state reads as attention.
 
+- **Legend unlock (landed).** Live AI-effectiveness testing found device detection
+  was **unreachable** on normal drawing sets: detection (rightly) requires an
+  accepted legend vocabulary, but "Extract legend" only rendered on sheets *typed*
+  `legend` — and small-job legends live **on the floor plan**. Now floor-plan pages
+  offer Extract legend too (extraction already answers "No legend found on page N"
+  honestly when a plan carries none — proven live on the Sansara Power & Data sheet:
+  23 real entries with brands + schedule quantities). The no-vocabulary 409 carries
+  a machine-readable `code: NO_LEGEND` and plain actionable copy (names the
+  "Extract legend" step; no issue numbers in user-facing text).
+
 Optional / later (large, own decisions): the richer AI auto-fill **extract-card** UX
 (accept-cards across the whole register) and OCR for scanned PDFs; binding analysis
 results to a specific document revision (re-diff #851 already warns on drift);
-promoting the redesign to admin default (a governance change — needs the flag proven
-on preview first, per `docs/feature-flags.md`).
+**takeoff counts from the legend schedule's own EA quantities** (detection as
+locator/checker, not the counter — scoped in its own issue); promoting the redesign
+to admin default (a governance change — needs the flag proven on preview first, per
+`docs/feature-flags.md`).
 
 ## Coordination with in-flight PRs
 
