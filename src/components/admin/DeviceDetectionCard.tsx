@@ -22,6 +22,10 @@ import { cropRegionFromPng, padRegion } from "@/domains/ai-drawings/crop";
 interface DetectionLookup {
   pngUrlFor: (planId: string, pageIndex: number) => string | null;
   labelFor: (planId: string) => string;
+  /** #882 — the legend schedule's own tabulated quantity for a label (if any),
+   *  so a detection group reads "3 found · legend says 49" instead of implying
+   *  the located markers are the count. Optional; omitted = today's display. */
+  legendQtyFor?: (label: string) => { qty: number; unit: string } | null;
 }
 
 export function DeviceDetectionCard({
@@ -146,6 +150,14 @@ function LabelGroup({
         />
         <span className="text-sm font-medium text-text">{label}</span>
         <Pill tone="neutral">{rows.length} found (raw)</Pill>
+        {(() => {
+          const legend = lookup.legendQtyFor?.(label) ?? null;
+          return legend ? (
+            <span className="text-xs text-text-muted" data-testid="detection-legend-qty">
+              legend says {legend.qty} {legend.unit}
+            </span>
+          ) : null;
+        })()}
       </button>
       {open ? (
         <ul className="mt-1.5 space-y-1.5 border-l border-border pl-3">

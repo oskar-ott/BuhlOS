@@ -3268,11 +3268,14 @@ async function handleTakeoffGet(res, sql, tenantId, jobId) {
 
 // Assemble a fresh DRAFT from the accepted seams — pure aggregation, no AI.
 async function handleAssembleTakeoff(res, sql, tenantId, jobId, user) {
-  const [acceptedCounts, scheduleTables, links, cableRuns] = await Promise.all([
+  const [acceptedCounts, scheduleTables, links, cableRuns, legendEntries] = await Promise.all([
     store.liveAcceptedCounts(sql, tenantId, jobId),
     store.listScheduleTables(sql, tenantId, jobId),
     store.listEntityLinks(sql, tenantId, jobId),
     store.acceptedCableRuns(sql, tenantId, jobId),
+    // #882 — accepted entries whose own text tabulates a quantity ("49 EA")
+    // assemble as legend-qty lines; detection demotes to spot-check for them.
+    store.acceptedLegendEntries(sql, tenantId, jobId),
   ]);
   const scheduleRows = await store.listScheduleRowsForTables(
     sql, tenantId, scheduleTables.map((t) => t.id),
@@ -3286,11 +3289,12 @@ async function handleAssembleTakeoff(res, sql, tenantId, jobId, user) {
     scheduleTables,
     scheduleRows,
     cableRuns,
+    legendEntries,
     warningsByPage,
   });
   if (!lines.length) {
     return res.status(409).json({
-      error: 'nothing accepted to assemble — verify device counts (and optionally schedules/cable) first',
+      error: 'nothing accepted to assemble — accept legend entries and verify device counts (and optionally schedules/cable) first',
     });
   }
   const { takeoff, lines: insertedLines } = await store.insertTakeoff(
@@ -3305,6 +3309,7 @@ async function handleAssembleTakeoff(res, sql, tenantId, jobId, user) {
           .filter((r) => r.status === 'accepted' || r.status === 'edited')
           .map((r) => r.id),
         cableRunIds: cableRuns.map((r) => r.id),
+        legendEntryIds: legendEntries.map((e) => e.id),
       },
       createdByLabel: user.username || null,
     },

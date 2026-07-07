@@ -59,6 +59,89 @@ describe("assembleLines (#213)", () => {
     });
   });
 
+  const legendEntry = (over: Row = {}): Row => ({
+    id: "le_1",
+    label: "DGPO C2000 Clipsal",
+    normalized_label: "dgpo c2000 clipsal",
+    human_label: null,
+    description: "49 EA",
+    status: "accepted",
+    source_plan_id: "pl1",
+    source_page_index: 0,
+    source_page_sha256: "sha0",
+    reviewed_by_label: "boss",
+    ...over,
+  });
+
+  it("#882: a legend entry with a tabulated quantity assembles as THE line, first, with provenance", () => {
+    const { lines } = ta.assembleLines({ legendEntries: [legendEntry()] });
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({
+      sourceType: "legend-qty",
+      description: "DGPO C2000 Clipsal",
+      qty: 49,
+      unit: "ea",
+      estimate: false,
+      flagged: false,
+    });
+    expect(lines[0].provenance).toMatchObject({
+      planId: "pl1",
+      pageIndex: 0,
+      legendEntryId: "le_1",
+      legendText: "49 EA",
+      acceptedBy: "boss",
+      located: 0,
+    });
+  });
+
+  it("#882: a matching device count becomes a SPOT-CHECK on the legend line — never a competing count", () => {
+    const { lines, warnings } = ta.assembleLines({
+      legendEntries: [legendEntry()],
+      acceptedCounts: [count({ label: "DGPO C2000 Clipsal", count: 2 })],
+    });
+    // One line only — the legend's 49, not the located 2.
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ sourceType: "legend-qty", qty: 49, flagged: false });
+    expect(lines[0].provenance.located).toBe(2);
+    expect(lines[0].provenance.locatedCounts).toHaveLength(1);
+    expect(warnings).toHaveLength(0); // fewer located than tabulated = expected spot-check
+  });
+
+  it("#882: MORE located than the legend tabulates is a surfaced mismatch — flagged, never merged", () => {
+    const { lines, warnings } = ta.assembleLines({
+      legendEntries: [legendEntry({ description: "3 EA" })],
+      acceptedCounts: [count({ label: "DGPO C2000 Clipsal", count: 5 })],
+    });
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ sourceType: "legend-qty", qty: 3, flagged: true });
+    expect(String(lines[0].flagReason)).toContain("5 located");
+    expect(String(lines[0].flagReason)).toContain("3 from the legend");
+    expect(warnings.some((w: Row) => w.kind === "legend-mismatch")).toBe(true);
+  });
+
+  it("#882: an entry with NO tabulated quantity changes nothing — the detection path stands", () => {
+    const { lines } = ta.assembleLines({
+      legendEntries: [legendEntry({ description: null })],
+      acceptedCounts: [count({ label: "DGPO C2000 Clipsal", count: 12 })],
+    });
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ sourceType: "device-count", qty: 12 });
+  });
+
+  it("#882: a human-corrected label still matches counts accepted under the original vocabulary label", () => {
+    const { lines } = ta.assembleLines({
+      legendEntries: [legendEntry({ human_label: "Double GPO C2000" })],
+      acceptedCounts: [count({ label: "DGPO C2000 Clipsal", count: 4 })],
+    });
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({
+      sourceType: "legend-qty",
+      description: "Double GPO C2000",
+      qty: 49,
+    });
+    expect(lines[0].provenance.located).toBe(4);
+  });
+
   it("duplicate-scope warnings flag the affected lines and land in warnings", () => {
     const warningsByPage = new Map([
       [

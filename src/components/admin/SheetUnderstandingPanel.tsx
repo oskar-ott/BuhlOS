@@ -21,6 +21,7 @@ import {
   prepareImagePlanPage,
   preparePdfPlanPages,
 } from "@/domains/documents/page-prep";
+import { normalizeLegendLabel, parseLegendQty } from "@/domains/ai-drawings/legend-qty";
 import {
   SHEET_FIELD_LABELS,
   SHEET_TYPES,
@@ -922,6 +923,22 @@ export function SheetUnderstandingPanel({
                   labelFor: (planId) => {
                     const p = plans.find((pl) => pl.id === planId);
                     return p ? planLabel(p) : "(document no longer on this job)";
+                  },
+                  // #882 — a group whose label the ACCEPTED legend tabulates
+                  // shows "legend says N" so raw markers never read as the count.
+                  legendQtyFor: (label) => {
+                    const norm = normalizeLegendLabel(label);
+                    const entry = legendEntries.find(
+                      (e) =>
+                        (e.status === "accepted" || e.status === "edited") &&
+                        (normalizeLegendLabel(e.effectiveLabel) === norm ||
+                          normalizeLegendLabel(e.label) === norm),
+                    );
+                    if (!entry) return null;
+                    return (
+                      parseLegendQty(entry.description) ??
+                      parseLegendQty(entry.effectiveLabel)
+                    );
                   },
                 }}
               />
