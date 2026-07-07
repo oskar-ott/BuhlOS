@@ -33,6 +33,7 @@ import {
 } from "./philJobRoomsBar";
 import type { PhilJobRoom } from "./philJobRooms";
 import { useLongPress } from "./useLongPress";
+import { readPhilChromeMemory, rememberPhilChrome } from "./philChromeMemory";
 import { readJobListPrefs } from "./jobListPrefs";
 import { PhilShortcutSheet } from "./PhilShortcutSheet";
 import { listJobs } from "@/domains/jobs/client";
@@ -293,9 +294,13 @@ interface PhilTabBarProps {
    * phil_sharpened (dark): render the 5-slot sharpened bar — Today · Jobs ·
    * [Capture] · Hours · Gear, active tab = 3px yellow top underline. Resolved
    * SERVER-SIDE (src/lib/phil/sharpened.ts) and passed as a boolean; when
-   * false/absent the bar is byte-identical to the ratified default
-   * (Today · Jobs · [Capture] · Gear · More). Behavioural change to the
-   * ratified Phil package — the flag flips only via governance (P15).
+   * false the bar is byte-identical to the ratified default
+   * (Today · Jobs · [Capture] · Gear · More). `undefined` (a flag-less
+   * render such as a `loading.tsx` skeleton) consults the chrome memory
+   * POST-MOUNT (philChromeMemory.ts) so navigations don't flash the ratified
+   * bar; explicit booleans always win and refresh that memory. Behavioural
+   * change to the ratified Phil package — the flag flips only via
+   * governance (P15).
    */
   sharpened?: boolean;
   /**
@@ -304,9 +309,20 @@ interface PhilTabBarProps {
    * first paint instead of flashing the global tabs until hydration — a
    * mis-tap on Hours/Gear in that window exits the job. Until the real
    * binding arrives the room buttons no-op (they're in-page tabs) and carry
-   * no badges (counts are client-derived — never invented, P7).
+   * no badges (counts are client-derived — never invented, P7). `undefined`
+   * falls back post-mount to the remembered phil_job_rooms flag AND the
+   * pathname being exactly a job-detail route, so the job loading skeleton
+   * keeps the room bar instead of flashing the global tabs (#133 mis-tap).
    */
   roomsActive?: boolean;
+  /**
+   * The viewer's phil_job_rooms flag, passed by NON-job pages purely to warm
+   * the chrome memory (they resolve philSharpenedFlags anyway) — so a later
+   * navigation INTO a job renders the room bar during the skeleton. Never
+   * changes this bar's own render; `undefined` leaves the memory write to
+   * `roomsActive`.
+   */
+  jobRoomsEnabled?: boolean;
 }
 
 /** Pre-hydration stand-in for the job screen's rooms binding: the job screen
@@ -319,10 +335,32 @@ const PENDING_ROOMS_BINDING: PhilJobRoomsBarBinding = {
 
 export function PhilTabBar({
   userId = "",
-  sharpened = false,
-  roomsActive = false,
+  sharpened,
+  roomsActive,
+  jobRoomsEnabled,
 }: PhilTabBarProps) {
   const pathname = usePathname() ?? "";
+  // The job id when we're exactly on a job-detail route (/phil/jobs/<id>) —
+  // used by the FAB (capture preselect) and the rooms-memory fallback below.
+  const currentJobId = philJobDetailId(pathname);
+  // Mounted gate (see philChromeMemory.ts): the memory fallback applies only
+  // after mount so the first client frame matches the server HTML exactly —
+  // no hydration mismatch, and flag-less SSR stays the default bar.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  // Explicit props refresh the memory; undefined keys are no-ops by design.
+  // Non-job pages warm jobRooms via jobRoomsEnabled; the job page's explicit
+  // roomsActive (= its phil_job_rooms flag) covers it otherwise.
+  useEffect(() => {
+    rememberPhilChrome({
+      sharpened,
+      jobRooms: jobRoomsEnabled !== undefined ? jobRoomsEnabled : roomsActive,
+    });
+  }, [sharpened, jobRoomsEnabled, roomsActive]);
+  const memory = readPhilChromeMemory();
+  const effectiveSharpened = sharpened ?? (mounted ? memory.sharpened : false);
+  const effectiveRoomsActive =
+    roomsActive ?? (mounted && memory.jobRooms && currentJobId !== null);
   // In-job rooms binding (phil_job_rooms): non-null ONLY while a job screen has
   // registered its rooms — the flanking slots then render room tabs. The FAB
   // and every capture path below run identically in both modes. On the job
@@ -331,7 +369,7 @@ export function PhilTabBar({
   // the real binding fills badges/handlers when the client registers it.
   const registeredBinding = usePhilJobRoomsBarBinding();
   const roomsBinding =
-    registeredBinding ?? (roomsActive ? PENDING_ROOMS_BINDING : null);
+    registeredBinding ?? (effectiveRoomsActive ? PENDING_ROOMS_BINDING : null);
   const [launcherOpen, setLauncherOpen] = useState(false);
   const [incoming, setIncoming] = useState<IncomingCapturePhoto | null>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -365,7 +403,6 @@ export function PhilTabBar({
   // receive the shot. Cancelling the camera just leaves the launcher open
   // with its photo button + "log something" options. On a job home the
   // launcher preselects that job as the destination.
-  const currentJobId = philJobDetailId(pathname);
   const fireCamera = () => cameraInputRef.current?.click();
   const onCapture = () => {
     fireCamera();
@@ -444,7 +481,12 @@ export function PhilTabBar({
               <RoomTab key={tab.room} tab={tab} binding={roomsBinding} />
             ))
           : LEFT_TABS.map((tab) => (
-              <TabLink key={tab.href} tab={tab} pathname={pathname} sharpened={sharpened} />
+              <TabLink
+                key={tab.href}
+                tab={tab}
+                pathname={pathname}
+                sharpened={effectiveSharpened}
+              />
             ))}
 
         {/* Centre Capture button — the universal field action, present on
@@ -477,8 +519,13 @@ export function PhilTabBar({
           ? RIGHT_ROOM_TABS.map((tab) => (
               <RoomTab key={tab.room} tab={tab} binding={roomsBinding} />
             ))
-          : (sharpened ? SHARPENED_RIGHT_TABS : RIGHT_TABS).map((tab) => (
-              <TabLink key={tab.href} tab={tab} pathname={pathname} sharpened={sharpened} />
+          : (effectiveSharpened ? SHARPENED_RIGHT_TABS : RIGHT_TABS).map((tab) => (
+              <TabLink
+                key={tab.href}
+                tab={tab}
+                pathname={pathname}
+                sharpened={effectiveSharpened}
+              />
             ))}
       </nav>
 

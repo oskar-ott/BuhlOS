@@ -1,6 +1,14 @@
 "use client";
 
-import { createContext, useContext, useMemo, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
+import { readPhilChromeMemory, rememberPhilChrome } from "./philChromeMemory";
 
 /**
  * Carries the server-resolved `phil_sharpened` boolean from PhilShell down to
@@ -13,6 +21,10 @@ import { createContext, useContext, useMemo, type ReactNode } from "react";
  * context never fetches and never sees the flags blob. Default FALSE: any
  * consumer rendered outside a provider (tests, storybook-style renders) gets
  * today's un-sharpened UI, byte-identical.
+ *
+ * `undefined` props (a flag-less render such as a `loading.tsx` skeleton)
+ * consult the chrome memory POST-MOUNT (philChromeMemory.ts — mounted-gate
+ * contract); explicit booleans always win and refresh that memory.
  */
 interface PhilSharpenedContextValue {
   sharpened: boolean;
@@ -28,14 +40,29 @@ const PhilSharpenedContext = createContext<PhilSharpenedContextValue>(OFF);
 
 export function PhilSharpenedProvider({
   sharpened,
-  rfiRegister = false,
+  rfiRegister,
   children,
 }: {
-  sharpened: boolean;
+  sharpened?: boolean;
   rfiRegister?: boolean;
   children: ReactNode;
 }) {
-  const value = useMemo(() => ({ sharpened, rfiRegister }), [sharpened, rfiRegister]);
+  // Mounted gate (see philChromeMemory.ts): the memory fallback applies only
+  // after mount so the first client frame matches the server HTML — flag-less
+  // SSR keeps today's un-sharpened value.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  // Explicit props refresh the memory; undefined keys are no-ops by design.
+  useEffect(() => {
+    rememberPhilChrome({ sharpened, rfiRegister });
+  }, [sharpened, rfiRegister]);
+  const memory = readPhilChromeMemory();
+  const effectiveSharpened = sharpened ?? (mounted ? memory.sharpened : false);
+  const effectiveRfiRegister = rfiRegister ?? (mounted ? memory.rfiRegister : false);
+  const value = useMemo(
+    () => ({ sharpened: effectiveSharpened, rfiRegister: effectiveRfiRegister }),
+    [effectiveSharpened, effectiveRfiRegister],
+  );
   return (
     <PhilSharpenedContext.Provider value={value}>{children}</PhilSharpenedContext.Provider>
   );

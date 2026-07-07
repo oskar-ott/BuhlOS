@@ -23,10 +23,18 @@ interface PhilShellProps {
    * 5-slot tab bar (Today · Jobs · [Capture] · Hours · Gear) + the header
    * account avatar. Resolve SERVER-SIDE via philSharpenedFlags()
    * (src/lib/phil/sharpened.ts) and pass the boolean; never the flags blob.
-   * False/absent = today's chrome, byte-identical.
+   * False = today's chrome, byte-identical. `undefined` (a flag-less render —
+   * the `loading.tsx` skeletons) passes through untouched: the client chrome
+   * components fall back to the last server-confirmed value POST-MOUNT
+   * (philChromeMemory.ts) so navigations don't flash the ratified chrome.
    */
   sharpened?: boolean;
-  /** Worker initials for the sharpened header avatar (optional, honest-null). */
+  /**
+   * Worker initials for the sharpened header avatar. Pass a resolved value —
+   * including an explicit null (honest "no name known") — whenever the page
+   * resolved a session; `undefined` means "not resolved here" and the header
+   * falls back to the remembered initials post-mount.
+   */
   accountInitials?: string | null;
   /**
    * rfi_register, resolved server-side with the phil flags (philSharpenedFlags):
@@ -42,9 +50,17 @@ interface PhilShellProps {
    * ROOM slots from the first paint (no badges yet) instead of flashing the
    * global tabs until the client binding hydrates — a tap on Hours/Gear in
    * that window would exit the job (#133 criterion polish). False/absent
-   * (every other route, and flag off) = the bar behaves exactly as before.
+   * (every other route, and flag off) = the bar behaves exactly as before;
+   * `undefined` lets the bar consult the chrome memory post-mount (the job
+   * loading skeleton keeps the room bar — #133 mis-tap).
    */
   roomsActive?: boolean;
+  /**
+   * The viewer's phil_job_rooms flag, forwarded to PhilTabBar purely to warm
+   * the chrome memory from NON-job pages (they resolve philSharpenedFlags
+   * anyway) — never changes this render.
+   */
+  jobRoomsEnabled?: boolean;
 }
 
 /**
@@ -62,10 +78,11 @@ export function PhilShell({
   children,
   title,
   userId,
-  sharpened = false,
-  accountInitials = null,
-  rfiRegister = false,
-  roomsActive = false,
+  sharpened,
+  accountInitials,
+  rfiRegister,
+  roomsActive,
+  jobRoomsEnabled,
 }: PhilShellProps) {
   return (
     <div
@@ -94,7 +111,12 @@ export function PhilShell({
               {children}
             </PullToRefresh>
           </main>
-          <PhilTabBar userId={userId} sharpened={sharpened} roomsActive={roomsActive} />
+          <PhilTabBar
+            userId={userId}
+            sharpened={sharpened}
+            roomsActive={roomsActive}
+            jobRoomsEnabled={jobRoomsEnabled}
+          />
         </PhilJobRoomsBarProvider>
       </CaptureLauncherProvider>
       </PhilSharpenedProvider>

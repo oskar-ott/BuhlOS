@@ -79,6 +79,7 @@ export default async function PhilItpRecordingPage({ params }: PageParams) {
         title="ITP"
         sharpened={sharpenedFlags.sharpened}
         rfiRegister={sharpenedFlags.rfiRegister}
+        jobRoomsEnabled={sharpenedFlags.jobRooms}
         accountInitials={accountInitials}
       >
         <div className="space-y-4">
@@ -108,6 +109,7 @@ export default async function PhilItpRecordingPage({ params }: PageParams) {
         title="ITP"
         sharpened={sharpenedFlags.sharpened}
         rfiRegister={sharpenedFlags.rfiRegister}
+        jobRoomsEnabled={sharpenedFlags.jobRooms}
         accountInitials={accountInitials}
       >
         <div className="space-y-4">
@@ -129,6 +131,7 @@ export default async function PhilItpRecordingPage({ params }: PageParams) {
         title="ITP"
         sharpened={sharpenedFlags.sharpened}
         rfiRegister={sharpenedFlags.rfiRegister}
+        jobRoomsEnabled={sharpenedFlags.jobRooms}
         accountInitials={accountInitials}
       >
         <div className="space-y-4">
@@ -166,6 +169,7 @@ export default async function PhilItpRecordingPage({ params }: PageParams) {
         title={instance.templateSnapshot?.name?.trim() || "ITP"}
         sharpened
         rfiRegister={sharpenedFlags.rfiRegister}
+        jobRoomsEnabled={sharpenedFlags.jobRooms}
         accountInitials={accountInitials}
       >
         <PhilItpSharpened
@@ -179,7 +183,17 @@ export default async function PhilItpRecordingPage({ params }: PageParams) {
   }
 
   return (
-    <PhilShell title={instance.templateSnapshot?.name?.trim() || "ITP"}>
+    <PhilShell
+      title={instance.templateSnapshot?.name?.trim() || "ITP"}
+      // This branch renders only while phil_sharpened is OFF — pass the
+      // resolved (false) flags explicitly so the chrome memory is refreshed
+      // rather than consulted (philChromeMemory.ts: flag-off pages write
+      // false; render is unchanged).
+      sharpened={sharpenedFlags.sharpened}
+      rfiRegister={sharpenedFlags.rfiRegister}
+      jobRoomsEnabled={sharpenedFlags.jobRooms}
+      accountInitials={accountInitials}
+    >
       <ITPRecording job={jobResult.job} instance={instance} viewer={viewer} />
     </PhilShell>
   );

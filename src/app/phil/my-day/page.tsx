@@ -216,6 +216,7 @@ export default async function MyDayPage({
         userId={session.userId ?? ""}
         sharpened
         rfiRegister={sharpenedFlags.rfiRegister}
+        jobRoomsEnabled={sharpenedFlags.jobRooms}
         accountInitials={initials}
       >
         <div className="flex flex-col gap-3" data-testid="phil-my-day-sharpened">
@@ -305,6 +306,7 @@ export default async function MyDayPage({
       userId={session.userId ?? ""}
       sharpened={sharpenedFlags.sharpened}
       rfiRegister={sharpenedFlags.rfiRegister}
+      jobRoomsEnabled={sharpenedFlags.jobRooms}
       accountInitials={initials}
     >
       <div className={styles.surface}>
