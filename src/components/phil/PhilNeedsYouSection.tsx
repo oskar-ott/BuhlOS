@@ -74,7 +74,7 @@ export function PhilNeedsYouSectionFallback() {
  * still open / in progress. Workers have a handful of assigned jobs, so this is
  * a small, bounded fan-out.
  */
-async function loadAssignedSnags(
+export async function loadAssignedSnags(
   jobs: ReadonlyArray<{ id: string; name: string }>,
   cookieValue: string | undefined,
 ): Promise<JobSnags[]> {
@@ -109,7 +109,7 @@ async function loadAssignedSnags(
  * already filters calibrations to the caller's held gear for non-admin viewers.
  * FAILS SOFT: any error → empty list, never a blanked feed.
  */
-async function loadHeldCalibrations(
+export async function loadHeldCalibrations(
   cookieValue: string | undefined,
 ): Promise<ExpiringCalibration[]> {
   const h = await headers();

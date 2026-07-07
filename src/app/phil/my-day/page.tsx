@@ -33,7 +33,17 @@ import { buildPhilNeedsYou } from "@/domains/phil/needs-you";
 import { buildMyDayHero } from "@/domains/phil/my-day-hero";
 import { PhilMyDayHero } from "@/components/phil/PhilMyDayHero";
 import { buildPhilGreeting, hourInTimeZone } from "@/domains/phil/greeting";
-import { philSharpenedFlags } from "@/lib/phil/sharpened";
+import { philOnSiteSince, philSharpenedFlags } from "@/lib/phil/sharpened";
+import {
+  PhilMyDayHonestyNote,
+  PhilMyDayOnJobCard,
+  PhilMyDayQuickGrid,
+  PhilMyDaySharpenedHeader,
+} from "@/components/phil/PhilMyDaySharpened";
+import {
+  PhilMyDaySharpenedAttention,
+  PhilMyDaySharpenedAttentionFallback,
+} from "@/components/phil/PhilMyDaySharpenedAttention";
 import styles from "@/components/phil/myDay.module.css";
 
 export const dynamic = "force-dynamic";
@@ -160,6 +170,88 @@ export default async function MyDayPage({
   // The hours sheet keeps its own minimal {id,name} list and is preselected
   // when there's exactly one job, so the write/attribution path is unchanged.
   const soleJobId = soleJob?.id ?? null;
+
+  // ── Sharpened My Day (phil_sharpened, dark — Wave 2a) ────────────────────
+  // The redesigned screen, from the SAME data waves as the current one (no new
+  // API calls). Flag off falls through to the return below, byte-identical.
+  if (sharpenedFlags.sharpened) {
+    // "on site since {t}" only when today's REAL entry carries a start time.
+    const onSiteSince = philOnSiteSince(todayEntry?.startTime ?? null);
+    const sharpSubline = onSiteSince
+      ? `${dateLabel} · on site since ${onSiteSince}`
+      : dateLabel;
+    return (
+      <PhilShell
+        title="My day"
+        userId={session.userId ?? ""}
+        sharpened
+        accountInitials={initials}
+      >
+        <div className="flex flex-col gap-3" data-testid="phil-my-day-sharpened">
+          <PhilMyDaySharpenedHeader heading={heading} subline={sharpSubline} />
+
+          {/* Hero "Do this now" + "Needs you" — the existing needs-you model,
+              streamed exactly like the current screen's feed (second data
+              wave: job-scoped snags + held calibrations). */}
+          <Suspense fallback={<PhilMyDaySharpenedAttentionFallback />}>
+            <PhilMyDaySharpenedAttention
+              cookieValue={raw}
+              viewerId={session.userId ?? null}
+              entries={recentEntries}
+              jobs={jobs}
+            />
+          </Suspense>
+
+          {/* "On the job" — only the exactly-one-assigned signal is real;
+              with 0 or 2+ jobs the card is honestly absent (never guessed). */}
+          {soleJob ? <PhilMyDayOnJobCard job={soleJob} /> : null}
+
+          <PhilMyDayQuickGrid hoursDue={todayEntry === null} callJobId={soleJobId} />
+
+          <PhilMyDayHonestyNote />
+
+          {/* ── Kept below (capability preservation) ─────────────────────────
+              The redesign has no sharpened home yet for logging hours (the
+              /phil/hours tab is history + resubmit only — no log form), the
+              week strip, the remaining quick-capture presets (blocker /
+              material / paperwork; "Report an issue" above covers defect
+              only), or receipts. They stay reachable here rather than being
+              stranded; the ?fixDate= deep-link contract (push notifications,
+              needs-you rows) also lands on this sheet. */}
+          <PhilWeekStrip entries={recentEntries} todayISO={todayISO} selectedDate={fixDate} />
+
+          <LogHoursSheet
+            key={fixDate ?? "no-fix-date"}
+            initialTodayEntry={todayEntry}
+            recentEntries={recentEntries}
+            assignedJobs={jobs}
+            jobsError={assignedJobs.error}
+            initialJobId={soleJobId}
+            lastLoggedJobId={lastLogged?.jobId ?? null}
+            lastLoggedDate={lastLogged?.date ?? null}
+            initialDate={fixDate}
+            autoOpenFix={fixDate !== null}
+          />
+
+          {fetchError ? (
+            <PhilNotice tone="warning" title="Couldn’t load recent entries" role="alert">
+              <p>
+                {fetchError}. You can still submit a new entry — it’ll appear here once
+                we’re back online.
+              </p>
+              <div className="mt-3">
+                <RefreshButton />
+              </div>
+            </PhilNotice>
+          ) : null}
+
+          <PhilMyDayTiles />
+
+          <PhilExpenseEntry />
+        </div>
+      </PhilShell>
+    );
+  }
 
   return (
     <PhilShell
@@ -344,7 +436,15 @@ async function loadEntries(
  * greeting's "on {job}" line (shown only for a single assigned job).
  */
 async function loadAssignedJobs(cookieValue: string | undefined): Promise<{
-  jobs: ReadonlyArray<{ id: string; name: string }>;
+  /** ref/siteAddress ride along for the sharpened "On the job" card — the
+   *  same single /api/jobs read, no extra call. Consumers that only need
+   *  {id,name} (LogHoursSheet, needs-you) are structurally unaffected. */
+  jobs: ReadonlyArray<{
+    id: string;
+    name: string;
+    ref: string | null;
+    siteAddress: string | null;
+  }>;
   error: boolean;
 }> {
   const h = await headers();
@@ -363,7 +463,12 @@ async function loadAssignedJobs(cookieValue: string | undefined): Promise<{
     if (!parsed.success) return { jobs: [], error: true };
     const jobs = parsed.data.jobs
       .filter((j) => isVisibleToField(j))
-      .map((j) => ({ id: j.id, name: j.name }));
+      .map((j) => ({
+        id: j.id,
+        name: j.name,
+        ref: j.ref ?? null,
+        siteAddress: j.siteAddress ?? null,
+      }));
     return { jobs, error: false };
   } catch {
     return { jobs: [], error: true };

@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { PhilJobsList } from "@/components/phil/PhilJobsList";
+import { PhilJobsSharpened } from "@/components/phil/PhilJobsSharpened";
 import { PhilPageIntro } from "@/components/phil/ui/PhilPageIntro";
 import { PhilNotice } from "@/components/phil/ui/PhilNotice";
 import { RefreshButton } from "@/components/ui/RefreshButton";
@@ -61,6 +62,34 @@ export default async function PhilJobsPage() {
   const visible = jobs.filter(
     (j) => j.status !== "archived" && j.status !== "draft"
   );
+
+  // ── Sharpened Jobs (phil_sharpened, dark — Wave 2a) ──────────────────────
+  // Same data (one /api/jobs?withStats=1 read), restyled projection. The
+  // recent/pinned/long-press behaviour and testids carry over inside
+  // PhilJobsSharpened. Flag off falls through below, byte-identical.
+  if (sharpenedFlags.sharpened) {
+    return (
+      <PhilShell
+        title="Jobs"
+        userId={viewerId}
+        sharpened
+        accountInitials={philInitials(session.name ?? session.username)}
+      >
+        <div className="space-y-4">
+          {fetchError ? (
+            <PhilNotice tone="warning" title="Couldn’t load your jobs" role="alert">
+              <p>{fetchError}. If it keeps failing, ask the office to check the API.</p>
+              <div className="mt-3">
+                <RefreshButton />
+              </div>
+            </PhilNotice>
+          ) : null}
+
+          <PhilJobsSharpened initialJobs={visible} userId={viewerId} />
+        </div>
+      </PhilShell>
+    );
+  }
 
   return (
     <PhilShell

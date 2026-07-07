@@ -46,3 +46,19 @@ export function philInitials(name: string | null | undefined): string | null {
   const letters = parts.slice(0, 2).map((p) => p[0]!.toUpperCase());
   return letters.length > 0 ? letters.join("") : null;
 }
+
+/**
+ * "On site since {t}" display time for the sharpened My Day subline — from
+ * TODAY'S real time entry startTime ("06:58" → "6:58"). This is the only
+ * on-site signal the page already loads (no extra API call); when today has
+ * no entry or the entry has no start time, returns null and the subline
+ * honestly omits the clause (P7 — never an invented clock-on).
+ */
+export function philOnSiteSince(startTime: string | null | undefined): string | null {
+  const m = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(startTime?.trim() ?? "");
+  if (!m) return null;
+  const h = Number(m[1]);
+  const mins = Number(m[2]);
+  if (h > 23 || mins > 59) return null;
+  return `${h}:${m[2]}`;
+}
