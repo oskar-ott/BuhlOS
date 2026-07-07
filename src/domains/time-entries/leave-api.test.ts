@@ -163,11 +163,26 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+// Leave requests must start today-or-later, so hardcoded fixture dates rot
+// as the calendar advances (this suite went red the day DAY_A passed).
+// Derive the window from "now" instead; +1 day keeps the base clearly in the
+// future across server-timezone offsets. The 2020 dates below stay literal —
+// they deliberately test past-date rejection.
+const futureDay = (offset: number) =>
+  new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10);
+const DAY_A = futureDay(1); // was 2026-07-06
+const DAY_B = futureDay(3); // was 2026-07-08
+const DAY_C = futureDay(4); // was 2026-07-09
+const DAY_D = futureDay(5); // was 2026-07-10
+const DAY_E = futureDay(6); // was 2026-07-11
+const DAY_INSIDE = futureDay(2); // was 2026-07-07 (inside DAY_A..DAY_D)
+const DAY_OUTSIDE = futureDay(30); // was 2026-07-20 (outside every range)
+
 describe("POST /api/leave — worker self-request", () => {
   it("creates a pending request for the signed-in worker", async () => {
     const res = await call("u_elec", "electrician", {
       method: "POST",
-      body: { type: "annual", fromDate: "2026-07-06", toDate: "2026-07-10", note: "Fishing" },
+      body: { type: "annual", fromDate: DAY_A, toDate: DAY_D, note: "Fishing" },
     });
     expect(res.statusCode).toBe(201);
     const r = requestOf(res);
@@ -181,17 +196,17 @@ describe("POST /api/leave — worker self-request", () => {
   it("validates type and dates", async () => {
     const badType = await call("u_elec", "electrician", {
       method: "POST",
-      body: { type: "holiday", fromDate: "2026-07-06", toDate: "2026-07-06" },
+      body: { type: "holiday", fromDate: DAY_A, toDate: DAY_A },
     });
     expect(badType.statusCode).toBe(400);
     const badDate = await call("u_elec", "electrician", {
       method: "POST",
-      body: { type: "annual", fromDate: "6 July", toDate: "2026-07-06" },
+      body: { type: "annual", fromDate: "6 July", toDate: DAY_A },
     });
     expect(badDate.statusCode).toBe(400);
     const inverted = await call("u_elec", "electrician", {
       method: "POST",
-      body: { type: "annual", fromDate: "2026-07-10", toDate: "2026-07-06" },
+      body: { type: "annual", fromDate: DAY_D, toDate: DAY_A },
     });
     expect(inverted.statusCode).toBe(400);
   });
@@ -214,21 +229,21 @@ describe("POST /api/leave — worker self-request", () => {
           userId: "u_elec",
           userName: "u_elec",
           type: "annual",
-          fromDate: "2026-07-08",
-          toDate: "2026-07-09",
+          fromDate: DAY_B,
+          toDate: DAY_C,
           status: "pending",
         },
       ],
     });
     const overlapping = await call("u_elec", "electrician", {
       method: "POST",
-      body: { type: "sick", fromDate: "2026-07-09", toDate: "2026-07-11" },
+      body: { type: "sick", fromDate: DAY_C, toDate: DAY_E },
     });
     expect(overlapping.statusCode).toBe(409);
     // Adjacent-but-not-overlapping is fine.
     const adjacent = await call("u_elec", "electrician", {
       method: "POST",
-      body: { type: "sick", fromDate: "2026-07-10", toDate: "2026-07-11" },
+      body: { type: "sick", fromDate: DAY_D, toDate: DAY_E },
     });
     expect(adjacent.statusCode).toBe(201);
   });
@@ -236,13 +251,13 @@ describe("POST /api/leave — worker self-request", () => {
   it("declined and cancelled rows never block a new request", async () => {
     blob.set("leave-requests.json", {
       requests: [
-        { id: "lv_d", userId: "u_elec", type: "annual", fromDate: "2026-07-08", toDate: "2026-07-09", status: "declined" },
-        { id: "lv_c", userId: "u_elec", type: "annual", fromDate: "2026-07-08", toDate: "2026-07-09", status: "cancelled" },
+        { id: "lv_d", userId: "u_elec", type: "annual", fromDate: DAY_B, toDate: DAY_C, status: "declined" },
+        { id: "lv_c", userId: "u_elec", type: "annual", fromDate: DAY_B, toDate: DAY_C, status: "cancelled" },
       ],
     });
     const res = await call("u_elec", "electrician", {
       method: "POST",
-      body: { type: "annual", fromDate: "2026-07-08", toDate: "2026-07-09" },
+      body: { type: "annual", fromDate: DAY_B, toDate: DAY_C },
     });
     expect(res.statusCode).toBe(201);
   });
@@ -250,12 +265,12 @@ describe("POST /api/leave — worker self-request", () => {
   it("another worker's overlapping leave does not block mine", async () => {
     blob.set("leave-requests.json", {
       requests: [
-        { id: "lv_t", userId: "u_tradie", type: "annual", fromDate: "2026-07-08", toDate: "2026-07-09", status: "approved" },
+        { id: "lv_t", userId: "u_tradie", type: "annual", fromDate: DAY_B, toDate: DAY_C, status: "approved" },
       ],
     });
     const res = await call("u_elec", "electrician", {
       method: "POST",
-      body: { type: "annual", fromDate: "2026-07-08", toDate: "2026-07-09" },
+      body: { type: "annual", fromDate: DAY_B, toDate: DAY_C },
     });
     expect(res.statusCode).toBe(201);
   });
@@ -263,7 +278,7 @@ describe("POST /api/leave — worker self-request", () => {
   it("400s for a worker the hours pipeline does not track (office self-request)", async () => {
     const res = await call("u_office", "office", {
       method: "POST",
-      body: { type: "annual", fromDate: "2026-07-06", toDate: "2026-07-06" },
+      body: { type: "annual", fromDate: DAY_A, toDate: DAY_A },
     });
     // Office accounts are invisible to missing-day detection, so leave for
     // them would be a silent no-op — refuse instead of pretending.
@@ -275,7 +290,7 @@ describe("POST /api/leave — admin record on behalf", () => {
   it("auto-approves with the admin stamped as decider", async () => {
     const res = await call("u_admin", "admin", {
       method: "POST",
-      body: { type: "sick", fromDate: "2026-07-06", toDate: "2026-07-06", userId: "u_tradie" },
+      body: { type: "sick", fromDate: DAY_A, toDate: DAY_A, userId: "u_tradie" },
     });
     expect(res.statusCode).toBe(201);
     const r = requestOf(res);
@@ -297,7 +312,7 @@ describe("POST /api/leave — admin record on behalf", () => {
   it("403s a non-admin recording for someone else", async () => {
     const res = await call("u_elec", "electrician", {
       method: "POST",
-      body: { type: "sick", fromDate: "2026-07-06", toDate: "2026-07-06", userId: "u_tradie" },
+      body: { type: "sick", fromDate: DAY_A, toDate: DAY_A, userId: "u_tradie" },
     });
     expect(res.statusCode).toBe(403);
     expect(storedRequests()).toHaveLength(0);
@@ -306,7 +321,7 @@ describe("POST /api/leave — admin record on behalf", () => {
   it("404s an unknown target worker", async () => {
     const res = await call("u_admin", "admin", {
       method: "POST",
-      body: { type: "sick", fromDate: "2026-07-06", toDate: "2026-07-06", userId: "u_ghost" },
+      body: { type: "sick", fromDate: DAY_A, toDate: DAY_A, userId: "u_ghost" },
     });
     expect(res.statusCode).toBe(404);
   });
@@ -314,7 +329,7 @@ describe("POST /api/leave — admin record on behalf", () => {
   it("400s recording leave for an untracked office account", async () => {
     const res = await call("u_admin", "admin", {
       method: "POST",
-      body: { type: "sick", fromDate: "2026-07-06", toDate: "2026-07-06", userId: "u_office" },
+      body: { type: "sick", fromDate: DAY_A, toDate: DAY_A, userId: "u_office" },
     });
     expect(res.statusCode).toBe(400);
   });
@@ -329,8 +344,8 @@ describe("POST /api/leave?action=decide", () => {
           userId: "u_elec",
           userName: "u_elec",
           type: "annual",
-          fromDate: "2026-07-06",
-          toDate: "2026-07-10",
+          fromDate: DAY_A,
+          toDate: DAY_D,
           status: "pending",
         },
       ],
@@ -414,7 +429,7 @@ describe("POST /api/leave?action=cancel", () => {
   function seed(status: string, userId = "u_elec") {
     blob.set("leave-requests.json", {
       requests: [
-        { id: "lv_1", userId, userName: userId, type: "annual", fromDate: "2026-07-06", toDate: "2026-07-10", status },
+        { id: "lv_1", userId, userName: userId, type: "annual", fromDate: DAY_A, toDate: DAY_D, status },
       ],
     });
   }
@@ -454,7 +469,7 @@ describe("POST /api/leave?action=cancel", () => {
 });
 
 describe("POST /api/leave?action=clear — office undo by worker+date (#127)", () => {
-  function seedApproved(userId = "u_elec", from = "2026-07-06", to = "2026-07-08") {
+  function seedApproved(userId = "u_elec", from = DAY_A, to = DAY_B) {
     blob.set("leave-requests.json", {
       requests: [
         { id: "lv_1", userId, userName: userId, type: "sick", fromDate: from, toDate: to, status: "approved" },
@@ -467,7 +482,7 @@ describe("POST /api/leave?action=clear — office undo by worker+date (#127)", (
     const res = await call("u_admin", "admin", {
       method: "POST",
       query: { action: "clear" },
-      body: { userId: "u_elec", date: "2026-07-07" }, // inside the range
+      body: { userId: "u_elec", date: DAY_INSIDE }, // inside the range
     });
     expect(res.statusCode).toBe(200);
     expect(storedRequests()[0]!.status).toBe("cancelled");
@@ -482,13 +497,13 @@ describe("POST /api/leave?action=clear — office undo by worker+date (#127)", (
     const miss = await call("u_admin", "admin", {
       method: "POST",
       query: { action: "clear" },
-      body: { userId: "u_elec", date: "2026-07-20" }, // outside range
+      body: { userId: "u_elec", date: DAY_OUTSIDE }, // outside range
     });
     expect(miss.statusCode).toBe(404);
     const field = await call("u_elec", "electrician", {
       method: "POST",
       query: { action: "clear" },
-      body: { userId: "u_elec", date: "2026-07-07" },
+      body: { userId: "u_elec", date: DAY_INSIDE },
     });
     expect(field.statusCode).toBe(403);
   });
@@ -498,7 +513,7 @@ describe("audit trail on office leave actions (#127)", () => {
   it("recording on behalf writes a leave.recorded audit row", async () => {
     const res = await call("u_admin", "admin", {
       method: "POST",
-      body: { type: "annual", fromDate: "2026-07-06", toDate: "2026-07-06", userId: "u_tradie" },
+      body: { type: "annual", fromDate: DAY_A, toDate: DAY_A, userId: "u_tradie" },
     });
     expect(res.statusCode).toBe(201);
     const auditKeys = [...blob.keys()].filter((k) => k.startsWith("audit/"));
@@ -511,8 +526,8 @@ describe("GET /api/leave — scoping", () => {
   beforeEach(() => {
     blob.set("leave-requests.json", {
       requests: [
-        { id: "lv_a", userId: "u_elec", type: "annual", fromDate: "2026-07-06", toDate: "2026-07-06", status: "pending" },
-        { id: "lv_b", userId: "u_tradie", type: "sick", fromDate: "2026-07-07", toDate: "2026-07-07", status: "approved" },
+        { id: "lv_a", userId: "u_elec", type: "annual", fromDate: DAY_A, toDate: DAY_A, status: "pending" },
+        { id: "lv_b", userId: "u_tradie", type: "sick", fromDate: DAY_INSIDE, toDate: DAY_INSIDE, status: "approved" },
       ],
     });
   });
