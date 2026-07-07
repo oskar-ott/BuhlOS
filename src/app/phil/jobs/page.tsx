@@ -73,6 +73,7 @@ export default async function PhilJobsPage() {
         title="Jobs"
         userId={viewerId}
         sharpened
+        rfiRegister={sharpenedFlags.rfiRegister}
         accountInitials={philInitials(session.name ?? session.username)}
       >
         <div className="space-y-4">
@@ -96,6 +97,7 @@ export default async function PhilJobsPage() {
       title="Jobs"
       userId={viewerId}
       sharpened={sharpenedFlags.sharpened}
+      rfiRegister={sharpenedFlags.rfiRegister}
       accountInitials={philInitials(session.name ?? session.username)}
     >
       <div className="space-y-4">

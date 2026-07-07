@@ -4,6 +4,7 @@ import { cookies, headers } from "next/headers";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { LogHoursSheet } from "@/components/phil/LogHoursSheet";
 import { PhilWeekStrip } from "@/components/phil/PhilWeekStrip";
+import { RejectedHoursResubmitSheet } from "@/components/phil/RejectedHoursResubmitSheet";
 import { PhilMyDayTiles } from "@/components/phil/PhilMyDayTiles";
 import { PhilExpenseEntry } from "@/components/phil/PhilExpenseEntry";
 import {
@@ -27,6 +28,7 @@ import {
   localDateString,
   parseFixDate,
 } from "@/domains/timesheets/service";
+import { canResubmitInPhil } from "@/domains/timesheets/resubmit";
 import { JobListResponseSchema } from "@/domains/jobs/schema";
 import { isVisibleToField } from "@/domains/jobs/builder";
 import { buildPhilNeedsYou } from "@/domains/phil/needs-you";
@@ -47,6 +49,24 @@ import {
 import styles from "@/components/phil/myDay.module.css";
 
 export const dynamic = "force-dynamic";
+
+/** The sharpened section-label style (matches PhilMyDaySharpened's labels) —
+ *  passed to the kept quick-actions / reimbursements sections so their
+ *  headers match the re-skin. Flag-off keeps their built-in default. */
+const SHARPENED_SECTION_LABEL =
+  "mb-2 font-display text-[12px] font-bold uppercase tracking-[0.09em] text-text-muted";
+
+/** "Tue 1 Jul" for the ?fixDate= fixer card — from the entry's REAL date. */
+function formatFixDayLabel(isoDate: string): string {
+  const [y, m, d] = isoDate.split("-").map(Number);
+  if (!y || !m || !d) return isoDate;
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString("en-AU", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    timeZone: "UTC",
+  });
+}
 
 /**
  * /phil/my-day — the Phase B Phil home that replaces the placeholder
@@ -180,15 +200,57 @@ export default async function MyDayPage({
     const sharpSubline = onSiteSince
       ? `${dateLabel} · on site since ${onSiteSince}`
       : dateLabel;
+    // ?fixDate= deep link (push notifications, needs-you rows — both point at
+    // REJECTED days): the Hours tab (W2c) is the logging home now, so this
+    // screen no longer mounts the week strip / day-logger — but the one-tap
+    // fix contract must hold. When the linked day's entry is rejected and
+    // fixable, a focused fixer card renders below with the SAME tested
+    // resubmit sheet auto-opened. Any other fixDate (already fixed, never
+    // rejected) has nothing to fix here — the attention hero and the Hours
+    // tab carry the day's real status.
+    const fixEntry = fixDate ? (recentEntries.find((e) => e.date === fixDate) ?? null) : null;
+    const showFixCard = fixEntry !== null && canResubmitInPhil(fixEntry);
     return (
       <PhilShell
         title="My day"
         userId={session.userId ?? ""}
         sharpened
+        rfiRegister={sharpenedFlags.rfiRegister}
         accountInitials={initials}
       >
         <div className="flex flex-col gap-3" data-testid="phil-my-day-sharpened">
           <PhilMyDaySharpenedHeader heading={heading} subline={sharpSubline} />
+
+          {showFixCard ? (
+            <section
+              aria-labelledby="phil-my-day-fix-heading"
+              data-testid="phil-my-day-fix-card"
+            >
+              <h2
+                id="phil-my-day-fix-heading"
+                className="mb-2 font-display text-[12px] font-bold uppercase tracking-[0.09em] text-text-muted"
+              >
+                Fix &amp; resubmit
+              </h2>
+              <div className="space-y-2 rounded-card border border-border bg-surface-raised p-4 shadow-card">
+                <p className="font-display text-[15px] font-bold text-text">
+                  {formatFixDayLabel(fixEntry.date)} was sent back
+                </p>
+                {fixEntry.rejectedReason ? (
+                  <p className="whitespace-pre-line text-sm text-text-muted">
+                    {fixEntry.rejectedReason}
+                  </p>
+                ) : null}
+                <RejectedHoursResubmitSheet
+                  key={fixEntry.id}
+                  entry={fixEntry}
+                  assignedJobs={jobs}
+                  jobsError={assignedJobs.error}
+                  defaultOpen
+                />
+              </div>
+            </section>
+          ) : null}
 
           {/* Hero "Do this now" + "Needs you" — the existing needs-you model,
               streamed exactly like the current screen's feed (second data
@@ -206,38 +268,19 @@ export default async function MyDayPage({
               with 0 or 2+ jobs the card is honestly absent (never guessed). */}
           {soleJob ? <PhilMyDayOnJobCard job={soleJob} /> : null}
 
+          {/* Hours live on the Hours tab (W2c — LogHoursSheet is mounted
+              there): the quick grid's "Log hours now" tile is THE hours
+              affordance here. The old week strip + day-logger are gone from
+              this screen — one logging home, not three competing forms. */}
           <PhilMyDayQuickGrid hoursDue={todayEntry === null} callJobId={soleJobId} />
 
           <PhilMyDayHonestyNote />
 
-          {/* ── Kept below (capability preservation) ─────────────────────────
-              The redesign has no sharpened home yet for logging hours (the
-              /phil/hours tab is history + resubmit only — no log form), the
-              week strip, the remaining quick-capture presets (blocker /
-              material / paperwork; "Report an issue" above covers defect
-              only), or receipts. They stay reachable here rather than being
-              stranded; the ?fixDate= deep-link contract (push notifications,
-              needs-you rows) also lands on this sheet. */}
-          <PhilWeekStrip entries={recentEntries} todayISO={todayISO} selectedDate={fixDate} />
-
-          <LogHoursSheet
-            key={fixDate ?? "no-fix-date"}
-            initialTodayEntry={todayEntry}
-            recentEntries={recentEntries}
-            assignedJobs={jobs}
-            jobsError={assignedJobs.error}
-            initialJobId={soleJobId}
-            lastLoggedJobId={lastLogged?.jobId ?? null}
-            lastLoggedDate={lastLogged?.date ?? null}
-            initialDate={fixDate}
-            autoOpenFix={fixDate !== null}
-          />
-
           {fetchError ? (
             <PhilNotice tone="warning" title="Couldn’t load recent entries" role="alert">
               <p>
-                {fetchError}. You can still submit a new entry — it’ll appear here once
-                we’re back online.
+                {fetchError}. Alerts for this week may be incomplete — you can still log
+                hours from the Hours tab.
               </p>
               <div className="mt-3">
                 <RefreshButton />
@@ -245,9 +288,12 @@ export default async function MyDayPage({
             </PhilNotice>
           ) : null}
 
-          <PhilMyDayTiles />
+          {/* Kept capabilities: the remaining quick-capture presets (blocker /
+              material / paperwork; "Report an issue" above covers defect only)
+              and receipts — headers restyled to the sharpened section label. */}
+          <PhilMyDayTiles headerClassName={SHARPENED_SECTION_LABEL} />
 
-          <PhilExpenseEntry />
+          <PhilExpenseEntry headerClassName={SHARPENED_SECTION_LABEL} />
         </div>
       </PhilShell>
     );
@@ -258,6 +304,7 @@ export default async function MyDayPage({
       title="My day"
       userId={session.userId ?? ""}
       sharpened={sharpenedFlags.sharpened}
+      rfiRegister={sharpenedFlags.rfiRegister}
       accountInitials={initials}
     >
       <div className={styles.surface}>

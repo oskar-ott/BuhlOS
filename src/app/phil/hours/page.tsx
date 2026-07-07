@@ -98,6 +98,7 @@ export default async function PhilHoursPage({
         title="Hours"
         userId={session.userId ?? ""}
         sharpened
+        rfiRegister={sharpenedFlags.rfiRegister}
         accountInitials={philInitials(session.name ?? session.username)}
       >
         <div className="space-y-4">
@@ -123,6 +124,7 @@ export default async function PhilHoursPage({
       title="Hours history"
       userId={session.userId ?? ""}
       sharpened={sharpenedFlags.sharpened}
+      rfiRegister={sharpenedFlags.rfiRegister}
       accountInitials={philInitials(session.name ?? session.username)}
     >
       <div className="space-y-4">

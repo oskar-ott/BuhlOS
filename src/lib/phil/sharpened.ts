@@ -8,20 +8,27 @@ import { isFlagEnabled } from "../../../api/_lib/feature-flags.js";
  * (docs/feature-flags.md "Using a flag"). Same precedent as the gear /
  * safety_docs / itp page gates.
  *
- *   sharpened — phil_sharpened: the global chrome (5-slot tab bar + header
- *               account avatar) and, in later waves, the screen re-skins.
- *   jobRooms  — phil_job_rooms: the #133 in-job four-rooms navigation.
- *               REQUIRES sharpened (the rooms are part of the sharpened
- *               package), so it resolves false while phil_sharpened is off
- *               even if its own flag was flipped — the dependency is enforced
- *               here, in one place.
+ *   sharpened   — phil_sharpened: the global chrome (5-slot tab bar + header
+ *                 account avatar) and, in later waves, the screen re-skins.
+ *   jobRooms    — phil_job_rooms: the #133 in-job four-rooms navigation.
+ *                 REQUIRES sharpened (the rooms are part of the sharpened
+ *                 package), so it resolves false while phil_sharpened is off
+ *                 even if its own flag was flipped — the dependency is
+ *                 enforced here, in one place.
+ *   rfiRegister — rfi_register: whether the sharpened Capture sheet may offer
+ *                 the RFI purpose chip. The field raise (api/rfis.js) 404s
+ *                 when this flag is off, so a rendered chip would be a dead
+ *                 selection — every send fails (P7). Only resolved while
+ *                 sharpened is on (the chip exists nowhere else); the flag
+ *                 itself is owned by the office RFI register feature.
  *
- * Both flags are dark launch-gates; flipping either is a governed change to
- * the ratified Phil package (P15 — docs/phil-governance.md §3).
+ * The phil_* flags are dark launch-gates; flipping either is a governed
+ * change to the ratified Phil package (P15 — docs/phil-governance.md §3).
  */
 export interface PhilSharpenedFlags {
   sharpened: boolean;
   jobRooms: boolean;
+  rfiRegister: boolean;
 }
 
 /** Minimal viewer shape — matches isFlagEnabled's FlagViewer. */
@@ -29,8 +36,13 @@ type Viewer = { role?: string | null } | null | undefined;
 
 export async function philSharpenedFlags(session: Viewer): Promise<PhilSharpenedFlags> {
   const sharpened = await isFlagEnabled("phil_sharpened", session ?? null);
-  const jobRooms = sharpened && (await isFlagEnabled("phil_job_rooms", session ?? null));
-  return { sharpened, jobRooms };
+  const [jobRooms, rfiRegister] = sharpened
+    ? await Promise.all([
+        isFlagEnabled("phil_job_rooms", session ?? null),
+        isFlagEnabled("rfi_register", session ?? null),
+      ])
+    : [false, false];
+  return { sharpened, jobRooms, rfiRegister };
 }
 
 /**

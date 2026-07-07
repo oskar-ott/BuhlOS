@@ -40,7 +40,13 @@ function tileText(action: CaptureQuickAction): { label: string; hint: string } |
   return option ? { label: option.label, hint: option.hint } : null;
 }
 
-export function PhilMyDayTiles() {
+export function PhilMyDayTiles({
+  headerClassName = "mb-2 text-xs font-semibold uppercase tracking-wider text-text-muted",
+}: {
+  /** Section-heading classes. Default = today's header, byte-identical; the
+   *  sharpened My Day passes its own section-label style. */
+  headerClassName?: string;
+} = {}) {
   const { openQuickCapture } = useCaptureLauncher();
   const tiles = TILES.map((t) => ({ ...t, text: tileText(t.action) })).filter(
     (t): t is QuickTile & { text: { label: string; hint: string } } => t.text !== null,
@@ -49,10 +55,7 @@ export function PhilMyDayTiles() {
 
   return (
     <section aria-labelledby="phil-quick-actions">
-      <h2
-        id="phil-quick-actions"
-        className="mb-2 text-xs font-semibold uppercase tracking-wider text-text-muted"
-      >
+      <h2 id="phil-quick-actions" className={headerClassName}>
         Quick actions
       </h2>
       <div className="grid grid-cols-2 gap-2">

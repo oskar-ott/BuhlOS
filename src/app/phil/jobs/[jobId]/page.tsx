@@ -111,7 +111,9 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
         title="Job"
         userId={viewerId}
         sharpened={sharpenedFlags.sharpened}
+        rfiRegister={sharpenedFlags.rfiRegister}
         accountInitials={accountInitials}
+        roomsActive={sharpenedFlags.jobRooms}
       >
         {/* #145: remember this open so the jobs list can surface it in Recent. */}
         <PhilJobViewRecorder userId={viewerId} jobId={jobId} />
@@ -143,7 +145,9 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
       title={shellHeader?.name ?? "Job"}
       userId={viewerId}
       sharpened={sharpenedFlags.sharpened}
+      rfiRegister={sharpenedFlags.rfiRegister}
       accountInitials={accountInitials}
+      roomsActive={sharpenedFlags.jobRooms}
     >
       {/* #145: remember this open so the jobs list can surface it in Recent. */}
       <PhilJobViewRecorder userId={viewerId} jobId={jobId} />

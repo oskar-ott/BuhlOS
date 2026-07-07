@@ -83,6 +83,21 @@ describe("PhilJobsSharpened", () => {
     expect(many).not.toContain("On today");
   });
 
+  it("the hero job never repeats in the register — one job renders ONCE (hero only, no 'Your jobs · 1')", () => {
+    const html = renderToString(
+      createElement(PhilJobsSharpened, {
+        initialJobs: [mk("a", "Birdwood Estate")],
+        userId: "u1",
+      }),
+    );
+    expect(html).toContain('data-testid="phil-jobs-on-today"');
+    // Exactly one rendered entry for the job.
+    expect(html.match(/Birdwood Estate/g)).toHaveLength(1);
+    // The register (the OTHERS) is empty → the whole section drops.
+    expect(html).not.toContain("Your jobs");
+    expect(html).not.toContain('data-testid="phil-jobs-all"');
+  });
+
   it("renders the counted register with the preserved phil-jobs-all testid", () => {
     const html = renderToString(
       createElement(PhilJobsSharpened, {

@@ -298,14 +298,40 @@ interface PhilTabBarProps {
    * ratified Phil package — the flag flips only via governance (P15).
    */
   sharpened?: boolean;
+  /**
+   * phil_job_rooms, server-resolved by the JOB page (via PhilShell): the rooms
+   * takeover WILL register on this route, so render the ROOM slots from the
+   * first paint instead of flashing the global tabs until hydration — a
+   * mis-tap on Hours/Gear in that window exits the job. Until the real
+   * binding arrives the room buttons no-op (they're in-page tabs) and carry
+   * no badges (counts are client-derived — never invented, P7).
+   */
+  roomsActive?: boolean;
 }
 
-export function PhilTabBar({ userId = "", sharpened = false }: PhilTabBarProps) {
+/** Pre-hydration stand-in for the job screen's rooms binding: the job screen
+ *  always starts on Now; badges absent (0) until the real counts derive. */
+const PENDING_ROOMS_BINDING: PhilJobRoomsBarBinding = {
+  active: "now",
+  badges: { now: 0, work: 0, proof: 0 },
+  onSelect: () => {},
+};
+
+export function PhilTabBar({
+  userId = "",
+  sharpened = false,
+  roomsActive = false,
+}: PhilTabBarProps) {
   const pathname = usePathname() ?? "";
   // In-job rooms binding (phil_job_rooms): non-null ONLY while a job screen has
   // registered its rooms — the flanking slots then render room tabs. The FAB
-  // and every capture path below run identically in both modes.
-  const roomsBinding = usePhilJobRoomsBarBinding();
+  // and every capture path below run identically in both modes. On the job
+  // route the server already KNOWS the takeover is coming (roomsActive), so
+  // the room slots render from the first paint with the pending stand-in and
+  // the real binding fills badges/handlers when the client registers it.
+  const registeredBinding = usePhilJobRoomsBarBinding();
+  const roomsBinding =
+    registeredBinding ?? (roomsActive ? PENDING_ROOMS_BINDING : null);
   const [launcherOpen, setLauncherOpen] = useState(false);
   const [incoming, setIncoming] = useState<IncomingCapturePhoto | null>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);

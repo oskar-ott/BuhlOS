@@ -28,6 +28,23 @@ interface PhilShellProps {
   sharpened?: boolean;
   /** Worker initials for the sharpened header avatar (optional, honest-null). */
   accountInitials?: string | null;
+  /**
+   * rfi_register, resolved server-side with the phil flags (philSharpenedFlags):
+   * whether the sharpened Capture sheet may offer the RFI purpose chip. The
+   * field raise 404s while the register is off, so a rendered chip would be a
+   * dead selection (P7). False/absent = no chip; only meaningful with
+   * `sharpened` on.
+   */
+  rfiRegister?: boolean;
+  /**
+   * phil_job_rooms, resolved server-side by the JOB page only: the four-rooms
+   * takeover WILL bind to the tab bar on this route, so the bar renders the
+   * ROOM slots from the first paint (no badges yet) instead of flashing the
+   * global tabs until the client binding hydrates — a tap on Hours/Gear in
+   * that window would exit the job (#133 criterion polish). False/absent
+   * (every other route, and flag off) = the bar behaves exactly as before.
+   */
+  roomsActive?: boolean;
 }
 
 /**
@@ -47,6 +64,8 @@ export function PhilShell({
   userId,
   sharpened = false,
   accountInitials = null,
+  rfiRegister = false,
+  roomsActive = false,
 }: PhilShellProps) {
   return (
     <div
@@ -59,7 +78,7 @@ export function PhilShell({
           the server-resolved phil_sharpened boolean to the launcher (which is
           mounted by PhilTabBar, not a page). Both wrap the content AND the tab
           bar so requests/flags flow from a tile to the launcher. */}
-      <PhilSharpenedProvider sharpened={sharpened}>
+      <PhilSharpenedProvider sharpened={sharpened} rfiRegister={rfiRegister}>
       <CaptureLauncherProvider>
         {/* Rooms-bar bridge (phil_job_rooms, dark): lets a job screen rebind the
             tab bar's flanking slots to its in-job rooms. Renders no DOM; with
@@ -75,7 +94,7 @@ export function PhilShell({
               {children}
             </PullToRefresh>
           </main>
-          <PhilTabBar userId={userId} sharpened={sharpened} />
+          <PhilTabBar userId={userId} sharpened={sharpened} roomsActive={roomsActive} />
         </PhilJobRoomsBarProvider>
       </CaptureLauncherProvider>
       </PhilSharpenedProvider>

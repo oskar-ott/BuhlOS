@@ -46,7 +46,7 @@ async function createJob(data, input) {
     name, id, clientUserId, type, status,
     areaGroups, roughInTasks, fitOffTasks,
     modules, customFields,
-    fromQuoteId,
+    fromQuoteId, createdByUserId,
   } = body;
 
   if (!name) return { ok: false, status: 400, error: 'name required' };
@@ -151,6 +151,13 @@ async function createJob(data, input) {
     modules: sanitizeModules(modules),
     customFields: parsedCustomFields,
     ...basicsResult.patch,
+    // Creator stamp (Phil sharpened field-create retry idempotency): lets a
+    // retried create recognise "the clashing job is my own from a timed-out
+    // first attempt". Only the phil field path passes it today; admin/quote
+    // creates omit it and their jobs are byte-identical to before.
+    ...(typeof createdByUserId === 'string' && createdByUserId
+      ? { createdByUserId }
+      : {}),
     createdAt: new Date().toISOString(),
   };
   // Two-way trace to the originating quote (#244). Only set when a quote

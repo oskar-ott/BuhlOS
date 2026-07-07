@@ -149,9 +149,18 @@ export function PhilJobsSharpened({ initialJobs, userId = "" }: Props) {
   const existingCodes = useMemo(() => realCodesOnList(initialJobs), [initialJobs]);
 
   // The one honest "On today" signal in this payload: exactly one assigned
-  // job. It stays in the register below too (the hero is a shortcut, the
-  // list is the record — and the pin/long-press controls live on the row).
+  // job. The hero IS that job's entry — it must not repeat in the register
+  // below ("Your jobs" counts the OTHERS), so with a hero and nothing else
+  // the register section drops entirely: one job, shown once.
   const heroJob = initialJobs.length === 1 ? initialJobs[0]! : null;
+  const registerJobs = useMemo(
+    () => (heroJob ? fullList.filter((j) => j.id !== heroJob.id) : fullList),
+    [heroJob, fullList],
+  );
+  const recentJobs = useMemo(
+    () => (heroJob ? recentGroup.filter((j) => j.id !== heroJob.id) : recentGroup),
+    [heroJob, recentGroup],
+  );
 
   return (
     <div className="space-y-4" data-testid="phil-jobs-sharpened">
@@ -181,7 +190,7 @@ export function PhilJobsSharpened({ initialJobs, userId = "" }: Props) {
         <>
           {heroJob ? <OnTodayCard job={heroJob} /> : null}
 
-          {showRecentGroup ? (
+          {showRecentGroup && recentJobs.length > 0 ? (
             <section aria-labelledby="phil-jobs-recent-heading" className="space-y-1.5">
               <h2
                 id="phil-jobs-recent-heading"
@@ -193,7 +202,7 @@ export function PhilJobsSharpened({ initialJobs, userId = "" }: Props) {
                 data-testid="phil-jobs-recent"
                 className="divide-y divide-border overflow-hidden rounded-card border border-border bg-surface-raised"
               >
-                {recentGroup.map((job) => (
+                {recentJobs.map((job) => (
                   <li key={job.id}>
                     <SharpJobRow
                       job={job}
@@ -207,29 +216,31 @@ export function PhilJobsSharpened({ initialJobs, userId = "" }: Props) {
             </section>
           ) : null}
 
-          <section aria-labelledby="phil-jobs-your-heading" className="space-y-1.5">
-            <h2
-              id="phil-jobs-your-heading"
-              className="px-1 font-display text-[12px] font-bold uppercase tracking-[0.09em] text-text-muted"
-            >
-              {`Your jobs · ${initialJobs.length}`}
-            </h2>
-            <ul
-              data-testid="phil-jobs-all"
-              className="divide-y divide-border overflow-hidden rounded-card border border-border bg-surface-raised"
-            >
-              {fullList.map((job) => (
-                <li key={job.id}>
-                  <SharpJobRow
-                    job={job}
-                    pinned={pinnedSet.has(job.id)}
-                    canPin={canPin}
-                    onTogglePin={onTogglePin}
-                  />
-                </li>
-              ))}
-            </ul>
-          </section>
+          {registerJobs.length > 0 ? (
+            <section aria-labelledby="phil-jobs-your-heading" className="space-y-1.5">
+              <h2
+                id="phil-jobs-your-heading"
+                className="px-1 font-display text-[12px] font-bold uppercase tracking-[0.09em] text-text-muted"
+              >
+                {`Your jobs · ${registerJobs.length}`}
+              </h2>
+              <ul
+                data-testid="phil-jobs-all"
+                className="divide-y divide-border overflow-hidden rounded-card border border-border bg-surface-raised"
+              >
+                {registerJobs.map((job) => (
+                  <li key={job.id}>
+                    <SharpJobRow
+                      job={job}
+                      pinned={pinnedSet.has(job.id)}
+                      canPin={canPin}
+                      onTogglePin={onTogglePin}
+                    />
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
         </>
       )}
 

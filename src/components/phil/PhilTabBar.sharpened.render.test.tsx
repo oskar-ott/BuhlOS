@@ -106,3 +106,35 @@ describe("PhilShell — sharpened header account avatar", () => {
     expect(html).not.toContain('aria-label="Account"');
   });
 });
+
+describe("PhilHeader — sharpened WHITE chrome (§1)", () => {
+  it("sharpened = white card header: ink title + Phil dot beside it + hairline border; avatar navy-on-white", () => {
+    const html = renderShell({
+      title: "My day",
+      sharpened: true,
+      accountInitials: "SP",
+      children: "BODY",
+    });
+    const header = html.slice(html.indexOf("<header"), html.indexOf("</header>"));
+    // White chrome with the hairline bottom border (tokens only).
+    expect(header).toContain("bg-surface-raised");
+    expect(header).toContain("border-b border-border");
+    expect(header).not.toContain("bg-brand-navy text-text-inverse");
+    // Ink title, display face; the yellow Phil dot rides beside it.
+    expect(header).toContain("text-text");
+    expect(header).toContain("bg-accent-yellow");
+    // The avatar is the ONE navy element — white initials on a navy circle.
+    expect(header).toContain("rounded-full bg-brand-navy");
+    expect(header).toContain(">SP<");
+    // Status-bar-safe padding unchanged.
+    expect(header).toContain("pt-[env(safe-area-inset-top)]");
+  });
+
+  it("flag off keeps today's navy header exactly", () => {
+    const html = renderShell({ title: "Jobs", children: "BODY" });
+    const header = html.slice(html.indexOf("<header"), html.indexOf("</header>"));
+    expect(header).toContain("bg-brand-navy text-text-inverse shadow-card");
+    expect(header).not.toContain("bg-surface-raised");
+    expect(header).not.toContain("border-b");
+  });
+});

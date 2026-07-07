@@ -285,6 +285,85 @@ describe("POST /api/jobs — flag ON field create (phil_sharpened)", () => {
     expect(usersWriteCount()).toBe(0);
   });
 
+  it("a retried create (same worker, same name, same code) is IDEMPOTENT — 200 with the existing job, no second job, no second audit entry", async () => {
+    // First attempt lands server-side (the client may have timed out waiting).
+    const first = await post("u_field", "electrician", { name: "Slow Site", code: "IV0038" });
+    expect(first.statusCode).toBe(200);
+    const id = (first.body as { job: { id: string } }).job.id;
+
+    const retry = await post("u_field", "electrician", { name: "Slow Site", code: "IV0038" });
+    expect(retry.statusCode).toBe(200);
+    expect((retry.body as { job: { id: string } }).job.id).toBe(id);
+
+    // Still exactly one job with that code, one jobs.json write, one audit row.
+    expect(jobsInStore().filter((j) => j.code === "IV0038")).toHaveLength(1);
+    expect(jobsWriteCount()).toBe(1);
+    expect(auditEntries().filter((e) => e.action === "job.created")).toHaveLength(1);
+    // Assignment idempotent too — no duplicate id, no second users.json write.
+    const creator = usersInStore().find((u) => u.id === "u_field")!;
+    expect(
+      (creator.assignedJobIds as string[]).filter((j) => j === id),
+    ).toHaveLength(1);
+    expect(usersWriteCount()).toBe(1);
+  });
+
+  it("the retry treats the name case/whitespace-insensitively (same intent, same worker)", async () => {
+    const first = await post("u_field", "electrician", { name: "Slow Site", code: "IV0038" });
+    expect(first.statusCode).toBe(200);
+    const retry = await post("u_field", "electrician", { name: "  slow site ", code: "iv0038" });
+    expect(retry.statusCode).toBe(200);
+    expect((retry.body as { job: { id: string } }).job.id).toBe(
+      (first.body as { job: { id: string } }).job.id,
+    );
+  });
+
+  it("the retry heals a half-failed first attempt — creator re-added to assignedJobIds", async () => {
+    const first = await post("u_field", "electrician", { name: "Slow Site", code: "IV0038" });
+    const id = (first.body as { job: { id: string } }).job.id;
+    // Simulate the first attempt dying between the jobs.json and users.json
+    // writes: the job exists but never made the worker's list.
+    const usersData = blob.get("users.json") as { users: Array<{ id: string; assignedJobIds: string[] }> };
+    const creator = usersData.users.find((u) => u.id === "u_field")!;
+    creator.assignedJobIds = creator.assignedJobIds.filter((j) => j !== id);
+
+    const retry = await post("u_field", "electrician", { name: "Slow Site", code: "IV0038" });
+    expect(retry.statusCode).toBe(200);
+    expect(
+      (usersInStore().find((u) => u.id === "u_field")! as { assignedJobIds: string[] }).assignedJobIds,
+    ).toContain(id);
+  });
+
+  it("a GENUINE clash keeps the 409 — same code from a different worker", async () => {
+    const first = await post("u_field", "electrician", { name: "Slow Site", code: "IV0038" });
+    expect(first.statusCode).toBe(200);
+    const other = await post("u_lh", "lh", { name: "Norwood Depot", code: "IV0038" });
+    expect(other.statusCode).toBe(409);
+    expect(String((other.body as { error: string }).error)).toContain("IV0038");
+  });
+
+  it("a GENUINE clash keeps the 409 — same worker but a different job name", async () => {
+    const first = await post("u_field", "electrician", { name: "Slow Site", code: "IV0038" });
+    expect(first.statusCode).toBe(200);
+    const other = await post("u_field", "electrician", { name: "Different Place", code: "IV0038" });
+    expect(other.statusCode).toBe(409);
+  });
+
+  it("pre-existing coded jobs (no creator stamp) always 409 — never claimed by a retry", async () => {
+    // job-active carries IV0041 but predates the createdByUserId stamp.
+    const res = await post("u_field", "electrician", { name: "Active", code: "IV0041" });
+    expect(res.statusCode).toBe(409);
+  });
+
+  it("the body can never smuggle the creator stamp — it is server-set", async () => {
+    const res = await post("u_field", "electrician", {
+      name: "Stamped",
+      code: "IV7008",
+      createdByUserId: "u_admin",
+    });
+    expect(res.statusCode).toBe(200);
+    expect(jobsInStore().find((j) => j.name === "Stamped")!.createdByUserId).toBe("u_field");
+  });
+
   it("ignores every non-whitelisted field — structure, money, client, status", async () => {
     const res = await post("u_field", "electrician", {
       name: "Restricted",

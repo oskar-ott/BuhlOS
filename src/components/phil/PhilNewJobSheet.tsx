@@ -11,6 +11,7 @@ import {
   canCreateJobInput,
   codeFromDigits,
   nextFree7000,
+  recoverJobIdAfterTimeout,
   sanitizeDigits,
 } from "./philNewJobForm";
 
@@ -102,9 +103,10 @@ export function PhilNewJobSheet({
     if (!canCreateJobInput(name, digits) || submitting) return;
     setSubmitting(true);
     setError(null);
+    const code = codeFromDigits(digits);
     const body: Record<string, string> = {
       name: name.trim(),
-      code: codeFromDigits(digits),
+      code,
     };
     if (siteAddress.trim()) body.siteAddress = siteAddress.trim();
     const result = await philWrite("/api/jobs", body, parseCreated);
@@ -112,6 +114,20 @@ export function PhilNewJobSheet({
       // Keep `submitting` true through the navigation — no double-create tap.
       router.push(`/phil/jobs/${encodeURIComponent(result.data.id)}`);
       return;
+    }
+    // TIMEOUT is the one failure where the create may still have LANDED (the
+    // multi-blob-write create can outlive the write budget). Before showing
+    // "may not have sent", one cheap list read: if the submitted code is now
+    // on the worker's list, the create succeeded — navigate as normal instead
+    // of inviting a retry that would only bounce off their own job. Every
+    // other failure kind means no server confirmation existed; the honest
+    // failure line stands.
+    if (result.error.kind === "timeout") {
+      const recoveredId = await recoverJobIdAfterTimeout(code);
+      if (recoveredId) {
+        router.push(`/phil/jobs/${encodeURIComponent(recoveredId)}`);
+        return;
+      }
     }
     setError(result.error.message || "Couldn't create the job. Try again.");
     setSubmitting(false);

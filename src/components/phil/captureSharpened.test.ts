@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { EVIDENCE_NOTE_MAX } from "@/domains/evidence/schema";
 import type { JobContact } from "@/domains/contacts/schema";
 import {
+  availableCapturePurposes,
   buildBlockingObservationPayload,
   canMarkBlocked,
   CAPTURE_PURPOSES,
@@ -27,6 +28,25 @@ describe("CAPTURE_PURPOSES — every chip maps to a real concept", () => {
     const labels = CAPTURE_PURPOSES.map((p) => p.label.toLowerCase()).join(" ");
     expect(labels).not.toContain("itp");
     expect(labels).not.toContain("highlight");
+  });
+});
+
+describe("availableCapturePurposes — the RFI chip needs the register", () => {
+  it("register on → all four chips", () => {
+    expect(availableCapturePurposes(true).map((p) => p.key)).toEqual([
+      "progress",
+      "covered",
+      "snag",
+      "rfi",
+    ]);
+  });
+
+  it("register off → no RFI chip (the raise 404s — a dead selection, P7); the rest unchanged", () => {
+    expect(availableCapturePurposes(false).map((p) => p.key)).toEqual([
+      "progress",
+      "covered",
+      "snag",
+    ]);
   });
 });
 
@@ -121,10 +141,11 @@ describe("buildBlockingObservationPayload — the exact shape taskBlockersFromOb
     expect(p.taskId).toBe("t1");
     expect(p.linkedEvidenceId).toBe("ev_1");
     expect(p.title).toBe("Where does the panel go?");
-    expect(p.description).toContain("Drawing A-101");
+    // The note carries the question, RFI-prefixed — a blocker states its reason.
+    expect(p.description).toBe("RFI: Where does the panel go?\nDrawing A-101 is silent.");
   });
 
-  it("omits the description when it adds nothing, and the evidence link when there is no photo", () => {
+  it("ALWAYS carries the question as its RFI-prefixed note — even a one-line question, so an orphan (raise failed after this landed) still says what it's waiting on", () => {
     const p = buildBlockingObservationPayload({
       subject: "Short question",
       question: "Short question",
@@ -132,7 +153,20 @@ describe("buildBlockingObservationPayload — the exact shape taskBlockersFromOb
       areaId: "a2",
       taskId: "t9",
     });
-    expect(p).not.toHaveProperty("description");
+    expect(p.description).toBe("RFI: Short question");
     expect(p).not.toHaveProperty("linkedEvidenceId");
+  });
+
+  it("respects the observation model's description cap", () => {
+    const long = "Why? ".repeat(600); // 3000 chars — over the 2000 cap
+    const p = buildBlockingObservationPayload({
+      subject: deriveRfiSubject(long),
+      question: long,
+      stage: "roughIn",
+      areaId: "a1",
+      taskId: "t1",
+    });
+    expect(p.description!.length).toBeLessThanOrEqual(2000);
+    expect(p.description!.startsWith("RFI: Why?")).toBe(true);
   });
 });

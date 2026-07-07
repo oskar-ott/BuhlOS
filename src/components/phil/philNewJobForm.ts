@@ -59,6 +59,58 @@ export function realCodesOnList(
 }
 
 /**
+ * Find the id of the job carrying `code` in a GET /api/jobs list reply —
+ * the timeout-recovery probe. A create POST can outlive the client write
+ * budget (multi-blob-write path) yet still land; if the submitted code is
+ * now on the worker's own list, the create DID succeed and the form must
+ * not tell the worker it "may not have sent" (a retry would only bounce off
+ * their own job). Defensive over the raw parsed JSON — any unexpected shape
+ * is just "not found".
+ */
+export function findJobIdByCode(
+  jobs: ReadonlyArray<unknown>,
+  code: string,
+): string | null {
+  const want = code.trim().toUpperCase();
+  if (!CODE_RE.test(want)) return null;
+  for (const j of jobs) {
+    if (!j || typeof j !== "object") continue;
+    const { id, code: c } = j as { id?: unknown; code?: unknown };
+    if (
+      typeof id === "string" &&
+      id &&
+      typeof c === "string" &&
+      c.trim().toUpperCase() === want
+    ) {
+      return id;
+    }
+  }
+  return null;
+}
+
+/**
+ * After a philWrite TIMEOUT (and only a timeout — every other failure means
+ * the server definitely didn't confirm), one cheap list read decides whether
+ * the create actually landed: returns the created job's id when the code is
+ * on the worker's list, null otherwise (including any fetch/parse error —
+ * recovery is best-effort; the honest failure line is the fallback).
+ */
+export async function recoverJobIdAfterTimeout(
+  code: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<string | null> {
+  try {
+    const res = await fetchImpl("/api/jobs", { cache: "no-store" });
+    if (!res.ok) return null;
+    const raw = (await res.json()) as { jobs?: unknown };
+    if (!raw || !Array.isArray(raw.jobs)) return null;
+    return findJobIdByCode(raw.jobs, code);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * The next free 7000-series number, as 4 digits ("7001"), computed from the
  * ACTUAL codes on the jobs the client already has: the smallest number in
  * [7001..7999] no listed code uses. Returns null only when the whole range is

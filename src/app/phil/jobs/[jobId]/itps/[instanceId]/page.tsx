@@ -78,6 +78,7 @@ export default async function PhilItpRecordingPage({ params }: PageParams) {
       <PhilShell
         title="ITP"
         sharpened={sharpenedFlags.sharpened}
+        rfiRegister={sharpenedFlags.rfiRegister}
         accountInitials={accountInitials}
       >
         <div className="space-y-4">
@@ -106,6 +107,7 @@ export default async function PhilItpRecordingPage({ params }: PageParams) {
       <PhilShell
         title="ITP"
         sharpened={sharpenedFlags.sharpened}
+        rfiRegister={sharpenedFlags.rfiRegister}
         accountInitials={accountInitials}
       >
         <div className="space-y-4">
@@ -126,6 +128,7 @@ export default async function PhilItpRecordingPage({ params }: PageParams) {
       <PhilShell
         title="ITP"
         sharpened={sharpenedFlags.sharpened}
+        rfiRegister={sharpenedFlags.rfiRegister}
         accountInitials={accountInitials}
       >
         <div className="space-y-4">
@@ -162,6 +165,7 @@ export default async function PhilItpRecordingPage({ params }: PageParams) {
       <PhilShell
         title={instance.templateSnapshot?.name?.trim() || "ITP"}
         sharpened
+        rfiRegister={sharpenedFlags.rfiRegister}
         accountInitials={accountInitials}
       >
         <PhilItpSharpened

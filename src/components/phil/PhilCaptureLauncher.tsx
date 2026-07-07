@@ -43,7 +43,7 @@ import type { Job, JobStage } from "@/domains/jobs/types";
 import { CapturePhotoTray, type TrayPhoto } from "./CapturePhotoTray";
 import { CaptureTargetPickers } from "./CaptureTargetPickers";
 import { PhilCaptureSharpened } from "./PhilCaptureSharpened";
-import { usePhilSharpened } from "./philSharpenedContext";
+import { usePhilRfiRegister, usePhilSharpened } from "./philSharpenedContext";
 import type { CapturePurposeKey } from "./captureSharpened";
 import { useSheetHistory } from "./useSheetHistory";
 import {
@@ -172,6 +172,10 @@ export function PhilCaptureLauncher({
   // byte-identical. The purpose chip + branch text live HERE, like `note`,
   // so an accidental close keeps a half-typed question/snag title (P8).
   const sharpened = usePhilSharpened();
+  // rfi_register (same server-resolved context): whether the sharpened sheet
+  // may offer the RFI chip — the raise 404s while the register is off, so a
+  // rendered chip would be a dead selection (P7).
+  const rfiRegister = usePhilRfiRegister();
   const [purpose, setPurpose] = useState<CapturePurposeKey>("progress");
   const [rfiQuestion, setRfiQuestion] = useState("");
   const [snagTitle, setSnagTitle] = useState("");
@@ -790,6 +794,7 @@ export function PhilCaptureLauncher({
               onNoteChange={setNote}
               purpose={purpose}
               onPurposeChange={setPurpose}
+              rfiRegister={rfiRegister}
               rfiQuestion={rfiQuestion}
               onRfiQuestionChange={setRfiQuestion}
               snagTitle={snagTitle}

@@ -1,9 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   canCreateJobInput,
   codeFromDigits,
+  findJobIdByCode,
   nextFree7000,
   realCodesOnList,
+  recoverJobIdAfterTimeout,
   sanitizeDigits,
 } from "./philNewJobForm";
 
@@ -52,6 +54,72 @@ describe("realCodesOnList — nothing invented (P7)", () => {
 
   it("is empty for a list with no codes (most workers today)", () => {
     expect(realCodesOnList([{ code: null }, {}] as Array<{ code?: string | null }>)).toEqual([]);
+  });
+});
+
+describe("findJobIdByCode — the timeout-recovery probe", () => {
+  const jobs = [
+    { id: "job-active", code: "IV0041" },
+    { id: "payneham-rd-bakery", code: "iv0038" }, // stored case may differ
+    { id: "no-code" },
+    { code: "IV7001" }, // no id — unusable
+    null,
+    "garbage",
+  ];
+
+  it("finds the job carrying the submitted code, case-insensitively", () => {
+    expect(findJobIdByCode(jobs, "IV0038")).toBe("payneham-rd-bakery");
+    expect(findJobIdByCode(jobs, "iv0041")).toBe("job-active");
+  });
+
+  it("returns null when the code is absent or the shapes are junk", () => {
+    expect(findJobIdByCode(jobs, "IV9999")).toBeNull();
+    expect(findJobIdByCode([], "IV0041")).toBeNull();
+    expect(findJobIdByCode(jobs, "IV7001")).toBeNull(); // no id on that row
+    expect(findJobIdByCode(jobs, "not-a-code")).toBeNull();
+  });
+});
+
+describe("recoverJobIdAfterTimeout — only a REAL list hit counts as success", () => {
+  const okResponse = (body: unknown) =>
+    ({ ok: true, json: async () => body }) as unknown as Response;
+
+  it("returns the created job's id when the code is now on the list", async () => {
+    const fetchImpl = vi.fn(async () =>
+      okResponse({ jobs: [{ id: "payneham-rd-bakery", code: "IV0038" }] }),
+    ) as unknown as typeof fetch;
+    await expect(recoverJobIdAfterTimeout("IV0038", fetchImpl)).resolves.toBe(
+      "payneham-rd-bakery",
+    );
+    expect(fetchImpl).toHaveBeenCalledWith("/api/jobs", { cache: "no-store" });
+  });
+
+  it("returns null when the code is NOT on the list (the create truly failed)", async () => {
+    const fetchImpl = vi.fn(async () =>
+      okResponse({ jobs: [{ id: "job-active", code: "IV0041" }] }),
+    ) as unknown as typeof fetch;
+    await expect(recoverJobIdAfterTimeout("IV0038", fetchImpl)).resolves.toBeNull();
+  });
+
+  it("returns null on a non-2xx reply, a junk body, or a thrown fetch — never a false success", async () => {
+    const bad = ({ ok: false, json: async () => ({}) }) as unknown as Response;
+    await expect(
+      recoverJobIdAfterTimeout("IV0038", (async () => bad) as unknown as typeof fetch),
+    ).resolves.toBeNull();
+    await expect(
+      recoverJobIdAfterTimeout(
+        "IV0038",
+        (async () => okResponse({ nope: true })) as unknown as typeof fetch,
+      ),
+    ).resolves.toBeNull();
+    await expect(
+      recoverJobIdAfterTimeout(
+        "IV0038",
+        (async () => {
+          throw new TypeError("network down");
+        }) as unknown as typeof fetch,
+      ),
+    ).resolves.toBeNull();
   });
 });
 

@@ -1,5 +1,6 @@
 import type { JobContact } from "@/domains/contacts/schema";
 import type { CreateObservationPayload } from "@/domains/observations/types";
+import { OBSERVATION_DESCRIPTION_MAX } from "@/domains/observations/schema";
 import type { JobStage } from "@/domains/jobs/types";
 import { EVIDENCE_NOTE_MAX } from "@/domains/evidence/schema";
 
@@ -52,6 +53,21 @@ export const CAPTURE_PURPOSES: ReadonlyArray<CapturePurpose> = [
 
 export function purposeByKey(key: CapturePurposeKey): CapturePurpose {
   return CAPTURE_PURPOSES.find((p) => p.key === key) ?? CAPTURE_PURPOSES[0]!;
+}
+
+/**
+ * The purpose chips actually offered. The RFI chip requires the office RFI
+ * register (`rfi_register`, resolved server-side with the phil flags): the
+ * field raise 404s while it's off, so rendering the chip would be a dead
+ * selection — every send fails inevitably (P7, "no dead selections"). The
+ * other chips are unconditional.
+ */
+export function availableCapturePurposes(
+  rfiRegisterOn: boolean,
+): ReadonlyArray<CapturePurpose> {
+  return rfiRegisterOn
+    ? CAPTURE_PURPOSES
+    : CAPTURE_PURPOSES.filter((p) => p.key !== "rfi");
 }
 
 /** Office-visible tag on the evidence note for the Covered-work purpose. */
@@ -159,6 +175,12 @@ export function canMarkBlocked(
  * (a blocking type), OPEN (server sets needs_action via requiresAction),
  * full task coordinate. linkedEvidenceId ties it to the first saved photo
  * when there is one — a real link the observation model supports.
+ *
+ * The description (the note the office reads on the blocker) ALWAYS carries
+ * the question, "RFI: "-prefixed and capped at the observation model's limit
+ * — a blocker must state its reason, and if the raise then fails this
+ * observation is an ORPHAN whose only context is this note (P7: the office
+ * must never see a blocker with no reason).
  */
 export function buildBlockingObservationPayload(args: {
   subject: string;
@@ -168,7 +190,8 @@ export function buildBlockingObservationPayload(args: {
   taskId: string;
   linkedEvidenceId?: string | null;
 }): CreateObservationPayload {
-  const description = args.question.trim();
+  const question = args.question.trim();
+  const note = `RFI: ${question || args.subject}`.slice(0, OBSERVATION_DESCRIPTION_MAX);
   return {
     type: "rfi",
     title: args.subject.slice(0, 140),
@@ -176,7 +199,7 @@ export function buildBlockingObservationPayload(args: {
     stage: args.stage,
     areaId: args.areaId,
     taskId: args.taskId,
-    ...(description && description !== args.subject ? { description } : {}),
+    description: note,
     ...(args.linkedEvidenceId ? { linkedEvidenceId: args.linkedEvidenceId } : {}),
   };
 }

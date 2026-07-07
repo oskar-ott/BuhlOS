@@ -27,7 +27,11 @@ import {
  *   2. With NO binding (every screen today; the job screen while the flag is
  *      off) the bar renders exactly the ratified/sharpened link bar.
  */
-function renderBar(binding: PhilJobRoomsBarBinding | null, sharpened = true) {
+function renderBar(
+  binding: PhilJobRoomsBarBinding | null,
+  sharpened = true,
+  roomsActive = false,
+) {
   return renderToString(
     createElement(
       PhilJobRoomsBarContext.Provider,
@@ -35,7 +39,7 @@ function renderBar(binding: PhilJobRoomsBarBinding | null, sharpened = true) {
       createElement(
         CaptureLauncherProvider,
         null,
-        createElement(PhilTabBar, { sharpened }),
+        createElement(PhilTabBar, { sharpened, roomsActive }),
       ),
     ),
   );
@@ -99,6 +103,31 @@ describe("PhilTabBar — in-job rooms rebind (phil_job_rooms, dark)", () => {
     expect(html).toContain('type="file"');
     expect(html).toContain('accept="image/*"');
     expect(html).toContain('capture="environment"');
+  });
+
+  it("roomsActive (server-known, no client binding yet) → the ROOM bar renders from the FIRST paint, not the global links", () => {
+    // The job page passes roomsActive from the server-resolved phil_job_rooms
+    // flag, so the SSR paint never shows Hours/Gear links a mis-tap could
+    // exit the job through. No binding yet ⇒ no badges (never invented) and
+    // the job screen's initial room (Now) is marked active.
+    const html = renderBar(null, true, true);
+    for (const room of ["now", "work", "proof", "site"]) {
+      expect(html).toContain(`data-testid="phil-room-tab-${room}"`);
+    }
+    expect(html).toContain('aria-label="Job rooms"');
+    expect(html).not.toContain('href="/phil/my-day"');
+    expect(html).not.toContain('href="/phil/hours"');
+    expect(html).not.toContain('href="/phil/gear"');
+    // No client-derived counts yet — no badge pills, plain aria-labels.
+    expect(html).not.toContain("flagged");
+    expect(html).toContain('aria-label="Now"');
+    expect(html).toContain('aria-current="true"'); // Now is the initial room
+  });
+
+  it("a registered binding WINS over the pending stand-in (badges/handlers take over)", () => {
+    const html = renderBar(binding({ active: "proof" }), true, true);
+    expect(html).toContain('aria-label="Now — 3 flagged"');
+    expect(html).toContain('aria-label="Proof — 5 flagged"');
   });
 
   it("with NO binding the bar is the normal sharpened link bar (flag-off absent)", () => {

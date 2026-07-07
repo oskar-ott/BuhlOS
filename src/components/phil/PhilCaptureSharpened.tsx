@@ -28,9 +28,9 @@ import { JobContactsResponseSchema } from "@/domains/contacts/schema";
 import type { Job, JobStage } from "@/domains/jobs/types";
 import type { LaunchableJob } from "./philCapture";
 import {
+  availableCapturePurposes,
   buildBlockingObservationPayload,
   canMarkBlocked,
-  CAPTURE_PURPOSES,
   deriveRfiSubject,
   noteForPurpose,
   purposeByKey,
@@ -106,6 +106,11 @@ export interface PhilCaptureSharpenedProps {
   onNoteChange: (v: string) => void;
   purpose: CapturePurposeKey;
   onPurposeChange: (p: CapturePurposeKey) => void;
+  /** rfi_register (server-resolved, via the phil sharpened context): whether
+   *  the RFI purpose chip is offered at all. Off ⇒ no chip — the field raise
+   *  404s while the register is off, so a rendered chip would be a dead
+   *  selection whose every send fails (P7). */
+  rfiRegister: boolean;
   rfiQuestion: string;
   onRfiQuestionChange: (v: string) => void;
   snagTitle: string;
@@ -173,8 +178,9 @@ export function PhilCaptureSharpened({
   onTaskChange,
   note,
   onNoteChange,
-  purpose,
+  purpose: rawPurpose,
   onPurposeChange,
+  rfiRegister,
   rfiQuestion,
   onRfiQuestionChange,
   snagTitle,
@@ -209,6 +215,13 @@ export function PhilCaptureSharpened({
 
   const questionRef = useRef<HTMLTextAreaElement | null>(null);
   const noteRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // Defensive: with the register off the RFI purpose can't be selected (no
+  // chip), so a stray "rfi" in the launcher's kept state falls back to the
+  // default rather than driving a branch whose send is guaranteed to fail.
+  const purpose: CapturePurposeKey =
+    !rfiRegister && rawPurpose === "rfi" ? "progress" : rawPurpose;
+  const purposes = availableCapturePurposes(rfiRegister);
 
   const selectedJob = jobs.find((j) => j.id === selectedJobId) ?? null;
   const areaName = areaId ? (flatAreas.find((a) => a.id === areaId)?.name ?? null) : null;
@@ -624,7 +637,7 @@ export function PhilCaptureSharpened({
           What&rsquo;s this for?
         </legend>
         <div className="mt-2 flex flex-wrap gap-2" role="radiogroup" aria-label="What's this for?">
-          {CAPTURE_PURPOSES.map((p) => {
+          {purposes.map((p) => {
             const active = p.key === purpose;
             return (
               <button

@@ -42,6 +42,9 @@ function makeProps(over: Partial<PhilCaptureSharpenedProps> = {}): PhilCaptureSh
     onNoteChange: () => {},
     purpose: "progress",
     onPurposeChange: () => {},
+    // Register on by default in this harness so the RFI-branch tests exercise
+    // the full chip row; the register-off contract has its own tests below.
+    rfiRegister: true,
     rfiQuestion: "",
     onRfiQuestionChange: () => {},
     snagTitle: "",
@@ -91,6 +94,21 @@ describe("PhilCaptureSharpened — first paint", () => {
     }
     expect(html).not.toContain("ITP");
     expect(html).not.toContain("Highlight");
+    expect(html).toContain("Save &amp; file to job");
+  });
+
+  it("hides the RFI chip when the register is off — the raise 404s, so the chip would be a dead selection (P7)", () => {
+    const html = render({ rfiRegister: false });
+    expect(html).not.toContain('data-testid="capture-purpose-rfi"');
+    // The other chips are unaffected.
+    for (const key of ["progress", "covered", "snag"]) {
+      expect(html).toContain(`data-testid="capture-purpose-${key}"`);
+    }
+  });
+
+  it("register off + a stray rfi purpose in kept state → falls back to the default branch, never a doomed RFI form", () => {
+    const html = render({ rfiRegister: false, purpose: "rfi" });
+    expect(html).not.toContain('data-testid="capture-rfi-branch"');
     expect(html).toContain("Save &amp; file to job");
   });
 
