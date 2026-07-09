@@ -77,13 +77,13 @@ export function PhilMyDaySharpenedHeader({
   return (
     <header
       data-testid="phil-my-day-sharpened-header"
-      className="-mx-4 -mt-4 flex items-center justify-between gap-3 bg-brand-navy px-4 pb-4 pt-3"
+      className="-mx-4 -mt-4 flex items-center justify-between gap-3 border-b border-border bg-surface px-4 pb-4 pt-3"
     >
       <div className="min-w-0">
-        <h1 className="font-display text-2xl font-extrabold leading-tight tracking-[-0.02em] text-white">
+        <h1 className="font-display text-2xl font-extrabold leading-tight tracking-[-0.02em] text-brand-navy">
           {heading}
         </h1>
-        <p className="mt-1 truncate text-[13px] font-medium text-white/70">{subline}</p>
+        <p className="mt-1 truncate text-[13px] font-medium text-text-muted">{subline}</p>
       </div>
       {online ? (
         <PhilStatusBadge label="Synced" tone="success" className="shrink-0" />
