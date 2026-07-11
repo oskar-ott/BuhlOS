@@ -4,6 +4,7 @@ import { renderToString } from "react-dom/server";
 import {
   PhilMyDayDoThisNow,
   PhilMyDayHonestyNote,
+  PhilMyDayLogHoursBanner,
   PhilMyDayOnJobCard,
   PhilMyDayQuickGrid,
   PhilMyDaySharpenedHeader,
@@ -52,6 +53,18 @@ describe("PhilMyDaySharpenedHeader", () => {
     // useOnline's SSR contract is `true`, so the first paint says Synced.
     expect(html).toContain(">Synced<");
     expect(html).not.toContain(">Offline<");
+  });
+});
+
+describe("PhilMyDayLogHoursBanner", () => {
+  it("is a link to the Hours tab with the real standard-day figure — never a submit", () => {
+    const html = renderToString(createElement(PhilMyDayLogHoursBanner));
+    expect(html).toContain('href="/phil/hours"');
+    expect(html).toContain("Log hours now");
+    // The subline's figure is the REAL STANDARD_DAY_HOURS (7.6h), not copy.
+    expect(html).toContain("Today not logged · 7h 36m standard");
+    // A link, not a form control — tapping it logs nothing.
+    expect(html).not.toContain("<button");
   });
 });
 

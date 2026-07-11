@@ -38,6 +38,7 @@ import { buildPhilGreeting, hourInTimeZone } from "@/domains/phil/greeting";
 import { philOnSiteSince, philSharpenedFlags } from "@/lib/phil/sharpened";
 import {
   PhilMyDayHonestyNote,
+  PhilMyDayLogHoursBanner,
   PhilMyDayOnJobCard,
   PhilMyDayQuickGrid,
   PhilMyDaySharpenedHeader,
@@ -221,6 +222,13 @@ export default async function MyDayPage({
       >
         <div className="flex flex-col gap-3" data-testid="phil-my-day-sharpened">
           <PhilMyDaySharpenedHeader heading={heading} subline={sharpSubline} />
+
+          {/* The design's primary hours action — the yellow banner directly
+              under the header, pointing at the Hours tab (the one logging
+              home). Only while today is genuinely unlogged: once an entry
+              exists, "Today not logged" would be a lie, so the banner leaves
+              and the quick tile below carries the quiet non-due state. */}
+          {todayEntry === null ? <PhilMyDayLogHoursBanner /> : null}
 
           {showFixCard ? (
             <section

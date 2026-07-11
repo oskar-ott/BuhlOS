@@ -167,6 +167,33 @@ describe("sharpened /phil/my-day — one hours affordance", () => {
     const html = await renderPage();
     expect(html).not.toContain("phil-my-day-fix-card");
   });
+
+  it("renders the yellow Log-hours banner while today is unlogged", async () => {
+    // The default mock has no entry dated today.
+    const html = await renderPage();
+    expect(html).toContain('data-testid="phil-my-day-log-hours-banner"');
+    expect(html).toContain("Today not logged · 7h 36m standard");
+  });
+
+  it("drops the banner once today has a real entry — its claim would be false", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        const body = url.includes("/api/time-entries")
+          ? { entries: [entry({ id: "te-today", date: TODAY, status: "submitted" })] }
+          : url.includes("/api/jobs")
+            ? { jobs: [] }
+            : url.includes("/api/auth")
+              ? { user: { role: "electrician", name: "Sam Payne" } }
+              : {};
+        return { ok: true, status: 200, json: async () => body } as unknown as Response;
+      }),
+    );
+    const html = await renderPage();
+    expect(html).not.toContain("phil-my-day-log-hours-banner");
+    expect(html).not.toContain("Today not logged");
+  });
 });
 
 describe("sharpened /phil/my-day — the ?fixDate= deep-link contract", () => {
