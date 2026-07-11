@@ -16,6 +16,8 @@ import { useOnline } from "./useOnline";
 import { useCaptureLauncher } from "./captureLauncherContext";
 import { cn } from "@/lib/cn";
 import type { PhilNeedsYouItem } from "@/domains/phil/needs-you";
+import { STANDARD_DAY_HOURS } from "@/domains/timesheets/service";
+import { formatHoursLabel } from "@/domains/timesheets/format";
 
 /**
  * Phil My Day — sharpened re-skin (phil_sharpened, dark; Wave 2a of the
@@ -91,6 +93,43 @@ export function PhilMyDaySharpenedHeader({
         <PhilStatusBadge label="Offline" className="shrink-0" />
       )}
     </header>
+  );
+}
+
+/* ── "Log hours now" banner — the design's primary hours affordance ────── */
+
+/**
+ * The full-width yellow "Log hours now" banner directly under the header
+ * (design §7.5's top action bar). It is a LINK to the Hours tab — the one
+ * logging home (W2c) — never a submit button; tapping it logs nothing.
+ * Rendered only while today genuinely has no time entry (the page's real
+ * todayEntry === null), so its "Today not logged" line is always true (P7).
+ * The standard-day figure is the real STANDARD_DAY_HOURS the one-tap
+ * Standard-day submit uses — "7h 36m standard", never a hand-written copy.
+ */
+export function PhilMyDayLogHoursBanner() {
+  return (
+    <PhilOfflineLink
+      href={"/phil/hours" as Route}
+      data-testid="phil-my-day-log-hours-banner"
+      className="flex min-h-[72px] items-center gap-3 rounded-card bg-accent-yellow p-4 shadow-card active:scale-[0.99]"
+    >
+      <span
+        aria-hidden="true"
+        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[12px] bg-brand-navy text-accent-yellow"
+      >
+        <Clock className="h-5 w-5" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block font-display text-[17px] font-bold leading-tight tracking-[-0.014em] text-accent-ink">
+          Log hours now
+        </span>
+        <span className="mt-0.5 block truncate text-[13px] font-medium text-accent-ink/75">
+          {`Today not logged · ${formatHoursLabel(STANDARD_DAY_HOURS)} standard`}
+        </span>
+      </span>
+      <ArrowRight aria-hidden="true" className="h-5 w-5 shrink-0 text-accent-ink" />
+    </PhilOfflineLink>
   );
 }
 
