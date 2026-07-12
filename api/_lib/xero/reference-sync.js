@@ -211,12 +211,15 @@ async function replaceGroupItems(sql, { tenantId, externalTenantId, group, items
         and kind in ${tx(kinds)}
     `;
     for (const item of items) {
+      // ::jsonb cast — a bare stringified parameter lands as a jsonb STRING
+      // scalar (double-encoded), proven on the first live sync. The cast
+      // parses it into a real object so consumers read payload.email etc.
       await tx`
         insert into public.xero_reference_items (
           tenant_id, external_tenant_id, kind, xero_id, name, active, payload
         ) values (
           ${tenantId}, ${externalTenantId}, ${item.kind}, ${item.xeroId},
-          ${item.name}, ${item.active}, ${JSON.stringify(item.payload)}
+          ${item.name}, ${item.active}, ${JSON.stringify(item.payload)}::jsonb
         )
       `;
     }
@@ -364,9 +367,21 @@ async function getReferenceItems(kind, opts = {}) {
     xeroId: r.xero_id,
     name: r.name,
     active: r.active,
-    payload: r.payload,
+    payload: normalisePayload(r.payload),
     syncedAt: r.synced_at,
   }));
+}
+
+/** Rows written before the ::jsonb cast fix hold a double-encoded string —
+ *  normalise on read so consumers always get the object. Self-heals fully on
+ *  the next refresh (wholesale replace). */
+function normalisePayload(payload) {
+  if (typeof payload !== 'string') return payload;
+  try {
+    return JSON.parse(payload);
+  } catch {
+    return null;
+  }
 }
 
 module.exports = {

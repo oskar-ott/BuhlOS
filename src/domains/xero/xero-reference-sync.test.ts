@@ -74,6 +74,9 @@ function makeFakeSql(state: { items: Item[]; syncs: SyncRow[] }) {
         return [];
       }
       if (text.includes("insert into public.xero_reference_items")) {
+        // the ::jsonb cast is load-bearing: without it the payload lands as a
+        // double-encoded jsonb STRING scalar (proven on the first live sync)
+        if (!text.includes("::jsonb")) throw new Error("payload insert missing ::jsonb cast");
         const [, , kind, xeroId, name, active, payload] = vals;
         state.items.push({
           kind: kind as string,
@@ -310,6 +313,26 @@ describe("syncReferenceData", () => {
     await expect(
       refSync.syncReferenceData({ deps: { sql: makeFakeSql({ items: [], syncs: [] }), store: pending, env: ENV } })
     ).rejects.toMatchObject({ category: "pending_selection" });
+  });
+});
+
+describe("getReferenceItems", () => {
+  it("returns object payloads, normalising pre-fix double-encoded string rows", async () => {
+    const state = { items: [] as Item[], syncs: [] as SyncRow[] };
+    // a post-fix row (object) and a pre-fix row (double-encoded string)
+    state.items.push({ kind: "employee", xero_id: "e1", name: "A", active: true, payload: { email: "a@x.com" } });
+    state.items.push({
+      kind: "employee",
+      xero_id: "e2",
+      name: "B",
+      active: true,
+      payload: JSON.stringify({ email: "b@x.com" }) as unknown,
+    });
+    const items = await refSync.getReferenceItems("employee", {
+      deps: { sql: makeFakeSql(state), store: makeFakeStore(), env: ENV },
+    });
+    expect(items[0].payload).toEqual({ email: "a@x.com" });
+    expect(items[1].payload).toEqual({ email: "b@x.com" });
   });
 });
 
