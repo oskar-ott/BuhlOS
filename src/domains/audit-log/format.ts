@@ -109,6 +109,12 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "quote.converted": "Converted quote to job",
   // #355: destructive-delete tombstone (test-data cleanup).
   "job.deleted": "Deleted job",
+  "xero.connect_started": "Started Xero connect",
+  "xero.connected": "Authorised Xero",
+  "xero.organisation_selected": "Connected a Xero organisation",
+  "xero.connection_checked": "Checked the Xero connection",
+  "xero.refresh_failed": "Xero token refresh failed",
+  "xero.disconnected": "Disconnected Xero",
   // #349: job closeout lifecycle.
   "job.closed": "Closed out job",
   "job.reopened": "Re-opened job",

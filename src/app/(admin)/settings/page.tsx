@@ -8,6 +8,7 @@ import { HoursPolicySection } from "@/components/admin/HoursPolicySection";
 import { JobTypesSection } from "@/components/admin/JobTypesSection";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
+import { isFlagEnabled } from "../../../../api/_lib/feature-flags.js";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +54,9 @@ export default async function SettingsHubPage() {
   }
 
   const canEdit = canAccessSurface(session.role, "admin");
+  // #247: the Xero connection page link renders only when the flag is on for
+  // this viewer — the integration stays invisible while dark.
+  const xeroEnabled = await isFlagEnabled("xero_connection", session);
 
   return (
     <AdminShell title="Settings">
@@ -123,6 +127,19 @@ export default async function SettingsHubPage() {
                   — repeatable task lists by job type / area.
                 </span>
               </li>
+              {xeroEnabled ? (
+                <li>
+                  <Link
+                    href={"/settings/integrations/xero" as Route}
+                    className="font-medium text-brand-navy underline underline-offset-2"
+                  >
+                    Xero connection
+                  </Link>{" "}
+                  <span className="text-text-muted">
+                    — connect BuhlOS to Xero (connection only; no payroll data yet).
+                  </span>
+                </li>
+              ) : null}
               <li className="text-text-muted">
                 <span className="font-medium text-text">
                   Profile, change password &amp; look &amp; feel

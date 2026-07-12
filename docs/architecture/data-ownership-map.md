@@ -50,6 +50,7 @@ eventual home. Deepening area-owned task arrays is forbidden (anti-creep law).
 | Plans/docs register | `documents` | register only — no revision chain yet |
 | Gear / vans / keys / tools | `assets`, `asset_assignments` | one polymorphic asset table |
 | Audit logs | `audit_logs` | |
+| Integration credentials | `integration_connections` | provider-generic OAuth connection state (first: Xero, #247); token columns AES-256-GCM ciphertext only; service-role-only forever — see [integration-credential-storage-adr.md](integration-credential-storage-adr.md) |
 | Notifications / outbox | `outbox_events` | job-runner spine ([#160]) |
 | Job types | `job_types` *(Phase 2a)* | **FK not wired — see §3** |
 | Suppliers / contacts | `suppliers` (+`supplier_branches`/`supplier_contacts`/`supplier_products`), `wholesalers`, `contacts` *(Phase 2a)* | **FK not wired — see §3**; `contacts` is **per-job** (`jobs/<jobId>/contacts.json`) |
@@ -86,7 +87,6 @@ as area arrays.
 | **C. Workforce compliance** | `worker_licences` (+expiry), `leave_requests`, labour-`tags`/`temps` | `worker_licences`+`leave_requests` | 3 |
 | **D. Platform / access** | `push_subscriptions` (extract from `users.json`), `access_requests`, `invites`, `notification_prefs` (or keep attribute), `site_visits` (keep derived) | `push_subscriptions`+`access_requests`+`invites` | 4 |
 | **E. Analytics** | `feature_events` (telemetry — none today) | none required | 5 |
-| **F. Integration credentials** | `integration_connections` — provider-generic OAuth connection state (first: Xero), token columns **AES-256-GCM ciphertext only**, service-role-only (no RLS read tier, ever), rotation via `refresh_version` CAS — see [integration-credential-storage-adr.md](integration-credential-storage-adr.md) | `integration_connections` | with [#247] |
 
 **Reports/KPIs and Site-visits are projections — they stay derived, never tables.**
 

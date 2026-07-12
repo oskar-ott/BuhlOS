@@ -95,6 +95,15 @@ The existing defence-in-depth applies unchanged: per-environment Vercel
 scoping, `assertSupabaseAccess()` cross-checks, and
 `SUPABASE_ALLOW_PRODUCTION_WRITES` for prod writes.
 
+## Implemented (#247)
+
+The migration is `supabase/migrations/20260712100000_integration_connections.sql`
+(table as decided; envelope-prefix CHECKs on the token columns). The utility is
+`api/_lib/secret-box.js` (v1 envelopes, AAD `integration:xero:<access|refresh>`),
+the store is `api/_lib/xero/token-store.js`, the shared client
+`api/_lib/xero/client.js`, routes `api/xero/{connect,callback,status,organisations,disconnect}.js`,
+flag `xero_connection`, admin surface `/settings/integrations/xero`.
+
 ## Consequences
 
 - **Positive:** [#247] builds on a store with real CAS semantics; the

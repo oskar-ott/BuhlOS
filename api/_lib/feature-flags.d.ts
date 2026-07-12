@@ -43,6 +43,7 @@ export type FlagKey =
   | "ai_plan_tasks" // #213 suggest job tasks from plan fittings — dark launch-gate
   | "phil_sharpened" // Phil field-surface redesign campaign — dark launch-gate; flips via governance (P15)
   | "phil_job_rooms" // #133 in-job four-rooms experiment — dark launch-gate; requires phil_sharpened
+  | "xero_connection" // #247 Xero OAuth connection foundation — dark launch-gate
   | "itp"
   // #760 owner feature-control kill-switches (LIVE features, default ON)
   | "jobs"
