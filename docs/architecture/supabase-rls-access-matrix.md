@@ -145,6 +145,11 @@ derived status fields. Unlike the append-only tables, its row is UPDATEd in
 place (token rotation via `refresh_version` CAS) and hard-DELETEd on
 disconnect — dead ciphertext is a liability, not history.
 
+**`xero_reference_items` / `xero_reference_syncs`** (#610 —
+`20260712150000_xero_reference_cache.sql`) follow the registry class:
+RLS-on, zero policies, service-role-mediated. Items are wholesale-replaced
+per sync group; the syncs log is append-only (never UPDATEd).
+
 ## How to apply + verify (later — not during the cutover ceremony)
 
 1. **Dev first.** Apply `20260703230000_phase1_rls_policies.sql` to the dev

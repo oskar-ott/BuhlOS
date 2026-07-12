@@ -85,10 +85,17 @@ describe("authorize URL", () => {
     expect(url.searchParams.get("response_type")).toBe("code");
     expect(url.searchParams.get("client_id")).toBe(ENV.XERO_CLIENT_ID);
     expect(url.searchParams.get("redirect_uri")).toBe("https://buhlos.com/api/xero/callback");
-    expect(url.searchParams.get("scope")).toBe("openid profile email offline_access");
+    expect(url.searchParams.get("scope")).toBe(
+      "openid profile email offline_access payroll.employees.read payroll.settings.read accounting.settings.read"
+    );
     expect(url.searchParams.get("state")).toBe("STATE123");
-    // no payroll scopes before #610/#249 (ADR no-writes gate)
-    expect(url.searchParams.get("scope")).not.toContain("payroll");
+    // #610 adds READ-ONLY reference scopes; the ADR no-writes gate still holds:
+    // every payroll/accounting scope must be a .read variant — no write scope
+    // exists anywhere before #249's own flag.
+    const scopes = String(url.searchParams.get("scope")).split(" ");
+    for (const sc of scopes.filter((x) => x.startsWith("payroll.") || x.startsWith("accounting."))) {
+      expect(sc.endsWith(".read")).toBe(true);
+    }
     // the client secret never appears in a browser-facing URL
     expect(url.toString()).not.toContain(ENV.XERO_CLIENT_SECRET);
   });

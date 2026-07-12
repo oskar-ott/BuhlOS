@@ -51,6 +51,7 @@ eventual home. Deepening area-owned task arrays is forbidden (anti-creep law).
 | Gear / vans / keys / tools | `assets`, `asset_assignments` | one polymorphic asset table |
 | Audit logs | `audit_logs` | |
 | Integration credentials | `integration_connections` | provider-generic OAuth connection state (first: Xero, #247); token columns AES-256-GCM ciphertext only; service-role-only forever — see [integration-credential-storage-adr.md](integration-credential-storage-adr.md) |
+| Xero reference cache | `xero_reference_items`, `xero_reference_syncs` | #610: read-only payroll reference snapshot (employees/calendars/pay items/tracking categories) for mapping/validation only — **NEVER authoritative** (payroll-boundary ADR clause 4); allow-listed payloads (no PII); syncs log is append-only (feeds #251) |
 | Notifications / outbox | `outbox_events` | job-runner spine ([#160]) |
 | Job types | `job_types` *(Phase 2a)* | **FK not wired — see §3** |
 | Suppliers / contacts | `suppliers` (+`supplier_branches`/`supplier_contacts`/`supplier_products`), `wholesalers`, `contacts` *(Phase 2a)* | **FK not wired — see §3**; `contacts` is **per-job** (`jobs/<jobId>/contacts.json`) |

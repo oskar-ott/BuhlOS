@@ -330,6 +330,9 @@ const VALID_ACTIONS = new Set([
   'xero.connection_checked',
   'xero.refresh_failed',
   'xero.disconnected',
+  // #610: a reference-data refresh ran (metadata.results carries per-group
+  // ok/failed + counts + error categories — partial outcomes stay honest).
+  'xero.reference_synced',
 ]);
 const VALID_TARGET_TYPES = new Set([
   'evidence',

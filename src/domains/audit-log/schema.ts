@@ -269,6 +269,8 @@ export const AUDIT_ACTIONS = [
   "xero.connection_checked",
   "xero.refresh_failed",
   "xero.disconnected",
+  // #610: reference-data refresh (per-group outcomes in metadata.results).
+  "xero.reference_synced",
 ] as const;
 export const AuditActionSchema = z.enum(AUDIT_ACTIONS);
 
