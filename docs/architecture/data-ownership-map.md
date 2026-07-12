@@ -52,6 +52,7 @@ eventual home. Deepening area-owned task arrays is forbidden (anti-creep law).
 | Audit logs | `audit_logs` | |
 | Integration credentials | `integration_connections` | provider-generic OAuth connection state (first: Xero, #247); token columns AES-256-GCM ciphertext only; service-role-only forever — see [integration-credential-storage-adr.md](integration-credential-storage-adr.md) |
 | Xero reference cache | `xero_reference_items`, `xero_reference_syncs` | #610: read-only payroll reference snapshot (employees/calendars/pay items/tracking categories) for mapping/validation only — **NEVER authoritative** (payroll-boundary ADR clause 4); allow-listed payloads (no PII); syncs log is append-only (feeds #251) |
+| Xero mappings | `xero_mappings` | #248: the epic-wide explicit mapping store (worker↔employee now; #611 work-type↔earnings-rate and #254 job↔tracking-option kinds later). Admin-confirmed links by immutable Xero id + confirm-time snapshots; 1:1 both directions for worker links; org-scoped with visible mismatch; unlink hard-deletes (audit journal keeps history) |
 | Notifications / outbox | `outbox_events` | job-runner spine ([#160]) |
 | Job types | `job_types` *(Phase 2a)* | **FK not wired — see §3** |
 | Suppliers / contacts | `suppliers` (+`supplier_branches`/`supplier_contacts`/`supplier_products`), `wholesalers`, `contacts` *(Phase 2a)* | **FK not wired — see §3**; `contacts` is **per-job** (`jobs/<jobId>/contacts.json`) |

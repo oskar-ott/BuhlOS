@@ -333,6 +333,12 @@ const VALID_ACTIONS = new Set([
   // #610: a reference-data refresh ran (metadata.results carries per-group
   // ok/failed + counts + error categories — partial outcomes stay honest).
   'xero.reference_synced',
+  // #248: explicit worker↔employee mapping changes (api/xero/worker-mappings.js).
+  // worker_mapped covers confirm AND remap (metadata.previousEmployeeId set on
+  // remap); worker_unmapped on removal. targetType 'xero_mapping', targetId is
+  // the BuhlOS worker id; metadata carries the Xero side by immutable id.
+  'xero.worker_mapped',
+  'xero.worker_unmapped',
 ]);
 const VALID_TARGET_TYPES = new Set([
   'evidence',
@@ -400,6 +406,8 @@ const VALID_TARGET_TYPES = new Set([
   'scope_reconciliation',
   // #247: an external integration connection (targetId = provider, e.g. 'xero').
   'integration',
+  // #248: a worker↔Xero-employee link (targetId = the BuhlOS worker id).
+  'xero_mapping',
 ]);
 
 const MAX_ENTRIES_PER_MONTH = 5000;

@@ -116,6 +116,8 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "xero.refresh_failed": "Xero token refresh failed",
   "xero.disconnected": "Disconnected Xero",
   "xero.reference_synced": "Refreshed Xero reference data",
+  "xero.worker_mapped": "Linked worker to Xero employee",
+  "xero.worker_unmapped": "Unlinked worker from Xero employee",
   // #349: job closeout lifecycle.
   "job.closed": "Closed out job",
   "job.reopened": "Re-opened job",

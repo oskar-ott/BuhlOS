@@ -518,7 +518,7 @@ const REGISTRY = {
   // Default OFF, unset in prod — dark until proven against a test organisation
   // on a preview deploy.
   xero_connection: {
-    description: 'Enable the Xero connection + read-only payroll reference sync — api/xero/* + /settings/integrations/xero (#247/#610). No Xero writes exist behind this flag. Dark.',
+    description: 'Enable the Xero connection, read-only payroll reference sync + explicit worker mapping — api/xero/* + /settings/integrations/xero (#247/#610/#248). No Xero writes exist behind this flag. Dark.',
     default: false,
     target: 'admin-tier',
     expires: '2026-12-31',

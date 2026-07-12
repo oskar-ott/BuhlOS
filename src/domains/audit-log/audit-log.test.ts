@@ -282,6 +282,8 @@ describe("AuditLogEntrySchema", () => {
       "xero.organisation_selected",
       "xero.reference_synced",
       "xero.refresh_failed",
+      "xero.worker_mapped",
+      "xero.worker_unmapped",
     ]);
     expect([...AUDIT_TARGET_TYPES].sort()).toEqual([
       // #231: per-job certificates.
@@ -338,6 +340,8 @@ describe("AuditLogEntrySchema", () => {
       "time_entry",
       // #280: variation claim records.
       "variation",
+      // #248: worker↔Xero-employee links (sorts last — 'x').
+      "xero_mapping",
     ]);
   });
 
