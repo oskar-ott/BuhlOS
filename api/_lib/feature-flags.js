@@ -508,6 +508,21 @@ const REGISTRY = {
     target: 'global',
     expires: '2026-12-31',
   },
+  // Xero connection foundation (#247, Epic 8): gates the OAuth connect/callback
+  // routes (api/xero/*.js) and the /settings/integrations/xero admin surface.
+  // CONNECTION ONLY — no payroll read scopes (#610) and no writes (#249) ride
+  // this flag; the write path will get its own independent gate
+  // (xero_timesheet_export) so Xero writes can be killed without touching the
+  // connection. Admin-tier: the integration is an office concern; Phil renders
+  // nothing (payroll-boundary ADR — no field-visible Xero complexity).
+  // Default OFF, unset in prod — dark until proven against a test organisation
+  // on a preview deploy.
+  xero_connection: {
+    description: 'Enable the Xero OAuth connection foundation — api/xero/* + /settings/integrations/xero (#247). Connection only, no payroll data. Dark.',
+    default: false,
+    target: 'admin-tier',
+    expires: '2026-12-31',
+  },
   // Per-job ITP / QA (#474/#476): hold/witness/record points + office sign-off.
   // Unlike the registers above, ITPs are ALREADY LIVE — so this is a KILL SWITCH,
   // not a launch gate: default ON (killSwitch:true), and the owner can turn the
@@ -648,6 +663,7 @@ const FLAG_PRESENTATION = {
   ai_plan_tasks: { label: 'AI plan tasks from fittings', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/v2/jobs' },
   phil_sharpened: { label: 'Phil sharpened redesign', domain: 'Phil', surface: 'Phil', previewHref: '/phil/my-day' },
   phil_job_rooms: { label: 'Phil in-job rooms (#133)', domain: 'Phil', surface: 'Phil', previewHref: '/phil/jobs' },
+  xero_connection: { label: 'Xero connection', domain: 'Platform', surface: 'BuhlOS', previewHref: '/settings/integrations/xero' },
 
   // #760 kill-switches. `core: true` = load-bearing spine; the board warns
   // before the owner turns one off.

@@ -260,6 +260,15 @@ export const AUDIT_ACTIONS = [
   // audit blob, so a deleted job's existence survives its own trail.
   // targetType 'job'. Kept in sync with api/_lib/audit-log.js VALID_ACTIONS.
   "job.deleted",
+  // #247: Xero connection lifecycle (api/xero/*.js). targetType 'integration',
+  // targetId 'xero'. Never carries tokens, codes or OAuth response bodies.
+  // Kept in sync with api/_lib/audit-log.js VALID_ACTIONS.
+  "xero.connect_started",
+  "xero.connected",
+  "xero.organisation_selected",
+  "xero.connection_checked",
+  "xero.refresh_failed",
+  "xero.disconnected",
 ] as const;
 export const AuditActionSchema = z.enum(AUDIT_ACTIONS);
 
@@ -318,6 +327,8 @@ export const AUDIT_TARGET_TYPES = [
   // #366: per-job scope reconciliation (jobs/<id>/scope-reconciliation.json);
   // targetId is the finding's deterministic key.
   "scope_reconciliation",
+  // #247: an external integration connection (targetId = provider, e.g. 'xero').
+  "integration",
 ] as const;
 export const AuditTargetTypeSchema = z.enum(AUDIT_TARGET_TYPES);
 

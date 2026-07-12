@@ -274,6 +274,13 @@ describe("AuditLogEntrySchema", () => {
       // #280: variation claim lifecycle.
       "variation.created",
       "variation.transitioned",
+      // #247: Xero connection lifecycle (sorts last — 'x').
+      "xero.connect_started",
+      "xero.connected",
+      "xero.connection_checked",
+      "xero.disconnected",
+      "xero.organisation_selected",
+      "xero.refresh_failed",
     ]);
     expect([...AUDIT_TARGET_TYPES].sort()).toEqual([
       // #231: per-job certificates.
@@ -295,6 +302,8 @@ describe("AuditLogEntrySchema", () => {
       "induction",
       // #283: per-job site-instructions records.
       "instruction",
+      // #247: an external integration connection (targetId = the provider).
+      "integration",
       "invite",
       "itp_instance",
       "itp_template",

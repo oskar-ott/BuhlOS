@@ -136,7 +136,7 @@ brief. They are office/infra data with no field read path; they stay
 path needs them. Registry policies would be a trivial follow-up
 (admin-tier tenant-scoped SELECT).
 
-**`integration_connections`** (planned — #892/#247, see
+**`integration_connections`** (#892/#247 — `20260712100000_integration_connections.sql`, see
 [integration-credential-storage-adr.md](integration-credential-storage-adr.md))
 is stricter than the registries: **RLS-on, zero policies, permanently** — no
 tier ever reads it through RLS, not even admin. It holds encrypted OAuth token

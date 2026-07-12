@@ -313,6 +313,23 @@ const VALID_ACTIONS = new Set([
   // — the erase must not outrun the tombstone. targetType 'job', targetId is the
   // deleted job's id. Kept in sync with src/domains/audit-log/schema.ts AUDIT_ACTIONS.
   'job.deleted',
+  // #247: Xero connection lifecycle (api/xero/*.js). connect_started on the
+  // OAuth start; connected when the code exchange lands (metadata.
+  // organisationCount); organisation_selected on the explicit (or single-org
+  // auto) tenant choice (metadata.externalTenantId, metadata.auto);
+  // connection_checked on an on-demand health check (ok or errorCategory);
+  // refresh_failed on a TERMINAL refresh failure (reconnect required);
+  // disconnected written BEFORE the credential row is hard-deleted (metadata.
+  // revokedAtProvider). Best-effort per #355's default policy — all states are
+  // recoverable via reconnect. NEVER carries tokens, codes or OAuth response
+  // bodies. targetType 'integration', targetId 'xero'. Kept in sync with
+  // src/domains/audit-log/schema.ts AUDIT_ACTIONS.
+  'xero.connect_started',
+  'xero.connected',
+  'xero.organisation_selected',
+  'xero.connection_checked',
+  'xero.refresh_failed',
+  'xero.disconnected',
 ]);
 const VALID_TARGET_TYPES = new Set([
   'evidence',
@@ -378,6 +395,8 @@ const VALID_TARGET_TYPES = new Set([
   // #366: per-job scope reconciliation (jobs/<id>/scope-reconciliation.json);
   // targetId is the finding's deterministic key.
   'scope_reconciliation',
+  // #247: an external integration connection (targetId = provider, e.g. 'xero').
+  'integration',
 ]);
 
 const MAX_ENTRIES_PER_MONTH = 5000;
