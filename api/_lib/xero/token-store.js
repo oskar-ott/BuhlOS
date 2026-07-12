@@ -173,6 +173,7 @@ module.exports = {
   TENANT_SLUG,
   AAD_ACCESS,
   AAD_REFRESH,
+  resolveTenantId,
   getConnection,
   decryptTokens,
   replaceConnection,

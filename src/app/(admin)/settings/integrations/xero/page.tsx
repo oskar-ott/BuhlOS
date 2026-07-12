@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { XeroConnectionPanel } from "@/components/admin/XeroConnectionPanel";
+import { XeroReferenceDataPanel } from "@/components/admin/XeroReferenceDataPanel";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { isFlagEnabled } from "../../../../../../api/_lib/feature-flags.js";
@@ -12,9 +13,11 @@ export const dynamic = "force-dynamic";
 /**
  * /settings/integrations/xero (#247) — the Xero CONNECTION surface.
  *
- * Connection only: OAuth connect, explicit organisation selection, health,
- * check, disconnect/reconnect. No payroll data moves here — reference sync is
- * #610, the timesheet push is #249 (its own flag), and the CSV export on
+ * Connection (#247) + the read-only payroll reference cache (#610): OAuth
+ * connect, explicit organisation selection, health, disconnect/reconnect, and
+ * the employees/calendars/pay-items/tracking snapshot used to validate
+ * mappings. Still read-only end to end — the timesheet push is #249 (its own
+ * flag), and the CSV export on
  * /hours/period is untouched either way (payroll-boundary ADR: the CSV stays
  * the permanent fallback).
  *
@@ -40,7 +43,10 @@ export default async function XeroIntegrationPage() {
     <AdminShell title="Xero connection">
       <div className="mx-auto max-w-2xl space-y-6">
         {enabled ? (
-          <XeroConnectionPanel />
+          <>
+            <XeroConnectionPanel />
+            <XeroReferenceDataPanel />
+          </>
         ) : (
           <Card>
             <CardTitle>Xero integration is not enabled</CardTitle>

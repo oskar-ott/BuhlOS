@@ -280,6 +280,7 @@ describe("AuditLogEntrySchema", () => {
       "xero.connection_checked",
       "xero.disconnected",
       "xero.organisation_selected",
+      "xero.reference_synced",
       "xero.refresh_failed",
     ]);
     expect([...AUDIT_TARGET_TYPES].sort()).toEqual([
