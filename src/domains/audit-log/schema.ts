@@ -271,6 +271,9 @@ export const AUDIT_ACTIONS = [
   "xero.disconnected",
   // #610: reference-data refresh (per-group outcomes in metadata.results).
   "xero.reference_synced",
+  // #248: worker↔employee mapping confirm/remap/removal.
+  "xero.worker_mapped",
+  "xero.worker_unmapped",
 ] as const;
 export const AuditActionSchema = z.enum(AUDIT_ACTIONS);
 
@@ -331,6 +334,8 @@ export const AUDIT_TARGET_TYPES = [
   "scope_reconciliation",
   // #247: an external integration connection (targetId = provider, e.g. 'xero').
   "integration",
+  // #248: a worker↔Xero-employee link (targetId = the BuhlOS worker id).
+  "xero_mapping",
 ] as const;
 export const AuditTargetTypeSchema = z.enum(AUDIT_TARGET_TYPES);
 

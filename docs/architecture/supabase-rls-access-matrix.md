@@ -150,6 +150,11 @@ disconnect — dead ciphertext is a liability, not history.
 RLS-on, zero policies, service-role-mediated. Items are wholesale-replaced
 per sync group; the syncs log is append-only (never UPDATEd).
 
+**`xero_mappings`** (#248 — `20260712200000_xero_mappings.sql`): same class
+(RLS-on, zero policies, service-role only — pairs identities with payroll).
+Rows UPDATE on remap and hard-DELETE on unlink; history lives in the audit
+journal, not the table.
+
 ## How to apply + verify (later — not during the cutover ceremony)
 
 1. **Dev first.** Apply `20260703230000_phase1_rls_policies.sql` to the dev
