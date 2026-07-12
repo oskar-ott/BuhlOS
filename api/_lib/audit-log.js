@@ -339,6 +339,18 @@ const VALID_ACTIONS = new Set([
   // the BuhlOS worker id; metadata carries the Xero side by immutable id.
   'xero.worker_mapped',
   'xero.worker_unmapped',
+  // #611: work-type ↔ earnings-rate mapping changes (api/xero/worktype-mappings.js).
+  'xero.worktype_mapped',
+  'xero.worktype_unmapped',
+  // #893: payroll-batch lifecycle (api/xero/payroll-batches.js). Every verb is
+  // ALSO evented in public.payroll_batch_events (the in-store history); the
+  // journal carries the cross-surface record. targetType 'payroll_batch',
+  // targetId is the batch uuid. No verb here writes to Xero.
+  'payroll.batch_created',
+  'payroll.batch_correction_created',
+  'payroll.batch_locked',
+  'payroll.batch_unlocked',
+  'payroll.batch_deleted',
 ]);
 const VALID_TARGET_TYPES = new Set([
   'evidence',
@@ -408,6 +420,8 @@ const VALID_TARGET_TYPES = new Set([
   'integration',
   // #248: a worker↔Xero-employee link (targetId = the BuhlOS worker id).
   'xero_mapping',
+  // #893: a durable payroll batch (targetId = the batch uuid).
+  'payroll_batch',
 ]);
 
 const MAX_ENTRIES_PER_MONTH = 5000;

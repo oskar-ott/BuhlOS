@@ -274,6 +274,15 @@ export const AUDIT_ACTIONS = [
   // #248: worker↔employee mapping confirm/remap/removal.
   "xero.worker_mapped",
   "xero.worker_unmapped",
+  // #611: work-type ↔ earnings-rate mapping changes.
+  "xero.worktype_mapped",
+  "xero.worktype_unmapped",
+  // #893: payroll-batch lifecycle (no Xero writes).
+  "payroll.batch_created",
+  "payroll.batch_correction_created",
+  "payroll.batch_locked",
+  "payroll.batch_unlocked",
+  "payroll.batch_deleted",
 ] as const;
 export const AuditActionSchema = z.enum(AUDIT_ACTIONS);
 
@@ -336,6 +345,8 @@ export const AUDIT_TARGET_TYPES = [
   "integration",
   // #248: a worker↔Xero-employee link (targetId = the BuhlOS worker id).
   "xero_mapping",
+  // #893: a durable payroll batch (targetId = the batch uuid).
+  "payroll_batch",
 ] as const;
 export const AuditTargetTypeSchema = z.enum(AUDIT_TARGET_TYPES);
 

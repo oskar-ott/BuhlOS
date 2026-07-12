@@ -42,7 +42,7 @@ Non-protected feature flags also carry presentation metadata (`label`, `domain`,
 | `supabase_read_phil_evidence` | global | 2026-12-31 | Serve the FIELD/Phil evidence-metadata read (`/api/data`) from Postgres, per-job parity-gated, with a Blob fallback (#152) |
 | `phil_sharpened` | global | 2026-12-31 | Phil field-surface redesign ("sharpened"): 5-slot global nav (Today·Jobs·Capture·Hours·Gear, account on the header avatar) + screen re-skins. Behavioural change to the ratified Phil package — flips only via governance (P15) |
 | `phil_job_rooms` | global | 2026-12-31 | In-job four-rooms navigation (Now·Work·Proof·Site + Capture) on `/phil/jobs/[jobId]` — the #133 tabbed-job experiment, judged by the tabs criterion. Requires `phil_sharpened` |
-| `xero_connection` | admin-tier | 2026-12-31 | The Xero connection, read-only reference sync + explicit worker mapping — `api/xero/*` + `/settings/integrations/xero` (#247/#610/#248). No Xero write exists behind this flag; the timesheet push (#249) gets its own independent gate |
+| `xero_connection` | admin-tier | 2026-12-31 | The Xero payroll foundation — connection, reference sync, worker + work-type mappings, immutable payroll batches on `/hours/period` (#247/#610/#248/#611/#893/#894). No Xero write exists behind this flag; the timesheet push (#249) gets its own independent gate |
 
 ## Flipping a flag
 

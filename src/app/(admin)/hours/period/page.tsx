@@ -10,6 +10,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { AttentionBanner } from "@/components/ui/AttentionBanner";
 import { HoursTabs } from "@/components/admin/HoursTabs";
 import { PeriodPayrollExport } from "@/components/admin/PeriodPayrollExport";
+import { PayrollBatchPanel } from "@/components/admin/PayrollBatchPanel";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { isAdminRole } from "@/lib/auth/roles";
@@ -76,6 +77,9 @@ export default async function HoursPeriodPage({
   }
   // #760: Hours kill-switch — hide the office surface when the owner turns it off.
   if (!(await isFlagEnabled("hours", session))) notFound();
+  // #893/#894: the Xero-ready payroll-batch panel rides the xero_connection
+  // flag — dark means the panel simply doesn't render (CSV export unaffected).
+  const xeroBatchesEnabled = await isFlagEnabled("xero_connection", session);
   if (!isAdminRole(session.role)) {
     redirect("/hours/weekly");
   }
@@ -302,6 +306,10 @@ export default async function HoursPeriodPage({
               unmappedEligibleWorkerCount={unmappedEligibleWorkerCount}
               notClosed={!readiness.fullyClosed}
             />
+
+            {xeroBatchesEnabled ? (
+              <PayrollBatchPanel fromDate={range.fromDate} toDate={range.toDate} />
+            ) : null}
 
             <Card className="overflow-x-auto">
               <table className="w-full min-w-[40rem] text-left text-sm">
