@@ -244,6 +244,12 @@ describe("AuditLogEntrySchema", () => {
       // when status/priority/assignment change).
       "observation.created",
       "observation.transitioned",
+      // #893: payroll-batch lifecycle ('payroll' sorts before 'proof').
+      "payroll.batch_correction_created",
+      "payroll.batch_created",
+      "payroll.batch_deleted",
+      "payroll.batch_locked",
+      "payroll.batch_unlocked",
       // #503: office proof sign-off (admin approve/send-back surface).
       "proof.approved",
       "proof.sent_back",
@@ -284,6 +290,8 @@ describe("AuditLogEntrySchema", () => {
       "xero.refresh_failed",
       "xero.worker_mapped",
       "xero.worker_unmapped",
+      "xero.worktype_mapped",
+      "xero.worktype_unmapped",
     ]);
     expect([...AUDIT_TARGET_TYPES].sort()).toEqual([
       // #231: per-job certificates.
@@ -319,6 +327,8 @@ describe("AuditLogEntrySchema", () => {
       "minutes",
       // PR 6: observation as audit target (for observation.converted_to_snag).
       "observation",
+      // #893: durable payroll batches ('payroll_batch' sorts before 'prestart').
+      "payroll_batch",
       // #371: per-job pre-start readiness records.
       "prestart",
       // #503: per-task proof review records.

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToString } from "react-dom/server";
+import { BUSINESS_TIMEZONE, localDateString } from "@/domains/timesheets/service";
 
 /**
  * Page-level SSR smoke for the SHARPENED /phil/my-day (phil_sharpened, dark).
@@ -63,7 +64,11 @@ vi.mock("@/components/phil/PhilMyDaySharpenedAttention", () => ({
   PhilMyDaySharpenedAttentionFallback: () => null,
 }));
 
-const TODAY = new Date().toISOString().slice(0, 10);
+// "Today" must match the PAGE's clock — Sydney (BUSINESS_TIMEZONE), not UTC.
+// The UTC version was a #812-family time bomb: every Sydney morning before
+// 10:00 AEST the UTC date is still yesterday, the mocked "today" entry lands
+// on the wrong day, and the banner "wrongly" renders.
+const TODAY = localDateString(new Date(), BUSINESS_TIMEZONE);
 // A rejected day inside the 7-day window (yesterday-ish, never "today").
 const REJECTED_DATE = new Date(Date.now() - 24 * 60 * 60 * 1000)
   .toISOString()

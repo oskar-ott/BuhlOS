@@ -155,6 +155,13 @@ per sync group; the syncs log is append-only (never UPDATEd).
 Rows UPDATE on remap and hard-DELETE on unlink; history lives in the audit
 journal, not the table.
 
+**`payroll_batches` / `payroll_batch_items` / `payroll_batch_events`** (#893 —
+`20260713000000_payroll_batches.sql`): financial records — RLS-on, zero
+policies, service-role only. Immutability is enforced IN the database:
+triggers refuse item mutations and snapshot-column changes once a batch is
+locked, and refuse deletion of locked-or-later batches; events are
+append-only. Pre-lock batches (blocked/ready) may be deleted (cascade).
+
 ## How to apply + verify (later — not during the cutover ceremony)
 
 1. **Dev first.** Apply `20260703230000_phase1_rls_policies.sql` to the dev

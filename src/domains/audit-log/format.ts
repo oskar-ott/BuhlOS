@@ -118,6 +118,13 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "xero.reference_synced": "Refreshed Xero reference data",
   "xero.worker_mapped": "Linked worker to Xero employee",
   "xero.worker_unmapped": "Unlinked worker from Xero employee",
+  "xero.worktype_mapped": "Mapped work type to Xero earnings rate",
+  "xero.worktype_unmapped": "Unmapped work type from Xero earnings rate",
+  "payroll.batch_created": "Created payroll batch",
+  "payroll.batch_correction_created": "Created payroll correction batch",
+  "payroll.batch_locked": "Locked payroll batch",
+  "payroll.batch_unlocked": "Unlocked payroll batch",
+  "payroll.batch_deleted": "Deleted payroll batch",
   // #349: job closeout lifecycle.
   "job.closed": "Closed out job",
   "job.reopened": "Re-opened job",

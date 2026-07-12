@@ -5,6 +5,7 @@ import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { XeroConnectionPanel } from "@/components/admin/XeroConnectionPanel";
 import { XeroReferenceDataPanel } from "@/components/admin/XeroReferenceDataPanel";
 import { XeroWorkerMappingPanel } from "@/components/admin/XeroWorkerMappingPanel";
+import { XeroEarningsMappingPanel } from "@/components/admin/XeroEarningsMappingPanel";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { isFlagEnabled } from "../../../../../../api/_lib/feature-flags.js";
@@ -48,6 +49,7 @@ export default async function XeroIntegrationPage() {
             <XeroConnectionPanel />
             <XeroReferenceDataPanel />
             <XeroWorkerMappingPanel />
+            <XeroEarningsMappingPanel />
           </>
         ) : (
           <Card>
