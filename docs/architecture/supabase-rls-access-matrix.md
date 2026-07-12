@@ -136,6 +136,15 @@ brief. They are office/infra data with no field read path; they stay
 path needs them. Registry policies would be a trivial follow-up
 (admin-tier tenant-scoped SELECT).
 
+**`integration_connections`** (planned — #892/#247, see
+[integration-credential-storage-adr.md](integration-credential-storage-adr.md))
+is stricter than the registries: **RLS-on, zero policies, permanently** — no
+tier ever reads it through RLS, not even admin. It holds encrypted OAuth token
+material; all access is service-role-mediated, and admin surfaces render only
+derived status fields. Unlike the append-only tables, its row is UPDATEd in
+place (token rotation via `refresh_version` CAS) and hard-DELETEd on
+disconnect — dead ciphertext is a liability, not history.
+
 ## How to apply + verify (later — not during the cutover ceremony)
 
 1. **Dev first.** Apply `20260703230000_phase1_rls_policies.sql` to the dev
