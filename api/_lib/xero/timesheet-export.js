@@ -279,7 +279,14 @@ async function runWorkers({ batchId, actor, deps, onlyRetryable }) {
 
     if (v.verdict === 'blocked') { results.push(await recordBlocked(wsql, { conn, batchId, w, actor, blocker: v.blocker })); continue; }
     if (v.verdict === 'requires_correction') { results.push(await recordBlocked(wsql, { conn, batchId, w, actor, blocker: { code: 'requires_correction', message: `${w.workerName} was already exported with different hours — create a correction batch; the existing Xero timesheet is never overwritten by matching employee+period.`, priorTimesheetId: v.priorTimesheetId }, outcome: 'blocked' })); continue; }
-    if (v.verdict === 'skip' && !onlyRetryable) { results.push(await recordSkip(wsql, { conn, batchId, w, actor, priorTimesheetId: v.priorTimesheetId })); continue; }
+    if (v.verdict === 'skip') {
+      // Unchanged content Xero already ACCEPTED — never re-POST. If it isn't
+      // verified yet (a crash between accept and readback, or an earlier drift),
+      // re-run the READBACK against the recorded timesheet id; otherwise it is a
+      // genuine no-op skip. This holds for export AND retry.
+      if (alreadyVerified) { results.push({ worker: w.workerName, outcome: 'skipped', reason: 'already_verified', xeroTimesheetId: v.priorTimesheetId || null }); continue; }
+      results.push(await reconcileWorker(wsql, { conn, batchId, w, actor, attemptId: last && last.attempt_id, xeroId: v.priorTimesheetId, deps })); continue;
+    }
 
     // SEND. Pre-generate the attempt id so a durable 'pending' event (with the
     // hashes) exists BEFORE the POST — a crash after the POST is reconcilable.
@@ -358,10 +365,23 @@ async function recordBlocked(sql, { conn, batchId, w, actor, blocker, outcome })
   return { worker: w.workerName, outcome: 'blocked', blocker };
 }
 
-async function recordSkip(sql, { conn, batchId, w, actor, priorTimesheetId }) {
-  const id = crypto.randomUUID();
-  await insertAttempt(sql, attempt(conn, batchId, w, { id, outcome: 'skipped', xeroTimesheetId: priorTimesheetId, actor }));
-  return { worker: w.workerName, outcome: 'skipped', reason: 'unchanged_already_accepted', xeroTimesheetId: priorTimesheetId };
+/** Read the recorded draft back and record verified/drifted — NEVER a POST.
+ *  Shared by the export/retry skip path and reconcileExport. */
+async function reconcileWorker(sql, { conn, batchId, w, actor, attemptId, xeroId, deps }) {
+  if (!xeroId) return { worker: w.workerName, outcome: 'unable_to_verify', reason: 'no_recorded_timesheet_id' };
+  const recon = await reconcile({ xeroId, sent: w.timesheet, deps });
+  await insertEvent(sql, {
+    tenantId: conn.tenant_id, batchId, attemptId: attemptId || null, workerId: w.workerId,
+    event: recon.verified ? 'verified_against_xero' : 'drifted',
+    detail: recon.verified
+      ? { xeroTimesheetId: xeroId, reconcile: true }
+      : { xeroTimesheetId: xeroId, mismatches: recon.mismatches, reconcile: true },
+  });
+  if (recon.verified) {
+    await stampWorkerEntries({ batchId, workerId: w.workerId, actor }).catch(() => {});
+    return { worker: w.workerName, outcome: 'verified', xeroTimesheetId: xeroId };
+  }
+  return { worker: w.workerName, outcome: 'drifted', xeroTimesheetId: xeroId, mismatches: recon.mismatches };
 }
 
 function firstTimesheet(data) {
@@ -466,22 +486,7 @@ async function reconcileExport({ batchId, actor, deps = {} }) {
     }
     const detail = parseDetail(last.detail);
     const xeroId = detail.xeroTimesheetId || detail.xero_timesheet_id;
-    if (!xeroId) { results.push({ worker: w.workerName, outcome: 'unable_to_verify', reason: 'no_recorded_timesheet_id' }); continue; }
-
-    const recon = await reconcile({ xeroId, sent: w.timesheet, deps });
-    await insertEvent(wsql, {
-      tenantId: conn.tenant_id, batchId, attemptId: last.attempt_id, workerId: w.workerId,
-      event: recon.verified ? 'verified_against_xero' : 'drifted',
-      detail: recon.verified
-        ? { xeroTimesheetId: xeroId, reconcile: true }
-        : { xeroTimesheetId: xeroId, mismatches: recon.mismatches, reconcile: true },
-    });
-    if (recon.verified) {
-      await stampWorkerEntries({ batchId, workerId: w.workerId, actor }).catch(() => {});
-      results.push({ worker: w.workerName, outcome: 'verified', xeroTimesheetId: xeroId });
-    } else {
-      results.push({ worker: w.workerName, outcome: 'drifted', xeroTimesheetId: xeroId, mismatches: recon.mismatches });
-    }
+    results.push(await reconcileWorker(wsql, { conn, batchId, w, actor, attemptId: last.attempt_id, xeroId, deps }));
   }
   const finalStatus = await settleBatchStatus(wsql, { batchId, built });
   return { batch: { id: batchId, status: finalStatus, periodStart, periodEnd }, workers: results };
