@@ -20,7 +20,7 @@ const { getDb } = require('../supabase-db');
 const store = require('./token-store');
 const { xeroFetch } = require('./client');
 const { XeroError } = require('./errors');
-const { PAYROLL_AU_BASE } = require('./config');
+const { PAYROLL_AU_BASE, hasTimesheetWriteScope } = require('./config');
 const { buildTimesheets, contentHashOf } = require('./timesheet-payload');
 const { readEntry, writeEntry, appendAudit } = require('../time-entries');
 const { toCsv } = require('../payroll-csv');
@@ -267,6 +267,12 @@ async function retryExport({ batchId, actor, deps = {} }) {
 async function runWorkers({ batchId, actor, deps, onlyRetryable }) {
   const wsql = db(deps.sql, 'write');
   const { conn, batch, periodStart, periodEnd, built } = await assemble({ batchId, deps: { ...deps, sql: wsql } });
+  // Pre-flight the WRITE scope: a connection minted before #249 (or without the
+  // export flag on at connect) can't POST timesheets. Fail loudly with a
+  // reconnect message BEFORE any attempt row — never a raw Xero 403 mid-batch.
+  if (!hasTimesheetWriteScope(conn.granted_scopes)) {
+    throw new XeroError('reconnect_required', { detail: 'missing_write_scope' });
+  }
   const results = [];
 
   for (const w of built.workers) {

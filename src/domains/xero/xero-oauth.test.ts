@@ -99,6 +99,16 @@ describe("authorize URL", () => {
     // the client secret never appears in a browser-facing URL
     expect(url.toString()).not.toContain(ENV.XERO_CLIENT_SECRET);
   });
+
+  it("adds the payroll.timesheets WRITE scope only when write is requested (#249)", () => {
+    // default connect stays read-only (the ADR's flag-gated write)
+    expect(String(new URL(oauth.authorizeUrl("S")).searchParams.get("scope"))).not.toContain("payroll.timesheets");
+
+    const scopes = String(new URL(oauth.authorizeUrl("S", { write: true })).searchParams.get("scope")).split(" ");
+    expect(scopes).toContain("payroll.timesheets");
+    expect(scopes).toContain("payroll.employees.read"); // reads still present
+    expect(scopes.filter((s) => s === "payroll.timesheets")).toHaveLength(1);
+  });
 });
 
 describe("token exchange + refresh", () => {

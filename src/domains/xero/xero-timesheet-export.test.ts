@@ -36,7 +36,7 @@ let xeroFetch: any;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let timeEntries: any;
 
-const CONN = { tenant_id: "t1", external_tenant_id: "org-1", status: "active" };
+const CONN = { tenant_id: "t1", external_tenant_id: "org-1", status: "active", granted_scopes: "openid profile email offline_access payroll.employees.read payroll.settings.read accounting.settings.read payroll.timesheets" };
 const PERIOD = { period_start: "2026-07-06", period_end: "2026-07-12" };
 
 // ── in-memory DB model + a fake tagged-template `sql` ─────────────────────────
@@ -291,6 +291,16 @@ describe("exportBatch — the write + readback", () => {
     const outcomes = out.workers.map((w: { outcome: string }) => w.outcome).sort();
     expect(outcomes).toContain("rejected");
     expect(out.batch.status).toBe("partially_exported");
+  });
+
+  it("refuses to POST when the connection lacks the payroll.timesheets WRITE scope", async () => {
+    const m = freshModel();
+    bindStamp(m);
+    installXeroEcho();
+    const noWrite = { sql: makeSql(m), store: { getConnection: async () => ({ ...clone(CONN), granted_scopes: "openid payroll.employees.read" }) } };
+    await expect(svc.exportBatch({ batchId: "b1", actor: { id: "u1" }, deps: noWrite })).rejects.toMatchObject({ category: "reconnect_required" });
+    expect(xeroFetch).not.toHaveBeenCalled();
+    expect(m.attempts).toHaveLength(0); // no attempt row written
   });
 });
 

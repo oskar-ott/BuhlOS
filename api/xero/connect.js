@@ -25,6 +25,10 @@ module.exports = async function handler(req, res) {
     return res.status(503).json({ error: 'xero not configured', config: configReport() });
   }
 
+  // #249: request the payroll.timesheets WRITE scope only when the export flag
+  // is on for this admin — a default connect stays read-only.
+  const write = await isFlagEnabled('xero_payroll_export', user);
+
   const state = makeState(user.id);
 
   await audit.append({
@@ -39,6 +43,6 @@ module.exports = async function handler(req, res) {
 
   res.setHeader('Cache-Control', 'no-store');
   res.statusCode = 302;
-  res.setHeader('Location', authorizeUrl(state));
+  res.setHeader('Location', authorizeUrl(state, { write }));
   return res.end();
 };
