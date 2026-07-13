@@ -2,28 +2,25 @@ import { createRequire } from "node:module";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * Integration tests for GET /api/time-entries-export (#126) against the
- * REAL handler — the contract the weekly board's committed-export panel
- * builds on. Standard harness (signed sessions, in-memory blob), plus a
- * `@vercel/blob` list mock because the endpoint enumerates per-user
- * time-entry blobs by pathname, and a `send`/`setHeader`-capturing res.
+ * Integration tests for GET /api/time-entries-export against the REAL handler.
+ *
+ * #895 convergence: this endpoint is now READ-ONLY. It previews/downloads CSV
+ * and feeds the /hours/period rollup, but it NEVER stamps entries and NEVER
+ * writes payroll-runs.json — recording a payroll run is the payroll-batch flow.
+ * The POST finalise path is retired (410 Gone).
  *
  * Pins:
  *   - admin-tier only (403 otherwise) — the CSV carries hourly rates;
- *   - dryRun NEVER stamps and never appends the runs log;
- *   - the committed run stamps exportId/exportedAt on every included entry,
- *     appends payroll-runs.json, and sets X-Export-Hash/X-Export-Id;
- *   - explicit fromDate/toDate are respected (the panel always sends them —
- *     the endpoint's default week is server-local and untrustworthy);
- *   - re-running a committed export RE-STAMPS (detected, not refused) —
- *     the UI's already-exported acknowledgement is the guard.
+ *   - NO GET stamps entries or appends the runs log (with or without dryRun);
+ *   - explicit fromDate/toDate are respected (the endpoint's default week is
+ *     server-local and untrustworthy);
+ *   - CSV shape selection (payroll | review | xero) is unchanged and shared;
+ *   - POST is GONE (410) and points at the batch flow.
  */
 
 const requireFromHere = createRequire(import.meta.url);
 const blobPath = requireFromHere.resolve("../../../api/_lib/blob.js");
 const authPath = requireFromHere.resolve("../../../api/_lib/auth.js");
-const timeEntriesLibPath = requireFromHere.resolve("../../../api/_lib/time-entries.js");
-const activityPath = requireFromHere.resolve("../../../api/_lib/activity.js");
 const vercelBlobPath = requireFromHere.resolve("@vercel/blob");
 const handlerPath = requireFromHere.resolve("../../../api/time-entries-export.js");
 
@@ -103,15 +100,6 @@ async function callPost(
   return res;
 }
 
-/** Give w1/w2 Xero employee ids so a Xero-ready finalise isn't mapping-blocked. */
-function mapXeroIds() {
-  const users = (blob.get("users.json") as {
-    users: Array<{ id: string; xeroEmployeeId?: string }>;
-  }).users;
-  users.find((u) => u.id === "w1")!.xeroEmployeeId = "XE-1";
-  users.find((u) => u.id === "w2")!.xeroEmployeeId = "XE-2";
-}
-
 function entry(userId: string, date: string, extra: Record<string, unknown> = {}) {
   return {
     id: `te_${userId}_${date}`,
@@ -142,7 +130,7 @@ beforeEach(() => {
   blob.set("users/w2/time-entries/2026-06-10.json", entry("w2", "2026-06-10"));
   blob.set("users/w1/time-entries/2026-06-01.json", entry("w1", "2026-06-01"));
 
-  for (const p of [authPath, handlerPath, timeEntriesLibPath, activityPath]) {
+  for (const p of [authPath, handlerPath]) {
     delete requireFromHere.cache[p];
   }
   requireFromHere.cache[blobPath] = {
@@ -194,7 +182,7 @@ afterEach(() => {
 
 const WEEK = { fromDate: "2026-06-08", toDate: "2026-06-14" };
 
-describe("GET /api/time-entries-export (#126)", () => {
+describe("GET /api/time-entries-export — read-only (#895)", () => {
   it("is admin-tier only — a leading hand gets 403", async () => {
     const res = await call("u_lh", "lh", { ...WEEK, dryRun: "1", format: "json" });
     expect(res.statusCode).toBe(403);
@@ -219,51 +207,20 @@ describe("GET /api/time-entries-export (#126)", () => {
     expect(blob.has("payroll-runs.json")).toBe(false);
   });
 
-  it("the committed run stamps entries, appends the runs log and sets the headers", async () => {
+  it("#895: a non-dryRun GET is ALSO read-only — CSV download, but never stamps or logs", async () => {
     const res = await call("u_admin", "office", { ...WEEK });
     expect(res.statusCode).toBe(200);
-    expect(res.sent).toContain("Week Start");
+    expect(res.sent).toContain("Week Start"); // full payroll CSV
     expect(res.headers["Content-Disposition"]).toContain("attachment");
     expect(res.headers["X-Export-Hash"]).toMatch(/^[0-9a-f]{64}$/);
-    const exportId = res.headers["X-Export-Id"];
-    expect(exportId).toMatch(/^exp_/);
+    // the legacy committed-run headers are gone — no run was recorded
+    expect(res.headers["X-Export-Id"]).toBeUndefined();
 
-    // both in-range entries stamped with THIS run's id; out-of-range untouched
-    const w1 = blob.get("users/w1/time-entries/2026-06-09.json") as { exportId: string };
-    const w2 = blob.get("users/w2/time-entries/2026-06-10.json") as { exportId: string };
-    const out = blob.get("users/w1/time-entries/2026-06-01.json") as { exportId?: string };
-    expect(w1.exportId).toBe(exportId);
-    expect(w2.exportId).toBe(exportId);
-    expect(out.exportId).toBeUndefined();
-
-    // append-only run log carries the fields the panel renders verbatim
-    const runs = (blob.get("payroll-runs.json") as { runs: Array<Record<string, unknown>> }).runs;
-    expect(runs).toHaveLength(1);
-    expect(runs[0]).toMatchObject({
-      exportId,
-      actorName: "boss",
-      rowCount: 2,
-      range: { fromDate: WEEK.fromDate, toDate: WEEK.toDate, status: "approved" },
-    });
-    expect(runs[0]!.hash).toBe(res.headers["X-Export-Hash"]);
-  });
-
-  it("re-running RE-STAMPS with the new run id (detected via preview, not refused)", async () => {
-    const first = await call("u_admin", "office", { ...WEEK });
-    const firstId = first.headers["X-Export-Id"];
-
-    // the dry-run preview now shows the rows as already exported
-    const preview = await call("u_admin", "office", { ...WEEK, dryRun: "1", format: "json" });
-    const rows = (preview.body as { rows: Array<{ exportId: string }> }).rows;
-    expect(rows.every((r) => r.exportId === firstId)).toBe(true);
-
-    const second = await call("u_admin", "office", { ...WEEK });
-    const secondId = second.headers["X-Export-Id"];
-    expect(secondId).not.toBe(firstId);
-    const w1 = blob.get("users/w1/time-entries/2026-06-09.json") as { exportId: string };
-    expect(w1.exportId).toBe(secondId);
-    const runs = (blob.get("payroll-runs.json") as { runs: unknown[] }).runs;
-    expect(runs).toHaveLength(2);
+    const w1 = blob.get("users/w1/time-entries/2026-06-09.json") as { exportId?: string };
+    const w2 = blob.get("users/w2/time-entries/2026-06-10.json") as { exportId?: string };
+    expect(w1.exportId).toBeUndefined();
+    expect(w2.exportId).toBeUndefined();
+    expect(blob.has("payroll-runs.json")).toBe(false);
   });
 
   it("#380: a split day conserves the entry's stored ordinary/overtime in the rows", async () => {
@@ -289,14 +246,12 @@ describe("GET /api/time-entries-export (#126)", () => {
     const rows = (res.body as {
       rows: Array<{ jobId: string; ordinaryHours: number; overtimeHours: number }>;
     }).rows;
-    // rows sort by job NAME (Depot < Riverside) — compare as a set keyed by job
     const byJob = Object.fromEntries(
       rows.map((r) => [r.jobId, [r.ordinaryHours, r.overtimeHours]]),
     );
     expect(byJob).toEqual({ j1: [5, 0], j2: [3, 2] });
 
-    // a job-filtered export keeps the DAY-context proration — j2's row still
-    // carries the day's OT, it doesn't get re-derived as 5 ordinary.
+    // a job-filtered export keeps the DAY-context proration
     const filtered = await call("u_admin", "office", {
       fromDate: "2026-06-11",
       toDate: "2026-06-11",
@@ -310,20 +265,10 @@ describe("GET /api/time-entries-export (#126)", () => {
     expect(fRows).toHaveLength(1);
     expect(fRows[0]).toMatchObject({ ordinaryHours: 3, overtimeHours: 2 });
   });
-
-  it("an empty week commits nothing: no stamp, no run log entry", async () => {
-    const res = await call("u_admin", "office", {
-      fromDate: "2026-07-06",
-      toDate: "2026-07-12",
-    });
-    expect(res.statusCode).toBe(200);
-    expect(res.headers["X-Export-Id"]).toBeUndefined();
-    expect(blob.has("payroll-runs.json")).toBe(false);
-  });
 });
 
-// #131 — CSV shape selection (review / xero) over the SAME rows + dry-run/
-// committed machinery. Shape changes only columns + filename.
+// #131 — CSV shape selection (review / xero) over the SAME rows. Shape changes
+// only columns + filename; shared with the locked-batch CSV via payroll-csv.js.
 describe("GET /api/time-entries-export — CSV shapes (#131)", () => {
   const headerOf = (res: Res) => String(res.sent).split("\n")[0];
   const dataRows = (res: Res) => String(res.sent).trim().split("\n").slice(1).map((l) => l.split(","));
@@ -387,175 +332,34 @@ describe("GET /api/time-entries-export — CSV shapes (#131)", () => {
     expect(rows).toHaveLength(2);
     expect(rows.map((r) => r[5]).sort()).toEqual(["Depot", "Riverside"]);
     expect(rows.reduce((s, r) => s + Number(r[8]), 0)).toBe(10); // total hours
-    expect(rows.reduce((s, r) => s + Number(r[7]), 0)).toBeCloseTo(2, 5); // OT prorated, not re-attributed
+    expect(rows.reduce((s, r) => s + Number(r[7]), 0)).toBeCloseTo(2, 5); // OT prorated
     expect(rows.reduce((s, r) => s + Number(r[6]), 0)).toBeCloseTo(8, 5); // ordinary
   });
 
-  it("dryRun=1 with a shape still NEVER stamps or logs", async () => {
-    await call("u_admin", "office", { ...WEEK, shape: "xero", dryRun: "1" });
+  it("#895: a non-dryRun CSV with a shape STILL never stamps or logs", async () => {
+    const res = await call("u_admin", "office", { ...WEEK, shape: "xero" });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["X-Export-Id"]).toBeUndefined();
     expect((blob.get("users/w1/time-entries/2026-06-09.json") as { exportId?: string }).exportId).toBeUndefined();
     expect(blob.has("payroll-runs.json")).toBe(false);
   });
-
-  it("committed export with a shape stamps the entries once and logs the run", async () => {
-    const res = await call("u_admin", "office", { ...WEEK, shape: "xero" });
-    const exportId = res.headers["X-Export-Id"];
-    expect(exportId).toMatch(/^exp_/);
-    expect((blob.get("users/w1/time-entries/2026-06-09.json") as { exportId: string }).exportId).toBe(exportId);
-    expect((blob.get("payroll-runs.json") as { runs: unknown[] }).runs).toHaveLength(1);
-  });
 });
 
-// #131 — POST finalise: the HARDENED committed path. Explicit (not a casual GET
-// link), eligible-rows-only, NEVER re-stamps, blocks on no-rows / nothing-new /
-// a Xero-ready run with any unmapped worker. The legacy GET-committed path above
-// stays for the weekly panel (#126); these tests pin the new POST behaviour.
-describe("POST /api/time-entries-export — finalise (#131)", () => {
-  const headerOf = (res: Res) => String(res.sent).split("\n")[0];
-
-  it("admin-tier only — a leading hand gets 403", async () => {
+// #895 — POST finalise is retired. The only path that records a payroll run is
+// the payroll-batch flow (create → validate → lock → export).
+describe("POST /api/time-entries-export — retired (410) (#895)", () => {
+  it("admin-tier only — a leading hand gets 403 (auth runs before the method check)", async () => {
     const res = await callPost("u_lh", "lh", { ...WEEK, shape: "xero" });
     expect(res.statusCode).toBe(403);
   });
 
-  it("stamps eligible rows with exportedAt + exportId, appends the run log, returns the run's xero CSV", async () => {
-    mapXeroIds();
+  it("an admin finalise is GONE (410), points at the batch flow, and stamps nothing", async () => {
     const res = await callPost("u_admin", "office", { ...WEEK, shape: "xero" });
-    expect(res.statusCode).toBe(200);
-    const exportId = res.headers["X-Export-Id"];
-    expect(exportId).toMatch(/^exp_/);
-    expect(res.headers["X-Export-Hash"]).toMatch(/^[0-9a-f]{64}$/);
-
-    // returns the Xero-ready CSV (the file this run pays)
-    expect(headerOf(res)).toBe(
-      "Pay Period Start,Pay Period End,Worker Name,Xero Employee ID,Date,Ordinary Hours,Overtime Hours,Total Hours",
-    );
-    expect(res.headers["Content-Disposition"]).toContain("buhlos-xero-ready-hours-2026-06-08-to-2026-06-14.csv");
-
-    // both in-range entries stamped with THIS run; out-of-range untouched
-    const w1 = blob.get("users/w1/time-entries/2026-06-09.json") as { exportedAt: string; exportId: string };
-    const w2 = blob.get("users/w2/time-entries/2026-06-10.json") as { exportId: string };
-    const out = blob.get("users/w1/time-entries/2026-06-01.json") as { exportId?: string };
-    expect(w1.exportId).toBe(exportId);
-    expect(w1.exportedAt).toMatch(/^20\d\d-\d\d-\d\d/);
-    expect(w2.exportId).toBe(exportId);
-    expect(out.exportId).toBeUndefined();
-
-    // append-only run log, marked via:finalise, hash matches the header (deterministic)
-    const runs = (blob.get("payroll-runs.json") as { runs: Array<Record<string, unknown>> }).runs;
-    expect(runs).toHaveLength(1);
-    expect(runs[0]).toMatchObject({ exportId, via: "finalise", rowCount: 2, newlyStamped: 2, alreadyExportedRows: 0 });
-    expect(runs[0]!.hash).toBe(res.headers["X-Export-Hash"]);
-  });
-
-  it("is idempotent — a second finalise of the same range 409s, stamps nothing, and the original run id survives", async () => {
-    mapXeroIds();
-    const first = await callPost("u_admin", "office", { ...WEEK, shape: "xero" });
-    const firstId = first.headers["X-Export-Id"];
-
-    const second = await callPost("u_admin", "office", { ...WEEK, shape: "xero" });
-    expect(second.statusCode).toBe(409);
-    expect((second.body as { code: string }).code).toBe("all_exported");
-
-    // original run id NOT overwritten; only ONE run logged
-    const w1 = blob.get("users/w1/time-entries/2026-06-09.json") as { exportId: string };
-    expect(w1.exportId).toBe(firstId);
-    expect((blob.get("payroll-runs.json") as { runs: unknown[] }).runs).toHaveLength(1);
-  });
-
-  it("excludes already-exported rows — finalise stamps only the NEW ones, keeps the prior run id", async () => {
-    mapXeroIds();
-    // w1 already in a prior run; only w2 is eligible
-    blob.set(
-      "users/w1/time-entries/2026-06-09.json",
-      entry("w1", "2026-06-09", { exportId: "exp_prior", exportedAt: "2026-06-08T00:00:00.000Z" }),
-    );
-    const res = await callPost("u_admin", "office", { ...WEEK, shape: "xero" });
-    expect(res.statusCode).toBe(200);
-    const exportId = res.headers["X-Export-Id"];
-    const w1 = blob.get("users/w1/time-entries/2026-06-09.json") as { exportId: string };
-    const w2 = blob.get("users/w2/time-entries/2026-06-10.json") as { exportId: string };
-    expect(w1.exportId).toBe("exp_prior"); // untouched
-    expect(w2.exportId).toBe(exportId); // newly stamped
-    expect(res.headers["X-Row-Count"]).toBe("1");
-    expect(res.headers["X-Already-Exported-Rows"]).toBe("1");
-    const runs = (blob.get("payroll-runs.json") as { runs: Array<Record<string, unknown>> }).runs;
-    expect(runs[0]).toMatchObject({ rowCount: 1, newlyStamped: 1, alreadyExportedRows: 1 });
-  });
-
-  it("blocks when there are no approved hours (422 no_rows) — nothing stamped or logged", async () => {
-    const res = await callPost("u_admin", "office", { fromDate: "2026-07-06", toDate: "2026-07-12", shape: "xero" });
-    expect(res.statusCode).toBe(422);
-    expect((res.body as { code: string }).code).toBe("no_rows");
-    expect(blob.has("payroll-runs.json")).toBe(false);
-  });
-
-  it("blocks a Xero-ready finalise when a worker has no Xero employee id (422) — names them, stamps nothing", async () => {
-    // w1/w2 are unmapped in the fixture
-    const res = await callPost("u_admin", "office", { ...WEEK, shape: "xero" });
-    expect(res.statusCode).toBe(422);
-    const body = res.body as { code: string; unmappedWorkers: string[] };
-    expect(body.code).toBe("unmapped_workers");
-    expect(body.unmappedWorkers.sort()).toEqual(["w1", "w2"]);
+    expect(res.statusCode).toBe(410);
+    const body = res.body as { code: string; replacement: string };
+    expect(body.code).toBe("gone");
+    expect(body.replacement).toBe("/api/xero/payroll-batches");
     expect((blob.get("users/w1/time-entries/2026-06-09.json") as { exportId?: string }).exportId).toBeUndefined();
     expect(blob.has("payroll-runs.json")).toBe(false);
-  });
-
-  it("a bad range is rejected (400) before any work", async () => {
-    const res = await callPost("u_admin", "office", { fromDate: "2026-06-14", toDate: "2026-06-08", shape: "xero" });
-    expect(res.statusCode).toBe(400);
-    expect(blob.has("payroll-runs.json")).toBe(false);
-  });
-
-  it("a review-shape finalise is NOT mapping-blocked (Review CSV doesn't promise Xero ids)", async () => {
-    // w1/w2 unmapped, but shape=review → finalise proceeds and stamps
-    const res = await callPost("u_admin", "office", { ...WEEK, shape: "review" });
-    expect(res.statusCode).toBe(200);
-    expect(headerOf(res)).toContain("Approval Status"); // review header
-    expect((blob.get("users/w1/time-entries/2026-06-09.json") as { exportId?: string }).exportId).toMatch(/^exp_/);
-  });
-
-  // H5: a concurrent edit (#157 stale-write) during the stamp must NOT leave a
-  // row in the committed CSV that wasn't actually marked exported — that row
-  // would be re-included by the next finalise and double-paid.
-  it("partial stamp: a concurrent edit drops only that row from the CSV, leaves it unexported, reports it (H5)", async () => {
-    const blobExports = (requireFromHere.cache[blobPath] as NodeJS.Module).exports as {
-      writeBlob: { mockImplementationOnce: (fn: () => Promise<never>) => void };
-    };
-    // The FIRST stamp (w1, earliest date) hits a concurrent edit; w2 commits.
-    blobExports.writeBlob.mockImplementationOnce(async () => {
-      throw Object.assign(new Error("stale"), { code: "stale_write", currentRev: "rX" });
-    });
-    const res = await callPost("u_admin", "office", { ...WEEK, shape: "review" });
-    expect(res.statusCode).toBe(200);
-    expect(res.headers["X-Stamp-Failures"]).toBe("1");
-    expect(res.headers["X-Row-Count"]).toBe("1");
-
-    const w1 = blob.get("users/w1/time-entries/2026-06-09.json") as { exportId?: string };
-    const w2 = blob.get("users/w2/time-entries/2026-06-10.json") as { exportId?: string };
-    expect(w1.exportId).toBeUndefined(); // failed → stays unexported (next run re-includes it)
-    expect(w2.exportId).toMatch(/^exp_/); // committed
-
-    const csv = String(res.sent);
-    expect(csv).toContain("2026-06-10"); // w2's row IS in the committed CSV
-    expect(csv).not.toContain("2026-06-09"); // w1's row is NOT — it wasn't paid
-
-    const runs = (blob.get("payroll-runs.json") as { runs: Array<Record<string, unknown>> }).runs;
-    expect(runs[0]).toMatchObject({ rowCount: 1, newlyStamped: 1, stampFailures: 1 });
-  });
-
-  it("commits nothing and 409s when every eligible row hits a concurrent edit (H5)", async () => {
-    const blobExports = (requireFromHere.cache[blobPath] as NodeJS.Module).exports as {
-      writeBlob: { mockImplementation: (fn: () => Promise<never>) => void };
-    };
-    blobExports.writeBlob.mockImplementation(async () => {
-      throw Object.assign(new Error("stale"), { code: "stale_write", currentRev: "rX" });
-    });
-    const res = await callPost("u_admin", "office", { ...WEEK, shape: "review" });
-    expect(res.statusCode).toBe(409);
-    expect((res.body as { code: string }).code).toBe("stamp_conflict");
-    expect((blob.get("users/w1/time-entries/2026-06-09.json") as { exportId?: string }).exportId).toBeUndefined();
-    expect((blob.get("users/w2/time-entries/2026-06-10.json") as { exportId?: string }).exportId).toBeUndefined();
-    expect(blob.has("payroll-runs.json")).toBe(false); // no run committed
   });
 });
