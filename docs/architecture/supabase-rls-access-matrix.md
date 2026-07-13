@@ -162,6 +162,14 @@ triggers refuse item mutations and snapshot-column changes once a batch is
 locked, and refuse deletion of locked-or-later batches; events are
 append-only. Pre-lock batches (blocked/ready) may be deleted (cascade).
 
+**`payroll_batch_timesheet_attempts` / `payroll_batch_timesheet_events`** (#249
+— `20260713120000_payroll_timesheet_export.sql`): the draft-timesheet export
+ledger — RLS-on, zero policies, service-role only. One **IMMUTABLE** attempt row
+per POST to Xero (a trigger refuses UPDATE), inserted with its terminal outcome;
+lifecycle + readback reconciliation are recorded as append-only events. No token,
+secret or OAuth columns — only the Xero TimesheetID/correlation id and a safe
+error category. The write itself is gated by `xero_payroll_export` (default off).
+
 ## How to apply + verify (later — not during the cutover ceremony)
 
 1. **Dev first.** Apply `20260703230000_phase1_rls_policies.sql` to the dev

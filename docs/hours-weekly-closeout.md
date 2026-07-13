@@ -15,7 +15,7 @@ BuhlOS collects the week.                 /hours/weekly?week=<any date in week>
 Boss reviews the week.                    decision-first board, not a raw table
 Boss approves/rejects submitted days.     same endpoints as /hours/approvals
 Clean approved weekly hours = payroll-ready.
-Xero / committed export comes later.      (out of scope, unchanged)
+Payroll run = lock a batch on /hours/period. (Xero draft export #249, flag-gated)
 ```
 
 There is **no daily closeout** and **no worker "Submit timesheet" button** —
