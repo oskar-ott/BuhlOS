@@ -287,6 +287,9 @@ export const AUDIT_ACTIONS = [
   "payroll.export_previewed",
   "payroll.exported_to_xero",
   "payroll.export_retried",
+  "payroll.reconciled",
+  // #895: batch-snapshot CSV fallback download (no Xero write).
+  "payroll.csv_downloaded",
 ] as const;
 export const AuditActionSchema = z.enum(AUDIT_ACTIONS);
 

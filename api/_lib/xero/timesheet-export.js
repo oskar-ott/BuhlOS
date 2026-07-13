@@ -23,6 +23,7 @@ const { XeroError } = require('./errors');
 const { PAYROLL_AU_BASE } = require('./config');
 const { buildTimesheets, contentHashOf } = require('./timesheet-payload');
 const { readEntry, writeEntry, appendAudit } = require('../time-entries');
+const { toCsv } = require('../payroll-csv');
 
 function db(sql, mode) {
   return sql || getDb({ mode: mode || 'write' });
@@ -33,6 +34,15 @@ function toDateStr(v) {
   if (v == null) return null;
   if (typeof v === 'string') return v.slice(0, 10);
   return new Date(v).toISOString().slice(0, 10);
+}
+
+function round2(v) { return Math.round(Number(v) * 100) / 100; }
+
+// jsonb event detail comes back parsed, but tolerate a text column too.
+function parseDetail(d) {
+  if (d == null) return {};
+  if (typeof d === 'string') { try { return JSON.parse(d); } catch { return {}; } }
+  return d;
 }
 
 async function currentConnection(deps = {}) {
@@ -426,8 +436,79 @@ async function settleBatchStatus(sql, { batchId, built }) {
     else allVerified = false;
   }
   const status = allVerified && built.workers.length ? 'exported' : 'partially_exported';
-  await sql`update public.payroll_batches set status = ${status} where id = ${batchId} and status = 'exporting'`;
+  // 'exporting' during a live export; 'partially_exported' when a later reconcile
+  // finally verifies the last drifted worker. Never moves an 'exported' batch.
+  await sql`update public.payroll_batches set status = ${status}
+    where id = ${batchId} and status in ('exporting', 'partially_exported')`;
   return status;
+}
+
+// ── reconcile (re-verify accepted-but-unverified — NEVER a second POST) ───────
+
+async function reconcileExport({ batchId, actor, deps = {} }) {
+  const wsql = db(deps.sql, 'write');
+  const pre = await loadBatch(wsql, batchId);
+  if (!pre) throw new XeroError('validation', { detail: 'unknown_batch' });
+  if (!['exporting', 'partially_exported', 'exported'].includes(pre.status)) {
+    throw new XeroError('conflict', { detail: `batch_${pre.status}` });
+  }
+  const { conn, periodStart, periodEnd, built } = await assemble({ batchId, deps: { ...deps, sql: wsql } });
+  const results = [];
+  for (const w of built.workers) {
+    w._ps = periodStart; w._pe = periodEnd;
+    const last = await latestEvent(wsql, { batchId, workerId: w.workerId });
+    // Only accepted-but-unverified workers are reconcilable. A verified/rejected/
+    // pending/blocked worker has nothing to re-read; a not-yet-sent worker needs
+    // an EXPORT, never a reconcile — we never POST here.
+    if (!last || !['accepted_by_xero', 'drifted'].includes(last.event)) {
+      results.push({ worker: w.workerName, outcome: last ? last.event : 'not_started', reason: 'nothing_to_reconcile' });
+      continue;
+    }
+    const detail = parseDetail(last.detail);
+    const xeroId = detail.xeroTimesheetId || detail.xero_timesheet_id;
+    if (!xeroId) { results.push({ worker: w.workerName, outcome: 'unable_to_verify', reason: 'no_recorded_timesheet_id' }); continue; }
+
+    const recon = await reconcile({ xeroId, sent: w.timesheet, deps });
+    await insertEvent(wsql, {
+      tenantId: conn.tenant_id, batchId, attemptId: last.attempt_id, workerId: w.workerId,
+      event: recon.verified ? 'verified_against_xero' : 'drifted',
+      detail: recon.verified
+        ? { xeroTimesheetId: xeroId, reconcile: true }
+        : { xeroTimesheetId: xeroId, mismatches: recon.mismatches, reconcile: true },
+    });
+    if (recon.verified) {
+      await stampWorkerEntries({ batchId, workerId: w.workerId, actor }).catch(() => {});
+      results.push({ worker: w.workerName, outcome: 'verified', xeroTimesheetId: xeroId });
+    } else {
+      results.push({ worker: w.workerName, outcome: 'drifted', xeroTimesheetId: xeroId, mismatches: recon.mismatches });
+    }
+  }
+  const finalStatus = await settleBatchStatus(wsql, { batchId, built });
+  return { batch: { id: batchId, status: finalStatus, periodStart, periodEnd }, workers: results };
+}
+
+// ── batch CSV fallback (pure PG read; works while Xero is disconnected) ────────
+
+/** CSV built from the IMMUTABLE locked batch snapshot — never Xero, never a write. */
+async function batchCsv({ batchId, deps = {} }) {
+  const sql = db(deps.sql, 'read');
+  const batch = await loadBatch(sql, batchId);
+  if (!batch) return null;
+  const rows = await sql`
+    select worker_name, employee_id, work_type, earnings_rate_name, entry_date, job_name, hours
+    from public.payroll_batch_items where batch_id = ${batchId}
+    order by worker_name, entry_date, earnings_rate_name
+  `;
+  const from = toDateStr(batch.period_start);
+  const to = toDateStr(batch.period_end);
+  const cols = ['Pay Period Start', 'Pay Period End', 'Worker Name', 'Xero Employee ID', 'Work Type', 'Earnings Rate', 'Date', 'Hours'];
+  const toCells = (r) => [from, to, r.worker_name, r.employee_id || '', r.work_type || '', r.earnings_rate_name || '', toDateStr(r.entry_date), round2(r.hours)];
+  return {
+    filename: `buhlos-payroll-batch-${String(batch.id).slice(0, 8)}-${from}-to-${to}.csv`,
+    csv: toCsv(cols, rows, toCells),
+    rowCount: rows.length,
+    batch: { id: batch.id, status: batch.status, periodStart: from, periodEnd: to },
+  };
 }
 
 /** Current export state for a batch — per-worker latest attempt + event. */
@@ -462,6 +543,8 @@ module.exports = {
   previewExport,
   exportBatch,
   retryExport,
+  reconcileExport,
+  batchCsv,
   exportState,
   reconcile,
   lineSig,

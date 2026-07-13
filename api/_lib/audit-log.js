@@ -356,6 +356,9 @@ const VALID_ACTIONS = new Set([
   'payroll.export_previewed',
   'payroll.exported_to_xero',
   'payroll.export_retried',
+  'payroll.reconciled',
+  // #895: batch-snapshot CSV fallback download (no Xero write).
+  'payroll.csv_downloaded',
 ]);
 const VALID_TARGET_TYPES = new Set([
   'evidence',
