@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
+import { PayrollBatchExportSection } from "./PayrollBatchExportSection";
 
 /**
  * PayrollBatchPanel (#893/#894) — the payroll review surface on /hours/period.
@@ -65,7 +66,16 @@ function n(v: string | number): number {
   return Math.round(Number(v) * 100) / 100;
 }
 
-export function PayrollBatchPanel({ fromDate, toDate }: { fromDate: string; toDate: string }) {
+export function PayrollBatchPanel({
+  fromDate,
+  toDate,
+  exportEnabled = false,
+}: {
+  fromDate: string;
+  toDate: string;
+  /** #249: xero_payroll_export — gates the draft-timesheet Export/Retry/Reconcile controls. */
+  exportEnabled?: boolean;
+}) {
   const [preview, setPreview] = useState<{ validation: Validation; items: Item[] } | null>(null);
   const [batches, setBatches] = useState<Batch[]>([]);
   const [detail, setDetail] = useState<{ batch: Batch; items: Item[]; events: BatchEvent[] } | null>(null);
@@ -181,7 +191,8 @@ export function PayrollBatchPanel({ fromDate, toDate }: { fromDate: string; toDa
             {fromDate} → {toDate} · {v.summary.workerCount} worker{v.summary.workerCount === 1 ? "" : "s"} ·{" "}
             {v.summary.totalHours}h ({v.summary.ordinaryHours} ordinary + {v.summary.overtimeHours} overtime).
             A batch snapshots the approved hours and mappings; once locked it is immutable — the
-            safe input for the future Xero push (#249). Nothing is sent to Xero here.
+            safe source for the Xero draft-timesheet export (#249). Export happens per locked batch
+            below, only after you explicitly confirm; it creates drafts, never a pay run.
           </CardDescription>
         </div>
         <span
@@ -321,6 +332,9 @@ export function PayrollBatchPanel({ fromDate, toDate }: { fromDate: string; toDa
                     ) : null}
                   </div>
                 </div>
+                {["locked", "exporting", "partially_exported", "exported", "reconciled", "correction_required"].includes(b.status) ? (
+                  <PayrollBatchExportSection batchId={b.id} batchStatus={b.status} exportEnabled={exportEnabled} />
+                ) : null}
               </li>
             ))}
           </ul>
