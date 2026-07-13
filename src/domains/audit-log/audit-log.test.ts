@@ -250,6 +250,9 @@ describe("AuditLogEntrySchema", () => {
       "payroll.batch_deleted",
       "payroll.batch_locked",
       "payroll.batch_unlocked",
+      "payroll.export_previewed",
+      "payroll.export_retried",
+      "payroll.exported_to_xero",
       // #503: office proof sign-off (admin approve/send-back surface).
       "proof.approved",
       "proof.sent_back",

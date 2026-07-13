@@ -37,6 +37,15 @@ const { isAdminRole, isOwnerRole } = require('./auth');
 
 /** @type {Record<string, {description: string, default: boolean, target: 'global'|'admin-tier', expires: string}>} */
 const REGISTRY = {
+  // #249 — the first Xero WRITE. Its OWN gate, independent of xero_connection:
+  // turning Xero writes off never touches time capture, the CSV fallback, or the
+  // read-only reference sync. Default OFF, admin-tier, owner-previewable.
+  xero_payroll_export: {
+    description: 'The first Xero WRITE — push a LOCKED payroll batch to Xero Payroll AU as DRAFT timesheets with readback reconciliation (#249). Independent of xero_connection; default off, admin-tier. No pay runs / approval / STP.',
+    default: false,
+    target: 'admin-tier',
+    expires: '2026-12-31',
+  },
   // Phil FIELD jobs-summary READ path (perf, not Supabase): when on, the
   // field/leading-hand job LIST GET (/api/jobs, no ?id, no ?withStats) is served
   // from a small derived jobs-summary.json projection instead of reading+parsing

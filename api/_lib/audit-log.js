@@ -351,6 +351,11 @@ const VALID_ACTIONS = new Set([
   'payroll.batch_locked',
   'payroll.batch_unlocked',
   'payroll.batch_deleted',
+  // #249: draft-timesheet export to Xero (api/xero/payroll-export.js). The
+  // per-worker lifecycle is also in public.payroll_batch_timesheet_events.
+  'payroll.export_previewed',
+  'payroll.exported_to_xero',
+  'payroll.export_retried',
 ]);
 const VALID_TARGET_TYPES = new Set([
   'evidence',

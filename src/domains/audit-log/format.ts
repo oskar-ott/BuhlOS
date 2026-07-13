@@ -125,6 +125,9 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "payroll.batch_locked": "Locked payroll batch",
   "payroll.batch_unlocked": "Unlocked payroll batch",
   "payroll.batch_deleted": "Deleted payroll batch",
+  "payroll.export_previewed": "Previewed Xero timesheet export",
+  "payroll.exported_to_xero": "Exported draft timesheets to Xero",
+  "payroll.export_retried": "Retried Xero timesheet export",
   // #349: job closeout lifecycle.
   "job.closed": "Closed out job",
   "job.reopened": "Re-opened job",

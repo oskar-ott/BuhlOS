@@ -283,6 +283,10 @@ export const AUDIT_ACTIONS = [
   "payroll.batch_locked",
   "payroll.batch_unlocked",
   "payroll.batch_deleted",
+  // #249: draft-timesheet export to Xero (the first Xero write).
+  "payroll.export_previewed",
+  "payroll.exported_to_xero",
+  "payroll.export_retried",
 ] as const;
 export const AuditActionSchema = z.enum(AUDIT_ACTIONS);
 
