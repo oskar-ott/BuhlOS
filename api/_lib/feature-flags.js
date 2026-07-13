@@ -673,6 +673,7 @@ const FLAG_PRESENTATION = {
   phil_sharpened: { label: 'Phil sharpened redesign', domain: 'Phil', surface: 'Phil', previewHref: '/phil/my-day' },
   phil_job_rooms: { label: 'Phil in-job rooms (#133)', domain: 'Phil', surface: 'Phil', previewHref: '/phil/jobs' },
   xero_connection: { label: 'Xero connection', domain: 'Platform', surface: 'BuhlOS', previewHref: '/settings/integrations/xero' },
+  xero_payroll_export: { label: 'Xero payroll export (draft timesheets)', domain: 'Platform', surface: 'BuhlOS', previewHref: '/hours/period' },
 
   // #760 kill-switches. `core: true` = load-bearing spine; the board warns
   // before the owner turns one off.

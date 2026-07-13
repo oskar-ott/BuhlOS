@@ -153,7 +153,7 @@ function installXeroEcho() {
   xeroFetch.mockImplementation(async (url: string, opts: Record<string, unknown> = {}) => {
     const method = (opts.method as string) || "GET";
     if (method === "POST" && /\/Timesheets$/.test(url)) {
-      const sent = (opts.body as { Timesheets: Row[] }).Timesheets[0];
+      const sent = (opts.body as { Timesheets: Row[] }).Timesheets[0]!;
       const id = `ts-${++n}`;
       const rec = { TimesheetID: id, EmployeeID: sent.EmployeeID, StartDate: sent.StartDate, EndDate: sent.EndDate, Status: "DRAFT", TimesheetLines: sent.TimesheetLines };
       created.set(id, rec);
@@ -161,7 +161,7 @@ function installXeroEcho() {
     }
     const mm = url.match(/\/Timesheets\/([^/?]+)/);
     if (mm) {
-      const rec = created.get(mm[1]);
+      const rec = created.get(mm[1]!);
       return { data: { Timesheets: rec ? [rec] : [] }, correlationId: "corr-get", status: 200 };
     }
     return { data: {}, status: 200 };
@@ -227,9 +227,9 @@ describe("exportBatch — the write + readback", () => {
     expect(alexEvents.map((e) => e.event)).toEqual(["pending", "accepted_by_xero", "verified_against_xero"]);
     const alexAttempt = m.attempts.find((a) => a.worker_id === "w-alex")!;
     expect(alexAttempt.outcome).toBe("accepted");
-    expect(Number(alexAttempt._seq)).toBeGreaterThan(Number(alexEvents[0]._seq)); // attempt after the pending event
+    expect(Number(alexAttempt._seq)).toBeGreaterThan(Number(alexEvents[0]!._seq)); // attempt after the pending event
     // pending event carries the content + request hashes (durable pre-POST record)
-    const pending = alexEvents[0].detail as { contentHash: string; requestHash: string };
+    const pending = alexEvents[0]!.detail as { contentHash: string; requestHash: string };
     expect(pending.contentHash).toBeTruthy();
     expect(pending.requestHash).toMatch(/^[0-9a-f]{64}$/);
 
@@ -252,20 +252,20 @@ describe("exportBatch — the write + readback", () => {
     xeroFetch.mockImplementation(async (url: string, opts: Record<string, unknown> = {}) => {
       const method = (opts.method as string) || "GET";
       if (method === "POST" && /\/Timesheets$/.test(url)) {
-        const sent = (opts.body as { Timesheets: Array<{ EmployeeID: string; StartDate: string; EndDate: string; TimesheetLines: unknown[] }> }).Timesheets[0];
+        const sent = (opts.body as { Timesheets: Array<{ EmployeeID: string; StartDate: string; EndDate: string; TimesheetLines: unknown[] }> }).Timesheets[0]!;
         const id = `ts-${created.size + 1}`;
         created.set(id, { TimesheetID: id, EmployeeID: sent.EmployeeID, StartDate: sent.StartDate, EndDate: sent.EndDate, Status: "DRAFT", TimesheetLines: [{ EarningsRateID: "r-ord", NumberOfUnits: [99, 0, 0, 0, 0, 0, 0] }] });
         return { data: { Timesheets: [created.get(id)] }, correlationId: "c", status: 200 };
       }
       const mm = url.match(/\/Timesheets\/([^/?]+)/);
-      return { data: { Timesheets: mm && created.get(mm[1]) ? [created.get(mm[1])] : [] }, status: 200 };
+      return { data: { Timesheets: mm && created.get(mm[1]!) ? [created.get(mm[1]!)] : [] }, status: 200 };
     });
 
     const out = await svc.exportBatch({ batchId: "b1", actor: { id: "u1" }, deps: deps(m) });
     expect(out.workers.every((w: { outcome: string }) => w.outcome === "drifted")).toBe(true);
     expect(out.batch.status).toBe("partially_exported");
     // drifted worker recorded, not stamped
-    const alexLast = m.events.filter((e) => e.worker_id === "w-alex").sort((a, b) => Number(b._seq) - Number(a._seq))[0];
+    const alexLast = m.events.filter((e) => e.worker_id === "w-alex").sort((a, b) => Number(b._seq) - Number(a._seq))[0]!;
     expect(alexLast.event).toBe("drifted");
     expect(timeEntries.writeEntry).not.toHaveBeenCalled();
   });
@@ -281,7 +281,7 @@ describe("exportBatch — the write + readback", () => {
       if (method === "POST") {
         posts += 1;
         if (posts === 1) throw new XeroError("validation", { detail: "inactive employee" });
-        const sent = (opts.body as { Timesheets: Row[] }).Timesheets[0];
+        const sent = (opts.body as { Timesheets: Row[] }).Timesheets[0]!;
         const rec = { TimesheetID: "ts-ok", EmployeeID: sent.EmployeeID, StartDate: sent.StartDate, EndDate: sent.EndDate, Status: "DRAFT", TimesheetLines: sent.TimesheetLines };
         return { data: { Timesheets: [rec] }, status: 200 };
       }

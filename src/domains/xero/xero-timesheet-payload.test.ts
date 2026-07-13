@@ -49,8 +49,10 @@ const PERIOD = { periodStart: "2026-07-06", periodEnd: "2026-07-12" };
 function build(items: unknown[], over: Record<string, unknown> = {}) {
   return buildTimesheets({ items, ...PERIOD, employeesById: employees(), calendarsById: calendars(), ...over });
 }
-function worker(out: { workers: Array<{ workerId: string }> }, id: string) {
-  return out.workers.find((w) => w.workerId === id);
+// buildTimesheets is required untyped (createRequire) — keep the helper loose.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function worker(out: any, id: string): any {
+  return out.workers.find((w: { workerId: string }) => w.workerId === id);
 }
 function line(ts: { TimesheetLines: Array<{ EarningsRateID: string; NumberOfUnits: number[] }> }, rateId: string) {
   return ts.TimesheetLines.find((l) => l.EarningsRateID === rateId);
