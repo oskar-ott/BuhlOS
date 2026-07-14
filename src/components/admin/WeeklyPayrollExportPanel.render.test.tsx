@@ -5,14 +5,12 @@ import { WeeklyPayrollExportPanel } from "./WeeklyPayrollExportPanel";
 import type { PayrollRun } from "@/domains/timesheets/types";
 
 /**
- * Static-render guards for the committed-export panel (#126). The live
- * preview→confirm→commit flow is pinned by the export API harness + the
- * pure URL-builder tests; these pin the initial surface and the runs-log
- * rendering (straight from payroll-runs.json fields, no embellishment).
+ * Static-render guards for the weekly payroll runs panel (#126 / #895).
  *
- * CRITICAL invariant asserted here: the committed (mutating) export URL
- * never renders as an <a href> — navigation happens only inside an onClick,
- * so nothing can prefetch a payroll mutation.
+ * The committed (mutating) run is retired — this surface is now a READ-ONLY
+ * run log plus copy pointing at the payroll-batch flow. The critical invariant
+ * survives: no mutating export URL renders as an <a href> (there is no export
+ * link at all now), and there is no preview/commit action.
  */
 
 const run: PayrollRun = {
@@ -34,12 +32,13 @@ const base = {
 };
 
 describe("WeeklyPayrollExportPanel", () => {
-  it("initial state: preview CTA, no committed-export link anywhere", () => {
+  it("read-only: points at the batch flow, no export link or commit action", () => {
     const html = renderToString(createElement(WeeklyPayrollExportPanel, base));
-    expect(html).toContain("Preview this week");
-    expect(html).toContain("nothing is stamped until");
-    // The mutating GET must never be a hyperlink Next could prefetch.
+    expect(html).toContain("Hours → Payroll period");
+    expect(html).toContain("no longer stamps hours");
+    // no mutating GET as a hyperlink, and no preview/commit action
     expect(html).not.toContain('href="/api/time-entries-export');
+    expect(html).not.toContain("Preview this week");
   });
 
   it("renders the run log verbatim: id, range, rows, actor, hash prefix", () => {

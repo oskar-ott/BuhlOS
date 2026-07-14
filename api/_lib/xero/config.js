@@ -14,10 +14,13 @@
 // Scopes: identity + refresh (#247) plus the READ-ONLY reference scopes
 // (#610): payroll.employees.read / payroll.settings.read (Payroll AU
 // employees, calendars, pay items) and accounting.settings.read (tracking
-// categories, for #254's job mapping). NO write scope exists anywhere —
-// write scopes arrive only with #249 behind its own flag, per the ADR's
-// no-writes gate. Connections minted before #610 lack the read scopes;
-// hasReferenceReadScopes() detects that and the UI says "reconnect".
+// categories, for #254's job mapping). The one WRITE scope — payroll.timesheets
+// (#249) — is requested at connect ONLY when xero_payroll_export is on for the
+// connecting admin (the authorize URL is built flag-aware via scopesFor), so a
+// default connection stays read-only, faithful to the ADR's flag-gated write.
+// Connections minted before #610 lack the read scopes; hasReferenceReadScopes()
+// detects that. Connections minted without the write scope can't export until a
+// reconnect — hasTimesheetWriteScope() detects that and the export says so.
 
 const { encryptionKeyConfigured } = require('../secret-box');
 
@@ -36,10 +39,24 @@ const REFERENCE_READ_SCOPES = [
 
 const SCOPES = ['openid profile email offline_access', ...REFERENCE_READ_SCOPES].join(' ');
 
+// #249: the first WRITE scope — Payroll AU draft timesheets.
+const TIMESHEET_WRITE_SCOPE = 'payroll.timesheets';
+
+/** Scope string for a connect — read-only by default, +write when enabled. */
+function scopesFor({ write = false } = {}) {
+  return write ? `${SCOPES} ${TIMESHEET_WRITE_SCOPE}` : SCOPES;
+}
+
 /** True when a connection's granted scopes include every reference read scope. */
 function hasReferenceReadScopes(grantedScopes) {
   const granted = new Set(String(grantedScopes || '').split(/\s+/).filter(Boolean));
   return REFERENCE_READ_SCOPES.every((s) => granted.has(s));
+}
+
+/** True when a connection's granted scopes include the timesheet WRITE scope. */
+function hasTimesheetWriteScope(grantedScopes) {
+  const granted = new Set(String(grantedScopes || '').split(/\s+/).filter(Boolean));
+  return granted.has(TIMESHEET_WRITE_SCOPE);
 }
 
 const PROVIDER = 'xero';
@@ -105,7 +122,10 @@ module.exports = {
   ACCOUNTING_BASE,
   SCOPES,
   REFERENCE_READ_SCOPES,
+  TIMESHEET_WRITE_SCOPE,
+  scopesFor,
   hasReferenceReadScopes,
+  hasTimesheetWriteScope,
   PROVIDER,
   SETTINGS_PATH,
   clientId,

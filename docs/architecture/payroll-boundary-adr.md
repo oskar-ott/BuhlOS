@@ -1,6 +1,6 @@
 # ADR — the BuhlOS/Xero payroll boundary (Phil submits, BuhlOS approves, Xero pays)
 
-**Status:** Proposed — 2026-06-21 → Accepted on merge
+**Status:** Accepted 2026-06-21 (#614) · **Amended 2026-07-13** — Milestone 4 export convergence ([#895]/[#249]): the locked payroll batch is the single export source (see Consequences → Export convergence).
 **Deciders:** Oskar (owner) · platform
 **Relates to:** Epic [#184] (Xero Integration), Epic [#122] (Hours & Payroll),
 [#609] (this ADR), [#247] (connect), [#610] (read reference data),
@@ -68,7 +68,7 @@ remains the **payroll system of record**. Concretely:
 | Worker-entered time + site/task/job context | **Phil → BuhlOS** | Phil captures; BuhlOS holds the operational record + allocations |
 | Approval workflow + audit trail | **BuhlOS** | Xero is never asked to approve; approval evidence stays local |
 | Job costing / labour-by-job/stage | **BuhlOS** | `time_entries`, per-job ledger ([#134]) |
-| Export/push batches + Xero sync-state | **BuhlOS** | `payroll_runs` + sync-log (sent/accepted/rejected/skipped, `X-Correlation-Id`) |
+| Export/push batches + Xero sync-state | **BuhlOS** | immutable `payroll_batches` snapshot + append-only timesheet attempt/event records (pending → accepted_by_xero → verified_against_xero / rejected, `X-Correlation-Id`) |
 | Worker↔employee, work-type↔earnings-rate, job↔tracking maps | **BuhlOS** | explicit confirmed links ([#248]/[#611]/[#254]); never name-guessed at push time |
 | Employee payroll record, tax, super, bank details | **Xero** | BuhlOS does not copy or compute |
 | Pay calendars, earnings rates, leave types | **Xero (source)** | BuhlOS holds a **non-authoritative cache** for mapping ([#610]) |
@@ -86,9 +86,18 @@ remains the **payroll system of record**. Concretely:
   and how to reconnect** ([#247]) — never errors or hides.
 - **Data minimisation:** BuhlOS holds no statutory tax/super/bank truth; sensitive
   identifiers are write-sensitive and non-roundtrippable.
-- **Backwards-compat:** the shipped committed CSV export stays as the **fallback
-  path**; the push extends the `api/time-entries-export.js` seam, it does not
-  replace it.
+- **Export convergence (amended 2026-07-13, M4 [#895]/[#249]):** the **locked payroll
+  batch is the single export source** for BOTH the Xero draft-timesheet push and the
+  CSV fallback. The CSV fallback is **preserved** — but it now downloads **from the
+  immutable batch snapshot** (`payroll_batch_items`), not from live stamped hours.
+  The legacy stamp-based committed-run in `api/time-entries-export.js` (the non-dry-run
+  GET commit + POST finalise + `payroll-runs.json` write) is **retired**; that file
+  keeps only its read-only preview/rollup GET. This **supersedes** the original clause
+  ("the push extends the CSV seam, it does not replace it"): there is now **one** export
+  mechanism, not two competing ones. Double-export protection moves from live time-entry
+  `exportId` stamps to batch membership + the batch's own attempt/event records; the
+  per-worker entry stamp remains only as a **compatibility bridge**, written after a
+  push is accepted **and** reconciled.
 
 ## Constitution gate
 

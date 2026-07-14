@@ -43,6 +43,7 @@ Non-protected feature flags also carry presentation metadata (`label`, `domain`,
 | `phil_sharpened` | global | 2026-12-31 | Phil field-surface redesign ("sharpened"): 5-slot global nav (Today·Jobs·Capture·Hours·Gear, account on the header avatar) + screen re-skins. Behavioural change to the ratified Phil package — flips only via governance (P15) |
 | `phil_job_rooms` | global | 2026-12-31 | In-job four-rooms navigation (Now·Work·Proof·Site + Capture) on `/phil/jobs/[jobId]` — the #133 tabbed-job experiment, judged by the tabs criterion. Requires `phil_sharpened` |
 | `xero_connection` | admin-tier | 2026-12-31 | The Xero payroll foundation — connection, reference sync, worker + work-type mappings, immutable payroll batches on `/hours/period` (#247/#610/#248/#611/#893/#894). No Xero write exists behind this flag; the timesheet push (#249) gets its own independent gate |
+| `xero_payroll_export` | admin-tier | 2026-12-31 | The first Xero WRITE — export a LOCKED payroll batch to Xero Payroll AU as DRAFT timesheets with per-worker readback reconciliation (#249). Independent of `xero_connection`; default OFF. DRAFT timesheets only — no pay runs / approval / STP / tax / super / payslips (payroll-boundary ADR #609). Gates the Preview/Export/Retry/Reconcile controls on `/hours/period`; the batch-CSV download stays available without it |
 
 ## Flipping a flag
 

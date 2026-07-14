@@ -37,6 +37,15 @@ const { isAdminRole, isOwnerRole } = require('./auth');
 
 /** @type {Record<string, {description: string, default: boolean, target: 'global'|'admin-tier', expires: string}>} */
 const REGISTRY = {
+  // #249 — the first Xero WRITE. Its OWN gate, independent of xero_connection:
+  // turning Xero writes off never touches time capture, the CSV fallback, or the
+  // read-only reference sync. Default OFF, admin-tier, owner-previewable.
+  xero_payroll_export: {
+    description: 'The first Xero WRITE — push a LOCKED payroll batch to Xero Payroll AU as DRAFT timesheets with readback reconciliation (#249). Independent of xero_connection; default off, admin-tier. No pay runs / approval / STP.',
+    default: false,
+    target: 'admin-tier',
+    expires: '2026-12-31',
+  },
   // Phil FIELD jobs-summary READ path (perf, not Supabase): when on, the
   // field/leading-hand job LIST GET (/api/jobs, no ?id, no ?withStats) is served
   // from a small derived jobs-summary.json projection instead of reading+parsing
@@ -664,6 +673,7 @@ const FLAG_PRESENTATION = {
   phil_sharpened: { label: 'Phil sharpened redesign', domain: 'Phil', surface: 'Phil', previewHref: '/phil/my-day' },
   phil_job_rooms: { label: 'Phil in-job rooms (#133)', domain: 'Phil', surface: 'Phil', previewHref: '/phil/jobs' },
   xero_connection: { label: 'Xero connection', domain: 'Platform', surface: 'BuhlOS', previewHref: '/settings/integrations/xero' },
+  xero_payroll_export: { label: 'Xero payroll export (draft timesheets)', domain: 'Platform', surface: 'BuhlOS', previewHref: '/hours/period' },
 
   // #760 kill-switches. `core: true` = load-bearing spine; the board warns
   // before the owner turns one off.

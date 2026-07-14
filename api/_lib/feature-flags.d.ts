@@ -44,6 +44,7 @@ export type FlagKey =
   | "phil_sharpened" // Phil field-surface redesign campaign — dark launch-gate; flips via governance (P15)
   | "phil_job_rooms" // #133 in-job four-rooms experiment — dark launch-gate; requires phil_sharpened
   | "xero_connection" // #247 Xero OAuth connection foundation — dark launch-gate
+  | "xero_payroll_export" // #249 first Xero WRITE — draft-timesheet export; independent write gate
   | "itp"
   // #760 owner feature-control kill-switches (LIVE features, default ON)
   | "jobs"

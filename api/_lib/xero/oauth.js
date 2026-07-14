@@ -23,6 +23,7 @@ const {
   REVOCATION_URL,
   CONNECTIONS_URL,
   SCOPES,
+  scopesFor,
   clientId,
   clientSecret,
   redirectUri,
@@ -55,13 +56,17 @@ function verifyState(state, userId) {
   return payload;
 }
 
-/** The Xero authorization URL the browser is redirected to. */
-function authorizeUrl(state, env = process.env) {
+/**
+ * The Xero authorization URL the browser is redirected to. `write` adds the
+ * payroll.timesheets WRITE scope (#249) — set only when xero_payroll_export is
+ * on for the connecting admin, so a default connect stays read-only.
+ */
+function authorizeUrl(state, { env = process.env, write = false } = {}) {
   const params = new URLSearchParams({
     response_type: 'code',
     client_id: clientId(env),
     redirect_uri: redirectUri(env),
-    scope: SCOPES,
+    scope: scopesFor({ write }),
     state,
   });
   return `${AUTHORIZE_URL}?${params.toString()}`;

@@ -98,8 +98,12 @@ a pure projection over this loop; nothing below changed.
 - **Bulk approve a worker's week in BuhlOS v2** — the API exists
   (`/api/time-entries-bulk-approve`) and legacy `/admin/hours` uses it; the v2
   queue approves per entry. Candidate next PR.
-- **Committed payroll export / Xero** — dry-run preview only on `/hours`; the
-  committed run (stamps + locks entries) stays on legacy `/admin/hours`.
+- **Committed payroll export / Xero** — recording a payroll run is now the
+  immutable payroll-batch flow on `/hours/period` (create → validate → lock →
+  Export to Xero / Download batch CSV). The legacy stamp-based committed run and
+  POST finalise are **retired** (#895); `/api/time-entries-export` is read-only
+  preview/download. The Xero draft-timesheet write (#249) rides its own
+  `xero_payroll_export` flag — DRAFT timesheets only, no pay run.
 - **Admin reopen from the v2 UI** — API exists (`/api/time-entries-reopen`),
   surface is legacy for now.
 

@@ -80,6 +80,9 @@ export default async function HoursPeriodPage({
   // #893/#894: the Xero-ready payroll-batch panel rides the xero_connection
   // flag — dark means the panel simply doesn't render (CSV export unaffected).
   const xeroBatchesEnabled = await isFlagEnabled("xero_connection", session);
+  // #249: the draft-timesheet EXPORT actions ride an independent write flag.
+  // Dark means the panel shows batches but no Export/Retry/Reconcile controls.
+  const xeroExportEnabled = await isFlagEnabled("xero_payroll_export", session);
   if (!isAdminRole(session.role)) {
     redirect("/hours/weekly");
   }
@@ -308,7 +311,11 @@ export default async function HoursPeriodPage({
             />
 
             {xeroBatchesEnabled ? (
-              <PayrollBatchPanel fromDate={range.fromDate} toDate={range.toDate} />
+              <PayrollBatchPanel
+                fromDate={range.fromDate}
+                toDate={range.toDate}
+                exportEnabled={xeroExportEnabled}
+              />
             ) : null}
 
             <Card className="overflow-x-auto">

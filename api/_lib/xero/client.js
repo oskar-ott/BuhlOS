@@ -106,15 +106,17 @@ async function getAccessContext(deps = {}) {
   });
 }
 
-async function rawFetch(url, { method = 'GET', accessToken, tenantId, fetchImpl }) {
+async function rawFetch(url, { method = 'GET', accessToken, tenantId, body, fetchImpl }) {
   try {
     return await (fetchImpl || fetch)(url, {
       method,
       headers: {
         Authorization: `Bearer ${accessToken}`,
         Accept: 'application/json',
+        ...(body != null ? { 'Content-Type': 'application/json' } : {}),
         ...(tenantId ? { 'Xero-tenant-id': tenantId } : {}),
       },
+      ...(body != null ? { body: JSON.stringify(body) } : {}),
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
   } catch (err) {
@@ -135,7 +137,9 @@ function correlationIdOf(res) {
  * timeout, typed errors, correlation id, last_success_at touch.
  *
  * @param {string} url absolute Xero API URL
- * @param {{ method?: string, tenanted?: boolean, deps?: object }} [opts]
+ * @param {{ method?: string, body?: object, tenanted?: boolean, deps?: object }} [opts]
+ *   `body` (any JSON-serialisable value) is sent as an application/json request
+ *   body — used by the timesheet push (#249). Absent = no body, unchanged GET behaviour.
  * @returns {Promise<{ data: any, correlationId: string|null }>}
  */
 async function xeroFetch(url, opts = {}) {
@@ -148,6 +152,7 @@ async function xeroFetch(url, opts = {}) {
     method: opts.method,
     accessToken: ctx.accessToken,
     tenantId,
+    body: opts.body,
     fetchImpl: deps.fetchImpl,
   });
 
@@ -160,6 +165,7 @@ async function xeroFetch(url, opts = {}) {
       method: opts.method,
       accessToken: ctx.accessToken,
       tenantId,
+      body: opts.body,
       fetchImpl: deps.fetchImpl,
     });
   }
@@ -172,6 +178,7 @@ async function xeroFetch(url, opts = {}) {
         method: opts.method,
         accessToken: ctx.accessToken,
         tenantId,
+        body: opts.body,
         fetchImpl: deps.fetchImpl,
       });
     }

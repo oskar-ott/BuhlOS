@@ -97,7 +97,7 @@ Confirmed in code. These are the intended destinations for new navigation.
 | `/hours` | `src/app/(admin)/hours/page.tsx` | Hours view. |
 | `/hours/approvals` | `src/app/(admin)/hours/approvals/page.tsx` | Approvals queue. |
 | `/hours/weekly` | `src/app/(admin)/hours/weekly/page.tsx` | Weekly closeout / payroll readiness (PR #113). |
-| `/hours/period` | `src/app/(admin)/hours/period/page.tsx` | Pay-period roll-up — Xero-ready approved-hours preview (#131; admin-tier; reuses the export dry-run + weekly-closeout engines) + the flag-gated payroll-batch review panel (#893/#894 — validate → create → lock immutable batches; still NO Xero writes; dark unless `xero_connection` is on). |
+| `/hours/period` | `src/app/(admin)/hours/period/page.tsx` | Pay-period roll-up — read-only Xero-ready approved-hours preview (#131/#895; admin-tier; `/api/time-entries-export` is preview/download only, no commit) + the flag-gated payroll-batch review panel (#893/#894 — validate → create → lock immutable batches; dark unless `xero_connection` is on). Locked batches export as DRAFT Xero timesheets via `/api/xero/payroll-export` (#249), gated by `xero_payroll_export` (default off); the batch-CSV download works without it. |
 | `/gear` | `src/app/(admin)/gear/page.tsx` | Gear register. |
 | `/employees` | `src/app/(admin)/employees/page.tsx` | People / onboarding (O1+). |
 | `/employees/[id]` | `src/app/(admin)/employees/[id]/page.tsx` | Employee detail. |
