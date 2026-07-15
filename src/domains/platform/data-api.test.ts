@@ -157,9 +157,9 @@ describe("GET /api/data — read-only access preserved", () => {
     expect(res.statusCode).toBe(401);
   });
 
-  it("403s a worker not assigned to the job", async () => {
+  it("now serves any worker an active job (all-jobs access)", async () => {
     const res = await call({ method: "GET", cookie: cookieFor("u_other", "electrician"), jobId: JOB });
-    expect(res.statusCode).toBe(403);
+    expect(res.statusCode).toBe(200);
   });
 
   it("400s a GET with no jobId", async () => {

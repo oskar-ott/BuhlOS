@@ -407,9 +407,9 @@ module.exports = async (req, res) => {
         const { records } = await readJobsSummary();
         // Same per-viewer visibility filter as the full list branch: the worker's
         // assigned, non-draft, non-archived jobs.
+        // All-jobs access: field/LH see EVERY active job, not just assigned ones.
         let visible = records.filter(
           (j) =>
-            (me.assignedJobIds || []).includes(j.id) &&
             j.status !== 'draft' &&
             j.status !== 'archived' &&
             j.status !== 'complete' // #349: closed-out jobs are field-invisible
@@ -481,10 +481,7 @@ module.exports = async (req, res) => {
   ) {
     const me = await getCurrentUser(req);
     if (!me) return res.status(401).json({ error: 'not authenticated' });
-    if (
-      (isFieldRole(me.role) || isLeadingHandRole(me.role)) &&
-      (me.assignedJobIds || []).includes(req.query.id)
-    ) {
+    if (isFieldRole(me.role) || isLeadingHandRole(me.role)) {
       try {
         const { record } = await readJobDetailProjection(req.query.id);
         // Only short-circuit the happy path: the job exists and is live. Draft and

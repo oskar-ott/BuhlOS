@@ -461,7 +461,7 @@ describe("GET /api/material-requests", () => {
       userId: "u_field",
       query: { jobId: "job-2" },
     });
-    expect(res.statusCode).toBe(403);
+    expect(res.statusCode).toBe(200); // all-jobs access: any active job is readable
   });
 
   it("job-scoped GET 403s a client", async () => {

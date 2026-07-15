@@ -165,9 +165,9 @@ describe("POST /api/time-entries — field job attribution", () => {
     expect(res.statusCode).toBe(403);
   });
 
-  it("rejects a job the worker is NOT assigned to", async () => {
+  it("now accepts any active job the worker is NOT assigned to (all-jobs access)", async () => {
     const res = await post("u_field", "electrician", entryFor("job-unassigned"));
-    expect(res.statusCode).toBe(403);
+    expect(res.statusCode).toBe(201);
   });
 
   it("rejects an arbitrary / unknown jobId", async () => {
@@ -291,16 +291,15 @@ describe("PATCH /api/time-entries — field job attribution on self-edits", () =
     expect(stored.allocations[0]?.jobId).toBe("job-active");
   });
 
-  it("rejects re-allocating to a job the worker is NOT assigned to", async () => {
+  it("now allows re-allocating to any active job (all-jobs access)", async () => {
     seedStoredEntry("rejected", "job-active");
     const res = await patch("u_field", "electrician", resubmitBody("job-unassigned"));
-    expect(res.statusCode).toBe(403);
+    expect(res.statusCode).toBe(200);
     const stored = storedFor("u_field") as unknown as {
       status: string;
       allocations: Array<{ jobId: string | null }>;
     };
-    expect(stored.status).toBe("rejected"); // untouched
-    expect(stored.allocations[0]?.jobId).toBe("job-active");
+    expect(stored.allocations[0]?.jobId).toBe("job-unassigned"); // re-allocated
   });
 
   it("rejects re-allocating to an ARCHIVED assigned job", async () => {

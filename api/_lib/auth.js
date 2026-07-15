@@ -274,8 +274,13 @@ async function requireAuth(req, res, opts = {}) {
     return null;
   }
   if (opts.jobId) {
+    // All-jobs access: admin, leading-hand and field roles may access ANY job —
+    // job assignment no longer scopes staff visibility (every worker works every
+    // job). Clients stay restricted to their own linked jobs.
     const hasAccess =
       isAdminRole(user.role) ||
+      isLeadingHandRole(user.role) ||
+      isFieldRole(user.role) ||
       (user.assignedJobIds || []).includes(opts.jobId);
     if (!hasAccess) {
       res.status(403).json({ error: 'no access to job' });
@@ -288,12 +293,11 @@ async function requireAuth(req, res, opts = {}) {
 // Check if a user can WRITE to a job. Admin-tier writes any job;
 // field + LH tiers write jobs they're assigned to; clients are
 // read-only.
-function canWrite(user, jobId) {
+function canWrite(user, _jobId) {
   if (!user) return false;
   if (isAdminRole(user.role)) return true;
-  if (isLeadingHandRole(user.role) || isFieldRole(user.role)) {
-    return (user.assignedJobIds || []).includes(jobId);
-  }
+  // All-jobs access: field + LH may write ANY job (assignment no longer scopes).
+  if (isLeadingHandRole(user.role) || isFieldRole(user.role)) return true;
   return false; // client + anything unknown is read-only
 }
 

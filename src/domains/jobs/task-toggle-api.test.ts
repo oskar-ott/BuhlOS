@@ -282,10 +282,10 @@ describe("POST /api/task-toggle — happy path persistence", () => {
 });
 
 describe("POST /api/task-toggle — auth + role gates", () => {
-  it("rejects a worker not assigned to the job (403)", async () => {
+  it("now allows a field worker on any active job (all-jobs access)", async () => {
     const res = await call({ userId: "u_other", role: "electrician", jobId: "job-active", body: validBody() });
-    expect(res.statusCode).toBe(403);
-    expect(blob.has("jobs/job-active/data.json")).toBe(false);
+    expect(res.statusCode).toBe(200);
+    expect(blob.has("jobs/job-active/data.json")).toBe(true);
   });
 
   it("rejects a client even when nominally assigned (403)", async () => {
