@@ -193,9 +193,9 @@ describe("api/services-locations.js — permissions", () => {
     expect(res.statusCode).toBe(201);
   });
 
-  it("a field worker NOT assigned to the job is 403 (no job access)", async () => {
+  it("now allows a field worker on any active job (all-jobs access)", async () => {
     const res = await call("POST", { id: "u_field", role: "tradie" }, { jobId: "job-other" }, { type: "meter", description: "x" });
-    expect(res.statusCode).toBe(403);
+    expect(res.statusCode).toBe(201);
   });
 
   it("a field worker cannot PATCH or DELETE (manage = admin + LH only)", async () => {

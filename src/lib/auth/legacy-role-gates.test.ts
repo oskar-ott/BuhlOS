@@ -178,11 +178,12 @@ describe("requireAuth tier-aware { roles } gate", () => {
     expect(user).toBeNull();
   });
 
-  it("still enforces job assignment for field workers (jobId opt)", async () => {
+  it("all-jobs access: field workers reach ANY job (assignment no longer scopes)", async () => {
     const ok = await gate("tradie", { jobId: "job-1" }, ["job-1"]);
     expect(ok.res.statusCode).toBe(200);
-    const no = await gate("tradie", { jobId: "job-2" }, ["job-1"]);
-    expect(no.res.statusCode).toBe(403);
+    // an UNassigned job is now reachable too — every worker works every job
+    const other = await gate("tradie", { jobId: "job-2" }, ["job-1"]);
+    expect(other.res.statusCode).toBe(200);
     // admin-tier reaches any job without an assignment
     const boss = await gate("boss", { jobId: "job-9" }, []);
     expect(boss.res.statusCode).toBe(200);

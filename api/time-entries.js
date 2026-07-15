@@ -426,12 +426,14 @@ async function fieldAllocationGateError(user, allocations) {
   const jobsBlob = await readBlob('jobs.json', { jobs: [] });
   const jobById = {};
   (jobsBlob.jobs || []).forEach((j) => { jobById[j.id] = j; });
-  const assigned = new Set(user.assignedJobIds || []);
+  // All-jobs access: a field worker may log against ANY active job (assignment
+  // no longer scopes) — the job must still exist and be active, never draft or
+  // archived.
   for (const jid of allocJobIds) {
     const job = jobById[jid];
     const activeForField = job && job.status !== 'archived' && job.status !== 'draft';
-    if (!job || !assigned.has(jid) || !activeForField) {
-      return 'forbidden — hours can only be logged against an active job you are assigned to';
+    if (!job || !activeForField) {
+      return 'forbidden — hours can only be logged against an active job';
     }
   }
   return null;

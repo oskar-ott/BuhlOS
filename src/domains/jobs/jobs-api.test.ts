@@ -1709,13 +1709,13 @@ describe("GET /api/jobs?id=… job-detail projection (perf, flag-gated)", () => 
     expect(job.contractValue).toBe(120000); // full read for admin → money intact ⇒ projection did not run
   });
 
-  it("UNASSIGNED: a worker is 403'd for a job they're not on (fast path defers to the full read, no leak)", async () => {
+  it("all-jobs access: a worker now reaches any ACTIVE job they're not assigned to", async () => {
     const jobsBlob = blob.get("jobs.json") as { jobs: Array<Record<string, unknown>> };
     jobsBlob.jobs.push({ id: "job-unassigned", name: "Someone else's site", status: "active" });
     process.env.FLAG_PHIL_JOBS_SUMMARY_READ = "true";
     const res = await call({ method: "GET", userId: "u_lh", role: "lh", query: { id: "job-unassigned" } });
-    expect(res.statusCode).toBe(403); // not in assignedJobIds → fast path skipped → full read 403s
-    expect(res.body).not.toHaveProperty("job"); // and never serves the job
+    expect(res.statusCode).toBe(200); // assignment no longer scopes — active job is served
+    expect(res.body).toHaveProperty("job");
   });
 
   it("DRAFT/ARCHIVED: field 404s through the projection path (falls through to the authoritative read)", async () => {

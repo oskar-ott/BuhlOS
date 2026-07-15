@@ -180,9 +180,9 @@ describe("tier gating", () => {
     expect(res.statusCode).toBe(403);
   });
 
-  it("403 for a field worker on a job they are NOT assigned to", async () => {
+  it("now allows a field worker on any active job (all-jobs access)", async () => {
     const res = await call({ method: "POST", role: "electrician", userId: "u_field", query: { jobId: "job-2" }, body: { description: "x" } });
-    expect(res.statusCode).toBe(403);
+    expect(res.statusCode).toBe(201);
   });
 
   it("a field worker creates + signs on an ASSIGNED job", async () => {

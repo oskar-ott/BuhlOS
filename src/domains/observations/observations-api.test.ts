@@ -297,7 +297,7 @@ describe("POST /api/observations (create)", () => {
       query: { jobId: "job-2" },
       body: { type: "note", title: "x" },
     });
-    expect(res.statusCode).toBe(403);
+    expect(res.statusCode).toBe(201); // all-jobs access: any active job is writable
   });
 
   it("400s when jobId is missing", async () => {
