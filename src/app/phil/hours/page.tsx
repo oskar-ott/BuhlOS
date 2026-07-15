@@ -12,7 +12,7 @@ import { PhilWeekSummary } from "@/components/phil/PhilWeekSummary";
 import { PhilHoursSharpened } from "@/components/phil/PhilHoursSharpened";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
-import { TimeEntryListResponseSchema } from "@/domains/timesheets/schema";
+import { parseTimeEntryListLenient } from "@/domains/timesheets/parse-entries";
 import type { TimeEntry } from "@/domains/timesheets/types";
 import { canResubmitInPhil, type AssignableJob } from "@/domains/timesheets/resubmit";
 import { BUSINESS_TIMEZONE, localDateString } from "@/domains/timesheets/service";
@@ -254,11 +254,16 @@ async function loadHistory(cookieValue: string | undefined): Promise<{
       return { entries: [], fetchError: `API returned ${res.status}` };
     }
     const body = await res.json();
-    const parsed = TimeEntryListResponseSchema.safeParse(body);
-    if (!parsed.success) {
+    const parsed = parseTimeEntryListLenient(body);
+    if (!parsed.ok) {
       return { entries: [], fetchError: "Unexpected response shape" };
     }
-    return { entries: parsed.data.entries, fetchError: null };
+    if (parsed.dropped > 0) {
+      console.warn(
+        `phil/hours: skipped ${parsed.dropped} malformed time entr${parsed.dropped === 1 ? "y" : "ies"}`,
+      );
+    }
+    return { entries: parsed.entries, fetchError: null };
   } catch (err) {
     return {
       entries: [],

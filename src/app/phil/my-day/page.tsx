@@ -20,7 +20,7 @@ import {
   type SessionPayload,
 } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
-import { TimeEntryListResponseSchema } from "@/domains/timesheets/schema";
+import { parseTimeEntryListLenient } from "@/domains/timesheets/parse-entries";
 import type { TimeEntry } from "@/domains/timesheets/types";
 import {
   BUSINESS_TIMEZONE,
@@ -457,18 +457,23 @@ async function loadEntries(
       };
     }
     const body = await res.json();
-    const parsed = TimeEntryListResponseSchema.safeParse(body);
-    if (!parsed.success) {
+    const parsed = parseTimeEntryListLenient(body);
+    if (!parsed.ok) {
       return {
         todayEntry: null,
         recentEntries: [],
         fetchError: "Unexpected response shape",
       };
     }
-    const todayEntry = parsed.data.entries.find((e) => e.date === today) ?? null;
+    if (parsed.dropped > 0) {
+      console.warn(
+        `phil/my-day: skipped ${parsed.dropped} malformed time entr${parsed.dropped === 1 ? "y" : "ies"}`,
+      );
+    }
+    const todayEntry = parsed.entries.find((e) => e.date === today) ?? null;
     return {
       todayEntry,
-      recentEntries: parsed.data.entries,
+      recentEntries: parsed.entries,
       fetchError: null,
     };
   } catch (err) {
