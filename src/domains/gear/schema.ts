@@ -135,6 +135,10 @@ export const GEAR_HISTORY_KINDS = [
   "transfer_accepted",
   "transfer_declined",
   "transfer_expired",
+  // #303 scan-to-claim — a field worker claims an in-storage asset via its QR
+  // label. Stored as its own kind (not a bare transfer) so the log shows the
+  // self-service claim distinctly, but shape-compatible ({ from:null, to:me }).
+  "claim",
 ] as const;
 export const GearHistoryKindSchema = z.enum(GEAR_HISTORY_KINDS);
 
@@ -288,6 +292,44 @@ export const ReportGearPayloadSchema = z.object({
 export const MarkGearGoodPayloadSchema = z.object({
   assetId: z.string().min(1, "assetId required"),
   note: z.string().trim().max(500, "Note too long").nullable().optional(),
+});
+
+/**
+ * POST /api/assets?action=claim — #303 scan-to-claim. A field worker claims an
+ * in-storage asset by scanning its printed QR label. Server gates the role
+ * (assignable holder only), archived state, and storage state (409 with a
+ * pointer to the #306 request-transfer path if a holder appeared).
+ */
+export const ClaimGearPayloadSchema = z.object({
+  assetId: z.string().min(1, "assetId required"),
+});
+
+/**
+ * GET-style summary read for the scan landing page (#303,
+ * POST /api/assets?action=scan-info). Deliberately NARROW — the fields the
+ * page needs to render the asset and pick the ONE right action, never the full
+ * detail/history payload. `status` mirrors deriveStatus() in service.ts.
+ */
+export const ScanInfoResponseSchema = z.object({
+  asset: z.object({
+    id: z.string(),
+    name: z.string(),
+    type: GearAssetTypeSchema,
+    identifier: z.string().nullable().optional(),
+    status: GearAssetStatusSchema,
+    archived: z.boolean(),
+    condition: GearAssetConditionSchema.optional(),
+    currentHolderId: z.string().nullable().optional(),
+    currentHolderName: z.string().nullable().optional(),
+    heldByMe: z.boolean(),
+    pendingTransfer: z
+      .object({
+        toUserId: z.string(),
+        toUserName: z.string().nullable().optional(),
+      })
+      .nullable()
+      .optional(),
+  }),
 });
 
 export const ApiErrorBodySchema = z.object({

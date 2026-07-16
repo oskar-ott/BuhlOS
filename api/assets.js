@@ -410,6 +410,152 @@ module.exports = async (req, res) => {
       return res.status(200).json({ asset: a });
     }
 
+    // ── #303: ?action=claim — a field worker claims an IN-STORAGE asset by
+    //   scanning its printed QR label. This is the ONLY path that lets a field
+    //   role move an unheld asset onto themselves (transfer requires you to
+    //   already hold it, or to be admin). Scoped deliberately to storage:
+    //   claiming an asset held by someone else must go through the #306
+    //   handshake, never snatch.
+    //
+    //   Body: { assetId }
+    //
+    //   Gates (fail-closed, in order):
+    //     - assignable holder role only (field-tier / leading hand). Admin-tier
+    //       assigns via the register (office-vs-holder semantics), so admin is
+    //       rejected here with a pointer to that flow; clients are already 403
+    //       at the top gate.
+    //     - not a disabled/archived user.
+    //     - asset exists and is NOT archived (retired stock can't be claimed).
+    //     - asset is in storage (currentHolderId == null) AND has no pending
+    //       handover — else 409 pointing at the request-transfer path (#306).
+    //   Integrity: the read is fresh (readAsset → readBlobFresh, BUG-C-004
+    //   discipline) and we 409 if a holder appeared between the scan and the
+    //   claim tap (two tradies, one drill, same moment). The history row is the
+    //   SAME shape as a transfer ({ from:null, to:me }) so every existing
+    //   consumer (admin drawer, Phil history, assignmentsFromHistory) reads it.
+    if (action === 'claim') {
+      if (isAdminRole(user.role)) {
+        return res.status(403).json({
+          error: 'admins assign gear from the register, not by claiming — use the office gear page',
+        });
+      }
+      if (!isAssignableHolderRole(user.role)) {
+        return res.status(403).json({ error: 'only field workers and leading hands can claim gear' });
+      }
+      if (isDisabledUser(user)) {
+        return res.status(403).json({ error: 'your account can no longer hold gear — ask the office' });
+      }
+      const body = req.body || {};
+      const { assetId } = body;
+      if (!assetId) return res.status(400).json({ error: 'assetId required' });
+      const a = await readAsset(assetId);
+      if (!a) return res.status(404).json({ error: 'asset not found' });
+      if (a.archived) return res.status(409).json({ error: 'this asset is no longer in service' });
+
+      // Lazily clear an expired handover before deciding — a stale proposal
+      // shouldn't block a claim once its 5-day window has passed.
+      const expiredEntry = expirePendingIfDue(a);
+      if (expiredEntry) {
+        await writeAsset(a);
+        await appendHistory(assetId, expiredEntry);
+      }
+
+      // Race + not-in-storage guard: if a holder appeared since the scan (or the
+      // asset was never in storage), send the claimer to the #306 request path.
+      if (a.currentHolderId) {
+        const usersBlob = await readBlob('users.json', { users: [] });
+        const holder = (usersBlob.users || []).find(u => u.id === a.currentHolderId);
+        const holderName = holder ? holder.username : 'someone';
+        if (a.currentHolderId === user.id) {
+          // Idempotent: you already hold it (double-scan / double-tap).
+          return res.status(200).json({ asset: a, alreadyMine: true });
+        }
+        return res.status(409).json({
+          error: `${holderName} is holding this — ask for a transfer instead of claiming`,
+          currentHolderId: a.currentHolderId,
+          currentHolderName: holderName,
+        });
+      }
+      if (a.pendingTransfer) {
+        return res.status(409).json({
+          error: 'a handover is already pending for this asset',
+        });
+      }
+
+      const now = new Date().toISOString();
+      a.currentHolderId = user.id;
+      a.assignedAt = now;
+      a.updatedAt = now;
+      await writeAsset(a);
+      await appendHistory(assetId, {
+        id: newHistoryId(),
+        kind: 'claim',
+        from: null,
+        to: user.id,
+        at: now,
+        byUserId: user.id,
+        byRole: user.role,
+        byName: user.username,
+        note: 'claimed from storage via QR scan',
+      });
+      return res.status(200).json({ asset: a });
+    }
+
+    // ── #303: ?action=scan-info — the summary-only read the scan landing page
+    //   needs BEFORE the worker decides to claim. The normal GET ?id= 403s a
+    //   field worker who doesn't already hold the asset, so an in-storage tool
+    //   is unreadable from the field — this endpoint fills that gap.
+    //
+    //   Body: { assetId }
+    //
+    //   Returns a DELIBERATELY NARROW summary (id / name / type / identifier /
+    //   status / holder display name) — never the full detail payload or the
+    //   transfer history — for assignable-holder roles. Admin-tier is allowed
+    //   too (so admins can eyeball a sticker), but the shape is identical.
+    //   Archived assets return status:'retired' honestly (not 404) so the page
+    //   can say "no longer in service" rather than a bare not-found.
+    if (action === 'scan-info') {
+      // Only gear holders (+ admin-tier) reach the API at all (top gate). No
+      // extra role narrowing here — the payload is holder-safe by construction.
+      const body = req.body || {};
+      const { assetId } = body;
+      if (!assetId) return res.status(400).json({ error: 'assetId required' });
+      const a = await readAsset(assetId);
+      if (!a) return res.status(404).json({ error: 'not found' });
+
+      let holderName = null;
+      if (a.currentHolderId) {
+        const usersBlob = await readBlob('users.json', { users: [] });
+        const holder = (usersBlob.users || []).find(u => u.id === a.currentHolderId);
+        holderName = holder ? holder.username : '(unknown user)';
+      }
+      // Derived status mirrors src/domains/gear/service.ts deriveStatus():
+      // archived > condition > holder presence.
+      let status = 'available';
+      if (a.archived === true) status = 'retired';
+      else if (a.condition === 'damaged') status = 'damaged';
+      else if (a.condition === 'missing') status = 'missing';
+      else if (a.currentHolderId) status = 'assigned';
+
+      return res.status(200).json({
+        asset: {
+          id: a.id,
+          name: a.name,
+          type: a.type,
+          identifier: a.identifier || null,
+          status,
+          archived: a.archived === true,
+          condition: a.condition || 'good',
+          currentHolderId: a.currentHolderId || null,
+          currentHolderName: holderName,
+          heldByMe: a.currentHolderId === user.id,
+          pendingTransfer: a.pendingTransfer
+            ? { toUserId: a.pendingTransfer.toUserId, toUserName: a.pendingTransfer.toUserName || null }
+            : null,
+        },
+      });
+    }
+
     // ── Phase C hardening: ?action=mark-good — admin clears a damaged /
     //   missing condition after the asset has been repaired or recovered.
     //   Workers are not allowed to do this (would let a tradie hide a

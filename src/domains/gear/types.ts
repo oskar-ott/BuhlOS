@@ -14,6 +14,8 @@ import type {
   ReportGearPayloadSchema,
   ReportKindSchema,
   MarkGearGoodPayloadSchema,
+  ClaimGearPayloadSchema,
+  ScanInfoResponseSchema,
   GearMutationResponseSchema,
   UpdateGearAssetPayloadSchema,
 } from "./schema";
@@ -53,11 +55,13 @@ export type UpdateGearAssetPayload = z.infer<typeof UpdateGearAssetPayloadSchema
 export type TransferGearPayload = z.infer<typeof TransferGearPayloadSchema>;
 export type ReportGearPayload = z.infer<typeof ReportGearPayloadSchema>;
 export type MarkGearGoodPayload = z.infer<typeof MarkGearGoodPayloadSchema>;
+export type ClaimGearPayload = z.infer<typeof ClaimGearPayloadSchema>;
 
 export type GearListResponse = z.infer<typeof GearListResponseSchema>;
 export type ExpiringCalibration = z.infer<typeof ExpiringCalibrationSchema>;
 export type GearDetailResponse = z.infer<typeof GearDetailResponseSchema>;
 export type GearMutationResponse = z.infer<typeof GearMutationResponseSchema>;
+export type ScanInfoResponse = z.infer<typeof ScanInfoResponseSchema>;
 
 /**
  * A "transferable user" — a worker who can hold gear. Admin sees these in

@@ -693,3 +693,284 @@ describe("calibrationDue (#305) — optional ISO date on create/edit", () => {
     );
   });
 });
+
+/** History entries for an asset straight from the in-memory blob. */
+function historyOf(assetId: string): Array<Record<string, unknown>> {
+  const log = blob.get(`assets/${assetId}/history.json`) as
+    | { entries: Array<Record<string, unknown>> }
+    | undefined;
+  return log ? log.entries : [];
+}
+
+describe("POST ?action=claim — #303 scan-to-claim of an in-storage asset", () => {
+  it("a field worker claims a storage asset → becomes holder + a claim history row", async () => {
+    const res = await call({
+      method: "POST",
+      userId: "u_field",
+      role: "electrician",
+      query: { action: "claim" },
+      body: { assetId: "a_storage" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(holderOf("a_storage")).toBe("u_field");
+    const entries = historyOf("a_storage");
+    expect(entries.length).toBe(1);
+    // Same shape as a transfer ({ from:null, to:me }) so every consumer reads it.
+    expect(entries[0]).toMatchObject({
+      kind: "claim",
+      from: null,
+      to: "u_field",
+      byUserId: "u_field",
+    });
+  });
+
+  it("a leading hand can claim from storage", async () => {
+    const res = await call({
+      method: "POST",
+      userId: "u_lh",
+      role: "lh",
+      query: { action: "claim" },
+      body: { assetId: "a_storage" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(holderOf("a_storage")).toBe("u_lh");
+  });
+
+  it("409s when the asset is already held by someone else (points at the #306 path)", async () => {
+    const res = await call({
+      method: "POST",
+      userId: "u_field2",
+      role: "tradie",
+      query: { action: "claim" },
+      body: { assetId: "a_held" }, // held by u_field
+    });
+    expect(res.statusCode).toBe(409);
+    expect((res.body as { currentHolderId: string }).currentHolderId).toBe("u_field");
+    // The holder didn't change.
+    expect(holderOf("a_held")).toBe("u_field");
+  });
+
+  it("409s on a race — a holder appeared between the scan and the claim tap", async () => {
+    // Simulate the race: the asset was in storage when scanned, but readAsset
+    // (fresh read) now returns a holder. We mutate the blob to model that.
+    (blob.get("assets/a_storage.json") as { currentHolderId: string | null }).currentHolderId =
+      "u_field";
+    const res = await call({
+      method: "POST",
+      userId: "u_field2",
+      role: "tradie",
+      query: { action: "claim" },
+      body: { assetId: "a_storage" },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(holderOf("a_storage")).toBe("u_field"); // unchanged
+  });
+
+  it("is idempotent — claiming an asset you already hold returns 200 (double-scan)", async () => {
+    const res = await call({
+      method: "POST",
+      userId: "u_field",
+      role: "electrician",
+      query: { action: "claim" },
+      body: { assetId: "a_held" }, // u_field already holds this
+    });
+    expect(res.statusCode).toBe(200);
+    expect((res.body as { alreadyMine: boolean }).alreadyMine).toBe(true);
+    // No spurious history row for a no-op claim.
+    expect(historyOf("a_held").length).toBe(0);
+  });
+
+  it("409s an archived asset (no longer in service)", async () => {
+    const res = await call({
+      method: "POST",
+      userId: "u_field",
+      role: "electrician",
+      query: { action: "claim" },
+      body: { assetId: "a_archived" },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(holderOf("a_archived")).toBeNull();
+  });
+
+  it("403s an admin (admins assign from the register, they don't claim)", async () => {
+    const res = await call({
+      method: "POST",
+      userId: "u_admin",
+      role: "admin",
+      query: { action: "claim" },
+      body: { assetId: "a_storage" },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(holderOf("a_storage")).toBeNull();
+  });
+
+  it("403s a client at the top gate", async () => {
+    const res = await call({
+      method: "POST",
+      userId: "u_client",
+      role: "client",
+      query: { action: "claim" },
+      body: { assetId: "a_storage" },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("rejects a disabled field worker (blocked at auth → 401; never becomes holder)", async () => {
+    // requireAuth() drops a disabled user before the handler runs (auth.js
+    // isDisabledUser gate), so the claim never lands. The handler's own
+    // isDisabledUser check is defence-in-depth for any future auth change.
+    const res = await call({
+      method: "POST",
+      userId: "u_disabled",
+      role: "tradie",
+      query: { action: "claim" },
+      body: { assetId: "a_storage" },
+    });
+    expect(res.statusCode).toBe(401);
+    expect(holderOf("a_storage")).toBeNull();
+  });
+
+  it("404s an unknown asset id", async () => {
+    const res = await call({
+      method: "POST",
+      userId: "u_field",
+      role: "electrician",
+      query: { action: "claim" },
+      body: { assetId: "a_nope" },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("400s when assetId is missing", async () => {
+    const res = await call({
+      method: "POST",
+      userId: "u_field",
+      role: "electrician",
+      query: { action: "claim" },
+      body: {},
+    });
+    expect(res.statusCode).toBe(400);
+  });
+});
+
+describe("POST ?action=scan-info — #303 summary read for the scan landing page", () => {
+  type ScanBody = {
+    asset: {
+      id: string;
+      name: string;
+      status: string;
+      currentHolderId: string | null;
+      currentHolderName: string | null;
+      heldByMe: boolean;
+      archived: boolean;
+    };
+  };
+
+  it("in-storage asset reads as available, no holder", async () => {
+    const res = await call({
+      method: "POST",
+      userId: "u_field2",
+      role: "tradie",
+      query: { action: "scan-info" },
+      body: { assetId: "a_storage" },
+    });
+    expect(res.statusCode).toBe(200);
+    const a = (res.body as ScanBody).asset;
+    expect(a.status).toBe("available");
+    expect(a.currentHolderId).toBeNull();
+    expect(a.heldByMe).toBe(false);
+  });
+
+  it("held-by-me asset reads as assigned with heldByMe=true", async () => {
+    const res = await call({
+      method: "POST",
+      userId: "u_field",
+      role: "electrician",
+      query: { action: "scan-info" },
+      body: { assetId: "a_held" },
+    });
+    expect(res.statusCode).toBe(200);
+    const a = (res.body as ScanBody).asset;
+    expect(a.status).toBe("assigned");
+    expect(a.heldByMe).toBe(true);
+    expect(a.currentHolderName).toBe("sparky");
+  });
+
+  it("held-by-other asset reads as assigned with the holder name, heldByMe=false", async () => {
+    const res = await call({
+      method: "POST",
+      userId: "u_field2",
+      role: "tradie",
+      query: { action: "scan-info" },
+      body: { assetId: "a_held" }, // held by u_field (sparky)
+    });
+    expect(res.statusCode).toBe(200);
+    const a = (res.body as ScanBody).asset;
+    expect(a.status).toBe("assigned");
+    expect(a.heldByMe).toBe(false);
+    expect(a.currentHolderName).toBe("sparky");
+  });
+
+  it("archived asset reads honestly as retired (not a 404)", async () => {
+    const res = await call({
+      method: "POST",
+      userId: "u_field",
+      role: "electrician",
+      query: { action: "scan-info" },
+      body: { assetId: "a_archived" },
+    });
+    expect(res.statusCode).toBe(200);
+    const a = (res.body as ScanBody).asset;
+    expect(a.status).toBe("retired");
+    expect(a.archived).toBe(true);
+  });
+
+  it("admin-tier can read scan-info too (same narrow shape)", async () => {
+    const res = await call({
+      method: "POST",
+      userId: "u_office",
+      role: "office",
+      query: { action: "scan-info" },
+      body: { assetId: "a_storage" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect((res.body as ScanBody).asset.id).toBe("a_storage");
+  });
+
+  it("does NOT leak the full detail payload (no history, no notes/hire fields)", async () => {
+    const res = await call({
+      method: "POST",
+      userId: "u_field2",
+      role: "tradie",
+      query: { action: "scan-info" },
+      body: { assetId: "a_held" },
+    });
+    const a = (res.body as { asset: Record<string, unknown> }).asset;
+    expect(a).not.toHaveProperty("history");
+    expect(a).not.toHaveProperty("notes");
+    expect(a).not.toHaveProperty("hireRateExGst");
+    expect(a).not.toHaveProperty("createdBy");
+  });
+
+  it("404s an unknown asset id", async () => {
+    const res = await call({
+      method: "POST",
+      userId: "u_field",
+      role: "electrician",
+      query: { action: "scan-info" },
+      body: { assetId: "a_nope" },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("403s a client at the top gate", async () => {
+    const res = await call({
+      method: "POST",
+      userId: "u_client",
+      role: "client",
+      query: { action: "scan-info" },
+      body: { assetId: "a_storage" },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+});

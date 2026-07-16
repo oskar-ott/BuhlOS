@@ -96,6 +96,15 @@ describe("middleware — unauthenticated access to a gated route → /v2/login?n
     expect(target!.pathname).toBe("/v2/login");
     expect(target!.next).toBe(pathname);
   });
+
+  it("preserves the query string in next — a logged-out QR scan resumes on the exact tool (#303)", () => {
+    // /phil/gear/scan is gated by the /phil/gear prefix; the asset id must
+    // survive the login round-trip or the sticker's asset is lost.
+    const target = redirectTarget(middleware(request("/phil/gear/scan?asset=a_kd93jf")));
+    expect(target).not.toBeNull();
+    expect(target!.pathname).toBe("/v2/login");
+    expect(target!.next).toBe("/phil/gear/scan?asset=a_kd93jf");
+  });
 });
 
 describe("middleware — admin tier on BuhlOS admin surfaces", () => {

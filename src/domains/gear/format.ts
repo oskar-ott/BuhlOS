@@ -57,6 +57,7 @@ const HISTORY_LABELS: Record<GearHistoryKind, string> = {
   transfer_accepted: "Handover accepted",
   transfer_declined: "Handover declined",
   transfer_expired: "Handover expired",
+  claim: "Claimed from storage",
 };
 
 export function historyKindLabel(kind: GearHistoryKind | undefined): string {
