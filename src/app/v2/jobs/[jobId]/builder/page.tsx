@@ -14,9 +14,6 @@ import {
   runScopeReconciliationView,
   type ScopeReconciliationView,
 } from "@/server/job-control/reconciliation-read";
-import { UsersListResponseSchema } from "@/domains/users/schema";
-import { filterAssignableWorkers } from "@/domains/users/assignment";
-import type { AssignableWorker } from "@/domains/users/types";
 
 export const dynamic = "force-dynamic";
 
@@ -76,9 +73,8 @@ export default async function JobBuilderPage({ params }: PageParams) {
   //     cockpit Inspector; degrades to a `missing` view, never fakes certainty.
   //   - withStats only when the redesign's Deliver tab (its sole consumer) can
   //     render: flag-off, the enrichment was 6 pure-waste blob reads per load.
-  const [result, workers, reconciliation] = await Promise.all([
+  const [result, reconciliation] = await Promise.all([
     loadJob(raw, jobId, { withStats: redesignEnabled }),
-    loadAssignableWorkers(raw),
     loadReconciliation(jobId),
   ]);
 
@@ -112,13 +108,9 @@ export default async function JobBuilderPage({ params }: PageParams) {
 
   return (
     <BuilderShell jobId={jobId} title={result.job.name}>
-      {/* Crew now lives inside the cockpit's Crew section (assignableWorkers),
-          not as a sibling panel. */}
       <JobBuilderClient
         job={result.job}
         reconciliation={reconciliation}
-        assignableWorkers={workers.workers}
-        workersLoadError={workers.error}
         planStudioEnabled={planStudioEnabled}
         planTasksEnabled={planTasksEnabled}
         redesignEnabled={redesignEnabled}
@@ -199,41 +191,6 @@ async function loadJob(
     return {
       kind: "error",
       message: err instanceof Error ? err.message : "Network error",
-    };
-  }
-}
-
-/**
- * Load the assignable field/LH workers for the "Assigned field workers" panel.
- *
- * GET /api/users is admin-tier-gated; this page is already admin-only, so the
- * forwarded session cookie passes. We filter to active field/LH accounts
- * server-side (filterAssignableWorkers) so the client only ever receives the
- * four secret-free worker fields — never hashes or non-field accounts. A failure
- * is non-blocking: the panel shows an error banner, the builder still renders.
- */
-async function loadAssignableWorkers(cookieValue: string | undefined): Promise<{
-  workers: AssignableWorker[];
-  error: string | null;
-}> {
-  const h = await headers();
-  const host = h.get("x-forwarded-host") ?? h.get("host");
-  const proto = h.get("x-forwarded-proto") ?? "http";
-  const base = host ? `${proto}://${host}` : "http://localhost:3000";
-  try {
-    const res = await fetch(`${base}/api/users`, {
-      cache: "no-store",
-      headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
-    });
-    if (!res.ok) return { workers: [], error: `API returned ${res.status}` };
-    const body = await res.json();
-    const parsed = UsersListResponseSchema.safeParse(body);
-    if (!parsed.success) return { workers: [], error: "Unexpected response shape" };
-    return { workers: filterAssignableWorkers(parsed.data.users), error: null };
-  } catch (err) {
-    return {
-      workers: [],
-      error: err instanceof Error ? err.message : "Network error",
     };
   }
 }

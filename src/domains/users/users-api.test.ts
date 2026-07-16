@@ -1,6 +1,5 @@
 import { createRequire } from "node:module";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { computeAssignedJobIds } from "./assignment";
 
 /**
  * Integration tests for the v2 job-assignment loop against the REAL serverless
@@ -160,8 +159,8 @@ describe("GET /api/users (admin read)", () => {
     const users = (res.body as { users: Array<Record<string, unknown>> }).users;
     expect(users.length).toBe(6);
     for (const u of users) expect(u).not.toHaveProperty("passwordHash");
-    // Non-field accounts ARE returned by the API — filtering to assignable
-    // workers is the client's job (see assignment.ts filterAssignableWorkers).
+    // Non-field accounts ARE returned by the API — it serves the full roster
+    // unfiltered; any narrowing is the caller's job.
     expect(users.map((u) => u.role)).toEqual(
       expect.arrayContaining(["admin", "office", "client", "electrician", "tradie", "lh"])
     );
@@ -181,7 +180,7 @@ describe("PUT /api/users — assign / remove (admin or office)", () => {
       method: "PUT",
       userId: "u_admin",
       role: "admin",
-      body: { id: "u_field2", assignedJobIds: computeAssignedJobIds([], "job-active", true) },
+      body: { id: "u_field2", assignedJobIds: ["job-active"] },
     });
     expect(res.statusCode).toBe(200);
     expect(res.body).not.toHaveProperty(["user", "passwordHash"]);
@@ -194,14 +193,15 @@ describe("PUT /api/users — assign / remove (admin or office)", () => {
       method: "PUT",
       userId: "u_office",
       role: "office",
-      body: { id: "u_lh", assignedJobIds: computeAssignedJobIds([], "job-active", true) },
+      body: { id: "u_lh", assignedJobIds: ["job-active"] },
     });
     expect(res.statusCode).toBe(200);
     expect(assignedIdsOf("u_lh")).toEqual(["job-active"]);
   });
 
   it("removes a worker from one job while PRESERVING their other jobs", async () => {
-    const next = computeAssignedJobIds(assignedIdsOf("u_field"), "job-active", false);
+    // Caller sends the FULL intended array; dropping one job preserves the rest.
+    const next = assignedIdsOf("u_field").filter((id) => id !== "job-active");
     const res = await call(usersHandler, {
       method: "PUT",
       userId: "u_admin",

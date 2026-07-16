@@ -470,7 +470,7 @@ describe("office-tier viewer scoping (#123)", () => {
     expect(body.jobs.activeJobs).toBe(2); // all active jobs, not zero
   });
 
-  it("today-pulse: a leading hand stays scoped to allocations on their jobs", async () => {
+  it("today-pulse: all-jobs access — a leading hand now sees EVERY active job", async () => {
     seedEntry("u_elec", PAST_WEEKDAY); // allocation on job-x
     blob.set(`users/u_appr/time-entries/${PAST_WEEKDAY}.json`, {
       id: `te_u_appr_${PAST_WEEKDAY}`,
@@ -490,7 +490,9 @@ describe("office-tier viewer scoping (#123)", () => {
     const lh = await pulse("u_lh_viewer", "leadingHand", PAST_WEEKDAY);
     expect(lh.statusCode).toBe(200);
     const body = lh.body as { hours: { submittedCount: number }; jobs: { activeJobs: number } };
-    expect(body.hours.submittedCount).toBe(1); // only the job-x entry
-    expect(body.jobs.activeJobs).toBe(1); // only their job
+    // Assignment no longer scopes: the LH sees BOTH entries (job-x and job-y)
+    // and every active job — the same pulse an office viewer gets.
+    expect(body.hours.submittedCount).toBe(2);
+    expect(body.jobs.activeJobs).toBe(2);
   });
 });

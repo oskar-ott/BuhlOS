@@ -3,10 +3,10 @@
 // the SAME numbers (one engine, two consumers), instead of the tool
 // re-implementing the walk.
 //
-// Visibility is viewer-scoped exactly as the endpoint always did: admin tier
-// sees the whole company; a leading hand sees only assigned jobs. Callers gate
-// WHO may ask (the endpoint gates staff; the AI tool gates admin-tier) — this
-// module only scopes WHAT the viewer sees.
+// All-jobs access: every viewer sees every ACTIVE job's pulse — job assignment
+// no longer scopes visibility. Admin tier additionally counts allocations with
+// no job attached. Callers gate WHO may ask (the endpoint gates staff; the AI
+// tool gates admin-tier).
 //
 // Cost: 1 jobs.json read + 1 blob list on users/ + N parallel per-active-job
 // data.json reads. Same cost shape as the digest cron.
@@ -23,7 +23,7 @@ function sydneyToday() {
 }
 
 /**
- * @param {{ role?: string, assignedJobIds?: string[] }} viewer
+ * @param {{ role?: string }} viewer
  * @param {string} date YYYY-MM-DD
  * @returns {Promise<{date: string, hours: object, snags: object, jobs: object}>}
  */
@@ -32,12 +32,11 @@ async function computeDayPulse(viewer, date) {
   const jobsBlob = await readBlob('jobs.json', { jobs: [] });
   const allJobs  = jobsBlob.jobs || [];
   const active   = allJobs.filter(j => (j.status || 'active') === 'active');
-  // Tier-aware (not literal 'admin'): office/boss/PM see the whole company's
-  // pulse; leading hands stay scoped to their jobs (#123).
+  // All-jobs access: every viewer sees every ACTIVE job — assignment no longer
+  // scopes visibility. Admin tier still additionally counts allocations that
+  // carry no jobId (see the hours walk below).
   const meIsAdminTier = isAdminRole(viewer.role);
-  const visible  = meIsAdminTier
-    ? active
-    : active.filter(j => (viewer.assignedJobIds || []).includes(j.id));
+  const visible  = active;
   const visibleIds = new Set(visible.map(j => j.id));
 
   // ── Hours: walk per-user time-entries for the date ────────────────────

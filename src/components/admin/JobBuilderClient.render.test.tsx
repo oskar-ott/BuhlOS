@@ -60,7 +60,6 @@ describe("JobBuilderClient", () => {
     expect(html).toContain("Gear");
     expect(html).toContain("ITPs / QA");
     expect(html).toContain("Risks &amp; RFIs");
-    expect(html).toContain("Crew");
     expect(html).toContain("Phil preview");
     expect(html).toContain("Publish");
     expect(html).toContain("More");
@@ -172,8 +171,6 @@ describe("JobBuilderClient", () => {
     // the five per-hub tabs collapse into the one Deliver step
     expect(on).not.toContain("Plans &amp; docs");
     expect(on).not.toContain("ITPs / QA");
-    // Crew survives (it isn't a link-out hub)
-    expect(on).toContain("Crew");
     // Wave 4b — the Documents step joins the Build group when redesign is ON,
     // and is absent from today's rail when OFF. Scoped to the exact rail label
     // ("Documents" also appears mid-sentence in the More tab's copy).

@@ -73,10 +73,7 @@ import {
 import { JobBuilderCockpit, type CockpitNavGroup, type CockpitSectionStatus } from "./JobBuilderCockpit";
 import { Inspector, type InspectorRow } from "./Inspector";
 import { ReviewQueue, type ReviewClause } from "./ReviewQueue";
-import { JobAssignmentPanel } from "./JobAssignmentPanel";
 import { classifyScopeClause } from "./jobControlAuthoringClient";
-import type { AssignableWorker } from "@/domains/users/types";
-import { isAssignedToJob } from "@/domains/users/assignment";
 import { certaintyForClassification, type CertaintyState } from "@/domains/jobs/certainty";
 import type { ScopeClassification } from "@/domains/job-control/reconciliation";
 import type {
@@ -170,7 +167,6 @@ type TabKey =
   | "spec"
   | "deliver"
   | DeliverKey
-  | "crew"
   | "preview"
   | "publish"
   | "more";
@@ -190,7 +186,6 @@ const TABS: ReadonlyArray<{ key: TabKey; label: string }> = [
   { key: "gear", label: "Gear" },
   { key: "itps", label: "ITPs / QA" },
   { key: "risks", label: "Risks & RFIs" },
-  { key: "crew", label: "Crew" },
   { key: "preview", label: "Phil preview" },
   { key: "publish", label: "Publish" },
   { key: "more", label: "More" },
@@ -288,7 +283,7 @@ const SECTION_TESTID: Partial<Record<TabKey, string>> = {
 
 const COCKPIT_GROUPS: ReadonlyArray<{ heading: string; keys: ReadonlyArray<TabKey> }> = [
   { heading: "Build", keys: ["overview", "basics", "documents", "scope", "structure", "modules", "planStudio", "spec"] },
-  { heading: "Deliver", keys: ["deliver", "plans", "materials", "gear", "itps", "risks", "crew"] },
+  { heading: "Deliver", keys: ["deliver", "plans", "materials", "gear", "itps", "risks"] },
   { heading: "Ship", keys: ["preview", "publish"] },
   { heading: "More", keys: ["more"] },
 ];
@@ -367,8 +362,6 @@ const CLAUSE_CLASSIFICATION_LABEL: Record<ScopeClassification, string> = {
 export function JobBuilderClient({
   job: initialJob,
   reconciliation = null,
-  assignableWorkers = [],
-  workersLoadError = null,
   planStudioEnabled = false,
   planTasksEnabled = false,
   redesignEnabled = false,
@@ -377,9 +370,6 @@ export function JobBuilderClient({
   /** The confirmed scope reconciliation (server-loaded), or null/missing. Source
    *  of real per-clause certainty for the cockpit Inspector. */
   reconciliation?: ScopeReconciliationView | null;
-  /** Assignable field/LH crew (server-loaded) for the cockpit Crew section. */
-  assignableWorkers?: ReadonlyArray<AssignableWorker>;
-  workersLoadError?: string | null;
   /** ai_drawings flag (admin-tier, dark) — gates the Plan Studio tab. */
   planStudioEnabled?: boolean;
   /** ai_plan_tasks flag (admin-tier, dark) — gates the tasks-from-fittings review. */
@@ -431,9 +421,6 @@ export function JobBuilderClient({
     const hash = (typeof window !== "undefined" ? window.location.hash : "").replace(/^#/, "");
     const t = tabFromHash(hash ? `#${hash}` : null);
     if (t) setTab(t);
-    // The legacy #assigned-field-workers anchor (Needs-Attention deep-link) now
-    // opens the Crew section, where the assignment panel lives.
-    else if (hash === "assigned-field-workers") setTab("crew");
   }, []);
   // Keep savedJob in sync with the server-provided job. A sibling section (e.g.
   // ScopeOfWorkSection) can save + router.refresh(), handing down a fresh `job`
@@ -526,7 +513,6 @@ export function JobBuilderClient({
       key === "modules" ||
       key === "more" ||
       key === "overview" ||
-      key === "crew" ||
       key === "spec" ||
       key === "deliver" ||
       key === "documents" ||
@@ -578,14 +564,6 @@ export function JobBuilderClient({
     if (key === "modules") {
       const on = MODULE_TOGGLES.filter((m) => moduleEnabled(savedJob, m.key)).length;
       return `${on} on`;
-    }
-    if (key === "crew") {
-      // Assignment lives on the workers (users.assignedJobIds), not the job.
-      // The server-loaded list is the page-load truth; if it failed to load
-      // there is no real number to show.
-      if (workersLoadError) return undefined;
-      const n = assignableWorkers.filter((w) => isAssignedToJob(w, savedJob.id)).length;
-      return `${n} assigned`;
     }
     return undefined;
   }
@@ -1281,8 +1259,6 @@ export function JobBuilderClient({
         return redesignEnabled ? (
           <DocumentsSection jobId={savedJob.id} aiAutofillEnabled={planStudioEnabled} />
         ) : null;
-      case "crew":
-        return renderCrew();
       case "plans":
       case "materials":
       case "gear":
@@ -1542,18 +1518,6 @@ export function JobBuilderClient({
           </Button>
         </Card>
       </div>
-    );
-  }
-
-  /* ============================ CREW ============================ */
-  function renderCrew() {
-    return (
-      <JobAssignmentPanel
-        jobId={savedJob.id}
-        jobName={savedJob.name}
-        initialWorkers={assignableWorkers}
-        loadError={workersLoadError}
-      />
     );
   }
 
