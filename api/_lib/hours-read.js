@@ -7,15 +7,32 @@
 //
 // Triple-gated like the mirror: no SUPABASE_DB_URL → Blob; flag off → Blob;
 // getDb runs the env guard. Best-effort: ANY failure returns {pg:false} so the
-// caller falls back to Blob (Blob remains source of truth). When on, an empty
-// PG result is trusted (returned as "no entries").
+// caller falls back to Blob (Blob remains source of truth).
+//
+// FAITHFULNESS GATE (see unfaithfulReason): a reconstructed entry that breaks the
+// domain invariant every Blob entry satisfies at write time is NOT served — the
+// whole call falls back to Blob. This is what makes the flag safe to leave on:
+// a partial mirror degrades to Blob instead of feeding the client a shape it
+// rejects. It does NOT make PG authoritative — see the completeness gap below.
+//
+// KNOWN GAP — this read has NO COMPLETENESS gate. An entry MISSING from PG
+// entirely (mirror timeout, 'tenant/user not mirrored', a write while the
+// dual-write flag was off) is indistinguishable from a day that was never
+// logged, and an empty PG result is trusted as "no entries". The gate below
+// catches CORRUPT rows, not ABSENT ones. Closing that needs a real parity check
+// against Blob (count//rev per window) — until then, treat this read as a perf
+// overlay whose safety rests on the dual-write actually having run.
 //
 // FLIP PREREQUISITES (do NOT enable supabase_read_hours in an env until ALL hold):
 //   1. parity IN SYNC for that env (scripts/importers/hours-parity.js) — note it
 //      compares time_entries TOTALS, not allocations, so spot-check allocations.
-//   2. Allocations are mirrored: the live dual-write (api/_lib/hours-mirror) now
-//      writes time_entry_allocations alongside the time_entry, so a live-created
-//      entry has its per-job split in PG. (Closed.)
+//   2. Allocations are mirrored: the live dual-write (api/_lib/hours-mirror)
+//      writes time_entry_allocations alongside the time_entry — but ONLY when
+//      every allocation's job resolves to a jobs row in PG. A job that was never
+//      mirrored (created before supabase_dual_write_jobs, or never re-saved
+//      since) makes the mirror quarantine the allocations and upsert the entry
+//      WITHOUT them. NOT closed by the mirror alone: verify every job a worker
+//      logs against exists in public.jobs for that env.
 //   3. updatedAt here reflects the last PG sync, not the Blob's last edit
 //      (trigger-managed; best-effort metadata).
 //
@@ -26,9 +43,41 @@
 
 const { isFlagOn } = require('./feature-flags');
 const { getDb } = require('./supabase-db');
+// Same tolerance api/_lib/alloc-pg applies when BUILDING allocation rows, so the
+// read can never reject a sum the writer would have accepted.
+const { TOLERANCE } = require('./hours-pg');
 
 function tsIso(v) {
   return v ? new Date(v).toISOString() : null;
+}
+
+/**
+ * Why a reconstructed entry must NOT be served, or '' when it is faithful. Pure.
+ *
+ * Every Blob entry satisfies this invariant at write time (validateEntryShape in
+ * api/_lib/time-entries.js: at least one allocation, each > 0, summing to
+ * totalHours), so a PG entry that breaks it is not a faithful reconstruction —
+ * it is a PARTIAL MIRROR. api/_lib/hours-mirror produces exactly that shape when
+ * an allocation's job is absent from public.jobs: alloc-pg quarantines the
+ * allocations and the mirror still upserts the parent time_entry, leaving a row
+ * whose per-job split is gone. Serving it is worse than falling back — the Phil
+ * client rejects an entry with no allocations (TimeEntrySchema: allocations
+ * .min(1)) and discards the WHOLE list, so one unmirrored job blanks a worker's
+ * entire week while Blob holds the hours all along.
+ *
+ * Deliberately NOT imported from time-entries.js: that module requires THIS one
+ * (it is the read seam), so importing back would be a require cycle. Kept narrow
+ * on purpose — it checks only what a partial mirror can actually corrupt.
+ */
+function unfaithfulReason(e) {
+  const allocations = Array.isArray(e.allocations) ? e.allocations : [];
+  if (allocations.length === 0) return 'no allocations';
+  const sum = allocations.reduce((s, a) => s + (Number(a.hours) || 0), 0);
+  const total = Number(e.totalHours);
+  if (Math.abs(sum - total) >= TOLERANCE) {
+    return `allocations sum ${Math.round(sum * 100) / 100} != totalHours ${total}`;
+  }
+  return '';
 }
 
 /**
@@ -124,7 +173,7 @@ async function queryUserEntries(sql, tenantId, userId, { fromDate, toDate, statu
  * Serve a user's hours entries from Postgres IF the read-cutover is enabled and
  * possible. Never throws. `deps` lets tests inject isFlagOn/getDb.
  * @returns {Promise<{pg:true, entries:Array}|{pg:false, reason?:string}>}
- *   pg:true  → entries are authoritative for this call (trust PG, incl. empty)
+ *   pg:true  → entries are faithful for this call (trust PG, incl. empty)
  *   pg:false → caller should read from Blob
  */
 async function listUserEntriesFromPgIfEnabled(userId, opts = {}, deps = {}) {
@@ -137,6 +186,19 @@ async function listUserEntriesFromPgIfEnabled(userId, opts = {}, deps = {}) {
     const tn = await sql`select id from public.tenants where slug = 'buhl'`;
     if (!tn.length) return { pg: false, reason: 'no tenant' };
     const entries = await queryUserEntries(sql, tn[0].id, userId, opts);
+    // ONE unfaithful entry fails the WHOLE call over to Blob rather than dropping
+    // just that entry: Blob is the source of truth and holds every entry, so the
+    // fallback always shows the worker more, never less. Filtering the bad entry
+    // out instead would hide exactly the day they logged — the original bug.
+    for (const e of entries) {
+      const bad = unfaithfulReason(e);
+      if (bad) {
+        console.error(
+          `[hours-read] unfaithful PG reconstruction for entry ${e.id} (${e.date}): ${bad} — serving Blob instead`
+        );
+        return { pg: false, reason: 'unfaithful reconstruction' };
+      }
+    }
     return { pg: true, entries };
   } catch (err) {
     console.error('[hours-read] PG read failed, falling back to Blob:', err && err.message);
@@ -151,4 +213,4 @@ async function loadAllHoursFromPg(sql, tenantId) {
   return queryUserEntries(sql, tenantId, null, {});
 }
 
-module.exports = { blobEntryFromPgRow, listUserEntriesFromPgIfEnabled, loadAllHoursFromPg };
+module.exports = { blobEntryFromPgRow, unfaithfulReason, listUserEntriesFromPgIfEnabled, loadAllHoursFromPg };
