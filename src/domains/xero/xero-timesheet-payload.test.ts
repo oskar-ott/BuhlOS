@@ -82,6 +82,26 @@ describe("alignmentFor", () => {
     expect(a.code).toBe("period_mismatch");
     expect(a.calendarPeriod).toEqual({ start: "2026-07-06", end: "2026-07-19" });
   });
+  it("parses Xero's raw .NET /Date(ms)/ startDate — the wire shape the reference sync caches", () => {
+    // 1784073600000 ms = 2026-07-15T00:00:00Z (a Wednesday): the live Demo
+    // Company "Weekly Calendar". Found by the first #249 proving run — the
+    // ISO-only parser read the anchor as NaN and every calendar blocked as
+    // "no fixed period length".
+    const wire = { name: "Weekly Calendar", payload: { calendarType: "WEEKLY", startDate: "/Date(1784073600000+0000)/" } };
+    const aligned = alignmentFor(wire, "2026-07-15", "2026-07-21");
+    expect(aligned.aligned).toBe(true);
+    expect(aligned.calendarPeriod).toEqual({ start: "2026-07-15", end: "2026-07-21" });
+
+    // A Mon–Sun batch against the Wed-anchored weekly calendar names the real period.
+    const misaligned = alignmentFor(wire, "2026-07-13", "2026-07-19");
+    expect(misaligned.code).toBe("period_mismatch");
+    expect(misaligned.calendarPeriod).toEqual({ start: "2026-07-08", end: "2026-07-14" });
+
+    // Negative-offset zone suffix and no-suffix forms parse identically.
+    expect(alignmentFor({ name: "W", payload: { calendarType: "WEEKLY", startDate: "/Date(1784073600000-0500)/" } }, "2026-07-15", "2026-07-21").aligned).toBe(true);
+    expect(alignmentFor({ name: "W", payload: { calendarType: "WEEKLY", startDate: "/Date(1784073600000)/" } }, "2026-07-15", "2026-07-21").aligned).toBe(true);
+  });
+
   it("blocks variable-length calendars as unsupported (never fudged)", () => {
     expect(alignmentFor(MONTHLY, "2026-07-06", "2026-07-12").code).toBe("calendar_unsupported");
   });
