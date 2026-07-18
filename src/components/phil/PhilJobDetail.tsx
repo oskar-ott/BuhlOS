@@ -3,7 +3,7 @@
 import { Suspense, use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PhilOfflineLink } from "./PhilOfflineLink";
 import { PhilSkeleton } from "./ui/PhilSkeleton";
-import { Camera, Images, Map as MapIcon, Zap } from "lucide-react";
+import { Camera, ClipboardList, Images, Map as MapIcon, Zap } from "lucide-react";
 import { scheduleSummaryLine } from "@/domains/circuit-schedule/format";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { PhilActionButton } from "./ui/PhilActionButton";
@@ -170,6 +170,9 @@ interface Props {
   /** `itp` flag (lean reset), resolved by the page: mount the ITPs section only
    *  while the feature is live — its API (api/job-itps.js) 404s when dark. */
   itpEnabled?: boolean;
+  /** `itp_simple` flag (#912): mount the simple ITP builder link-out only when
+   *  live — the /phil/jobs/[jobId]/itp-reports route + API 404 while dark. */
+  itpSimpleEnabled?: boolean;
   /** `snags` flag (lean reset), resolved by the page: mount the Snags section
    *  only while the feature is live — its API (api/snags.js) 404s when dark. */
   snagsEnabled?: boolean;
@@ -210,6 +213,8 @@ interface Props {
  *      lean reset) — mounted only while the feature is live.
  *   8. ITPs (#phil-job-itps) — JobItpPanel; flag-gated (`itp`, lean reset) —
  *      mounted only while the feature is live.
+ *   8b. Simple ITP builder link-out (#phil-job-itp-reports) — flag-gated
+ *      (`itp_simple`, #912); a Card link to /itp-reports, no inline panel.
  *   9. Plans (#phil-job-plans) — in-app drawing viewer link.
  *  10. Documents (#phil-job-documents) — JobDocumentsPanel (live, E2
  *      read-only — "Site files"; backed by the ungated /api/plans read).
@@ -254,6 +259,7 @@ export function PhilJobDetail({
   safetyEnabled = false,
   certificatesEnabled = false,
   itpEnabled = false,
+  itpSimpleEnabled = false,
   snagsEnabled = false,
   rooms = false,
 }: Props) {
@@ -1522,6 +1528,30 @@ export function PhilJobDetail({
       {itpEnabled ? (
         <section id="phil-job-itps" aria-label="ITPs" className="scroll-mt-16">
           <JobItpPanel job={job} initialItps={initialItps} />
+        </section>
+      ) : null}
+
+      {/* Simple ITP builder (#912, lean-reset step 6) — link-out only, the
+          builder lives on its own route. Independent of the heavy `itp`
+          system above; no trace while the flag is dark. */}
+      {itpSimpleEnabled ? (
+        <section id="phil-job-itp-reports" aria-label="ITP reports" className="scroll-mt-16">
+          <Card>
+            <CardTitle>ITPs</CardTitle>
+            <CardDescription className="mt-1">
+              Build an inspection report as you walk — name areas, drop photos
+              in, make the PDF.
+            </CardDescription>
+            <div className="mt-3">
+              <PhilOfflineLink
+                href={`/phil/jobs/${encodeURIComponent(job.id)}/itp-reports`}
+                className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-card border border-border bg-surface px-4 text-sm font-medium text-text transition-colors hover:border-border-strong hover:bg-surface-subtle"
+              >
+                <ClipboardList aria-hidden="true" className="h-5 w-5" />
+                Open ITPs
+              </PhilOfflineLink>
+            </div>
+          </Card>
         </section>
       ) : null}
 

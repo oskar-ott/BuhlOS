@@ -95,9 +95,10 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
   // api/snags.js), observations_inbox gates the observation fetch and the
   // Capture launcher's observation options. Booleans only — never the flags
   // blob (docs/feature-flags.md).
-  const [sharpenedFlags, itpEnabled, snagsEnabled, observationsEnabled] = await Promise.all([
+  const [sharpenedFlags, itpEnabled, itpSimpleEnabled, snagsEnabled, observationsEnabled] = await Promise.all([
     philSharpenedFlags(session),
     isFlagEnabled("itp", session),
+    isFlagEnabled("itp_simple", session),
     isFlagEnabled("snags", session),
     isFlagEnabled("observations_inbox", session),
   ]);
@@ -138,6 +139,7 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
           streamTaskState: false,
           jobRooms: sharpenedFlags.jobRooms,
           itpEnabled,
+          itpSimpleEnabled,
           snagsEnabled,
           observationsEnabled,
         })}
@@ -178,6 +180,7 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
           streamTaskState
           jobRooms={sharpenedFlags.jobRooms}
           itpEnabled={itpEnabled}
+          itpSimpleEnabled={itpSimpleEnabled}
           snagsEnabled={snagsEnabled}
           observationsEnabled={observationsEnabled}
         />
@@ -204,6 +207,7 @@ async function PhilJobDetailFull({
   streamTaskState,
   jobRooms,
   itpEnabled,
+  itpSimpleEnabled,
   snagsEnabled,
   observationsEnabled,
 }: {
@@ -226,6 +230,8 @@ async function PhilJobDetailFull({
    *  observations_inbox → api/observations.js), so the fetch is skipped
    *  entirely — empty data in, section hidden in PhilJobDetail. */
   itpEnabled: boolean;
+  /** itp_simple (#912): link-out card only — the builder route/API 404 dark. */
+  itpSimpleEnabled: boolean;
   snagsEnabled: boolean;
   observationsEnabled: boolean;
 }) {
@@ -340,6 +346,7 @@ async function PhilJobDetailFull({
       safetyEnabled={safetyEnabled}
       certificatesEnabled={certificatesEnabled}
       itpEnabled={itpEnabled}
+      itpSimpleEnabled={itpSimpleEnabled}
       snagsEnabled={snagsEnabled}
       rooms={jobRooms}
     />
