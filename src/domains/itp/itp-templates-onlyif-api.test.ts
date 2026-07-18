@@ -1,5 +1,13 @@
 import { createRequire } from "node:module";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Lean reset: ITP / QA is dark by default — these tests exercise the enabled behaviour.
+beforeAll(() => {
+  process.env.FLAG_ITP = "1";
+});
+afterAll(() => {
+  delete process.env.FLAG_ITP;
+});
 
 /**
  * #293 — save-time whitelist for conditional ("only-if") points against

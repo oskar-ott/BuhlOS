@@ -61,6 +61,16 @@ interface PhilShellProps {
    * anyway) — never changes this render.
    */
   jobRoomsEnabled?: boolean;
+  /**
+   * observations_inbox, resolved SERVER-SIDE by the page (isFlagEnabled) and
+   * passed as a boolean: whether the global Capture launcher may offer the
+   * worker/office observation options ("log something", "send to the office",
+   * the My Day quick-action presets). Their writes go to /api/observations,
+   * which 404s while the flag is off — so with it off the launcher shows ONLY
+   * the photo/evidence path. Defaults FALSE (safe-by-dark): an unthreaded
+   * call site (loading skeletons) never shows a dead observation form.
+   */
+  observationsEnabled?: boolean;
 }
 
 /**
@@ -83,6 +93,7 @@ export function PhilShell({
   rfiRegister,
   roomsActive,
   jobRoomsEnabled,
+  observationsEnabled = false,
 }: PhilShellProps) {
   return (
     <div
@@ -116,6 +127,7 @@ export function PhilShell({
             sharpened={sharpened}
             roomsActive={roomsActive}
             jobRoomsEnabled={jobRoomsEnabled}
+            observationsEnabled={observationsEnabled}
           />
         </PhilJobRoomsBarProvider>
       </CaptureLauncherProvider>

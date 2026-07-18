@@ -26,7 +26,7 @@ Non-protected feature flags also carry presentation metadata (`label`, `domain`,
 | `admin_flags_readout` | admin-tier | 2026-09-30 | The active-flags readout card on /command-centre |
 | `admin_job_field_view` | admin-tier | 2026-09-25 | The Office/Field view toggle + read-only Phil job render on `/v2/jobs/[jobId]` (mobile-admin redesign) |
 | `admin_proof_review` | admin-tier | 2026-09-25 | The office Proof-to-sign-off approve/send-back surface + Command Centre queue (#503) |
-| `itp` | global | 2027-06-30 | **Kill-switch (default ON).** Per-job ITP / QA — hold/witness/record + office sign-off (#474/#476). The owner can turn the whole feature off from `/owner` |
+| `itp` | global | 2027-06-30 | Per-job ITP / QA — hold/witness/record + office sign-off (#474/#476). **Hidden by the 2026-07 lean reset** (was a kill-switch); the owner can re-enable it from `/owner` |
 | `itp_simple` | global | 2026-12-31 | Simple mobile ITP builder in Phil (#912, lean-reset step 6) — job-scoped areas + photos rendered to a plain PDF at `/phil/jobs/[jobId]/itp-reports` + `api/itp-simple`. Metadata Supabase-first, binaries in Blob. Independent of the heavy `itp` system; default OFF |
 | `supabase_read_health` | global | 2026-12-31 | `GET /api/supabase-health` — the read-only Supabase connectivity proving slice (#533) |
 | `supabase_read_hours` | global | 2026-12-31 | Serve the hours display read (`listUserEntries`) from Postgres with a Blob fallback (#152) |
@@ -123,8 +123,14 @@ There are exactly two shapes. The kind is declared on the flag, not inferred:
   (e.g. it's misbehaving, or a customer isn't ready for it) without a revert
   deploy. `killSwitch: true` is the **only** way a flag defaults on, and it
   must be set explicitly per flag — so "no customer-visible feature turns on by
-  accident" still holds. `itp` is the first one: ITPs are live, so gating them
-  behind a plain `default: false` flag would hide them on the very next deploy.
+  accident" still holds. `hours` is the canonical one: the hours workflow is
+  live, so gating it behind a plain `default: false` flag would hide it on the
+  very next deploy.
+
+A feature can move **between** kinds: the 2026-07 **lean reset** reclassified
+most kill-switches back to dark launch-gates (`default: false`, `killSwitch`
+removed) — the sanctioned way to *archive* a shipped feature without deleting
+it. See "Feature kill-switches" below.
 
 The resolver is identical for both — `isFlagOn` / `isFlagEnabled` already honour
 `def.default`, so a kill-switch is just a flag whose default happens to be
@@ -140,11 +146,15 @@ non-`killSwitch` flag is `default: false`.
 
 ## Feature kill-switches — the owner controls the whole interface (#760)
 
-Most shipped features now carry a kill-switch flag so the owner can hide any of
-them from `/owner` (jobs, hours, evidence, observations, material requests,
-expenses, quotes, defects, dayworks, employees, gear, reports, ITPs, RFIs,
-snags, photos, scope, job control, closeout, documents, circuit schedules,
-diary, activity, …). Each such flag gates the feature at **three layers**, so
+Every shipped feature carries a flag the owner can control from `/owner`.
+**Since the 2026-07 lean reset** (`docs/product/02-lean-reset.md`), only the
+lean core remains a default-ON kill-switch: **jobs, hours, evidence,
+employees, gear**. Everything else — observations, material requests,
+expenses, quotes, defects, dayworks, reports, ITPs, snags, photos gallery,
+scope, job control, closeout, documents, circuit schedules, diary, job
+activity, … — is **hidden**: reclassified to a dark launch-gate
+(`default: false`), archived-not-deleted, re-enable from `/owner` any time.
+Each such flag gates the feature at **three layers**, so
 turning it off removes the feature everywhere — not just visually:
 
 1. **Navigation** — `src/components/admin/nav.ts` tags each sidebar item with

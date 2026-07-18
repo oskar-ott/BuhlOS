@@ -1,5 +1,13 @@
 import { createRequire } from "node:module";
-import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+
+// Lean reset: snags are dark by default — these tests exercise the enabled behaviour.
+beforeAll(() => {
+  process.env.FLAG_SNAGS = "1";
+});
+afterAll(() => {
+  delete process.env.FLAG_SNAGS;
+});
 
 /**
  * Integration tests for the #520 raised-from origin pointers on api/snags.js

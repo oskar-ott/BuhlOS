@@ -71,7 +71,15 @@ export function NotificationPrefRow({
   );
 }
 
-export function NotificationPrefsPanel() {
+export function NotificationPrefsPanel({
+  hiddenKeys = [],
+}: {
+  /** Pref rows to hide — kinds whose FEATURE is currently hidden (lean reset):
+   *  the server page resolves the feature flags and passes e.g. the snag kinds
+   *  here so the panel never advertises a push type the product can't send. */
+  hiddenKeys?: ReadonlyArray<NotificationPrefKey>;
+} = {}) {
+  const visibleMeta = NOTIFICATION_PREF_META.filter((m) => !hiddenKeys.includes(m.key));
   const [prefs, setPrefs] = useState<NotificationPrefs>(defaultPrefs);
   const [load, setLoad] = useState<LoadState>("loading");
   // One toggle in flight at a time; per-attempt error chip.
@@ -133,7 +141,7 @@ export function NotificationPrefsPanel() {
   if (load === "loading") {
     return (
       <div data-testid="notification-prefs-loading" className="space-y-3" aria-busy="true">
-        {NOTIFICATION_PREF_META.map((m) => (
+        {visibleMeta.map((m) => (
           <div
             key={m.key}
             className="h-16 animate-pulse rounded-card border border-border bg-surface-subtle"
@@ -168,7 +176,7 @@ export function NotificationPrefsPanel() {
       ) : null}
 
       <ul className="space-y-2">
-        {NOTIFICATION_PREF_META.map((meta) => (
+        {visibleMeta.map((meta) => (
           <NotificationPrefRow
             key={meta.key}
             meta={meta}

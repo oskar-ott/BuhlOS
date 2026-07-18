@@ -1,11 +1,19 @@
 import { createRequire } from "node:module";
 import { inflateSync } from "node:zlib";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { PDFDocument } from "pdf-lib";
 
 import { projectQuoteToClientView as projectTs } from "./client-projection";
 import { QUOTE_MARGIN_INTERNAL_ONLY_KEYS } from "./margin";
 import type { Quote } from "./schema";
+
+// Lean reset: quotes are dark by default — these tests exercise the enabled behaviour.
+beforeAll(() => {
+  process.env.FLAG_QUOTES = "1";
+});
+afterAll(() => {
+  delete process.env.FLAG_QUOTES;
+});
 
 /**
  * Harness coverage for api/quote-pdf.js (#243) — branded client quote PDFs —

@@ -43,7 +43,7 @@ export const NOTIFICATION_PREF_META: ReadonlyArray<NotificationPrefMeta> = [
   {
     key: "dailyDigest",
     label: "End-of-day digest",
-    description: "A 5pm summary of the day's hours and snags. Sent to office and management.",
+    description: "A 5pm summary of the day's activity. Sent to office and management.",
   },
   {
     key: "staleSnags",

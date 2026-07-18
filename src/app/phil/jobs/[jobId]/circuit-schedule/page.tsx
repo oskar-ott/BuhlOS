@@ -49,14 +49,16 @@ export default async function PhilCircuitSchedulePage({ params }: PageParams) {
     notFound();
   }
 
-  const [jobResult, boardsResult] = await Promise.all([
+  // observations_inbox gates the Capture launcher's observation options.
+  const [jobResult, boardsResult, observationsEnabled] = await Promise.all([
     loadJob(raw, jobId),
     loadBoards(raw, jobId),
+    isFlagEnabled("observations_inbox", session),
   ]);
 
   if (jobResult.kind === "not_found" || jobResult.kind === "forbidden") {
     return (
-      <PhilShell title="Circuit schedule">
+      <PhilShell title="Circuit schedule" observationsEnabled={observationsEnabled}>
         <div className="space-y-4">
           <PhilBackLink href="/phil/jobs">All jobs</PhilBackLink>
           <Card>
@@ -74,7 +76,7 @@ export default async function PhilCircuitSchedulePage({ params }: PageParams) {
 
   if (jobResult.kind === "error") {
     return (
-      <PhilShell title="Circuit schedule">
+      <PhilShell title="Circuit schedule" observationsEnabled={observationsEnabled}>
         <div className="space-y-4">
           <PhilBackLink href={`/phil/jobs/${encodeURIComponent(jobId)}`}>Back to job</PhilBackLink>
           <PhilNotice tone="warning" title="Couldn’t load this job" role="alert">
@@ -89,7 +91,10 @@ export default async function PhilCircuitSchedulePage({ params }: PageParams) {
   }
 
   return (
-    <PhilShell title={`Circuit schedule · ${jobResult.job.name}`}>
+    <PhilShell
+      title={`Circuit schedule · ${jobResult.job.name}`}
+      observationsEnabled={observationsEnabled}
+    >
       <div className="space-y-4">
         <PhilBackLink href={`/phil/jobs/${encodeURIComponent(jobId)}`}>Back to job</PhilBackLink>
         <PhilPageIntro

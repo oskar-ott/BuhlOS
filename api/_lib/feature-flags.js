@@ -532,26 +532,6 @@ const REGISTRY = {
     target: 'admin-tier',
     expires: '2026-12-31',
   },
-  // Per-job ITP / QA (#474/#476): hold/witness/record points + office sign-off.
-  // Unlike the registers above, ITPs are ALREADY LIVE — so this is a KILL SWITCH,
-  // not a launch gate: default ON (killSwitch:true), and the owner can turn the
-  // whole feature OFF from the console. Gates /api/job-itps + /api/itp-templates,
-  // the /v2/jobs/[jobId]/itps surface, the Command Centre sign-off card, and the
-  // Phil Checks panel.
-  itp: {
-    description: 'Per-job ITP / QA — hold/witness/record points + office sign-off (#474/#476). Live; owner kill-switch.',
-    default: true,
-    killSwitch: true,
-    target: 'global',
-    expires: '2027-06-30',
-  },
-  itp_simple: {
-    description: 'Simple mobile ITP builder — job-scoped areas + photos rendered to a plain PDF in Phil (#912, lean-reset step 6). Metadata Supabase-first, binaries in Blob. Independent of the heavy `itp` system. Dark.',
-    default: false,
-    target: 'global',
-    expires: '2026-12-31',
-  },
-
   // ── #760: owner feature-control kill-switches (LIVE features, default ON) ──
   // Each gates a whole shipped feature so the owner can hide it from customers
   // (and preview it) from /owner, without a revert deploy. killSwitch:true is the
@@ -559,6 +539,10 @@ const REGISTRY = {
   // Turning one off hides its nav/section AND 404s its routes + API. Nothing
   // changes until the owner flips it. `jobs`/`hours`/`evidence` are the CORE
   // spine — gateable but the board warns before you turn them off.
+  //
+  // Lean reset (2026-07): only the lean core keeps a default-ON kill-switch —
+  // jobs, hours, evidence, employees, gear. Every other shipped feature moved
+  // to the lean-reset block below (default OFF, no killSwitch).
   jobs: {
     description: 'CORE. The jobs list + job hub — /v2/jobs + api/jobs. Live; owner kill-switch (turning off hides the whole Jobs surface).',
     default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
@@ -571,30 +555,6 @@ const REGISTRY = {
     description: 'CORE. Per-job evidence capture + admin review — /v2/jobs/[id]/evidence + api/evidence. Live; owner kill-switch.',
     default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
   },
-  observations_inbox: {
-    description: 'The From-site inbox + per-job observations — /observations + api/observations. Live; owner kill-switch.',
-    default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
-  },
-  material_requests: {
-    description: 'Field-to-office material requests — /material-requests + per-job register + api/material-requests. Live; owner kill-switch.',
-    default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
-  },
-  expenses: {
-    description: 'Reimbursements — field receipts the office reviews — /expenses + api/expenses. Live; owner kill-switch.',
-    default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
-  },
-  quotes: {
-    description: 'The quote builder — /v2/quotes + api/quotes. Live; owner kill-switch.',
-    default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
-  },
-  defects: {
-    description: 'The cross-job defects register — /defects. Live; owner kill-switch.',
-    default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
-  },
-  dayworks: {
-    description: 'The daywork dockets register — /v2/dayworks + per-job dayworks + api/dayworks. Live; owner kill-switch.',
-    default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
-  },
   employees: {
     description: 'The employees/people admin surface — /employees. Live; owner kill-switch.',
     default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
@@ -603,45 +563,95 @@ const REGISTRY = {
     description: 'The gear / test-and-tag register — /gear. Live; owner kill-switch.',
     default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
   },
+
+  // NEW build mandated BY the lean reset (step 6) — not one of the archived
+  // features below: the field's simple ITP builder, dark until the owner
+  // preview-verifies and flips it.
+  itp_simple: {
+    description: 'Simple mobile ITP builder — job-scoped areas + photos rendered to a plain PDF in Phil (#912, lean-reset step 6). Metadata Supabase-first, binaries in Blob. Independent of the heavy `itp` system. Dark.',
+    default: false,
+    target: 'global',
+    expires: '2026-12-31',
+  },
+
+  // ── Lean reset (2026-07): shipped features HIDDEN from the product ─────────
+  // Product-owner scope decision (docs/product/02-lean-reset.md): the lean core
+  // is hours (log → approve → Xero), basic jobs, the per-job tag register,
+  // capture/evidence and gear. Everything below is ARCHIVED, not deleted —
+  // reclassified from kill-switch back to dark launch-gate (default OFF). Code,
+  // routes, APIs and data all remain, and each flag keeps its board
+  // presentation, so the owner can re-enable any of these from /owner (Live
+  // dial / owner preview). NO TRACE of a hidden feature may show on kept
+  // surfaces: no nav items, no "under construction" panels, no tiles.
+  itp: {
+    description: 'Per-job ITP / QA — hold/witness/record points + office sign-off (#474/#476). Hidden by the 2026-07 lean reset; re-enable from /owner.',
+    default: false,
+    target: 'global',
+    expires: '2027-06-30',
+  },
+  observations_inbox: {
+    description: 'The From-site inbox + per-job observations — /observations + api/observations. Hidden by the 2026-07 lean reset; re-enable from /owner.',
+    default: false, target: 'global', expires: '2027-06-30',
+  },
+  material_requests: {
+    description: 'Field-to-office material requests — /material-requests + per-job register + api/material-requests. Hidden by the 2026-07 lean reset; re-enable from /owner.',
+    default: false, target: 'global', expires: '2027-06-30',
+  },
+  expenses: {
+    description: 'Reimbursements — field receipts the office reviews — /expenses + api/expenses. Hidden by the 2026-07 lean reset; re-enable from /owner.',
+    default: false, target: 'global', expires: '2027-06-30',
+  },
+  quotes: {
+    description: 'The quote builder — /v2/quotes + api/quotes. Hidden by the 2026-07 lean reset; re-enable from /owner.',
+    default: false, target: 'global', expires: '2027-06-30',
+  },
+  defects: {
+    description: 'The cross-job defects register — /defects. Hidden by the 2026-07 lean reset; re-enable from /owner.',
+    default: false, target: 'global', expires: '2027-06-30',
+  },
+  dayworks: {
+    description: 'The daywork dockets register — /v2/dayworks + per-job dayworks + api/dayworks. Hidden by the 2026-07 lean reset; re-enable from /owner.',
+    default: false, target: 'global', expires: '2027-06-30',
+  },
   reports: {
-    description: 'The owner-numbers reports surface — /reports. Live; owner kill-switch.',
-    default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
+    description: 'The owner-numbers reports surface — /reports. Hidden by the 2026-07 lean reset; re-enable from /owner.',
+    default: false, target: 'global', expires: '2027-06-30',
   },
   job_photos: {
-    description: 'The read-only job photo gallery ("Job Bible") — /v2/jobs/[id]/photos. Live; owner kill-switch.',
-    default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
+    description: 'The read-only job photo gallery ("Job Bible") — /v2/jobs/[id]/photos. Hidden by the 2026-07 lean reset; re-enable from /owner.',
+    default: false, target: 'global', expires: '2027-06-30',
   },
   snags: {
-    description: 'Per-job snags/defects raised by the field — /v2/jobs/[id]/snags + api/snags. Live; owner kill-switch.',
-    default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
+    description: 'Per-job snags/defects raised by the field — /v2/jobs/[id]/snags + api/snags. Hidden by the 2026-07 lean reset; re-enable from /owner.',
+    default: false, target: 'global', expires: '2027-06-30',
   },
   scope_reconciliation: {
-    description: 'Scope-vs-quote reconciliation — /v2/jobs/[id]/scope. Live; owner kill-switch.',
-    default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
+    description: 'Scope-vs-quote reconciliation — /v2/jobs/[id]/scope. Hidden by the 2026-07 lean reset; re-enable from /owner.',
+    default: false, target: 'global', expires: '2027-06-30',
   },
   job_control: {
-    description: 'Required-proof authoring (job control) — /v2/jobs/[id]/job-control. Live; owner kill-switch.',
-    default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
+    description: 'Required-proof authoring (job control) — /v2/jobs/[id]/job-control. Hidden by the 2026-07 lean reset; re-enable from /owner.',
+    default: false, target: 'global', expires: '2027-06-30',
   },
   closeout: {
-    description: 'The handover closeout matrix — /v2/jobs/[id]/closeout. Live; owner kill-switch.',
-    default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
+    description: 'The handover closeout matrix — /v2/jobs/[id]/closeout. Hidden by the 2026-07 lean reset; re-enable from /owner.',
+    default: false, target: 'global', expires: '2027-06-30',
   },
   documents: {
-    description: 'The per-job document & specs register — /v2/jobs/[id]/documents + api/documents. Live; owner kill-switch.',
-    default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
+    description: 'The per-job document & specs register — /v2/jobs/[id]/documents + api/documents. Hidden by the 2026-07 lean reset; re-enable from /owner.',
+    default: false, target: 'global', expires: '2027-06-30',
   },
   circuit_schedule: {
-    description: 'AS/NZS-3000 circuit schedules — /v2/jobs/[id]/circuit-schedule + api/job-circuits. Live; owner kill-switch.',
-    default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
+    description: 'AS/NZS-3000 circuit schedules — /v2/jobs/[id]/circuit-schedule + api/job-circuits. Hidden by the 2026-07 lean reset; re-enable from /owner.',
+    default: false, target: 'global', expires: '2027-06-30',
   },
   diary: {
-    description: 'The per-job site diary — /v2/jobs/[id]/diary + api/diary. Live; owner kill-switch.',
-    default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
+    description: 'The per-job site diary — /v2/jobs/[id]/diary + api/diary. Hidden by the 2026-07 lean reset; re-enable from /owner.',
+    default: false, target: 'global', expires: '2027-06-30',
   },
   job_activity: {
-    description: 'The per-job activity/audit trail — /v2/jobs/[id]/history. Live; owner kill-switch.',
-    default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
+    description: 'The per-job activity/audit trail — /v2/jobs/[id]/history. Hidden by the 2026-07 lean reset; re-enable from /owner.',
+    default: false, target: 'global', expires: '2027-06-30',
   },
 };
 

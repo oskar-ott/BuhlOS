@@ -7,7 +7,6 @@ import { AdminShell } from "@/components/admin/AdminShell";
 import { isFlagEnabled } from "../../../../api/_lib/feature-flags.js";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
-import { UnderConstructionPanel } from "@/components/ui/UnderConstructionPanel";
 import { cn } from "@/lib/cn";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
@@ -70,9 +69,9 @@ export const dynamic = "force-dynamic";
  *      exported and locks them — deliberately stays on legacy /admin/hours;
  *      we do not trigger a payroll mutation from this surface.
  *
- * Genuinely-unbuilt flows stay behind an UNDER CONSTRUCTION panel: one-tap
- * "approve the whole week", the committed/stamped payroll CSV run, and a
- * direct Xero push (CSV is the Xero path today; we never fake the integration).
+ * Genuinely-unbuilt flows (one-tap "approve the whole week", a direct Xero
+ * push) are simply absent — CSV is the Xero path today; we never fake the
+ * integration.
  *
  * Filters (#216): `?status=` + `?person=` narrow the ALREADY-LOADED queue
  * entries server-side (no new endpoints; the fetches are unchanged). The
@@ -312,11 +311,6 @@ export default async function HoursOverviewPage({
             </Link>
           </div>
         </Card>
-
-        <UnderConstructionPanel
-          feature="Xero push"
-          description="The preview above is a safe dry-run (nothing is marked exported). The COMMITTED payroll run now lives on the weekly closeout board (/hours/weekly) — preview, confirm and download the stamped CSV there. A direct Xero push (we don't fake the integration) is still on the backlog (hours-payroll epic)."
-        />
       </div>
     </AdminShell>
   );
@@ -762,8 +756,8 @@ function RollupTable({
  * We deliberately do NOT render a button to the committed (non-dryRun) export:
  * that endpoint mutates payroll state (marks entries exportedAt + exportId,
  * writes payroll-runs.json, locks the entries). Triggering a payroll mutation
- * is out of scope for this foundation, so the committed run stays on legacy
- * /admin/hours, linked from the UNDER CONSTRUCTION panel below.
+ * is out of scope for this foundation, so the committed run lives on the
+ * weekly closeout board (/hours/weekly), not here.
  */
 function PayrollExportCard({
   preview,

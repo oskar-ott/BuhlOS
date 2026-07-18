@@ -1,5 +1,13 @@
 import { createRequire } from "node:module";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Lean reset: the observations inbox is dark by default — these tests exercise the enabled behaviour.
+beforeAll(() => {
+  process.env.FLAG_OBSERVATIONS_INBOX = "1";
+});
+afterAll(() => {
+  delete process.env.FLAG_OBSERVATIONS_INBOX;
+});
 
 /**
  * Integration test for api/observations.js create — the replay-safety contract (#497).

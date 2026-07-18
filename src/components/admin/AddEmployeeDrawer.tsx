@@ -5,7 +5,6 @@ import { Check, Copy, Link2, Search } from "lucide-react";
 import { Drawer } from "@/components/ui/Drawer";
 import { Button } from "@/components/ui/Button";
 import { StatusChip } from "@/components/ui/StatusChip";
-import { UnderConstructionPanel } from "@/components/ui/UnderConstructionPanel";
 import { cn } from "@/lib/cn";
 import { createEmployee, errorText } from "@/domains/employees/client";
 import {
@@ -343,11 +342,6 @@ export function AddEmployeeDrawer({
           )}
           <p className="mt-1 text-xs text-text-muted">Skip is fine — assign later from the worker&rsquo;s record.</p>
         </div>
-
-        <UnderConstructionPanel
-          feature="Gear · vehicles · inductions"
-          description="Gear is assigned once the worker has set up Phil (so it links to their account), and licences/tickets are recorded the same way — open the worker's detail drawer after setup. Vehicle and induction registers don't exist yet."
-        />
       </div>
     );
   }

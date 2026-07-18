@@ -1,5 +1,13 @@
 import { createRequire } from "node:module";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Lean reset: material requests are dark by default — these tests exercise the enabled behaviour.
+beforeAll(() => {
+  process.env.FLAG_MATERIAL_REQUESTS = "1";
+});
+afterAll(() => {
+  delete process.env.FLAG_MATERIAL_REQUESTS;
+});
 
 /**
  * Integration tests for api/material-requests.js — the real serverless

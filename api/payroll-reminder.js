@@ -10,33 +10,25 @@
 //
 // Why this is a standalone endpoint (not another action on
 // /api/notifications):
-//   The notifications file already carries four cron actions plus the
-//   public-key / subscribe machinery, and is being concurrently edited
-//   by PRs #68 (digest), #69 (stale-snags), and #83 (inactive-users).
-//   Putting this in its own file means it can squash-merge regardless
-//   of the order those land in. The trade-off: it duplicates a tiny
-//   bit of helper code (cron-auth check, Sydney-today, Mon-of-week)
-//   which is fine — the cron-auth helper is six lines and the date
-//   helpers are one-liners.
+//   The notifications file already carries several cron actions plus the
+//   public-key / subscribe machinery; this shipped standalone so it could
+//   land independently of the cron PRs then in flight (#68/#69/#83). The
+//   duplicated helpers it originally carried are since shared: cron auth
+//   comes from _lib/cron-auth (#381); only the two one-line Sydney date
+//   helpers remain local.
 //
-// Wiring:
-//   To activate, add this entry to the crons[] array in vercel.json:
-//     { "path": "/api/payroll-reminder", "schedule": "0 5 * * 4" }
-//   ( = Thursday 15:00 Sydney = Wed 23:00 ... wait that's wrong.
-//     Thursday 15:00 AEST is 05:00 UTC — yes that's right, cron uses
-//     UTC. "0 5 * * 4" = Thursday at 05:00 UTC = 15:00 / 16:00 Sydney
-//     depending on DST.)
-//
-//   That entry is intentionally NOT included in this PR's vercel.json
-//   edit — it would collide with the three other cron PRs in flight.
-//   Add when convenient.
+// Wiring (#392): live in vercel.json crons[] as
+//   { "path": "/api/payroll-reminder", "schedule": "0 5 * * 4" }
+//   = Thursday 05:00 UTC = 15:00 AEST / 16:00 AEDT Sydney — the arvo
+//   before Friday closeout.
 //
 // Body format:
-//   "12 entries pending · oldest from Mon 11 May"
-//   tap → /admin/approvals
+//   "11.5h pending · oldest from Mon 11 May"
+//   tap → /hours/approvals
 
 const { list } = require('@vercel/blob');
 const { readBlob, setNoCache } = require('./_lib/blob');
+const { isFlagOn } = require('./_lib/feature-flags');
 const { requireCron } = require('./_lib/cron-auth');
 const { isPublicHoliday } = require('./_lib/public-holidays');
 const { isAdminRole } = require('./_lib/auth');
@@ -89,6 +81,12 @@ module.exports = async (req, res) => {
   if (isPublicHoliday(today)) {
     return res.status(200).json({ ok: true, sent: 0, skipped: 'public holiday', date: today });
   }
+  // If the owner ever kills the hours surface, a pending-hours push would be
+  // a trace of a feature the app no longer shows. 200 (not an error) so the
+  // cron reads as healthy; flips back on with the flag.
+  if (!(await isFlagOn('hours'))) {
+    return res.status(200).json({ ok: true, sent: 0, skipped: 'hours flag off' });
+  }
   const weekStart = sydneyMondayOf(today);
   const inWindow = (d) => d >= weekStart && d <= today;
 
@@ -115,6 +113,9 @@ module.exports = async (req, res) => {
   const pending = entries.filter(e => e.status === 'submitted');
 
   const usersData = await readBlob(USERS_KEY, { users: [] });
+  // No notificationPrefs gate, deliberately: docs/notifications.md classes
+  // this push as owner-critical `alwaysOn` — muting the payroll nudge breaks
+  // the approval loop, so there is no opt-out key for it.
   const admins = (usersData.users || []).filter(u =>
     isAdminRole(u.role) &&
     !u.archived &&

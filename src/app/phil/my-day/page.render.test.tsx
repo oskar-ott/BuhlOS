@@ -17,7 +17,10 @@ import { BUSINESS_TIMEZONE, localDateString } from "@/domains/timesheets/service
  *   - the ?fixDate= deep-link contract still holds without the day-logger:
  *     a rejected day's link renders the focused fix card with the SAME
  *     resubmit sheet auto-opened; a non-rejected day renders no fix card.
- *   - kept capabilities: quick-actions + reimbursements sections stay.
+ *   - lean reset: the quick-capture tiles (observations_inbox) and the
+ *     reimbursements section (expenses) are flag-gated; both flags resolve
+ *     dark here (no env/blob override), so NEITHER section renders — no
+ *     trace of a hidden feature.
  */
 
 const COOKIE_VALUE =
@@ -163,9 +166,10 @@ describe("sharpened /phil/my-day — one hours affordance", () => {
     expect(html).not.toContain("This week"); // PhilWeekStrip
     expect(html).not.toContain("Standard day"); // LogHoursSheet's big action
     expect(html).not.toContain('data-testid="split-across-jobs"');
-    // Kept capabilities: quick-capture presets + reimbursements.
-    expect(html).toContain("Quick actions");
-    expect(html).toContain("Reimbursements");
+    // Lean reset: observations_inbox + expenses resolve dark here, so the
+    // quick-capture tiles and the reimbursements section leave NO trace.
+    expect(html).not.toContain("Quick actions");
+    expect(html).not.toContain("Reimbursements");
   });
 
   it("no ?fixDate= → no fix card", async () => {

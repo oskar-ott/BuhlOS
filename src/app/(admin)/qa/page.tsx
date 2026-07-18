@@ -1,6 +1,7 @@
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
+import { isFlagEnabled } from "../../../../api/_lib/feature-flags.js";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { QaStatusBoard } from "@/components/admin/QaStatusBoard";
@@ -30,6 +31,9 @@ export default async function QaStatusPage() {
   if (!canAccessSurface(session.role, "admin")) {
     redirect("/v2/login");
   }
+  // #760: ITP kill-switch — the nav item is flag-gated; this closes the deep
+  // link too, so the surface 404s while the itp flag is off.
+  if (!(await isFlagEnabled("itp", session))) notFound();
 
   const result = await runQaStatus(blobQaStatusDeps(), new Date().toISOString());
 

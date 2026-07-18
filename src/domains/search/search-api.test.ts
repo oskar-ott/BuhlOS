@@ -1,5 +1,13 @@
 import { createRequire } from "node:module";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Lean reset: snags are dark by default — these tests exercise the enabled behaviour (snag search results).
+beforeAll(() => {
+  process.env.FLAG_SNAGS = "1";
+});
+afterAll(() => {
+  delete process.env.FLAG_SNAGS;
+});
 
 /**
  * #188 — api/search.js against the real handler. The UI ships over this
