@@ -46,6 +46,7 @@ const EXACT_STORES = [
   'temps/assets.json',
   'temps/movements.json',
   'platform/errors.json', // error-event journal (#154) — capped FIFO, still a canonical store
+  'xero/sync-open.json', // Xero sync recorder open working set (#251) — unresolved finance failures, NEVER trimmed
 ];
 
 /** Multi-document stores (path prefixes; every *.json under them). */
@@ -53,6 +54,7 @@ const PREFIX_STORES = [
   'jobs/', // per-job data.json, itps.json, tags.json, materials-list.json, plans-index.json, photos-index.json, templates.json, temps.json, inductions.json, certificates.json (#231), prestart.json (pre-start readiness #371), scope-reconciliation.json (job-control L0), job-control.json (job-control L1 spine — also holds the #374 closeoutRequirements[] handover matrix; the #349 numbers-freeze report card is the SEPARATE closeout.json), test-records.json (structured electrical TestRecords #517 — immutable + supersede-by-revision), field-detail.json (DERIVED per-job structure projection for Phil job-detail LCP; rebuilt from jobs.json on read, freshness-gated — disposable), admin-extras.json (DERIVED Blob-only remainder for the admin single-job PG read; rebuilt from jobs.json on the full-read fallback, freshness-gated — disposable) …
   'users/', // per-user time-entries/<date>.json (payroll data)
   'audit/', // audit-log monthly rollovers audit/<yyyy-mm>.json
+  'xero/sync-log/', // Xero sync recorder terminal-outcome history xero/sync-log/<yyyy-mm>.json (#251)
   'assets/', // gear/asset documents
   'quotes/', // per-quote section documents (structure, pricing, …)
   'quotes-v2/', // v2 per-quote documents (sections/lines) (#183)

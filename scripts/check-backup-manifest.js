@@ -17,6 +17,7 @@ const { isCoveredKey, BACKUP_PREFIX } = require('../api/_lib/backup-manifest');
 // file (relative to repo root) → write-key prefixes the guard can't extract.
 const KNOWN_DYNAMIC = {
   'api/_lib/audit-log.js': ['audit/'], // keyFor(): audit/<yyyy-mm>.json
+  'api/_lib/xero-sync-log.js': ['xero/sync-open.json', 'xero/sync-log/'], // OPEN_KEY + monthKey(): xero/sync-log/<yyyy-mm>.json (#251)
   'api/leave.js': ['leave-requests.json'], // KEY imported from _lib/leave.js
   'api/observations.js': ['jobs/'], // variations.storeKey(jobId): jobs/<id>/variations.json (cross-module call; covered by the jobs/ prefix)
   'api/safety-docs.js': ['jobs/'], // docsKey/acksKey(jobId): jobs/<id>/safety-docs.json + safety-acks.json (concat helpers; covered by the jobs/ prefix) (#219)
