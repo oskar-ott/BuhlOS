@@ -47,6 +47,14 @@ import type { PhilJobCommandInput } from "./job-command-model";
  */
 export interface PhilJobDataForCommand {
   job: Job;
+  /** Global feature-flag state (#915, lean reset). The per-job module toggle
+   *  below can't see a globally hidden feature, so with `snags`/`itps` false
+   *  the input derives `not_configured` — no action, no dead anchor. Omitted
+   *  key = feature on (callers predating the lean reset are unchanged). */
+  features?: {
+    snags?: boolean;
+    itps?: boolean;
+  };
   /** GET /api/snags?jobId — every snag on the job the worker can see. */
   snags?: SnagItem[];
   /** GET /api/job-itps?jobId — attached ITP instances. */
@@ -178,13 +186,13 @@ export function philJobCommandInputFromJobData(
       ? { kind: "unknown" }
       : { kind: "count", value: countCurrentDocuments(data.documents ?? []) };
 
-  const snags: PhilJobCommandInput["snags"] = !moduleEnabled(job, "snags")
+  const snags: PhilJobCommandInput["snags"] = data.features?.snags === false || !moduleEnabled(job, "snags")
     ? { kind: "not_configured" }
     : errors.snags
       ? { kind: "unknown" }
       : { kind: "count", value: countOpenSnags(data.snags ?? []) };
 
-  const itps: PhilJobCommandInput["itps"] = !moduleEnabled(job, "itps")
+  const itps: PhilJobCommandInput["itps"] = data.features?.itps === false || !moduleEnabled(job, "itps")
     ? { kind: "not_configured" }
     : errors.itps
       ? { kind: "unknown" }

@@ -95,12 +95,24 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
   // api/snags.js), observations_inbox gates the observation fetch and the
   // Capture launcher's observation options. Booleans only — never the flags
   // blob (docs/feature-flags.md).
-  const [sharpenedFlags, itpEnabled, itpSimpleEnabled, snagsEnabled, observationsEnabled] = await Promise.all([
+  const [
+    sharpenedFlags,
+    itpEnabled,
+    itpSimpleEnabled,
+    snagsEnabled,
+    observationsEnabled,
+    photosGalleryEnabled,
+    circuitScheduleEnabled,
+  ] = await Promise.all([
     philSharpenedFlags(session),
     isFlagEnabled("itp", session),
     isFlagEnabled("itp_simple", session),
     isFlagEnabled("snags", session),
     isFlagEnabled("observations_inbox", session),
+    // #915: the gallery + circuit cards are data-driven — without these flags
+    // they'd render dead links to flag-gated 404 routes.
+    isFlagEnabled("job_photos", session),
+    isFlagEnabled("circuit_schedule", session),
   ]);
   const accountInitials = philInitials(session.name ?? session.username);
 
@@ -142,6 +154,8 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
           itpSimpleEnabled,
           snagsEnabled,
           observationsEnabled,
+          photosGalleryEnabled,
+          circuitScheduleEnabled,
         })}
       </PhilShell>
     );
@@ -183,6 +197,8 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
           itpSimpleEnabled={itpSimpleEnabled}
           snagsEnabled={snagsEnabled}
           observationsEnabled={observationsEnabled}
+          photosGalleryEnabled={photosGalleryEnabled}
+          circuitScheduleEnabled={circuitScheduleEnabled}
         />
       </Suspense>
     </PhilShell>
@@ -210,6 +226,8 @@ async function PhilJobDetailFull({
   itpSimpleEnabled,
   snagsEnabled,
   observationsEnabled,
+  photosGalleryEnabled,
+  circuitScheduleEnabled,
 }: {
   raw: string | undefined;
   jobId: string;
@@ -234,6 +252,9 @@ async function PhilJobDetailFull({
   itpSimpleEnabled: boolean;
   snagsEnabled: boolean;
   observationsEnabled: boolean;
+  /** #915: gates for the data-driven gallery/circuit cards, whose routes 404 dark. */
+  photosGalleryEnabled: boolean;
+  circuitScheduleEnabled: boolean;
 }) {
   // Start the streamed taskState read in parallel with the wave-one reads, but
   // DON'T await it here — it resolves into PhilJobDetail behind a nested Suspense.
@@ -348,6 +369,8 @@ async function PhilJobDetailFull({
       itpEnabled={itpEnabled}
       itpSimpleEnabled={itpSimpleEnabled}
       snagsEnabled={snagsEnabled}
+      photosGalleryEnabled={photosGalleryEnabled}
+      circuitScheduleEnabled={circuitScheduleEnabled}
       rooms={jobRooms}
     />
   );

@@ -26,6 +26,19 @@ describe("deriveJobAttention", () => {
     expect(a.items.find((i) => i.key === "snags")?.label).toBe("Open snags");
   });
 
+  it("excludes hidden features' backlogs — no chip may link a flag-off 404 route (#915)", () => {
+    const a = deriveJobAttention(
+      job({
+        statsEvidenceV2Pending: 2,
+        statsSnagsV2Active: 5,
+        statsItpsNeedsReview: 3,
+      }),
+      { snags: false, itps: false },
+    );
+    expect(a.items.map((i) => i.key)).toEqual(["evidence"]);
+    expect(a.total).toBe(2);
+  });
+
   it("omits zero / missing counts rather than rendering empty chips", () => {
     const a = deriveJobAttention(
       job({ statsEvidenceV2Pending: 0, statsSnagsV2Active: 4 /* itps missing */ }),

@@ -76,7 +76,7 @@ const ACCESS_BOX: Record<AccessTone, string> = {
   neutral: "border-border bg-surface-subtle text-text-muted",
 };
 
-function currentPhilSections(job: Job, preview: ReturnType<typeof buildPhilPreview>) {
+function currentPhilSections(job: Job, preview: ReturnType<typeof buildPhilPreview>, features: FieldViewFeatures) {
   const sections = [
     {
       key: "next",
@@ -100,13 +100,13 @@ function currentPhilSections(job: Job, preview: ReturnType<typeof buildPhilPrevi
       key: "issues",
       label: "Issues / snags",
       detail: "raise and review job issues",
-      enabled: moduleEnabled(job, "snags"),
+      enabled: features.snags !== false && moduleEnabled(job, "snags"),
     },
     {
       key: "checks",
       label: "Checks / ITPs",
       detail: "record job checks where configured",
-      enabled: moduleEnabled(job, "itps"),
+      enabled: features.itps !== false && moduleEnabled(job, "itps"),
     },
     {
       key: "files",
@@ -125,12 +125,28 @@ function currentPhilSections(job: Job, preview: ReturnType<typeof buildPhilPrevi
   return sections.filter((section) => section.enabled);
 }
 
-export function JobFieldViewCard({ job }: { job: Job }) {
+interface FieldViewFeatures {
+  snags?: boolean;
+  itps?: boolean;
+  materials?: boolean;
+  history?: boolean;
+}
+
+export function JobFieldViewCard({
+  job,
+  features = {},
+}: {
+  job: Job;
+  /** Global kill-switch state (#915): a section row must not claim Phil shows
+   *  a feature the lean reset has hidden — the per-job module toggle alone
+   *  can't see that. Omitted key = feature on. */
+  features?: FieldViewFeatures;
+}) {
   const preview = buildPhilPreview(job);
   const crew = typeof job.statsCrewCount === "number" ? job.statsCrewCount : null;
   const access = accessSummary(preview.isVisibleToField, crew);
   const AccessIcon = access.icon;
-  const screenSections = currentPhilSections(job, preview);
+  const screenSections = currentPhilSections(job, preview, features);
   const reachesField = preview.isVisibleToField && crew !== 0;
 
   return (
@@ -203,8 +219,10 @@ export function JobFieldViewCard({ job }: { job: Job }) {
 
       <p className="mt-3 rounded-card border border-dashed border-border bg-surface-subtle px-3 py-2 text-xs text-text-muted">
         Not represented here: whether a worker has viewed the job, completed
-        tasks, captured evidence, fixed hours, or finished checks. Materials
-        and job history are still shown in Phil as not connected yet.
+        tasks, captured evidence, fixed hours, or finished checks.
+        {features.materials !== false || features.history !== false
+          ? " Materials and job history are still shown in Phil as not connected yet."
+          : ""}
       </p>
     </Card>
   );

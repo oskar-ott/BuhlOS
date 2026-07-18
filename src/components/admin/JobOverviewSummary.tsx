@@ -10,7 +10,7 @@ import {
 import { Card, CardTitle } from "@/components/ui/Card";
 import { lastActivityCaption } from "@/domains/jobs/format";
 import { progressCaption as canonicalProgressCaption, progressPct as canonicalProgressPct } from "@/domains/jobs/progress";
-import { deriveJobAttention, type JobAttentionKey } from "@/domains/jobs/attention";
+import { deriveJobAttention, type JobAttentionFeatures, type JobAttentionKey } from "@/domains/jobs/attention";
 import type { Job } from "@/domains/jobs/types";
 
 /**
@@ -66,8 +66,16 @@ function progressCaptionParts(counts: { total: number; complete: number }) {
   return { caption: canonicalProgressCaption(counts), pct: canonicalProgressPct(counts) };
 }
 
-export function JobOverviewSummary({ job }: { job: Job }) {
-  const attention = deriveJobAttention(job);
+export function JobOverviewSummary({
+  job,
+  attentionFeatures,
+}: {
+  job: Job;
+  /** Kill-switch state for flagged attention sources (#915) — a hidden
+   *  feature's backlog must not chip-link to a 404 route. Omitted = all on. */
+  attentionFeatures?: JobAttentionFeatures;
+}) {
+  const attention = deriveJobAttention(job, attentionFeatures);
   // #198 canonical progress: counts first, % only where a total exists.
   // statsPct stays as the fallback for payloads without the counts fields.
   const counts =

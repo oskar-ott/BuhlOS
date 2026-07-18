@@ -52,16 +52,26 @@ function positive(value: number | null | undefined): number {
  * loaded `Job`. Items with a zero/missing count are omitted (no zero chips);
  * when every count is zero the result is `allClear`.
  */
+/** Which flagged features may contribute attention items. Stats arrive
+ *  flag-blind from api/jobs.js, so gating happens HERE at the consumer
+ *  (#915): a hidden feature's backlog must not surface a chip that links to
+ *  a 404 route. Omitted = enabled (evidence is lean-core and always on). */
+export interface JobAttentionFeatures {
+  snags?: boolean;
+  itps?: boolean;
+}
+
 export function deriveJobAttention(
   job: Pick<
     Job,
     "statsEvidenceV2Pending" | "statsSnagsV2Active" | "statsItpsNeedsReview"
   >,
+  features: JobAttentionFeatures = {},
 ): JobAttention {
   const candidates: JobAttentionItem[] = [
     { key: "evidence", label: "Evidence to review", count: positive(job.statsEvidenceV2Pending) },
-    { key: "snags", label: "Open snags", count: positive(job.statsSnagsV2Active) },
-    { key: "itps", label: "ITPs to sign off", count: positive(job.statsItpsNeedsReview) },
+    { key: "snags", label: "Open snags", count: features.snags === false ? 0 : positive(job.statsSnagsV2Active) },
+    { key: "itps", label: "ITPs to sign off", count: features.itps === false ? 0 : positive(job.statsItpsNeedsReview) },
   ];
   const items = candidates.filter((c) => c.count > 0);
   const total = items.reduce((sum, i) => sum + i.count, 0);

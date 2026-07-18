@@ -194,7 +194,7 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
   );
 
   const [data, inductions, readiness, services, scopeRecon] = await Promise.all([
-    loadJobInterface(raw, jobId),
+    loadJobInterface(raw, jobId, { includeActivity: killSwitches["job_activity"] === true }),
     loadJobInductions(raw, jobId),
     loadJobReadiness(raw, jobId),
     loadJobServices(raw, jobId),
@@ -266,11 +266,11 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
   // completion (active/complete/archived) — a draft/on-hold job has nothing to
   // hand over, so we skip the blob read entirely (no day-one cost). The card is
   // surfaced only when the read is ready AND has ≥1 requirement (positive() gate).
-  const closeoutView: CloseoutMatrixView | null = NEAR_COMPLETION_JOB_STATUSES.has(
-    job.status ?? "",
-  )
-    ? await runCloseoutMatrixView(blobCloseoutReadDeps(), job.id)
-    : null;
+  const closeoutView: CloseoutMatrixView | null =
+    killSwitches["closeout"] === true &&
+    NEAR_COMPLETION_JOB_STATUSES.has(job.status ?? "")
+      ? await runCloseoutMatrixView(blobCloseoutReadDeps(), job.id)
+      : null;
 
   // Load the Phil sub-resources ONLY when the Field view is selected (and the
   // flag is on) — Office view keeps its existing cost. Each read degrades to an
@@ -302,7 +302,10 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
           <JobFieldView data={fieldData} />
         ) : (
         <>
-        <JobOverviewSummary job={job} />
+        <JobOverviewSummary
+          job={job}
+          attentionFeatures={{ snags: killSwitches["snags"] === true, itps: itpEnabled }}
+        />
         {/* #200: the agreed scope, read-only. Field/client payloads never
             carry the field (server redaction), so this renders for the
             admin/LH viewers who can see this page with data present. */}
@@ -317,7 +320,15 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
             has no data; gate the card too so we don't show an empty shell). */}
         {canBuild ? <ClientContractCard job={job} /> : null}
         <JobBuildCard job={job} canBuild={canBuild} />
-        <JobFieldViewCard job={job} />
+        <JobFieldViewCard
+          job={job}
+          features={{
+            snags: killSwitches["snags"] === true,
+            itps: itpEnabled,
+            materials: killSwitches["material_requests"] === true,
+            history: killSwitches["job_activity"] === true,
+          }}
+        />
         {/* #173: "Where is this job at?" — one-tap AI summary over the same
             deterministic projections the cards below render. Flag-dark
             (ai_assistant); the endpoint is permission-scoped + returns the real
@@ -356,7 +367,7 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
         {progressClaimsEnabled && canBuild ? <JobClaimsCard jobId={job.id} /> : null}
         {/* #349: closeout / "Final numbers" report card — freeze the job's final
             numbers at end-of-life; admin-tier only (hidden for an LH viewer). */}
-        <JobCloseoutCard jobId={job.id} />
+        {killSwitches["closeout"] ? <JobCloseoutCard jobId={job.id} /> : null}
         {/* #374: closeout OBLIGATIONS matrix — "N of M closed out" + what's
             outstanding (test results, CES, as-builts, the job's closeout clauses).
             Distinct from the #349 numbers freeze above. Surfaced only as the job
@@ -374,11 +385,13 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
           jobId={job.id}
           fetchError={data.evidence.error}
         />
-        <JobRecentActivity
-          entries={data.activity.entries}
-          jobId={job.id}
-          fetchError={data.activity.error}
-        />
+        {killSwitches["job_activity"] ? (
+          <JobRecentActivity
+            entries={data.activity.entries}
+            jobId={job.id}
+            fetchError={data.activity.error}
+          />
+        ) : null}
         {/* #371: pre-start readiness — the aggregate "can we start?" gate over
             induction + licences + safety docs + the manual checklist. Admin-tier
             data; an LH viewer's 403 resolves to null (card hidden). Sits above
@@ -641,7 +654,8 @@ function SiteField({
  */
 async function loadJobInterface(
   cookieValue: string | undefined,
-  jobId: string
+  jobId: string,
+  opts: { includeActivity: boolean }
 ): Promise<JobInterfaceData> {
   const h = await headers();
   const host = h.get("x-forwarded-host") ?? h.get("host");
@@ -653,7 +667,17 @@ async function loadJobInterface(
     headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
   };
 
-  const [jobRes, hoursRes, evidenceRes, activityRes] = await Promise.allSettled([
+  // Lean reset (#915): the activity feed is a hidden feature — with its
+  // kill-switch off the fetch is SKIPPED, not fired-and-rendered. The audit-log
+  // endpoint itself stays un-flagged: it also serves the evidence provenance
+  // trail, which is lean-core.
+  const activityFetch = opts.includeActivity
+    ? // months=4 mirrors the history tab's window (history/page.tsx) so the
+      // Activity card's "+N more · View all" count and the full feed it links to
+      // are computed over the same set.
+      fetch(`${base}/api/audit-log?jobId=${enc}&scope=job&months=4`, init)
+    : null;
+  const [jobRes, hoursRes, evidenceRes] = await Promise.allSettled([
     // withStats=1 so the section nav + Status/Field cards can show evidence +
     // snag + ITP + document counts on the loaded Job.
     fetch(`${base}/api/jobs?id=${enc}&withStats=1`, init),
@@ -662,17 +686,15 @@ async function loadJobInterface(
     // entry shape as the approver queue, so the hours parser is unchanged.
     fetch(`${base}/api/job-hours?jobId=${enc}`, init),
     fetch(`${base}/api/evidence?jobId=${enc}`, init),
-    // months=4 mirrors the history tab's window (history/page.tsx) so the
-    // Activity card's "+N more · View all" count and the full feed it links to
-    // are computed over the same set.
-    fetch(`${base}/api/audit-log?jobId=${enc}&scope=job&months=4`, init),
   ]);
 
   return {
     job: await parseJobResult(jobRes),
     hours: await parseHoursResult(hoursRes),
     evidence: await parseEvidenceResult(evidenceRes),
-    activity: await parseActivityResult(activityRes),
+    activity: activityFetch
+      ? await parseActivityResult((await Promise.allSettled([activityFetch]))[0]!)
+      : { entries: [], error: null },
   };
 }
 

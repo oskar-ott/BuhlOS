@@ -150,6 +150,24 @@ describe("bridge + model end to end", () => {
     expect(model.limitations.some((l) => l.id === "rejected-hours-unknown")).toBe(true);
   });
 
+  it("globally hidden snags/ITPs derive not_configured — no report_issue, no dead anchor (#915)", () => {
+    const model = buildPhilJobCommandModel(
+      philJobCommandInputFromJobData({
+        job: job({ roughInTasks: [{ id: "t1", name: "Rough in" }] }),
+        features: { snags: false, itps: false },
+        snags: [],
+        itps: [],
+        documents: [doc("current")],
+      }),
+    );
+    const ids = [model.primaryAction, ...model.actions].map((a) => a?.id);
+    expect(ids).not.toContain("report_issue");
+    expect(ids).not.toContain("complete_checks");
+    expect(model.attention.some((a) => a.id === "open-snags")).toBe(false);
+    // The kept core still works: capture / plans / tasks / hours are untouched.
+    expect(ids).toEqual(expect.arrayContaining(["capture", "view_plans", "continue_tasks", "log_hours"]));
+  });
+
   it("routes a draft job to office-only through the bridge", () => {
     const model = buildPhilJobCommandModel(
       philJobCommandInputFromJobData({ job: job({ status: "draft" }) }),
