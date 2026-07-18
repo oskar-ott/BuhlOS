@@ -20,22 +20,16 @@ import { philInitials, philSharpenedFlags } from "@/lib/phil/sharpened";
 import { JobDetailResponseSchema, JobListResponseSchema } from "@/domains/jobs/schema";
 import { TagListResponseSchema, type TagItem } from "@/domains/tags/schema";
 import { JobContactsResponseSchema, type JobContact } from "@/domains/contacts/schema";
-import { parseJobTaskState, type JobTaskState } from "@/domains/jobs/taskState";
+import { parseJobTaskState } from "@/domains/jobs/taskState";
 import { EvidenceListResponseSchema } from "@/domains/evidence/schema";
 import { SnagListResponseSchema } from "@/domains/snags/schema";
 import { ObservationListResponseSchema } from "@/domains/observations/schema";
 import { ITPListResponseSchema } from "@/domains/itp/schema";
-import { DocumentListResponseSchema } from "@/domains/documents/schema";
-import { ServiceLocationListResponseSchema } from "@/domains/services-locations/schema";
-import { blobJobControlReadDeps, readJobControlForField } from "@/server/job-control/read";
 import type { Job } from "@/domains/jobs/types";
-import type { EvidenceLink, ProofReview, WorkPackage } from "@/domains/job-control/types";
 import type { EvidenceItem } from "@/domains/evidence/types";
 import type { SnagItem } from "@/domains/snags/types";
 import type { ObservationItem } from "@/domains/observations/types";
 import type { ITPInstance } from "@/domains/itp/types";
-import type { Document } from "@/domains/documents/types";
-import type { ServiceLocationRecord } from "@/domains/services-locations/types";
 
 export const dynamic = "force-dynamic";
 
@@ -102,17 +96,16 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
     snagsEnabled,
     observationsEnabled,
     photosGalleryEnabled,
-    circuitScheduleEnabled,
   ] = await Promise.all([
     philSharpenedFlags(session),
     isFlagEnabled("itp", session),
     isFlagEnabled("itp_simple", session),
     isFlagEnabled("snags", session),
     isFlagEnabled("observations_inbox", session),
-    // #915: the gallery + circuit cards are data-driven — without these flags
-    // they'd render dead links to flag-gated 404 routes.
+    // #915: the gallery card is data-driven — without the flag it would
+    // render a dead link to a flag-gated 404 route. (The circuit card left
+    // the page entirely with the #916 strip.)
     isFlagEnabled("job_photos", session),
-    isFlagEnabled("circuit_schedule", session),
   ]);
   const accountInitials = philInitials(session.name ?? session.username);
 
@@ -148,14 +141,12 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
           captureToken,
           viewerId,
           viewerRole,
-          streamTaskState: false,
           jobRooms: sharpenedFlags.jobRooms,
           itpEnabled,
           itpSimpleEnabled,
           snagsEnabled,
           observationsEnabled,
           photosGalleryEnabled,
-          circuitScheduleEnabled,
         })}
       </PhilShell>
     );
@@ -191,14 +182,12 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
           captureToken={captureToken}
           viewerId={viewerId}
           viewerRole={viewerRole}
-          streamTaskState
           jobRooms={sharpenedFlags.jobRooms}
           itpEnabled={itpEnabled}
           itpSimpleEnabled={itpSimpleEnabled}
           snagsEnabled={snagsEnabled}
           observationsEnabled={observationsEnabled}
           photosGalleryEnabled={photosGalleryEnabled}
-          circuitScheduleEnabled={circuitScheduleEnabled}
         />
       </Suspense>
     </PhilShell>
@@ -220,26 +209,18 @@ async function PhilJobDetailFull({
   captureToken,
   viewerId,
   viewerRole,
-  streamTaskState,
   jobRooms,
   itpEnabled,
   itpSimpleEnabled,
   snagsEnabled,
   observationsEnabled,
   photosGalleryEnabled,
-  circuitScheduleEnabled,
 }: {
   raw: string | undefined;
   jobId: string;
   captureToken: string | null;
   viewerId: string;
   viewerRole: string;
-  /** When true (flag-on), the slow taskState read (/api/data, ~3-5s — its
-   *  task+evidence status overlays are the new long pole after the job-detail
-   *  projection) is LIFTED out of the blocking Promise.all and streamed into
-   *  PhilJobDetail as a promise, so the job structure (the LCP element) paints
-   *  ~3s sooner. Flag-off keeps the original 11-read blocking load verbatim. */
-  streamTaskState: boolean;
   /** phil_job_rooms (dark, #133): render the four-rooms takeover. Resolved by
    *  the page via philSharpenedFlags (jobRooms ⇒ sharpened enforced there). */
   jobRooms: boolean;
@@ -252,37 +233,21 @@ async function PhilJobDetailFull({
   itpSimpleEnabled: boolean;
   snagsEnabled: boolean;
   observationsEnabled: boolean;
-  /** #915: gates for the data-driven gallery/circuit cards, whose routes 404 dark. */
+  /** #915: gate for the data-driven gallery card, whose route 404s dark. */
   photosGalleryEnabled: boolean;
-  circuitScheduleEnabled: boolean;
 }) {
-  // Start the streamed taskState read in parallel with the wave-one reads, but
-  // DON'T await it here — it resolves into PhilJobDetail behind a nested Suspense.
-  // The `.catch` is belt-and-braces: loadInitialTaskState already never rejects
-  // (it try/catches into {state,error}), but the consumer reads this with use()
-  // and has no error boundary — so we guarantee a resolved value even if that
-  // invariant ever changes; a failure surfaces as the honest "couldn't load
-  // progress" notice, never an uncaught throw.
-  const taskStatePromise = streamTaskState
-    ? loadInitialTaskState(raw, jobId).catch(() => ({
-        state: {} as JobTaskState,
-        error: "Couldn't load task progress",
-      }))
-    : null;
-
+  // Lean reset step 5 (#916): the work-to-do machinery left the job page —
+  // no task-state read (blocking or streamed), no job-control spine read, no
+  // documents/services reads. Restore from git if structure returns.
   const [
     result,
     initialEvidence,
     initialSnags,
     initialObservations,
     initialItps,
-    documentsResult,
-    taskStateResult,
     tagsResult,
     initialContacts,
     initialMyInduction,
-    jobControlResult,
-    serviceLocationsResult,
   ] = await Promise.all([
     loadJob(raw, jobId),
     loadInitialEvidence(raw, jobId),
@@ -290,15 +255,9 @@ async function PhilJobDetailFull({
     snagsEnabled ? loadInitialSnags(raw, jobId) : [],
     observationsEnabled ? loadInitialObservations(raw, jobId) : [],
     itpEnabled ? loadInitialItps(raw, jobId) : [],
-    loadInitialDocuments(raw, jobId),
-    // Streamed → keep the slot a cheap no-op (taskState arrives via the promise);
-    // otherwise the original blocking read (byte-identical to pre-change).
-    streamTaskState ? Promise.resolve(null) : loadInitialTaskState(raw, jobId),
     loadInitialTags(raw, jobId),
     loadInitialContacts(raw, jobId),
     loadInitialMyInduction(raw, jobId),
-    loadInitialJobControl(jobId),
-    loadInitialServiceLocations(raw, jobId),
   ]);
 
   if (result.kind === "not_found" || result.kind === "forbidden") {
@@ -347,22 +306,11 @@ async function PhilJobDetailFull({
       initialSnags={initialSnags}
       initialObservations={initialObservations}
       initialItps={initialItps}
-      initialDocuments={documentsResult.documents}
-      documentsError={documentsResult.error}
       initialTags={tagsResult.tags}
       tagsError={tagsResult.error}
       initialContacts={initialContacts}
-      initialServiceLocations={serviceLocationsResult.locations}
-      serviceLocationsError={serviceLocationsResult.error}
       initialMyInduction={initialMyInduction}
-      initialTaskState={taskStateResult ? taskStateResult.state : undefined}
-      taskStateError={taskStateResult ? taskStateResult.error : null}
-      taskStatePromise={taskStatePromise ?? undefined}
       viewer={{ id: viewerId, role: viewerRole }}
-      workPackages={jobControlResult.workPackages}
-      evidenceLinks={jobControlResult.evidenceLinks}
-      proofReviews={jobControlResult.proofReviews}
-      jobControlRevision={jobControlResult.revision}
       autoCaptureToken={captureToken}
       safetyEnabled={safetyEnabled}
       certificatesEnabled={certificatesEnabled}
@@ -370,8 +318,6 @@ async function PhilJobDetailFull({
       itpSimpleEnabled={itpSimpleEnabled}
       snagsEnabled={snagsEnabled}
       photosGalleryEnabled={photosGalleryEnabled}
-      circuitScheduleEnabled={circuitScheduleEnabled}
-      rooms={jobRooms}
     />
   );
 }
@@ -594,56 +540,6 @@ async function loadInitialItps(
   }
 }
 
-/**
- * Fetch the documents (plans + specs) for this job (Phase E2). Server
- * already strips `status === 'archived'` for non-admin callers; the
- * panel further filters to `status === 'current'` for safety.
- *
- * Returns a `{ documents, error }` shape rather than a bare array so
- * the panel can surface a non-blocking info bar when the fetch failed
- * but the page can still render. Matches the EvidenceQueue + ITPsQueue
- * pattern of "fall back to empty + show an info banner."
- */
-async function loadInitialDocuments(
-  cookieValue: string | undefined,
-  jobId: string
-): Promise<{ documents: Document[]; error: string | null }> {
-  const h = await headers();
-  const host = h.get("x-forwarded-host") ?? h.get("host");
-  const proto = h.get("x-forwarded-proto") ?? "http";
-  const base = host ? `${proto}://${host}` : "http://localhost:3000";
-  try {
-    const res = await fetch(
-      `${base}/api/plans?jobId=${encodeURIComponent(jobId)}`,
-      {
-        cache: "no-store",
-        headers: cookieValue
-          ? { cookie: `${SESSION_COOKIE}=${cookieValue}` }
-          : undefined,
-      }
-    );
-    if (!res.ok) {
-      // 403 means the worker isn't assigned to this job — the page
-      // render above already 403'd them out, so we just degrade.
-      // Other statuses surface as a non-blocking banner.
-      return {
-        documents: [],
-        error: res.status === 403 ? null : `Plans API returned ${res.status}`,
-      };
-    }
-    const body = await res.json();
-    const parsed = DocumentListResponseSchema.safeParse(body);
-    if (!parsed.success) {
-      return { documents: [], error: "Unexpected plans response shape" };
-    }
-    return { documents: [...parsed.data.plans], error: null };
-  } catch (err) {
-    return {
-      documents: [],
-      error: err instanceof Error ? err.message : "Plans network error",
-    };
-  }
-}
 
 /**
  * Fetch worker-visible task state from the per-job data blob
@@ -712,43 +608,6 @@ async function loadInitialContacts(
   }
 }
 
-/**
- * #230: services-locations register for this job (where the pit/board/meter/
- * temp-supply are). Server returns every record to any reader on the job (no
- * own-captures filter) — the photos are denormalised so worker B sees worker A's
- * board photo. Returns a `{ locations, error }` shape so the card can surface a
- * quiet notice on a fetch failure while still rendering. Fail-soft to empty +
- * error=false on a 403 (the page-level gate already handles a non-assigned open).
- */
-async function loadInitialServiceLocations(
-  cookieValue: string | undefined,
-  jobId: string
-): Promise<{ locations: ServiceLocationRecord[]; error: string | null }> {
-  const h = await headers();
-  const host = h.get("x-forwarded-host") ?? h.get("host");
-  const proto = h.get("x-forwarded-proto") ?? "http";
-  const base = host ? `${proto}://${host}` : "http://localhost:3000";
-  try {
-    const res = await fetch(
-      `${base}/api/services-locations?jobId=${encodeURIComponent(jobId)}`,
-      {
-        cache: "no-store",
-        headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
-      }
-    );
-    if (!res.ok) {
-      return { locations: [], error: res.status === 403 ? null : `Services API returned ${res.status}` };
-    }
-    const parsed = ServiceLocationListResponseSchema.safeParse(await res.json());
-    if (!parsed.success) return { locations: [], error: "Unexpected services response shape" };
-    return { locations: [...parsed.data.locations], error: null };
-  } catch (err) {
-    return {
-      locations: [],
-      error: err instanceof Error ? err.message : "Services network error",
-    };
-  }
-}
 
 /**
  * #332: this worker's latest induction record on this job. Fail-soft to
@@ -780,56 +639,4 @@ async function loadInitialMyInduction(
   }
 }
 
-/**
- * L2/L3: the compiled job-control read for this job — the field-safe
- * `{ workPackages, evidenceLinks }` subset that drives per-task scope context
- * (#368) in PhilJobDetail. Read DIRECTLY server-side (no new public endpoint);
- * it runs only after the job-access gate above (`result.kind === "ok"`), so it
- * is no more exposed than the rest of this page's job fetch.
- *
- * FAILS SOFT to empty for BOTH a missing artifact (the normal case — most jobs
- * aren't compiled yet) and an unreadable one, so a worker is never blocked: Phil
- * then renders exactly as it does today (zero regression).
- */
-async function loadInitialJobControl(
-  jobId: string
-): Promise<{ workPackages: WorkPackage[]; evidenceLinks: EvidenceLink[]; proofReviews: ProofReview[]; revision?: string }> {
-  try {
-    const r = await readJobControlForField(blobJobControlReadDeps(), jobId);
-    if (r.ok && r.ready) {
-      return { workPackages: r.workPackages, evidenceLinks: r.evidenceLinks, proofReviews: r.proofReviews, revision: r.meta.revision };
-    }
-    return { workPackages: [], evidenceLinks: [], proofReviews: [] };
-  } catch {
-    return { workPackages: [], evidenceLinks: [], proofReviews: [] };
-  }
-}
 
-async function loadInitialTaskState(
-  cookieValue: string | undefined,
-  jobId: string
-): Promise<{ state: JobTaskState; error: string | null }> {
-  const h = await headers();
-  const host = h.get("x-forwarded-host") ?? h.get("host");
-  const proto = h.get("x-forwarded-proto") ?? "http";
-  const base = host ? `${proto}://${host}` : "http://localhost:3000";
-  try {
-    const res = await fetch(
-      `${base}/api/data?jobId=${encodeURIComponent(jobId)}`,
-      {
-        cache: "no-store",
-        headers: cookieValue
-          ? { cookie: `${SESSION_COOKIE}=${cookieValue}` }
-          : undefined,
-      }
-    );
-    if (!res.ok) return { state: {}, error: `Task state API returned ${res.status}` };
-    const body = await res.json();
-    return { state: parseJobTaskState(body), error: null };
-  } catch (err) {
-    return {
-      state: {},
-      error: err instanceof Error ? err.message : "Task state network error",
-    };
-  }
-}

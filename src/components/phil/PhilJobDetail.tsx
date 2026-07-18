@@ -652,7 +652,9 @@ export function PhilJobDetail({
       buildPhilJobCommandModel(
         philJobCommandInputFromJobData({
           job,
-          features: { snags: snagsEnabled, itps: itpEnabled },
+          // #916 strip: plans + tasks left the page — their quick actions
+          // must not anchor to sections that no longer exist.
+          features: { snags: snagsEnabled, itps: itpEnabled, plans: false, tasks: false },
           snags: initialSnags ? [...initialSnags] : undefined,
           itps: initialItps ? [...initialItps] : undefined,
           documents: initialDocuments ? [...initialDocuments] : undefined,
@@ -1194,107 +1196,8 @@ export function PhilJobDetail({
   // In-page rooms over the SAME state/handlers/derived data as the one-scroll
   // page below; the in-job bar is registered via philJobRoomsBar. Flag off ⇒
   // this branch never runs and the current screen renders byte-identically.
-  if (rooms) {
-    return (
-      <>
-        {taskStatePromise ? (
-          <Suspense fallback={null}>
-            <TaskStateHydrator
-              promise={taskStatePromise}
-              onResolved={handleTaskStateResolved}
-            />
-          </Suspense>
-        ) : null}
-
-        <PhilJobRoomsView
-          job={job}
-          room={room}
-          roomResetSeq={roomResetSeq}
-          onGoToRoom={handleSelectRoom}
-          areaOpen={roomAreaOpen && selectedArea !== null}
-          onOpenArea={openRoomArea}
-          areaView={
-            selectedArea ? (
-              <PhilJobRoomArea
-                jobId={job.id}
-                areaId={selectedArea.id}
-                areaName={selectedArea.name}
-                spaceType={selectedArea.spaceType}
-                stages={selectedStages}
-                stage={viewedStage}
-                onStageChange={setStage}
-                tasks={workerTasks}
-                areaSpecs={areaSpecs}
-                taskStatePending={taskStatePending}
-                taskStateError={taskStateErr}
-                taskError={taskError}
-                pendingTaskIds={pendingTaskIds}
-                onToggleTask={handleToggleTask}
-                taskContextById={taskContextById}
-                readinessByTaskId={taskReadinessById}
-                onCaptureProof={handleCaptureProof}
-                onFlagVariation={handleFlagVariation}
-                proofActionState={proofStatus}
-                canCaptureProof={Boolean(jcRevision)}
-                proofReviews={proofReviews}
-                onSubmitForReview={handleSubmitForReview}
-                proofSubmitStatus={proofSubmitStatus}
-                canSubmitForReview={Boolean(jcRevision)}
-                owedProof={roomOwedProof}
-                onBack={closeRoomArea}
-                onCapturePhoto={openJobCapture}
-                onCaptureNote={captureNote}
-                onCaptureIssue={captureIssue}
-              />
-            ) : null
-          }
-          attention={roomAttention}
-          evidenceItems={evidenceItems}
-          captureBanner={captureBanner}
-          areaNames={areaNames}
-          viewer={viewer}
-          onEvidenceUpdated={(updated) =>
-            setEvidenceItems((prev) =>
-              prev.map((it) => (it.id === updated.id ? updated : it)),
-            )
-          }
-          onOpenCapture={openJobCapture}
-          groups={groups}
-          workCounts={roomWorkCounts}
-          taskStatePending={taskStatePending}
-          taskStateErr={taskStateErr}
-          jobComplete={jobComplete}
-          rollup={taskRollup}
-          blockedByArea={roomBlockedByArea}
-          owedByArea={roomOwedByArea}
-          areaCountMaps={areaCountMaps}
-          workPackages={workPackages}
-          evidenceLinks={evidenceLinks}
-          snags={initialSnags ?? []}
-          snagContext={{ stage, areaId: selectedAreaId }}
-          owedProof={roomOwedProof}
-          proofReviews={proofReviews}
-          itps={initialItps ?? []}
-          tags={initialTags ?? []}
-          tagsError={tagsError}
-          hasCircuitSchedule={hasCircuitSchedule}
-          circuitBoards={circuitBoards}
-          certificatesEnabled={certificatesEnabled}
-          documents={initialDocuments}
-          documentsError={documentsError ?? null}
-          contacts={initialContacts}
-          serviceLocations={initialServiceLocations}
-          serviceLocationsError={serviceLocationsError ?? null}
-          canWriteServiceLocations={canAddServiceLocation(viewer?.role)}
-          onCapturePhotoForServices={handleCapturePhotoForServices}
-          siteInduction={siteInduction}
-          safetyEnabled={safetyEnabled}
-        />
-
-        {sheets}
-      </>
-    );
-  }
+  // Lean reset step 5 (#916): the four-rooms takeover left with the
+  // work-to-do machinery; restore from git if structure returns.
 
   return (
     <div className="space-y-4 pb-2">
@@ -1306,18 +1209,6 @@ export function PhilJobDetail({
           ← All jobs
         </PhilOfflineLink>
       </div>
-
-      {/* Streamed task-state resolver (perf): renders nothing; when the lifted
-          /api/data read resolves it seeds taskState + clears the pending skeleton.
-          Behind its own <Suspense> so it never blocks the structure paint. */}
-      {taskStatePromise ? (
-        <Suspense fallback={null}>
-          <TaskStateHydrator
-            promise={taskStatePromise}
-            onResolved={handleTaskStateResolved}
-          />
-        </Suspense>
-      ) : null}
 
       <PhilJobHero job={job} />
 
@@ -1331,145 +1222,9 @@ export function PhilJobDetail({
         inductionDone={Boolean(myInduction)}
       />
 
-      {flatAreas.length > 0 ? (
-        <section
-          id="phil-job-work"
-          aria-labelledby="phil-job-work-h"
-          className="scroll-mt-16 space-y-4"
-        >
-          {/* Calm completion (#427): one quiet acknowledgement near "Work to do"
-              when every task on the job is really done — gated on a real, loaded
-              100% (jobComplete), so a not-yet-loaded job never flashes a false
-              win (P7). One success notice, no new metric/colour (P10). */}
-          {jobComplete ? (
-            <PhilNotice tone="success" title="Every task here is done." role="status">
-              Nice work — the whole job&rsquo;s ticked off. Snags, checks and hours
-              still live below if anything needs a look.
-            </PhilNotice>
-          ) : null}
-          {groups.length > 0 ? (
-            <Card>
-              <CardTitle>
-                <span id="phil-job-work-h">Work to do</span>
-              </CardTitle>
-              <CardDescription className="mt-1">
-                Pick an area to drill in — its stages, tasks, and what&rsquo;s
-                outstanding.
-              </CardDescription>
-              <div className="mt-3 space-y-4">
-                {groups.map((group) => {
-                  const areas = group.areas ?? [];
-                  if (areas.length === 0) return null;
-                  return (
-                    <div key={group.id}>
-                      <p className="font-display text-xs uppercase tracking-wider text-text-muted">
-                        {group.name}
-                      </p>
-                      <ul
-                        className="mt-2 grid gap-2"
-                        role="listbox"
-                        aria-label={`Areas in ${group.name}`}
-                      >
-                        {areas.map((area) => (
-                          <li key={area.id}>
-                            <PhilJobAreaCard
-                              name={area.name}
-                              spaceType={area.spaceType}
-                              active={area.id === selectedAreaId}
-                              stages={areaStageAvailability(job, area)}
-                              counts={countsForArea(areaCountMaps, area.id)}
-                              onSelect={() => selectArea(area)}
-                            />
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  );
-                })}
-              </div>
-            </Card>
-          ) : (
-            <Card>
-              <CardTitle>
-                <span id="phil-job-work-h">Work to do</span>
-              </CardTitle>
-              <CardDescription className="mt-2">
-                No areas configured for this job yet. Ask your PM or check the
-                legacy Job Builder.
-              </CardDescription>
-            </Card>
-          )}
-
-          {selectedArea ? (
-            <div ref={areaDetailRef} className="scroll-mt-16 space-y-3">
-              {taskError ? (
-                <PhilNotice
-                  tone="danger"
-                  title="Couldn’t update task"
-                  role="alert"
-                >
-                  {taskError}
-                </PhilNotice>
-              ) : null}
-              {taskStateErr ? (
-                <PhilNotice
-                  tone="warning"
-                  title="Couldn’t load task progress"
-                  role="status"
-                >
-                  Task rows may show as to do until you refresh. Saved changes
-                  will still update after the server confirms them.
-                </PhilNotice>
-              ) : null}
-              {taskStatePending ? (
-                // Task state is still streaming (perf): show a skeleton of the
-                // drill-in rather than the task rows, so a DONE task is never
-                // briefly shown as "to do". Replaced by the real rows the instant
-                // the streamed state lands. Heights mirror the real drill-in to
-                // keep layout shift minimal.
-                <div
-                  className="space-y-3 rounded-card border border-border bg-surface-raised p-4"
-                  aria-busy="true"
-                  aria-label="Loading task progress"
-                >
-                  <PhilSkeleton className="h-9 w-full" />
-                  <PhilSkeleton className="h-4 w-24" />
-                  <div className="space-y-2">
-                    {[0, 1, 2, 3, 4].map((i) => (
-                      <PhilSkeleton key={i} className="h-[52px] w-full" />
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <PhilJobAreaDetail
-                  jobId={job.id}
-                  areaName={selectedArea.name}
-                  spaceType={selectedArea.spaceType}
-                  stages={selectedStages}
-                  stage={viewedStage}
-                  areaSpecs={areaSpecs}
-                  tasks={workerTasks}
-                  counts={countsForArea(areaCountMaps, selectedArea.id)}
-                  onStageChange={setStage}
-                  onToggleTask={handleToggleTask}
-                  pendingTaskIds={pendingTaskIds}
-                  taskContextById={taskContextById}
-                  readinessByTaskId={taskReadinessById}
-                  onCaptureProof={handleCaptureProof}
-                  onFlagVariation={handleFlagVariation}
-                  proofActionState={proofStatus}
-                  canCaptureProof={Boolean(jcRevision)}
-                  proofReviews={proofReviews}
-                  onSubmitForReview={handleSubmitForReview}
-                  proofSubmitStatus={proofSubmitStatus}
-                  canSubmitForReview={Boolean(jcRevision)}
-                />
-              )}
-            </div>
-          ) : null}
-        </section>
-      ) : null}
-
+      {/* Lean reset step 5 (#916): the work-to-do machinery (stage groups,
+          area picker, task lists, streamed task state) left the page — lean
+          jobs deliberately have no structure. Restore from git if reversed. */}
       <section
         id="phil-job-capture"
         aria-labelledby="phil-job-capture-h"
@@ -1480,8 +1235,7 @@ export function PhilJobDetail({
             <span id="phil-job-capture-h">Capture evidence</span>
           </CardTitle>
           <CardDescription className="mt-1">
-            Take a photo (with an optional note) attached to this job. The selected
-            stage and area carry through to the capture sheet.
+            Take a photo (with an optional note) attached to this job.
           </CardDescription>
           <div className="mt-3">
             <PhilActionButton
@@ -1510,35 +1264,6 @@ export function PhilJobDetail({
           }
         />
       </section>
-
-      {/* Snags — flag-gated (`snags`, lean reset): the section mounts only
-          while the feature is live (its API 404s when dark). */}
-      {viewer && snagsEnabled ? (
-        <section
-          id="phil-job-snags"
-          aria-label="Snags"
-          className="scroll-mt-16"
-        >
-          <JobSnagsPanel
-            job={job}
-            initialSnags={initialSnags}
-            context={{ stage, areaId: selectedAreaId }}
-            recentEvidence={evidenceItems}
-            viewer={viewer}
-          />
-        </section>
-      ) : null}
-
-      {/* Job-interface sections: header → command → attention → site →
-          areas/work → capture → Snags → ITPs → Plans → Documents.
-
-          ITPs — flag-gated (`itp`, lean reset). JobDocumentsPanel is LIVE
-          (E2, read-only; ungated /api/plans read). */}
-      {itpEnabled ? (
-        <section id="phil-job-itps" aria-label="ITPs" className="scroll-mt-16">
-          <JobItpPanel job={job} initialItps={initialItps} />
-        </section>
-      ) : null}
 
       {/* Simple ITP builder (#912, lean-reset step 6) — link-out only, the
           builder lives on its own route. Independent of the heavy `itp`
@@ -1570,27 +1295,8 @@ export function PhilJobDetail({
         </section>
       ) : null}
 
-      {moduleEnabled(job, "plans") ? (
-        <section id="phil-job-plans" aria-label="Plans" className="scroll-mt-16">
-          <Card>
-            <CardTitle>Plans</CardTitle>
-            <CardDescription className="mt-1">
-              Open the current drawings for this job in the in-app viewer — zoom,
-              rotate and page through. Read-only.
-            </CardDescription>
-            <div className="mt-3">
-              <PhilOfflineLink
-                href={`/phil/jobs/${encodeURIComponent(job.id)}/plans`}
-                className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-card border border-border bg-surface px-4 text-sm font-medium text-text transition-colors hover:border-border-strong hover:bg-surface-subtle"
-              >
-                <MapIcon aria-hidden="true" className="h-5 w-5" />
-                Open plan viewer
-              </PhilOfflineLink>
-            </div>
-          </Card>
-        </section>
-      ) : null}
-
+      {/* Plans card removed by the lean reset (#916 call 1): drawings left
+          the job pages; the /plans route stays URL-reachable, unlinked. */}
       {/* Photos (#242) — the read-only "Job Bible" gallery: browse every photo
           on the job. Hidden-until-real — linked only when there's at least one
           capture the worker can already see (the page's own evidence list), so
@@ -1617,31 +1323,6 @@ export function PhilJobDetail({
         </section>
       ) : null}
 
-      {/* Circuit schedule — the field view of the office's distribution-board
-          schedule. Only shown when the office has started one (honest empty);
-          opens the boards → ways surface where the worker marks each way to do →
-          installed → tested. Reference-zone slot beside Plans (P10). */}
-      {hasCircuitSchedule ? (
-        <section id="phil-job-circuit-schedule" aria-label="Circuit schedule" className="scroll-mt-16">
-          <Card>
-            <CardTitle>Circuit schedule</CardTitle>
-            <CardDescription className="mt-1">
-              Boards and ways for this job — mark each way as you go: to do, installed,
-              tested. {scheduleSummaryLine(circuitBoards)}.
-            </CardDescription>
-            <div className="mt-3">
-              <PhilOfflineLink
-                href={`/phil/jobs/${encodeURIComponent(job.id)}/circuit-schedule`}
-                className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-card border border-border bg-surface px-4 text-sm font-medium text-text transition-colors hover:border-border-strong hover:bg-surface-subtle"
-              >
-                <Zap aria-hidden="true" className="h-5 w-5" />
-                Open circuit schedule
-              </PhilOfflineLink>
-            </div>
-          </Card>
-        </section>
-      ) : null}
-
       {/* #219: Safety — SWMS/SDS the worker acknowledges. Hidden-until-real
           (renders nothing until docs load); mounted only when the safety_docs
           flag is on. Reference-zone slot beside Plans/Circuit (P10). */}
@@ -1651,34 +1332,11 @@ export function PhilJobDetail({
           Hidden-until-real; mounted only when certificates_register is on. */}
       {certificatesEnabled ? <PhilCertificatesHomeSection jobId={job.id} /> : null}
 
-      {/* Documents & specs — JobDocumentsPanel owns its own
-          #phil-job-documents section and renders nothing when the job has no
-          documents and no fetch error (an empty job shows no card). A
-          superseded-only job and fetch errors still render. */}
-      <JobDocumentsPanel
-        initialDocuments={initialDocuments}
-        fetchError={documentsError ?? null}
-      />
-
       {/* Site details — reference info (address / access / parking / safety /
           induction). Demoted to the bottom "reference" zone so the active work
           loop (Work + Capture) leads the page. Keeps #phil-job-site so the
           attention strip's induction item still scrolls here. */}
       <PhilJobSiteCard job={job} induction={siteInduction} />
-
-      {/* Services on site (#230) — where the pit / board / meter / temp supply
-          are, with optional photos, so anyone can find them. Reference-zone slot
-          beside Site details + Who to call. Collapsible; renders nothing when the
-          job has no records and the viewer can't add (P10). Photos are served
-          from the denormalised URLs (worker B sees worker A's board photo); the
-          "Add a photo" path reuses the existing CaptureSheet. */}
-      <PhilJobServicesCard
-        jobId={job.id}
-        initialRecords={initialServiceLocations}
-        loadError={serviceLocationsError ?? null}
-        canWrite={canAddServiceLocation(viewer?.role)}
-        onCapturePhoto={handleCapturePhotoForServices}
-      />
 
       {/* Who to call (#189) — categorised job contacts with tap-to-call.
           Renders nothing when the office hasn't added any. */}

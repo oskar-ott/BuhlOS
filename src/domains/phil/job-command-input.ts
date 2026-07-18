@@ -54,6 +54,10 @@ export interface PhilJobDataForCommand {
   features?: {
     snags?: boolean;
     itps?: boolean;
+    /** #916 strip: plans/tasks left the Phil job page — false derives
+     *  not_configured so no action anchors a section that no longer exists. */
+    plans?: boolean;
+    tasks?: boolean;
   };
   /** GET /api/snags?jobId — every snag on the job the worker can see. */
   snags?: SnagItem[];
@@ -180,7 +184,7 @@ export function philJobCommandInputFromJobData(
     ? { kind: "available" }
     : { kind: "unavailable", reason: "Photo capture is turned off for this job." };
 
-  const plans: PhilJobCommandInput["plans"] = !moduleEnabled(job, "plans")
+  const plans: PhilJobCommandInput["plans"] = data.features?.plans === false || !moduleEnabled(job, "plans")
     ? { kind: "not_configured" }
     : errors.documents
       ? { kind: "unknown" }
@@ -224,9 +228,12 @@ export function philJobCommandInputFromJobData(
     snags,
     itps,
     tags,
-    tasks: data.taskState
-      ? countTrackedAreaTasks(job, data.taskState) ?? { kind: "list_only", visible: countVisibleTasks(job) }
-      : { kind: "list_only", visible: countVisibleTasks(job) },
+    tasks:
+      data.features?.tasks === false
+        ? { kind: "not_configured" }
+        : data.taskState
+          ? countTrackedAreaTasks(job, data.taskState) ?? { kind: "list_only", visible: countVisibleTasks(job) }
+          : { kind: "list_only", visible: countVisibleTasks(job) },
     rejectedHours,
     // Hours are logged on the Day tab, not per job — a real capability that
     // lives on another surface.
