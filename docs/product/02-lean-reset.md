@@ -111,8 +111,11 @@ snag pushes (stale-snag cron, digest line) and their pref rows.
    `/hours/weekly` as THE approval path (product call).
 4. **Lean field app on**: `phil_sharpened` preview-verified (mobile job
    create + 5-slot nav), then defaulted, per governance P15.
-5. ◐ **Job page strip**: audited (#916 — keep/strip mapping + the owner's
-   8 calls); builds preview-verified once the calls are answered.
+5. ✅ **Job page strip** (#916 → PR #922, owner preview-walked and merged
+   2026-07-18): both job pages are down to identity + tags + capture
+   (+ ITP link); photos gallery restored to the core (`job_photos`
+   kill-switch, default ON); everyone can create jobs (office New-job +
+   Phil mobile create). Internal dead-code sweep: #923.
 6. ✅ **Simple ITP builder** built (#912 → PR #913): `itp_simple` flag,
    Supabase-first metadata migrated dev+prod, Blob binaries, job-page
    link-out. Dark until the owner previews and flips.
