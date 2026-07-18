@@ -60,7 +60,6 @@ import { PhilJobSiteCard, type SiteCardInduction } from "./PhilJobSiteCard";
 import { PhilJobServicesCard } from "./PhilJobServicesCard";
 import { PhilJobContactsCard } from "./PhilJobContactsCard";
 import { PhilJobCrewCard } from "./PhilJobCrewCard";
-import { PhilJobDeferredNote } from "./PhilJobDeferredNote";
 import { PhilSafetyHomeSection } from "./PhilSafetyHomeSection";
 import { PhilCertificatesHomeSection } from "./PhilCertificatesHomeSection";
 import { moduleEnabled } from "@/domains/jobs/builder";
@@ -415,9 +414,6 @@ function NowRoom(props: Props) {
 
       {/* On site today — real time-entry crew (self-fetching, degrades). */}
       <PhilJobCrewCard jobId={props.job.id} viewerId={props.viewer?.id ?? null} />
-
-      {/* Honest absence — Materials + History aren't wired; say so, once. */}
-      <PhilJobDeferredNote />
     </div>
   );
 }

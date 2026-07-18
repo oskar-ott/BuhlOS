@@ -130,9 +130,10 @@ describe("NOW room", () => {
   it("omits 'Needs you' entirely when nothing qualifies — never an empty all-clear", () => {
     const html = render({ room: "now" });
     expect(html).not.toContain("Needs you");
-    // Capture + honest deferred note are always there.
+    // Capture is always there. The old "Not connected in Phil yet" deferred
+    // note is GONE (lean reset: hidden features leave no trace).
     expect(html).toContain("Capture evidence");
-    expect(html).toContain("Not connected in Phil yet");
+    expect(html).not.toContain("Not connected in Phil yet");
   });
 
   it("renders real needs-you rows with the total in the heading", () => {

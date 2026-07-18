@@ -10,8 +10,7 @@ interface PermissionsStepProps {
 
 const CAMERA_USES: ReadonlyArray<{ title: string; detail: string }> = [
   { title: "Upload site photos", detail: "before / after, evidence" },
-  { title: "Scan QR codes", detail: "sign in, gear scan-out" },
-  { title: "Capture evidence", detail: "snags, RFIs, defects" },
+  { title: "Capture evidence", detail: "photos on the job, with a note" },
   { title: "Record as-builts", detail: "what's actually there" },
 ];
 

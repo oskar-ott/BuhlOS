@@ -40,7 +40,7 @@ export function JobInterfaceStep({ onContinue, onSkip }: JobInterfaceStepProps) 
       <OnboardingHeading
         eyebrow="Inside a job"
         title="Everything you need, on the job screen."
-        sub="Anything not ready yet shows as &ldquo;under construction&rdquo; — never hidden."
+        sub="Site details, plans, photos and your work — one screen per job."
       />
 
       <div className="px-5 pt-2">
@@ -50,39 +50,15 @@ export function JobInterfaceStep({ onContinue, onSkip }: JobInterfaceStepProps) 
               key={t.name}
               className="flex flex-col gap-1.5 rounded-[10px] border border-border bg-surface-subtle px-3 py-3 min-h-[64px]"
             >
-              <p
-                className={`font-display text-[14px] font-semibold tracking-tight ${
-                  t.status === "soon" ? "text-text-muted" : "text-text"
-                }`}
-              >
+              <p className="font-display text-[14px] font-semibold tracking-tight text-text">
                 {t.name}
               </p>
-              <p
-                className={`font-mono text-[12px] font-bold uppercase tracking-[0.1em] ${
-                  t.status === "soon" ? "text-amber-700" : "text-emerald-700"
-                }`}
-              >
-                {t.status === "soon" ? "◔ under construction" : "● ready"}
+              <p className="font-mono text-[12px] font-bold uppercase tracking-[0.1em] text-emerald-700">
+                ● ready
               </p>
             </div>
           ))}
         </div>
-
-        <aside className="mt-3 flex items-start gap-2.5 rounded-[10px] border border-amber-200 bg-amber-50 px-3 py-3">
-          <span
-            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-amber-500 font-display text-sm font-extrabold text-white"
-            aria-hidden="true"
-          >
-            ◔
-          </span>
-          <p className="text-[13px] leading-snug text-amber-900">
-            <strong className="block text-text">
-              &ldquo;Under construction&rdquo; means: ship-it-later.
-            </strong>
-            The tab&rsquo;s there. The feature isn&rsquo;t. Keep using the rest as
-            normal.
-          </p>
-        </aside>
       </div>
 
       <OnboardingFooter

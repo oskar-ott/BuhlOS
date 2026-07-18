@@ -53,8 +53,9 @@ import styles from "@/components/phil/myDay.module.css";
 export const dynamic = "force-dynamic";
 
 /** The sharpened section-label style (matches PhilMyDaySharpened's labels) —
- *  passed to the kept quick-actions / reimbursements sections so their
- *  headers match the re-skin. Flag-off keeps their built-in default. */
+ *  passed to the flag-gated quick-actions / reimbursements sections (rendered
+ *  only while observations_inbox / expenses are on) so their headers match
+ *  the re-skin. Un-sharpened renders keep their built-in default. */
 const SHARPENED_SECTION_LABEL =
   "mb-2 font-display text-[12px] font-bold uppercase tracking-[0.09em] text-text-muted";
 
