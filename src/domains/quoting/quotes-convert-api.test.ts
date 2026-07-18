@@ -1,6 +1,14 @@
 import { createRequire } from "node:module";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { quoteToJobInput } from "./quote-to-job";
+
+// Lean reset: quotes are dark by default — these tests exercise the enabled behaviour.
+beforeAll(() => {
+  process.env.FLAG_QUOTES = "1";
+});
+afterAll(() => {
+  delete process.env.FLAG_QUOTES;
+});
 
 /**
  * Real-handler coverage for api/quotes.js `convert` (#244): a won quote →
