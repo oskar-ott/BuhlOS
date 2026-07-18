@@ -219,6 +219,34 @@ describe("getAccessContext", () => {
 });
 
 describe("xeroFetch", () => {
+  it("surfaces Xero ValidationErrors messages in a 400's detail (never the raw body)", async () => {
+    const store = makeFakeStore(connectedRow());
+    const fetchImpl = vi.fn(async () =>
+      apiResponse(400, {
+        Message: "A validation exception occurred",
+        Elements: [
+          {
+            ValidationErrors: [{ Message: "Timesheet line date is not within the period" }],
+            SecretishField: "should-never-surface",
+          },
+        ],
+      }),
+    );
+    try {
+      await client.xeroFetch("https://api.xero.com/payroll.xro/1.0/Timesheets", {
+        method: "POST",
+        body: { Timesheets: [] },
+        deps: { store, env: ENV, fetchImpl },
+      });
+      expect.unreachable("should throw");
+    } catch (err) {
+      const e = err as Error & { category: string };
+      expect(e.category).toBe("validation");
+      expect(e.message).toContain("Timesheet line date is not within the period");
+      expect(e.message).not.toContain("should-never-surface");
+    }
+  });
+
   it("sends bearer + tenant header, touches last_success on 200", async () => {
     const store = makeFakeStore(connectedRow());
     const fetchImpl = vi.fn(async () => apiResponse(200, { ok: true }, { "xero-correlation-id": "corr-9" }));
