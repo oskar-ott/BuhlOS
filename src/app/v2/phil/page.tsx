@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Route } from "next";
 import { cookies, headers } from "next/headers";
+import { isFlagEnabled } from "../../../../api/_lib/feature-flags.js";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { PhilMyLicencesCard } from "@/components/phil/PhilMyLicencesCard";
 import { PhilMyInductionsCard } from "@/components/phil/PhilMyInductionsCard";
@@ -32,18 +33,21 @@ import { PushNotificationsCard } from "@/components/pwa/PushNotificationsCard";
 export const dynamic = "force-dynamic";
 
 export default async function PhilV2HomePage() {
-  const [{ credentials, fetchError }, inductions, myRecord] = await Promise.all([
-    loadMyLicences(),
-    loadMyInductions(),
-    loadMyRecord(),
-  ]);
   // The signed-in worker's id — so sign-out can purge their client-only recent +
   // pinned jobs prefs (#145) on a shared device. Best-effort: absent → no purge.
   const store = await cookies();
   const session = decodeSessionCookie(store.get(SESSION_COOKIE)?.value);
   const viewerId = session?.userId ?? session?.sub ?? "";
+  const [{ credentials, fetchError }, inductions, myRecord, observationsEnabled] =
+    await Promise.all([
+      loadMyLicences(),
+      loadMyInductions(),
+      loadMyRecord(),
+      // observations_inbox gates the Capture launcher's observation options.
+      isFlagEnabled("observations_inbox", session),
+    ]);
   return (
-    <PhilShell title="Phil">
+    <PhilShell title="Phil" observationsEnabled={observationsEnabled}>
       <div className="space-y-4">
         <Card className="space-y-2">
           <CardTitle>You&rsquo;re on Phil</CardTitle>

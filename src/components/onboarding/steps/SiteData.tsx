@@ -13,9 +13,7 @@ const ITEMS: ReadonlyArray<{ name: string; detail: string }> = [
   { name: "Photos", detail: "before / after, evidence" },
   { name: "Notes", detail: "what happened, what changed" },
   { name: "Job updates", detail: "progress, ready-for-next-trade" },
-  { name: "Snags", detail: "defects, RFIs, blockers" },
   { name: "As-builts", detail: "what's actually installed" },
-  { name: "ITPs", detail: "tick off as you go — coming soon" },
 ];
 
 /**

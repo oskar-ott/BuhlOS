@@ -83,6 +83,13 @@ interface Props {
    *  — a fresh tile tap, or a different tile while the sheet is already open —
    *  re-applies the preset, so switching tiles isn't swallowed. */
   actionSeq?: number;
+  /** observations_inbox, resolved SERVER-side and threaded page → PhilShell →
+   *  PhilTabBar → here. When FALSE (the default — safe-by-dark) the launcher
+   *  offers ONLY the photo/evidence path: no "log something" list, no worker/
+   *  office observation options, and quick-action presets are ignored — their
+   *  writes go to /api/observations, which 404s while the flag is off (P7:
+   *  never a form whose every send fails). */
+  observationsEnabled?: boolean;
 }
 
 type Job0 = { id: string; name: string | null };
@@ -145,6 +152,7 @@ export function PhilCaptureLauncher({
   onRequestCamera,
   initialAction,
   actionSeq = 0,
+  observationsEnabled = false,
 }: Props) {
   const [jobsState, setJobsState] = useState<JobsState>({ v: "loading" });
   const [photos, setPhotos] = useState<TrayPhoto[]>([]);
@@ -289,6 +297,11 @@ export function PhilCaptureLauncher({
       setPendingWorkerOption(null);
       return;
     }
+    // Observations dark → every quick action targets a 404ing pipeline, so the
+    // preset is ignored and the sheet opens as a plain photo capture. (The My
+    // Day tiles are flag-gated off too — this is belt-and-braces for any other
+    // caller.)
+    if (!observationsEnabled) return;
     if (!initialAction || actionSeq === 0 || appliedSeqRef.current === actionSeq) return;
     if (initialAction.kind === "worker" && jobsState.v !== "ready") return; // await jobs
     const jobsList = jobsState.v === "ready" ? jobsState.jobs : [];
@@ -319,7 +332,7 @@ export function PhilCaptureLauncher({
       case "none":
         break;
     }
-  }, [open, initialAction, actionSeq, jobsState, initialJobId]);
+  }, [open, initialAction, actionSeq, jobsState, initialJobId, observationsEnabled]);
 
   // Consume a photo handed in from the global camera input.
   useEffect(() => {
@@ -598,6 +611,7 @@ export function PhilCaptureLauncher({
 
   // ── No-photo observation loop (pre-existing behaviour) ────────────────
   const startNoteFlow = useCallback(() => {
+    if (!observationsEnabled) return; // dark: the write 404s — no entry point
     setObsTitle("");
     setObsDescription("");
     setObsAskedBy("");
@@ -612,7 +626,7 @@ export function PhilCaptureLauncher({
     } else {
       setNoteFlow({ step: "pick" });
     }
-  }, [jobsState, initialJobId]);
+  }, [observationsEnabled, jobsState, initialJobId]);
 
   const submitNote = useCallback(
     async (job: Job0, option: WorkerCaptureOption) => {
@@ -826,8 +840,9 @@ export function PhilCaptureLauncher({
               onSnagTitleChange={setSnagTitle}
               online={online}
               onWriteNoteInstead={startNoteFlow}
-              canWriteNote={jobsState.v === "ready" && jobs.length > 0}
+              canWriteNote={observationsEnabled && jobsState.v === "ready" && jobs.length > 0}
               onSendToOffice={() => setDestOffice(true)}
+              observationsEnabled={observationsEnabled}
               onClose={closeWithHistory}
             />
           ) : (
@@ -957,6 +972,9 @@ export function PhilCaptureLauncher({
                       </ul>
                     ) : null}
 
+                    {/* Office sends ride the observations pipeline — hidden
+                        while the flag is off (the create 404s). */}
+                    {observationsEnabled ? (
                     <button
                       type="button"
                       aria-pressed={destOffice}
@@ -994,6 +1012,7 @@ export function PhilCaptureLauncher({
                         <Check aria-hidden="true" className="h-5 w-5 shrink-0 text-accent-yellow" />
                       ) : null}
                     </button>
+                    ) : null}
                   </div>
 
                   {destOffice ? (
@@ -1225,8 +1244,9 @@ export function PhilCaptureLauncher({
                   </>
                   )}
                 </>
-              ) : (
-                /* Empty tray — no-photo logging stays one tap away. */
+              ) : observationsEnabled ? (
+                /* Empty tray — no-photo logging stays one tap away. Only while
+                   the observations pipeline is live; dark ⇒ the tray alone. */
                 <div>
                   <p className="text-xs uppercase tracking-wider text-text-muted">
                     Or log something
@@ -1273,7 +1293,7 @@ export function PhilCaptureLauncher({
                     </button>
                   )}
                 </div>
-              )}
+              ) : null}
             </div>
           )}
         </div>

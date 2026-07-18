@@ -3,7 +3,6 @@ import { cookies, headers } from "next/headers";
 import { isFlagEnabled } from "../../../../api/_lib/feature-flags.js";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { UnderConstructionPanel } from "@/components/ui/UnderConstructionPanel";
 import { PhilPageIntro } from "@/components/phil/ui/PhilPageIntro";
 import { PhilNotice } from "@/components/phil/ui/PhilNotice";
 import { PhilBackLink } from "@/components/phil/ui/PhilBackLink";
@@ -45,17 +44,19 @@ export default async function PhilGearPage() {
   }
 
   // Sharpened-chrome flag (cached flags.json read) — server-resolved boolean.
-  const [{ assets, fetchError }, sharpenedFlags] = await Promise.all([
+  // observations_inbox rides the same wave: it gates the Capture launcher's
+  // observation options.
+  const [{ assets, fetchError }, sharpenedFlags, observationsEnabled] = await Promise.all([
     loadMyGear(raw),
     philSharpenedFlags(session),
+    isFlagEnabled("observations_inbox", session),
   ]);
 
   // ── Sharpened Gear (phil_sharpened, dark — Wave 2c) ──────────────────────
   // Same /api/assets read, restyled projection: Needs sorting (real urgent
   // items only) · Your gear · On loan (real hired gear), with every existing
   // action preserved inside PhilGearSharpened. No "Scan a tag" — no scan
-  // path exists (the honest under-construction note below says so). Flag
-  // off falls through below, byte-identical.
+  // path exists. Flag off falls through below, byte-identical.
   if (sharpenedFlags.sharpened) {
     return (
       <PhilShell
@@ -64,6 +65,7 @@ export default async function PhilGearPage() {
         sharpened
         rfiRegister={sharpenedFlags.rfiRegister}
         jobRoomsEnabled={sharpenedFlags.jobRooms}
+        observationsEnabled={observationsEnabled}
         accountInitials={philInitials(session.name ?? session.username)}
       >
         <div className="space-y-4">
@@ -81,11 +83,6 @@ export default async function PhilGearPage() {
           ) : (
             <PhilGearSharpened initialAssets={assets} viewerId={session.userId ?? ""} />
           )}
-
-          <UnderConstructionPanel
-            feature="Scan a tag"
-            description="Tap-to-scan from the van or depot is on the roadmap. For now, admin or a leading hand transfers gear to you through the office register, and you can return or report condition here."
-          />
         </div>
       </PhilShell>
     );
@@ -98,6 +95,7 @@ export default async function PhilGearPage() {
       sharpened={sharpenedFlags.sharpened}
       rfiRegister={sharpenedFlags.rfiRegister}
       jobRoomsEnabled={sharpenedFlags.jobRooms}
+      observationsEnabled={observationsEnabled}
       accountInitials={philInitials(session.name ?? session.username)}
     >
       <div className="space-y-4">
@@ -129,11 +127,6 @@ export default async function PhilGearPage() {
         ) : (
           <PhilGearList initialAssets={assets} viewerId={session.userId ?? ""} />
         )}
-
-        <UnderConstructionPanel
-          feature="QR scan check-out"
-          description="Tap-to-scan from the van or depot is on the roadmap. For now, admin or a leading hand transfers gear to you through the office register, and you can return or report condition here."
-        />
       </div>
     </PhilShell>
   );

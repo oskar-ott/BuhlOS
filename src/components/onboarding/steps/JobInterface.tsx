@@ -12,21 +12,20 @@ interface JobInterfaceStepProps {
 /**
  * Step 06 · Inside a job — preview of the job interface.
  *
- * 2-column grid of feature tiles. Each tile is either "ready" (live) or
- * "under construction" (shipping later). This sets the expectation that
- * the tab is visible even when the feature isn't ready, per the
- * non-negotiable rule: never hide unfinished features — label them.
+ * 2-column grid of feature tiles — LIVE capabilities only. The lean reset
+ * (2026-07) reversed the old "label unfinished work under construction"
+ * convention: hidden features leave NO trace, so this preview names only
+ * what the job screen really offers today (no "soon"/UC tiles, and no tiles
+ * for dark features like snags or ITPs).
  */
-const TILES: ReadonlyArray<{ name: string; status: "ready" | "soon" }> = [
+const TILES: ReadonlyArray<{ name: string; status: "ready" }> = [
   { name: "Address", status: "ready" },
   { name: "Site contact", status: "ready" },
   { name: "Scope", status: "ready" },
   { name: "Plans", status: "ready" },
   { name: "Photos", status: "ready" },
-  { name: "Snags", status: "ready" },
   { name: "Site reqs", status: "ready" },
   { name: "Notes", status: "ready" },
-  { name: "ITPs", status: "soon" },
   // #233 — as-built is now live: flag any handover photo or plan markup as
   // as-built, then filter the Photos gallery / plans to that set. It reuses
   // the existing capture + viewer surfaces (no separate as-built flow), so it

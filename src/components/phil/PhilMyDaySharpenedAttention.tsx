@@ -24,14 +24,19 @@ export async function PhilMyDaySharpenedAttention({
   viewerId,
   entries,
   jobs,
+  snagsEnabled = false,
 }: {
   cookieValue: string | undefined;
   viewerId: string | null;
   entries: ReadonlyArray<TimeEntry>;
   jobs: ReadonlyArray<{ id: string; name: string }>;
+  /** `snags` flag, resolved SERVER-side by the page. False (the default —
+   *  safe-by-dark) skips the per-job snag fan-out entirely: the reads 404
+   *  while the flag is off. No snag items; hours + calibrations unchanged. */
+  snagsEnabled?: boolean;
 }) {
   const [jobSnags, calibrations] = await Promise.all([
-    loadAssignedSnags(jobs, cookieValue),
+    snagsEnabled ? loadAssignedSnags(jobs, cookieValue) : [],
     loadHeldCalibrations(cookieValue),
   ]);
   const items = buildPhilNeedsYou({ viewerId, entries, jobSnags, calibrations });

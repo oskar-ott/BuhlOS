@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
+import { isFlagEnabled } from "../../../../api/_lib/feature-flags.js";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { LogHoursSheet } from "@/components/phil/LogHoursSheet";
 import { PhilWeekStrip } from "@/components/phil/PhilWeekStrip";
@@ -84,11 +85,12 @@ function formatFixDayLabel(isoDate: string): string {
  * The centre Capture shutter stays on the shell (PhilTabBar).
  *
  * Honesty: the "Needs you" feed is backed ONLY by real, worker-attributable
- * sources — rejected hours + snagsV2 assigned to this worker (see
- * buildPhilNeedsYou and docs/phil-my-day-needs-you.md). The design's "Submit
- * timesheet" (weekly batch) is NOT shipped (no weekly batch-submit workflow
- * exists — logging a day already submits it); unwired attention types (tasks,
- * evidence, ITP, RFI) are omitted, never faked.
+ * sources — rejected hours + held-gear calibrations, plus snagsV2 assigned to
+ * this worker while the `snags` flag is on (see buildPhilNeedsYou and
+ * docs/phil-my-day-needs-you.md). The design's "Submit timesheet" (weekly
+ * batch) is NOT shipped (no weekly batch-submit workflow exists — logging a
+ * day already submits it); unwired attention types (tasks, evidence, ITP,
+ * RFI) are omitted, never faked.
  *
  * Cross-ref:
  *   docs/rebuild-audit/13-ui-information-architecture.md §Phil/Today
@@ -124,21 +126,35 @@ export default async function MyDayPage({
   // Load the worker's recent entries AND their active assigned jobs in
   // parallel. The jobs feed the LogHoursSheet job-attribution block so a
   // field submission is tied to a real active job instead of jobId: null.
-  // The sharpened-redesign chrome flag rides the same parallel wave (it's a
-  // cached flags.json read, not a per-page blob round-trip). Resolved
-  // server-side; only the boolean reaches the client (docs/feature-flags.md).
-  const [{ todayEntry, recentEntries, fetchError }, assignedJobs, profile, sharpenedFlags] =
-    await Promise.all([
-      loadEntries(raw, fixDate),
-      loadAssignedJobs(raw),
-      loadWorkerProfile(raw),
-      philSharpenedFlags(session),
-    ]);
+  // The feature flags ride the same parallel wave (cached flags.json reads,
+  // not per-page blob round-trips): the sharpened-redesign chrome, plus the
+  // lean-reset gates — observations_inbox (quick-capture tiles + the Capture
+  // launcher's observation options), expenses (the receipts section) and
+  // snags (the needs-you feed's per-job snag source). Each dark feature's API
+  // 404s, so its surface is gated off rather than rendered dead. Resolved
+  // server-side; only booleans reach the client (docs/feature-flags.md).
+  const [
+    { todayEntry, recentEntries, fetchError },
+    assignedJobs,
+    profile,
+    sharpenedFlags,
+    observationsEnabled,
+    expensesEnabled,
+    snagsEnabled,
+  ] = await Promise.all([
+    loadEntries(raw, fixDate),
+    loadAssignedJobs(raw),
+    loadWorkerProfile(raw),
+    philSharpenedFlags(session),
+    isFlagEnabled("observations_inbox", session),
+    isFlagEnabled("expenses", session),
+    isFlagEnabled("snags", session),
+  ]);
 
   // Hero priority state ("a day was sent back") is driven by REJECTED HOURS,
   // which buildPhilNeedsYou derives purely from the time entries already loaded
-  // above (selector section A). Snags + calibrations only feed the "Needs you"
-  // FEED below the fold, which now streams in its own <Suspense> boundary
+  // above (selector section A). Calibrations (and snags, while that flag is
+  // on) only feed the "Needs you" FEED below the fold, which streams in its own <Suspense> boundary
   // (PhilNeedsYouSection) — so the actionable shell paints after ONE data wave
   // instead of two (each /api/* read is a ~1.3–2.1s Blob round-trip; #670).
   // Passing empty jobSnags here yields a byte-identical hero because the hero
@@ -218,6 +234,7 @@ export default async function MyDayPage({
         sharpened
         rfiRegister={sharpenedFlags.rfiRegister}
         jobRoomsEnabled={sharpenedFlags.jobRooms}
+        observationsEnabled={observationsEnabled}
         accountInitials={initials}
       >
         <div className="flex flex-col gap-3" data-testid="phil-my-day-sharpened">
@@ -263,13 +280,15 @@ export default async function MyDayPage({
 
           {/* Hero "Do this now" + "Needs you" — the existing needs-you model,
               streamed exactly like the current screen's feed (second data
-              wave: job-scoped snags + held calibrations). */}
+              wave: held calibrations, plus job-scoped snags only while the
+              snags flag is on). */}
           <Suspense fallback={<PhilMyDaySharpenedAttentionFallback />}>
             <PhilMyDaySharpenedAttention
               cookieValue={raw}
               viewerId={session.userId ?? null}
               entries={recentEntries}
               jobs={jobs}
+              snagsEnabled={snagsEnabled}
             />
           </Suspense>
 
@@ -297,12 +316,19 @@ export default async function MyDayPage({
             </PhilNotice>
           ) : null}
 
-          {/* Kept capabilities: the remaining quick-capture presets (blocker /
-              material / paperwork; "Report an issue" above covers defect only)
-              and receipts — headers restyled to the sharpened section label. */}
-          <PhilMyDayTiles headerClassName={SHARPENED_SECTION_LABEL} />
+          {/* Flag-gated capabilities, headers restyled to the sharpened
+              section label: the quick-capture tiles all launch observation-
+              pipeline captures (POST /api/observations — 404 while
+              observations_inbox is off) and receipts post to /api/expenses
+              (404 while expenses is off), so each renders only while its
+              feature is live. */}
+          {observationsEnabled ? (
+            <PhilMyDayTiles headerClassName={SHARPENED_SECTION_LABEL} />
+          ) : null}
 
-          <PhilExpenseEntry headerClassName={SHARPENED_SECTION_LABEL} />
+          {expensesEnabled ? (
+            <PhilExpenseEntry headerClassName={SHARPENED_SECTION_LABEL} />
+          ) : null}
         </div>
       </PhilShell>
     );
@@ -315,6 +341,7 @@ export default async function MyDayPage({
       sharpened={sharpenedFlags.sharpened}
       rfiRegister={sharpenedFlags.rfiRegister}
       jobRoomsEnabled={sharpenedFlags.jobRooms}
+      observationsEnabled={observationsEnabled}
       accountInitials={initials}
     >
       <div className={styles.surface}>
@@ -377,9 +404,12 @@ export default async function MyDayPage({
           </PhilNotice>
         ) : null}
 
-        <PhilMyDayTiles />
+        {/* Flag-gated: the quick tiles launch observation-pipeline captures
+            (404 while observations_inbox is off); receipts post to
+            /api/expenses (404 while expenses is off). */}
+        {observationsEnabled ? <PhilMyDayTiles /> : null}
 
-        <PhilExpenseEntry />
+        {expensesEnabled ? <PhilExpenseEntry /> : null}
 
         <Suspense fallback={<PhilNeedsYouSectionFallback />}>
           <PhilNeedsYouSection
@@ -387,6 +417,7 @@ export default async function MyDayPage({
             viewerId={session.userId ?? null}
             entries={recentEntries}
             jobs={jobs}
+            snagsEnabled={snagsEnabled}
           />
         </Suspense>
       </div>

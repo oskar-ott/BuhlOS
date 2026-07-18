@@ -65,11 +65,13 @@ export default async function PhilItpRecordingPage({ params }: PageParams) {
     notFound();
   }
 
-  const [jobResult, itpsResult, sharpenedFlags] = await Promise.all([
+  const [jobResult, itpsResult, sharpenedFlags, observationsEnabled] = await Promise.all([
     loadJob(raw, jobId),
     loadItps(raw, jobId),
     // Sharpened-chrome flag (cached flags.json read) — server-resolved boolean.
     philSharpenedFlags(session),
+    // observations_inbox gates the Capture launcher's observation options.
+    isFlagEnabled("observations_inbox", session),
   ]);
   const accountInitials = philInitials(session.name ?? session.username);
 
@@ -80,6 +82,7 @@ export default async function PhilItpRecordingPage({ params }: PageParams) {
         sharpened={sharpenedFlags.sharpened}
         rfiRegister={sharpenedFlags.rfiRegister}
         jobRoomsEnabled={sharpenedFlags.jobRooms}
+        observationsEnabled={observationsEnabled}
         accountInitials={accountInitials}
       >
         <div className="space-y-4">
@@ -110,6 +113,7 @@ export default async function PhilItpRecordingPage({ params }: PageParams) {
         sharpened={sharpenedFlags.sharpened}
         rfiRegister={sharpenedFlags.rfiRegister}
         jobRoomsEnabled={sharpenedFlags.jobRooms}
+        observationsEnabled={observationsEnabled}
         accountInitials={accountInitials}
       >
         <div className="space-y-4">
@@ -132,6 +136,7 @@ export default async function PhilItpRecordingPage({ params }: PageParams) {
         sharpened={sharpenedFlags.sharpened}
         rfiRegister={sharpenedFlags.rfiRegister}
         jobRoomsEnabled={sharpenedFlags.jobRooms}
+        observationsEnabled={observationsEnabled}
         accountInitials={accountInitials}
       >
         <div className="space-y-4">
@@ -170,6 +175,7 @@ export default async function PhilItpRecordingPage({ params }: PageParams) {
         sharpened
         rfiRegister={sharpenedFlags.rfiRegister}
         jobRoomsEnabled={sharpenedFlags.jobRooms}
+        observationsEnabled={observationsEnabled}
         accountInitials={accountInitials}
       >
         <PhilItpSharpened
@@ -192,6 +198,7 @@ export default async function PhilItpRecordingPage({ params }: PageParams) {
       sharpened={sharpenedFlags.sharpened}
       rfiRegister={sharpenedFlags.rfiRegister}
       jobRoomsEnabled={sharpenedFlags.jobRooms}
+      observationsEnabled={observationsEnabled}
       accountInitials={accountInitials}
     >
       <ITPRecording job={jobResult.job} instance={instance} viewer={viewer} />
