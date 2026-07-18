@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
+import { isFlagEnabled } from "../../../../../api/_lib/feature-flags.js";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { PhilJobDetail } from "@/components/phil/PhilJobDetail";
@@ -88,9 +89,19 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
   // Sharpened chrome + the in-job four-rooms takeover (phil_job_rooms — the
   // filed #133 experiment). Resolved ONCE server-side (cached flags.json);
   // philSharpenedFlags enforces jobRooms ⇒ sharpened, so with either flag off
-  // the job screen (and its chrome) renders exactly as today. Booleans only —
-  // never the flags blob (docs/feature-flags.md).
-  const sharpenedFlags = await philSharpenedFlags(session);
+  // the job screen (and its chrome) renders exactly as today. The lean-reset
+  // gates ride the same wave: itp / snags gate their sections AND their
+  // server fetches (each API 404s while dark — see api/job-itps.js /
+  // api/snags.js), observations_inbox gates the observation fetch and the
+  // Capture launcher's observation options. Booleans only — never the flags
+  // blob (docs/feature-flags.md).
+  const [sharpenedFlags, itpEnabled, itpSimpleEnabled, snagsEnabled, observationsEnabled] = await Promise.all([
+    philSharpenedFlags(session),
+    isFlagEnabled("itp", session),
+    isFlagEnabled("itp_simple", session),
+    isFlagEnabled("snags", session),
+    isFlagEnabled("observations_inbox", session),
+  ]);
   const accountInitials = philInitials(session.name ?? session.username);
 
   // Gate the fast shell behind the SAME flag as the jobs-summary read path
@@ -115,6 +126,7 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
         accountInitials={accountInitials}
         roomsActive={sharpenedFlags.jobRooms}
         jobRoomsEnabled={sharpenedFlags.jobRooms}
+        observationsEnabled={observationsEnabled}
       >
         {/* #145: remember this open so the jobs list can surface it in Recent. */}
         <PhilJobViewRecorder userId={viewerId} jobId={jobId} />
@@ -126,6 +138,10 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
           viewerRole,
           streamTaskState: false,
           jobRooms: sharpenedFlags.jobRooms,
+          itpEnabled,
+          itpSimpleEnabled,
+          snagsEnabled,
+          observationsEnabled,
         })}
       </PhilShell>
     );
@@ -150,6 +166,7 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
       accountInitials={accountInitials}
       roomsActive={sharpenedFlags.jobRooms}
       jobRoomsEnabled={sharpenedFlags.jobRooms}
+      observationsEnabled={observationsEnabled}
     >
       {/* #145: remember this open so the jobs list can surface it in Recent. */}
       <PhilJobViewRecorder userId={viewerId} jobId={jobId} />
@@ -162,6 +179,10 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
           viewerRole={viewerRole}
           streamTaskState
           jobRooms={sharpenedFlags.jobRooms}
+          itpEnabled={itpEnabled}
+          itpSimpleEnabled={itpSimpleEnabled}
+          snagsEnabled={snagsEnabled}
+          observationsEnabled={observationsEnabled}
         />
       </Suspense>
     </PhilShell>
@@ -185,6 +206,10 @@ async function PhilJobDetailFull({
   viewerRole,
   streamTaskState,
   jobRooms,
+  itpEnabled,
+  itpSimpleEnabled,
+  snagsEnabled,
+  observationsEnabled,
 }: {
   raw: string | undefined;
   jobId: string;
@@ -200,6 +225,15 @@ async function PhilJobDetailFull({
   /** phil_job_rooms (dark, #133): render the four-rooms takeover. Resolved by
    *  the page via philSharpenedFlags (jobRooms ⇒ sharpened enforced there). */
   jobRooms: boolean;
+  /** Lean-reset gates, resolved by the page. When a flag is off its backing
+   *  API 404s (itp → api/job-itps.js, snags → api/snags.js,
+   *  observations_inbox → api/observations.js), so the fetch is skipped
+   *  entirely — empty data in, section hidden in PhilJobDetail. */
+  itpEnabled: boolean;
+  /** itp_simple (#912): link-out card only — the builder route/API 404 dark. */
+  itpSimpleEnabled: boolean;
+  snagsEnabled: boolean;
+  observationsEnabled: boolean;
 }) {
   // Start the streamed taskState read in parallel with the wave-one reads, but
   // DON'T await it here — it resolves into PhilJobDetail behind a nested Suspense.
@@ -231,9 +265,10 @@ async function PhilJobDetailFull({
   ] = await Promise.all([
     loadJob(raw, jobId),
     loadInitialEvidence(raw, jobId),
-    loadInitialSnags(raw, jobId),
-    loadInitialObservations(raw, jobId),
-    loadInitialItps(raw, jobId),
+    // Dark-feature loads are SKIPPED, not fired-and-404'd (lean reset).
+    snagsEnabled ? loadInitialSnags(raw, jobId) : [],
+    observationsEnabled ? loadInitialObservations(raw, jobId) : [],
+    itpEnabled ? loadInitialItps(raw, jobId) : [],
     loadInitialDocuments(raw, jobId),
     // Streamed → keep the slot a cheap no-op (taskState arrives via the promise);
     // otherwise the original blocking read (byte-identical to pre-change).
@@ -310,6 +345,9 @@ async function PhilJobDetailFull({
       autoCaptureToken={captureToken}
       safetyEnabled={safetyEnabled}
       certificatesEnabled={certificatesEnabled}
+      itpEnabled={itpEnabled}
+      itpSimpleEnabled={itpSimpleEnabled}
+      snagsEnabled={snagsEnabled}
       rooms={jobRooms}
     />
   );
