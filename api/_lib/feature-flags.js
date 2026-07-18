@@ -617,9 +617,12 @@ const REGISTRY = {
     description: 'The owner-numbers reports surface — /reports. Hidden by the 2026-07 lean reset; re-enable from /owner.',
     default: false, target: 'global', expires: '2027-06-30',
   },
+  // job_photos left the hidden list by owner decision (#916 call 2,
+  // 2026-07-18): the gallery completes the capture loop, so it is lean-core —
+  // back to a kill-switch (default ON).
   job_photos: {
-    description: 'The read-only job photo gallery ("Job Bible") — /v2/jobs/[id]/photos. Hidden by the 2026-07 lean reset; re-enable from /owner.',
-    default: false, target: 'global', expires: '2027-06-30',
+    description: 'The read-only job photo gallery ("Job Bible") — /v2/jobs/[id]/photos + /phil/jobs/[id]/photos. Lean-core (capture loop); owner kill-switch.',
+    default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
   },
   snags: {
     description: 'Per-job snags/defects raised by the field — /v2/jobs/[id]/snags + api/snags. Hidden by the 2026-07 lean reset; re-enable from /owner.',
