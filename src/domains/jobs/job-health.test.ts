@@ -28,6 +28,16 @@ describe("deriveJobHealth", () => {
     expect(h.reasons.map((r) => r.key)).toEqual(["evidence", "snags"]); // soft, in order
   });
 
+  it("excludes hidden features' backlogs from level and reasons (#915)", () => {
+    const h = deriveJobHealth(
+      { statsSnagsV2Active: 9, statsItpsNeedsReview: 4, statsEvidenceV2Pending: 1 },
+      { snags: false, itps: false },
+    );
+    expect(h.level).toBe("watch"); // evidence-only backlog, well below at-risk
+    expect(h.total).toBe(1);
+    expect(h.reasons.map((r) => r.key)).toEqual(["evidence"]);
+  });
+
   it("at-risk on ANY expired gear tag (hard compliance breach), hard reason first", () => {
     const h = deriveJobHealth({ statsExpiredTags: 1, statsSnagsV2Active: 1 });
     expect(h.level).toBe("at-risk");

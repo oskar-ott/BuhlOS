@@ -72,7 +72,16 @@ function positive(v: number | null | undefined): number {
  * zero/missing count are omitted; when no stat is loaded at all the level is
  * `unknown` (not a fabricated "good").
  */
-export function deriveJobHealth(job: HealthStats): JobHealth {
+/** Kill-switch state for flagged health inputs (#915): stats arrive
+ *  flag-blind, so hidden features' backlogs are excluded HERE — a "Watch ·
+ *  N open snags" pill must not surface a feature the product has hidden.
+ *  Omitted key = feature on. */
+export interface JobHealthFeatures {
+  snags?: boolean;
+  itps?: boolean;
+}
+
+export function deriveJobHealth(job: HealthStats, features: JobHealthFeatures = {}): JobHealth {
   const anySignalLoaded =
     isPresent(job.statsExpiredTags) ||
     isPresent(job.statsEvidenceV2Pending) ||
@@ -82,8 +91,8 @@ export function deriveJobHealth(job: HealthStats): JobHealth {
   const candidates: JobHealthReason[] = [
     { key: "tags", label: "Expired gear tags", count: positive(job.statsExpiredTags), severity: "hard" },
     { key: "evidence", label: "Evidence to review", count: positive(job.statsEvidenceV2Pending), severity: "soft" },
-    { key: "snags", label: "Open snags", count: positive(job.statsSnagsV2Active), severity: "soft" },
-    { key: "itps", label: "ITPs to sign off", count: positive(job.statsItpsNeedsReview), severity: "soft" },
+    { key: "snags", label: "Open snags", count: features.snags === false ? 0 : positive(job.statsSnagsV2Active), severity: "soft" },
+    { key: "itps", label: "ITPs to sign off", count: features.itps === false ? 0 : positive(job.statsItpsNeedsReview), severity: "soft" },
   ];
   const reasons = candidates.filter((c) => c.count > 0); // already HARD-first by order
 

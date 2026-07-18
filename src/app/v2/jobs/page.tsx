@@ -56,6 +56,12 @@ export default async function AdminJobsPage() {
   // shared /api/jobs stays live — it's infrastructure the field + hub rely on;
   // the board warns before disabling a core feature.)
   if (!(await isFlagEnabled("jobs", session))) notFound();
+  // #915: card chips / health legs / portfolio counts for flagged features are
+  // consumer-gated — stats arrive flag-blind from api/jobs.js.
+  const [snagsOn, itpsOn] = await Promise.all([
+    isFlagEnabled("snags", session),
+    isFlagEnabled("itp", session),
+  ]);
   // CREATE (POST /api/jobs) is literal-admin only; EDIT/build (PUT) is the
   // admin tier. The "New job" button uses canCreateJob (literal admin); the
   // per-row "Build" uses admin-tier access. A leading hand sees the list but
@@ -104,6 +110,7 @@ export default async function AdminJobsPage() {
           canBuild={canBuild}
           newJobHref={canCreate ? "/v2/jobs/new" : undefined}
           cardExtrasPromise={cardExtrasPromise ?? undefined}
+          features={{ snags: snagsOn, itps: itpsOn }}
         />
       </div>
     </AdminShell>

@@ -30,7 +30,7 @@ import {
   parseJobStatusParam,
 } from "@/domains/jobs/list-filter";
 import { isQaTestJobName } from "@/domains/jobs/test-data";
-import { deriveJobHealth, type JobHealth, type JobHealthLevel } from "@/domains/jobs/job-health";
+import { deriveJobHealth, type JobHealth, type JobHealthFeatures, type JobHealthLevel } from "@/domains/jobs/job-health";
 import {
   HEALTH_LEVELS,
   healthCounts,
@@ -58,6 +58,9 @@ type CardExtra = { tasksTotal?: number; tasksComplete?: number; contractValue?: 
 type CardExtraMap = Record<string, CardExtra>;
 
 interface Props {
+  /** Kill-switch state for flagged card chrome (#915): hidden features'
+   *  chips, health legs and portfolio counts are excluded. Omitted = on. */
+  features?: JobHealthFeatures;
   jobs: ReadonlyArray<Job>;
   /** Admin-only: show the per-card "Build" action that opens the Job Builder. */
   canBuild?: boolean;
@@ -116,7 +119,7 @@ const SEARCH_URL_DEBOUNCE_MS = 250;
  *   src/domains/jobs/job-health.ts — the real risk read
  *   src/app/v2/jobs/page.tsx — the server component that hydrates this list
  */
-export function JobsList({ jobs, canBuild = false, newJobHref, cardExtrasPromise }: Props) {
+export function JobsList({ jobs, canBuild = false, newJobHref, cardExtrasPromise, features = {} }: Props) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
@@ -236,7 +239,7 @@ export function JobsList({ jobs, canBuild = false, newJobHref, cardExtrasPromise
   // #227: derive each row's health from its already-loaded stats (no I/O), then
   // triage the portfolio "needs me first".
   const withHealth = useMemo(
-    () => filtered.map((job) => ({ job, health: deriveJobHealth(job) })),
+    () => filtered.map((job) => ({ job, health: deriveJobHealth(job, features) })),
     [filtered]
   );
   const healthTally = useMemo(() => healthCounts(withHealth), [withHealth]);
@@ -253,7 +256,7 @@ export function JobsList({ jobs, canBuild = false, newJobHref, cardExtrasPromise
     const enriched = jobs.map((j) => withStreamedValue(j, streamedExtras[j.id]));
     return buildPortfolioSummary({
       jobs: enriched,
-      healthByIndex: enriched.map((j) => deriveJobHealth(j)),
+      healthByIndex: enriched.map((j) => deriveJobHealth(j, features)),
     });
   }, [jobs, streamedExtras]);
 
@@ -412,6 +415,7 @@ export function JobsList({ jobs, canBuild = false, newJobHref, cardExtrasPromise
                 health={jobHealth}
                 canBuild={canBuild}
                 extra={streamedExtras[job.id]}
+                features={features}
               />
             </li>
           ))}
@@ -495,12 +499,14 @@ function JobCard({
   health,
   canBuild,
   extra,
+  features,
 }: {
   job: Job;
   health: JobHealth;
   canBuild: boolean;
   /** Streamed extras (statsOnly list): task progress + contractValue. */
   extra?: CardExtra;
+  features?: JobHealthFeatures;
 }) {
   const hubHref = `/v2/jobs/${encodeURIComponent(job.id)}` as Route;
   const topReason = health.reasons[0] ?? null;
@@ -522,10 +528,10 @@ function JobCard({
   const evidencePending = job.statsEvidenceV2Pending ?? 0;
   // statsSnagsV2Active counts needsWorkerAttention statuses
   // (open|in_progress|resolved|rejected) — rejected snags still need a human.
-  const snagsNeedingAttention = job.statsSnagsV2Active ?? 0;
+  const snagsNeedingAttention = features?.snags === false ? 0 : (job.statsSnagsV2Active ?? 0);
   // statsItpsActive (E1a) counts non-archived instances in
   // pending|in-progress|witnessed — anything that still needs work or review.
-  const itpsActive = job.statsItpsActive ?? 0;
+  const itpsActive = features?.itps === false ? 0 : (job.statsItpsActive ?? 0);
   const hasPending =
     evidencePending > 0 || snagsNeedingAttention > 0 || itpsActive > 0;
 

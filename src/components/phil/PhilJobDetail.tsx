@@ -173,6 +173,10 @@ interface Props {
   /** `itp_simple` flag (#912): mount the simple ITP builder link-out only when
    *  live — the /phil/jobs/[jobId]/itp-reports route + API 404 while dark. */
   itpSimpleEnabled?: boolean;
+  /** #915: the Photos gallery + Circuit-schedule cards are DATA-driven —
+   *  without these flags they'd link to flag-gated 404 routes. */
+  photosGalleryEnabled?: boolean;
+  circuitScheduleEnabled?: boolean;
   /** `snags` flag (lean reset), resolved by the page: mount the Snags section
    *  only while the feature is live — its API (api/snags.js) 404s when dark. */
   snagsEnabled?: boolean;
@@ -260,6 +264,8 @@ export function PhilJobDetail({
   certificatesEnabled = false,
   itpEnabled = false,
   itpSimpleEnabled = false,
+  photosGalleryEnabled = false,
+  circuitScheduleEnabled = false,
   snagsEnabled = false,
   rooms = false,
 }: Props) {
@@ -646,6 +652,7 @@ export function PhilJobDetail({
       buildPhilJobCommandModel(
         philJobCommandInputFromJobData({
           job,
+          features: { snags: snagsEnabled, itps: itpEnabled },
           snags: initialSnags ? [...initialSnags] : undefined,
           itps: initialItps ? [...initialItps] : undefined,
           documents: initialDocuments ? [...initialDocuments] : undefined,
@@ -659,6 +666,8 @@ export function PhilJobDetail({
       ),
     [
       job,
+      snagsEnabled,
+      itpEnabled,
       initialSnags,
       initialItps,
       initialDocuments,
@@ -1098,7 +1107,7 @@ export function PhilJobDetail({
   const circuitBoards = (
     job as { circuitBoards?: ReadonlyArray<{ circuits?: ReadonlyArray<{ install?: string }> }> }
   ).circuitBoards;
-  const hasCircuitSchedule = (circuitBoards?.length ?? 0) > 0;
+  const hasCircuitSchedule = circuitScheduleEnabled && (circuitBoards?.length ?? 0) > 0;
 
   // Site-induction card state (#332) — shared verbatim by both renders.
   const siteInduction = job.inductionRequired
@@ -1587,7 +1596,7 @@ export function PhilJobDetail({
           capture the worker can already see (the page's own evidence list), so
           the field never lands on an empty gallery. Reference-zone slot beside
           Plans (P10); capture stays on the job home above (browse ≠ capture). */}
-      {evidenceItems.length > 0 ? (
+      {photosGalleryEnabled && evidenceItems.length > 0 ? (
         <section id="phil-job-photos" aria-label="Photos" className="scroll-mt-16">
           <Card>
             <CardTitle>Photos</CardTitle>
