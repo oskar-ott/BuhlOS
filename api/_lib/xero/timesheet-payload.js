@@ -29,8 +29,21 @@ const PERIOD_DAYS = { WEEKLY: 7, FORTNIGHTLY: 14, FOURWEEKLY: 28 };
 
 function parseDay(s) {
   // 'YYYY-MM-DD' → UTC ms at midnight (dates are calendar days, tz-free here).
-  if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return NaN;
-  return Date.parse(`${s}T00:00:00Z`);
+  // ALSO accepts Xero's raw .NET wire format "/Date(1784073600000+0000)/" —
+  // the reference sync caches payroll-calendar payloads verbatim, so the
+  // startDate anchor arrives in that shape (found live by the first #249
+  // proving run: every calendar read as "no fixed period length" because the
+  // anchor parsed to NaN). The ms epoch is truncated to its UTC midnight so
+  // the anchor stays a calendar day like every other date here.
+  if (typeof s !== 'string') return NaN;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return Date.parse(`${s}T00:00:00Z`);
+  const dotNet = s.match(/^\/Date\((-?\d+)(?:[+-]\d{4})?\)\/$/);
+  if (dotNet) {
+    const ms = Number(dotNet[1]);
+    if (!Number.isFinite(ms)) return NaN;
+    return Math.floor(ms / MS_PER_DAY) * MS_PER_DAY;
+  }
+  return NaN;
 }
 
 function dayStr(ms) {
