@@ -45,6 +45,7 @@ export type FlagKey =
   | "phil_job_rooms" // #133 in-job four-rooms experiment — dark launch-gate; requires phil_sharpened
   | "xero_connection" // #247 Xero OAuth connection foundation — dark launch-gate
   | "xero_payroll_export" // #249 first Xero WRITE — draft-timesheet export; independent write gate
+  | "itp_simple" // #912 simple mobile ITP builder — dark launch-gate
   | "itp"
   // #760 owner feature-control kill-switches (LIVE features, default ON)
   | "jobs"
