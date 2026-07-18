@@ -111,6 +111,10 @@ beforeEach(() => {
     ],
   });
 
+  // Lean reset: ITP / QA is dark by default — these tests exercise the enabled behaviour.
+  // Blob pin (not env) so the explicit flag-OFF test's own flags.json set still wins.
+  blob.set("flags.json", { flags: { itp: true } });
+
   for (const p of [authPath, handlerPath, templatesPath, flagsPath]) delete requireFromHere.cache[p];
   requireFromHere.cache[blobPath] = {
     id: blobPath,

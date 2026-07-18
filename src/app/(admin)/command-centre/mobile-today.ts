@@ -26,6 +26,31 @@ export interface MobileTodayApprovals {
   materials: number;
 }
 
+/** Which approvals sources are live for this viewer (lean reset — each is a
+ *  dark launch-gate; the page resolves the flags and passes the booleans). */
+export interface MobileTodayApprovalsEnabled {
+  expenses: boolean;
+  itps: boolean;
+  materials: boolean;
+}
+
+/**
+ * The approvals breakdown line ("3 expenses · 2 ITPs · 1 materials") naming
+ * ONLY live sources — a dark feature leaves no label, not a "0 expenses"
+ * ghost. Returns null when every source is dark: the caller then renders no
+ * approvals pulse segment and no approvals row at all (no trace, P7).
+ */
+export function approvalsBreakdownLabel(
+  a: MobileTodayApprovals,
+  enabled: MobileTodayApprovalsEnabled,
+): string | null {
+  const parts: string[] = [];
+  if (enabled.expenses) parts.push(`${a.expenses} expenses`);
+  if (enabled.itps) parts.push(`${a.itps} ITPs`);
+  if (enabled.materials) parts.push(`${a.materials} materials`);
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
 export interface MobileTodayNeedsYou {
   /** The loudest few items, ranked (severity → actionable → oldest). */
   top: ExceptionItem[];

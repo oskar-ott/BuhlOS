@@ -43,14 +43,16 @@ export default async function PhilSafetyPage({ params }: PageParams) {
     notFound();
   }
 
-  const [jobResult, safetyResult] = await Promise.all([
+  // observations_inbox gates the Capture launcher's observation options.
+  const [jobResult, safetyResult, observationsEnabled] = await Promise.all([
     loadJob(raw, jobId),
     loadSafety(raw, jobId),
+    isFlagEnabled("observations_inbox", session),
   ]);
 
   if (jobResult.kind === "not_found" || jobResult.kind === "forbidden") {
     return (
-      <PhilShell title="Safety">
+      <PhilShell title="Safety" observationsEnabled={observationsEnabled}>
         <div className="space-y-4">
           <PhilBackLink href="/phil/jobs">All jobs</PhilBackLink>
           <Card>
@@ -68,7 +70,7 @@ export default async function PhilSafetyPage({ params }: PageParams) {
 
   if (jobResult.kind === "error") {
     return (
-      <PhilShell title="Safety">
+      <PhilShell title="Safety" observationsEnabled={observationsEnabled}>
         <div className="space-y-4">
           <PhilBackLink href={`/phil/jobs/${encodeURIComponent(jobId)}`}>Back to job</PhilBackLink>
           <PhilNotice tone="warning" title="Couldn’t load this job" role="alert">
@@ -83,7 +85,10 @@ export default async function PhilSafetyPage({ params }: PageParams) {
   }
 
   return (
-    <PhilShell title={`Safety · ${jobResult.job.name}`}>
+    <PhilShell
+      title={`Safety · ${jobResult.job.name}`}
+      observationsEnabled={observationsEnabled}
+    >
       <div className="space-y-4">
         <PhilBackLink href={`/phil/jobs/${encodeURIComponent(jobId)}`}>Back to job</PhilBackLink>
         <PhilPageIntro

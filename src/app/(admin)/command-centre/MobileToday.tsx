@@ -22,7 +22,13 @@ import type { ExceptionItem } from "@/domains/exceptions/types";
 import { SEVERITY_TONE, sourceLabel } from "@/domains/exceptions/labels";
 import { isActionable } from "@/domains/exceptions/service";
 import type { TodayStripModel } from "@/domains/timesheets/today-strip";
-import { dailyApprovalsTotal, rankNeedsYou, type MobileTodayApprovals } from "./mobile-today";
+import {
+  approvalsBreakdownLabel,
+  dailyApprovalsTotal,
+  rankNeedsYou,
+  type MobileTodayApprovals,
+  type MobileTodayApprovalsEnabled,
+} from "./mobile-today";
 
 /**
  * Mobile Command Centre ("Today") — the calm phone home that answers
@@ -48,6 +54,9 @@ interface MobileTodayProps {
   /** Hours submitted and awaiting approval (the weekly payroll closeout). */
   pendingHours: number;
   approvals: MobileTodayApprovals;
+  /** Lean reset: which approvals sources are live. A dark source is never
+   *  named; all three dark ⇒ no "to approve" pulse and no approvals row. */
+  approvalsEnabled: MobileTodayApprovalsEnabled;
   /** The ranked exception list (already built + age-decorated by the page). */
   exceptions: ExceptionItem[];
   anySourceError: boolean;
@@ -81,6 +90,7 @@ export function MobileToday(props: MobileTodayProps) {
     jobsWithActivityToday,
     pendingHours,
     approvals,
+    approvalsEnabled,
     exceptions,
     anySourceError,
     errorMessage,
@@ -89,6 +99,9 @@ export function MobileToday(props: MobileTodayProps) {
 
   const { top, remaining, all } = rankNeedsYou(exceptions, 4);
   const dailyApprovals = dailyApprovalsTotal(approvals);
+  // null ⇔ every approvals source is dark (lean reset) — render no "to
+  // approve" pulse segment and no approvals strip card at all.
+  const approvalsSub = approvalsBreakdownLabel(approvals, approvalsEnabled);
   const [showAll, setShowAll] = useState(false);
   const [selected, setSelected] = useState<ExceptionItem | null>(null);
   const visible = showAll ? all : top;
@@ -105,12 +118,14 @@ export function MobileToday(props: MobileTodayProps) {
       <div className="flex items-stretch overflow-hidden rounded-card bg-brand-navy shadow-card">
         <PulseSegment href="/hours" value={todayStrip ? String(todayStrip.crewCount) : "—"} label="on the clock" />
         <PulseSegment href="/hours" value={todayStrip ? todayStrip.loggedHoursLabel : "—"} label="logged today" />
-        <PulseSegment
-          href={"/hours/approvals" as Route}
-          value={String(dailyApprovals)}
-          label="to approve"
-          hot
-        />
+        {approvalsSub !== null ? (
+          <PulseSegment
+            href={"/hours/approvals" as Route}
+            value={String(dailyApprovals)}
+            label="to approve"
+            hot
+          />
+        ) : null}
       </div>
       {todayPulseError ? (
         <p className="-mt-3 px-1 text-xs text-text-muted">
@@ -202,17 +217,21 @@ export function MobileToday(props: MobileTodayProps) {
         </section>
       ) : null}
 
-      {/* Waiting on you — day-to-day approvals (hours are a weekly closeout) */}
+      {/* Waiting on you — day-to-day approvals (hours are a weekly closeout).
+          The breakdown names only LIVE sources; with every approvals source
+          dark the section carries hours alone, so the meta counts those. */}
       {dailyApprovals > 0 || pendingHours > 0 ? (
         <section>
-          <SectionLabel meta={`${dailyApprovals} to action`}>Waiting on you</SectionLabel>
+          <SectionLabel meta={`${approvalsSub !== null ? dailyApprovals : pendingHours} to action`}>
+            Waiting on you
+          </SectionLabel>
           <div className="mt-2 space-y-2">
-            {dailyApprovals > 0 ? (
+            {dailyApprovals > 0 && approvalsSub !== null ? (
               <StripCard
                 href={"/hours/approvals" as Route}
                 icon={<ClipboardCheck aria-hidden="true" className="h-5 w-5" />}
                 title="Approvals queue"
-                sub={`${approvals.expenses} expenses · ${approvals.itps} ITPs · ${approvals.materials} materials`}
+                sub={approvalsSub}
                 count={dailyApprovals}
               />
             ) : null}

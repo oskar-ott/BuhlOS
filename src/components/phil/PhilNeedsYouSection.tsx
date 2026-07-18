@@ -29,20 +29,30 @@ import { PhilSkeleton } from "./ui/PhilSkeleton";
  * Honesty (P7): every item is real (buildPhilNeedsYou); the fallback is a plain
  * loading shimmer, never a fabricated row, and an empty result still renders the
  * feed's honest "nothing needs you" state.
+ *
+ * The snag source is flag-gated (`snags`, server-resolved by the page): while
+ * the feature is dark its API 404s, so the fan-out is skipped entirely and the
+ * feed is rejected-hours + calibrations only.
  */
 export async function PhilNeedsYouSection({
   cookieValue,
   viewerId,
   entries,
   jobs,
+  snagsEnabled = false,
 }: {
   cookieValue: string | undefined;
   viewerId: string | null;
   entries: ReadonlyArray<TimeEntry>;
   jobs: ReadonlyArray<{ id: string; name: string }>;
+  /** `snags` flag, resolved SERVER-side by the page. When false the per-job
+   *  GET /api/snags reads 404 — skip the whole fan-out (no wasted round-trips,
+   *  no error note) and the feed simply carries no snag items. Default FALSE:
+   *  safe-by-dark. Rejected-hours + calibration items are unaffected. */
+  snagsEnabled?: boolean;
 }) {
   const [jobSnags, calibrations] = await Promise.all([
-    loadAssignedSnags(jobs, cookieValue),
+    snagsEnabled ? loadAssignedSnags(jobs, cookieValue) : [],
     loadHeldCalibrations(cookieValue),
   ]);
   const items = buildPhilNeedsYou({ viewerId, entries, jobSnags, calibrations });

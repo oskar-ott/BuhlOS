@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
+import { isFlagEnabled } from "../../../../../../api/_lib/feature-flags.js";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { RefreshButton } from "@/components/ui/RefreshButton";
@@ -53,14 +54,17 @@ export default async function PhilPlansPage({ params }: PageParams) {
     redirect("/v2/login");
   }
 
-  const [jobResult, plansResult] = await Promise.all([
+  // observations_inbox gates the Capture launcher's observation options
+  // (server-resolved boolean for the shell's FAB sheet).
+  const [jobResult, plansResult, observationsEnabled] = await Promise.all([
     loadJob(raw, jobId),
     loadPlans(raw, jobId),
+    isFlagEnabled("observations_inbox", session),
   ]);
 
   if (jobResult.kind === "not_found" || jobResult.kind === "forbidden") {
     return (
-      <PhilShell title="Plans">
+      <PhilShell title="Plans" observationsEnabled={observationsEnabled}>
         <div className="space-y-4">
           <PhilBackLink href="/phil/jobs">All jobs</PhilBackLink>
           <Card>
@@ -78,7 +82,7 @@ export default async function PhilPlansPage({ params }: PageParams) {
 
   if (jobResult.kind === "error") {
     return (
-      <PhilShell title="Plans">
+      <PhilShell title="Plans" observationsEnabled={observationsEnabled}>
         <div className="space-y-4">
           <PhilBackLink href={`/phil/jobs/${encodeURIComponent(jobId)}`}>
             Back to job
@@ -95,7 +99,10 @@ export default async function PhilPlansPage({ params }: PageParams) {
   }
 
   return (
-    <PhilShell title={`Plans · ${jobResult.job.name}`}>
+    <PhilShell
+      title={`Plans · ${jobResult.job.name}`}
+      observationsEnabled={observationsEnabled}
+    >
       <div className="space-y-4">
         <PhilBackLink href={`/phil/jobs/${encodeURIComponent(jobId)}`}>
           Back to job

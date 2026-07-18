@@ -208,7 +208,9 @@ describe("owner preview (#760) — viewer-aware override", () => {
 });
 
 describe("kill-switch flags (#760) — live by default, owner can turn off", () => {
-  const KS = "itp"; // killSwitch: default ON
+  // `hours` — the lean core's spine. (`itp` was the original exemplar until the
+  // 2026-07 lean reset reclassified it back to a dark launch-gate.)
+  const KS = "hours"; // killSwitch: default ON
 
   it("defaults ON with no override (a live feature)", async () => {
     expect(await flags.isFlagOn(KS)).toBe(true);

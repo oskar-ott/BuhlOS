@@ -253,8 +253,16 @@ describe("PhilCaptureLauncher + provider — the flag actually switches the body
   });
 
   it("no provider (flag off) → the current sheet, unchanged", () => {
+    // observationsEnabled true so the current sheet's own marker ("Or log
+    // something") proves the un-sharpened body rendered; the flag's dark
+    // default is covered in PhilCaptureLauncher.render.test.tsx.
     const html = renderToString(
-      createElement(PhilCaptureLauncher, { open: true, onClose: () => {}, initialJobId: "job-1" }),
+      createElement(PhilCaptureLauncher, {
+        open: true,
+        onClose: () => {},
+        initialJobId: "job-1",
+        observationsEnabled: true,
+      }),
     );
     expect(html).not.toContain('data-testid="phil-capture-sharpened"');
     expect(html).toContain("Or log something");

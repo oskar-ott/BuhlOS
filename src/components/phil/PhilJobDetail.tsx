@@ -58,7 +58,6 @@ import { TodaysCapturesStrip } from "./TodaysCapturesStrip";
 import { JobSnagsPanel } from "./JobSnagsPanel";
 import { JobItpPanel } from "./JobItpPanel";
 import { JobDocumentsPanel } from "./JobDocumentsPanel";
-import { PhilJobDeferredNote } from "./PhilJobDeferredNote";
 import { PhilJobSiteCard } from "./PhilJobSiteCard";
 import { PhilJobCrewCard } from "./PhilJobCrewCard";
 import { PhilJobHero } from "./PhilJobHero";
@@ -168,6 +167,12 @@ interface Props {
   safetyEnabled?: boolean;
   /** #231: mount the hidden-until-real Certificates home section (flag-gated by the page). */
   certificatesEnabled?: boolean;
+  /** `itp` flag (lean reset), resolved by the page: mount the ITPs section only
+   *  while the feature is live — its API (api/job-itps.js) 404s when dark. */
+  itpEnabled?: boolean;
+  /** `snags` flag (lean reset), resolved by the page: mount the Snags section
+   *  only while the feature is live — its API (api/snags.js) 404s when dark. */
+  snagsEnabled?: boolean;
   /**
    * phil_job_rooms (dark — the filed #133 experiment): render this job as the
    * FOUR ROOMS takeover (Now · Work · [Capture] · Proof · Site with the in-job
@@ -201,22 +206,21 @@ interface Props {
  *   6. Capture block (#phil-job-capture) — primary CTA + today's
  *      capture strip. ("Capture evidence" — kept verbatim; smoke/e2e
  *      match this button + the CaptureSheet dialog name.)
- *   7. Snags (#phil-job-snags) — JobSnagsPanel (live).
- *   8. ITPs (#phil-job-itps) — JobItpPanel (live, Phase E1b).
+ *   7. Snags (#phil-job-snags) — JobSnagsPanel; flag-gated (`snags`,
+ *      lean reset) — mounted only while the feature is live.
+ *   8. ITPs (#phil-job-itps) — JobItpPanel; flag-gated (`itp`, lean reset) —
+ *      mounted only while the feature is live.
  *   9. Plans (#phil-job-plans) — in-app drawing viewer link.
  *  10. Documents (#phil-job-documents) — JobDocumentsPanel (live, E2
- *      read-only — "Site files").
+ *      read-only — "Site files"; backed by the ungated /api/plans read).
  *  11. <PhilJobSiteCard/> "Site details" (#phil-job-site) — reference info
  *      (address / contact / access / parking / safety / induction),
  *      collapsible. Demoted to the bottom reference zone so the active work
  *      loop leads; keeps #phil-job-site for the induction attention link.
- *  12. Not connected yet (#phil-job-more) — one concise PhilJobDeferredNote
- *      for the deferred Materials + History surfaces.
  *
  * Section ORDER is the worker flow: do the work → capture proof → handle
- * problems/checks → references (plans/docs) → site details → what's not wired.
- * Deferred surfaces are an honest one-line note — no fake counts, no fake
- * buttons, no full "under construction" cards.
+ * problems/checks → references (plans/docs) → site details. Dark features
+ * leave NO trace — no notes, no fake counts, no "under construction" cards.
  *
  * Cross-ref:
  *   /tmp/phil-bible/buhlos-phil/project/Phil Job Interface Bible.html
@@ -249,6 +253,8 @@ export function PhilJobDetail({
   autoCaptureToken,
   safetyEnabled = false,
   certificatesEnabled = false,
+  itpEnabled = false,
+  snagsEnabled = false,
   rooms = false,
 }: Props) {
   // Opens the global Capture launcher preset to one option (here, the
@@ -1490,7 +1496,9 @@ export function PhilJobDetail({
         />
       </section>
 
-      {viewer ? (
+      {/* Snags — flag-gated (`snags`, lean reset): the section mounts only
+          while the feature is live (its API 404s when dark). */}
+      {viewer && snagsEnabled ? (
         <section
           id="phil-job-snags"
           aria-label="Snags"
@@ -1507,15 +1515,15 @@ export function PhilJobDetail({
       ) : null}
 
       {/* Job-interface sections: header → command → attention → site →
-          areas/work → capture → Snags → ITPs → Plans → Documents, then one
-          honest "not connected yet" note for the deferred surfaces.
+          areas/work → capture → Snags → ITPs → Plans → Documents.
 
-          JobItpPanel is LIVE (E1b). JobDocumentsPanel is LIVE (E2, read-only).
-          Materials + History are deferred — a single PhilJobDeferredNote, not
-          two full UC cards. */}
-      <section id="phil-job-itps" aria-label="ITPs" className="scroll-mt-16">
-        <JobItpPanel job={job} initialItps={initialItps} />
-      </section>
+          ITPs — flag-gated (`itp`, lean reset). JobDocumentsPanel is LIVE
+          (E2, read-only; ungated /api/plans read). */}
+      {itpEnabled ? (
+        <section id="phil-job-itps" aria-label="ITPs" className="scroll-mt-16">
+          <JobItpPanel job={job} initialItps={initialItps} />
+        </section>
+      ) : null}
 
       {moduleEnabled(job, "tags") ? (
         <section id="phil-job-tags" aria-label="Test and tag" className="scroll-mt-16">
@@ -1646,17 +1654,6 @@ export function PhilJobDetail({
           /api/time-entries-on-site endpoint); degrades on its own. */}
       <section id="phil-job-crew" aria-label="On site today" className="scroll-mt-16">
         <PhilJobCrewCard jobId={job.id} viewerId={viewer?.id ?? null} />
-      </section>
-
-      {/* Secondary — deferred surfaces. The Materials + History UC stubs used
-          to be two full cards here; consolidated into one honest, low-emphasis
-          "not connected yet" note so placeholders don't dominate the scroll. */}
-      <section
-        id="phil-job-more"
-        aria-label="Not connected yet"
-        className="scroll-mt-16"
-      >
-        <PhilJobDeferredNote />
       </section>
 
       {sheets}

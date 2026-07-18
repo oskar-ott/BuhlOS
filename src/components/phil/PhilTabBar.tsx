@@ -323,6 +323,13 @@ interface PhilTabBarProps {
    * `roomsActive`.
    */
   jobRoomsEnabled?: boolean;
+  /**
+   * observations_inbox (server-resolved by the page, via PhilShell): forwarded
+   * to the Capture launcher. False (the default — safe-by-dark) hides the
+   * worker/office observation options; the camera-first photo path is
+   * untouched.
+   */
+  observationsEnabled?: boolean;
 }
 
 /** Pre-hydration stand-in for the job screen's rooms binding: the job screen
@@ -338,6 +345,7 @@ export function PhilTabBar({
   sharpened,
   roomsActive,
   jobRoomsEnabled,
+  observationsEnabled = false,
 }: PhilTabBarProps) {
   const pathname = usePathname() ?? "";
   // The job id when we're exactly on a job-detail route (/phil/jobs/<id>) —
@@ -401,8 +409,9 @@ export function PhilTabBar({
   // click must stay inside the user-gesture call stack — iOS blocks deferred
   // programmatic file-input clicks) and opens the launcher behind it to
   // receive the shot. Cancelling the camera just leaves the launcher open
-  // with its photo button + "log something" options. On a job home the
-  // launcher preselects that job as the destination.
+  // with its photo button (plus the "log something" options when the
+  // observations flag is on). On a job home the launcher preselects that
+  // job as the destination.
   const fireCamera = () => cameraInputRef.current?.click();
   const onCapture = () => {
     fireCamera();
@@ -580,6 +589,7 @@ export function PhilTabBar({
         onRequestCamera={fireCamera}
         initialAction={quickRequest?.action ?? null}
         actionSeq={quickRequest?.seq ?? 0}
+        observationsEnabled={observationsEnabled}
       />
     </>
   );

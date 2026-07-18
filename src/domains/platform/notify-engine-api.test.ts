@@ -1,5 +1,13 @@
 import { createRequire } from "node:module";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Lean reset: snags are dark by default — these tests exercise the enabled behaviour (the stale-snags cron).
+beforeAll(() => {
+  process.env.FLAG_SNAGS = "1";
+});
+afterAll(() => {
+  delete process.env.FLAG_SNAGS;
+});
 
 /**
  * Integration coverage for the platform notify() engine (#162) THROUGH the

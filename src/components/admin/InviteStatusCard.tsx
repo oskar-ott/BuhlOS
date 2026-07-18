@@ -4,7 +4,6 @@ import { useState } from "react";
 import { Check, Copy } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { StatusChip } from "@/components/ui/StatusChip";
-import { cn } from "@/lib/cn";
 import { employeeStatusMarker } from "@/domains/employees/service";
 import { inviteSummaryLine } from "@/domains/employees/format";
 import type { EmployeeRow } from "@/domains/employees/types";
@@ -89,12 +88,6 @@ export function InviteStatusCard({
             </Button>
           ) : null}
         </div>
-      ) : null}
-
-      {isActive ? (
-        <p className={cn("mt-3 font-mono text-[11px] uppercase tracking-wider text-text-muted")}>
-          Reset PIN · coming soon
-        </p>
       ) : null}
     </section>
   );

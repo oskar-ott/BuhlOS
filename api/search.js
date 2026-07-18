@@ -28,6 +28,7 @@
 
 const { readBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, isStaffRole, isAdminRole, isLeadingHandRole, isClientRole } = require('./_lib/auth');
+const { isFlagEnabled } = require('./_lib/feature-flags');
 
 const TYPES = new Set(['jobs', 'snags', 'users']);
 
@@ -144,7 +145,9 @@ module.exports = async (req, res) => {
   }
 
   // ── Snags ─────────────────────────────────────────────────────────────
-  if (requestedTypes.includes('snags')) {
+  // Lean reset: with the snags feature hidden, search must not surface snag
+  // results (their /v2/jobs/<id>/snags targets 404 while the flag is off).
+  if (requestedTypes.includes('snags') && (await isFlagEnabled('snags', me))) {
     // Per-job walks in parallel — bounded by visible-job count.
     const perJob = await Promise.all(visibleJobs.map(async j => {
       let data;

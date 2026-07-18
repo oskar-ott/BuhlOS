@@ -1,5 +1,13 @@
 import { createRequire } from "node:module";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Lean reset: circuit schedules are dark by default — these tests exercise the enabled behaviour.
+beforeAll(() => {
+  process.env.FLAG_CIRCUIT_SCHEDULE = "1";
+});
+afterAll(() => {
+  delete process.env.FLAG_CIRCUIT_SCHEDULE;
+});
 
 /**
  * Integration tests for the `boards` facet of /api/job-circuits against the

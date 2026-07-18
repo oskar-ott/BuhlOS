@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Route } from "next";
 import { cookies, headers } from "next/headers";
+import { isFlagEnabled } from "../../../../api/_lib/feature-flags.js";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { PhilMyLicencesCard } from "@/components/phil/PhilMyLicencesCard";
 import { PhilMyInductionsCard } from "@/components/phil/PhilMyInductionsCard";
@@ -18,7 +19,6 @@ import {
 } from "@/domains/workforce/my-record";
 import { PhilSignOutButton } from "@/components/phil/PhilSignOutButton";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
-import { UnderConstructionPanel } from "@/components/ui/UnderConstructionPanel";
 import { PushNotificationsCard } from "@/components/pwa/PushNotificationsCard";
 
 /**
@@ -28,23 +28,26 @@ import { PushNotificationsCard } from "@/components/pwa/PushNotificationsCard";
  * cards on Phil home"), this surface no longer duplicates the bottom-tab
  * links to /phil/my-day, /phil/jobs and /phil/gear. The tab bar owns
  * those. What remains is: a short orientation line, an onboarding replay
- * card, an account card (sign out), and the profile/settings UC panel.
+ * card, and the worker's own account / leave / record cards.
  */
 export const dynamic = "force-dynamic";
 
 export default async function PhilV2HomePage() {
-  const [{ credentials, fetchError }, inductions, myRecord] = await Promise.all([
-    loadMyLicences(),
-    loadMyInductions(),
-    loadMyRecord(),
-  ]);
   // The signed-in worker's id — so sign-out can purge their client-only recent +
   // pinned jobs prefs (#145) on a shared device. Best-effort: absent → no purge.
   const store = await cookies();
   const session = decodeSessionCookie(store.get(SESSION_COOKIE)?.value);
   const viewerId = session?.userId ?? session?.sub ?? "";
+  const [{ credentials, fetchError }, inductions, myRecord, observationsEnabled] =
+    await Promise.all([
+      loadMyLicences(),
+      loadMyInductions(),
+      loadMyRecord(),
+      // observations_inbox gates the Capture launcher's observation options.
+      isFlagEnabled("observations_inbox", session),
+    ]);
   return (
-    <PhilShell title="Phil">
+    <PhilShell title="Phil" observationsEnabled={observationsEnabled}>
       <div className="space-y-4">
         <Card className="space-y-2">
           <CardTitle>You&rsquo;re on Phil</CardTitle>
@@ -123,11 +126,6 @@ export default async function PhilV2HomePage() {
         />
 
         <PushNotificationsCard audience="phil" />
-
-        <UnderConstructionPanel
-          feature="Profile · settings"
-          description="The rest of your worker profile and settings live here once the loops above are field-stable. Your hours, licences, inductions and recent work record are already here."
-        />
       </div>
     </PhilShell>
   );

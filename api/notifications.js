@@ -28,6 +28,7 @@
 //                        which we also accept.
 
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
+const { isFlagEnabled } = require('./_lib/feature-flags');
 const { getCurrentUser, isAdminRole, isLeadingHandRole, isFieldRole, isClientRole, isDisabledUser } = require('./_lib/auth');
 const { getWebPush, sendPushToUserId } = require('./_lib/push');
 const { notify } = require('./_lib/notify');
@@ -376,24 +377,28 @@ module.exports = async (req, res) => {
       }
     } catch (e) { console.error('digest hours walk failed', e); }
 
-    // Snags opened/resolved today — walk per-job data blobs.
+    // Snags opened/resolved today — walk per-job data blobs. Lean reset:
+    // skipped entirely while the snags feature is hidden (counts stay 0, so
+    // the digest line never mentions a feature the surface no longer shows).
     let snagsOpenedToday = 0;
     let snagsResolvedToday = 0;
-    try {
-      const jobs = (await readBlob('jobs.json', { jobs: [] })).jobs || [];
-      const active = jobs.filter(j => (j.status || 'active') === 'active');
-      for (const j of active) {
-        let d;
-        try { d = await readBlob(`jobs/${j.id}/data.json`, { snags: [] }); }
-        catch { continue; }
-        for (const s of (d.snags || [])) {
-          const created = (s.createdAt || s.date || '').slice(0, 10);
-          const closed  = (s.closedAt  || '').slice(0, 10);
-          if (created === today) snagsOpenedToday++;
-          if (closed  === today) snagsResolvedToday++;
+    if (await isFlagEnabled('snags')) {
+      try {
+        const jobs = (await readBlob('jobs.json', { jobs: [] })).jobs || [];
+        const active = jobs.filter(j => (j.status || 'active') === 'active');
+        for (const j of active) {
+          let d;
+          try { d = await readBlob(`jobs/${j.id}/data.json`, { snags: [] }); }
+          catch { continue; }
+          for (const s of (d.snags || [])) {
+            const created = (s.createdAt || s.date || '').slice(0, 10);
+            const closed  = (s.closedAt  || '').slice(0, 10);
+            if (created === today) snagsOpenedToday++;
+            if (closed  === today) snagsResolvedToday++;
+          }
         }
-      }
-    } catch (e) { console.error('digest snags walk failed', e); }
+      } catch (e) { console.error('digest snags walk failed', e); }
+    }
 
     const usersData = await readBlob(USERS_KEY, { users: [] });
     const admins = (usersData.users || []).filter(u =>
@@ -455,6 +460,12 @@ module.exports = async (req, res) => {
   if (action === 'send-stale-snags' && req.method === 'GET') {
     if (!requireCron(req, res)) return;
     if (!getWebPush()) return res.status(503).json({ error: 'push not configured (missing VAPID env vars)' });
+    // Lean reset: snags are hidden — a triage push would be a trace of a
+    // feature the surface no longer shows. 200 (not an error) so the cron
+    // reads as healthy; flips back on with the flag.
+    if (!(await isFlagEnabled('snags'))) {
+      return res.status(200).json({ ok: true, sent: 0, pruned: 0, skipped: 'snags flag off' });
+    }
 
     const now = Date.now();
     const DAY_MS = 24 * 60 * 60 * 1000;

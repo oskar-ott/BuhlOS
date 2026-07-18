@@ -1,5 +1,13 @@
 import { createRequire } from "node:module";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Lean reset: closeout is dark by default — these tests exercise the enabled behaviour.
+beforeAll(() => {
+  process.env.FLAG_CLOSEOUT = "1";
+});
+afterAll(() => {
+  delete process.env.FLAG_CLOSEOUT;
+});
 
 /**
  * #349 — GET/POST /api/job-closeout. Admin-tier only; close freezes an immutable

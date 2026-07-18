@@ -1,5 +1,13 @@
 import { createRequire } from "node:module";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Lean reset: quotes are dark by default — these tests exercise the enabled behaviour.
+beforeAll(() => {
+  process.env.FLAG_QUOTES = "1";
+});
+afterAll(() => {
+  delete process.env.FLAG_QUOTES;
+});
 
 /**
  * Harness coverage for api/quotes-v2.js (#183) — the v2 quote builder

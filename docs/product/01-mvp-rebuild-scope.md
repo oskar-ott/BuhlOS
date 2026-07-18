@@ -1,5 +1,12 @@
 # 01 · MVP rebuild scope
 
+> **2026-07 lean reset:** development ran past this document's line; the
+> product was reset to a lean core (hours → approval → Xero, basic jobs, tag
+> register, capture, gear) with everything else hidden behind dark flags —
+> see [02-lean-reset.md](02-lean-reset.md). The phase discipline below stands;
+> the "UNDER CONSTRUCTION panel" convention is retired (hidden features now
+> leave **no trace** — no panels).
+
 The first buildable slice of the rebuild. Four phases, each with a clear exit criterion. Anything not listed here is **`UNDER CONSTRUCTION`** until its phase arrives.
 
 Phases are built in order. A phase is "done" when its acceptance criteria pass on a preview URL with a non-author human verifying. Only then does the next phase begin.

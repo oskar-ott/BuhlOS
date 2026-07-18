@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
+import { isFlagEnabled } from "../../../../api/_lib/feature-flags.js";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { PhilJobsList } from "@/components/phil/PhilJobsList";
 import { PhilJobsSharpened } from "@/components/phil/PhilJobsSharpened";
@@ -49,10 +50,12 @@ export default async function PhilJobsPage() {
   const viewerId = session.userId ?? session.sub ?? "";
 
   // Sharpened-chrome flag rides alongside the jobs read (cached flags.json,
-  // no extra blob round-trip). Server-resolved boolean only.
-  const [{ jobs, fetchError }, sharpenedFlags] = await Promise.all([
+  // no extra blob round-trip), as does observations_inbox — it gates the
+  // Capture launcher's observation options. Server-resolved booleans only.
+  const [{ jobs, fetchError }, sharpenedFlags, observationsEnabled] = await Promise.all([
     loadJobs(raw),
     philSharpenedFlags(session),
+    isFlagEnabled("observations_inbox", session),
   ]);
 
   // Hide archived + draft rows on the Phil surface even if a future admin
@@ -75,6 +78,7 @@ export default async function PhilJobsPage() {
         sharpened
         rfiRegister={sharpenedFlags.rfiRegister}
         jobRoomsEnabled={sharpenedFlags.jobRooms}
+        observationsEnabled={observationsEnabled}
         accountInitials={philInitials(session.name ?? session.username)}
       >
         <div className="space-y-4">
@@ -100,6 +104,7 @@ export default async function PhilJobsPage() {
       sharpened={sharpenedFlags.sharpened}
       rfiRegister={sharpenedFlags.rfiRegister}
       jobRoomsEnabled={sharpenedFlags.jobRooms}
+      observationsEnabled={observationsEnabled}
       accountInitials={philInitials(session.name ?? session.username)}
     >
       <div className="space-y-4">

@@ -112,6 +112,11 @@ const BOARD_ICON: Record<BoardIcon, LucideIcon> = {
  *   - RFIs overdue (#276 chase, flag-gated `rfi_register`) — cross-job scan of
  *     jobs/<id>/rfis.json over the snapshot's live jobs; dark = zero reads
  *
+ * Lean reset (2026-07): the observations / plan-mismatch / material-request /
+ * expenses / snags / ITP queues and the reports link are flag-gated dark by
+ * default (docs/product/02-lean-reset.md). A dark source is never fetched and
+ * leaves NO trace here — no tile, no count, no label, no error chip.
+ *
  * Followed by a thin "Live surfaces" strip linking to the four working
  * admin pages (Hours, Approvals, Gear, Jobs). Anything else is still
  * being built and lives behind the sidebar UC pills.
@@ -133,19 +138,39 @@ export default async function CommandCentrePage() {
     redirect("/v2/login");
   }
 
-  // #503 — Proof to sign off (mobile-admin redesign, flagged admin-tier). When
-  // on, the cross-job submitted-proof queue is scanned server-side and shown as
-  // a Command Centre surface; dark (zero render, zero scan) when off. Kicked off
-  // BEFORE the snapshot await so the scan overlaps the other fetches.
-  const showProofReview = await isFlagEnabled("admin_proof_review", session);
+  // Feature gates — resolved once, up front, in one batch:
+  //  - #503 proof review (admin-tier): when on, the cross-job submitted-proof
+  //    queue is scanned server-side (kicked off right below, BEFORE the
+  //    snapshot await, so the scan overlaps the other fetches); dark = zero
+  //    render, zero scan.
+  //  - #276 RFI register: dark flag does ZERO extra reads (the scan below
+  //    never runs) and renders no RFI tile at all.
+  //  - Lean reset (2026-07): observations / material requests / expenses /
+  //    snags / ITPs / reports are dark launch-gates now. A dark source is
+  //    never fetched, derives nothing, renders no tile, count, link or error
+  //    chip — a hidden feature leaves NO trace on this home.
+  const [
+    showProofReview,
+    rfiEnabled,
+    obsEnabled,
+    matEnabled,
+    expEnabled,
+    snagsEnabled,
+    itpEnabled,
+    reportsEnabled,
+  ] = await Promise.all([
+    isFlagEnabled("admin_proof_review", session),
+    isFlagEnabled("rfi_register", session),
+    isFlagEnabled("observations_inbox", session),
+    isFlagEnabled("material_requests", session),
+    isFlagEnabled("expenses", session),
+    isFlagEnabled("snags", session),
+    isFlagEnabled("itp", session),
+    isFlagEnabled("reports", session),
+  ]);
   const proofPromise = showProofReview
     ? runProofQueue(blobProofQueueDeps())
     : Promise.resolve(null);
-
-  // #276 chase — is the RFI register live for this viewer? Resolved up front so
-  // a dark flag does ZERO extra reads (the scan below never runs) and renders
-  // no RFI tile at all.
-  const rfiEnabled = await isFlagEnabled("rfi_register", session);
 
   const {
     hoursPending,
@@ -166,7 +191,11 @@ export default async function CommandCentrePage() {
     observationsError,
     materialRequestsError,
     todayPulseError,
-  } = await loadSnapshot(raw);
+  } = await loadSnapshot(raw, {
+    observations: obsEnabled,
+    materialRequests: matEnabled,
+    expenses: expEnabled,
+  });
 
   // #185 Today strip — pure derivation from the pulse payload. Null model
   // (failed fetch) renders the strip's own error chip; the queues are
@@ -177,12 +206,16 @@ export default async function CommandCentrePage() {
     (sum, j) => sum + (j.statsEvidenceV2Pending ?? 0),
     0
   );
-  const snagsActive = jobs.reduce(
-    (sum, j) => sum + (j.statsSnagsV2Active ?? 0),
-    0
-  );
+  // Belt-and-braces (lean reset): the live job stats STILL carry snag/ITP
+  // counts while those features are dark — zero the derivations at the source
+  // so a hidden feature can't resurface through the jobs list.
+  const snagsActive = snagsEnabled
+    ? jobs.reduce((sum, j) => sum + (j.statsSnagsV2Active ?? 0), 0)
+    : 0;
 
-  const itpReview = summariseItpReviewQueue(jobs);
+  const itpReview = itpEnabled
+    ? summariseItpReviewQueue(jobs)
+    : { count: 0, jobsAffected: 0, href: "/v2/jobs" };
 
   // #155 pilot: the flags readout is itself flag-gated + admin-tier targeted
   // — dark for everyone (incl. this page) until FLAG_ADMIN_FLAGS_READOUT or
@@ -266,7 +299,15 @@ export default async function CommandCentrePage() {
       materialRequests,
       // Flag off / scan skipped → the optional source is simply absent.
       ...(rfiScan ? { rfis: rfiScan.rfis, today: rfiToday } : {}),
-    }),
+    }).filter(
+      // Lean reset: jobExceptions derives per-JOB snag/ITP items from the same
+      // job stats gated above — drop those kinds while their feature is dark.
+      // Observation/material items need no filter here: their sources were
+      // skipped in loadSnapshot, so the arrays are already empty.
+      (e) =>
+        (snagsEnabled || e.source !== "snag") &&
+        (itpEnabled || e.source !== "itp"),
+    ),
     Date.now(),
   );
   const anySourceError =
@@ -331,16 +372,29 @@ export default async function CommandCentrePage() {
   //    projected from the SAME already-loaded, permission-gated signals (no new
   //    fetch). Proof-to-sign-off keeps its own dedicated section above, so it is
   //    not double-counted here. ──
+  // Lean reset: a dark feature's loop is OMITTED from the board input — not a
+  // zero tile, no entry at all (buildBoard drops zeros anyway; omission keeps
+  // even the label/href out of the view-model, matching "no trace").
   const openWork: OpenWorkInput[] = [
     { key: "hours", label: "Hours pending approval", count: hoursPending.length, href: "/hours/approvals", icon: "clipboard-check" },
     { key: "evidence", label: "Evidence to review", count: evidencePending, href: "/v2/jobs", icon: "camera" },
-    { key: "snags", label: "Snags needing attention", count: snagsActive, href: "/v2/jobs", icon: "alert-octagon" },
-    { key: "itp", label: "ITPs needing sign-off", count: itpReview.count, href: itpReview.href, icon: "file-check" },
-    { key: "observations", label: "Observations to action", count: obsCount, href: "/observations", icon: "inbox" },
+    ...(snagsEnabled
+      ? [{ key: "snags", label: "Snags needing attention", count: snagsActive, href: "/v2/jobs", icon: "alert-octagon" as const }]
+      : []),
+    ...(itpEnabled
+      ? [{ key: "itp", label: "ITPs needing sign-off", count: itpReview.count, href: itpReview.href, icon: "file-check" as const }]
+      : []),
+    ...(obsEnabled
+      ? [{ key: "observations", label: "Observations to action", count: obsCount, href: "/observations", icon: "inbox" as const }]
+      : []),
     { key: "rejected", label: "Rejected hours", count: rejectedHoursCount, href: "/hours/approvals", icon: "rotate-ccw" },
     { key: "missing", label: "Missing hours", count: missingHoursCount, href: "/hours", icon: "user-x" },
-    { key: "plan", label: "Plan mismatches", count: planMismatchCount, href: "/observations", icon: "layers" },
-    { key: "materials", label: "Material requests", count: materialRequestCount, href: "/material-requests", icon: "package" },
+    ...(obsEnabled
+      ? [{ key: "plan", label: "Plan mismatches", count: planMismatchCount, href: "/observations", icon: "layers" as const }]
+      : []),
+    ...(matEnabled
+      ? [{ key: "materials", label: "Material requests", count: materialRequestCount, href: "/material-requests", icon: "package" as const }]
+      : []),
     // #276 chase — overdue RFIs across live jobs. Count derived from the SAME
     // exceptions projection (one judgement of "overdue", one number). No
     // cross-job RFI surface exists, so the tile links to the jobs list (each
@@ -423,6 +477,7 @@ export default async function CommandCentrePage() {
           jobsWithActivityToday={todayPulse ? todayPulse.jobs.jobsWithActivityToday : null}
           pendingHours={hoursPending.length}
           approvals={mobileApprovals}
+          approvalsEnabled={{ expenses: expEnabled, itps: itpEnabled, materials: matEnabled }}
           exceptions={exceptions}
           anySourceError={mobileAnySourceError}
           errorMessage={
@@ -441,18 +496,22 @@ export default async function CommandCentrePage() {
       <div className="mx-auto hidden max-w-5xl space-y-6 md:block">
         {/* Page head (mockup): the title sits in AdminTopbar; here we add its
             dateline subline + the "Owner numbers →" jump to the reports surface
-            (the analytics board lives there, deliberately off the morning view). */}
+            (the analytics board lives there, deliberately off the morning view).
+            Flag-gated on `reports` (lean reset — /reports 404s while dark); the
+            link returns when the owner re-enables the feature. */}
         <div className="flex items-center justify-between gap-4">
           <p className="font-mono text-[11px] uppercase tracking-widest text-text-muted">
             {deskDatetime}
           </p>
-          <Link
-            href={"/reports" as Route}
-            className="inline-flex shrink-0 items-center gap-1 rounded-pill border border-border px-3 py-1.5 font-display text-sm font-medium text-brand-navy transition-colors hover:border-brand-navy focus:outline-none focus:ring-2 focus:ring-brand-navy"
-          >
-            Owner numbers
-            <ArrowRight aria-hidden="true" className="h-4 w-4" />
-          </Link>
+          {reportsEnabled ? (
+            <Link
+              href={"/reports" as Route}
+              className="inline-flex shrink-0 items-center gap-1 rounded-pill border border-border px-3 py-1.5 font-display text-sm font-medium text-brand-navy transition-colors hover:border-brand-navy focus:outline-none focus:ring-2 focus:ring-brand-navy"
+            >
+              Owner numbers
+              <ArrowRight aria-hidden="true" className="h-4 w-4" />
+            </Link>
+          ) : null}
         </div>
         {showFlagsReadout ? (
           <section
@@ -694,7 +753,13 @@ export default async function CommandCentrePage() {
   );
 }
 
-async function loadSnapshot(cookieValue: string | undefined): Promise<{
+async function loadSnapshot(
+  cookieValue: string | undefined,
+  /** Lean-reset gates. A dark source is SKIPPED — no fetch at all — and comes
+   *  back as empty data + a null error: dark is not failed, so it must never
+   *  trip the "couldn't load every signal/queue" chips or block all-clear. */
+  enabled: { observations: boolean; materialRequests: boolean; expenses: boolean },
+): Promise<{
   hoursPending: ReadonlyArray<TimeEntry>;
   hoursRejected: ReadonlyArray<TimeEntry>;
   hoursMissing: ReadonlyArray<MissingLog>;
@@ -751,10 +816,16 @@ async function loadSnapshot(cookieValue: string | undefined): Promise<{
     loadHoursByStatus(base, headersInit, "rejected"),
     loadHoursOverview(base, headersInit, missingFrom, missingTo),
     loadJobsWithStats(base, headersInit),
-    loadObservations(base, headersInit),
-    loadMaterialRequests(base, headersInit),
+    enabled.observations
+      ? loadObservations(base, headersInit)
+      : Promise.resolve({ observations: [], error: null }),
+    enabled.materialRequests
+      ? loadMaterialRequests(base, headersInit)
+      : Promise.resolve({ requests: [], error: null }),
     loadTodayPulse(base, headersInit),
-    loadExpensesSubmitted(base, headersInit),
+    enabled.expenses
+      ? loadExpensesSubmitted(base, headersInit)
+      : Promise.resolve({ count: 0, error: null }),
     loadRosterTotal(base, headersInit),
     // The greeting name — resolved from the authoritative /api/auth?action=me
     // (the cookie carries no name). Fails soft to null → impersonal greeting.

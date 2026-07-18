@@ -1,5 +1,13 @@
 import { createRequire } from "node:module";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Lean reset: expenses are dark by default — these tests exercise the enabled behaviour.
+beforeAll(() => {
+  process.env.FLAG_EXPENSES = "1";
+});
+afterAll(() => {
+  delete process.env.FLAG_EXPENSES;
+});
 
 /**
  * Integration tests for /api/expenses (#536) against the REAL handler. Standard

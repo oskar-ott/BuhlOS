@@ -128,6 +128,11 @@ export interface PhilCaptureSharpenedProps {
   canWriteNote: boolean;
   /** The preserved not-job-related "send to the office" destination. */
   onSendToOffice: () => void;
+  /** observations_inbox (server-resolved, threaded via the launcher): the
+   *  office send is an observation write, which 404s while the flag is off —
+   *  so the "Send to the office instead" affordance is hidden then (P7).
+   *  Default FALSE: safe-by-dark. */
+  observationsEnabled?: boolean;
 
   /** closeWithHistory from the launcher. */
   onClose: () => void;
@@ -194,6 +199,7 @@ export function PhilCaptureSharpened({
   onWriteNoteInstead,
   canWriteNote,
   onSendToOffice,
+  observationsEnabled = false,
   onClose,
 }: PhilCaptureSharpenedProps) {
   const [submit, setSubmit] = useState<SharpSubmit>({ v: "idle" });
@@ -1060,8 +1066,9 @@ export function PhilCaptureSharpened({
           </div>
         ) : null}
 
-        {/* The preserved not-job-related destination. */}
-        {photos.length > 0 ? (
+        {/* The preserved not-job-related destination — an observation write,
+            so only offered while the observations pipeline is live. */}
+        {photos.length > 0 && observationsEnabled ? (
           <button
             type="button"
             disabled={busy}

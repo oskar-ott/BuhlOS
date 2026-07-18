@@ -63,26 +63,23 @@ const h = vi.hoisted(() => ({
   rfiFlagOn: false,
   rfiScanCalls: 0,
   rfiResult: { rfis: [] as unknown[], scannedJobs: 0, failedJobs: [] as string[] },
+  // Lean reset (2026-07): the flag-gated Command Centre sources (expenses,
+  // itp, snags, observations_inbox, material_requests, reports) default OFF,
+  // mirroring the registry. Tests opt a feature on per-case via this set.
+  flagsOn: new Set<string>(),
 }));
 
-// #760 kill-switch flags are LIVE by default, so their Command Centre cards
-// render unless the owner turns them off. admin_proof_review is a launch-gate
-// flag (default off, driven per-test).
-const KILL_SWITCHES_ON = new Set([
-  "itp",
-  "hours",
-  "evidence",
-  "snags",
-  "observations_inbox",
-  "material_requests",
-]);
+// Only the CORE spine keeps a default-ON kill-switch (jobs/hours/evidence/
+// employees/gear); every lean-reset feature defaults dark. admin_proof_review
+// + rfi_register stay driven by their dedicated per-test knobs.
+const CORE_ON = new Set(["jobs", "hours", "evidence", "employees", "gear"]);
 vi.mock("../../../../api/_lib/feature-flags.js", () => ({
   isFlagEnabled: async (key: string) =>
     key === "admin_proof_review"
       ? h.proofFlagOn
       : key === "rfi_register"
         ? h.rfiFlagOn
-        : KILL_SWITCHES_ON.has(key),
+        : CORE_ON.has(key) || h.flagsOn.has(key),
   listFlags: () => [],
   isFlagOn: async () => false,
 }));
@@ -177,6 +174,8 @@ interface FetchFixtures {
   meName?: string | null;
   /** Non-200 makes the jobs-with-stats fetch fail (board honest-degradation path). */
   jobsStatus?: number;
+  /** Jobs rows for /api/jobs?withStats=1 (lean-reset leak tests feed stats). */
+  jobs?: JsonBody[];
   /** admin-stats users.byRole roster (leading hands + tradies) for the on-clock ring. */
   byRole?: { admin: number; leadingHand: number; tradie: number; client: number };
   /** Non-200 makes the admin-stats fetch fail → ring degrades to a plain count. */
@@ -191,12 +190,11 @@ function stubFetch({
   expensesStatus = 200,
   meName = null,
   jobsStatus = 200,
+  jobs = [],
   byRole,
   adminStatsStatus = 200,
 }: FetchFixtures) {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (input: unknown) => {
+  const fetchMock = vi.fn(async (input: unknown) => {
       const url = String(input);
       // admin-stats — the on-clock ring's roster denominator. Checked before
       // the broad /api/time-entries branches (none collide, but be explicit).
@@ -228,13 +226,15 @@ function stubFetch({
       }
       if (url.includes("/api/jobs")) {
         if (jobsStatus !== 200) return jsonResponse({ error: "boom" }, jobsStatus);
-        return jsonResponse({ jobs: [] });
+        return jsonResponse({ jobs });
       }
       if (url.includes("/api/observations")) return jsonResponse({ observations: [] });
       if (url.includes("/api/material-requests")) return jsonResponse({ requests: [] });
       throw new Error(`unstubbed fetch in test: ${url}`);
-    })
-  );
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  // Returned so lean-reset tests can assert a dark source was never fetched.
+  return fetchMock;
 }
 
 async function renderPage(): Promise<string> {
@@ -249,6 +249,7 @@ beforeEach(() => {
   h.rfiFlagOn = false;
   h.rfiScanCalls = 0;
   h.rfiResult = { rfis: [], scannedJobs: 0, failedJobs: [] };
+  h.flagsOn = new Set();
 });
 
 afterEach(() => {
@@ -328,14 +329,15 @@ describe("/command-centre board (§2)", () => {
   });
 
   // ── Mobile home (md:hidden) — unchanged by the §2 board. ──
-  it("degrades honestly when the expenses fetch fails — mobile 'couldn't load every queue', no fabricated 0", async () => {
+  it("degrades honestly when the expenses fetch fails (flag on) — mobile 'couldn't load every queue', no fabricated 0", async () => {
+    h.flagsOn.add("expenses");
     stubFetch({ submittedEntries: [], pulse: pulseBody(), expensesStatus: 500 });
     const html = await renderPage();
     expect(html).toContain("Couldn’t load every queue");
     expect(html).toContain("Expenses API returned 500");
   });
 
-  it("renders the mobile home (md:hidden) with greeting + pulse, and the desktop board alongside", async () => {
+  it("renders the mobile home (md:hidden) with greeting + pulse — no 'to approve' segment while every approvals source is dark", async () => {
     stubFetch({
       submittedEntries: [timeEntry("t1")],
       pulse: pulseBody({ submittedTotal: 8, crewOnSite: 2 }),
@@ -346,9 +348,22 @@ describe("/command-centre board (§2)", () => {
     expect(html).toContain("md:hidden");
     expect(html).toContain("Dana");
     expect(html).toContain("here’s what needs you");
-    expect(html).toContain("to approve");
+    // Lean reset: expenses/ITPs/materials are all dark, so the approvals pulse
+    // (whose count is those three queues) leaves no trace — not a "0".
+    expect(html).not.toContain("to approve");
     // The desktop board is present too (wrapped hidden md:block).
     expect(html).toContain("State of play");
+  });
+
+  it("shows the mobile 'to approve' pulse again when an approvals source (expenses) is live", async () => {
+    h.flagsOn.add("expenses");
+    stubFetch({
+      submittedEntries: [],
+      pulse: pulseBody(),
+      meName: "Dana Boss",
+    });
+    const html = await renderPage();
+    expect(html).toContain("to approve");
   });
 
   // ── §2 fidelity (FIX 1–4) ──────────────────────────────────────────────
@@ -392,11 +407,72 @@ describe("/command-centre board (§2)", () => {
     expect(html).toMatch(/lucide-clipboard-check/);
   });
 
-  it("renders the date subline + the 'Owner numbers' link to /reports", async () => {
+  it("hides the 'Owner numbers' link while the reports flag is dark (lean reset — /reports 404s)", async () => {
+    stubFetch({ submittedEntries: [], pulse: pulseBody() });
+    const html = await renderPage();
+    expect(html).not.toContain("Owner numbers");
+    expect(html).not.toContain('href="/reports"');
+  });
+
+  it("renders the date subline + the 'Owner numbers' link to /reports when the reports flag is on", async () => {
+    h.flagsOn.add("reports");
     stubFetch({ submittedEntries: [], pulse: pulseBody() });
     const html = await renderPage();
     expect(html).toContain("Owner numbers");
     expect(html).toContain('href="/reports"');
+  });
+
+  // ── Lean reset (2026-07): dark features leave NO trace on the home ──────
+  function jobWithStats(id: string, stats: JsonBody = {}): JsonBody {
+    // statsCrewCount > 0 so the job-no-crew critical doesn't muddy the board.
+    return { id, name: `Job ${id}`, status: "active", statsCrewCount: 2, ...stats };
+  }
+
+  it("never fetches a dark source — no error chip even when its API would fail (dark ≠ failed)", async () => {
+    // expenses/observations/material-requests flags are dark by default here;
+    // the 500 must be unreachable because the fetch is skipped entirely.
+    const fetchMock = stubFetch({ submittedEntries: [], pulse: pulseBody(), expensesStatus: 500 });
+    const html = await renderPage();
+    expect(html).not.toContain("Couldn’t load every queue");
+    expect(html).not.toContain("Couldn’t load every signal");
+    const urls = fetchMock.mock.calls.map((c) => String(c[0]));
+    expect(urls.some((u) => u.includes("/api/expenses"))).toBe(false);
+    expect(urls.some((u) => u.includes("/api/observations"))).toBe(false);
+    expect(urls.some((u) => u.includes("/api/material-requests"))).toBe(false);
+  });
+
+  it("snag/ITP counts on live job stats leave no tile, card or count while those flags are dark", async () => {
+    // The jobs fetch stays ON and its stats still carry snag/ITP numbers —
+    // the belt-and-braces gating must stop them surfacing anywhere.
+    stubFetch({
+      submittedEntries: [],
+      pulse: pulseBody(),
+      jobs: [jobWithStats("j1", { statsSnagsV2Active: 3, statsItpsNeedsReview: 2 })],
+    });
+    const html = await renderPage();
+    // No open-work tiles for the hidden loops...
+    expect(html).not.toContain("Snags needing attention");
+    expect(html).not.toContain("ITPs needing sign-off");
+    // ...no jobExceptions-derived needs-you-now cards...
+    expect(html).not.toContain("open snag");
+    expect(html).not.toContain("need sign-off");
+    // ...and the board is honestly calm — the hidden work is absent, not "0".
+    expect(html).toContain("All clear");
+  });
+
+  it("surfaces the snag/ITP queues again when their flags are on (same job stats drive tiles + cards)", async () => {
+    h.flagsOn = new Set(["snags", "itp"]);
+    stubFetch({
+      submittedEntries: [],
+      pulse: pulseBody(),
+      jobs: [jobWithStats("j1", { statsSnagsV2Active: 3, statsItpsNeedsReview: 2 })],
+    });
+    const html = await renderPage();
+    expect(html).toContain('aria-label="Snags needing attention: 3"');
+    expect(html).toContain('aria-label="ITPs needing sign-off: 2"');
+    // The needs-you-now cards from jobExceptions come back too.
+    expect(html).toContain("3 open snags");
+    expect(html).toContain("2 ITPs need sign-off");
   });
 
   // ── RFIs overdue (#276 chase, flagged rfi_register) ─────────────────────

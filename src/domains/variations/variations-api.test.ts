@@ -1,5 +1,14 @@
 import { createRequire } from "node:module";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Lean reset: the observations inbox is dark by default — these tests exercise the enabled behaviour
+// (convert-to-variation rides /api/observations; FLAG_VARIATIONS_REGISTER is armed per-suite below).
+beforeAll(() => {
+  process.env.FLAG_OBSERVATIONS_INBOX = "1";
+});
+afterAll(() => {
+  delete process.env.FLAG_OBSERVATIONS_INBOX;
+});
 
 /**
  * Integration tests for api/variations.js — the real serverless handler against

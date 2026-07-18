@@ -38,6 +38,7 @@
 const { list } = require('@vercel/blob');
 const { readBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, canWrite, isAdminRole, isClientRole } = require('./_lib/auth');
+const { isFlagEnabled } = require('./_lib/feature-flags');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const SNAG_OLD_DAYS = 7;
@@ -84,9 +85,13 @@ module.exports = async (req, res) => {
   const data = await readBlob(`jobs/${jobId}/data.json`, { dwellings: {}, snags: [] });
 
   // ── Snags assigned to me, scoped to this job ─────────────────────────
+  // Lean reset: with the snags feature hidden, no snag-derived quick action
+  // may surface (its #phil-job-snags target no longer renders). Emptying the
+  // source list drops all three snag action types below in one gate.
+  const snagsOn = await isFlagEnabled('snags', me);
   const now = Date.now();
   const myOpenSnags = [];
-  for (const s of (data.snags || [])) {
+  for (const s of (snagsOn ? data.snags || [] : [])) {
     if ((s.status || 'Open') !== 'Open') continue;
     if (s.assignedToUserId !== me.id) continue;
     const created = s.createdAt || s.date || '';

@@ -1,5 +1,13 @@
 import { createRequire } from "node:module";
-import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+
+// Lean reset: the defects register is dark by default — these tests exercise the enabled behaviour.
+beforeAll(() => {
+  process.env.FLAG_DEFECTS = "1";
+});
+afterAll(() => {
+  delete process.env.FLAG_DEFECTS;
+});
 
 /**
  * Integration tests for api/snags-bulk-close.js (#414) — the real

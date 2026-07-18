@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
+import { isFlagEnabled } from "../../../../api/_lib/feature-flags.js";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -80,12 +81,15 @@ export default async function PhilHoursPage({
 
   // History + the worker's active assigned jobs in parallel — the jobs feed
   // the resubmit form's attribution guard so a fix can't land jobId:null.
-  const [{ entries, fetchError }, assignedJobs, sharpenedFlags] = await Promise.all([
-    loadHistory(raw),
-    loadAssignedJobs(raw),
-    // Sharpened-chrome flag (cached flags.json read) — server-resolved boolean.
-    philSharpenedFlags(session),
-  ]);
+  const [{ entries, fetchError }, assignedJobs, sharpenedFlags, observationsEnabled] =
+    await Promise.all([
+      loadHistory(raw),
+      loadAssignedJobs(raw),
+      // Sharpened-chrome flag (cached flags.json read) — server-resolved boolean.
+      philSharpenedFlags(session),
+      // observations_inbox gates the Capture launcher's observation options.
+      isFlagEnabled("observations_inbox", session),
+    ]);
 
   // ── Sharpened Hours (phil_sharpened, dark — Wave 2c) ─────────────────────
   // Same data (the full /api/time-entries history + the worker's assigned
@@ -100,6 +104,7 @@ export default async function PhilHoursPage({
         sharpened
         rfiRegister={sharpenedFlags.rfiRegister}
         jobRoomsEnabled={sharpenedFlags.jobRooms}
+        observationsEnabled={observationsEnabled}
         accountInitials={philInitials(session.name ?? session.username)}
       >
         <div className="space-y-4">
@@ -127,6 +132,7 @@ export default async function PhilHoursPage({
       sharpened={sharpenedFlags.sharpened}
       rfiRegister={sharpenedFlags.rfiRegister}
       jobRoomsEnabled={sharpenedFlags.jobRooms}
+      observationsEnabled={observationsEnabled}
       accountInitials={philInitials(session.name ?? session.username)}
     >
       <div className="space-y-4">
