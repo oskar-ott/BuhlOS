@@ -17,6 +17,7 @@ const audit = require('../_lib/audit-log');
 const { xeroConfigured, hasReferenceReadScopes } = require('../_lib/xero/config');
 const store = require('../_lib/xero/token-store');
 const refSync = require('../_lib/xero/reference-sync');
+const syncBridge = require('../_lib/xero/sync-log-bridge');
 const { XeroError } = require('../_lib/xero/errors');
 
 const FLAG = 'xero_connection';
@@ -98,7 +99,9 @@ module.exports = async function handler(req, res) {
       summary = null; // results still carry the honest outcome
     }
     res.setHeader('Cache-Control', 'no-store');
-    return res.status(200).json({ ok: failed.length === 0, results, summary });
+    // #251: per-group outcomes into the sync-health working set (loud-surfaced).
+    const syncLogWarning = await syncBridge.recordReferenceOutcomes(results);
+    return res.status(200).json({ ok: failed.length === 0, results, summary, ...(syncLogWarning ? { syncLogWarning } : {}) });
   }
 
   res.setHeader('Allow', 'GET, POST');
