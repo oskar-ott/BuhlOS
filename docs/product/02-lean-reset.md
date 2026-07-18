@@ -94,20 +94,27 @@ snag pushes (stale-snag cron, digest line) and their pref rows.
   slots, it does not amend principles. Field-visible changes still
   preview-verify before `main` per the standing rules.
 
-## What happens next (sequenced)
+## What happens next (sequenced — status stamped 2026-07-18)
 
-1. **Lean surface ships**: this hide pass + preview verification — **PR #910**
-   (branch `claude/lean-hours-approval-amz3rw`), awaiting the product owner's
-   phone walk-through on the Vercel preview, then squash-merge.
-2. **Hours money-path proving**: Xero flags on in preview, real org connect,
-   worker/pay-item mappings confirmed, one batch → draft timesheets
-   (needs the product owner in the loop).
-3. **Mobile approval polish**: `/hours/weekly` anointed as the approval path;
-   pending-hours reminder cron wired; one payroll-export model (#895
-   reconciliation).
+1. ✅ **Lean surface shipped**: the hide pass merged (PR #910) and the
+   residual traces the step-5 audit found were closed the same day
+   (#915 → PR #917). Outstanding operational step: the owner's `/owner`
+   sweep for stale `flags.json` overrides.
+2. **Hours money-path proving** — NEXT, needs the product owner in the
+   loop: Xero flags on in preview, real org connect (Demo Company (AU)),
+   worker/pay-item mappings confirmed, one batch → draft timesheets.
+   All code + schema are merged and migrated; nothing left to build first.
+3. ◐ **Mobile approval polish**: pending-hours reminder cron wired (#392 →
+   PR #911), then rescheduled to the week boundary by owner directive —
+   Sunday 18:00 + Monday 07:30 Sydney, two-week window (PR #914); one
+   payroll-export model done (#895 → PR #905). Remaining: anointing
+   `/hours/weekly` as THE approval path (product call).
 4. **Lean field app on**: `phil_sharpened` preview-verified (mobile job
    create + 5-slot nav), then defaulted, per governance P15.
-5. **Job page strip**: Phil job page + office hub down to identity + tags +
-   capture (+ new ITP), preview-verified.
-6. **Simple ITP builder** built (own flag, Supabase-first metadata).
-7. **Hours data-plane cutover** to Supabase per the directive above.
+5. ◐ **Job page strip**: audited (#916 — keep/strip mapping + the owner's
+   8 calls); builds preview-verified once the calls are answered.
+6. ✅ **Simple ITP builder** built (#912 → PR #913): `itp_simple` flag,
+   Supabase-first metadata migrated dev+prod, Blob binaries, job-page
+   link-out. Dark until the owner previews and flips.
+7. **Hours data-plane cutover** to Supabase per the directive above
+   (in progress in a parallel working session).
