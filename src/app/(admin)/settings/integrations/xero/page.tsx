@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { XeroConnectionPanel } from "@/components/admin/XeroConnectionPanel";
+import { XeroSyncHealthPanel } from "@/components/admin/XeroSyncHealthPanel";
 import { XeroReferenceDataPanel } from "@/components/admin/XeroReferenceDataPanel";
 import { XeroWorkerMappingPanel } from "@/components/admin/XeroWorkerMappingPanel";
 import { XeroEarningsMappingPanel } from "@/components/admin/XeroEarningsMappingPanel";
@@ -50,6 +51,7 @@ export default async function XeroIntegrationPage() {
             <XeroReferenceDataPanel />
             <XeroWorkerMappingPanel />
             <XeroEarningsMappingPanel />
+            <XeroSyncHealthPanel />
           </>
         ) : (
           <Card>

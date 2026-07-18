@@ -356,6 +356,8 @@ const VALID_ACTIONS = new Set([
   'payroll.export_previewed',
   'payroll.exported_to_xero',
   'payroll.export_retried',
+  'xero.sync_retried',
+  'xero.sync_acknowledged',
   'payroll.reconciled',
   // #895: batch-snapshot CSV fallback download (no Xero write).
   'payroll.csv_downloaded',
@@ -430,6 +432,7 @@ const VALID_TARGET_TYPES = new Set([
   'xero_mapping',
   // #893: a durable payroll batch (targetId = the batch uuid).
   'payroll_batch',
+  'xero_sync_item',
 ]);
 
 const MAX_ENTRIES_PER_MONTH = 5000;

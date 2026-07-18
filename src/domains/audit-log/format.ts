@@ -128,6 +128,8 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "payroll.export_previewed": "Previewed Xero timesheet export",
   "payroll.exported_to_xero": "Exported draft timesheets to Xero",
   "payroll.export_retried": "Retried Xero timesheet export",
+  "xero.sync_retried": "Retried a Xero sync item from the health panel",
+  "xero.sync_acknowledged": "Acknowledged a Xero sync failure",
   "payroll.reconciled": "Reconciled a Xero export",
   "payroll.csv_downloaded": "Downloaded a payroll batch CSV",
   // #349: job closeout lifecycle.
