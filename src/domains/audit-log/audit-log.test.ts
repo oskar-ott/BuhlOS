@@ -293,6 +293,9 @@ describe("AuditLogEntrySchema", () => {
       "xero.organisation_selected",
       "xero.reference_synced",
       "xero.refresh_failed",
+      // #251: sync-health panel actions.
+      "xero.sync_acknowledged",
+      "xero.sync_retried",
       "xero.worker_mapped",
       "xero.worker_unmapped",
       "xero.worktype_mapped",
@@ -355,8 +358,10 @@ describe("AuditLogEntrySchema", () => {
       "time_entry",
       // #280: variation claim records.
       "variation",
-      // #248: worker↔Xero-employee links (sorts last — 'x').
+      // #248: worker↔Xero-employee links.
       "xero_mapping",
+      // #251: sync-health panel targets (sorts last).
+      "xero_sync_item",
     ]);
   });
 
