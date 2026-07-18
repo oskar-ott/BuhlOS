@@ -96,7 +96,9 @@ snag pushes (stale-snag cron, digest line) and their pref rows.
 
 ## What happens next (sequenced)
 
-1. **Lean surface ships**: this hide pass + preview verification.
+1. **Lean surface ships**: this hide pass + preview verification — **PR #910**
+   (branch `claude/lean-hours-approval-amz3rw`), awaiting the product owner's
+   phone walk-through on the Vercel preview, then squash-merge.
 2. **Hours money-path proving**: Xero flags on in preview, real org connect,
    worker/pay-item mappings confirmed, one batch → draft timesheets
    (needs the product owner in the loop).
