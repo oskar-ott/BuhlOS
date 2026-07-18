@@ -6,11 +6,17 @@ import { MobileApprovalsHub } from "./MobileApprovalsHub";
 /**
  * Mobile-admin redesign — the consolidated approvals triage (md:hidden).
  * Real counts only; Dayworks routes to the register (signed, not approved) and
- * Proof is an honest UC marker until #503 ships.
+ * each chip is feature-flag-gated via `enabled` — a dark feature's chip never
+ * renders and its count never leaks into the daily total.
  */
 
-function render(counts: { expenses: number; itps: number; materials: number }): string {
-  return renderToString(createElement(MobileApprovalsHub, { counts }));
+const ALL_ON = { expenses: true, itps: true, materials: true, dayworks: true };
+
+function render(
+  counts: { expenses: number; itps: number; materials: number },
+  enabled: { expenses: boolean; itps: boolean; materials: boolean; dayworks: boolean } = ALL_ON,
+): string {
+  return renderToString(createElement(MobileApprovalsHub, { counts, enabled }));
 }
 
 describe("MobileApprovalsHub", () => {
@@ -32,6 +38,22 @@ describe("MobileApprovalsHub", () => {
     expect(html).toContain("Expense claims");
     expect(html).toContain('href="/expenses"');
     expect(html).toContain("Review expenses");
+  });
+
+  it("hides chips whose feature flag is off and defaults to an enabled type", () => {
+    const html = render(
+      { expenses: 3, itps: 0, materials: 1 },
+      { expenses: false, itps: false, materials: true, dayworks: false },
+    );
+    expect(html).not.toContain("Expenses");
+    expect(html).not.toContain("ITPs");
+    expect(html).not.toContain("Dayworks");
+    expect(html).toContain("Materials");
+    // The active panel is the first ENABLED chip with items…
+    expect(html).toContain("Material requests");
+    expect(html).toContain('href="/material-requests"');
+    // …and a disabled feature's count never leaks into the daily total.
+    expect(html).toContain("1 to action today");
   });
 
   it("exposes the active chip to assistive tech (aria-pressed) and meets the 44px tap floor", () => {

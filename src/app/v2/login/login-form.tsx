@@ -29,7 +29,6 @@ interface LoginFormProps {
  *
  * Intentional deviations from the prototype, agreed with the user:
  *   • "Forgot password" — dropped (no self-service reset backend yet).
- *   • SSO — shown disabled / "coming soon".
  *   • Dark / HC themes, centered layout, the Tweaks panel — design-only.
  */
 export function LoginForm({ next, initialMode = "office" }: LoginFormProps) {
@@ -201,12 +200,6 @@ export function LoginForm({ next, initialMode = "office" }: LoginFormProps) {
             <>Sign in →</>
           )}
         </button>
-
-        <div className={styles.or}>or</div>
-        <button type="button" className={styles.sso} disabled aria-disabled="true">
-          <span className={styles.key}>⌘</span>Use single sign-on (SSO)
-        </button>
-        <p className={styles.ssoNote}>SSO coming soon — sign in with your email for now</p>
       </form>
 
       <div className={styles.foot}>

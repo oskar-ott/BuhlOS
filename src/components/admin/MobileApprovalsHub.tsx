@@ -23,6 +23,10 @@ import { Card } from "@/components/ui/Card";
  * approve action. Proof to sign off (#503) is intentionally NOT here — it has
  * its own flagged surface on the Command Centre ("Today"), so this hub never
  * claims to host it (which would disagree with that surface).
+ *
+ * Each chip is feature-flag-gated via `enabled` (resolved server-side by the
+ * page): a chip whose feature flag is off is not rendered at all — the caller
+ * renders the hub only when at least one type is enabled.
  */
 
 export interface MobileApprovalsCounts {
@@ -34,28 +38,41 @@ export interface MobileApprovalsCounts {
   materials: number;
 }
 
+/** Which approval types are feature-enabled for this viewer — a disabled
+ *  type's chip (and panel) is never rendered. */
+export interface MobileApprovalsEnabled {
+  expenses: boolean;
+  itps: boolean;
+  materials: boolean;
+  dayworks: boolean;
+}
+
 type ChipKey = "expenses" | "itps" | "materials" | "dayworks";
 
-export function MobileApprovalsHub({ counts }: { counts: MobileApprovalsCounts }) {
-  // Default to the first type that actually has items, else Expenses.
-  const initial: ChipKey =
-    counts.expenses > 0
-      ? "expenses"
-      : counts.itps > 0
-        ? "itps"
-        : counts.materials > 0
-          ? "materials"
-          : "expenses";
-  const [active, setActive] = useState<ChipKey>(initial);
-
-  const daily = counts.expenses + counts.itps + counts.materials;
-
-  const chips: Array<{ key: ChipKey; label: string; n?: number }> = [
+export function MobileApprovalsHub({
+  counts,
+  enabled,
+}: {
+  counts: MobileApprovalsCounts;
+  enabled: MobileApprovalsEnabled;
+}) {
+  const allChips: Array<{ key: ChipKey; label: string; n?: number }> = [
     { key: "expenses", label: "Expenses", n: counts.expenses },
     { key: "itps", label: "ITPs", n: counts.itps },
     { key: "materials", label: "Materials", n: counts.materials },
     { key: "dayworks", label: "Dayworks" },
   ];
+  const chips = allChips.filter((c) => enabled[c.key]);
+
+  // Default to the first ENABLED type that actually has items, else the first
+  // enabled chip (the page only renders the hub when at least one is enabled).
+  const initial: ChipKey = chips.find((c) => (c.n ?? 0) > 0)?.key ?? chips[0]?.key ?? "expenses";
+  const [active, setActive] = useState<ChipKey>(initial);
+
+  const daily =
+    (enabled.expenses ? counts.expenses : 0) +
+    (enabled.itps ? counts.itps : 0) +
+    (enabled.materials ? counts.materials : 0);
 
   return (
     <section className="space-y-3 md:hidden" aria-label="Approvals triage">

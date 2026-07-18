@@ -5,7 +5,6 @@ import { isFlagEnabled } from "../../../../api/_lib/feature-flags.js";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { UnderConstructionPanel } from "@/components/ui/UnderConstructionPanel";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { isFieldRole, isLeadingHandRole } from "@/lib/auth/roles";
@@ -104,11 +103,6 @@ export default async function GearRegisterPage() {
         ) : (
           <GearRegisterClient initialAssets={assets} holders={holders} />
         )}
-
-        <UnderConstructionPanel
-          feature="Bulk operations · QR scanning · label printing"
-          description="Create, edit and archive now live on the register above (#389). Still to come: bulk assign / bulk retire, camera-based QR scanning, and label printer (Nimbot/Brother) integration."
-        />
       </div>
     </AdminShell>
   );

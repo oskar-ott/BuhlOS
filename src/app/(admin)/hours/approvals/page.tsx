@@ -4,7 +4,6 @@ import { cookies, headers } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { isFlagEnabled } from "../../../../../api/_lib/feature-flags.js";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
-import { UnderConstructionPanel } from "@/components/ui/UnderConstructionPanel";
 import { HoursApprovalsQueue } from "@/components/admin/HoursApprovalsQueue";
 import { HoursTabs } from "@/components/admin/HoursTabs";
 import { MobileApprovalsHub } from "@/components/admin/MobileApprovalsHub";
@@ -46,9 +45,30 @@ export default async function HoursApprovalsPage() {
   // #760: Hours kill-switch — hide the office surface when the owner turns it off.
   if (!(await isFlagEnabled("hours", session))) notFound();
 
+  // The mobile triage hub's four chips are ALL flag-gated features. Resolve the
+  // flags server-side so a dark feature is never fetched for, counted, or
+  // rendered — a hidden feature leaves no trace here.
+  const [expensesOn, itpsOn, materialsOn, dayworksOn] = await Promise.all([
+    isFlagEnabled("expenses", session),
+    isFlagEnabled("itp", session),
+    isFlagEnabled("material_requests", session),
+    isFlagEnabled("dayworks", session),
+  ]);
+  const hubEnabled = {
+    expenses: expensesOn,
+    itps: itpsOn,
+    materials: materialsOn,
+    dayworks: dayworksOn,
+  };
+  const showHub = expensesOn || itpsOn || materialsOn || dayworksOn;
+
   const [{ entries, fetchError }, approvalsCounts] = await Promise.all([
     loadPendingQueue(raw),
-    loadOtherApprovalCounts(raw),
+    loadOtherApprovalCounts(raw, {
+      expenses: expensesOn,
+      itps: itpsOn,
+      materials: materialsOn,
+    }),
   ]);
 
   return (
@@ -64,11 +84,14 @@ export default async function HoursApprovalsPage() {
       }
     >
       {/* Mobile-only consolidated triage of the OTHER day-to-day approvals
-          (expenses / ITPs / materials / dayworks / proof). Hours stay below as
-          the page's main, already-responsive content. */}
-      <div className="mx-auto mb-4 max-w-4xl">
-        <MobileApprovalsHub counts={approvalsCounts} />
-      </div>
+          (expenses / ITPs / materials / dayworks). Hours stay below as the
+          page's main, already-responsive content. Rendered only while at
+          least one of those features is on — all dark means no hub at all. */}
+      {showHub ? (
+        <div className="mx-auto mb-4 max-w-4xl">
+          <MobileApprovalsHub counts={approvalsCounts} enabled={hubEnabled} />
+        </div>
+      ) : null}
       {/* Section tabs (#415) — navigation chrome only, above all content. */}
       <HoursTabs />
       <div className="mx-auto max-w-4xl space-y-4">
@@ -81,11 +104,6 @@ export default async function HoursApprovalsPage() {
         </Card>
 
         <HoursApprovalsQueue initialEntries={entries} fetchError={fetchError} canUndo={isAdminRole(session.role)} />
-
-        <UnderConstructionPanel
-          feature="Leading-hand crew view"
-          description="A dedicated leading-hand view of just their crew's entries isn't wired yet — it's on the backlog. Bulk approve ('Approve all') is on this page; re-opening an approved entry is on the Weekly closeout tab."
-        />
       </div>
     </AdminShell>
   );
@@ -126,10 +144,15 @@ async function loadPendingQueue(cookieValue: string | undefined): Promise<{
  * Counts for the mobile approvals triage — the OTHER day-to-day approval types
  * (hours are this page's own queue). Each fetch is best-effort and degrades to
  * 0 so a slow/failed source never blocks the hours queue. Real counts only (P7).
+ * A type whose feature flag is off is never fetched — its count is a hard 0.
  */
 async function loadOtherApprovalCounts(
-  cookieValue: string | undefined
+  cookieValue: string | undefined,
+  enabled: { expenses: boolean; itps: boolean; materials: boolean }
 ): Promise<{ expenses: number; itps: number; materials: number }> {
+  if (!enabled.expenses && !enabled.itps && !enabled.materials) {
+    return { expenses: 0, itps: 0, materials: 0 };
+  }
   const h = await headers();
   const host = h.get("x-forwarded-host") ?? h.get("host");
   const proto = h.get("x-forwarded-proto") ?? "http";
@@ -155,32 +178,38 @@ async function loadOtherApprovalCounts(
   }
 
   const [expenses, materials, itps] = await Promise.all([
-    count(
-      "/api/expenses?status=submitted",
-      (b) => {
-        const p = ExpenseListResponseSchema.safeParse(b);
-        return p.success ? p.data : null;
-      },
-      (d) => d.expenses.length
-    ),
-    count(
-      "/api/material-requests",
-      (b) => {
-        const p = MaterialRequestListResponseSchema.safeParse(b);
-        return p.success ? p.data : null;
-      },
-      (d) => d.requests.filter((r) => isOpenRequest(r.status)).length
-    ),
-    count(
-      // Only needs the ITP-needs-review count (statsItpsNeedsReview) — served by
-      // the fast statsOnly read, skipping the ~8s jobs.json monolith.
-      "/api/jobs?withStats=1&statsOnly=1",
-      (b) => {
-        const p = JobListResponseSchema.safeParse(b);
-        return p.success ? p.data : null;
-      },
-      (d) => summariseItpReviewQueue(d.jobs.filter((j) => j.status !== "archived")).count
-    ),
+    !enabled.expenses
+      ? Promise.resolve(0)
+      : count(
+          "/api/expenses?status=submitted",
+          (b) => {
+            const p = ExpenseListResponseSchema.safeParse(b);
+            return p.success ? p.data : null;
+          },
+          (d) => d.expenses.length
+        ),
+    !enabled.materials
+      ? Promise.resolve(0)
+      : count(
+          "/api/material-requests",
+          (b) => {
+            const p = MaterialRequestListResponseSchema.safeParse(b);
+            return p.success ? p.data : null;
+          },
+          (d) => d.requests.filter((r) => isOpenRequest(r.status)).length
+        ),
+    !enabled.itps
+      ? Promise.resolve(0)
+      : count(
+          // Only needs the ITP-needs-review count (statsItpsNeedsReview) — served by
+          // the fast statsOnly read, skipping the ~8s jobs.json monolith.
+          "/api/jobs?withStats=1&statsOnly=1",
+          (b) => {
+            const p = JobListResponseSchema.safeParse(b);
+            return p.success ? p.data : null;
+          },
+          (d) => summariseItpReviewQueue(d.jobs.filter((j) => j.status !== "archived")).count
+        ),
   ]);
 
   return { expenses, itps, materials };

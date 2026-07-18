@@ -4,7 +4,6 @@ import { redirect } from "next/navigation";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { CrewWeekPanel } from "@/components/admin/CrewWeekPanel";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
-import { UnderConstructionPanel } from "@/components/ui/UnderConstructionPanel";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { EmployeeRegisterClient } from "@/components/admin/EmployeeRegisterClient";
@@ -83,11 +82,6 @@ export async function EmployeesScreen({ selectedId }: { selectedId?: string | nu
 
         {/* #337: weekly crew availability — who's on leave / assigned / free. */}
         <CrewWeekPanel />
-
-        <UnderConstructionPanel
-          feature="Bulk re-invite · vehicles · inductions · payroll"
-          description="Adding workers, email invites (with resend / expired-replacement), the Phil setup flow (confirm details, PIN, intro) and the licence/ticket register (open a worker, Licences & tickets) are live. Still to come: bulk re-invite, vehicle / induction registers, and payroll."
-        />
       </div>
     </AdminShell>
   );

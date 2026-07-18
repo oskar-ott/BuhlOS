@@ -18,7 +18,6 @@ import {
 } from "@/domains/workforce/my-record";
 import { PhilSignOutButton } from "@/components/phil/PhilSignOutButton";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
-import { UnderConstructionPanel } from "@/components/ui/UnderConstructionPanel";
 import { PushNotificationsCard } from "@/components/pwa/PushNotificationsCard";
 
 /**
@@ -28,7 +27,7 @@ import { PushNotificationsCard } from "@/components/pwa/PushNotificationsCard";
  * cards on Phil home"), this surface no longer duplicates the bottom-tab
  * links to /phil/my-day, /phil/jobs and /phil/gear. The tab bar owns
  * those. What remains is: a short orientation line, an onboarding replay
- * card, an account card (sign out), and the profile/settings UC panel.
+ * card, and the worker's own account / leave / record cards.
  */
 export const dynamic = "force-dynamic";
 
@@ -123,11 +122,6 @@ export default async function PhilV2HomePage() {
         />
 
         <PushNotificationsCard audience="phil" />
-
-        <UnderConstructionPanel
-          feature="Profile · settings"
-          description="The rest of your worker profile and settings live here once the loops above are field-stable. Your hours, licences, inductions and recent work record are already here."
-        />
       </div>
     </PhilShell>
   );
