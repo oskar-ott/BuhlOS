@@ -20,6 +20,7 @@ const { isFlagEnabled } = require('../_lib/feature-flags');
 const audit = require('../_lib/audit-log');
 const { xeroConfigured } = require('../_lib/xero/config');
 const exportSvc = require('../_lib/xero/timesheet-export');
+const syncBridge = require('../_lib/xero/sync-log-bridge');
 const { XeroError } = require('../_lib/xero/errors');
 
 const CONNECT_FLAG = 'xero_connection';
@@ -102,7 +103,11 @@ module.exports = async function handler(req, res) {
           `${action === 'export' ? 'Exported' : 'Retried'} batch ${batchId.slice(0, 8)} → ${verified} verified, ${failed} failed (batch ${out.batch.status})`,
           { batchStatus: out.batch.status, verified, failed,
             workers: out.workers.map((w) => ({ worker: w.worker, outcome: w.outcome, xeroTimesheetId: w.xeroTimesheetId || null, correlationId: w.correlationId || null })) });
-        return res.status(200).json(out);
+        // #251: project the batch rollup into the sync-health working set.
+        // Best-effort with loud surfacing — the PG attempts above stay
+        // authoritative; a recorder failure reaches the response, never vanishes.
+        const syncLogWarning = await syncBridge.recordBatchOutcome({ batchId, out });
+        return res.status(200).json(syncLogWarning ? { ...out, syncLogWarning } : out);
       }
 
       if (action === 'reconcile') {
@@ -113,7 +118,8 @@ module.exports = async function handler(req, res) {
           `Reconciled batch ${batchId.slice(0, 8)} → ${verified} verified, ${drifted} drifted (batch ${out.batch.status})`,
           { batchStatus: out.batch.status, verified, drifted,
             workers: out.workers.map((w) => ({ worker: w.worker, outcome: w.outcome, xeroTimesheetId: w.xeroTimesheetId || null })) });
-        return res.status(200).json(out);
+        const syncLogWarning = await syncBridge.recordBatchOutcome({ batchId, out });
+        return res.status(200).json(syncLogWarning ? { ...out, syncLogWarning } : out);
       }
 
       return res.status(400).json({ error: 'unknown action' });
