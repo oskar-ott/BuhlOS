@@ -1,12 +1,20 @@
-// Thursday pay-period reminder cron — pushes admins about pending hours.
+// Pay-period reminder cron — pushes admins about pending hours, twice
+// around the week boundary (product-owner directive 2026-07-18).
 //
 //   GET /api/payroll-reminder
 //
-// Walks per-user time-entries dated within the current Sydney week
-// (Mon→today) and counts entries with status === 'submitted'. If any
-// exist, fires a single push to every admin with at least one push
-// subscription, with the count and oldest pending date. Silent when
-// nothing is pending.
+// Walks per-user time-entries dated within the LAST TWO Sydney weeks
+// (Monday of the previous week → today) and counts entries with
+// status === 'submitted'. If any exist, fires a single push to every
+// admin with at least one push subscription, with the count and oldest
+// pending date. Silent when nothing is pending.
+//
+// Why two weeks, not the current week: the Monday-morning fire lands on
+// day one of a NEW week — a current-week window would be one day wide
+// and silent about exactly the entries the boss is chasing (last week's,
+// about to be paid). The two-week window covers the closing week on the
+// Sunday run and the just-closed week on the Monday run; anything still
+// submitted from the previous week is a payroll problem either way.
 //
 // Why this is a standalone endpoint (not another action on
 // /api/notifications):
@@ -17,10 +25,12 @@
 //   comes from _lib/cron-auth (#381); only the two one-line Sydney date
 //   helpers remain local.
 //
-// Wiring (#392): live in vercel.json crons[] as
-//   { "path": "/api/payroll-reminder", "schedule": "0 5 * * 4" }
-//   = Thursday 05:00 UTC = 15:00 AEST / 16:00 AEDT Sydney — the arvo
-//   before Friday closeout.
+// Wiring (#392, rescheduled by the 2026-07-18 directive): live in
+// vercel.json crons[] as TWO entries (cron is UTC; both are Sunday-UTC):
+//   { "path": "/api/payroll-reminder", "schedule": "0 8 * * 0"   }
+//     = Sunday 18:00 AEST / 19:00 AEDT — clear the closing week tonight
+//   { "path": "/api/payroll-reminder", "schedule": "30 21 * * 0" }
+//     = Monday 07:30 AEST / 08:30 AEDT — before payroll gets run
 //
 // Body format:
 //   "11.5h pending · oldest from Mon 11 May"
@@ -87,8 +97,12 @@ module.exports = async (req, res) => {
   if (!(await isFlagOn('hours'))) {
     return res.status(200).json({ ok: true, sent: 0, skipped: 'hours flag off' });
   }
-  const weekStart = sydneyMondayOf(today);
-  const inWindow = (d) => d >= weekStart && d <= today;
+  // Window = Monday of the PREVIOUS Sydney week → today (see header: the
+  // Monday-morning fire must see the just-closed week, not a one-day window).
+  const thisMonday = sydneyMondayOf(today);
+  const windowStart = new Date(new Date(thisMonday + 'T00:00:00Z').getTime() - 7 * DAY_MS)
+    .toISOString().slice(0, 10);
+  const inWindow = (d) => d >= windowStart && d <= today;
 
   // Walk all per-user time-entries blobs for the week.
   const token = process.env.BLOB_READ_WRITE_TOKEN;
@@ -157,6 +171,6 @@ module.exports = async (req, res) => {
     pendingCount: pending.length,
     pendingHours: Math.round(totalPendingHours * 10) / 10,
     oldestDate,
-    weekStart, today,
+    windowStart, today,
   });
 };

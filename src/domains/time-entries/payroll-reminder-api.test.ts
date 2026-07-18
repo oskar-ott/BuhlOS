@@ -16,8 +16,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  *     admins, field workers and sub-less admins stay silent — and
  *     notificationPrefs are IGNORED (owner-critical `alwaysOn` class per
  *     docs/notifications.md §5: the payroll nudge has no mute)
- *   - out-of-window (before Monday of this Sydney week) submitted entries
- *     are excluded from the count
+ *   - the window is the last TWO Sydney weeks (Monday of the previous week
+ *     → today) so the Monday-morning fire sees the just-closed week's
+ *     stragglers; anything older is excluded
  *   - payload: count title, "<h>h pending · oldest from <day>" body,
  *     tap → /hours/approvals, per-day dedupe tag
  *   - nothing pending → silent 200 skip
@@ -82,7 +83,8 @@ async function runCron(headers: Record<string, string> = {}): Promise<Res> {
 
 /** ISO YYYY-MM-DD in Sydney, `offsetDays` from now — the same clock the
  *  handler's sydneyToday() reads, so fixtures dated 0 are always in the
- *  Mon→today window and -35 is always before it. */
+ *  window, -7 always lands in the PREVIOUS Sydney week (still in the
+ *  two-week window), and -35 is always before it. */
 function sydneyISO(offsetDays: number): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Australia/Sydney" }).format(
     new Date(Date.now() + offsetDays * 86_400_000),
@@ -270,12 +272,24 @@ describe("payroll-reminder cron — Thursday pending-hours nudge (#392)", () => 
     expect(pushCalls).toHaveLength(0);
   });
 
+  it("counts last week's stragglers — the Monday-morning fire must see the just-closed week", async () => {
+    setEntry("u_sparky", sydneyISO(-7), "submitted", 8); // always in the previous Sydney week
+
+    const res = await runCron();
+    expect(res.statusCode).toBe(200);
+    const body = res.body as { pendingCount: number; oldestDate: string };
+    expect(body.pendingCount).toBe(1);
+    expect(body.oldestDate).toBe(sydneyISO(-7));
+    expect(pushCalls).toHaveLength(3);
+    expect(pushedTo("u_boss")[0]!.payload.body).toContain(`oldest from ${pretty(sydneyISO(-7))}`);
+  });
+
   it("pushes admin-tier subscribers only, with count + hours + oldest day → /hours/approvals", async () => {
     const today = sydneyISO(0);
     setEntry("u_sparky", today, "submitted", 8);
     setEntry("u_mick", today, "submitted", 3.5);
     setEntry("u_third", today, "approved", 6); // approved — not pending
-    setEntry("u_sparky", sydneyISO(-35), "submitted", 40); // before this week — out of window
+    setEntry("u_sparky", sydneyISO(-35), "submitted", 40); // before the two-week window — excluded
 
     const res = await runCron();
     expect(res.statusCode).toBe(200);
