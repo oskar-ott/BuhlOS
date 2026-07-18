@@ -195,15 +195,18 @@ underlying two-dial scope writes (`scope`/`value`) remain for advanced use.
   the reason is threaded into the `feature_flag.toggled` audit `metadata`.
   *Enabling* a feature is one click (no confirm).
 - **Kill-switch features.** A live-by-default feature (`killSwitch: true`, e.g.
-  `itp`) shows **On** out of the box; the owner uses *Live to customers* to turn
-  it **off**. See `docs/feature-flags.md` → Two flag kinds.
-- **Whole-interface control.** Most shipped features are kill-switches — jobs,
-  hours, evidence, observations, material requests, expenses, quotes, defects,
-  dayworks, employees, gear, reports, ITPs, RFIs, snags, photos, scope, job
-  control, closeout, documents, circuit schedules, diary, activity, and more.
-  Turning one off hides its **nav entry, job-hub section and Command Centre
-  card**, `404`s its **routes**, and `404`s its **API** — the feature is gone,
-  not just hidden. See `docs/feature-flags.md` → Feature kill-switches.
+  `hours`) shows **On** out of the box; the owner uses *Live to customers* to
+  turn it **off**. See `docs/feature-flags.md` → Two flag kinds.
+- **Whole-interface control.** Since the **2026-07 lean reset**
+  (`docs/product/02-lean-reset.md`) only the lean core is a live kill-switch —
+  **jobs, hours, evidence, employees, gear**. Every other shipped feature
+  (observations, material requests, expenses, quotes, defects, dayworks,
+  reports, ITPs, snags, photos, scope, job control, closeout, documents,
+  circuit schedules, diary, activity, …) is **hidden**: a dark launch-gate the
+  owner can re-enable from this board. A feature that is off has no **nav
+  entry, job-hub section or Command Centre card**, its **routes** `404`, and
+  its **API** `404`s — gone, not just hidden. See `docs/feature-flags.md` →
+  Feature kill-switches.
 - **Core warning.** `jobs`, `hours` and `evidence` are marked **core**
   (`core: true`); the reduce-exposure confirm shows a prominent warning before
   the owner disables a load-bearing surface. `Command centre` and `/owner`

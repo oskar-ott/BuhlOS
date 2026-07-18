@@ -6,6 +6,7 @@ import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { NotificationPrefsPanel } from "@/components/admin/NotificationPrefsPanel";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
+import { isFlagEnabled } from "../../../../../api/_lib/feature-flags.js";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +41,11 @@ export default async function NotificationSettingsPage() {
     redirect("/v2/login");
   }
 
+  // Lean reset: pref rows for hidden features don't render — the panel must
+  // never advertise a push type the product can't currently send.
+  const snagsEnabled = await isFlagEnabled("snags", session);
+  const hiddenKeys = snagsEnabled ? [] : (["snagAssigned", "staleSnags"] as const);
+
   return (
     <AdminShell title="Notification settings">
       <div className="mx-auto max-w-2xl space-y-6">
@@ -62,7 +68,7 @@ export default async function NotificationSettingsPage() {
         </Card>
 
         <section aria-label="Notification preferences">
-          <NotificationPrefsPanel />
+          <NotificationPrefsPanel hiddenKeys={hiddenKeys} />
         </section>
       </div>
     </AdminShell>
