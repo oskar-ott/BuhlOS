@@ -194,10 +194,37 @@ async function xeroFetch(url, opts = {}) {
 
   const correlationId = correlationIdOf(res);
   if (!res.ok) {
+    // For 400s, surface Xero's element-level ValidationErrors MESSAGES (and
+    // nothing else from the body — they are operator-safe field sentences like
+    // "Timesheet line date is not within the period"). Without them a
+    // rejection is an unactionable black box: the first #249 proving run
+    // stalled on `validation (api_request)` with the real reason discarded.
+    let detail = 'api_request';
+    if (res.status === 400) {
+      try {
+        const body = await res.json();
+        const messages = [];
+        const walk = (node) => {
+          if (!node || typeof node !== 'object' || messages.length >= 5) return;
+          if (Array.isArray(node)) return node.forEach(walk);
+          if (Array.isArray(node.ValidationErrors)) {
+            for (const v of node.ValidationErrors) {
+              if (v && typeof v.Message === 'string' && messages.length < 5) messages.push(v.Message);
+            }
+          }
+          for (const k of Object.keys(node)) walk(node[k]);
+        };
+        walk(body);
+        if (typeof body?.Message === 'string' && !messages.length) messages.push(body.Message);
+        if (messages.length) detail = messages.join(' | ').slice(0, 400);
+      } catch {
+        // body unreadable → keep the generic detail
+      }
+    }
     throw new XeroError(categoryForStatus(res.status), {
       status: res.status,
       correlationId,
-      detail: 'api_request',
+      detail,
     });
   }
 
