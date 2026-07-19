@@ -397,7 +397,12 @@ async function reconcileWorker(sql, { conn, batchId, w, actor, attemptId, xeroId
 function firstTimesheet(data) {
   if (!data) return null;
   const arr = data.Timesheets || data.timesheets;
-  return Array.isArray(arr) && arr.length ? arr[0] : null;
+  if (Array.isArray(arr) && arr.length) return arr[0];
+  // Payroll AU answers single-resource GETs with a SINGULAR `Timesheet` key
+  // (proving-run find #6: every readback of a freshly accepted draft parsed
+  // as empty → honest-but-wrong 'drifted: readback_empty').
+  const one = data.Timesheet || data.timesheet;
+  return one && typeof one === 'object' ? one : null;
 }
 
 /** Read the draft back and compare field-by-field (employee/period/status/lines). */
