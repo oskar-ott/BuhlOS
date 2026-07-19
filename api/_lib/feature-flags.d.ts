@@ -41,6 +41,7 @@ export type FlagKey =
   | "ai_drawings" // #197 Epic 5 page understanding — dark launch-gate
   | "job_builder_redesign" // BuhlOS Job Builder redesign campaign — dark launch-gate
   | "ai_plan_tasks" // #213 suggest job tasks from plan fittings — dark launch-gate
+  | "servicem8_sync" // daily ServiceM8 → BuhlOS job sync — dark launch-gate; needs SERVICEM8_API_KEY
   | "phil_sharpened" // Phil field-surface redesign campaign — dark launch-gate; flips via governance (P15)
   | "phil_job_rooms" // #133 in-job four-rooms experiment — dark launch-gate; requires phil_sharpened
   | "xero_connection" // #247 Xero OAuth connection foundation — dark launch-gate

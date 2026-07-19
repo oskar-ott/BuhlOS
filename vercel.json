@@ -6,6 +6,7 @@
     "api/backup-snapshot.js": { "maxDuration": 60 },
     "api/internal/sync-checks/hours.js": { "maxDuration": 60 },
     "api/internal/sync-checks/structure.js": { "maxDuration": 60 },
+    "api/internal/sync-checks/servicem8.js": { "maxDuration": 60 },
     "api/internal/mirror-tasks.js": { "maxDuration": 60 },
     "api/internal/mirror-evidence.js": { "maxDuration": 60 }
   },
@@ -108,6 +109,7 @@
     { "path": "/api/backup-snapshot?action=run",                "schedule": "0 16 * * *"   },
     { "path": "/api/internal/sync-checks/hours",                "schedule": "0 17 * * *"   },
     { "path": "/api/internal/sync-checks/structure",            "schedule": "0 18 * * *"   },
+    { "path": "/api/internal/sync-checks/servicem8",            "schedule": "15 19 * * *"  },
     { "path": "/api/internal/mirror-tasks",                     "schedule": "*/10 * * * *" },
     { "path": "/api/internal/mirror-evidence",                  "schedule": "*/15 * * * *" },
     { "path": "/api/insights-digest?action=generate",           "schedule": "0 21 * * 0"   },
