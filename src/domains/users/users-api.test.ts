@@ -17,6 +17,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  */
 
 const requireFromHere = createRequire(import.meta.url);
+const vercelBlobPath = requireFromHere.resolve("@vercel/blob");
 const blobPath = requireFromHere.resolve("../../../api/_lib/blob.js");
 const authPath = requireFromHere.resolve("../../../api/_lib/auth.js");
 const pushPath = requireFromHere.resolve("../../../api/_lib/push.js");
@@ -26,6 +27,7 @@ const jobsPath = requireFromHere.resolve("../../../api/jobs.js");
 
 type Res = ReturnType<typeof createRes>;
 let blob: Map<string, unknown>;
+let vercelBlobList: ReturnType<typeof vi.fn>;
 let auth: { signSession: (payload: Record<string, unknown>) => string };
 let usersHandler: (req: Record<string, unknown>, res: Res) => Promise<unknown>;
 let jobsHandler: (req: Record<string, unknown>, res: Res) => Promise<unknown>;
@@ -138,6 +140,18 @@ beforeEach(() => {
     filename: pushPath,
     loaded: true,
     exports: { sendPushToUserId: vi.fn(async () => {}), getWebPush: vi.fn(() => null) },
+  } as NodeJS.Module;
+
+  // The hard-delete guard (userHasUnapprovedHours) lists per-user time-entry
+  // blobs via @vercel/blob directly. Default: an empty store (no blocker);
+  // individual tests override to exercise the conservative-409 path.
+  vercelBlobList = vi.fn(async () => ({ blobs: [] }));
+  delete requireFromHere.cache[vercelBlobPath];
+  requireFromHere.cache[vercelBlobPath] = {
+    id: vercelBlobPath,
+    filename: vercelBlobPath,
+    loaded: true,
+    exports: { list: (...args: unknown[]) => vercelBlobList(...args) },
   } as NodeJS.Module;
 
   auth = requireFromHere(authPath);
@@ -323,5 +337,36 @@ describe("GET ?action=listTradies — assignable-worker directory (Gear + jobs)"
     const res = await listTradies("u_admin", "admin");
     const ids = (res.body as { users: Array<{ id: string }> }).users.map((u) => u.id);
     expect(ids).not.toContain("u_exfield");
+  });
+});
+
+describe("DELETE /api/users?hard=1 — unapproved-hours guard", () => {
+  function rosterIds(): string[] {
+    return (blob.get("users.json") as { users: Array<{ id: string }> }).users.map((u) => u.id);
+  }
+
+  it("hard-deletes a user with NO pending hours (empty array is not a blocker)", async () => {
+    const res = await call(usersHandler, {
+      method: "DELETE",
+      userId: "u_admin",
+      role: "admin",
+      query: { id: "u_field2", hard: "1" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({ ok: true, mode: "hard" });
+    expect(rosterIds()).not.toContain("u_field2");
+  });
+
+  it("still 409s conservatively when the hours check itself fails", async () => {
+    vercelBlobList.mockRejectedValueOnce(new Error("blob outage"));
+    const res = await call(usersHandler, {
+      method: "DELETE",
+      userId: "u_admin",
+      role: "admin",
+      query: { id: "u_field2", hard: "1" },
+    });
+    expect(res.statusCode).toBe(409);
+    expect((res.body as { pendingDates: string[] }).pendingDates).toEqual(["__check_failed__"]);
+    expect(rosterIds()).toContain("u_field2");
   });
 });
