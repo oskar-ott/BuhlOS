@@ -72,6 +72,7 @@ function apiResponse(status: number, body: unknown = {}, headers: Record<string,
     status,
     headers: { get: (k: string) => headers[k.toLowerCase()] ?? null },
     json: async () => body,
+    text: async () => (typeof body === "string" ? body : JSON.stringify(body)),
   };
 }
 
@@ -244,6 +245,24 @@ describe("xeroFetch", () => {
       expect(e.category).toBe("validation");
       expect(e.message).toContain("Timesheet line date is not within the period");
       expect(e.message).not.toContain("should-never-surface");
+    }
+  });
+
+  it("scrapes <Message> from an XML 400 body — Payroll AU answers XML even under Accept: json", async () => {
+    const store = makeFakeStore(connectedRow());
+    const xml = "<ApiException><Message>A validation exception occurred</Message><Elements><Message>Timesheet period must match the payroll calendar</Message></Elements></ApiException>";
+    const fetchImpl = vi.fn(async () => apiResponse(400, xml));
+    try {
+      await client.xeroFetch("https://api.xero.com/payroll.xro/1.0/Timesheets", {
+        method: "POST",
+        body: { Timesheets: [] },
+        deps: { store, env: ENV, fetchImpl },
+      });
+      expect.unreachable("should throw");
+    } catch (err) {
+      const e = err as Error & { category: string };
+      expect(e.category).toBe("validation");
+      expect(e.message).toContain("Timesheet period must match the payroll calendar");
     }
   });
 
