@@ -297,7 +297,11 @@ async function runWorkers({ batchId, actor, deps, onlyRetryable }) {
     // SEND. Pre-generate the attempt id so a durable 'pending' event (with the
     // hashes) exists BEFORE the POST — a crash after the POST is reconcilable.
     const attemptId = crypto.randomUUID();
-    const body = { Timesheets: [w.timesheet] };
+    // Payroll AU 1.0 POST bodies are BARE ARRAYS — the {"Timesheets": [...]}
+    // envelope exists only in RESPONSES. Sending the envelope produced
+    // "Cannot deserialize the current JSON object into type
+    // UpdateTimesheetRequest" (find #5 of the first live proving run).
+    const body = [w.timesheet];
     const requestHash = crypto.createHash('sha256').update(JSON.stringify(body), 'utf8').digest('hex');
     await insertEvent(wsql, {
       tenantId: conn.tenant_id, batchId, attemptId, workerId: w.workerId, event: 'pending',

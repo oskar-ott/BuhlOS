@@ -5,12 +5,14 @@
 //
 // Xero Payroll AU (payroll.xro/1.0) Timesheets contract — verified against the
 // official docs + the #610 reference shapes (2026-07-13). Pinned in tests:
-//   POST {PAYROLL_AU_BASE}/Timesheets
-//   { "Timesheets": [ {
+//   POST {PAYROLL_AU_BASE}/Timesheets with a BARE ARRAY body (the
+//   {"Timesheets": [...]} envelope is the RESPONSE shape only — proven live,
+//   proving-run find #5):
+//   [ {
 //       "EmployeeID": <guid>, "StartDate": "YYYY-MM-DD", "EndDate": "YYYY-MM-DD",
 //       "Status": "DRAFT",
 //       "TimesheetLines": [ { "EarningsRateID": <guid>,
-//                             "NumberOfUnits": [ d0, d1, … dN ] } ] } ] }
+//                             "NumberOfUnits": [ d0, d1, … dN ] } ] } ]
 //   StartDate/EndDate span the EMPLOYEE'S payroll-calendar period; NumberOfUnits
 //   is one decimal PER DAY of that inclusive span (0 where nothing worked).
 //   Status DRAFT only (ADR #609 — no APPROVED/PROCESSED writes here).
