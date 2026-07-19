@@ -162,7 +162,9 @@ function installXeroEcho() {
     const mm = url.match(/\/Timesheets\/([^/?]+)/);
     if (mm) {
       const rec = created.get(mm[1]!);
-      return { data: { Timesheets: rec ? [rec] : [] }, correlationId: "corr-get", status: 200 };
+      // LIVE Payroll AU behaviour (find #6): single-resource GETs answer with
+      // the SINGULAR `Timesheet` key — every verify path must parse it.
+      return { data: rec ? { Timesheet: rec } : { Timesheets: [] }, correlationId: "corr-get", status: 200 };
     }
     return { data: {}, status: 200 };
   });
