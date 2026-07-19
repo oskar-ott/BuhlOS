@@ -159,9 +159,19 @@ async function record(outcome) {
   if (o.status === 'ok') {
     const open = await readOpen();
     open.lastSuccessAt[o.syncType] = now;
+    // A success for an operation with an OPEN failure closes it (proving-run
+    // find #7: the batch's earlier rejection stayed open forever after the
+    // retry landed — a phantom failure on the health panel).
+    const idx = open.items.findIndex((i) => i.operation === operation);
+    let resolvedPrior = false;
+    if (idx !== -1) {
+      const [item] = open.items.splice(idx, 1);
+      await appendHistory(historyEntry({ ...item, reason: 'landed on a later attempt' }, 'resolved'));
+      resolvedPrior = true;
+    }
     await writeBlob(OPEN_KEY, open);
     await appendHistory(historyEntry({ ...o, reason: o.reason || '' }, 'ok'));
-    return { recorded: 'ok' };
+    return { recorded: 'ok', resolvedPrior };
   }
 
   if (!OPEN_STATUSES.has(o.status)) {

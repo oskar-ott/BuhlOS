@@ -136,6 +136,16 @@ describe("recorder — record()", () => {
     expect(month.entries.map((e) => e.outcome)).toEqual(["ok"]);
   });
 
+  it("a later ok for the SAME operation closes its open failure (find #7 — no phantom opens)", async () => {
+    await lib.record(FAIL);
+    expect((await lib.openState()).items).toHaveLength(1);
+    const out = await lib.record({ syncType: "timesheet_export", operation: "op-1", recordRef: "batch-1/worker-9", status: "ok" });
+    expect(out.resolvedPrior).toBe(true);
+    expect((await lib.openState()).items).toHaveLength(0);
+    const month = blob.get(lib.monthKey(new Date().toISOString())) as { entries: Array<{ outcome: string }> };
+    expect(month.entries.map((e) => e.outcome)).toEqual(["resolved", "ok"]);
+  });
+
   it("scrubs credential-shaped content in reason and xeroError at the chokepoint", async () => {
     await lib.record({
       ...FAIL,
