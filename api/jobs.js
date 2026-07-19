@@ -1,6 +1,6 @@
 const { readBlob, writeBlob, deleteBlob, setNoCache } = require('./_lib/blob');
 const { tagsFromBlob } = require('./_lib/tags-store');
-const { requireAuth, getCurrentUser, canManageJob, isLeadingHandRole, canViewDraftJobs, canViewArchivedJobs, isFieldRole, isClientRole, isAdminRole } = require('./_lib/auth');
+const { requireAuth, getCurrentUser, canManageJob, isLeadingHandRole, canViewDraftJobs, canViewArchivedJobs, isFieldRole, isClientRole, isAdminRole, isOwnerRole } = require('./_lib/auth');
 const { redactJobForViewer } = require('./_lib/job-redaction');
 const { readAdminJobsWithPgOverlay, readPhilJobsWithPgOverlay } = require('./_lib/job-read-projection');
 const { recordJobsRead } = require('./_lib/job-read-diagnostics');
@@ -1380,8 +1380,12 @@ module.exports = async (req, res) => {
   // row. A batch is ONE read and ONE write, so the cleanup card sends a
   // single request no matter how many parked test jobs it clears.
   if (req.method === 'DELETE') {
-    // role-literal-ok: job DELETE (test-data purge) is deliberately literal-admin, mirroring the create gate
-    if (me.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
+    // Job DELETE (test-data purge) stays literal-admin like the create gate —
+    // EXCEPT the owner, whose own cleanup card a literal check used to 403.
+    // Office/PM/field/LH remain refused; the eligibility guard below (QA name
+    // prefix + draft/archived only) is the real protection.
+    // role-literal-ok: deliberate literal-admin + owner-tier widening, mirroring the create gate
+    if (me.role !== 'admin' && !isOwnerRole(me.role)) return res.status(403).json({ error: 'forbidden' });
     const { id } = req.query || {};
     if (!id) return res.status(400).json({ error: 'id required' });
     const ids = String(id).split(',').map(s => s.trim()).filter(Boolean);

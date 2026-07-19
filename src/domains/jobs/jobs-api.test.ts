@@ -84,6 +84,7 @@ beforeEach(() => {
       {
         users: [
           { id: "u_admin", username: "admin", role: "admin", assignedJobIds: [] },
+          { id: "u_owner", username: "owner", role: "owner", assignedJobIds: [] },
           {
             id: "u_field",
             username: "sparky",
@@ -1120,6 +1121,18 @@ describe("DELETE /api/jobs — QA test-job cleanup", () => {
       expect(res.statusCode).toBe(403);
     }
     expect(jobsIds()).toContain("smoke-test-1-job-b");
+  });
+
+  it("admits the owner — their cleanup card must not 403", async () => {
+    seedTestJobs();
+    const res = await call({
+      method: "DELETE",
+      userId: "u_owner",
+      role: "owner",
+      query: { id: "smoke-test-1-job-b" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(jobsIds()).not.toContain("smoke-test-1-job-b");
   });
 
   it("404s on an unknown id and 400s without an id", async () => {

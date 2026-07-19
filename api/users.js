@@ -332,7 +332,9 @@ module.exports = async (req, res) => {
     const hardDelete = req.query && (req.query.hard === '1' || req.query.hard === 'true');
     if (hardDelete) {
       const pending = await userHasUnapprovedHours(id);
-      if (pending) {
+      // Array contract: empty = no blocker. (`if (pending)` was always truthy —
+      // an empty array blocked EVERY hard-delete, even with zero pending hours.)
+      if (pending.length > 0) {
         return res.status(409).json({
           error: 'cannot hard-delete — user has unapproved hours. Approve or reject them first.',
           pendingDates: pending,
