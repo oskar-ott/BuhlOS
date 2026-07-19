@@ -36,6 +36,7 @@ import {
   type ProofQueueItem,
 } from "@/server/job-control/proof-queue";
 import { runRfiScan, blobRfiScanDeps } from "@/server/rfi/overdue-rfis";
+import { loadServiceM8SyncReport } from "@/server/servicem8/report";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import {
   TimeEntryListResponseSchema,
@@ -158,6 +159,7 @@ export default async function CommandCentrePage() {
     snagsEnabled,
     itpEnabled,
     reportsEnabled,
+    sm8Enabled,
   ] = await Promise.all([
     isFlagEnabled("admin_proof_review", session),
     isFlagEnabled("rfi_register", session),
@@ -167,6 +169,7 @@ export default async function CommandCentrePage() {
     isFlagEnabled("snags", session),
     isFlagEnabled("itp", session),
     isFlagEnabled("reports", session),
+    isFlagEnabled("servicem8_sync", session),
   ]);
   const proofPromise = showProofReview
     ? runProofQueue(blobProofQueueDeps())
@@ -230,6 +233,11 @@ export default async function CommandCentrePage() {
   const proofItems: ProofQueueItem[] = proofRes && proofRes.ok ? proofRes.items : [];
   const proofError: string | null = proofRes && !proofRes.ok ? proofRes.error : null;
   const proofFailedJobs: number = proofRes && proofRes.ok ? proofRes.failedJobs.length : 0;
+
+  // ServiceM8 daily-sync report (dark flag ⇒ zero reads, zero render). The
+  // cron (api/internal/sync-checks/servicem8) writes the snapshot; this page
+  // only reads the blob — it never talks to ServiceM8.
+  const sm8Report = sm8Enabled ? await loadServiceM8SyncReport() : null;
 
   const showFlagsReadout = await isFlagEnabled("admin_flags_readout", session);
   const flagStates = showFlagsReadout
@@ -745,12 +753,155 @@ export default async function CommandCentrePage() {
           )}
         </section>
 
+        {/* ServiceM8 daily job sync — flag-gated. The morning answer to "does
+            every ServiceM8 work order have a BuhlOS job the crew can log hours
+            to?". Auto-created jobs with no assigned workers stay flagged here
+            until someone assigns the crew (creation alone doesn't make hours
+            loggable). */}
+        {sm8Enabled ? (
+          <section aria-label="ServiceM8 job sync">
+            <h2 className="font-display text-sm uppercase tracking-wider text-text-muted">
+              ServiceM8 job sync
+            </h2>
+            {!sm8Report ? (
+              <Card className="mt-3 border-border bg-surface-raised" role="status">
+                <CardTitle>No sync has run yet</CardTitle>
+                <CardDescription>
+                  The daily check runs each morning once SERVICEM8_API_KEY is
+                  configured. It compares active ServiceM8 work orders against
+                  BuhlOS jobs and creates any that are missing.
+                </CardDescription>
+              </Card>
+            ) : sm8Report.status === "skipped" ? (
+              <Card className="mt-3 border-amber-200 bg-amber-50" role="alert">
+                <CardTitle>ServiceM8 sync isn&rsquo;t connected</CardTitle>
+                <CardDescription className="text-amber-900">
+                  {sm8Report.reason ?? "SERVICEM8_API_KEY is not configured"} —
+                  jobs booked in ServiceM8 are not being checked against BuhlOS.
+                </CardDescription>
+              </Card>
+            ) : (
+              <>
+                {sm8Report.status === "error" ? (
+                  <Card className="mt-3 border-amber-200 bg-amber-50" role="alert">
+                    <CardTitle>Couldn&rsquo;t reach ServiceM8</CardTitle>
+                    <CardDescription className="text-amber-900">
+                      Last attempt {formatSyncTime(sm8Report.lastRun)} failed
+                      {sm8Report.error ? ` — ${sm8Report.error}` : ""}. New
+                      ServiceM8 jobs may be missing from BuhlOS until the next
+                      successful run.
+                    </CardDescription>
+                  </Card>
+                ) : null}
+                {(sm8Report.needsAssignment?.length ?? 0) > 0 ? (
+                  <Card className="mt-3 border-amber-200 bg-amber-50" role="alert">
+                    <CardTitle className="text-amber-900">
+                      {sm8Report.needsAssignment!.length} job
+                      {sm8Report.needsAssignment!.length === 1 ? "" : "s"} from
+                      ServiceM8 with no crew assigned
+                    </CardTitle>
+                    <CardDescription className="text-amber-900">
+                      These were created from ServiceM8 but nobody can log hours
+                      to them until workers are assigned.
+                    </CardDescription>
+                    <ul className="mt-2 space-y-1">
+                      {sm8Report.needsAssignment!.slice(0, 8).map((j) => (
+                        <li key={j.id}>
+                          <Link
+                            href={`/v2/jobs/${j.id}` as Route}
+                            className="text-sm font-medium text-amber-900 underline underline-offset-2"
+                          >
+                            {j.name}
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  </Card>
+                ) : null}
+                {(sm8Report.created?.length ?? 0) > 0 ? (
+                  <Card className="mt-3 border-border bg-surface-raised" role="status">
+                    <CardTitle>
+                      {sm8Report.created!.length} job
+                      {sm8Report.created!.length === 1 ? "" : "s"} created from
+                      ServiceM8
+                    </CardTitle>
+                    <CardDescription>
+                      Found in ServiceM8 ({formatSyncTime(sm8Report.lastRun)})
+                      without a matching BuhlOS job, so they were created
+                      automatically.
+                    </CardDescription>
+                    <ul className="mt-2 space-y-1">
+                      {sm8Report.created!.slice(0, 8).map((j) => (
+                        <li key={j.id}>
+                          <Link
+                            href={`/v2/jobs/${j.id}` as Route}
+                            className="text-sm font-medium underline underline-offset-2"
+                          >
+                            {j.name}
+                          </Link>
+                          {j.sm8Number ? (
+                            <span className="ml-2 font-mono text-xs text-text-muted">
+                              SM8 #{j.sm8Number}
+                            </span>
+                          ) : null}
+                        </li>
+                      ))}
+                    </ul>
+                  </Card>
+                ) : null}
+                {(sm8Report.failed?.length ?? 0) > 0 ? (
+                  <Card className="mt-3 border-amber-200 bg-amber-50" role="alert">
+                    <CardTitle>
+                      {sm8Report.failed!.length} ServiceM8 job
+                      {sm8Report.failed!.length === 1 ? "" : "s"} couldn&rsquo;t
+                      be created
+                    </CardTitle>
+                    <CardDescription className="text-amber-900">
+                      {sm8Report
+                        .failed!.slice(0, 3)
+                        .map((f) => `${f.name}: ${f.error ?? "unknown error"}`)
+                        .join(" · ")}
+                    </CardDescription>
+                  </Card>
+                ) : null}
+                {sm8Report.status === "ok" &&
+                (sm8Report.created?.length ?? 0) === 0 &&
+                (sm8Report.failed?.length ?? 0) === 0 &&
+                (sm8Report.needsAssignment?.length ?? 0) === 0 ? (
+                  <Card className="mt-3 border-emerald-200 bg-emerald-50" role="status">
+                    <CardTitle className="text-emerald-900">
+                      All {sm8Report.sm8Count ?? 0} ServiceM8 work orders matched
+                    </CardTitle>
+                    <CardDescription className="text-emerald-900">
+                      Checked {formatSyncTime(sm8Report.lastRun)} — every active
+                      ServiceM8 work order has a BuhlOS job.
+                    </CardDescription>
+                  </Card>
+                ) : null}
+              </>
+            )}
+          </section>
+        ) : null}
+
         <section>
           <PushNotificationsCard audience="admin" />
         </section>
       </div>
     </AdminShell>
   );
+}
+
+/** "Sat 5:15 am" in the business timezone — the ServiceM8 card's run stamp. */
+function formatSyncTime(iso?: string): string {
+  if (!iso) return "recently";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "recently";
+  return d.toLocaleString("en-AU", {
+    timeZone: BUSINESS_TIMEZONE,
+    weekday: "short",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 async function loadSnapshot(

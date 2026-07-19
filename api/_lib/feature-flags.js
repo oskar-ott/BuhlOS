@@ -491,6 +491,17 @@ const REGISTRY = {
     target: 'admin-tier',
     expires: '2026-12-31',
   },
+  // Daily ServiceM8 → BuhlOS job sync. A cron pulls the active 'Work Order'
+  // jobs from ServiceM8 and auto-creates any missing from BuhlOS, so a field
+  // worker is never blocked from logging hours because the office booked the
+  // job in ServiceM8 only. Gates the cron run AND the command-centre card.
+  // Dark until SERVICEM8_API_KEY is configured and the owner turns it on.
+  servicem8_sync: {
+    description: 'Daily ServiceM8 job sync — auto-create missing Work Order jobs + command-centre card. Needs SERVICEM8_API_KEY. Dark.',
+    default: false,
+    target: 'admin-tier',
+    expires: '2027-06-30',
+  },
   // Phil "sharpened" field-surface redesign (campaign). Re-skins the ratified
   // Phil package in coordinated WAVES behind this dark gate (Wave 1 = design
   // system + global nav; screen re-skins follow). Behavioural change to the
@@ -690,6 +701,7 @@ const FLAG_PRESENTATION = {
   ai_drawings: { label: 'AI drawings — sheet understanding', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/v2/jobs' },
   job_builder_redesign: { label: 'Job Builder redesign', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/v2/jobs/new' },
   ai_plan_tasks: { label: 'AI plan tasks from fittings', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/v2/jobs' },
+  servicem8_sync: { label: 'ServiceM8 job sync', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/command-centre' },
   phil_sharpened: { label: 'Phil sharpened redesign', domain: 'Phil', surface: 'Phil', previewHref: '/phil/my-day' },
   phil_job_rooms: { label: 'Phil in-job rooms (#133)', domain: 'Phil', surface: 'Phil', previewHref: '/phil/jobs' },
   xero_connection: { label: 'Xero connection', domain: 'Platform', surface: 'BuhlOS', previewHref: '/settings/integrations/xero' },
