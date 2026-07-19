@@ -194,29 +194,48 @@ async function xeroFetch(url, opts = {}) {
 
   const correlationId = correlationIdOf(res);
   if (!res.ok) {
-    // For 400s, surface Xero's element-level ValidationErrors MESSAGES (and
-    // nothing else from the body — they are operator-safe field sentences like
+    // For 400s, surface Xero's element-level validation MESSAGES (and nothing
+    // else from the body — they are operator-safe field sentences like
     // "Timesheet line date is not within the period"). Without them a
     // rejection is an unactionable black box: the first #249 proving run
     // stalled on `validation (api_request)` with the real reason discarded.
+    // Body-format-agnostic on purpose: Payroll AU 1.0 can answer validation
+    // errors in XML even when Accept: application/json was sent.
     let detail = 'api_request';
     if (res.status === 400) {
       try {
-        const body = await res.json();
+        const raw = await res.text();
         const messages = [];
-        const walk = (node) => {
-          if (!node || typeof node !== 'object' || messages.length >= 5) return;
-          if (Array.isArray(node)) return node.forEach(walk);
-          if (Array.isArray(node.ValidationErrors)) {
-            for (const v of node.ValidationErrors) {
-              if (v && typeof v.Message === 'string' && messages.length < 5) messages.push(v.Message);
+        try {
+          const body = JSON.parse(raw);
+          const walk = (node) => {
+            if (!node || typeof node !== 'object' || messages.length >= 5) return;
+            if (Array.isArray(node)) return node.forEach(walk);
+            if (Array.isArray(node.ValidationErrors)) {
+              for (const v of node.ValidationErrors) {
+                if (v && typeof v.Message === 'string' && messages.length < 5) messages.push(v.Message);
+              }
             }
+            for (const k of Object.keys(node)) walk(node[k]);
+          };
+          walk(body);
+          if (typeof body?.Message === 'string' && !messages.length) messages.push(body.Message);
+        } catch {
+          // Not JSON → scrape XML <Message> elements.
+          for (const m of raw.matchAll(/<Message>([^<]{1,200})<\/Message>/g)) {
+            if (messages.length >= 5) break;
+            messages.push(m[1]);
           }
-          for (const k of Object.keys(node)) walk(node[k]);
-        };
-        walk(body);
-        if (typeof body?.Message === 'string' && !messages.length) messages.push(body.Message);
-        if (messages.length) detail = messages.join(' | ').slice(0, 400);
+        }
+        if (messages.length) {
+          detail = messages.join(' | ').slice(0, 400);
+        } else {
+          // Unknown shape — log a scrubbed snippet so the NEXT failure is
+          // diagnosable from runtime logs (validation bodies carry no
+          // credentials; belt-and-braces strip of anything token-like).
+          const snippet = raw.replace(/[A-Za-z0-9+/_-]{40,}/g, '[scrubbed]').slice(0, 300);
+          console.error('xero 400 body unrecognised:', res.headers.get('content-type') || 'no-content-type', snippet);
+        }
       } catch {
         // body unreadable → keep the generic detail
       }
