@@ -222,7 +222,7 @@ async function xeroFetch(url, opts = {}) {
           if (typeof body?.Message === 'string' && !messages.length) messages.push(body.Message);
         } catch {
           // Not JSON → scrape XML <Message> elements.
-          for (const m of raw.matchAll(/<Message>([^<]{1,200})<\/Message>/g)) {
+          for (const m of raw.matchAll(/<Message>([^<]{1,600})<\/Message>/g)) {
             if (messages.length >= 5) break;
             messages.push(m[1]);
           }

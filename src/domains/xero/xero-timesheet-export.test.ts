@@ -153,7 +153,7 @@ function installXeroEcho() {
   xeroFetch.mockImplementation(async (url: string, opts: Record<string, unknown> = {}) => {
     const method = (opts.method as string) || "GET";
     if (method === "POST" && /\/Timesheets$/.test(url)) {
-      const sent = (opts.body as { Timesheets: Row[] }).Timesheets[0]!;
+      const sent = (opts.body as Row[])[0]!;
       const id = `ts-${++n}`;
       const rec = { TimesheetID: id, EmployeeID: sent.EmployeeID, StartDate: sent.StartDate, EndDate: sent.EndDate, Status: "DRAFT", TimesheetLines: sent.TimesheetLines };
       created.set(id, rec);
@@ -252,7 +252,7 @@ describe("exportBatch — the write + readback", () => {
     xeroFetch.mockImplementation(async (url: string, opts: Record<string, unknown> = {}) => {
       const method = (opts.method as string) || "GET";
       if (method === "POST" && /\/Timesheets$/.test(url)) {
-        const sent = (opts.body as { Timesheets: Array<{ EmployeeID: string; StartDate: string; EndDate: string; TimesheetLines: unknown[] }> }).Timesheets[0]!;
+        const sent = (opts.body as Array<{ EmployeeID: string; StartDate: string; EndDate: string; TimesheetLines: unknown[] }>)[0]!;
         const id = `ts-${created.size + 1}`;
         created.set(id, { TimesheetID: id, EmployeeID: sent.EmployeeID, StartDate: sent.StartDate, EndDate: sent.EndDate, Status: "DRAFT", TimesheetLines: [{ EarningsRateID: "r-ord", NumberOfUnits: [99, 0, 0, 0, 0, 0, 0] }] });
         return { data: { Timesheets: [created.get(id)] }, correlationId: "c", status: 200 };
@@ -281,7 +281,7 @@ describe("exportBatch — the write + readback", () => {
       if (method === "POST") {
         posts += 1;
         if (posts === 1) throw new XeroError("validation", { detail: "inactive employee" });
-        const sent = (opts.body as { Timesheets: Row[] }).Timesheets[0]!;
+        const sent = (opts.body as Row[])[0]!;
         const rec = { TimesheetID: "ts-ok", EmployeeID: sent.EmployeeID, StartDate: sent.StartDate, EndDate: sent.EndDate, Status: "DRAFT", TimesheetLines: sent.TimesheetLines };
         return { data: { Timesheets: [rec] }, status: 200 };
       }
