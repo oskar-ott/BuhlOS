@@ -21,7 +21,9 @@ type PreviewWorker = {
   employeeId: string | null;
   employeeName: string | null;
   calendarName: string | null;
-  period: { periodStart: string; periodEnd: string } | null;
+  // The builder emits {start, end} (proving-run nit: the old {periodStart,
+  // periodEnd} read rendered "undefined → undefined").
+  period: { start: string; end: string } | null;
   totalUnits: number;
   dayCount: number;
   aligned: boolean;
@@ -187,7 +189,9 @@ export function PayrollBatchExportSection({
             </button>
             <button
               className={BTN_PRIMARY}
-              disabled={busy !== null || (batchStatus !== "locked" && batchStatus !== "partially_exported" && batchStatus !== "exporting")}
+              // partially_exported must go through Retry failed — the server
+              // refuses a plain export ("no mutation permitted", proving-run nit).
+              disabled={busy !== null || (batchStatus !== "locked" && batchStatus !== "exporting")}
               onClick={() => setConfirmExport(true)}
               data-testid="payroll-export-run"
             >
@@ -264,7 +268,7 @@ export function PayrollBatchExportSection({
                       {w.employeeName ?? <span className="text-state-danger">unmapped</span>}
                     </td>
                     <td className="py-1 pr-3">{w.calendarName ?? "—"}</td>
-                    <td className="py-1 pr-3">{w.period ? `${w.period.periodStart} → ${w.period.periodEnd}` : "—"}</td>
+                    <td className="py-1 pr-3">{w.period ? `${w.period.start} → ${w.period.end}` : "—"}</td>
                     <td className="py-1 pr-3 text-right">{w.totalUnits}</td>
                     <td className="py-1 pr-3">
                       {w.aligned
