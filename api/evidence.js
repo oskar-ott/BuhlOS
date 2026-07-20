@@ -83,6 +83,48 @@ function emptyData() {
   return { dwellings: {}, snags: [], evidence: [], notes: [] };
 }
 
+// #157/#511 — jobs/<id>/data.json is a shared multi-writer document: several
+// workers capture into the SAME job at once (and an admin can review while a
+// worker captures). The old cached-read → mutate → plain-write shape loses the
+// slower writer's evidence row after both got a 201 (lost-update class —
+// exactly the #511 registry case).
+//
+// expectedRev alone is NOT enough here: writeBlob's revision check is a fresh
+// read followed by a non-atomic put ("narrows the race, can't eliminate it" —
+// api/_lib/blob.js), so two same-instant captures can BOTH pass the check and
+// the slower put still wins the document. This helper therefore couples the
+// #511 re-read/re-apply retry with VERIFY-AFTER-WRITE: after a successful put
+// it loops back, re-reads fresh, and only resolves once `applied(doc)` is
+// observably true — a clobbered write is detected and re-applied instead of
+// silently lost. Retries exhaust into a thrown error (an honest 502), never a
+// false success.
+//
+//   applied(doc) → true when THIS request's effect is present in the fresh doc
+//   apply(doc)   → { ok: true } to mutate+write, { ok: false, ...why } to abort
+const DATA_WRITE_ATTEMPTS = 8;
+async function writeJobDataCas(KEY, { applied, apply }) {
+  let wrote = false;
+  for (let attempt = 0; attempt < DATA_WRITE_ATTEMPTS; attempt += 1) {
+    const data = await readBlob(KEY, emptyData());
+    if (!Array.isArray(data.evidence)) data.evidence = [];
+    if (applied(data)) return { written: true, data };
+    const out = apply(data);
+    if (!out || out.ok !== true) return { written: false, data, ...(out || {}) };
+    try {
+      await writeBlob(KEY, data, {
+        expectedRev: Number.isFinite(data.__rev) ? data.__rev : 0,
+      });
+      wrote = true; // loop back to VERIFY the write survived any racing put
+    } catch (e) {
+      if (e && e.code === 'stale_write') continue; // racer landed — re-read, re-apply
+      throw e;
+    }
+  }
+  throw new Error(
+    `data.json write ${wrote ? 'could not be verified' : 'retries exhausted'} for ${KEY}`,
+  );
+}
+
 function findArea(job, areaId) {
   for (const g of (job && job.areaGroups) || []) {
     for (const a of (g && g.areas) || []) {
@@ -281,15 +323,30 @@ async function createEvidence(req, res, user, jobId) {
   }).catch(() => null);
   if (auditEntry && auditEntry.id) item.auditLogIds.push(auditEntry.id);
 
-  data.evidence.push(item);
-  // Persist the idempotency key alongside the item in the same write, so a later
-  // retry with this key resolves to this exact item (#497).
-  recordIdempotent(data, idemKey, item);
-
+  // Append under the CAS+verify retry: on a concurrent capture the fresh
+  // document is re-read and THIS item re-applied until it is observably
+  // present, so neither writer's row is lost. The replay check re-runs against
+  // each fresh read — a retry that raced another instance carrying the same
+  // idempotency key resolves to that original item.
+  let casResult;
   try {
-    await writeBlob(KEY, data);
+    casResult = await writeJobDataCas(KEY, {
+      applied: (doc) => doc.evidence.some((ev) => ev && ev.id === item.id),
+      apply: (doc) => {
+        const freshReplay = idemKey ? findIdempotent(doc, idemKey) : null;
+        if (freshReplay) return { ok: false, replay: freshReplay };
+        doc.evidence.push(item);
+        // Persist the idempotency key alongside the item in the same write, so
+        // a later retry with this key resolves to this exact item (#497).
+        recordIdempotent(doc, idemKey, item);
+        return { ok: true };
+      },
+    });
   } catch (e) {
     return res.status(502).json({ error: 'write failed: ' + (e.message || 'unknown') });
+  }
+  if (!casResult.written && casResult.replay) {
+    return res.status(201).json({ evidenceItem: casResult.replay, idempotentReplay: true });
   }
 
   // Dual-write to the legacy per-job structural log. Best-effort —
@@ -394,12 +451,36 @@ async function reviewEvidence(req, res, user, jobId) {
     next.auditLogIds = [...(current.auditLogIds || []), auditEntry.id];
   }
 
-  arr[idx] = next;
-  data.evidence = arr;
+  // Persist under the CAS+verify retry: a concurrent capture on this job must
+  // not be clobbered by this review write (and vice versa). The item +
+  // transition are re-resolved against each fresh read — if another actor
+  // moved this item to a DIFFERENT state meanwhile, answer 409 rather than
+  // blindly re-applying a stale decision; the same target state already
+  // applied counts as done (idempotent-equivalent outcome).
+  let casResult;
   try {
-    await writeBlob(KEY, data);
+    casResult = await writeJobDataCas(KEY, {
+      applied: (doc) => {
+        const fresh = doc.evidence.find((ev) => ev && ev.id === evidenceId);
+        return Boolean(fresh && fresh.status === targetStatus);
+      },
+      apply: (doc) => {
+        const freshIdx = doc.evidence.findIndex((ev) => ev && ev.id === evidenceId);
+        if (freshIdx === -1) return { ok: false, notFound: true };
+        const fresh = doc.evidence[freshIdx];
+        if (fresh.status !== current.status) return { ok: false, moved: fresh };
+        doc.evidence[freshIdx] = { ...next, auditLogIds: next.auditLogIds || fresh.auditLogIds || [] };
+        return { ok: true };
+      },
+    });
   } catch (e) {
     return res.status(502).json({ error: 'write failed: ' + (e.message || 'unknown') });
+  }
+  if (!casResult.written) {
+    if (casResult.notFound) return res.status(404).json({ error: 'evidence not found on job' });
+    return res.status(409).json({
+      error: `evidence changed underneath this review (now ${casResult.moved.status}) — reload and re-decide`,
+    });
   }
 
   appendLegacyAudit(jobId, {
