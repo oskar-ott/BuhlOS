@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 // The email templates run in the legacy CommonJS API layer (api/_lib). Vitest
 // test files must live under src/, but may import from anywhere — esbuild
 // handles the CJS interop, so we test the real templates that actually run.
@@ -9,6 +9,7 @@ import {
   acceptedNotificationEmail,
   article,
 } from "../../../api/_lib/email-templates.js";
+import { sendTemplate } from "../../../api/_lib/email.js";
 import {
   recentResendCount,
   canResendNow,
@@ -110,6 +111,50 @@ describe("article helper", () => {
     expect(article("electrician")).toBe("an");
     expect(article("labourer")).toBe("a");
     expect(article("leading hand")).toBe("a");
+  });
+});
+
+/* ----------------------------------------------------------------------- */
+/* sendTemplate kind dispatch (regression)                                  */
+/* ----------------------------------------------------------------------- */
+
+// Regression: email.js must look renderers up in the module's nested
+// TEMPLATES map. It once required the whole module and indexed it by kind,
+// so every kind resolved to undefined and EVERY send failed with
+// unknown_template before Resend was ever called. These tests drive the
+// real sendTemplate path: with no provider configured a resolved kind must
+// get PAST the lookup and fail with not_configured — never unknown_template.
+describe("sendTemplate kind dispatch", () => {
+  const saved: Record<string, string | undefined> = {};
+  beforeAll(() => {
+    for (const k of ["RESEND_API_KEY", "EMAIL_FROM"]) {
+      saved[k] = process.env[k];
+      delete process.env[k];
+    }
+  });
+  afterAll(() => {
+    for (const k of ["RESEND_API_KEY", "EMAIL_FROM"]) {
+      if (saved[k] !== undefined) process.env[k] = saved[k];
+    }
+  });
+
+  const SEND_CTX = { ...BASE_CTX, to: "liam@x.com" };
+  it.each(["invite", "resend", "expiredReplacement"])(
+    "resolves the %s renderer",
+    async (kind) => {
+      expect(await sendTemplate(kind, SEND_CTX)).toEqual({ ok: false, reason: "not_configured" });
+    },
+  );
+  it("resolves the accepted (E4) renderer", async () => {
+    const ctx = {
+      firstName: "Liam", lastName: "Marriott", timeText: "7:46am",
+      jobText: "Magill Rd", buhlosUrl: "https://buhlos.com/employees",
+      companyName: "bühl electrical", to: "admin@x.com",
+    };
+    expect(await sendTemplate("accepted", ctx)).toEqual({ ok: false, reason: "not_configured" });
+  });
+  it("still rejects an unknown kind", async () => {
+    expect(await sendTemplate("nope", SEND_CTX)).toEqual({ ok: false, reason: "unknown_template" });
   });
 });
 
