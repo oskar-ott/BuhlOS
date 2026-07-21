@@ -26,7 +26,7 @@ export function WelcomeStep({ onContinue, onSkipToApp }: WelcomeStepProps) {
           onClick={onSkipToApp}
           className="font-display text-[13.5px] font-semibold text-text-muted hover:text-text"
         >
-          I&rsquo;ve used Phil before
+          I&rsquo;ve used BuhlOS before
         </button>
       </div>
 
@@ -36,20 +36,20 @@ export function WelcomeStep({ onContinue, onSkipToApp }: WelcomeStepProps) {
             className="flex h-14 w-14 items-center justify-center rounded-[14px] bg-accent-yellow font-display text-[30px] font-extrabold tracking-tight text-brand-navy"
             aria-hidden="true"
           >
-            P
+            B
           </div>
           <div>
             <p className="font-display text-[32px] font-extrabold leading-none tracking-tight text-text">
-              Phil
+              BuhlOS
             </p>
             <p className="mt-1 font-mono text-[12px] font-semibold uppercase tracking-[0.14em] text-text-muted">
-              BuhlOS · field app
+              bühl electrical · field app
             </p>
           </div>
         </div>
 
         <h1 className="mb-3 font-display text-[30px] font-bold leading-[1.12] tracking-tight text-text [text-wrap:balance]">
-          Phil helps you log hours, see your gear, and access job info.
+          BuhlOS helps you log hours, see your gear, and access job info.
         </h1>
 
         <p className="text-[15px] leading-relaxed text-text-muted">
@@ -60,7 +60,7 @@ export function WelcomeStep({ onContinue, onSkipToApp }: WelcomeStepProps) {
       <OnboardingFooter
         primaryLabel="Get started"
         onPrimary={onContinue}
-        secondaryLabel="I&rsquo;ve used Phil before"
+        secondaryLabel="I&rsquo;ve used BuhlOS before"
         onSecondary={onSkipToApp}
       />
     </OnboardingShell>

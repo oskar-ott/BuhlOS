@@ -39,7 +39,7 @@ export function ReadyStep({ name, onOpenApp, onReview }: ReadyStepProps) {
           You&rsquo;re set{firstName ? `, ${firstName}` : ""}.
         </h1>
         <p className="mb-6 text-[15px] leading-relaxed text-text-muted">
-          Phil&rsquo;s ready. Site&rsquo;s ready. Let&rsquo;s go.
+          App&rsquo;s ready. Site&rsquo;s ready. Let&rsquo;s go.
         </p>
 
         <ul
@@ -68,7 +68,7 @@ export function ReadyStep({ name, onOpenApp, onReview }: ReadyStepProps) {
       </div>
 
       <OnboardingFooter
-        primaryLabel="Open Phil"
+        primaryLabel="Open BuhlOS"
         onPrimary={onOpenApp}
         secondaryLabel="Review setup"
         onSecondary={onReview}

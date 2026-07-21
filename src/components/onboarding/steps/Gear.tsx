@@ -31,7 +31,7 @@ export function GearStep({ onContinue, onSkip }: GearStepProps) {
       <OnboardingHeading
         eyebrow="My Gear"
         title="Your gear, on you."
-        sub="Phil tracks what's signed out to your name. Flag anything missing or busted."
+        sub="BuhlOS tracks what's signed out to your name. Flag anything missing or busted."
       />
 
       <div className="px-5 pt-2">

@@ -43,7 +43,7 @@ function assertNoSecrets(s: string) {
 describe("E1 invite email", () => {
   const { subject, html, text } = inviteEmail(BASE_CTX);
   it("subject states what + who", () => {
-    expect(subject).toBe("You're invited to Phil — bühl electrical");
+    expect(subject).toBe("You're invited to BuhlOS — bühl electrical");
   });
   it("uses a first-name greeting in plain text", () => {
     expect(text).toContain("G'day Liam,");
@@ -54,8 +54,8 @@ describe("E1 invite email", () => {
   });
   it("shows expiry as information, and has one primary CTA", () => {
     expect(html).toContain("expires 11 Jun 2026");
-    // Single "Set up Phil" call-to-action anchor.
-    expect((html.match(/Set up Phil/g) || []).length).toBe(1);
+    // Single "Set up BuhlOS" call-to-action anchor.
+    expect((html.match(/Set up BuhlOS/g) || []).length).toBe(1);
   });
   it("renders role with the right article", () => {
     expect(html).toContain("as an apprentice");
@@ -99,8 +99,8 @@ describe("E4 admin notification (built; triggered in O3)", () => {
     companyName: "bühl electrical",
   });
   it("addresses the admin that the worker is in", () => {
-    expect(subject).toBe("Liam Marriott is in Phil");
-    expect(text).toContain("set up Phil at 7:46am");
+    expect(subject).toBe("Liam Marriott is in BuhlOS");
+    expect(text).toContain("set up BuhlOS at 7:46am");
     expect(html).toContain("View in BuhlOS");
   });
 });

@@ -125,10 +125,10 @@ const VALID: ResolvedInvite = {
 };
 
 describe("PhilInviteLanding render", () => {
-  it("valid invite shows greeting + Set up Phil CTA", () => {
+  it("valid invite shows greeting + Set up BuhlOS CTA", () => {
     const html = renderToString(createElement(PhilInviteLanding, { token: "TKN", state: "valid", invite: VALID }));
     expect(html).toContain("Liam");
-    expect(html).toContain("Set up Phil");
+    expect(html).toContain("Set up BuhlOS");
     expect(html).toContain("Apprentice");
     expect(html).toContain("bühl electrical");
   });

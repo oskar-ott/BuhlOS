@@ -89,7 +89,7 @@ export function DocumentsSection({ jobId, aiAutofillEnabled = false }: Props) {
             <CardTitle>Documents</CardTitle>
             <CardDescription className="mt-1">
               Every file on this job — drawings, specs, contracts — and which of
-              them the crew can open in Phil.
+              them the crew can open in the field app.
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
@@ -139,7 +139,7 @@ export function DocumentsSection({ jobId, aiAutofillEnabled = false }: Props) {
         <Card data-testid="documents-empty">
           <p className="rounded-card border border-dashed border-border bg-surface-subtle px-3 py-6 text-center text-sm text-text-muted">
             No documents yet. Upload drawings, specs or the contract — the crew
-            sees whatever you leave visible in Phil&rsquo;s Plans.
+            sees whatever you leave visible in the field Plans.
           </p>
         </Card>
       ) : null}

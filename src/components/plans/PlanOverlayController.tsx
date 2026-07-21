@@ -331,7 +331,7 @@ export function PlanOverlayController({ jobId, plan, mode }: Props) {
             Manage
           </Button>
           <span className="text-xs text-text-muted" data-testid="overlay-summary">
-            {`${counts.total} overlay${counts.total === 1 ? "" : "s"} · ${counts.visibleToPhil} visible to Phil`}
+            {`${counts.total} overlay${counts.total === 1 ? "" : "s"} · ${counts.visibleToPhil} visible to field`}
           </span>
           <SaveStatus save={save} />
           {(addMode === "line" || addMode === "arrow") && pending.length === 1 ? (
@@ -422,7 +422,7 @@ export function PlanOverlayController({ jobId, plan, mode }: Props) {
                 </Pill>
               ) : null}
               <Pill tone={selected.visibleToPhil ? "success" : "neutral"}>
-                {selected.visibleToPhil ? "Visible to Phil" : "Office only"}
+                {selected.visibleToPhil ? "Visible to field" : "Office only"}
               </Pill>
             </div>
           </div>
@@ -454,9 +454,9 @@ export function PlanOverlayController({ jobId, plan, mode }: Props) {
                 </Button>
                 <Button size="sm" variant="secondary" onClick={toggleVisible} disabled={save.kind === "saving"}>
                   {selected.visibleToPhil ? (
-                    <><EyeOff className="h-4 w-4" aria-hidden /> Hide from Phil</>
+                    <><EyeOff className="h-4 w-4" aria-hidden /> Hide from field</>
                   ) : (
-                    <><Eye className="h-4 w-4" aria-hidden /> Show to Phil</>
+                    <><Eye className="h-4 w-4" aria-hidden /> Show to field</>
                   )}
                 </Button>
                 {/* #233 — designate / clear the as-built flag. */}

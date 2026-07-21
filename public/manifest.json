@@ -1,6 +1,6 @@
 {
-  "name": "Phil",
-  "short_name": "Phil",
+  "name": "BuhlOS",
+  "short_name": "BuhlOS",
   "description": "buhl electrical — field app",
   "start_url": "/phil/my-day",
   "scope": "/",

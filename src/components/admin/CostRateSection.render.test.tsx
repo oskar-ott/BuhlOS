@@ -12,12 +12,12 @@ import { CostRateSection } from "./CostRateSection";
  */
 
 describe("CostRateSection — honest initial states", () => {
-  it("shows the admin-only heading and a 'finish Phil setup' note when there's no worker account", () => {
+  it("shows the admin-only heading and a 'finish BuhlOS setup' note when there's no worker account", () => {
     const html = renderToString(
       createElement(CostRateSection, { userId: null, workerName: "Sparky" }),
     );
     expect(html).toContain("Cost rate (admin only)");
-    expect(html).toContain("finishes Phil setup");
+    expect(html).toContain("finishes BuhlOS setup");
     // never a fabricated rate
     expect(html).not.toContain("$0.00");
   });

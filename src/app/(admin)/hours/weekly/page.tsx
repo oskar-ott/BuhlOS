@@ -182,7 +182,7 @@ export default async function HoursWeeklyCloseoutPage({
           <CardDescription className="mt-2">
             Daily entries roll up here for the weekly payroll closeout. Approve or
             reject submitted days in place — rejected days bounce back to the
-            worker&rsquo;s Phil with the reason.
+            worker&rsquo;s phone with the reason.
           </CardDescription>
         </Card>
 

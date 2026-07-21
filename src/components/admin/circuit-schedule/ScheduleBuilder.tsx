@@ -266,7 +266,7 @@ export function ScheduleBuilder({ board, job, canManage, update, onDelete, onBac
       {locked && (
         <div className="cs-locked">
           <span className="lk-ic"><Ic.lock /></span>
-          <span><b>Issued schedule.</b> Locked for record. The on-site worker can still raise edits in Phil — re-issue here to supersede.</span>
+          <span><b>Issued schedule.</b> Locked for record. The on-site worker can still raise edits in the field app — re-issue here to supersede.</span>
         </div>
       )}
 

@@ -47,10 +47,10 @@ export default async function PhilV2HomePage() {
       isFlagEnabled("observations_inbox", session),
     ]);
   return (
-    <PhilShell title="Phil" observationsEnabled={observationsEnabled}>
+    <PhilShell title="BuhlOS" observationsEnabled={observationsEnabled}>
       <div className="space-y-4">
         <Card className="space-y-2">
-          <CardTitle>You&rsquo;re on Phil</CardTitle>
+          <CardTitle>You&rsquo;re on BuhlOS</CardTitle>
           <CardDescription>
             Use the bottom tabs for your day, jobs and gear. This page is
             where your profile and notification settings will live.

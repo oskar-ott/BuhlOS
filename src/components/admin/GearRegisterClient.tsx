@@ -502,7 +502,7 @@ export function AssetDrawer({ asset, holders, onClose, onEdit, onArchive, onMuta
             </h3>
             <p className="mt-1 text-xs text-text-muted">
               Test instruments only — a due date here feeds the daily compliance alerts, the
-              board above and the holder&rsquo;s Phil gear flag. Leave empty otherwise.
+              board above and the holder&rsquo;s field-app gear flag. Leave empty otherwise.
             </p>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <input

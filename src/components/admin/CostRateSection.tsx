@@ -67,7 +67,7 @@ export function CostRateSection({ userId, workerName }: CostRateSectionProps) {
       <section>
         <SectionHeading />
         <p className="rounded-card border border-border bg-surface-subtle px-3 py-2 text-xs text-text-muted">
-          A cost rate can be set once {workerName} finishes Phil setup — it keys
+          A cost rate can be set once {workerName} finishes BuhlOS setup — it keys
           off their worker account.
         </p>
       </section>

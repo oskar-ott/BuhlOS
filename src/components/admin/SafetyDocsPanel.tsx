@@ -72,7 +72,7 @@ export function SafetyDocsPanel({
       <header className="space-y-1">
         <h1 className="text-xl font-semibold text-slate-900">Safety documents</h1>
         <p className="text-sm text-slate-500">
-          SWMS, SDS and other site-safety docs. Workers acknowledge each in Phil; you can see who
+          SWMS, SDS and other site-safety docs. Workers acknowledge each in the field app; you can see who
           has and hasn&rsquo;t read the current version. Uploading a new version re-sets
           acknowledgement — everyone re-acknowledges.
         </p>

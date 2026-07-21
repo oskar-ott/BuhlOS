@@ -72,7 +72,7 @@ export function JobInductionCard({
             <CardTitle>Site induction</CardTitle>
             <CardDescription className="mt-0.5">
               {inductionRequired
-                ? "Required on this job — workers confirm in Phil; record paper/verbal inductions here."
+                ? "Required on this job — workers confirm in the field app; record paper/verbal inductions here."
                 : "No longer flagged as required — past records are kept below."}
             </CardDescription>
           </div>
@@ -139,7 +139,7 @@ export function JobInductionCard({
       >
         <p className="text-sm text-text-muted">
           Use this for inductions done on paper or verbally — the record keeps
-          you as the recorder, distinct from the worker confirming in Phil.
+          you as the recorder, distinct from the worker confirming in the field app.
         </p>
         <input
           type="text"

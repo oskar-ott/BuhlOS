@@ -158,7 +158,7 @@ export function jobExceptions(jobs: ReadonlyArray<Job>): ExceptionItem[] {
         jobId: j.id,
         jobName: name,
         title: `${name}: active but no field workers assigned`,
-        summary: "Assign workers so the crew can see this job in Phil.",
+        summary: "Assign workers so the crew can see this job on their phones.",
         severity: "critical",
         status: "blocked",
         ownerRole: "office",

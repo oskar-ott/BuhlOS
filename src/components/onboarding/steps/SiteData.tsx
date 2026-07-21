@@ -35,7 +35,7 @@ export function SiteDataStep({ onContinue, onSkip }: SiteDataStepProps) {
 
       <div className="px-5 pt-2">
         <ul
-          aria-label="What Phil collects"
+          aria-label="What BuhlOS collects"
           className="overflow-hidden rounded-[14px] border border-border bg-surface"
         >
           {ITEMS.map((it, i) => (

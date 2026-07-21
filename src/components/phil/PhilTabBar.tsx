@@ -482,7 +482,7 @@ export function PhilTabBar({
         onChange={onCameraChange}
       />
       <nav
-        aria-label={roomsBinding ? "Job rooms" : "Phil tabs"}
+        aria-label={roomsBinding ? "Job rooms" : "App tabs"}
         className="sticky bottom-0 flex h-16 shrink-0 items-stretch border-t border-border bg-surface pb-[env(safe-area-inset-bottom)]"
       >
         {roomsBinding

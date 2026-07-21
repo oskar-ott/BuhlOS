@@ -5,8 +5,8 @@ import type { ResolvedInvite, InviteResolveState } from "@/domains/employees/typ
 import { PhilInviteLanding } from "@/components/phil/PhilInviteLanding";
 
 export const metadata: Metadata = {
-  title: "Set up Phil",
-  description: "Set up Phil — confirm your details and create a PIN.",
+  title: "Set up BuhlOS",
+  description: "Set up BuhlOS — confirm your details and create a PIN.",
 };
 
 export const dynamic = "force-dynamic";

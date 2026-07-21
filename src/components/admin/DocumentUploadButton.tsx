@@ -370,7 +370,7 @@ export function DocumentUploadButton({
                 {phase.notified !== null && phase.notified > 0 ? (
                   <p className="text-text-muted" data-testid="document-revise-notified">
                     {phase.notified} assigned {phase.notified === 1 ? "worker" : "workers"} notified
-                    in Phil — acknowledgements show on the register.
+                    in the field app — acknowledgements show on the register.
                   </p>
                 ) : null}
                 {phase.revisionWarning ? (
@@ -477,7 +477,7 @@ export function DocumentUploadButton({
                     <p className="rounded-card bg-surface-subtle px-3 py-2 text-text-muted">
                       Inherits {reviseName}&rsquo;s details and supersedes
                       {revises.revision ? ` Rev ${revises.revision}` : " the current revision"} in
-                      one step. Assigned workers get a push and acknowledge in Phil.
+                      one step. Assigned workers get a push and acknowledge in the field app.
                     </p>
                     <label className="block">
                       <span className="text-text-muted">New revision</span>

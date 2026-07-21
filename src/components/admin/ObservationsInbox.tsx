@@ -389,7 +389,7 @@ export function ObservationsInbox({
           value={filters.source}
           onChange={(v) => setFilters((f) => ({ ...f, source: v }))}
           options={[
-            { value: "phil", label: "Phil (field)" },
+            { value: "phil", label: "Field app" },
             { value: "buhlos", label: "BuhlOS (office)" },
             { value: "system", label: "System" },
           ]}
@@ -416,7 +416,7 @@ export function ObservationsInbox({
       {observations.length === 0 && !fetchError ? (
         <EmptyState
           title="No observations yet"
-          description="Field observations from Phil land here — blockers, plan mismatches, material needs, questions, variations, defects and site instructions. Workers capture them from the Capture button; you triage, assign and resolve them here."
+          description="Field observations land here — blockers, plan mismatches, material needs, questions, variations, defects and site instructions. Workers capture them from the Capture button; you triage, assign and resolve them here."
         />
       ) : visible.length === 0 ? (
         <EmptyState

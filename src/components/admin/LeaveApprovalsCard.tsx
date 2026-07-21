@@ -85,7 +85,7 @@ export function LeaveApprovalsCard({ initialRequests, fetchError, workers }: Pro
         <div>
           <CardTitle>Leave</CardTitle>
           <CardDescription className="mt-1">
-            Approved days stop counting as missing hours everywhere — board, Phil and the
+            Approved days stop counting as missing hours everywhere — board, the field app and the
             reminder pings.
           </CardDescription>
         </div>

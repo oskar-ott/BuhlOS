@@ -69,13 +69,13 @@ describe("JobEvidenceSummary", () => {
     expect(html).toContain("not linked to a task or area");
   });
 
-  it("reads all-field captures as 'from the field via Phil'", () => {
+  it("reads all-field captures as captured in the field app", () => {
     const html = render({
       evidence: [ev({ id: "a", source: "phil" }), ev({ id: "b", source: "phil" })],
       jobId: "job-1",
       fetchError: null,
     });
-    expect(html).toContain("All captured in the field via Phil");
+    expect(html).toContain("All captured in the field app");
   });
 
   it("shows the field/office split when provenance is mixed", () => {

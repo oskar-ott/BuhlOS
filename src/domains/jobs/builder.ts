@@ -651,7 +651,7 @@ export function buildFieldLint(job: Job): FieldLintIssue[] {
           if (!t.name || !t.name.trim()) {
             issues.push({
               code: "blank-task",
-              message: `A ${stageLabel(stage)} task in "${a.name}" has no name — it would show as a blank row in Phil.`,
+              message: `A ${stageLabel(stage)} task in "${a.name}" has no name — it would show as a blank row in the field app.`,
               severity: "error",
               target: { kind: "area", id: a.id, name: a.name },
             });

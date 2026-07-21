@@ -54,7 +54,7 @@ export function DayworkRollup({ byJob, dockets, summary, nowMs }: Props) {
 
       {byJob.length === 0 ? (
         <p className="rounded-card border border-dashed border-border bg-surface p-6 text-sm text-text-muted">
-          No daywork dockets across any job yet. They&rsquo;re raised from site in Phil and signed by
+          No daywork dockets across any job yet. They&rsquo;re raised from site in the field app and signed by
           the builder&rsquo;s supervisor — unsigned ones show here as payment risk.
         </p>
       ) : (

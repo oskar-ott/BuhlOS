@@ -62,7 +62,7 @@ export default async function MaterialRequestsPage({
           <CardTitle>Material requests</CardTitle>
           <CardDescription>
             Tracked field-to-office procurement requests. Field workers raise
-            them as observations in Phil; the office converts those to real
+            them as observations in the field app; the office converts those to real
             requests here and works them through requested → approved →
             ordered → delivered. The legacy{" "}
             <code className="text-xs">/admin/materials</code> takeoff / PO /

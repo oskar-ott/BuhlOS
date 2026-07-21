@@ -146,7 +146,7 @@ export function DayworkRegister({ dockets, summary, nowMs }: Props) {
       <DayworkSummaryBar summary={summary} />
       {dockets.length === 0 ? (
         <p className="rounded-card border border-dashed border-border bg-surface p-6 text-sm text-text-muted">
-          No daywork dockets on this job yet. They&rsquo;re raised from site in Phil and signed by the
+          No daywork dockets on this job yet. They&rsquo;re raised from site in the field app and signed by the
           builder&rsquo;s supervisor — unsigned ones show here as payment risk.
         </p>
       ) : (

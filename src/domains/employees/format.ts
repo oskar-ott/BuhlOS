@@ -78,7 +78,7 @@ export function inviteSummaryLine(invite: InvitePublic): string {
       if (invite.delivery === "link") {
         return `Link created ${formatDateTime(invite.sentAt)} · ${formatExpiryChip(
           invite.expiresAt
-        )} · send it to the worker to set up Phil`;
+        )} · send it to the worker to set up BuhlOS`;
       }
       return `Sent ${formatDateTime(invite.sentAt)} to ${invite.email} · ${formatExpiryChip(
         invite.expiresAt

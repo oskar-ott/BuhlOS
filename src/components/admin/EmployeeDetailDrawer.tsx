@@ -190,7 +190,7 @@ export function EmployeeDetailDrawer({
       >
         <p className="text-sm text-text-muted">
           They lose app access. You can re-enable them later. (Active sessions are cleared once the
-          Phil heartbeat lands — O3.)
+          app heartbeat lands — O3.)
         </p>
         <div className="mt-4 flex justify-end gap-2">
           <Button variant="ghost" size="sm" onClick={() => setConfirm(null)}>Cancel</Button>
@@ -219,7 +219,7 @@ function DetailField({ label, value, muted }: { label: string; value: string; mu
 }
 
 function appAccessLabel(access: string): string {
-  if (access === "phil") return "Phil (field)";
+  if (access === "phil") return "Field app";
   if (access === "buhlos") return "BuhlOS (office)";
   return "Both";
 }

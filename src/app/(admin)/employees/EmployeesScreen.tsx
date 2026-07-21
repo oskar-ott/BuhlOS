@@ -57,7 +57,7 @@ export async function EmployeesScreen({ selectedId }: { selectedId?: string | nu
         <p className="text-sm text-text-muted">
           {summary
             ? summary.subline
-            : "Add a worker, send an invite, and they set up Phil on their own phone."}
+            : "Add a worker, send an invite, and they set up BuhlOS on their own phone."}
         </p>
 
         {summary ? <ResourceStatRow label="People at a glance" tiles={summary.tiles} /> : null}

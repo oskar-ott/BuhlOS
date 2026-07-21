@@ -37,7 +37,7 @@ describe("PhilTabBar", () => {
   );
 
   it("renders the four field tabs with their canonical hrefs", () => {
-    expect(html).toContain('aria-label="Phil tabs"');
+    expect(html).toContain('aria-label="App tabs"');
     // Left tabs.
     expect(html).toContain('href="/phil/my-day"');
     expect(html).toContain("Today");

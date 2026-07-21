@@ -10,7 +10,7 @@ The rules that apply to every line of code written in the rebuild. Product rules
 
 1. **BuhlOS** is the name of the operating system / backbone — the company's internal operating layer.
 2. **BuhlOS Admin** is the desktop control interface for boss, admin staff, project managers, estimators, office users.
-3. **Phil** is the field / mobile worker interface for tradesmen, apprentices, and workers on site.
+3. **Phil** is the *internal* name of the field / mobile worker interface for tradesmen, apprentices, and workers on site. **Single-brand decision (2026-07-22):** this version presents as **one brand — BuhlOS — on every user-visible surface**, field included. "Phil" is reserved as a possible future field-app brand for other businesses and must not appear in user-visible copy (emails, screens, PWA manifest, notifications). Code identifiers, routes (`/phil/*`) and internal docs keep the phil name — field URLs are sacred (installed PWAs / bookmarks). The canonical brand constant is `src/naming/brand.ts` (CJS mirror `api/_lib/brand.js`); `src/naming/deprecated-naming.test.ts` enforces the user-visible ban.
 4. **"Switchboard" and "Site Office" are deprecated.** They do not appear anywhere user-facing — not in URLs, page titles, buttons, body copy, marketing, manifest, localStorage keys, or anywhere else a non-engineer could see them.
 5. The word "Switchboard" may appear when it refers to the electrical equipment (e.g. "Switchboard fit-off" as a task name). It must not appear as a product label.
 6. The phrase "Site Office" never appears, period.

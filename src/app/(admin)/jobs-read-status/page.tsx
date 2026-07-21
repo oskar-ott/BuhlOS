@@ -187,7 +187,7 @@ export default async function JobsReadStatusPage() {
 
       <Card className="mt-4" data-testid="phil-read-status">
         <CardTitle className="mb-2 text-slate-800">
-          Phil (field) read cutover (J7)
+          Field read cutover (J7)
         </CardTitle>
         <CardDescription className="mb-2">
           Field workers&rsquo; jobs read behind <code>supabase_read_phil_jobs</code>{" "}
@@ -209,7 +209,7 @@ export default async function JobsReadStatusPage() {
 
       <Card className="mt-4" data-testid="phil-task-read-status">
         <CardTitle className="mb-2 text-slate-800">
-          Phil (field) task-status read cutover (J10)
+          Field task-status read cutover (J10)
         </CardTitle>
         <CardDescription className="mb-2">
           Field task statuses (<code>/api/data</code>) behind{" "}
@@ -495,7 +495,7 @@ export default async function JobsReadStatusPage() {
 
       <Card className="mt-4" data-testid="phil-evidence-read-status">
         <CardTitle className="mb-2 text-slate-800">
-          Phil (field) evidence-metadata read overlay
+          Field evidence-metadata read overlay
         </CardTitle>
         <CardDescription className="mb-2">
           Field-tier evidence metadata (<code>/api/data</code> <code>evidence[]</code>)

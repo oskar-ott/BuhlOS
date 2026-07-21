@@ -5,9 +5,9 @@ import { canAccessSurface } from "@/lib/auth/permissions";
 import { OnboardingFlow } from "@/components/onboarding/OnboardingFlow";
 
 export const metadata: Metadata = {
-  title: "Welcome to Phil · BuhlOS",
+  title: "Welcome to BuhlOS",
   description:
-    "Quick three-minute onboarding for new field workers. Confirm who you are, see what Phil does, then jump into your day.",
+    "Quick three-minute onboarding for new field workers. Confirm who you are, see what BuhlOS does, then jump into your day.",
 };
 
 export const dynamic = "force-dynamic";
