@@ -265,7 +265,7 @@ export function JobControlAuthoringPanel({ job }: { job: Job }) {
         <CardTitle>4. Compile for the field</CardTitle>
         <CardDescription className="mt-1">
           Save the proof, preview what will compile, then compile so it appears
-          on the worker's phone.
+          on the worker&rsquo;s phone.
         </CardDescription>
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <Button size="sm" onClick={onSave} disabled={!saveReady || busy !== null}>
