@@ -16,7 +16,9 @@
 // result category) and return a sanitised failure category, never the raw
 // provider body.
 
-const TEMPLATES = require('./email-templates');
+// The renderer map is the module's nested TEMPLATES export — the module
+// itself exports the individual renderers alongside it (see o2-invite tests).
+const { TEMPLATES } = require('./email-templates');
 
 const RESEND_ENDPOINT = 'https://api.resend.com/emails';
 
