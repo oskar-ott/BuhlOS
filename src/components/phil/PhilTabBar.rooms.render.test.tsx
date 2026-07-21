@@ -133,7 +133,7 @@ describe("PhilTabBar — in-job rooms rebind (phil_job_rooms, dark)", () => {
   it("with NO binding the bar is the normal sharpened link bar (flag-off absent)", () => {
     const html = renderBar(null);
     expect(html).not.toContain("phil-room-tab-");
-    expect(html).toContain('aria-label="Phil tabs"');
+    expect(html).toContain('aria-label="App tabs"');
     expect(html).toContain('href="/phil/my-day"');
     expect(html).toContain('href="/phil/hours"');
     expect(html).toContain('href="/phil/gear"');

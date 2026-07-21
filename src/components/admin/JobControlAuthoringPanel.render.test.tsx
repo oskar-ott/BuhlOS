@@ -45,8 +45,8 @@ describe("JobControlAuthoringPanel", () => {
     expect(html).toContain("1. Scope clause");
     expect(html).toContain("2. Worker task");
     expect(html).toContain("3. Required proof");
-    expect(html).toContain("4. Compile for Phil");
-    expect(html).toContain("Scope clause → worker task → required proof → compile for Phil");
+    expect(html).toContain("4. Compile for the field");
+    expect(html).toContain("Scope clause → worker task → required proof → compile for the field");
   });
 
   it("renders the area / stage / task selectors from real job structure", () => {

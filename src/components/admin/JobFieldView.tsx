@@ -62,7 +62,7 @@ export function JobFieldView({ data, leadFirstName }: JobFieldViewProps) {
         <div className="min-w-0">
           <p className="font-display text-sm font-semibold">Field view — what the crew sees</p>
           <p className="text-xs text-text-inverse/70">
-            What {whoSeesIt} sees in Phil for this job · read-only
+            What {whoSeesIt} sees in the field app for this job · read-only
           </p>
         </div>
       </div>
@@ -202,7 +202,7 @@ function WhatNow({ model }: { model: ReturnType<typeof buildPhilJobCommandModel>
   if (model.state === "office_only") {
     return (
       <ToneCard tone="neutral" eyebrow="Not published" icon={Lock}>
-        {model.attention[0]?.label ?? "Office-only — the crew can’t open this job in Phil yet."}
+        {model.attention[0]?.label ?? "Office-only — the crew can’t open this job in the field app yet."}
       </ToneCard>
     );
   }

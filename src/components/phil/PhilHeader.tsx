@@ -75,7 +75,7 @@ export function PhilHeader({ title, sharpened, accountInitials }: PhilHeaderProp
             <span
               aria-hidden="true"
               className="h-2 w-2 shrink-0 rounded-pill bg-accent-yellow"
-              title="Phil"
+              title="BuhlOS"
             />
           </span>
           {/* Account entry (§1): a 44px round avatar linking to the /v2/phil
@@ -112,7 +112,7 @@ export function PhilHeader({ title, sharpened, accountInitials }: PhilHeaderProp
         <span
           aria-hidden="true"
           className="h-2 w-2 shrink-0 rounded-pill bg-accent-yellow"
-          title="Phil"
+          title="BuhlOS"
         />
       </div>
     </header>

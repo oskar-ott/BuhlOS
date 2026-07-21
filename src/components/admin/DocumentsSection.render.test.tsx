@@ -21,7 +21,7 @@ describe("DocumentsSection (Job Builder redesign · Wave 4b)", () => {
   it("renders the header, the truth note, the upload entry and the honest loading state", () => {
     const html = renderToString(createElement(DocumentsSection, { jobId: "j1" }));
     expect(html).toContain("Documents");
-    expect(html).toContain("which of them the crew can open in Phil");
+    expect(html).toContain("which of them the crew can open in the field app");
     // The truth note — what hiding ACTUALLY does, and the default.
     expect(html).toContain('data-testid="documents-truth-note"');
     expect(html).toContain("Hidden files never reach the crew");

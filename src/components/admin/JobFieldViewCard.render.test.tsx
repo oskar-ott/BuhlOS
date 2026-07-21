@@ -24,7 +24,7 @@ function render(j: Job): string {
 }
 
 describe("JobFieldViewCard (What the field sees)", () => {
-  it("shows the published + assigned-crew connection and current Phil screen sections", () => {
+  it("shows the published + assigned-crew connection and current field screen sections", () => {
     const html = render(
       job({
         ...STRUCTURED,
@@ -34,13 +34,13 @@ describe("JobFieldViewCard (What the field sees)", () => {
       } as Partial<Job>),
     );
     expect(html).toContain("What the field sees");
-    expect(html).toContain("Visible in Phil to 3 assigned field workers");
-    expect(html).toContain("Current Phil job-screen structure");
+    expect(html).toContain("Visible in the field app to 3 assigned field workers");
+    expect(html).toContain("Current field job-screen structure");
     expect(html).toContain("not worker activity telemetry");
     // Worker-visible stage derived from real job-level tasks.
     expect(html).toContain("Rough-in · 1 task");
-    // Current Phil screen shape, not the old generic "Worker can" tool list.
-    expect(html).toContain("Phil screen includes");
+    // Current field screen shape, not the old generic "Worker can" tool list.
+    expect(html).toContain("Field screen includes");
     expect(html).toContain("Quick actions");
     expect(html).toContain("Work to do");
     expect(html).toContain("Capture evidence");
@@ -48,27 +48,27 @@ describe("JobFieldViewCard (What the field sees)", () => {
     expect(html).toContain("Checks / ITPs");
     expect(html).toContain("Plans &amp; documents");
     expect(html).toContain("Site details");
-    expect(html).toContain("Materials and job history are still shown in Phil as not connected yet");
+    expect(html).toContain("Materials and job history are still shown in the field app as not connected yet");
   });
 
   it("honestly flags a published job with NO workers assigned (broken loop)", () => {
     const html = render(job({ ...STRUCTURED, statsCrewCount: 0 }));
     expect(html).toContain("no field workers are assigned");
-    expect(html).not.toContain("Visible in Phil to");
-    expect(html).toContain("Stages configured for Phil");
-    expect(html).toContain("If assigned and published, Phil would include");
+    expect(html).not.toContain("Visible in the field app to");
+    expect(html).toContain("Stages configured for the field app");
+    expect(html).toContain("If assigned and published, the field screen would include");
     expect(html).not.toContain("Stages the worker sees");
-    expect(html).not.toContain("Phil screen includes");
+    expect(html).not.toContain("Field screen includes");
   });
 
   it("honestly flags a draft job as office-only (worker can't see it)", () => {
     const html = render(job({ ...STRUCTURED, status: "draft", statsCrewCount: 3 }));
     expect(html).toContain("Office-only — not published");
-    expect(html).not.toContain("Visible in Phil to");
-    expect(html).toContain("Stages configured for Phil");
-    expect(html).toContain("If assigned and published, Phil would include");
+    expect(html).not.toContain("Visible in the field app to");
+    expect(html).toContain("Stages configured for the field app");
+    expect(html).toContain("If assigned and published, the field screen would include");
     expect(html).not.toContain("Stages the worker sees");
-    expect(html).not.toContain("Phil screen includes");
+    expect(html).not.toContain("Field screen includes");
   });
 
   it("shows an honest empty reason when there is no work structure yet", () => {

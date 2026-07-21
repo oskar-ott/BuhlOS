@@ -54,7 +54,7 @@ export const ROLE_DEFS: Record<EmployeeRole, RoleDef> = {
     surfaceChip: "both",
     surfaceLabel: "Field, with sign-off",
     description:
-      "Uses Phil daily. Can review crew hours and sign off snags on assigned jobs.",
+      "Uses the field app daily. Can review crew hours and sign off snags on assigned jobs.",
   },
   electrician: {
     id: "electrician",
@@ -62,7 +62,7 @@ export const ROLE_DEFS: Record<EmployeeRole, RoleDef> = {
     appAccess: "phil",
     surfaceChip: "phil",
     surfaceLabel: "Field only",
-    description: "Uses Phil for hours, gear, jobs, site records. The day-to-day field user.",
+    description: "Uses the field app for hours, gear, jobs, site records. The day-to-day field user.",
   },
   apprentice: {
     id: "apprentice",
@@ -70,7 +70,7 @@ export const ROLE_DEFS: Record<EmployeeRole, RoleDef> = {
     appAccess: "phil",
     surfaceChip: "phil",
     surfaceLabel: "Field only",
-    description: "Uses Phil for hours, gear, jobs. Same as electrician with year tag (1–4).",
+    description: "Uses the field app for hours, gear, jobs. Same as electrician with year tag (1–4).",
   },
   labourer: {
     id: "labourer",
@@ -78,7 +78,7 @@ export const ROLE_DEFS: Record<EmployeeRole, RoleDef> = {
     appAccess: "phil",
     surfaceChip: "phil",
     surfaceLabel: "Field only",
-    description: "Uses Phil for hours and jobs. Gear typically not assigned.",
+    description: "Uses the field app for hours and jobs. Gear typically not assigned.",
   },
 };
 
@@ -112,11 +112,11 @@ export function deriveAppAccess(role: EmployeeRole): AppAccess {
 export function appAccessFooter(role: EmployeeRole): string {
   switch (deriveAppAccess(role)) {
     case "phil":
-      return "Will use Phil only.";
+      return "Will use the field app only.";
     case "buhlos":
       return "Will use BuhlOS only.";
     case "both":
-      return "Will use both BuhlOS and Phil.";
+      return "Will use both the office and field apps.";
   }
 }
 

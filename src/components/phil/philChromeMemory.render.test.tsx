@@ -71,7 +71,7 @@ describe("phil chrome memory — SSR mounted gate", () => {
     const html = renderBar();
     // Global tabs, not the rooms takeover — the pathname matches a job detail
     // route, but the memory fallback is gated behind mount.
-    expect(html).toContain('aria-label="Phil tabs"');
+    expect(html).toContain('aria-label="App tabs"');
     expect(html).not.toContain("phil-room-tab-now");
     expect(html).toContain('href="/v2/phil"');
   });

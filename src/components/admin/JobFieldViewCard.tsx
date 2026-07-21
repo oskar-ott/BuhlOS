@@ -46,27 +46,27 @@ function accessSummary(
     return {
       tone: "neutral",
       icon: Lock,
-      text: "Office-only — not published, so no worker can open this job in Phil yet.",
+      text: "Office-only — not published, so no worker can open this job in the field app yet.",
     };
   }
   if (crew === 0) {
     return {
       tone: "warning",
       icon: Users,
-      text: "Published, but no field workers are assigned — no one will see it in Phil yet.",
+      text: "Published, but no field workers are assigned — no one will see it in the field app yet.",
     };
   }
   if (typeof crew === "number" && crew > 0) {
     return {
       tone: "success",
       icon: Eye,
-      text: `Visible in Phil to ${crew} assigned field worker${crew === 1 ? "" : "s"}.`,
+      text: `Visible in the field app to ${crew} assigned field worker${crew === 1 ? "" : "s"}.`,
     };
   }
   return {
     tone: "success",
     icon: Eye,
-    text: "Published — visible to assigned field workers in Phil.",
+    text: "Published — visible to assigned field workers in the field app.",
   };
 }
 
@@ -156,7 +156,7 @@ export function JobFieldViewCard({
         <CardTitle>What the field sees</CardTitle>
       </div>
       <CardDescription className="mt-1">
-        Current Phil job-screen structure, derived from the saved job. This is
+        Current field job-screen structure, derived from the saved job. This is
         not worker activity telemetry.
       </CardDescription>
 
@@ -183,7 +183,7 @@ export function JobFieldViewCard({
       ) : preview.stages.length > 0 ? (
         <div className="mt-3">
           <p className="font-display text-[11px] uppercase tracking-wider text-text-muted">
-            {reachesField ? "Stages the worker sees" : "Stages configured for Phil"}
+            {reachesField ? "Stages the worker sees" : "Stages configured for the field app"}
           </p>
           <div className="mt-1 flex flex-wrap gap-2">
             {preview.stages.map((s) => (
@@ -198,7 +198,7 @@ export function JobFieldViewCard({
       {screenSections.length > 0 ? (
         <div className="mt-3">
           <p className="font-display text-[11px] uppercase tracking-wider text-text-muted">
-            {reachesField ? "Phil screen includes" : "If assigned and published, Phil would include"}
+            {reachesField ? "Field screen includes" : "If assigned and published, the field screen would include"}
           </p>
           <ul className="mt-1 grid gap-2 sm:grid-cols-2">
             {screenSections.map((s) => (
@@ -221,7 +221,7 @@ export function JobFieldViewCard({
         Not represented here: whether a worker has viewed the job, completed
         tasks, captured evidence, fixed hours, or finished checks.
         {features.materials !== false || features.history !== false
-          ? " Materials and job history are still shown in Phil as not connected yet."
+          ? " Materials and job history are still shown in the field app as not connected yet."
           : ""}
       </p>
     </Card>

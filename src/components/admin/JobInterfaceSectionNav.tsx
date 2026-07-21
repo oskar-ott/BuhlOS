@@ -167,7 +167,7 @@ export function JobInterfaceSectionNav({
       kind: "live",
       label: "Job control",
       description:
-        "Author required proof: tie a scope clause to a worker task, set the proof the field must capture, and compile it for Phil.",
+        "Author required proof: tie a scope clause to a worker task, set the proof the field must capture, and compile it for the field app.",
       href: `/v2/jobs/${jobIdEnc}/job-control` as Route,
       icon: ListChecks,
       flag: "job_control",
@@ -214,7 +214,7 @@ export function JobInterfaceSectionNav({
             kind: "live",
             label: "Safety",
             description:
-              "SWMS, SDS and site-safety docs. Workers acknowledge they've read each in Phil; see who has and hasn't.",
+              "SWMS, SDS and site-safety docs. Workers acknowledge they've read each in the field app; see who has and hasn't.",
             href: `/v2/jobs/${jobIdEnc}/safety` as Route,
             icon: ShieldCheck,
           } satisfies SectionRow,
@@ -285,7 +285,7 @@ export function JobInterfaceSectionNav({
       kind: "live",
       label: "Material requests",
       description:
-        "Procurement requests raised against this job — requested / approved / ordered / delivered. Worker raises a Need-material observation in Phil; the office converts it here.",
+        "Procurement requests raised against this job — requested / approved / ordered / delivered. Worker raises a Need-material observation in the field app; the office converts it here.",
       href: `/v2/jobs/${jobIdEnc}/material-requests` as Route,
       icon: Package,
       flag: "material_requests",

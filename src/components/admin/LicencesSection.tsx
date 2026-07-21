@@ -84,7 +84,7 @@ export function LicencesSection({ userId, workerName }: LicencesSectionProps) {
       <section>
         <SectionHeading />
         <p className="rounded-card border border-border bg-surface-subtle px-3 py-2 text-xs text-text-muted">
-          Licences unlock once {workerName} finishes Phil setup — records hang
+          Licences unlock once {workerName} finishes BuhlOS setup — records hang
           off their worker account.
         </p>
       </section>

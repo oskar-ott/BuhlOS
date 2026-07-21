@@ -101,7 +101,7 @@ export function buildPeopleSummary(input: PeopleSummaryInput): PeopleSummaryVM {
     },
     {
       key: "field",
-      label: "Field · Phil",
+      label: "Field",
       value: String(field),
       hint: "tradies + apprentices",
       tone: "neutral",

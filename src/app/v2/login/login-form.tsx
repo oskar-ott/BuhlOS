@@ -256,7 +256,7 @@ function WorkerSignIn({
         <img className={styles.topmarkLogo} src="/brand/buhl-logo-ink.png" alt="bühl electrical" />
       </div>
 
-      <span className={styles.eyebrow}>Phil</span>
+      <span className={styles.eyebrow}>BuhlOS</span>
       <h2 className={styles.h}>Let&apos;s get you in.</h2>
       <p className={styles.p}>Your name and your 4-digit PIN. That&apos;s it.</p>
 

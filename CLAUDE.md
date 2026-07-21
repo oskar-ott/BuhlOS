@@ -1,7 +1,11 @@
 # BuhlOS / Phil — contributor & agent entry point
 
 Two surfaces, one product: **BuhlOS** (office/admin desktop) and **Phil** (field
-mobile). Start here, then load the deeper docs you need.
+mobile — *internal name only*). **This version presents as one brand: every
+user-visible surface says BuhlOS.** "Phil" is reserved as a possible future
+field brand; routes (`/phil/*`) and code identifiers keep the internal name
+(field URLs are sacred). Brand constant: `src/naming/brand.ts`. Start here,
+then load the deeper docs you need.
 
 ## Phil is governed by a constitution — load it before Phil work
 Any change a field worker can see or feel derives from the package, in this order

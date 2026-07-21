@@ -512,8 +512,8 @@ export function WeeklyHoursCloseoutBoard({
 
           <p className="text-xs text-text-muted">
             Approving a week sends it to the payroll export below. Workers can
-            still see their hours in Phil; only the office approves. Rejecting a
-            day bounces it back to the worker on Phil with your reason.
+            still see their hours in the field app; only the office approves. Rejecting a
+            day bounces it back to the worker on their phone with your reason.
           </p>
         </>
       )}

@@ -1336,7 +1336,7 @@ function QueryPanel({
     <div className="space-y-3">
       <div className="rounded-card border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
         <b className="font-semibold">Send {firstName(worker.workerName)}&rsquo;s week back?</b> They&rsquo;ll get it
-        in Phil to fix and re-submit, with a push. Pick a reason:
+        on their phone to fix and re-submit, with a push. Pick a reason:
       </div>
       <div className="flex flex-wrap gap-2">
         {MOBILE_QUERY_REASONS.map((r) => (

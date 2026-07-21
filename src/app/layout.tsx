@@ -18,7 +18,7 @@ const interTight = Inter_Tight({
 
 export const metadata: Metadata = {
   title: "BuhlOS",
-  description: "BuhlOS operating layer — admin (Command Centre) + field (Phil).",
+  description: "BuhlOS operating layer — office admin + field app.",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

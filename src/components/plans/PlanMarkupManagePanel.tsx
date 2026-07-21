@@ -125,7 +125,7 @@ export function PlanMarkupManagePanel({
             aria-label="Filter by visibility"
           >
             <option value="all">All visibility</option>
-            <option value="visible">Visible to Phil</option>
+            <option value="visible">Visible to field</option>
             <option value="office">Office only</option>
           </select>
         </label>
@@ -189,7 +189,7 @@ export function PlanMarkupManagePanel({
           onClick={() => onBulkSetVisible(selectedIds, true)}
           data-testid="manage-bulk-show"
         >
-          <Eye className="h-4 w-4" aria-hidden /> Show to Phil
+          <Eye className="h-4 w-4" aria-hidden /> Show to field
         </Button>
         <Button
           size="sm"
@@ -198,7 +198,7 @@ export function PlanMarkupManagePanel({
           onClick={() => onBulkSetVisible(selectedIds, false)}
           data-testid="manage-bulk-hide"
         >
-          <EyeOff className="h-4 w-4" aria-hidden /> Hide from Phil
+          <EyeOff className="h-4 w-4" aria-hidden /> Hide from field
         </Button>
         <Button
           size="sm"

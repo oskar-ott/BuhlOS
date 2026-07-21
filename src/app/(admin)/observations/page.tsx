@@ -52,7 +52,7 @@ export default async function ObservationsPage() {
           <CardTitle>From site</CardTitle>
           <CardDescription>
             Field notes, blockers, plan mismatches, material needs, questions (RFIs),
-            variations, defects and site instructions from Phil — turned into decisions.
+            variations, defects and site instructions from the field — turned into decisions.
             Triage, assign, resolve, or flag for conversion.
           </CardDescription>
         </Card>

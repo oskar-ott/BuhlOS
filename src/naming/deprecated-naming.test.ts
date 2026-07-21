@@ -13,7 +13,10 @@ import { dirname, join, resolve } from "node:path";
 /**
  * Deprecated product-naming + legacy-estate guard (unit level).
  *
- * The product surfaces are **BuhlOS** (office / admin) and **Phil** (field).
+ * The product presents as ONE brand: **BuhlOS** on every user-visible
+ * surface. "Phil" is the internal name of the field surface (code, routes,
+ * docs) and a reserved future brand — it must NOT appear in user-visible
+ * copy. See src/naming/brand.ts.
  * "Site Office" and "Switchboard" (as a product) are deprecated names —
  * see docs/architecture/00-rebuild-non-negotiables.md and
  * docs/route-ownership.md §2/§7.
@@ -140,5 +143,62 @@ describe("electrical 'switchboard' terminology is preserved", () => {
   });
   it("the jobs schema still models the switchboards field module", () => {
     expect(read("src/domains/jobs/schema.ts")).toContain("switchboards");
+  });
+});
+
+/* ----------------------------------------------------------------------- */
+/* Single-brand guard: "Phil" stays out of user-visible copy               */
+/* ----------------------------------------------------------------------- */
+
+// The brand constant is canon; the CJS mirror feeds the email templates.
+import { FIELD_APP_NAME, OFFICE_APP_NAME } from "./brand";
+import { createRequire } from "node:module";
+
+const requireCjs = createRequire(import.meta.url);
+
+describe("single-brand: BuhlOS everywhere users look", () => {
+  it("brand.ts and api/_lib/brand.js stay in sync", () => {
+    const cjs = requireCjs(resolve(REPO, "api/_lib/brand.js")) as {
+      FIELD_APP_NAME: string;
+      OFFICE_APP_NAME: string;
+    };
+    expect(cjs.FIELD_APP_NAME).toBe(FIELD_APP_NAME);
+    expect(cjs.OFFICE_APP_NAME).toBe(OFFICE_APP_NAME);
+  });
+
+  it("this version ships as BuhlOS (Phil is reserved, not live)", () => {
+    expect(FIELD_APP_NAME).toBe("BuhlOS");
+    expect(OFFICE_APP_NAME).toBe("BuhlOS");
+  });
+
+  it("the PWA manifest presents as BuhlOS", () => {
+    const manifest = JSON.parse(read("public/manifest.json")) as { name: string; short_name: string };
+    expect(manifest.name).toBe(FIELD_APP_NAME);
+    expect(manifest.short_name).toBe(FIELD_APP_NAME);
+  });
+
+  it("every rendered invite email is Phil-free", () => {
+    const T = requireCjs(resolve(REPO, "api/_lib/email-templates.js")) as Record<
+      string,
+      (ctx: Record<string, unknown>) => { subject: string; html: string; text: string }
+    >;
+    const ctx = {
+      firstName: "Liam", lastName: "Marriott", companyName: "bühl electrical",
+      roleLabel: "apprentice", ctaUrl: "https://buhlos.com/phil/invite/T",
+      expiresText: "This invite expires 11 Jun 2026", adminName: "Oskar",
+      adminPhone: "0400 000 000", timeText: "7:46am", jobText: "Magill Rd",
+      buhlosUrl: "https://buhlos.com/employees",
+    };
+    for (const kind of ["inviteEmail", "resendEmail", "expiredReplacementEmail", "acceptedNotificationEmail"]) {
+      const render = T[kind];
+      if (!render) throw new Error(`missing template export ${kind}`);
+      const msg = render(ctx);
+      // The CTA URL legitimately contains /phil/ (routes are sacred); strip
+      // URLs before asserting the visible words are Phil-free.
+      for (const part of [msg.subject, msg.html, msg.text]) {
+        const visible = part.replace(/https?:\/\/\S+/g, "");
+        expect(visible, `${kind} leaks the Phil brand`).not.toMatch(/\bPhil\b/);
+      }
+    }
   });
 });

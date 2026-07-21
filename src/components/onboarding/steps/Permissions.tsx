@@ -42,10 +42,10 @@ export function PermissionsStep({ onContinue, onSkip }: PermissionsStepProps) {
           Permissions
         </p>
         <h1 className="mt-2 font-display text-[26px] font-bold leading-[1.1] tracking-tight text-text [text-wrap:balance]">
-          A couple of things Phil needs to ask.
+          A couple of things BuhlOS needs to ask.
         </h1>
         <p className="mt-2 text-[15px] leading-snug text-text-muted">
-          Both are explained before Phil asks. You can say no — Phil still
+          Both are explained before BuhlOS asks. You can say no — BuhlOS still
           works.
         </p>
       </div>
@@ -71,7 +71,7 @@ export function PermissionsStep({ onContinue, onSkip }: PermissionsStepProps) {
           </div>
         </div>
         <ul
-          aria-label="What Phil uses the camera for"
+          aria-label="What BuhlOS uses the camera for"
           className="mt-3 overflow-hidden rounded-[14px] border border-border bg-surface"
         >
           {CAMERA_USES.map((u, i) => (
@@ -98,7 +98,7 @@ export function PermissionsStep({ onContinue, onSkip }: PermissionsStepProps) {
           </div>
         </div>
         <ul
-          aria-label="What Phil will notify you about"
+          aria-label="What BuhlOS will notify you about"
           className="mt-3 overflow-hidden rounded-[14px] border border-border bg-surface"
         >
           {NOTIF_USES.map((u, i) => (
@@ -106,7 +106,7 @@ export function PermissionsStep({ onContinue, onSkip }: PermissionsStepProps) {
           ))}
         </ul>
         <p className="mt-3 font-mono text-[12px] leading-relaxed tracking-wide text-text-muted">
-          Phil will ask for these when it needs them — never up front. You can
+          BuhlOS will ask for these when it needs them — never up front. You can
           change them later from your phone&rsquo;s settings.
         </p>
       </section>

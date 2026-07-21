@@ -116,7 +116,7 @@ export function NewJobRedesign() {
         <h1 className="mt-2 font-display text-3xl font-extrabold text-brand-navy">Start a new job</h1>
         <p className="mt-2 max-w-2xl text-sm text-text-muted">
           A new job starts as a <span className="font-semibold text-text">draft</span> — office-only,
-          invisible to the crew until you publish it to Phil. Start from a blank spine, or pre-fill the
+          invisible to the crew until you publish it to the field. Start from a blank spine, or pre-fill the
           structure from one of your saved templates. Nothing goes to site until the publish gate is
           clear.
         </p>

@@ -231,7 +231,7 @@ export function MaterialRequestsInbox({
       {requests.length === 0 && !fetchError ? (
         <EmptyState
           title="No material requests yet"
-          description="Field workers raise material needs as observations in Phil. The office converts those to tracked material requests here, then approves / orders / receives them. Anything created directly from BuhlOS also lands here."
+          description="Field workers raise material needs as observations in the field app. The office converts those to tracked material requests here, then approves / orders / receives them. Anything created directly from BuhlOS also lands here."
         />
       ) : visible.length === 0 ? (
         <EmptyState

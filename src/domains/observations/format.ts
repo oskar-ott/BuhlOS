@@ -81,7 +81,7 @@ export function priorityTone(priority: ObservationPriority): StatusTone {
 }
 
 const SOURCE_LABELS: Record<ObservationSource, string> = {
-  phil: "Phil (field)",
+  phil: "Field app",
   buhlos: "BuhlOS (office)",
   system: "System",
 };

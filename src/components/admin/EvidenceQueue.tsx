@@ -683,7 +683,7 @@ export function EvidenceQueue({
           }
           description={
             items.length === 0
-              ? "When workers capture evidence from Phil, it lands here for you to review."
+              ? "When workers capture evidence in the field, it lands here for you to review."
               : "Adjust the filters above or clear them to see everything."
           }
         />

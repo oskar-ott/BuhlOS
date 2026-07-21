@@ -95,7 +95,7 @@ function InviteErrorState({ state }: { state: InviteResolveState }) {
     },
     accepted: {
       title: "This invite has already been used",
-      body: "Your account is already set up. Sign in to Phil to get going.",
+      body: "Your account is already set up. Sign in to BuhlOS to get going.",
       signIn: true,
     },
     invalid: {
@@ -116,7 +116,7 @@ function InviteErrorState({ state }: { state: InviteResolveState }) {
           href="/v2/login"
           className="mt-auto flex h-14 w-full items-center justify-center rounded-card border border-brand-navy text-base font-semibold text-brand-navy"
         >
-          Sign in to Phil
+          Sign in to BuhlOS
         </a>
       ) : null}
     </Screen>
@@ -166,7 +166,7 @@ function SetupFlow({ token, invite }: { token: string; invite: ResolvedInvite })
           <h1 className="mt-2 font-display text-2xl leading-tight">
             G&rsquo;day {invite.firstName}.
             <br />
-            You&rsquo;re invited to Phil.
+            You&rsquo;re invited to BuhlOS.
           </h1>
         </div>
         <div className="mt-3 rounded-card border border-border p-4">
@@ -174,7 +174,7 @@ function SetupFlow({ token, invite }: { token: string; invite: ResolvedInvite })
           <p className="font-display text-lg text-text">{roleText}</p>
         </div>
         <div className="mt-3 rounded-card border border-border p-4">
-          <p className="font-mono text-[12px] uppercase tracking-widest text-text-muted">Phil is for</p>
+          <p className="font-mono text-[12px] uppercase tracking-widest text-text-muted">BuhlOS is for</p>
           <p className="mt-1 text-sm text-text">
             Logging your hours, checking your gear, and seeing your jobs.
           </p>
@@ -184,7 +184,7 @@ function SetupFlow({ token, invite }: { token: string; invite: ResolvedInvite })
         </p>
         <div className="mt-auto pt-6">
           <PrimaryCta onClick={() => setStep("confirm")}>
-            Set up Phil <ArrowRight aria-hidden="true" className="h-5 w-5" />
+            Set up BuhlOS <ArrowRight aria-hidden="true" className="h-5 w-5" />
           </PrimaryCta>
           <button
             type="button"
@@ -255,7 +255,7 @@ function SetupFlow({ token, invite }: { token: string; invite: ResolvedInvite })
         <Progress step={2} />
         <h1 className="font-display text-xl text-text">Pick a 4-digit PIN.</h1>
         <p className="mt-2 text-sm text-text-muted">
-          You&rsquo;ll use this every time you open Phil. Pick something you&rsquo;ll remember — but
+          You&rsquo;ll use this every time you open BuhlOS. Pick something you&rsquo;ll remember — but
           not your birthday.
         </p>
         <div className="mt-5 space-y-3">
@@ -282,7 +282,7 @@ function SetupFlow({ token, invite }: { token: string; invite: ResolvedInvite })
   return (
     <Screen>
       <Progress step={3} />
-      <h1 className="font-display text-xl text-text">Phil, in 30 seconds.</h1>
+      <h1 className="font-display text-xl text-text">BuhlOS, in 30 seconds.</h1>
       <div className="mt-4 space-y-2">
         <IntroCard tag="My Day" title="Log your hours." body="Tap once at the end of the day. Boss approves, you get paid." />
         <IntroCard tag="My Gear" title="What you've got." body="See your tools. Flag anything missing or broken." />
@@ -292,16 +292,16 @@ function SetupFlow({ token, invite }: { token: string; invite: ResolvedInvite })
         <div className="mt-4 rounded-card border border-rose-200 bg-rose-50 p-3">
           <p className="text-sm text-rose-800">{error}</p>
           <a href="/v2/login" className="mt-1 inline-block text-sm font-semibold text-rose-900 underline">
-            Sign in to Phil
+            Sign in to BuhlOS
           </a>
         </div>
       ) : (
         <p className="mt-4 text-center font-mono text-[12px] uppercase tracking-wider text-text-muted">
-          Tip: add Phil to your home screen for one-tap access.
+          Tip: add BuhlOS to your home screen for one-tap access.
         </p>
       )}
       <PrimaryCta busy={busy} onClick={open}>
-        Open Phil <ArrowRight aria-hidden="true" className="h-5 w-5" />
+        Open BuhlOS <ArrowRight aria-hidden="true" className="h-5 w-5" />
       </PrimaryCta>
     </Screen>
   );

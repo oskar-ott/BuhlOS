@@ -29,7 +29,7 @@ import {
  * Admin required-proof authoring panel (the click-path that replaces DevTools
  * JSON). The flow reads top-to-bottom as one mental model:
  *
- *   Scope clause → worker task → required proof → compile for Phil
+ *   Scope clause → worker task → required proof → compile for the field
  *
  * It is a thin shell over `jobControlAuthoringClient` (all logic + route calls
  * live there, unit-tested). Raw ids never appear as primary labels — clause
@@ -127,11 +127,11 @@ export function JobControlAuthoringPanel({ job }: { job: Job }) {
         <CardTitle>Required proof for the field</CardTitle>
         <CardDescription className="mt-1">
           Pick a scope clause, tie it to the worker task that delivers it, name
-          the proof the office needs, then compile it for Phil. The worker then
+          the proof the office needs, then compile it for the field. The worker then
           sees a “Capture proof” button on that task.
         </CardDescription>
         <p className="mt-2 text-xs text-text-muted">
-          Scope clause → worker task → required proof → compile for Phil
+          Scope clause → worker task → required proof → compile for the field
         </p>
       </Card>
 
@@ -262,10 +262,10 @@ export function JobControlAuthoringPanel({ job }: { job: Job }) {
 
       {/* 4 — save → preview → compile for Phil */}
       <Card>
-        <CardTitle>4. Compile for Phil</CardTitle>
+        <CardTitle>4. Compile for the field</CardTitle>
         <CardDescription className="mt-1">
           Save the proof, preview what will compile, then compile so it appears
-          in Phil.
+          on the worker's phone.
         </CardDescription>
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <Button size="sm" onClick={onSave} disabled={!saveReady || busy !== null}>
@@ -275,7 +275,7 @@ export function JobControlAuthoringPanel({ job }: { job: Job }) {
             {busy === "preview" ? "Previewing…" : "Preview compile"}
           </Button>
           <Button size="sm" onClick={onConfirm} disabled={!preview || busy !== null}>
-            {busy === "confirm" ? "Compiling…" : "Compile for Phil"}
+            {busy === "confirm" ? "Compiling…" : "Compile for the field"}
           </Button>
         </div>
 
@@ -287,7 +287,7 @@ export function JobControlAuthoringPanel({ job }: { job: Job }) {
 
         {saved && !confirmed ? (
           <p className="mt-3 text-sm text-state-success">
-            Required proof saved. Preview, then compile for Phil.
+            Required proof saved. Preview, then compile for the field.
           </p>
         ) : null}
 
@@ -315,7 +315,7 @@ export function JobControlAuthoringPanel({ job }: { job: Job }) {
 
         {confirmed ? (
           <div className="mt-3 rounded-card border border-state-success/40 bg-surface-subtle p-3 text-sm" role="status">
-            <p className="font-medium text-state-success">Compiled — proof will appear in Phil.</p>
+            <p className="font-medium text-state-success">Compiled — proof will appear in the field app.</p>
             <ul className="mt-1 space-y-0.5 text-text-muted">
               <li>Work packages: {confirmed.workPackageCount}</li>
               <li>Gaps: {confirmed.gapCount}</li>

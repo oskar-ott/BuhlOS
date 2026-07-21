@@ -66,7 +66,7 @@ describe("PlanMarkupManagePanel (#651)", () => {
     // the type options include the new shapes
     expect(html).toContain(">arrow<");
     expect(html).toContain(">text<");
-    expect(html).toContain("Visible to Phil");
+    expect(html).toContain("Visible to field");
     expect(html).toContain("Office only");
   });
 

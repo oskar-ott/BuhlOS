@@ -101,9 +101,9 @@ describe("PWA manifest", () => {
     shortcuts?: Array<{ url?: string }>;
   };
 
-  it("is the Phil field app starting on /phil/my-day", () => {
-    expect(manifest.name).toBe("Phil");
-    expect(manifest.short_name).toBe("Phil");
+  it("is the field PWA starting on /phil/my-day", () => {
+    expect(manifest.name).toBe("BuhlOS");
+    expect(manifest.short_name).toBe("BuhlOS");
     expect(manifest.start_url).toBe("/phil/my-day");
   });
 

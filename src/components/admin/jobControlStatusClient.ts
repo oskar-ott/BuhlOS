@@ -48,12 +48,12 @@ export function proofStatusHeadline(status: ProofStatusResult): string {
   if (!status.ok) return "Could not load compiled proof status.";
   switch (status.status) {
     case "missing":
-      return "No compiled proof status yet. Save required proof and Compile for Phil first.";
+      return "No compiled proof status yet. Save required proof and Compile for the field first.";
     case "unreadable":
       return "The compiled job-control record is unreadable. Re-compile, or check with an admin.";
     case "compiled": {
       if (status.requiredProofTotal === 0) {
-        return "Compiled for Phil, but no required proof items are present.";
+        return "Compiled for the field, but no required proof items are present.";
       }
       return `${status.metCount} of ${status.requiredProofTotal} required proofs captured.`;
     }

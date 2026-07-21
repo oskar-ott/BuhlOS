@@ -60,7 +60,7 @@ describe("JobBuilderClient", () => {
     expect(html).toContain("Gear");
     expect(html).toContain("ITPs / QA");
     expect(html).toContain("Risks &amp; RFIs");
-    expect(html).toContain("Phil preview");
+    expect(html).toContain("Field preview");
     expect(html).toContain("Publish");
     expect(html).toContain("More");
     // Rail groups.

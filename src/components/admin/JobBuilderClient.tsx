@@ -186,7 +186,7 @@ const TABS: ReadonlyArray<{ key: TabKey; label: string }> = [
   { key: "gear", label: "Gear" },
   { key: "itps", label: "ITPs / QA" },
   { key: "risks", label: "Risks & RFIs" },
-  { key: "preview", label: "Phil preview" },
+  { key: "preview", label: "Field preview" },
   { key: "publish", label: "Publish" },
   { key: "more", label: "More" },
 ];
@@ -1514,7 +1514,7 @@ export function JobBuilderClient({
             </p>
           )}
           <Button size="sm" variant="ghost" className="mt-3" onClick={() => requestTab("preview")}>
-            <Eye className="h-4 w-4" aria-hidden="true" /> Open Phil preview
+            <Eye className="h-4 w-4" aria-hidden="true" /> Open field preview
           </Button>
         </Card>
       </div>
@@ -2179,7 +2179,7 @@ export function JobBuilderClient({
           <CardTitle>Field modules</CardTitle>
         </div>
         <CardDescription className="mt-1">
-          What the field crew can do on this job. Turning a module off hides it from the Phil app
+          What the field crew can do on this job. Turning a module off hides it from the field app
           for this job (it doesn&rsquo;t delete any data).
         </CardDescription>
         <ul className="mt-4 divide-y divide-border overflow-hidden rounded-card border border-border">
@@ -2237,7 +2237,7 @@ export function JobBuilderClient({
             <CardTitle>What the field will see</CardTitle>
           </div>
           <CardDescription className="mt-1">
-            Derived from the saved job structure — the same data the Phil app renders. Not a mock.
+            Derived from the saved job structure — the same data the field app renders. Not a mock.
           </CardDescription>
 
           <div className="mt-3 rounded-card border border-border bg-surface p-3">

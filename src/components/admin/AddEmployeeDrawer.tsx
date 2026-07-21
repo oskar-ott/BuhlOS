@@ -255,7 +255,7 @@ export function AddEmployeeDrawer({
                   <span className="flex items-center gap-1.5">
                     {def.uc ? <StatusChip tone="yellow">UC</StatusChip> : null}
                     <StatusChip tone={def.surfaceChip === "phil" ? "yellow" : def.surfaceChip === "both" ? "navy" : "neutral"}>
-                      {def.surfaceChip === "phil" ? "Phil" : def.surfaceChip === "both" ? "Phil + review" : "BuhlOS"}
+                      {def.surfaceChip === "phil" ? "Field" : def.surfaceChip === "both" ? "Field + review" : "Office"}
                     </StatusChip>
                   </span>
                 </div>
@@ -351,7 +351,7 @@ export function AddEmployeeDrawer({
     return (
       <div className="space-y-3">
         <PreviewRow label="To" value={email} />
-        <PreviewRow label="Subject" value={emailConfigured ? `You're invited to Phil — ${COMPANY}` : "Phil invite link"} />
+        <PreviewRow label="Subject" value={emailConfigured ? `You're invited to BuhlOS — ${COMPANY}` : "BuhlOS invite link"} />
         <PreviewRow label="Greeting" value={greeting} />
         <Field label={`Optional note from you`} help="One personal line, shown in the invite.">
           <input className={inputClass} value={inviteNote} onChange={(e) => setInviteNote(e.target.value)} placeholder="Welcome aboard mate — see you Monday at Magill Rd…" />
@@ -361,7 +361,7 @@ export function AddEmployeeDrawer({
         {!emailConfigured ? (
           <p className="rounded-card border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
             No email provider is wired yet, so this creates the invite link without emailing it.
-            Copy the link and send it to the worker — they open it to set up Phil.
+            Copy the link and send it to the worker — they open it to set up BuhlOS.
           </p>
         ) : null}
 
@@ -394,7 +394,7 @@ export function AddEmployeeDrawer({
           <p className="text-sm text-text">
             {emailConfigured
               ? "Invite sent. The worker can also use this link directly:"
-              : "Invite link created. Send it to the worker — they open it to set up Phil:"}
+              : "Invite link created. Send it to the worker — they open it to set up BuhlOS:"}
           </p>
         )}
         <div className="flex items-center gap-2">

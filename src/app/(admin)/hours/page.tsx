@@ -202,7 +202,7 @@ export default async function HoursOverviewPage({
             label="Rejected (this view)"
             count={rejected.length}
             tone="danger"
-            description="Workers see the reason in Phil and can edit + resubmit."
+            description="Workers see the reason in the field app and can edit + resubmit."
           />
         </div>
 

@@ -169,7 +169,7 @@ export function EmployeeRegisterClient({
       {isEmpty ? (
         <EmptyState
           title="No employees yet"
-          description="Add your first employee to start using Phil for hours, gear and jobs."
+          description="Add your first employee to start using BuhlOS for hours, gear and jobs."
           action={
             <Button size="sm" onClick={() => setAddOpen(true)}>
               <Plus aria-hidden="true" className="h-4 w-4" />
@@ -191,7 +191,7 @@ export function EmployeeRegisterClient({
               const e = row.employee;
               // eslint-disable-next-line no-restricted-syntax -- apprenticeYear belongs to the literal apprentice role, not a tier
               const apprentice = e.role === "apprentice" && e.apprenticeYear ? ` · Y${e.apprenticeYear}` : "";
-              const access = e.appAccess === "phil" ? "Field · Phil" : e.appAccess === "both" ? "Field · Phil +" : "Office · BuhlOS";
+              const access = e.appAccess === "phil" ? "Field" : e.appAccess === "both" ? "Field + office" : "Office";
               const flag = licenceFlagFor(row);
               return (
                 <li key={e.id}>
@@ -282,7 +282,7 @@ export function EmployeeRegisterClient({
                       <span className="min-w-0">
                         <span className="block truncate text-text">{displayRoleLabel(e.role)}{apprentice}</span>
                         <span className="block font-mono text-[10px] uppercase tracking-wider text-text-muted">
-                          {e.appAccess === "phil" ? "Field · Phil" : e.appAccess === "both" ? "Field · Phil +" : "Office · BuhlOS"}
+                          {e.appAccess === "phil" ? "Field" : e.appAccess === "both" ? "Field + office" : "Office"}
                         </span>
                       </span>
                       {/* Mobile — the field "call number". The whole row is a

@@ -46,7 +46,7 @@ describe("EmployeeRegisterClient", () => {
         activeJobs: [],
       })
     );
-    expect(html).toContain("Add your first employee to start using Phil");
+    expect(html).toContain("Add your first employee to start using BuhlOS");
   });
 });
 
@@ -118,7 +118,7 @@ describe("EmployeeDetailDrawer", () => {
       })
     );
     expect(html).toContain("Link created");
-    expect(html).toContain("set up Phil");
+    expect(html).toContain("set up BuhlOS");
     expect(html).not.toContain("Sent");
   });
 

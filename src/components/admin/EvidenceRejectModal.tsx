@@ -65,7 +65,7 @@ export function EvidenceRejectModal({
           <p className="text-sm text-text-muted">
             {item.kind === "photo" ? "Photo" : "Note"} captured{" "}
             {formatCapturedAt(item.capturedAt)}. The reason is recorded with
-            the rejection and visible to the worker on their next Phil
+            the rejection and visible to the worker on their next app
             refresh.
           </p>
         ) : null}

@@ -253,7 +253,7 @@ export function DefectsRegister({ snags, jobs }: Props) {
     return (
       <EmptyState
         title="No defects recorded"
-        description="When a snag is raised on any of your jobs — from Phil or BuhlOS — it'll appear here."
+        description="When a snag is raised on any of your jobs — in the field or the office — it'll appear here."
       />
     );
   }

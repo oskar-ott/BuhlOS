@@ -90,7 +90,7 @@ describe("LicencesSection (drawer)", () => {
     const html = renderToString(
       createElement(LicencesSection, { userId: null, workerName: "Rachel" })
     );
-    expect(html).toContain("finishes Phil setup");
+    expect(html).toContain("finishes BuhlOS setup");
     expect(html).not.toContain("licence-add-open");
   });
 

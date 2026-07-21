@@ -87,7 +87,7 @@ export function CompiledProofStatus({ status }: { status: ProofStatusResult }) {
       {status.requiredProofTotal === 0 ? (
         <Card>
           <CardDescription>
-            Compiled for Phil, but no required proof items are present.
+            Compiled for the field, but no required proof items are present.
           </CardDescription>
         </Card>
       ) : (

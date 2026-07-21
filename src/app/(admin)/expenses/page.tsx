@@ -52,7 +52,7 @@ export default async function ExpensesPage() {
           <CardTitle>Expenses</CardTitle>
           <CardDescription>
             Receipts the crew paid for out of pocket — fuel, parking, materials, tolls — submitted
-            from Phil for reimbursement. Review the receipt, then approve and mark reimbursed once
+            from the field app for reimbursement. Review the receipt, then approve and mark reimbursed once
             it&rsquo;s paid.
           </CardDescription>
         </Card>

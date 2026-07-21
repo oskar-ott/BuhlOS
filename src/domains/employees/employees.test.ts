@@ -52,7 +52,7 @@ describe("deriveAppAccess", () => {
     expect(ROLE_ORDER).toHaveLength(8);
   });
   it("renders a plain-language footer per access bucket", () => {
-    expect(appAccessFooter("apprentice")).toMatch(/Phil only/);
+    expect(appAccessFooter("apprentice")).toMatch(/field app only/);
     expect(appAccessFooter("office")).toMatch(/BuhlOS only/);
     expect(appAccessFooter("admin")).toMatch(/both/i);
   });
@@ -122,7 +122,7 @@ describe("inviteSummaryLine", () => {
 
   it("does not describe copy-link invites as emailed", () => {
     expect(inviteSummaryLine({ ...sentInvite, delivery: "link" })).toContain("Link created");
-    expect(inviteSummaryLine({ ...sentInvite, delivery: "link" })).toContain("set up Phil");
+    expect(inviteSummaryLine({ ...sentInvite, delivery: "link" })).toContain("set up BuhlOS");
   });
 
   it("keeps sent wording for real email delivery", () => {

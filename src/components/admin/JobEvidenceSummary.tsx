@@ -48,7 +48,7 @@ export function JobEvidenceSummary({
   // stamp (never guessed). Only shown when there is evidence to attribute.
   const provenance =
     summary.fromField === summary.total
-      ? "All captured in the field via Phil"
+      ? "All captured in the field app"
       : summary.fromOffice === summary.total
         ? "All added in the office"
         : `${summary.fromField} from the field · ${summary.fromOffice} from the office`;

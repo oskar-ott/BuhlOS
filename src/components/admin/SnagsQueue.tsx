@@ -214,7 +214,7 @@ export function SnagsQueue({
           }
           description={
             items.length === 0
-              ? "When a worker reports a snag from Phil, it lands here for you to action."
+              ? "When a worker reports a snag from the field, it lands here for you to action."
               : "Switch filters to see what's there."
           }
         />
