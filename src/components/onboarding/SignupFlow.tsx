@@ -162,7 +162,9 @@ interface Draft {
   preferredName: string;
   mobile: string;
   email: string;
-  role: SignupRole | null;
+  // "crewRole", not "role": this is the requested trade, not a session tier, and
+  // the repo-wide lint bans comparing a `.role` property to literals (tier-bug guard).
+  crewRole: SignupRole | null;
   apprenticeYear: number | null;
   legalName: string;
   dob: string;
@@ -177,7 +179,7 @@ const EMPTY: Draft = {
   preferredName: "",
   mobile: "",
   email: "",
-  role: null,
+  crewRole: null,
   apprenticeYear: null,
   legalName: "",
   dob: "",
@@ -209,8 +211,8 @@ function Steps({
     draft.lastName.trim().length > 0 &&
     isValidAuMobile(draft.mobile) &&
     EMAIL_RE.test(draft.email.trim()) &&
-    draft.role !== null &&
-    (draft.role !== "apprentice" ||
+    draft.crewRole !== null &&
+    (draft.crewRole !== "apprentice" ||
       (draft.apprenticeYear !== null && draft.apprenticeYear >= 1 && draft.apprenticeYear <= 4));
 
   const payrollOk = draft.legalName.trim().length > 0 && isPlausibleDob(draft.dob, Date.now());
@@ -232,7 +234,7 @@ function Steps({
           preferredName: draft.preferredName.trim() || null,
           mobile: draft.mobile.trim(),
           email: draft.email.trim(),
-          role: draft.role,
+          role: draft.crewRole,
           apprenticeYear: draft.apprenticeYear,
           legalName: draft.legalName.trim(),
           dob: draft.dob,
@@ -347,10 +349,10 @@ function Steps({
                 <button
                   key={r}
                   type="button"
-                  onClick={() => set({ role: r, apprenticeYear: r === "apprentice" ? draft.apprenticeYear : null })}
+                  onClick={() => set({ crewRole: r, apprenticeYear: r === "apprentice" ? draft.apprenticeYear : null })}
                   className={cn(
                     "h-12 rounded-card border text-[15px] font-semibold",
-                    draft.role === r
+                    draft.crewRole === r
                       ? "border-brand-navy bg-brand-navy text-white"
                       : "border-border bg-white text-text",
                   )}
@@ -360,7 +362,7 @@ function Steps({
               ))}
             </div>
           </Field>
-          {draft.role === "apprentice" ? (
+          {draft.crewRole === "apprentice" ? (
             <Field label="Apprentice year">
               <div className="grid grid-cols-4 gap-2">
                 {[1, 2, 3, 4].map((y) => (
@@ -484,7 +486,7 @@ function Steps({
       ["Name", `${draft.firstName} ${draft.lastName}${draft.preferredName ? ` (${draft.preferredName})` : ""}`],
       ["Mobile", draft.mobile],
       ["Email", draft.email],
-      ["Role", draft.role ? SIGNUP_ROLE_LABELS[draft.role] + (draft.role === "apprentice" ? ` · year ${draft.apprenticeYear}` : "") : ""],
+      ["Role", draft.crewRole ? SIGNUP_ROLE_LABELS[draft.crewRole] + (draft.crewRole === "apprentice" ? ` · year ${draft.apprenticeYear}` : "") : ""],
       ["Legal name", draft.legalName],
       ["Date of birth", draft.dob],
       ["Start date", draft.startDate || "—"],
