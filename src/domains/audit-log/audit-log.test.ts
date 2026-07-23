@@ -279,6 +279,12 @@ describe("AuditLogEntrySchema", () => {
       "service_location.added",
       "service_location.removed",
       "service_location.updated",
+      // Crew sign-up link ('sig' sorts between 'ser' and 'sna').
+      "signup.approved",
+      "signup.link_created",
+      "signup.link_updated",
+      "signup.rejected",
+      "signup.submitted",
       "snag.created",
       "snag.transitioned",
       "storage.write_rejected",
@@ -351,6 +357,8 @@ describe("AuditLogEntrySchema", () => {
       "scope_reconciliation",
       // #230: per-job services-locations records (sorts between safety_doc and snag).
       "service_location",
+      // Crew sign-up link requests + link lifecycle.
+      "signup",
       "snag",
       // #151: platform-level events (backup runs).
       "system",

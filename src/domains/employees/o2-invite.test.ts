@@ -3,6 +3,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 // test files must live under src/, but may import from anywhere — esbuild
 // handles the CJS interop, so we test the real templates that actually run.
 import {
+  welcomeEmail,
   inviteEmail,
   resendEmail,
   expiredReplacementEmail,
@@ -102,6 +103,34 @@ describe("E4 admin notification (built; triggered in O3)", () => {
     expect(subject).toBe("Liam Marriott is in BuhlOS");
     expect(text).toContain("set up BuhlOS at 7:46am");
     expect(html).toContain("View in BuhlOS");
+  });
+});
+
+describe("E5 welcome email (crew sign-up approval)", () => {
+  const { subject, html, text } = welcomeEmail({
+    firstName: "Liam",
+    companyName: "bühl electrical",
+    loginUrl: "https://buhlos.com/v2/login",
+    adminPhone: "0421 558 902",
+  });
+  it("subject welcomes them in", () => {
+    expect(subject).toBe("You're in — welcome to BuhlOS");
+  });
+  it("greets by first name and points at sign-in in BOTH parts", () => {
+    expect(text).toContain("G'day Liam,");
+    expect(html).toContain("https://buhlos.com/v2/login");
+    expect(text).toContain("https://buhlos.com/v2/login");
+  });
+  it("says what to do first, in site language", () => {
+    expect(`${html} ${text}`).toContain("log today's hours at knock-off");
+  });
+  it("never claims to be a single-use invite (it isn't one)", () => {
+    expect(`${html} ${text}`.toLowerCase()).not.toContain("single-use");
+    expect(`${html} ${text}`.toLowerCase()).not.toContain("expires");
+  });
+  it("leaks no secrets", () => {
+    assertNoSecrets(html);
+    assertNoSecrets(text);
   });
 });
 

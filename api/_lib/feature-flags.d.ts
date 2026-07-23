@@ -4,6 +4,7 @@
 // an unknown key is a type error here and a thrown error at runtime.
 
 export type FlagKey =
+  | "signup_link"
   | "supabase_dual_write"
   | "supabase_dual_write_jobs"
   | "supabase_dual_write_tasks"

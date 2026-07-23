@@ -18,6 +18,8 @@ const EXACT_STORES = [
   'observations.json',
   'employees.json',
   'invites.json',
+  'signup-links.json', // crew sign-up link(s) — code stored plaintext by design (see api/signup.js)
+  'signup-requests.json', // pending/reviewed self-signups (pinHash cleared on review)
   'material-requests.json',
   'expenses.json', // reimbursement expenses register (#536)
   'itp-templates.json',

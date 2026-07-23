@@ -578,6 +578,12 @@ const REGISTRY = {
   // NEW build mandated BY the lean reset (step 6) — not one of the archived
   // features below: the field's simple ITP builder, dark until the owner
   // preview-verifies and flips it.
+  signup_link: {
+    description: 'Crew sign-up link — one shareable /onboarding/<code> URL for the group chat; workers self-signup into a review queue, admin approves → account + welcome email. Public side api/signup.js, admin side /employees. Dark.',
+    default: false,
+    target: 'global',
+    expires: '2027-06-30',
+  },
   itp_simple: {
     description: 'Simple mobile ITP builder — job-scoped areas + photos rendered to a plain PDF in Phil (#912, lean-reset step 6). Metadata Supabase-first, binaries in Blob. Independent of the heavy `itp` system. Dark.',
     default: false,
@@ -679,6 +685,7 @@ const REGISTRY = {
 // point at /v2/jobs — open any job and the section is visible while previewing.
 const FLAG_PRESENTATION = {
   itp: { label: 'ITPs', domain: 'QA & compliance', surface: 'Shared', previewHref: '/itp-templates' },
+  signup_link: { label: 'Crew sign-up link', domain: 'Company', surface: 'Shared', previewHref: '/employees' },
   itp_simple: { label: 'Simple ITP builder (Phil)', domain: 'QA & compliance', surface: 'Phil', previewHref: '/phil/jobs' },
   rfi_register: { label: 'RFIs', domain: 'QA & compliance', surface: 'Shared', previewHref: '/v2/jobs' },
   certificates_register: { label: 'Certificates', domain: 'QA & compliance', surface: 'BuhlOS', previewHref: '/v2/jobs' },

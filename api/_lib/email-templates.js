@@ -199,8 +199,49 @@ function acceptedNotificationEmail(ctx) {
   };
 }
 
+// E5 — welcome (crew sign-up link approval). Sent to the address the worker
+// entered at signup, once the office approves them. One CTA: sign in. Unlike
+// E1-E3 this is NOT an invite — no token, no expiry — so it renders its own
+// shell instead of the invite shells (whose footers say "single-use").
+function welcomeEmail(ctx) {
+  const phone = ctx.adminPhone ? ` on ${esc(ctx.adminPhone)}` : '';
+  return {
+    subject: `You're in — welcome to ${APP}`,
+    html: `<!doctype html><html><body style="margin:0;background:#f3efe7;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:${INK}">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;margin:0 auto;background:#ffffff;border:1px solid #e2e8f0">
+<tr><td style="padding:32px 32px 8px">
+<div style="font-weight:800;font-size:26px;letter-spacing:-.03em;color:${BRAND_NAVY};margin-bottom:20px">b<span style="border-bottom:6px solid ${BRAND_YELLOW};line-height:.8">ü</span>hl</div>
+<h1 style="font-size:22px;line-height:1.2;color:${BRAND_NAVY};margin:0 0 14px;font-weight:700">G'day ${esc(ctx.firstName)}.<br>You're in.</h1>
+<p style="font-size:15px;line-height:1.5;color:${INK};margin:0 0 14px">You're approved — your ${esc(ctx.companyName)} account is live. Sign in with your name and your 4-digit PIN, then add ${APP} to your home screen so it's one tap from the ute.</p>
+<p style="font-size:15px;line-height:1.5;color:${INK};margin:0 0 14px">First thing to do: log today's hours at knock-off.</p>
+<a href="${esc(ctx.loginUrl)}" style="display:inline-block;background:${BRAND_YELLOW};color:${BRAND_NAVY};font-weight:700;font-size:15px;text-decoration:none;padding:13px 22px;border-radius:4px;margin:8px 0 14px">Sign in to ${APP} &rarr;</a>
+<p style="font-size:13px;color:#6a7591;margin:0 0 14px">If the button doesn't work, paste this into your browser:<br><span style="font-family:ui-monospace,monospace;font-size:12px;word-break:break-all;color:#6a7591">${esc(ctx.loginUrl)}</span></p>
+<p style="font-size:14px;color:${INK};margin:14px 0 0">&mdash; ${esc(ctx.companyName)}</p>
+</td></tr>
+<tr><td style="padding:14px 32px;background:#f6f7f9;border-top:1px solid #e2e8f0;font-size:11px;color:#6a7591">Trouble signing in? Call the office${phone}.</td></tr>
+</table></body></html>`,
+    text: [
+      `G'day ${ctx.firstName},`,
+      '',
+      `You're approved — your ${ctx.companyName} account is live.`,
+      `Sign in with your name and your 4-digit PIN, then add ${APP} to your home screen.`,
+      '',
+      `First thing to do: log today's hours at knock-off.`,
+      '',
+      'Sign in here:',
+      '',
+      `  ${ctx.loginUrl}`,
+      '',
+      `Trouble signing in? Call the office${ctx.adminPhone ? ` on ${ctx.adminPhone}` : ''}.`,
+      '',
+      `— ${ctx.companyName}`,
+    ].join('\n'),
+  };
+}
+
 // Map an invite "kind" to its template renderer (used by api/_lib/email.js).
 const TEMPLATES = {
+  welcome: welcomeEmail,
   invite: inviteEmail,
   resend: resendEmail,
   expiredReplacement: expiredReplacementEmail,
@@ -208,6 +249,7 @@ const TEMPLATES = {
 };
 
 module.exports = {
+  welcomeEmail,
   inviteEmail,
   resendEmail,
   expiredReplacementEmail,

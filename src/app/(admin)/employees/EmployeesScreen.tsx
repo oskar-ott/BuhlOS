@@ -7,6 +7,8 @@ import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { EmployeeRegisterClient } from "@/components/admin/EmployeeRegisterClient";
+import { CrewSignupPanel } from "@/components/admin/CrewSignupPanel";
+import { isFlagEnabled } from "../../../../api/_lib/feature-flags.js";
 import { ResourceStatRow } from "@/components/admin/ResourceStatRow";
 import { buildPeopleSummary } from "@/domains/resources/summary";
 import { loadEmployeesView } from "./load";
@@ -28,6 +30,9 @@ export async function EmployeesScreen({ selectedId }: { selectedId?: string | nu
   if (!canAccessSurface(session.role, "admin")) redirect("/v2/login");
 
   const view = await loadEmployeesView(raw);
+
+  // Crew sign-up link (dark behind `signup_link`; owner-preview aware).
+  const signupLinkEnabled = await isFlagEnabled("signup_link", session);
 
   // §7 redesign — glanceable crew header. Pure projection over the rows + the
   // server-computed licence worst-status map the register already loads (no
@@ -79,6 +84,9 @@ export async function EmployeesScreen({ selectedId }: { selectedId?: string | nu
             licenceStatusByUserId={view.licenceStatusByUserId}
           />
         )}
+
+        {/* Crew sign-up link + review queue (dark behind signup_link). */}
+        {signupLinkEnabled ? <CrewSignupPanel /> : null}
 
         {/* #337: weekly crew availability — who's on leave / assigned / free. */}
         <CrewWeekPanel />
