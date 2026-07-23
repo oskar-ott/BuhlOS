@@ -98,6 +98,13 @@ export const AUDIT_ACTIONS = [
   "invite.opened",
   "invite.accepted",
   "employee.activated",
+  // Crew sign-up link (public self-signup + admin review gate). Kept in sync
+  // with api/_lib/audit-log.js VALID_ACTIONS.
+  "signup.submitted",
+  "signup.link_created",
+  "signup.link_updated",
+  "signup.approved",
+  "signup.rejected",
   // PR 6: observation triage conversion to a real snag. The snag itself also
   // emits snag.created in the same write path. Kept in sync with
   // api/_lib/audit-log.js VALID_ACTIONS.
@@ -303,6 +310,8 @@ export const AUDIT_TARGET_TYPES = [
   // Onboarding (O1).
   "employee",
   "invite",
+  // Crew sign-up link requests + link lifecycle.
+  "signup",
   // PR 6: observations as audit targets.
   "observation",
   // PR 11: Material Request module.

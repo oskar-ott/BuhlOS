@@ -91,6 +91,13 @@ const VALID_ACTIONS = new Set([
   'invite.opened',
   'invite.accepted',
   'employee.activated',
+  // Crew sign-up link (public self-signup + admin review gate). Metadata only
+  // — never PIN/pinHash. Kept in sync with src/domains/audit-log/schema.ts.
+  'signup.submitted',
+  'signup.link_created',
+  'signup.link_updated',
+  'signup.approved',
+  'signup.rejected',
   // PR 6: observation triage conversion. Records the office decision to
   // promote an observation (defect/safety/blocker) into a real Snag — the
   // snag itself also emits its own snag.created entry in the same write
@@ -374,6 +381,8 @@ const VALID_TARGET_TYPES = new Set([
   // Onboarding (O1).
   'employee',
   'invite',
+  // Crew sign-up link requests + link lifecycle.
+  'signup',
   // PR 6: observations as audit targets — observation.converted_to_snag uses
   // targetType='observation' so the conversion attributes to the observation
   // lifecycle (the snag also gets its own snag.created entry).

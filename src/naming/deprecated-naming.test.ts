@@ -187,9 +187,10 @@ describe("single-brand: BuhlOS everywhere users look", () => {
       roleLabel: "apprentice", ctaUrl: "https://buhlos.com/phil/invite/T",
       expiresText: "This invite expires 11 Jun 2026", adminName: "Oskar",
       adminPhone: "0400 000 000", timeText: "7:46am", jobText: "Magill Rd",
+      loginUrl: "https://buhlos.com/v2/login",
       buhlosUrl: "https://buhlos.com/employees",
     };
-    for (const kind of ["inviteEmail", "resendEmail", "expiredReplacementEmail", "acceptedNotificationEmail"]) {
+    for (const kind of ["inviteEmail", "resendEmail", "expiredReplacementEmail", "acceptedNotificationEmail", "welcomeEmail"]) {
       const render = T[kind];
       if (!render) throw new Error(`missing template export ${kind}`);
       const msg = render(ctx);

@@ -30,6 +30,14 @@ export interface AcceptedEmailContext {
   companyName?: string;
 }
 
+export interface WelcomeEmailContext {
+  firstName: string;
+  companyName: string;
+  loginUrl: string;
+  adminPhone?: string | null;
+}
+
+export function welcomeEmail(ctx: WelcomeEmailContext): RenderedEmail;
 export function inviteEmail(ctx: InviteEmailContext): RenderedEmail;
 export function resendEmail(ctx: InviteEmailContext): RenderedEmail;
 export function expiredReplacementEmail(ctx: InviteEmailContext): RenderedEmail;

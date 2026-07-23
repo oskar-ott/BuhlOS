@@ -38,6 +38,10 @@ const email = require('./_lib/email');
 
 const EMPLOYEES_KEY = 'employees.json';
 const INVITES_KEY = 'invites.json';
+// Crew sign-up link stores (public submit side lives in api/signup.js).
+const SIGNUP_LINKS_KEY = 'signup-links.json';
+const SIGNUP_REQUESTS_KEY = 'signup-requests.json';
+const SIGNUP_DEFAULT_EXPIRY_DAYS = 7;
 const TOKEN_BYTES = 32;
 const DEFAULT_EXPIRY_DAYS = 14;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -227,6 +231,14 @@ module.exports = async (req, res) => {
 
   const action = (req.query && req.query.action) || '';
   const id = (req.query && req.query.id) || (req.body && req.body.id) || '';
+
+  // ── Crew sign-up link (shared link + review queue) ──────────────────────
+  // Whole slice is dark behind `signup_link` (owner-preview aware). The public
+  // resolve/submit side is api/signup.js; approval here is the security gate.
+  if (action === 'signup' || action.startsWith('signup-')) {
+    if (!(await isFlagEnabled('signup_link', me))) return res.status(404).json({ error: 'not found' });
+    return handleSignupAction(req, res, me, action);
+  }
 
   // ── GET: list (no id) or detail (id) ────────────────────────────────────
   if (req.method === 'GET') {
@@ -469,6 +481,240 @@ module.exports = async (req, res) => {
 
   return res.status(405).json({ error: 'method not allowed' });
 };
+
+// ── crew sign-up link (admin side) ─────────────────────────────────────────
+
+// Mirror of api/signup.js#resolveLinkState / src/domains/employees/signup.ts —
+// keep all three in sync.
+function resolveSignupLinkState(link, pendingOrApprovedCount, nowMs) {
+  if (!link) return 'invalid';
+  if (link.status === 'revoked') return 'revoked';
+  if (link.status === 'paused') return 'paused';
+  const exp = Date.parse(link.expiresAt);
+  if (Number.isFinite(exp) && exp < nowMs) return 'expired';
+  if (link.cap != null && pendingOrApprovedCount >= link.cap) return 'capped';
+  return 'valid';
+}
+
+function signupCountTowardCap(requests, linkId) {
+  return (requests || []).filter((r) => r.linkId === linkId && r.status !== 'rejected').length;
+}
+
+// Public projection of a request for the review queue — everything the admin
+// needs to judge it (incl. the Xero-match facts), never the pinHash.
+function toPublicSignupRequest(request, usersBlob, empBlob) {
+  const { pinHash, ...rest } = request;
+  const emailLc = (request.email || '').toLowerCase();
+  const dupUser = (usersBlob.users || []).some((u) => (u.email || '').toLowerCase() === emailLc);
+  const dupEmployee = (empBlob.employees || []).some((e) => (e.email || '').toLowerCase() === emailLc);
+  const nameLc = `${request.firstName} ${request.lastName}`.toLowerCase();
+  const dupName = (empBlob.employees || []).some(
+    (e) => `${e.firstName} ${e.lastName}`.toLowerCase() === nameLc,
+  );
+  return { ...rest, flags: { duplicateEmail: dupUser || dupEmployee, duplicateName: dupName } };
+}
+
+async function handleSignupAction(req, res, me, action) {
+  const [linksBlob, reqBlob] = await Promise.all([
+    readBlob(SIGNUP_LINKS_KEY, { links: [] }),
+    readBlob(SIGNUP_REQUESTS_KEY, { requests: [] }),
+  ]);
+  linksBlob.links = linksBlob.links || [];
+  reqBlob.requests = reqBlob.requests || [];
+  const now = Date.now();
+  const current = linksBlob.links.find((l) => l.status !== 'revoked') || null;
+
+  const linkView = (link) =>
+    link
+      ? {
+          id: link.id,
+          url: `${baseUrl(req)}/onboarding/${link.code}`,
+          status: link.status,
+          state: resolveSignupLinkState(link, signupCountTowardCap(reqBlob.requests, link.id), now),
+          expiresAt: link.expiresAt,
+          cap: link.cap,
+          createdAt: link.createdAt,
+          counts: {
+            pending: reqBlob.requests.filter((r) => r.linkId === link.id && r.status === 'pending').length,
+            approved: reqBlob.requests.filter((r) => r.linkId === link.id && r.status === 'approved').length,
+            rejected: reqBlob.requests.filter((r) => r.linkId === link.id && r.status === 'rejected').length,
+          },
+        }
+      : null;
+
+  // GET ?action=signup → link + review queue.
+  if (req.method === 'GET' && action === 'signup') {
+    const [usersBlob, empBlob] = await Promise.all([
+      readBlob('users.json', { users: [] }),
+      readBlob(EMPLOYEES_KEY, { employees: [] }),
+    ]);
+    const requests = reqBlob.requests
+      .filter((r) => r.status === 'pending')
+      .sort((a, b) => String(a.submittedAt).localeCompare(String(b.submittedAt)))
+      .map((r) => toPublicSignupRequest(r, usersBlob, empBlob));
+    return res.status(200).json({ link: linkView(current), requests });
+  }
+
+  // POST ?action=signup-link → create (or replace) the shared link.
+  if (req.method === 'POST' && action === 'signup-link') {
+    const body = req.body || {};
+    const days = Number(body.expiryDays) >= 1 && Number(body.expiryDays) <= 30
+      ? Number(body.expiryDays) : SIGNUP_DEFAULT_EXPIRY_DAYS;
+    const cap = body.cap != null && Number(body.cap) >= 1 && Number(body.cap) <= 100
+      ? Math.floor(Number(body.cap)) : null;
+    // Replacing kills the old link (single live link keeps the story simple).
+    if (current) { current.status = 'revoked'; current.revokedAt = nowIso(); }
+    const link = {
+      id: newId('sl_'),
+      // URL-safe code, stored plaintext ON PURPOSE: the admin re-copies the
+      // standing link, and possession only grants a PENDING request — the
+      // approval gate is the boundary. See api/signup.js header.
+      code: crypto.randomBytes(9).toString('base64url'),
+      status: 'active',
+      expiresAt: computeExpiresAt(nowIso(), days),
+      cap,
+      createdAt: nowIso(),
+      createdBy: me.id,
+      createdByName: me.username || me.name || null,
+    };
+    linksBlob.links.push(link);
+    await writeBlob(SIGNUP_LINKS_KEY, linksBlob);
+    await writeAudit(me, 'signup.link_created', 'signup', link.id,
+      `Crew sign-up link created (${days}d${cap ? `, cap ${cap}` : ''})`, { expiresAt: link.expiresAt, cap });
+    return res.status(200).json({ link: linkView(link) });
+  }
+
+  // POST ?action=signup-link-update → pause / resume / revoke.
+  if (req.method === 'POST' && action === 'signup-link-update') {
+    if (!current) return res.status(404).json({ error: 'no active sign-up link' });
+    const next = String((req.body && req.body.status) || '');
+    if (!['active', 'paused', 'revoked'].includes(next)) {
+      return res.status(400).json({ error: 'status must be active, paused or revoked' });
+    }
+    current.status = next;
+    if (next === 'revoked') current.revokedAt = nowIso();
+    await writeBlob(SIGNUP_LINKS_KEY, linksBlob);
+    await writeAudit(me, 'signup.link_updated', 'signup', current.id, `Crew sign-up link ${next}`, { status: next });
+    return res.status(200).json({ link: next === 'revoked' ? null : linkView(current) });
+  }
+
+  // POST ?action=signup-approve&id=… → the gate: create employee + login,
+  // send the welcome email. Mirrors api/invites.js accept.
+  if (req.method === 'POST' && action === 'signup-approve') {
+    const id = (req.query && req.query.id) || (req.body && req.body.id) || '';
+    const request = reqBlob.requests.find((r) => r.id === id);
+    if (!request) return res.status(404).json({ error: 'sign-up request not found' });
+    if (request.status !== 'pending') return res.status(409).json({ error: `already ${request.status}` });
+
+    const empBlob = await readBlob(EMPLOYEES_KEY, { employees: [] });
+    empBlob.employees = empBlob.employees || [];
+    const usersBlob = await readBlob('users.json', { users: [] });
+    usersBlob.users = usersBlob.users || [];
+
+    // Duplicate re-check at approve time (the world may have changed since submit).
+    const emailLc = request.email.toLowerCase();
+    if (usersBlob.users.find((u) => (u.email || '').toLowerCase() === emailLc || (u.username || '').toLowerCase() === emailLc)) {
+      return res.status(409).json({ error: 'An account with this email already exists.' });
+    }
+    if (empBlob.employees.find((e) => (e.email || '').toLowerCase() === emailLc)) {
+      return res.status(409).json({ error: 'An employee with this email already exists.' });
+    }
+
+    const ts = nowIso();
+    const employee = {
+      id: newId('e_'),
+      firstName: request.firstName,
+      lastName: request.lastName,
+      displayName: request.preferredName || null,
+      email: request.email,
+      phone: request.mobile,
+      role: request.role,
+      apprenticeYear: request.role === 'apprentice' ? request.apprenticeYear : null,
+      appAccess: deriveAppAccess(request.role),
+      status: 'active',
+      assignedJobIds: [],
+      assignedGearIds: [],
+      notes: null,
+      // Payroll-match facts for the office's Xero connect step.
+      legalName: request.legalName,
+      dob: request.dob,
+      startDate: request.startDate || null,
+      createdAt: ts,
+      createdBy: me.id,
+      lastActiveAt: null,
+      disabledAt: null,
+      userId: null,
+      source: 'signup-link',
+    };
+
+    // Login from the PIN hash captured at submit (same convention as
+    // api/invites.js accept: username = email, bcrypt hash).
+    const user = {
+      id: 'u_' + Date.now().toString(36) + crypto.randomBytes(3).toString('hex'),
+      username: emailLc,
+      role: request.role,
+      passwordHash: request.pinHash,
+      email: request.email,
+      assignedJobIds: [],
+      createdAt: ts,
+      createdVia: 'signup-link',
+    };
+    usersBlob.users.push(user);
+    employee.userId = user.id;
+    employee.setup = { detailsConfirmed: true, loginCreated: true, introSeen: false, setupCompleteAt: ts };
+    empBlob.employees.push(employee);
+
+    request.status = 'approved';
+    request.reviewedAt = ts;
+    request.reviewedBy = me.id;
+    // The hash has served its purpose — don't keep credentials in the queue.
+    request.pinHash = null;
+
+    await writeBlob('users.json', usersBlob);
+    await writeBlob(EMPLOYEES_KEY, empBlob);
+    await writeBlob(SIGNUP_REQUESTS_KEY, reqBlob);
+
+    // Welcome email (E5) — best-effort; approval stands even if send fails.
+    let welcomeSent = false;
+    if (emailConfigured()) {
+      const result = await email.sendTemplate('welcome', {
+        to: request.email,
+        firstName: request.preferredName || request.firstName,
+        companyName: email.companyName(),
+        loginUrl: `${baseUrl(req)}/v2/login`,
+        adminPhone: process.env.EMAIL_REPLY_PHONE || null,
+      });
+      welcomeSent = Boolean(result && result.ok);
+    }
+
+    await writeAudit(me, 'signup.approved', 'signup', request.id,
+      `Approved ${request.firstName} ${request.lastName} (${request.role}) from crew link`,
+      { email: request.email, role: request.role, employeeId: employee.id, welcomeSent });
+    await writeAudit(me, 'employee.activated', 'employee', employee.id,
+      `${employee.firstName} ${employee.lastName} activated (${employee.role})`, { role: employee.role });
+
+    return res.status(200).json({ ok: true, employeeId: employee.id, welcomeSent });
+  }
+
+  // POST ?action=signup-reject&id=… → decline with a reason.
+  if (req.method === 'POST' && action === 'signup-reject') {
+    const id = (req.query && req.query.id) || (req.body && req.body.id) || '';
+    const request = reqBlob.requests.find((r) => r.id === id);
+    if (!request) return res.status(404).json({ error: 'sign-up request not found' });
+    if (request.status !== 'pending') return res.status(409).json({ error: `already ${request.status}` });
+    request.status = 'rejected';
+    request.reviewedAt = nowIso();
+    request.reviewedBy = me.id;
+    request.rejectReason = (req.body && req.body.reason) ? String(req.body.reason).trim() : null;
+    request.pinHash = null;
+    await writeBlob(SIGNUP_REQUESTS_KEY, reqBlob);
+    await writeAudit(me, 'signup.rejected', 'signup', request.id,
+      `Rejected sign-up from ${request.firstName} ${request.lastName}`, { email: request.email, reason: request.rejectReason });
+    return res.status(200).json({ ok: true });
+  }
+
+  return res.status(404).json({ error: 'unknown signup action' });
+}
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
