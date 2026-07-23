@@ -629,6 +629,7 @@ async function handleSignupAction(req, res, me, action) {
       email: request.email,
       phone: request.mobile,
       role: request.role,
+      // role-literal-ok: signup request's requested TRADE ('apprentice' carries a year), not a session tier
       apprenticeYear: request.role === 'apprentice' ? request.apprenticeYear : null,
       appAccess: deriveAppAccess(request.role),
       status: 'active',

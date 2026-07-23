@@ -3,12 +3,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * Read seam wiring in api/data.js. The (real-in-prod, mocked-here) parity overlays
- * are reached per AUDIENCE, each behind its own flag; each tier chains a
- * task-status overlay then an evidence-metadata overlay (on the task output):
+ * are reached per AUDIENCE, each behind its own flag; each tier runs a
+ * task-status overlay and an evidence-metadata overlay CONCURRENTLY on the same
+ * Blob doc, then composes their disjoint sections (task overlay owns dwelling
+ * task statuses, evidence overlay owns evidence[] — hard scope contracts in
+ * api/_lib/task-read.js and evidence-read.js), which reproduces the previous
+ * chained result exactly:
  *   * FIELD/leading-hand → readPhilTaskStatus + readPhilEvidence   (recordTaskRead, recordPhilEvidenceRead)
  *   * ADMIN/office       → readAdminTaskStatus + readAdminEvidence (recordAdminTaskRead, recordAdminEvidenceRead)
  *   * CLIENT (+ anything else) → pure Blob, no overlay
- * The overlay's data flows into the response; each served read is recorded.
+ * The composed data flows into the response; each served read is recorded.
  * Reader isolation is the existing requireAuth({jobId}) gate (unchanged).
  */
 const requireFromHere = createRequire(import.meta.url);
@@ -21,13 +25,14 @@ const trdAdminPath = requireFromHere.resolve("../../../api/_lib/admin-task-read-
 const erPath = requireFromHere.resolve("../../../api/_lib/evidence-read.js");
 const erdPath = requireFromHere.resolve("../../../api/_lib/admin-evidence-read-diagnostics.js");
 const erdPhilPath = requireFromHere.resolve("../../../api/_lib/phil-evidence-read-diagnostics.js");
+const ffPath = requireFromHere.resolve("../../../api/_lib/feature-flags.js");
 
 type Data = Record<string, unknown>;
 let blob: Map<string, unknown>;
 let auth: { signSession: (p: Record<string, unknown>) => string };
 let handler: (req: Record<string, unknown>, res: ReturnType<typeof createRes>) => Promise<unknown>;
-let philOverlayCalls: Array<{ jobId: string }>;
-let adminOverlayCalls: Array<{ jobId: string }>;
+let philOverlayCalls: Array<{ jobId: string; data: Data }>;
+let adminOverlayCalls: Array<{ jobId: string; data: Data }>;
 let adminEvidenceCalls: Array<{ jobId: string; data: Data }>;
 let philEvidenceCalls: Array<{ jobId: string; data: Data }>;
 let recordCalls: number;
@@ -35,6 +40,7 @@ let adminRecordCalls: number;
 let adminEvidenceRecordCalls: number;
 let philEvidenceRecordCalls: number;
 let overlayReturn: (data: Data) => { data: Data; diag: unknown };
+let evidenceReturn: (data: Data) => { data: Data; diag: unknown };
 
 function clone<T>(v: T): T { return v === undefined ? v : JSON.parse(JSON.stringify(v)); }
 function createRes() {
@@ -52,8 +58,13 @@ async function call(o: { userId: string; role: string; jobId?: string }) {
 beforeEach(() => {
   process.env.SESSION_SECRET = "test-session-secret-long-enough";
   delete process.env.SUPABASE_DB_URL;
+  // The jobs.json prefetch resolves the tier task flag via the REAL feature-flags
+  // module — keep its env/blob inputs deterministic per test.
+  delete process.env.FLAG_SUPABASE_READ_ADMIN_TASKS;
+  delete process.env.FLAG_SUPABASE_READ_PHIL_TASKS;
   philOverlayCalls = []; adminOverlayCalls = []; adminEvidenceCalls = []; philEvidenceCalls = []; recordCalls = 0; adminRecordCalls = 0; adminEvidenceRecordCalls = 0; philEvidenceRecordCalls = 0;
   overlayReturn = (data) => ({ data, diag: { source: "blob", reason: "flag off" } });
+  evidenceReturn = (data) => ({ data, diag: { source: "blob", reason: "flag off" } });
 
   blob = new Map<string, unknown>([
     ["users.json", { users: [
@@ -68,6 +79,7 @@ beforeEach(() => {
 
   delete requireFromHere.cache[authPath];
   delete requireFromHere.cache[dataPath];
+  delete requireFromHere.cache[ffPath]; // must bind to the mocked blob below, not a stale real one
   requireFromHere.cache[blobPath] = {
     id: blobPath, filename: blobPath, loaded: true,
     exports: {
@@ -78,8 +90,11 @@ beforeEach(() => {
   requireFromHere.cache[trPath] = {
     id: trPath, filename: trPath, loaded: true,
     exports: {
-      readPhilTaskStatus: vi.fn(async (input: { jobId: string; data: Data }) => { philOverlayCalls.push(input); return overlayReturn(input.data); }),
-      readAdminTaskStatus: vi.fn(async (input: { jobId: string; data: Data }) => { adminOverlayCalls.push(input); return overlayReturn(input.data); }),
+      // The seam now injects an overlay-scoped readBlob (the jobs.json prefetch
+      // hand-off) alongside { jobId, data } — record only the identity + doc so
+      // the call-shape assertions stay value-comparable.
+      readPhilTaskStatus: vi.fn(async (input: { jobId: string; data: Data }) => { philOverlayCalls.push({ jobId: input.jobId, data: input.data }); return overlayReturn(input.data); }),
+      readAdminTaskStatus: vi.fn(async (input: { jobId: string; data: Data }) => { adminOverlayCalls.push({ jobId: input.jobId, data: input.data }); return overlayReturn(input.data); }),
     },
   } as NodeJS.Module;
   requireFromHere.cache[trdPath] = {
@@ -93,8 +108,8 @@ beforeEach(() => {
   requireFromHere.cache[erPath] = {
     id: erPath, filename: erPath, loaded: true,
     exports: {
-      readAdminEvidence: vi.fn(async (input: { jobId: string; data: Data }) => { adminEvidenceCalls.push(input); return { data: input.data, diag: { source: "blob", reason: "flag off" } }; }),
-      readPhilEvidence: vi.fn(async (input: { jobId: string; data: Data }) => { philEvidenceCalls.push(input); return { data: input.data, diag: { source: "blob", reason: "flag off" } }; }),
+      readAdminEvidence: vi.fn(async (input: { jobId: string; data: Data }) => { adminEvidenceCalls.push(input); return evidenceReturn(input.data); }),
+      readPhilEvidence: vi.fn(async (input: { jobId: string; data: Data }) => { philEvidenceCalls.push(input); return evidenceReturn(input.data); }),
     },
   } as NodeJS.Module;
   requireFromHere.cache[erdPath] = {
@@ -112,13 +127,13 @@ beforeEach(() => {
 
 describe("task-status read — /api/data seam wiring", () => {
   it.each([["field", "u_field", "electrician"], ["leading hand", "u_lh", "lh"]])(
-    "routes %s through the PHIL task overlay (J10) THEN the phil evidence overlay + records both; admin overlay untouched",
+    "routes %s through the PHIL task overlay (J10) AND the phil evidence overlay + records both; admin overlay untouched",
     async (_l, userId, role) => {
       const res = await call({ userId, role });
       expect(res.statusCode).toBe(200);
       expect(philOverlayCalls).toEqual([{ jobId: "job-1", data: blob.get("jobs/job-1/data.json") }]);
       expect(recordCalls).toBe(1);
-      // evidence overlay is field-tier here, chained AFTER the task overlay.
+      // evidence overlay is field-tier here, run CONCURRENTLY on the same Blob doc.
       expect(philEvidenceCalls).toEqual([{ jobId: "job-1", data: blob.get("jobs/job-1/data.json") }]);
       expect(philEvidenceRecordCalls).toBe(1);
       expect(adminOverlayCalls).toHaveLength(0);
@@ -128,12 +143,12 @@ describe("task-status read — /api/data seam wiring", () => {
     },
   );
 
-  it("routes ADMIN through the ADMIN task overlay (J11) THEN the admin evidence overlay + records both; phil untouched", async () => {
+  it("routes ADMIN through the ADMIN task overlay (J11) AND the admin evidence overlay + records both; phil untouched", async () => {
     const res = await call({ userId: "u_admin", role: "admin" });
     expect(res.statusCode).toBe(200);
     expect(adminOverlayCalls).toEqual([{ jobId: "job-1", data: blob.get("jobs/job-1/data.json") }]);
     expect(adminRecordCalls).toBe(1);
-    // evidence overlay is chained AFTER the task overlay, on its output data.
+    // evidence overlay runs CONCURRENTLY on the same Blob doc (not the task output).
     expect(adminEvidenceCalls).toEqual([{ jobId: "job-1", data: blob.get("jobs/job-1/data.json") }]);
     expect(adminEvidenceRecordCalls).toBe(1);
     expect(philOverlayCalls).toHaveLength(0);
@@ -142,12 +157,39 @@ describe("task-status read — /api/data seam wiring", () => {
     expect(philEvidenceRecordCalls).toBe(0);
   });
 
-  it("each tier's evidence overlay receives its TASK overlay's output (chaining)", async () => {
+  it("each tier's evidence overlay receives the ORIGINAL Blob doc (concurrent, not chained)", async () => {
     overlayReturn = (data) => ({ data: { ...data, dwellings: { a1: { roughIn: { tasks: { t1: "TASK_OVERLAID" } } } } }, diag: { source: "postgres" } });
     await call({ userId: "u_admin", role: "admin" });
-    expect((adminEvidenceCalls[0]!.data as { dwellings: { a1: { roughIn: { tasks: { t1: string } } } } }).dwellings.a1.roughIn.tasks.t1).toBe("TASK_OVERLAID");
+    expect((adminEvidenceCalls[0]!.data as { dwellings: { a1: { roughIn: { tasks: { t1: string } } } } }).dwellings.a1.roughIn.tasks.t1).toBe("complete");
     await call({ userId: "u_field", role: "electrician" });
-    expect((philEvidenceCalls[0]!.data as { dwellings: { a1: { roughIn: { tasks: { t1: string } } } } }).dwellings.a1.roughIn.tasks.t1).toBe("TASK_OVERLAID");
+    expect((philEvidenceCalls[0]!.data as { dwellings: { a1: { roughIn: { tasks: { t1: string } } } } }).dwellings.a1.roughIn.tasks.t1).toBe("complete");
+  });
+
+  it("the response COMPOSES both overlays: task overlay's dwellings + evidence overlay's evidence[]", async () => {
+    // Task overlay rewrites a dwelling status; evidence overlay rewrites an
+    // evidence item. The response must carry BOTH — the disjoint-section
+    // composition that replaces the old chained call.
+    blob.set("jobs/job-1/data.json", {
+      dwellings: { a1: { roughIn: { tasks: { t1: "complete" } } } },
+      snags: [], notes: [],
+      evidence: [{ id: "ev-1", kind: "photo", status: "pending" }],
+    });
+    overlayReturn = (data) => ({ data: { ...data, dwellings: { a1: { roughIn: { tasks: { t1: "TASK_OVERLAID" } } } } }, diag: { source: "postgres" } });
+    evidenceReturn = (data) => ({
+      data: { ...data, evidence: [{ id: "ev-1", kind: "photo", status: "EV_OVERLAID" }] },
+      diag: { source: "postgres" },
+    });
+    const res = await call({ userId: "u_admin", role: "admin" });
+    const body = res.body as { dwellings: { a1: { roughIn: { tasks: { t1: string } } } }; evidence: Array<{ status: string }> };
+    expect(body.dwellings.a1.roughIn.tasks.t1).toBe("TASK_OVERLAID");
+    expect(body.evidence[0]!.status).toBe("EV_OVERLAID");
+  });
+
+  it("a doc with NO evidence key never gains one from the composition", async () => {
+    // data.json here has no evidence[]; the pass-through evidence overlay returns
+    // it unchanged, and composition must not add an `evidence` key.
+    const res = await call({ userId: "u_admin", role: "admin" });
+    expect(Object.prototype.hasOwnProperty.call(res.body as Data, "evidence")).toBe(false);
   });
 
   it("the phil overlay's data flows into a field response", async () => {
@@ -174,6 +216,28 @@ describe("task-status read — /api/data seam wiring", () => {
     expect(adminEvidenceRecordCalls).toBe(0);
     expect(philEvidenceRecordCalls).toBe(0);
     expect((res.body as { dwellings: unknown }).dwellings).toBeTruthy();
+  });
+
+  it("prefetches jobs.json for the task overlay when the tier's task flag is on", async () => {
+    process.env.SUPABASE_DB_URL = "postgres://unit-test";
+    blob.set("flags.json", { flags: { supabase_read_admin_tasks: true } });
+    await call({ userId: "u_admin", role: "admin" });
+    await new Promise((r) => setImmediate(r)); // let the prefetch promise chain flush
+    const rb = (requireFromHere.cache[blobPath]!.exports as { readBlob: ReturnType<typeof vi.fn> }).readBlob;
+    expect(rb.mock.calls.some((c) => c[0] === "jobs.json")).toBe(true);
+    delete process.env.SUPABASE_DB_URL;
+  });
+
+  it("dark path never touches jobs.json — no prefetch when the flag is off or PG is unwired", async () => {
+    // Flag off + SUPABASE_DB_URL set → the flag gate stops the prefetch.
+    process.env.SUPABASE_DB_URL = "postgres://unit-test";
+    await call({ userId: "u_admin", role: "admin" });
+    // No SUPABASE_DB_URL → the env gate stops it before even a flag read.
+    delete process.env.SUPABASE_DB_URL;
+    await call({ userId: "u_field", role: "electrician" });
+    await new Promise((r) => setImmediate(r));
+    const rb = (requireFromHere.cache[blobPath]!.exports as { readBlob: ReturnType<typeof vi.fn> }).readBlob;
+    expect(rb.mock.calls.some((c) => c[0] === "jobs.json")).toBe(false);
   });
 
   it("an admin read still succeeds when the overlay reports a Blob fallback", async () => {

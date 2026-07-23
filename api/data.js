@@ -1,5 +1,6 @@
 const { readBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, isFieldRole, isLeadingHandRole, isAdminRole } = require('./_lib/auth');
+const { isFlagOn } = require('./_lib/feature-flags');
 const { readPhilTaskStatus, readAdminTaskStatus } = require('./_lib/task-read');
 const { readAdminEvidence, readPhilEvidence } = require('./_lib/evidence-read');
 const { recordTaskRead } = require('./_lib/task-read-diagnostics');
@@ -49,6 +50,34 @@ module.exports = async (req, res) => {
   const user = await requireAuth(req, res, { jobId });
   if (!user) return;
 
+  const field = isFieldRole(user.role) || isLeadingHandRole(user.role);
+  const admin = !field && isAdminRole(user.role);
+
+  // Perf: this endpoint used to run FOUR long reads strictly in sequence —
+  // data.json, then the task overlay's whole-jobs.json monolith re-read (it
+  // projects ONE job but needs the job's structure), then the task overlay's PG
+  // queries, then the evidence overlay's PG queries — the "~3-5s task-list
+  // skeleton" on the Phil job screen. All four are independent of each other's
+  // RESULTS, so they now run concurrently:
+  //   1. jobs.json is prefetched here (only when the tier's task flag is on, so
+  //      the dark path pays nothing) and handed to the overlay via its injectable
+  //      readBlob — same bytes, same 5s-TTL cache, just started ~2s earlier.
+  //   2. The two overlays run in parallel on the SAME Blob doc (see the
+  //      composition note below).
+  const taskFlagKey = field ? 'supabase_read_phil_tasks' : 'supabase_read_admin_tasks';
+  const jobsPrefetch =
+    (field || admin) && process.env.SUPABASE_DB_URL
+      ? isFlagOn(taskFlagKey)
+          .then((on) => (on === true ? readBlob('jobs.json', { jobs: [] }) : null))
+          .catch(() => null) // never rejects; null → overlay falls back to its own read
+      : null;
+  const overlayReadBlob = (key, fallback) => {
+    if (jobsPrefetch && key === 'jobs.json') {
+      return jobsPrefetch.then((pre) => (pre !== null ? pre : readBlob(key, fallback)));
+    }
+    return readBlob(key, fallback);
+  };
+
   const data = await readBlob(`jobs/${jobId}/data.json`, { dwellings: {}, snags: [], notes: [] });
 
   // DARK task-status read cutover. The job's task statuses are confirmed against
@@ -58,33 +87,53 @@ module.exports = async (req, res) => {
   // → Blob). The same parity engine serves two audiences, each behind its own
   // flag, so the field and office cut over independently; CLIENTS always read pure
   // Blob (out of scope). Reader isolation is the requireAuth({ jobId }) gate above.
-  // Each tier then runs an evidence-metadata overlay (data.evidence[] only, same
-  // per-job parity gate, Blob fallback) chained after its task overlay — admin and
-  // field each behind their own flag. Proof-status (job-control.json) is untouched.
+  // Each tier also runs an evidence-metadata overlay (data.evidence[] only, same
+  // per-job parity gate, Blob fallback) — admin and field each behind their own
+  // flag. Proof-status (job-control.json) is untouched.
   //   * FIELD/leading-hand — supabase_read_phil_tasks, supabase_read_phil_evidence
   //   * ADMIN/office       — supabase_read_admin_tasks, supabase_read_admin_evidence
-  if (isFieldRole(user.role) || isLeadingHandRole(user.role)) {
-    // FIELD/leading-hand: task-status overlay (J10), then evidence-metadata overlay
-    // — each independently flag-gated + parity-gated, each falling back to Blob, so
+  //
+  // COMPOSITION (why concurrent == the old chained result): the two overlays own
+  // DISJOINT sections of the doc — hard scope contracts in api/_lib/task-read.js
+  // ("never adds a dwelling entry", rewrites existing dwelling task STATUSES only,
+  // never touches evidence[]) and api/_lib/evidence-read.js ("never adds/removes
+  // an evidence item, never touches non-evidence sections"). So the evidence
+  // overlay's parity check and output are identical whether it runs on the raw
+  // doc or on the task overlay's output, and stitching evidence[] onto the task
+  // output reproduces the chained doc exactly. Both overlays are additionally
+  // parity-gated (PG served only when byte-equal to Blob), so the composed doc
+  // stays byte-identical to Blob either way.
+  const composeOverlays = (taskData, evidenceData) => {
+    if (Object.prototype.hasOwnProperty.call(evidenceData, 'evidence')) {
+      taskData.evidence = evidenceData.evidence;
+    }
+    return taskData;
+  };
+
+  if (field) {
+    // FIELD/leading-hand: task-status overlay (J10) ∥ evidence-metadata overlay —
+    // each independently flag-gated + parity-gated, each falling back to Blob, so
     // output stays byte-identical to Blob. The evidence overlay is field-tier here
     // (supabase_read_phil_evidence, separate from the admin evidence flag) and
     // touches data.evidence[] only (proof-status and other sections untouched).
-    const taskOverlay = await readPhilTaskStatus({ jobId, data });
+    const [taskOverlay, evidenceOverlay] = await Promise.all([
+      readPhilTaskStatus({ jobId, data, readBlob: overlayReadBlob }),
+      readPhilEvidence({ jobId, data }),
+    ]);
     recordTaskRead(taskOverlay.diag);
-    const evidenceOverlay = await readPhilEvidence({ jobId, data: taskOverlay.data });
     recordPhilEvidenceRead(evidenceOverlay.diag);
-    return res.status(200).json(evidenceOverlay.data);
+    return res.status(200).json(composeOverlays(taskOverlay.data, evidenceOverlay.data));
   }
-  if (isAdminRole(user.role)) {
-    // ADMIN/office: task-status overlay (J11), then evidence-metadata overlay —
-    // each independently flag-gated + parity-gated, each falling back to Blob, so
-    // output stays byte-identical to Blob. Evidence overlay is admin-only and
-    // touches data.evidence[] only (proof-status and other sections untouched).
-    const taskOverlay = await readAdminTaskStatus({ jobId, data });
+  if (admin) {
+    // ADMIN/office: task-status overlay (J11) ∥ evidence-metadata overlay — same
+    // gates and same disjoint-section composition as the field tier above.
+    const [taskOverlay, evidenceOverlay] = await Promise.all([
+      readAdminTaskStatus({ jobId, data, readBlob: overlayReadBlob }),
+      readAdminEvidence({ jobId, data }),
+    ]);
     recordAdminTaskRead(taskOverlay.diag);
-    const evidenceOverlay = await readAdminEvidence({ jobId, data: taskOverlay.data });
     recordAdminEvidenceRead(evidenceOverlay.diag);
-    return res.status(200).json(evidenceOverlay.data);
+    return res.status(200).json(composeOverlays(taskOverlay.data, evidenceOverlay.data));
   }
   return res.status(200).json(data); // clients (and any other tier) — pure Blob
 };
