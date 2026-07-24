@@ -23,6 +23,17 @@ export type SignupLinkState = (typeof SIGNUP_LINK_STATES)[number];
 export const SIGNUP_ROLES = ["electrician", "apprentice", "labourer", "leadinghand"] as const;
 export type SignupRole = (typeof SIGNUP_ROLES)[number];
 
+/**
+ * Which signup roles carry an apprentice-year tag. Data-driven so UI never
+ * compares role-string literals (no-restricted-syntax tier-bug rule).
+ */
+export const SIGNUP_ROLE_NEEDS_YEAR: Record<SignupRole, boolean> = {
+  electrician: false,
+  apprentice: true,
+  labourer: false,
+  leadinghand: false,
+};
+
 export const SIGNUP_ROLE_LABELS: Record<SignupRole, string> = {
   electrician: "Electrician",
   apprentice: "Apprentice",
