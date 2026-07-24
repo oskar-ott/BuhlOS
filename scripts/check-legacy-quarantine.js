@@ -252,9 +252,11 @@ if (exists('public/manifest.json')) {
         'resurrecting a legacy entry. The /my-day redirect is the safety net, ' +
         'not the contract.');
     }
-    if (manifest.name !== 'Phil' || manifest.short_name !== 'Phil') {
-      fail('manifest name/short_name must be "Phil" (got "' + manifest.name + '"/"' + manifest.short_name + '")',
-        'The installed app is the field app; product naming is BuhlOS (office) / Phil (field).');
+    if (manifest.name !== 'BuhlOS' || manifest.short_name !== 'BuhlOS') {
+      fail('manifest name/short_name must be "BuhlOS" (got "' + manifest.name + '"/"' + manifest.short_name + '")',
+        'SINGLE BRAND (PR #939): every user-visible surface says BuhlOS — "Phil" is ' +
+        'an internal/reserved name only (guarded by deprecated-naming.test.ts). The ' +
+        'installed PWA is a user-visible surface.');
     }
     for (const sc of manifest.shortcuts || []) {
       if (!String(sc.url || '').startsWith('/phil/')) {
