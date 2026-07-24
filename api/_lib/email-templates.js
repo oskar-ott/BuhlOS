@@ -212,7 +212,11 @@ function welcomeEmail(ctx) {
 <tr><td style="padding:32px 32px 8px">
 <div style="font-weight:800;font-size:26px;letter-spacing:-.03em;color:${BRAND_NAVY};margin-bottom:20px">b<span style="border-bottom:6px solid ${BRAND_YELLOW};line-height:.8">ü</span>hl</div>
 <h1 style="font-size:22px;line-height:1.2;color:${BRAND_NAVY};margin:0 0 14px;font-weight:700">G'day ${esc(ctx.firstName)}.<br>You're in.</h1>
-<p style="font-size:15px;line-height:1.5;color:${INK};margin:0 0 14px">You're approved — your ${esc(ctx.companyName)} account is live. Sign in with your name and your 4-digit PIN, then add ${APP} to your home screen so it's one tap from the ute.</p>
+<p style="font-size:15px;line-height:1.5;color:${INK};margin:0 0 14px">You're approved — your ${esc(ctx.companyName)} account is live. Sign in with your name and your 4-digit PIN, then add ${APP} to your home screen so it's one tap from the ute:</p>
+<table role="presentation" width="100%" style="border-top:1px solid #e2e8f0;border-bottom:1px solid #e2e8f0;margin:4px 0 16px"><tr>
+<td style="padding:12px 8px 12px 0;font-size:13px;line-height:1.5;color:${INK};vertical-align:top"><b style="color:${BRAND_NAVY}">iPhone</b><br>Open buhlos.com in <b>Safari</b> &rarr; tap <b>Share</b> (the square with the up arrow) &rarr; <b>Add to Home Screen</b>.</td>
+<td style="padding:12px 0 12px 8px;font-size:13px;line-height:1.5;color:${INK};vertical-align:top"><b style="color:${BRAND_NAVY}">Android</b><br>Open buhlos.com in <b>Chrome</b> &rarr; tap the <b>&#8942; menu</b> &rarr; <b>Add to Home screen</b>.</td>
+</tr></table>
 <p style="font-size:15px;line-height:1.5;color:${INK};margin:0 0 14px">First thing to do: log today's hours at knock-off.</p>
 <a href="${esc(ctx.loginUrl)}" style="display:inline-block;background:${BRAND_YELLOW};color:${BRAND_NAVY};font-weight:700;font-size:15px;text-decoration:none;padding:13px 22px;border-radius:4px;margin:8px 0 14px">Sign in to ${APP} &rarr;</a>
 <p style="font-size:13px;color:#6a7591;margin:0 0 14px">If the button doesn't work, paste this into your browser:<br><span style="font-family:ui-monospace,monospace;font-size:12px;word-break:break-all;color:#6a7591">${esc(ctx.loginUrl)}</span></p>
@@ -224,7 +228,10 @@ function welcomeEmail(ctx) {
       `G'day ${ctx.firstName},`,
       '',
       `You're approved — your ${ctx.companyName} account is live.`,
-      `Sign in with your name and your 4-digit PIN, then add ${APP} to your home screen.`,
+      `Sign in with your name and your 4-digit PIN, then add ${APP} to your home screen:`,
+      '',
+      '  · iPhone: open buhlos.com in Safari, tap Share, then "Add to Home Screen"',
+      '  · Android: open buhlos.com in Chrome, tap the menu, then "Add to Home screen"',
       '',
       `First thing to do: log today's hours at knock-off.`,
       '',
