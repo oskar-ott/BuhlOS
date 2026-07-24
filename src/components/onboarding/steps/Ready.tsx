@@ -65,6 +65,13 @@ export function ReadyStep({ name, onOpenApp, onReview }: ReadyStepProps) {
             </li>
           ))}
         </ul>
+
+        {/* Install nudge — text only, no new interactive slot (P10). The
+            full how-to lives on the More tab's install card. */}
+        <p className="mt-4 text-[13px] leading-relaxed text-text-muted">
+          Tip: add BuhlOS to your home screen so it&rsquo;s one tap tomorrow — on iPhone
+          open buhlos.com in Safari, tap Share, then &ldquo;Add to Home Screen&rdquo;.
+        </p>
       </div>
 
       <OnboardingFooter

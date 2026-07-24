@@ -124,6 +124,14 @@ describe("E5 welcome email (crew sign-up approval)", () => {
   it("says what to do first, in site language", () => {
     expect(`${html} ${text}`).toContain("log today's hours at knock-off");
   });
+  it("gives the actual install steps for both platforms, in BOTH parts", () => {
+    for (const part of [html, text]) {
+      expect(part).toContain("Safari");
+      expect(part).toContain("Chrome");
+      expect(part).toContain("Add to Home Screen");
+      expect(part).toContain("Add to Home screen");
+    }
+  });
   it("never claims to be a single-use invite (it isn't one)", () => {
     expect(`${html} ${text}`.toLowerCase()).not.toContain("single-use");
     expect(`${html} ${text}`.toLowerCase()).not.toContain("expires");

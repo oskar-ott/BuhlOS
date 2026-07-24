@@ -20,6 +20,7 @@ import {
 import { PhilSignOutButton } from "@/components/phil/PhilSignOutButton";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { PushNotificationsCard } from "@/components/pwa/PushNotificationsCard";
+import { InstallAppCard } from "@/components/pwa/InstallAppCard";
 
 /**
  * /v2/phil — Phil landing / "More" tab profile placeholder.
@@ -124,6 +125,11 @@ export default async function PhilV2HomePage() {
           record={myRecord.record}
           fetchError={myRecord.fetchError}
         />
+
+        {/* Install before notifications — iPhone push only works once the
+            app is on the Home Screen, so the card order mirrors the setup
+            order. Hides itself when already running installed. */}
+        <InstallAppCard />
 
         <PushNotificationsCard audience="phil" />
       </div>
