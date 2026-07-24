@@ -141,7 +141,12 @@ export function OwnerSettingRow({
               disabled={saving || !dirty}
               onClick={() => onSave(isNumber ? Number(draft) : draft)}
               data-testid={`setting-save-${id}`}
-              className="rounded-card border border-border px-2.5 py-1 text-xs text-text hover:bg-surface-subtle disabled:opacity-50"
+              className={cn(
+                "rounded-card px-2.5 py-1 text-xs transition-colors disabled:opacity-50",
+                dirty
+                  ? "bg-brand-navy font-medium text-white hover:opacity-90"
+                  : "border border-border text-text hover:bg-surface-subtle",
+              )}
             >
               Save
             </button>
@@ -225,7 +230,7 @@ export function OwnerSettingsControls({ items, rev }: { items: SettingItem[]; re
         <div
           role="alert"
           data-testid="owner-settings-error"
-          className="rounded-card border-l-2 border-l-state-danger bg-surface-raised px-4 py-2 text-sm text-text"
+          className="rounded-card border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm text-rose-900"
         >
           {error}
         </div>
