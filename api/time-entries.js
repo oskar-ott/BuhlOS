@@ -130,11 +130,6 @@ async function handleCreate(req, res, user) {
   // compatibility (legacy submissions, overhead). The Phil UI is what blocks
   // a null jobId when the worker has active assigned jobs; a server-side
   // null-block for field roles is a documented follow-up.
-  if (!onBehalf && isFieldRole(user.role)) {
-    const gateError = await fieldAllocationGateError(user, body.allocations);
-    if (gateError) return res.status(403).json({ error: gateError });
-  }
-
   // Idempotency (#497): a retry carrying the same client key returns the
   // ORIGINAL entry instead of a duplicate or a confusing 409. Scoped to
   // user+date so a key reused across days can never false-replay. Without a
@@ -143,10 +138,20 @@ async function handleCreate(req, res, user) {
   const idemKey = idempotencyKeyFrom(req);
   const idemScopeKey = idemKey ? `entry:${targetUserId}:${body.date}:${idemKey}` : null;
 
+  // The gate's jobs.json read and the existing-entry read are independent
+  // round-trips to the store (each can run >1s cold) — overlap them. Response
+  // precedence is unchanged: gate 403 is still checked before the 409.
+  const [gateError, existing] = await Promise.all([
+    !onBehalf && isFieldRole(user.role)
+      ? fieldAllocationGateError(user, body.allocations)
+      : null,
+    readEntry(targetUserId, body.date),
+  ]);
+  if (gateError) return res.status(403).json({ error: gateError });
+
   // Refuse if entry for that user+date already exists — caller should PATCH
   // instead — UNLESS this is a replay of the create that made it, in which
   // case we return that original entry (checked before the 409).
-  const existing = await readEntry(targetUserId, body.date);
   if (existing) {
     const replay = idemScopeKey ? findIdempotent(existing, idemScopeKey) : null;
     if (replay) return res.status(201).json({ entry: replay, idempotentReplay: true });
@@ -200,17 +205,22 @@ async function handleCreate(req, res, user) {
   await writeEntry(targetUserId, entry);
   const auditAction = entry.status === 'submitted' ? 'submitted' : 'created';
   const auditNote = onBehalf ? `${auditAction} on behalf by ${user.username}` : null;
-  await appendAudit(targetUserId, entry.id, auditAction, user.id, auditNote);
 
   // #390: a create-as-submitted is a worker submission — write it to the
   // canonical audit journal (the feed #220 reads + per-job history), best-effort
   // after the write so a journal failure never affects the saved entry. A plain
-  // draft is not a submission and writes nothing here.
-  if (entry.status === 'submitted') {
-    await appendAuditLog(
-      buildHoursAuditEntry({ action: 'hours.submitted', actor: user, entry: entryView(entry) }),
-    ).catch(() => {});
-  }
+  // draft is not a submission and writes nothing here. The per-user audit trail
+  // and the journal live in separate stores (both best-effort, both
+  // read-modify-write), so they run overlapped rather than back-to-back — the
+  // submit response shouldn't pay for them twice.
+  await Promise.all([
+    appendAudit(targetUserId, entry.id, auditAction, user.id, auditNote),
+    entry.status === 'submitted'
+      ? appendAuditLog(
+          buildHoursAuditEntry({ action: 'hours.submitted', actor: user, entry: entryView(entry) }),
+        ).catch(() => {})
+      : null,
+  ]);
 
   return res.status(201).json({ entry: entryView(entry) });
 }
