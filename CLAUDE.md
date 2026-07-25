@@ -45,6 +45,19 @@ task**; every list is a **view — a projection over task instances**.
 - **Source-of-truth hierarchy** (higher wins on conflict): repo docs (`/docs`, `README.md`, `CLAUDE.md`) → GitHub Wiki (published handbook) → AI memory (working context, may be stale) → prompts (per-task instructions, **not permanent truth**). See [docs/wiki-sync.md](docs/wiki-sync.md).
 - **Constitution Gate (architecture-relevant prompts):** before changing an architecture/product principle, identify the governing doc, state the change against it, and update the doc. A prompt may direct work; it does not amend the constitution. Repo-docs PR first, **wiki sync after merge** (the wiki-touch rule).
 
+## Lean-startup loop — how work is selected (load before proposing product work)
+The product grows by evidence, not momentum:
+[docs/product/03-lean-startup-loop.md](docs/product/03-lean-startup-loop.md)
+(builds on the [02-lean-reset.md](docs/product/02-lean-reset.md) scope cut).
+- **Pull, not push:** nothing new is built and nothing hidden is un-hidden
+  unless a real user asked for it or a proven loop demands it. The hidden
+  features are an arsenal, not a roadmap.
+- One hypothesis per pay-week cycle (Wed→Tue), smallest testable slice, dark
+  behind a flag; reviewed at weekly closeout — persevere / tweak / kill.
+- Feature/behaviour PRs name the hypothesis or pull they serve (one line).
+- Measurement is observation + conversation at current scale — **do not build
+  analytics infrastructure.**
+
 ## Backlog & process
 - Issue conventions: [docs/issues.md](docs/issues.md) (nine sections, epics, labels)
 - Backlog index: north-star epic #120; Phil epic #121

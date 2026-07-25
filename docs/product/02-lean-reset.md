@@ -94,6 +94,10 @@ snag pushes (stale-snag cron, digest line) and their pref rows.
   slots, it does not amend principles. Field-visible changes still
   preview-verify before `main` per the standing rules.
 
+> **Follow-on (2026-07-25):** how work is *selected and validated* after this
+> reset is governed by [03-lean-startup-loop.md](03-lean-startup-loop.md) —
+> the weekly Build–Measure–Learn cadence and the pull-based feature rule.
+
 ## What happens next (sequenced — status stamped 2026-07-18)
 
 1. ✅ **Lean surface shipped**: the hide pass merged (PR #910) and the
