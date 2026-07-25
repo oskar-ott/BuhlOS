@@ -340,6 +340,29 @@ describe("idempotency + no-overwrite", () => {
     expect(alex.outcome).toBe("blocked");
     expect(postsAfter).toBe(postsBefore); // NO overwrite POST for the changed worker
   });
+
+  it("a CORRECTION batch may re-send changed hours for the run it SUPERSEDES", async () => {
+    // Live find (2026-07-25 round-3 walkthrough): the double-pay verdict
+    // compared the correction batch against the very run it replaces, so every
+    // correction export self-blocked with "create a correction batch". A prior
+    // accepted attempt from the SUPERSEDED run must not block the correction.
+    const m = freshModel();
+    bindStamp(m);
+    installXeroEcho();
+    await svc.exportBatch({ batchId: "b1", actor: { id: "u1" }, deps: deps(m) });
+
+    // Correction batch b2 supersedes b1: same period, Alex's hours changed.
+    m.items = m.items.map((r) => (r.worker_id === "w-alex" && r.earnings_rate_id === "r-ord" ? { ...r, hours: 9 } : r));
+    m.batch = { ...m.batch, id: "b2", status: "locked", supersedes_batch_id: "b1" };
+
+    const postsBefore = xeroFetch.mock.calls.filter((c: unknown[]) => (c[1] as { method?: string })?.method === "POST").length;
+    const out = await svc.exportBatch({ batchId: "b2", actor: { id: "u1" }, deps: deps(m) });
+    const postsAfter = xeroFetch.mock.calls.filter((c: unknown[]) => (c[1] as { method?: string })?.method === "POST").length;
+
+    const alex = out.workers.find((w: { worker: string }) => w.worker === "Alex")!;
+    expect(alex.outcome).toBe("verified"); // re-sent + read back, not self-blocked
+    expect(postsAfter).toBeGreaterThan(postsBefore);
+  });
 });
 
 describe("retry + reconcile — never a blind resend", () => {

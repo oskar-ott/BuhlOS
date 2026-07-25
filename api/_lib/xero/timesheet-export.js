@@ -173,11 +173,23 @@ async function assemble({ batchId, deps = {} }) {
     employeesById: reference.employeesById,
     calendarsById: reference.calendarsById,
   });
-  return { conn, batch, periodStart, periodEnd, built };
+  // The batch's supersedes chain (correction → corrected run → …, bounded so a
+  // cyclic row can never spin). verdictFor uses it: a correction batch must be
+  // allowed to re-send the run it REPLACES — without this, every correction
+  // export self-blocked with "create a correction batch" (live find,
+  // 2026-07-25 round-3 walkthrough).
+  const supersededIds = new Set();
+  let cursor = batch.supersedes_batch_id;
+  for (let hops = 0; cursor && hops < 10; hops++) {
+    supersededIds.add(String(cursor));
+    const prev = await loadBatch(sql, cursor);
+    cursor = prev ? prev.supersedes_batch_id : null;
+  }
+  return { conn, batch, periodStart, periodEnd, built, supersededIds };
 }
 
 /** Per-worker idempotency verdict against prior accepted attempts. */
-async function verdictFor(sql, conn, w, periodStart, periodEnd) {
+async function verdictFor(sql, conn, w, periodStart, periodEnd, supersededIds) {
   if (!w.aligned) return { verdict: 'blocked', blocker: w.blocker };
   const prior = await latestAccepted(sql, {
     externalTenantId: conn.external_tenant_id, employeeId: w.employeeId, periodStart, periodEnd,
@@ -185,6 +197,15 @@ async function verdictFor(sql, conn, w, periodStart, periodEnd) {
   if (!prior) return { verdict: 'send' };
   if (prior.content_hash === w.contentHash) {
     return { verdict: 'skip', priorTimesheetId: prior.xero_timesheet_id };
+  }
+  // A CORRECTION batch exists precisely to re-send changed hours for the run
+  // it supersedes — the double-pay guard must not point at the very batch this
+  // one replaces (it used to, making every correction export self-block with
+  // "create a correction batch"). Xero-side safety is unchanged: if the old
+  // draft still exists there, Xero refuses the POST ("timesheet already
+  // exists") and that refusal is surfaced verbatim — we still never overwrite.
+  if (supersededIds && supersededIds.has(String(prior.batch_id))) {
+    return { verdict: 'send', priorTimesheetId: prior.xero_timesheet_id };
   }
   // Changed content for a worker Xero already accepted — NEVER overwrite by
   // employee+period. Block into an explicit correction (a correction batch,
@@ -196,10 +217,10 @@ async function verdictFor(sql, conn, w, periodStart, periodEnd) {
 
 async function previewExport({ batchId, deps = {} }) {
   const sql = db(deps.sql, 'read');
-  const { conn, batch, periodStart, periodEnd, built } = await assemble({ batchId, deps });
+  const { conn, batch, periodStart, periodEnd, built, supersededIds } = await assemble({ batchId, deps });
   const workers = [];
   for (const w of built.workers) {
-    const v = await verdictFor(sql, conn, w, periodStart, periodEnd);
+    const v = await verdictFor(sql, conn, w, periodStart, periodEnd, supersededIds);
     workers.push({
       workerId: w.workerId, workerName: w.workerName,
       employeeId: w.employeeId, employeeName: w.employeeName,
@@ -266,7 +287,7 @@ async function retryExport({ batchId, actor, deps = {} }) {
 
 async function runWorkers({ batchId, actor, deps, onlyRetryable }) {
   const wsql = db(deps.sql, 'write');
-  const { conn, batch, periodStart, periodEnd, built } = await assemble({ batchId, deps: { ...deps, sql: wsql } });
+  const { conn, batch, periodStart, periodEnd, built, supersededIds } = await assemble({ batchId, deps: { ...deps, sql: wsql } });
   // Pre-flight the WRITE scope: a connection minted before #249 (or without the
   // export flag on at connect) can't POST timesheets. Fail loudly with a
   // reconnect message BEFORE any attempt row — never a raw Xero 403 mid-batch.
@@ -281,7 +302,7 @@ async function runWorkers({ batchId, actor, deps, onlyRetryable }) {
     const alreadyVerified = last && last.event === 'verified_against_xero';
     if (onlyRetryable && alreadyVerified) { results.push({ worker: w.workerName, outcome: 'skipped', reason: 'already_verified' }); continue; }
 
-    const v = await verdictFor(wsql, conn, w, periodStart, periodEnd);
+    const v = await verdictFor(wsql, conn, w, periodStart, periodEnd, supersededIds);
 
     if (v.verdict === 'blocked') { results.push(await recordBlocked(wsql, { conn, batchId, w, actor, blocker: v.blocker })); continue; }
     if (v.verdict === 'requires_correction') { results.push(await recordBlocked(wsql, { conn, batchId, w, actor, blocker: { code: 'requires_correction', message: `${w.workerName} was already exported with different hours — create a correction batch; the existing Xero timesheet is never overwritten by matching employee+period.`, priorTimesheetId: v.priorTimesheetId }, outcome: 'blocked' })); continue; }
