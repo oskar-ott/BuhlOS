@@ -217,13 +217,14 @@ export const NAV_GROUPS: ReadonlyArray<NavGroup> = [
         countKey: "people",
       },
       {
+        // /gear is a coming-soon placeholder for launch: no countKey while the
+        // register is parked — an attention pip must not point at a page that
+        // can't show the work behind the number.
         label: "Gear",
         href: "/gear",
         icon: Wrench,
         activeFor: ["/gear"],
         flag: "gear",
-        countKey: "gear",
-        attention: true,
       },
     ],
   },
