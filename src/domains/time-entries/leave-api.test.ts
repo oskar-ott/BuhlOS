@@ -99,9 +99,21 @@ function requestOf(res: Res): Record<string, unknown> {
   return (res.body as { request: Record<string, unknown> }).request;
 }
 
+/** Merged view of the store: per-request files (leave-requests/<id>.json, the
+ *  #127 layout) win over rows in the read-only legacy aggregate. */
 function storedRequests(): Array<Record<string, unknown>> {
-  return (blob.get("leave-requests.json") as { requests: Array<Record<string, unknown>> })
-    ?.requests ?? [];
+  const byId = new Map<string, Record<string, unknown>>();
+  const legacy = blob.get("leave-requests.json") as
+    | { requests?: Array<Record<string, unknown>> }
+    | undefined;
+  for (const r of legacy?.requests ?? []) byId.set(String(r.id), r);
+  for (const [k, v] of blob) {
+    if (String(k).startsWith("leave-requests/")) {
+      const doc = v as Record<string, unknown>;
+      byId.set(String(doc.id), doc);
+    }
+  }
+  return [...byId.values()];
 }
 
 /**
@@ -145,12 +157,21 @@ beforeEach(() => {
     id: blobSdkPath,
     filename: blobSdkPath,
     loaded: true,
-    exports: { list: vi.fn(async () => ({ blobs: [] })), put: vi.fn(), del: vi.fn() },
+    exports: {
+      // Serve the in-memory store so the per-request file listing works
+      // (leave lib lists leave-requests/<id>.json since the #127 split).
+      list: vi.fn(async ({ prefix }: { prefix?: string } = {}) => ({
+        blobs: [...blob.keys()]
+          .filter((k) => !prefix || k.startsWith(prefix))
+          .map((k) => ({ pathname: k, url: `memory://${k}` })),
+      })),
+      put: vi.fn(),
+      del: vi.fn(),
+    },
   } as NodeJS.Module;
-  // The write mock mirrors the real guard semantics the leave store now
-  // relies on (#127 lost-write fix): every write stamps __rev, and a caller
-  // passing expectedRev gets a StaleWriteError when the store has moved on —
-  // so the retry loop in mutateLeave is exercised for real.
+  // The write mock mirrors the real guard semantics: every write stamps
+  // __rev, and a caller passing expectedRev gets a StaleWriteError when the
+  // document has moved on — same-request edit conflicts stay exercised.
   const readImpl = async (key: string, fallback: unknown) =>
     blob.has(key) ? clone(blob.get(key)) : fallback;
   requireFromHere.cache[blobPath] = {
@@ -570,76 +591,88 @@ describe("GET /api/leave — scoping", () => {
   });
 });
 
-describe("concurrency — the weekly-board lost-write race (#127)", () => {
-  it("a create whose read was stale retries against the fresh store and keeps BOTH rows", async () => {
-    // First mark lands normally (admin records Mon not-worked on behalf).
+describe("per-request documents — the weekly-board lost-write fix (#127)", () => {
+  it("every create writes its OWN document, never the shared aggregate", async () => {
     const first = await call("u_admin", "admin", {
       method: "POST",
       body: { type: "annual", fromDate: d(1), toDate: d(1), userId: "u_tradie" },
     });
-    expect(first.statusCode).toBe(201);
-    expect(storedRequests()).toHaveLength(1);
-
-    // Second mark reads a STALE snapshot (cache/propagation lag: the first
-    // row is missing, rev is pre-write) — exactly the live failure where the
-    // later write returned a success toast but erased the earlier day.
-    const blobExports = requireFromHere.cache[blobPath]!.exports as {
-      readBlob: ReturnType<typeof vi.fn>;
-      readBlobFresh: ReturnType<typeof vi.fn>;
-      writeBlob: ReturnType<typeof vi.fn>;
-    };
-    let staleServed = false;
-    blobExports.readBlob.mockImplementation(async (key: string, fallback: unknown) => {
-      if (key === "leave-requests.json" && !staleServed) {
-        staleServed = true;
-        return { requests: [], __rev: 0 };
-      }
-      return blob.has(key) ? clone(blob.get(key)) : fallback;
-    });
-
     const second = await call("u_admin", "admin", {
       method: "POST",
       body: { type: "annual", fromDate: d(2), toDate: d(2), userId: "u_tradie" },
     });
+    expect(first.statusCode).toBe(201);
     expect(second.statusCode).toBe(201);
 
-    // The stale write must have been refused (expectedRev mismatch), the
-    // handler must have re-read FRESH and re-applied — no silent loss.
-    expect(blobExports.readBlobFresh).toHaveBeenCalledWith(
-      "leave-requests.json",
-      expect.anything()
-    );
+    // Both days exist as separate leave-requests/<id>.json documents; the
+    // legacy aggregate was never written. This is what makes rapid marking
+    // race-free BY CONSTRUCTION: there is no shared doc a stale read-modify-
+    // write could erase (the CAS approach still lost writes live — Vercel
+    // Blob's CDN can serve consistently stale bodies for 10+s after an
+    // overwrite, defeating any read-check-write on one shared document).
+    const fileKeys = [...blob.keys()].filter((k) => String(k).startsWith("leave-requests/"));
+    expect(fileKeys).toHaveLength(2);
+    expect(blob.has("leave-requests.json")).toBe(false);
     const dates = storedRequests().map((r) => r.fromDate).sort();
     expect(dates).toEqual([d(1), d(2)]);
   });
 
-  it("a concurrency retry re-checks the overlap rule against the fresh snapshot", async () => {
-    // Fresh store already holds an approved row for the target day…
-    const first = await call("u_admin", "admin", {
+  it("rows in the legacy aggregate still read, and a mutation migrates to a per-request file", async () => {
+    blob.set("leave-requests.json", {
+      requests: [
+        { id: "lv_old", userId: "u_elec", userName: "u_elec", type: "annual", fromDate: d(5), toDate: d(5), status: "pending", requestedAt: "2026-01-01T00:00:00.000Z" },
+      ],
+    });
+    // Legacy row is visible…
+    const listRes = await call("u_admin", "admin", {});
+    expect((listRes.body as { requests: Array<{ id: string }> }).requests.map((r) => r.id)).toContain("lv_old");
+    // …and deciding it writes leave-requests/lv_old.json (migrate-on-write),
+    // leaving the read-only aggregate untouched.
+    const decide = await call("u_admin", "admin", {
       method: "POST",
-      body: { type: "annual", fromDate: d(3), toDate: d(3), userId: "u_tradie" },
+      query: { action: "decide" },
+      body: { id: "lv_old", approve: true },
     });
-    expect(first.statusCode).toBe(201);
+    expect(decide.statusCode).toBe(200);
+    const file = blob.get("leave-requests/lv_old.json") as { status: string };
+    expect(file.status).toBe("approved");
+    const legacy = blob.get("leave-requests.json") as { requests: Array<{ status: string }> };
+    expect(legacy.requests[0]!.status).toBe("pending"); // aggregate never rewritten
+    // Merged read prefers the per-file version.
+    expect(storedRequests().find((r) => r.id === "lv_old")!.status).toBe("approved");
+  });
 
-    // …but the second request's first read is stale and can't see it. The
-    // retry must surface the clash as an honest 409, not a duplicate row.
-    const blobExports = requireFromHere.cache[blobPath]!.exports as {
-      readBlob: ReturnType<typeof vi.fn>;
-    };
-    let staleServed = false;
-    blobExports.readBlob.mockImplementation(async (key: string, fallback: unknown) => {
-      if (key === "leave-requests.json" && !staleServed) {
-        staleServed = true;
-        return { requests: [], __rev: 0 };
-      }
-      return blob.has(key) ? clone(blob.get(key)) : fallback;
+  it("the per-file version wins over a stale legacy copy of the same request", async () => {
+    blob.set("leave-requests.json", {
+      requests: [{ id: "lv_x", userId: "u_tradie", type: "annual", fromDate: d(3), toDate: d(3), status: "pending" }],
     });
+    blob.set("leave-requests/lv_x.json", {
+      id: "lv_x", userId: "u_tradie", type: "annual", fromDate: d(3), toDate: d(3), status: "cancelled",
+    });
+    const res = await call("u_admin", "admin", {});
+    const row = (res.body as { requests: Array<{ id: string; status: string }> }).requests.find((r) => r.id === "lv_x")!;
+    expect(row.status).toBe("cancelled");
+  });
 
-    const second = await call("u_admin", "admin", {
+  it("overlap is still refused across BOTH layouts (per-file + legacy rows)", async () => {
+    blob.set("leave-requests.json", {
+      requests: [{ id: "lv_leg", userId: "u_tradie", type: "annual", fromDate: d(6), toDate: d(6), status: "approved" }],
+    });
+    const clashLegacy = await call("u_admin", "admin", {
       method: "POST",
-      body: { type: "sick", fromDate: d(3), toDate: d(3), userId: "u_tradie" },
+      body: { type: "sick", fromDate: d(6), toDate: d(6), userId: "u_tradie" },
     });
-    expect(second.statusCode).toBe(409);
-    expect(storedRequests()).toHaveLength(1);
+    expect(clashLegacy.statusCode).toBe(409);
+
+    const ok = await call("u_admin", "admin", {
+      method: "POST",
+      body: { type: "sick", fromDate: d(7), toDate: d(7), userId: "u_tradie" },
+    });
+    expect(ok.statusCode).toBe(201);
+    const clashFile = await call("u_admin", "admin", {
+      method: "POST",
+      body: { type: "annual", fromDate: d(7), toDate: d(7), userId: "u_tradie" },
+    });
+    expect(clashFile.statusCode).toBe(409);
   });
 });

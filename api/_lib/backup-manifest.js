@@ -41,7 +41,7 @@ const EXACT_STORES = [
   'job-blueprints.json', // reusable whole-job shapes (#191)
   'task-rules.json', // rule-based task-generation rules (#224)
   'tag-reminder-state.json', // tag/calibration alert dedupe state (#305)
-  'leave-requests.json', // workforce leave request/approval store (#333)
+  'leave-requests.json', // LEGACY workforce leave aggregate (#333) — read-only fallback since the #127 per-request split
   'workforce/credentials.json', // worker licence/ticket register (#331)
   'workforce/cost-rates.json', // confidential worker cost-rate store (#304)
   'licence-reminder-state.json', // licence alert dedupe state (#331)
@@ -55,6 +55,7 @@ const EXACT_STORES = [
 const PREFIX_STORES = [
   'jobs/', // per-job data.json, itps.json, tags.json, materials-list.json, plans-index.json, photos-index.json, templates.json, temps.json, inductions.json, certificates.json (#231), prestart.json (pre-start readiness #371), scope-reconciliation.json (job-control L0), job-control.json (job-control L1 spine — also holds the #374 closeoutRequirements[] handover matrix; the #349 numbers-freeze report card is the SEPARATE closeout.json), test-records.json (structured electrical TestRecords #517 — immutable + supersede-by-revision), field-detail.json (DERIVED per-job structure projection for Phil job-detail LCP; rebuilt from jobs.json on read, freshness-gated — disposable), admin-extras.json (DERIVED Blob-only remainder for the admin single-job PG read; rebuilt from jobs.json on the full-read fallback, freshness-gated — disposable) …
   'users/', // per-user time-entries/<date>.json (payroll data)
+  'leave-requests/', // per-request leave documents leave-requests/<id>.json (#333/#127 — one doc per request so rapid marks can never lose a day)
   'audit/', // audit-log monthly rollovers audit/<yyyy-mm>.json
   'xero/sync-log/', // Xero sync recorder terminal-outcome history xero/sync-log/<yyyy-mm>.json (#251)
   'assets/', // gear/asset documents

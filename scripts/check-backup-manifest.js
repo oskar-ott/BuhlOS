@@ -18,7 +18,7 @@ const { isCoveredKey, BACKUP_PREFIX } = require('../api/_lib/backup-manifest');
 const KNOWN_DYNAMIC = {
   'api/_lib/audit-log.js': ['audit/'], // keyFor(): audit/<yyyy-mm>.json
   'api/_lib/xero-sync-log.js': ['xero/sync-open.json', 'xero/sync-log/'], // OPEN_KEY + monthKey(): xero/sync-log/<yyyy-mm>.json (#251)
-  'api/leave.js': ['leave-requests.json'], // KEY imported from _lib/leave.js
+  'api/_lib/leave.js': ['leave-requests/'], // saveRequest(): leave-requests/<id>.json (#127 per-request split; legacy leave-requests.json is read-only)
   'api/observations.js': ['jobs/'], // variations.storeKey(jobId): jobs/<id>/variations.json (cross-module call; covered by the jobs/ prefix)
   'api/safety-docs.js': ['jobs/'], // docsKey/acksKey(jobId): jobs/<id>/safety-docs.json + safety-acks.json (concat helpers; covered by the jobs/ prefix) (#219)
   'api/certificates.js': ['jobs/'], // certsKey(jobId): jobs/<id>/certificates.json (concat helper; covered by the jobs/ prefix) (#231)
