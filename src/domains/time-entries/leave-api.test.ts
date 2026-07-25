@@ -22,6 +22,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  */
 
 const requireFromHere = createRequire(import.meta.url);
+// Loaded once at file scope (NEVER cache-evicted below) so the class identity
+// matches the one api/_lib/leave.js catches with instanceof.
+const { StaleWriteError } = requireFromHere("../../../api/_lib/blob-guards.js");
 const blobSdkPath = requireFromHere.resolve("@vercel/blob");
 const blobPath = requireFromHere.resolve("../../../api/_lib/blob.js");
 const authPath = requireFromHere.resolve("../../../api/_lib/auth.js");
@@ -144,17 +147,32 @@ beforeEach(() => {
     loaded: true,
     exports: { list: vi.fn(async () => ({ blobs: [] })), put: vi.fn(), del: vi.fn() },
   } as NodeJS.Module;
+  // The write mock mirrors the real guard semantics the leave store now
+  // relies on (#127 lost-write fix): every write stamps __rev, and a caller
+  // passing expectedRev gets a StaleWriteError when the store has moved on —
+  // so the retry loop in mutateLeave is exercised for real.
+  const readImpl = async (key: string, fallback: unknown) =>
+    blob.has(key) ? clone(blob.get(key)) : fallback;
   requireFromHere.cache[blobPath] = {
     id: blobPath,
     filename: blobPath,
     loaded: true,
     exports: {
-      readBlob: vi.fn(async (key: string, fallback: unknown) =>
-        blob.has(key) ? clone(blob.get(key)) : fallback
+      readBlob: vi.fn(readImpl),
+      readBlobFresh: vi.fn(readImpl),
+      writeBlob: vi.fn(
+        async (key: string, data: Record<string, unknown>, opts: { expectedRev?: number } = {}) => {
+          const current = blob.get(key) as { __rev?: number } | undefined;
+          const currentRev =
+            current && Number.isFinite(current.__rev) ? (current.__rev as number) : 0;
+          if (opts.expectedRev !== undefined && opts.expectedRev !== null) {
+            if (Number(opts.expectedRev) !== currentRev) {
+              throw new StaleWriteError(key, Number(opts.expectedRev), currentRev);
+            }
+          }
+          blob.set(key, clone({ ...data, __rev: currentRev + 1 }));
+        }
       ),
-      writeBlob: vi.fn(async (key: string, data: unknown) => {
-        blob.set(key, clone(data));
-      }),
       deleteBlob: vi.fn(async (key: string) => {
         blob.delete(key);
       }),
@@ -549,5 +567,79 @@ describe("GET /api/leave — scoping", () => {
   it("clients are locked out entirely", async () => {
     const res = await call("u_client", "client", { query: { mine: "1" } });
     expect(res.statusCode).toBe(403);
+  });
+});
+
+describe("concurrency — the weekly-board lost-write race (#127)", () => {
+  it("a create whose read was stale retries against the fresh store and keeps BOTH rows", async () => {
+    // First mark lands normally (admin records Mon not-worked on behalf).
+    const first = await call("u_admin", "admin", {
+      method: "POST",
+      body: { type: "annual", fromDate: d(1), toDate: d(1), userId: "u_tradie" },
+    });
+    expect(first.statusCode).toBe(201);
+    expect(storedRequests()).toHaveLength(1);
+
+    // Second mark reads a STALE snapshot (cache/propagation lag: the first
+    // row is missing, rev is pre-write) — exactly the live failure where the
+    // later write returned a success toast but erased the earlier day.
+    const blobExports = requireFromHere.cache[blobPath]!.exports as {
+      readBlob: ReturnType<typeof vi.fn>;
+      readBlobFresh: ReturnType<typeof vi.fn>;
+      writeBlob: ReturnType<typeof vi.fn>;
+    };
+    let staleServed = false;
+    blobExports.readBlob.mockImplementation(async (key: string, fallback: unknown) => {
+      if (key === "leave-requests.json" && !staleServed) {
+        staleServed = true;
+        return { requests: [], __rev: 0 };
+      }
+      return blob.has(key) ? clone(blob.get(key)) : fallback;
+    });
+
+    const second = await call("u_admin", "admin", {
+      method: "POST",
+      body: { type: "annual", fromDate: d(2), toDate: d(2), userId: "u_tradie" },
+    });
+    expect(second.statusCode).toBe(201);
+
+    // The stale write must have been refused (expectedRev mismatch), the
+    // handler must have re-read FRESH and re-applied — no silent loss.
+    expect(blobExports.readBlobFresh).toHaveBeenCalledWith(
+      "leave-requests.json",
+      expect.anything()
+    );
+    const dates = storedRequests().map((r) => r.fromDate).sort();
+    expect(dates).toEqual([d(1), d(2)]);
+  });
+
+  it("a concurrency retry re-checks the overlap rule against the fresh snapshot", async () => {
+    // Fresh store already holds an approved row for the target day…
+    const first = await call("u_admin", "admin", {
+      method: "POST",
+      body: { type: "annual", fromDate: d(3), toDate: d(3), userId: "u_tradie" },
+    });
+    expect(first.statusCode).toBe(201);
+
+    // …but the second request's first read is stale and can't see it. The
+    // retry must surface the clash as an honest 409, not a duplicate row.
+    const blobExports = requireFromHere.cache[blobPath]!.exports as {
+      readBlob: ReturnType<typeof vi.fn>;
+    };
+    let staleServed = false;
+    blobExports.readBlob.mockImplementation(async (key: string, fallback: unknown) => {
+      if (key === "leave-requests.json" && !staleServed) {
+        staleServed = true;
+        return { requests: [], __rev: 0 };
+      }
+      return blob.has(key) ? clone(blob.get(key)) : fallback;
+    });
+
+    const second = await call("u_admin", "admin", {
+      method: "POST",
+      body: { type: "sick", fromDate: d(3), toDate: d(3), userId: "u_tradie" },
+    });
+    expect(second.statusCode).toBe(409);
+    expect(storedRequests()).toHaveLength(1);
   });
 });

@@ -363,3 +363,57 @@ describe("POST /api/time-entries-export — retired (410) (#895)", () => {
     expect(blob.has("payroll-runs.json")).toBe(false);
   });
 });
+
+describe("confirmed PG worker links override the legacy users.json field (#248/#249)", () => {
+  const mappingsPath = requireFromHere.resolve("../../../api/_lib/xero/worker-mappings.js");
+  const dataRows = (res: Res) => String(res.sent).trim().split("\n").slice(1).map((l) => l.split(","));
+
+  afterEach(() => {
+    delete requireFromHere.cache[mappingsPath];
+  });
+
+  it("a confirmed link fills the Xero Employee ID even when the legacy field is stale", async () => {
+    // Legacy field carries a stale value from before a reconnect…
+    (blob.get("users.json") as { users: Array<{ id: string; xeroEmployeeId?: string }> })
+      .users.find((u) => u.id === "w1")!.xeroEmployeeId = "stale-legacy-id";
+    // …but PG holds the explicitly-confirmed link (the source of truth).
+    requireFromHere.cache[mappingsPath] = {
+      id: mappingsPath,
+      filename: mappingsPath,
+      loaded: true,
+      exports: {
+        mappingReadiness: vi.fn(async (workerIds: string[]) =>
+          workerIds.map((id) => ({
+            workerId: id,
+            employeeId: id === "w1" ? "pg-confirmed-id" : null,
+            mapped: id === "w1",
+          }))
+        ),
+      },
+    } as NodeJS.Module;
+
+    const res = await call("u_admin", "office", { ...WEEK, shape: "xero", dryRun: "1" });
+    const rows = dataRows(res);
+    expect(rows.find((r) => r[2] === "w1")![3]).toBe("pg-confirmed-id");
+    // Unmapped worker keeps the honest blank — a PG miss never fakes an id.
+    expect(rows.find((r) => r[2] === "w2")![3]).toBe("");
+  });
+
+  it("mapping lookup failure (disconnected Xero) leaves the legacy field standing", async () => {
+    (blob.get("users.json") as { users: Array<{ id: string; xeroEmployeeId?: string }> })
+      .users.find((u) => u.id === "w1")!.xeroEmployeeId = "XE-legacy";
+    requireFromHere.cache[mappingsPath] = {
+      id: mappingsPath,
+      filename: mappingsPath,
+      loaded: true,
+      exports: {
+        mappingReadiness: vi.fn(async () => {
+          throw new Error("not_connected");
+        }),
+      },
+    } as NodeJS.Module;
+
+    const res = await call("u_admin", "office", { ...WEEK, shape: "xero", dryRun: "1" });
+    expect(dataRows(res).find((r) => r[2] === "w1")![3]).toBe("XE-legacy");
+  });
+});
