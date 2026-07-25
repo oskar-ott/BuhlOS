@@ -56,6 +56,7 @@ type StateWorker = {
   xeroTimesheetId: string | null;
   correlationId: string | null;
   lastOutcome: string | null;
+  errorDetail?: string | null;
   status: string | null;
 };
 type ExportState = { workers: StateWorker[]; attemptCount: number; eventCount: number };
@@ -333,6 +334,11 @@ export function PayrollBatchExportSection({
                 <Badge label={w.status ?? w.lastOutcome} />
                 {w.xeroTimesheetId ? <span className="text-text-muted">TS {w.xeroTimesheetId.slice(0, 8)}</span> : null}
                 {w.correlationId ? <span className="text-text-muted">corr {w.correlationId.slice(0, 8)}</span> : null}
+                {/* Xero's actual refusal — a bare "rejected" chip left the
+                    operator with nothing to act on (live find, 2026-07-25). */}
+                {w.errorDetail && tone(w.status ?? w.lastOutcome) !== "success" ? (
+                  <span className="text-state-danger">{w.errorDetail}</span>
+                ) : null}
               </li>
             ))}
           </ul>

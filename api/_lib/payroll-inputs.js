@@ -122,6 +122,27 @@ async function collectRows({ status, userId, jobId, fromDate, toDate }) {
     a.workerName.localeCompare(b.workerName) ||
     a.jobName.localeCompare(b.jobName));
 
+  // #248/#249: the CONFIRMED worker↔employee links live in Postgres
+  // (xero_mappings) — users.json's free-text xeroEmployeeId predates them and
+  // goes stale on every reconnect, which left the pay-period page showing
+  // "No Xero id / Needs action" for workers whose links were confirmed and
+  // whose batch passed validation (live find, 2026-07-25). A confirmed link
+  // wins; the legacy field stands when Xero is disconnected or PG is
+  // unreachable, so the CSV keeps working as the permanent fallback.
+  const workerIds = [...new Set(rows.map(r => r.workerId))];
+  if (workerIds.length) {
+    try {
+      const { mappingReadiness } = require('./xero/worker-mappings');
+      const readiness = await mappingReadiness(workerIds);
+      const confirmed = new Map(
+        readiness.filter(m => m.mapped && m.employeeId).map(m => [m.workerId, m.employeeId]));
+      for (const r of rows) {
+        const employeeId = confirmed.get(r.workerId);
+        if (employeeId) r.xeroEmployeeId = employeeId;
+      }
+    } catch { /* not connected / PG unreachable → legacy field stands */ }
+  }
+
   return { ok: true, fromDate, toDate, status, userId, jobId, rows, entries, userById, jobById };
 }
 

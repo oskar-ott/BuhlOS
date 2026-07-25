@@ -321,7 +321,12 @@ async function runWorkers({ batchId, actor, deps, onlyRetryable }) {
         errorDetail: err instanceof XeroError ? err.message : 'unexpected', correlationId: err && err.correlationId, httpStatus: err && err.status, actor,
       }));
       await insertEvent(wsql, { tenantId: conn.tenant_id, batchId, attemptId, workerId: w.workerId, event: retryable ? 'retry_required' : 'rejected', detail: { category: cat } });
-      results.push({ worker: w.workerName, outcome: retryable ? 'retry_required' : 'rejected', category: cat });
+      results.push({
+        worker: w.workerName, outcome: retryable ? 'retry_required' : 'rejected', category: cat,
+        // Surface Xero's actual refusal — the attempt row keeps it, but the
+        // operator acts on the run result / status panel, not on PG.
+        reason: err instanceof XeroError ? err.message : 'unexpected',
+      });
       continue;
     }
 
@@ -330,7 +335,7 @@ async function runWorkers({ batchId, actor, deps, onlyRetryable }) {
     if (!xeroId) {
       await insertAttempt(wsql, attempt(conn, batchId, w, { id: attemptId, requestHash, outcome: 'rejected', errorCategory: 'validation', errorDetail: 'no_timesheet_id_in_response', correlationId: resp && resp.correlationId, httpStatus: 200, actor }));
       await insertEvent(wsql, { tenantId: conn.tenant_id, batchId, attemptId, workerId: w.workerId, event: 'rejected', detail: { reason: 'no_timesheet_id' } });
-      results.push({ worker: w.workerName, outcome: 'rejected', category: 'validation' });
+      results.push({ worker: w.workerName, outcome: 'rejected', category: 'validation', reason: 'no_timesheet_id_in_response' });
       continue;
     }
 
@@ -538,7 +543,7 @@ async function exportState({ batchId, deps = {} }) {
   const batch = await loadBatch(sql, batchId);
   if (!batch) return null;
   const [attempts, events] = await Promise.all([
-    sql`select worker_id, worker_name, employee_id, xero_timesheet_id, correlation_id, outcome, error_category, created_at
+    sql`select worker_id, worker_name, employee_id, xero_timesheet_id, correlation_id, outcome, error_category, error_detail, created_at
         from public.payroll_batch_timesheet_attempts where batch_id = ${batchId} order by created_at desc`,
     sql`select worker_id, event, detail, created_at
         from public.payroll_batch_timesheet_events where batch_id = ${batchId} order by created_at desc`,
@@ -551,6 +556,9 @@ async function exportState({ batchId, deps = {} }) {
     workerId: a.worker_id, workerName: a.worker_name, employeeId: a.employee_id,
     xeroTimesheetId: a.xero_timesheet_id, correlationId: a.correlation_id,
     lastOutcome: a.outcome, errorCategory: a.error_category,
+    // The actual Xero refusal (e.g. "This timesheet already exists…") — without
+    // it the UI can only show a bare "rejected" chip and the operator is stuck.
+    errorDetail: a.error_detail || null,
     status: latestEvent.has(a.worker_id) ? latestEvent.get(a.worker_id).event : null,
   }));
   return {

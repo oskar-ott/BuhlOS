@@ -13,10 +13,10 @@
 //   POST   /api/leave?action=cancel     → worker cancels own PENDING request
 //          body: { id }
 
-const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
+const { readBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, isAdminRole, isClientRole, isHoursTrackedWorker } = require('./_lib/auth');
 const { sendPushToUserId } = require('./_lib/push');
-const { KEY, LEAVE_TYPES, readLeave, rangesOverlap } = require('./_lib/leave');
+const { LEAVE_TYPES, readLeave, mutateLeave, rangesOverlap } = require('./_lib/leave');
 const { append: appendAuditLog } = require('./_lib/audit-log');
 const { covers } = require('./_lib/leave');
 
@@ -66,16 +66,19 @@ module.exports = async (req, res) => {
     const { id, approve, note } = req.body || {};
     if (!id) return res.status(400).json({ error: 'id required' });
     if (typeof approve !== 'boolean') return res.status(400).json({ error: 'approve must be true or false' });
-    const data = await readLeave();
-    const r = data.requests.find(x => x.id === id);
-    if (!r) return res.status(404).json({ error: 'request not found' });
-    if (r.status !== 'pending') return res.status(409).json({ error: `already ${r.status}` });
-    r.status = approve ? 'approved' : 'declined';
-    r.decidedAt = new Date().toISOString();
-    r.decidedBy = me.id;
-    r.decidedByName = me.username;
-    r.decisionNote = note ? String(note).trim().slice(0, 500) : null;
-    await writeBlob(KEY, data);
+    const outcome = await mutateLeave((data) => {
+      const found = data.requests.find(x => x.id === id);
+      if (!found) return { abort: { status: 404, body: { error: 'request not found' } } };
+      if (found.status !== 'pending') return { abort: { status: 409, body: { error: `already ${found.status}` } } };
+      found.status = approve ? 'approved' : 'declined';
+      found.decidedAt = new Date().toISOString();
+      found.decidedBy = me.id;
+      found.decidedByName = me.username;
+      found.decisionNote = note ? String(note).trim().slice(0, 500) : null;
+      return { request: found };
+    });
+    if (outcome.abort) return res.status(outcome.abort.status).json(outcome.abort.body);
+    const r = outcome.request;
     await auditLeave(me, 'leave.decided', r, `${approve ? 'approved' : 'declined'} ${r.type} leave for ${r.userName || r.userId} (${r.fromDate}${r.toDate !== r.fromDate ? ` → ${r.toDate}` : ''})`);
     try {
       await sendPushToUserId(r.userId, {
@@ -96,18 +99,21 @@ module.exports = async (req, res) => {
     if (!userId || !ISO.test(date || '')) {
       return res.status(400).json({ error: 'userId and a YYYY-MM-DD date required' });
     }
-    const data = await readLeave();
-    const r = data.requests.find(x =>
-      x.userId === userId &&
-      (x.status === 'approved' || x.status === 'pending') &&
-      covers(x, date)
-    );
-    if (!r) return res.status(404).json({ error: 'no marked leave covering that day' });
-    r.status = 'cancelled';
-    r.decidedAt = new Date().toISOString();
-    r.decidedBy = me.id;
-    r.decidedByName = me.username;
-    await writeBlob(KEY, data);
+    const outcome = await mutateLeave((data) => {
+      const found = data.requests.find(x =>
+        x.userId === userId &&
+        (x.status === 'approved' || x.status === 'pending') &&
+        covers(x, date)
+      );
+      if (!found) return { abort: { status: 404, body: { error: 'no marked leave covering that day' } } };
+      found.status = 'cancelled';
+      found.decidedAt = new Date().toISOString();
+      found.decidedBy = me.id;
+      found.decidedByName = me.username;
+      return { request: found };
+    });
+    if (outcome.abort) return res.status(outcome.abort.status).json(outcome.abort.body);
+    const r = outcome.request;
     await auditLeave(me, 'leave.cancelled', r, `cleared ${r.type} leave for ${r.userName || r.userId} on ${date}`);
     return res.status(200).json({ request: r });
   }
@@ -115,15 +121,17 @@ module.exports = async (req, res) => {
   if (req.method === 'POST' && action === 'cancel') {
     const { id } = req.body || {};
     if (!id) return res.status(400).json({ error: 'id required' });
-    const data = await readLeave();
-    const r = data.requests.find(x => x.id === id);
-    if (!r) return res.status(404).json({ error: 'request not found' });
-    if (r.userId !== me.id) return res.status(403).json({ error: 'not your request' });
-    if (r.status !== 'pending') return res.status(409).json({ error: `already ${r.status} — ask the office` });
-    r.status = 'cancelled';
-    r.decidedAt = new Date().toISOString();
-    await writeBlob(KEY, data);
-    return res.status(200).json({ request: r });
+    const outcome = await mutateLeave((data) => {
+      const found = data.requests.find(x => x.id === id);
+      if (!found) return { abort: { status: 404, body: { error: 'request not found' } } };
+      if (found.userId !== me.id) return { abort: { status: 403, body: { error: 'not your request' } } };
+      if (found.status !== 'pending') return { abort: { status: 409, body: { error: `already ${found.status} — ask the office` } } };
+      found.status = 'cancelled';
+      found.decidedAt = new Date().toISOString();
+      return { request: found };
+    });
+    if (outcome.abort) return res.status(outcome.abort.status).json(outcome.abort.body);
+    return res.status(200).json({ request: outcome.request });
   }
 
   if (req.method === 'POST') {
@@ -164,18 +172,6 @@ module.exports = async (req, res) => {
       return res.status(400).json({ error: 'leave applies to hours-tracked workers' });
     }
 
-    const data = await readLeave();
-    const clash = data.requests.find(r =>
-      r.userId === target.id &&
-      (r.status === 'pending' || r.status === 'approved') &&
-      rangesOverlap(fromDate, toDate, r.fromDate, r.toDate)
-    );
-    if (clash) {
-      return res.status(409).json({
-        error: `overlaps an existing ${clash.status} request (${clash.fromDate} → ${clash.toDate})`,
-      });
-    }
-
     const request = {
       id: newId(),
       userId: target.id,
@@ -191,8 +187,27 @@ module.exports = async (req, res) => {
         ? { decidedAt: new Date().toISOString(), decidedBy: me.id, decidedByName: me.username }
         : {}),
     };
-    data.requests.push(request);
-    await writeBlob(KEY, data);
+    // Clash check lives INSIDE the mutator so a concurrency retry re-checks
+    // against the fresh snapshot (the row it clashes with may have appeared
+    // between attempts).
+    const outcome = await mutateLeave((data) => {
+      const clash = data.requests.find(r =>
+        r.userId === target.id &&
+        (r.status === 'pending' || r.status === 'approved') &&
+        rangesOverlap(fromDate, toDate, r.fromDate, r.toDate)
+      );
+      if (clash) {
+        return {
+          abort: {
+            status: 409,
+            body: { error: `overlaps an existing ${clash.status} request (${clash.fromDate} → ${clash.toDate})` },
+          },
+        };
+      }
+      data.requests.push(request);
+      return { request };
+    });
+    if (outcome.abort) return res.status(outcome.abort.status).json(outcome.abort.body);
     if (onBehalf) {
       await auditLeave(me, 'leave.recorded', request, `recorded ${type} leave for ${target.username || target.id} (${fromDate}${toDate !== fromDate ? ` → ${toDate}` : ''})`);
     }

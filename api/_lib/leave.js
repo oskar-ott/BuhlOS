@@ -7,14 +7,52 @@
 //     requestedAt, requestedBy, decidedAt?, decidedBy?, decidedByName?,
 //     decisionNote? }] }
 
-const { readBlob } = require('./blob');
+const { readBlob, readBlobFresh, writeBlob } = require('./blob');
+const { StaleWriteError } = require('./blob-guards');
 
 const KEY = 'leave-requests.json';
 const LEAVE_TYPES = ['annual', 'sick', 'rdo', 'unpaid', 'other'];
 
 async function readLeave() {
   const data = await readBlob(KEY, { requests: [] });
-  return Array.isArray(data.requests) ? data : { requests: [] };
+  if (Array.isArray(data.requests)) return data;
+  // Corrupted/missing shape: keep __rev (when present) so a repairing write
+  // below still passes the stale-write check instead of retrying forever.
+  return { requests: [], ...(Number.isFinite(data && data.__rev) ? { __rev: data.__rev } : {}) };
+}
+
+// Read-modify-write on the single leave blob with optimistic concurrency.
+// Without expectedRev, two writes a few seconds apart could interleave
+// (cached/propagation-lagged reads) and the later write silently dropped the
+// earlier row even though its POST had already returned success — observed
+// live on the weekly closeout board marking several days in a row (#127).
+// expectedRev turns the overlap into StaleWriteError; we re-read fresh,
+// re-apply the mutation and try again. After the retries run out the error
+// propagates — an honest failure beats a silent loss.
+//
+// `mutate(data)` edits data.requests in place and returns the outcome; if it
+// returns { abort: {...} } nothing is written (not-found / conflict paths).
+// It runs once per attempt against that attempt's snapshot, so it must not
+// close over state derived from a previous attempt's data.
+async function mutateLeave(mutate) {
+  const MAX_ATTEMPTS = 4;
+  for (let attempt = 1; ; attempt++) {
+    const data = attempt === 1
+      ? await readLeave()
+      : await readBlobFresh(KEY, { requests: [] }).then(d =>
+          Array.isArray(d.requests) ? d : { requests: [], ...(Number.isFinite(d && d.__rev) ? { __rev: d.__rev } : {}) });
+    const outcome = mutate(data);
+    if (outcome && outcome.abort) return outcome;
+    try {
+      await writeBlob(KEY, data, {
+        expectedRev: Number.isFinite(data.__rev) ? data.__rev : 0,
+      });
+      return outcome;
+    } catch (err) {
+      if (err instanceof StaleWriteError && attempt < MAX_ATTEMPTS) continue;
+      throw err;
+    }
+  }
 }
 
 /** date (YYYY-MM-DD) inside [fromDate, toDate] inclusive. */
@@ -47,4 +85,4 @@ function rangesOverlap(aFrom, aTo, bFrom, bTo) {
   return aFrom <= bTo && bFrom <= aTo;
 }
 
-module.exports = { KEY, LEAVE_TYPES, readLeave, covers, approvedLeaveByUserDate, rangesOverlap };
+module.exports = { KEY, LEAVE_TYPES, readLeave, mutateLeave, covers, approvedLeaveByUserDate, rangesOverlap };
