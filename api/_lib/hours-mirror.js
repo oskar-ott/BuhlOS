@@ -13,8 +13,14 @@
 // source flag simply designates this write as source-authoritative; the PG work
 // runs when EITHER supabase_source_hours OR the generic supabase_dual_write is on,
 // and the return reports `source` so the diagnostics readout can show hours'
-// write-source mode. The read stays parity-gated in Stage A (a PG lag falls back
-// to current Blob — never stale); the PG-authoritative payroll read is Stage B.
+// write-source mode. The PG-authoritative payroll read is Stage B.
+//
+// The read is NOT parity-gated (an earlier version of this comment claimed it was).
+// api/_lib/hours-read applies a FAITHFULNESS gate — it refuses to serve a row that
+// breaks the domain invariant, e.g. the allocation-less entry the quarantine path
+// below writes — but it has NO completeness gate, so an entry this mirror never
+// wrote at all still reads as "no entry". Keep that in mind before trusting
+// supabase_read_hours in an env where the dual-write has not demonstrably run.
 //
 // Triple-gated so production is inert:
 //   1. no SUPABASE_DB_URL in the runtime → return immediately (prod is unwired;
@@ -163,6 +169,7 @@ async function mirrorEntryWrite(db, userId, entry, source = false) {
 
   // Mirror the time_entry AND its allocations atomically: a read-cutover that
   // serves PG must see both, or a live-created entry shows an empty per-job split.
+  let partialReason = '';
   await sql.begin(async (tx) => {
     await upsertTimeEntries(tx, resolved.tenantId, [row]);
     // Fetch the entry id (even when the upsert was a no-op) to reconcile allocations.
@@ -180,13 +187,29 @@ async function mirrorEntryWrite(db, userId, entry, source = false) {
     });
     if (quarantine.length) {
       // The time_entry is mirrored; its allocation breakdown is malformed (bad
-      // sum / unresolved job) → skip just the allocations (best-effort; the drift
-      // alarm catches it) rather than failing the whole mirror.
-      console.warn(`[hours-mirror] allocations not mirrored (entry still mirrored): ${quarantine[0].reason}`);
+      // sum / unresolved job) → skip just the allocations rather than failing the
+      // whole mirror. We deliberately do NOT roll the entry back: an entry that is
+      // PRESENT but invalid is caught by the read's faithfulness gate
+      // (api/_lib/hours-read), whereas one rolled back to ABSENT would be
+      // indistinguishable from a day never logged and silently hidden.
+      partialReason = quarantine[0].reason;
       return;
     }
     await reconcileAllocations(tx, resolved.tenantId, byEntry);
   });
+  // A partial mirror is DRIFT, not success. Reporting {mirrored:true} here is what
+  // let an unmirrored job strip a live entry's allocations while the owner console
+  // stayed clean — the only trace was this warn in the platform logs.
+  if (partialReason) {
+    console.warn(`[hours-mirror] allocations NOT mirrored (entry still mirrored): ${partialReason}`);
+    return {
+      mirrored: false,
+      partial: true,
+      reason: 'allocations quarantined',
+      error: `time_entry mirrored WITHOUT its allocations: ${partialReason}`,
+      source,
+    };
+  }
   return { mirrored: true, source };
 }
 

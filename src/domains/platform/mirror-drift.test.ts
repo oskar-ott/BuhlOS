@@ -13,7 +13,7 @@ const { recordMirrorDrift } = requireFromHere(
 ) as {
   recordMirrorDrift: (args: {
     domain?: string;
-    result?: { reason?: string; error?: string } | null;
+    result?: { reason?: string; error?: string; partial?: boolean } | null;
     jobId?: string;
     key?: string;
     capture?: (p: Record<string, unknown>) => Promise<unknown>;
@@ -34,6 +34,25 @@ describe("recordMirrorDrift — DWD-04 drift visibility", () => {
       metadata: { domain: "tasks", jobId: "j1", key: "jobs/j1/data.json", reason: "error", error: "pooler down" },
     });
     expect(String(arg.message)).toMatch(/tasks PG write failed after Blob succeeded/);
+  });
+
+  it("captures a warning on a PARTIAL write — PG accepted an INCOMPLETE row", async () => {
+    // The hours mirror upserts a time_entry but quarantines its allocations when
+    // the allocated job was never mirrored. It used to report {mirrored:true}, so
+    // this divergence never reached the owner console and a read cutover served
+    // the broken row. A present-but-wrong row is drift.
+    const capture = vi.fn(async (_p: Record<string, unknown>) => ({}));
+    await recordMirrorDrift({
+      domain: "hours",
+      result: { mirrored: false, partial: true, reason: "allocations quarantined", error: 'time_entry mirrored WITHOUT its allocations: allocation[0] job "dca-alexandria" not imported' } as never,
+      key: "users/u1/time-entries/2026-07-16.json",
+      capture,
+    });
+    expect(capture).toHaveBeenCalledTimes(1);
+    const arg = capture.mock.calls[0]![0]!;
+    expect(String(arg.message)).toMatch(/hours PG row mirrored INCOMPLETE after Blob succeeded/);
+    expect(String(arg.message)).toMatch(/dca-alexandria/);
+    expect(arg).toMatchObject({ severity: "warning", metadata: { domain: "hours", partial: true, reason: "allocations quarantined" } });
   });
 
   it("does NOT capture on gated/unmirrored/ok results (no noise while flags are dark)", async () => {
