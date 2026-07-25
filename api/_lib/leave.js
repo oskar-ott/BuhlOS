@@ -14,9 +14,9 @@
 // a CREATE on a brand-new path can never be erased by a concurrent writer,
 // and status changes only ever overwrite that one request's own document.
 //
-// The old aggregate doc remains as a READ-ONLY legacy fallback: rows are
-// merged by id (a per-request file always wins), and any mutation of a legacy
-// row is written as a per-request file (migrate-on-write). Nothing writes the
+// The old aggregate doc remains readable (READ-ONLY): rows are merged by id
+// (a per-request file always wins), and any mutation of an aggregate-only row
+// is written as a per-request file (migrate-on-write). Nothing writes the
 // aggregate any more.
 
 const { list } = require('@vercel/blob');
