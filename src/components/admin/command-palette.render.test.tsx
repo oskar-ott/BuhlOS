@@ -36,9 +36,7 @@ describe("CommandPalette (SSR contract)", () => {
 
 describe("AdminTopbar ⌘K affordance (#215)", () => {
   it("shows ONE non-interactive ⌘K hint and no second search input/control", () => {
-    const html = renderToString(
-      createElement(AdminTopbar, { title: "Command Centre" })
-    );
+    const html = renderToString(createElement(AdminTopbar, { viewerInitials: "KB" }));
     // The hint is present (a <kbd>, aria-hidden), advertising the command layer.
     expect(html).toContain("admin-cmdk-hint");
     expect(html).toContain("⌘");

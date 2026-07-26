@@ -8,20 +8,19 @@ import { LoginForm } from "./login-form";
 import styles from "./login.module.css";
 
 /**
- * /v2/login — the BuhlOS desktop sign-in.
+ * /v2/login — the BuhlOS sign-in.
  *
- * Implements the Claude Design handoff (buhlos-phil/project/BuhlOS Login.html):
- * a split layout — navy brand panel (left) + sign-in card (right). The card is
- * the interactive client component; everything here is static and server-rendered.
+ * Lean-reset redesign (2026-07-26, owner-ratified replica): ONE centred
+ * "Welcome back." card on the warm off-white ground — ink wordmark on top,
+ * yellow underline accent, underline-style fields — with a mono footer strip
+ * pinned to the bottom of the screen. The old split navy brand panel is gone.
  *
- * Already-logged-in users are bounced to their landing. Anyone else signs in via
- * LoginForm, which POSTs to the existing /api/auth?action=login endpoint.
- *
- * Cross-ref: docs/rebuild-audit/08-next-claude-code-prompt.md §"For /login"
+ * Already-logged-in users are bounced to their landing. Anyone else signs in
+ * via LoginForm, which POSTs to the existing /api/auth?action=login endpoint.
  */
 
-// The design uses JetBrains Mono for eyebrows / labels / footers. It isn't in
-// the global font set (root layout loads Inter + Inter Tight only), so load it
+// The design uses JetBrains Mono for micro-labels / footers. It isn't in the
+// global font set (root layout loads Inter + Inter Tight only), so load it
 // route-scoped and expose it as --font-jetbrains-mono on the login container.
 const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
@@ -45,41 +44,15 @@ export default async function LoginPage({
 
   return (
     <div className={`${styles.login} ${jetbrainsMono.variable}`} data-testid="login-screen">
-      <aside className={styles.brand}>
-        <div className={styles.brandTop}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img className={styles.brandLogo} src="/brand/buhl-logo-white.png" alt="bühl electrical" />
-          <span className={styles.brandCo}>BuhlOS · Operations</span>
-        </div>
-        <div className={styles.brandMid}>
-          <h1 className={styles.brandH}>
-            Everything bühl <em>runs on.</em>
-          </h1>
-          <p className={styles.brandSub}>
-            Jobs, hours, gear and the crew — the one place the bühl electrical office runs the
-            day from.
-          </p>
-          <ul className={styles.brandPoints}>
-            <li>
-              <span className={styles.dot} />Sign off the crew&apos;s hours, ready for payroll
-            </li>
-            <li>
-              <span className={styles.dot} />Every bühl job, snag and document in one place
-            </li>
-            <li>
-              <span className={styles.dot} />Know which tool&apos;s on which site
-            </li>
-          </ul>
-        </div>
-        <div className={styles.brandFoot}>
-          <span>bühl electrical · Sydney</span>
-          <span>v1.0</span>
-        </div>
-      </aside>
-
       <main className={styles.main}>
         <LoginForm next={params.next} initialMode={params.mode === "worker" ? "worker" : "office"} />
       </main>
+      <footer className={styles.screenFoot}>
+        <span>bühl electrical · Sydney</span>
+        <span>
+          Stuck? Call the office on <b>0421 558 902</b>
+        </span>
+      </footer>
     </div>
   );
 }

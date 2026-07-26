@@ -14,22 +14,23 @@ interface LoginFormProps {
 }
 
 /**
- * The BuhlOS sign-in card (right side of the split layout). Recreated from the
- * Claude Design handoff (buhlos-phil/project/login/login.jsx).
+ * The BuhlOS sign-in card — the centred "Welcome back." card of the lean-reset
+ * redesign (2026-07-26, owner-ratified replica).
  *
  * Two modes share the same credential model and the same POST to
  * /api/auth?action=login with `{ username, secret }`:
- *   • OFFICE (default) — the email + password desktop form. BYTE-IDENTICAL to
- *     what shipped: the "Sign in" / "Welcome back." / "Work email" strings and
- *     the login-username / login-password / login-submit testids are load-
- *     bearing (field-readiness + auth-routing smoke). Do not touch them.
+ *   • OFFICE (default) — the email + password form. The "Welcome back." /
+ *     "Work email" strings and the login-username / login-password /
+ *     login-submit testids are load-bearing (field-readiness + auth-routing
+ *     smoke). Do not touch them.
  *   • WORKER (#421) — name + 4-digit PIN on big glove-friendly keys, no office
  *     dialect ("Work email"/"Password" never appear). Same POST, distinct
  *     worker-* testids so the office smoke is unaffected.
  *
- * Intentional deviations from the prototype, agreed with the user:
- *   • "Forgot password" — dropped (no self-service reset backend yet).
- *   • Dark / HC themes, centered layout, the Tweaks panel — design-only.
+ * Intentional deviations from the replica:
+ *   • "Forgot your password?" — omitted (no self-service reset backend; a dead
+ *     link would break the honest-UI rule). The screen footer's office phone
+ *     is the real recovery path.
  */
 export function LoginForm({ next, initialMode = "office" }: LoginFormProps) {
   const [mode, setMode] = useState<"office" | "worker">(initialMode);
@@ -118,9 +119,8 @@ export function LoginForm({ next, initialMode = "office" }: LoginFormProps) {
         <img className={styles.topmarkLogo} src="/brand/buhl-logo-ink.png" alt="bühl electrical" />
       </div>
 
-      <span className={styles.eyebrow}>Sign in</span>
       <h2 className={styles.h}>Welcome back.</h2>
-      <p className={styles.p}>Sign in to your bühl electrical workspace.</p>
+      <div className={styles.accentBar} aria-hidden="true" />
 
       <form className={styles.form} onSubmit={onSubmit} noValidate>
         {banner && (
@@ -158,22 +158,10 @@ export function LoginForm({ next, initialMode = "office" }: LoginFormProps) {
         </div>
 
         <div className={styles.field}>
-          <label className={styles.label} htmlFor="login-password">
-            <span>Password</span>
-          </label>
-          <div className={styles.inputWrap}>
-            <input
-              id="login-password"
-              data-testid="login-password"
-              className={`${styles.input} ${styles.hasEye} ${pwErr ? styles.err : ""}`}
-              type={show ? "text" : "password"}
-              name="password"
-              autoComplete="current-password"
-              spellCheck={false}
-              placeholder="••••••••"
-              value={secret}
-              onChange={(e) => setSecret(e.target.value)}
-            />
+          <div className={styles.labelRow}>
+            <label className={styles.label} htmlFor="login-password">
+              <span>Password</span>
+            </label>
             <button
               type="button"
               className={styles.eye}
@@ -182,6 +170,20 @@ export function LoginForm({ next, initialMode = "office" }: LoginFormProps) {
             >
               {show ? "Hide" : "Show"}
             </button>
+          </div>
+          <div className={styles.inputWrap}>
+            <input
+              id="login-password"
+              data-testid="login-password"
+              className={`${styles.input} ${pwErr ? styles.err : ""}`}
+              type={show ? "text" : "password"}
+              name="password"
+              autoComplete="current-password"
+              spellCheck={false}
+              placeholder="••••••••"
+              value={secret}
+              onChange={(e) => setSecret(e.target.value)}
+            />
           </div>
           {pwErr && <span className={styles.msg}>! {pwErr}</span>}
         </div>
@@ -214,8 +216,6 @@ export function LoginForm({ next, initialMode = "office" }: LoginFormProps) {
         >
           On the tools? Sign in with your name &amp; PIN →
         </button>
-        <br />
-        Trouble signing in? Call the office on <b>0421 558 902</b>.
       </div>
     </div>
   );
@@ -256,9 +256,8 @@ function WorkerSignIn({
         <img className={styles.topmarkLogo} src="/brand/buhl-logo-ink.png" alt="bühl electrical" />
       </div>
 
-      <span className={styles.eyebrow}>BuhlOS</span>
       <h2 className={styles.h}>Let&apos;s get you in.</h2>
-      <p className={styles.p}>Your name and your 4-digit PIN. That&apos;s it.</p>
+      <div className={styles.accentBar} aria-hidden="true" />
 
       <form
         className={styles.form}
@@ -373,8 +372,6 @@ function WorkerSignIn({
         <button type="button" className={styles.workerSwitch} onClick={onBack}>
           ← Office sign-in (email &amp; password)
         </button>
-        <br />
-        Trouble? Call the office on <b>0421 558 902</b>.
       </div>
     </div>
   );

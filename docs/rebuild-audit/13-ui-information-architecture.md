@@ -9,7 +9,7 @@
 ### BuhlOS Admin
 
 - **Desktop-first.** Minimum supported width 1280px. Mobile layout is "view-only" — admin actions require a real screen.
-- **Left sidebar primary nav.** No top-tab navigation for sections. No hamburger.
+- **Horizontal top-nav primary nav** *(amended 2026-07-26 by the owner's lean-reset replica; previously "left sidebar primary nav")*: one white top bar — bühl wordmark, nav pills (active = navy pill), search + settings gear + sign-out + a static viewer-initials avatar. No hamburger. Below `md` the bottom tab bar remains the primary nav.
 - **Action / control-centre orientation.** The home is *queues that need a decision*, not vanity cards.
 - **Operational queues, not vanity KPIs.** "Pending hours" is a queue; "% jobs on time" is a vanity chart. Vanity comes in Phase F reports when there's real data.
 - **Dense but not cluttered.** Tables with status pills. Information at the glance density, with one-click drill-in.
@@ -32,8 +32,19 @@
 
 ## BuhlOS Admin information architecture
 
-### Left sidebar sections
+### Primary nav sections (top nav)
 
+> **Lean-reset amendment (2026-07-26, owner's ratified replica):** the primary
+> nav is now a HORIZONTAL TOP NAV, not a left rail. `NAV_GROUPS` in
+> `src/components/admin/nav.ts` stays the single source of truth and keeps its
+> grouped shape (the ⌘K palette still renders the headings; guards parse the
+> literal); the top bar renders the groups FLATTENED into one pill row that
+> scrolls horizontally when flags put more items on than fit (no wrapping).
+> Settings and sign-out moved from the old rail footer to the top bar's right
+> cluster (gear icon → `/settings` hub, sign-out icon), joined by a STATIC
+> viewer-initials avatar chip (display-only — no dropdown, see doc 27 §13).
+> Everything below about grouping, counts and active-state resolution still
+> holds.
 
 > **#187 update (2026-06-12, post-cutover; refreshed by #414/#415/#316):**
 > the sidebar is now a grouped single-world IA — the legacy estate this
@@ -69,12 +80,15 @@ The new admin sidebar has the following sections, in order:
 
 Phase A renders the sidebar with **Command Centre live** and everything else as `UnderConstructionPanel` (no click-through to a fake page).
 
-### Sidebar visual contract
+### Primary nav visual contract
 
-- Section icon (lucide-react) + label.
-- Optional count badge ("Hours · 12") only when the count is *real* — never against a fixture.
+> *(amended 2026-07-26 by the owner's lean-reset replica — top-nav pills
+> replace the rail rows; the count/honesty rules are unchanged)*
+
+- Section icon (lucide-react) + label, rendered as a pill in the top bar.
+- Optional count chip ("Hours · 12") only when the count is *real* — never against a fixture; attention loops use the danger-subtle tint, tallies the neutral-subtle tint.
 - UC entries render with the "UC" pill in `accent-yellow` and are non-interactive (`cursor: not-allowed`, no `<Link>`).
-- Active section: brand navy left border + ink background.
+- Active section: navy pill (`brand-navy` background, inverse label, semibold).
 
 ### Section: Command Centre
 
@@ -361,7 +375,7 @@ Explicitly forbidden in the rebuild. Each ban references the rule it enforces.
 
 ### Old admin pill navigation
 
-- The legacy `public/admin/_shell.js` pill-tab navigation across the top of each page is **discarded**. The rebuild uses left-sidebar only.
+- The legacy `public/admin/_shell.js` pill-tab navigation across the top of each page is **discarded** — that estate stays deleted. *(Amended 2026-07-26 by the owner's lean-reset replica: the modern shell now renders its own horizontal top-nav pills from `nav.ts` — one nav source, one shell; this ban is about resurrecting the legacy per-page shell, not about top-of-screen placement.)*
 
 ### Hidden legacy labels
 
@@ -394,7 +408,7 @@ Explicitly forbidden in the rebuild. Each ban references the rule it enforces.
 ## Visual tokens (Phase A → carried forward)
 
 - `--accent-yellow: #ffcc00` — single accent per screen.
-- `--brand-navy: #0d1f35` — admin sidebar, Phil header background.
+- `--brand-navy: #0d1f35` — admin active nav pill + avatar chip (2026-07-26 top-nav amendment), Phil header background.
 - `--accent-ink: #0f172a` — text on light surfaces.
 - `--surface: #ffffff`, `--surface-subtle: #f6f7f9`, `--surface-raised: #ffffff`.
 - `--state-danger`, `--state-success`, `--state-warning`, `--state-info` — status pills.

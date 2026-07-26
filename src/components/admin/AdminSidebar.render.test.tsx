@@ -10,9 +10,13 @@ import { renderToString } from "react-dom/server";
 import { AdminSidebar } from "./AdminSidebar";
 
 /**
- * #187 — one grouped sidebar, nothing dead, longest-prefix active state.
- * #415 — hours collapsed to ONE sidebar item; Approvals / Weekly closeout
- * moved into the in-page HoursTabs bar (see HoursTabs.render.test.tsx).
+ * #187 — one nav, nothing dead, longest-prefix active state.
+ * #415 — hours collapsed to ONE nav item; Approvals / Weekly closeout moved
+ * into the in-page HoursTabs bar (see HoursTabs.render.test.tsx).
+ * Lean-reset redesign (2026-07-26) — the nav renders as a horizontal pill row
+ * in the top bar (flattened from NAV_GROUPS; group headings live on in the ⌘K
+ * palette). The component keeps the AdminSidebar name for guard continuity.
+ * Settings + sign-out moved to AdminTopbar (see AdminTopbar.render.test.tsx).
  */
 
 function render(path: string, hiddenHrefs?: string[]): string {
@@ -25,12 +29,9 @@ function activeLabel(html: string): string | null {
   return m ? m[1]! : null;
 }
 
-describe("AdminSidebar (#187)", () => {
-  it("renders the grouped IA with every live surface and NO dead items", () => {
+describe("AdminSidebar (#187 · lean-reset top nav)", () => {
+  it("renders every live surface as a pill and NO dead items", () => {
     const html = render("/command-centre");
-    for (const heading of ["Today", "Jobs", "Hours", "People &amp; gear", "Company"]) {
-      expect(html).toContain(heading);
-    }
     for (const label of [
       "Command centre",
       "From site",
@@ -51,6 +52,17 @@ describe("AdminSidebar (#187)", () => {
     expect(html).not.toContain("aria-disabled");
   });
 
+  it("is a single horizontal row that scrolls, never wraps (flag-dependent overflow)", () => {
+    const html = render("/command-centre");
+    // The HoursTabs scroll pattern: overflow-x-auto strip + shrink-0 items.
+    expect(html).toContain("overflow-x-auto");
+    expect(html).toContain("shrink-0");
+    expect(html).not.toContain("flex-wrap");
+    // No group headings render in the strip — the flattened IA is the row.
+    expect(html).not.toContain("People &amp; gear");
+    expect(html).not.toContain(">Today<");
+  });
+
   it("shows ONE Hours item (#415) — Approvals / Weekly closeout live in the in-page tabs, not here", () => {
     const html = render("/command-centre");
     expect(html.match(/href="\/hours"/g)).toHaveLength(1);
@@ -66,12 +78,22 @@ describe("AdminSidebar (#187)", () => {
     expect(activeLabel(render("/hours/weekly"))).toBe("Hours");
   });
 
+  it("the active pill takes the navy treatment; the rest are ghost pills", () => {
+    const html = render("/command-centre");
+    const anchor = html.match(/<a[^>]*aria-current="page"[^>]*>/);
+    expect(anchor).not.toBeNull();
+    expect(anchor![0]).toContain("bg-brand-navy");
+    expect(anchor![0]).toContain("text-text-inverse");
+    // Exactly one navy pill.
+    expect(html.match(/bg-brand-navy/g)).toHaveLength(1);
+  });
+
   it("nested job paths keep Jobs active; templates route activates ITP templates", () => {
     expect(activeLabel(render("/v2/jobs/j1/itps"))).toBe("Jobs");
     expect(activeLabel(render("/itp-templates"))).toBe("ITP templates");
   });
 
-  it("the Defects register (#414) sits in the Jobs group and activates on /defects", () => {
+  it("the Defects register (#414) activates on /defects", () => {
     const html = render("/command-centre");
     expect(html.match(/href="\/defects"/g)).toHaveLength(1);
     expect(activeLabel(render("/defects"))).toBe("Defects");
@@ -79,13 +101,13 @@ describe("AdminSidebar (#187)", () => {
     expect(activeLabel(render("/defects/anything"))).toBe("Defects");
   });
 
-  it("Reports (#316) sits in the Company group and activates on /reports", () => {
+  it("Reports (#316) renders once and activates on /reports", () => {
     const html = render("/command-centre");
     expect(html.match(/href="\/reports"/g)).toHaveLength(1);
     expect(activeLabel(render("/reports"))).toBe("Reports");
   });
 
-  it("Quotes (#183) sits in the Jobs group and stays active into the builder", () => {
+  it("Quotes (#183) stays active into the builder", () => {
     const html = render("/command-centre");
     expect(html.match(/href="\/v2\/quotes"/g)).toHaveLength(1);
     expect(activeLabel(render("/v2/quotes"))).toBe("Quotes");
@@ -95,38 +117,20 @@ describe("AdminSidebar (#187)", () => {
     expect(activeLabel(render("/v2/jobs/j1"))).toBe("Jobs");
   });
 
-  it("#760: hides owner-disabled features and drops an emptied group", () => {
-    // Owner turned Reports (whole Company group) + Gear off.
+  it("#760: hides owner-disabled features", () => {
+    // Owner turned Reports + Gear off.
     const html = render("/command-centre", ["/reports", "/gear"]);
     expect(html).not.toContain('href="/reports"');
     expect(html).not.toContain('href="/gear"');
-    expect(html).not.toContain("Company"); // group emptied → gone
     // The rest of the IA is intact.
     expect(html).toContain('href="/v2/jobs"');
-    expect(html).toContain("Employees"); // People & gear keeps Employees
+    expect(html).toContain("Employees");
     expect(html).toContain("Command centre");
   });
 
-  it("the footer carries a single Settings link to the /settings hub (#222), not a nav-group item", () => {
+  it("carries no Settings or sign-out — those moved to the top bar's right cluster", () => {
     const html = render("/command-centre");
-    // Present, links to the hub, and is a real <Link> (not a UC span).
-    expect(html).toContain(">Settings<");
-    expect(html.match(/href="\/settings"/g)).toHaveLength(1);
-    // The hub replaced the two specific footer links — the sidebar footer is a
-    // single Settings entry again; the hub itself links on to those pages.
-    expect(html).not.toContain('href="/settings/notifications"');
-    expect(html).not.toContain('href="/settings/task-rules"');
-    // It lives next to sign-out in the footer — sign-out is still rendered.
-    expect(html).toContain("Sign out");
-    // The footer link stays active across the whole /settings subtree
-    // (longest-prefix: /settings, /settings/notifications, /settings/task-rules).
-    // React SSR emits aria-current before href on the same anchor, so assert
-    // both are present on the one <a> (match up to the next tag close).
-    for (const path of ["/settings", "/settings/notifications", "/settings/task-rules"]) {
-      const onSettings = render(path);
-      const anchor = onSettings.match(/<a[^>]*href="\/settings"[^>]*>/);
-      expect(anchor, `expected a Settings anchor when on ${path}`).not.toBeNull();
-      expect(anchor![0]).toContain('aria-current="page"');
-    }
+    expect(html).not.toContain('href="/settings"');
+    expect(html).not.toContain("Sign out");
   });
 });

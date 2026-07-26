@@ -34,7 +34,7 @@ import type { FlagKey } from "../../../api/_lib/feature-flags";
  *
  * Keep this list aligned with
  * docs/rebuild-audit/13-ui-information-architecture.md
- * §"BuhlOS Admin information architecture > Left sidebar sections" —
+ * §"BuhlOS Admin information architecture > Primary nav sections (top nav)" —
  * that doc is the source of truth for the IA.
  *
  * NOT in this list (by design, so the palette adds them explicitly):
