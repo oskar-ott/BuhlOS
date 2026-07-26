@@ -154,6 +154,13 @@ const REQUIRED_SOURCES = [
   'src/app/phil/hours/page.tsx',
   'src/app/phil/gear/page.tsx',
   'src/app/v2/phil/page.tsx',
+  // Client portal (#271 / Epic 16) — its own surface (PortalShell), neither
+  // AdminShell nor PhilShell. Not walked by check-shell-contract's DOMAINS
+  // (which cover only the admin + Phil roots), so its pages + shell are
+  // guarded here by required-source presence.
+  'src/app/portal/page.tsx',
+  'src/app/portal/jobs/[jobId]/page.tsx',
+  'src/components/portal/PortalShell.tsx',
   // Shell components (their markers are enforced by check-shell-contract.js).
   'src/components/admin/AdminShell.tsx',
   'src/components/admin/AdminSidebar.tsx',

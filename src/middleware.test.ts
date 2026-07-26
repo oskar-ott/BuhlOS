@@ -85,6 +85,8 @@ describe("middleware — unauthenticated access to a gated route → /v2/login?n
     "/v2/jobs",
     "/v2/jobs/abc123/builder",
     "/v2/phil",
+    "/portal",
+    "/portal/jobs/j_abc123",
     "/phil/my-day",
     "/phil/hours",
     "/phil/gear",
@@ -160,6 +162,28 @@ describe("middleware — /v2/jobs admin-review surface (admin OR leading hand)",
   it("redirects a field worker off /v2/jobs to their Phil home", () => {
     const target = redirectTarget(middleware(request("/v2/jobs", { role: "tradie" })));
     expect(target?.pathname).toBe("/phil/my-day");
+  });
+});
+
+describe("middleware — /portal client portal (#271, client role only)", () => {
+  it.each(["/portal", "/portal/jobs/j_abc123"])("lets a client through %s", (pathname) => {
+    expect(isPassThrough(middleware(request(pathname, { role: "client" })))).toBe(true);
+  });
+
+  it("redirects an admin off /portal to their Command Centre", () => {
+    const target = redirectTarget(middleware(request("/portal", { role: "admin" })));
+    expect(target?.pathname).toBe("/command-centre");
+  });
+
+  it("redirects a field worker off /portal to their Phil home", () => {
+    const target = redirectTarget(middleware(request("/portal", { role: "tradie" })));
+    expect(target?.pathname).toBe("/phil/my-day");
+  });
+
+  it("sends an unauthenticated /portal request to /v2/login?next=/portal", () => {
+    const target = redirectTarget(middleware(request("/portal")));
+    expect(target?.pathname).toBe("/v2/login");
+    expect(target?.next).toBe("/portal");
   });
 });
 
