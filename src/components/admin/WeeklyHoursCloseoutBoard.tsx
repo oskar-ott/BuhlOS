@@ -2,6 +2,9 @@
 
 import { useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
+import type { Route } from "next";
+import { ArrowLeft, ArrowRight, Play } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/Button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
@@ -9,18 +12,16 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { Modal } from "@/components/ui/Modal";
 import { Pill } from "@/components/ui/Pill";
 import { RefreshButton } from "@/components/ui/RefreshButton";
+import { pctWidthClass } from "@/components/admin/pct-width";
 import { timesheetsClient } from "@/domains/timesheets/client";
 import { requestLeave, clearLeave } from "@/domains/timesheets/client";
-import { formatHoursLabel, otSplitLabel } from "@/domains/timesheets/format";
+import { formatDateLabel, formatHoursLabel, otSplitLabel } from "@/domains/timesheets/format";
 import {
-  readinessLabel,
   submittedWeekSelection,
   weeklyDayStatusLabel,
   type WeeklyHoursCloseout,
   type WeeklyHoursDay,
   type WeeklyWorkerHours,
-  type WorkerWeekReadiness,
-  type WeeklyDayStatus,
 } from "@/domains/timesheets/weekly-closeout";
 import {
   buildPayRun,
@@ -29,36 +30,35 @@ import {
   type StripTone,
 } from "@/domains/timesheets/pay-run";
 import { WeekShapeStrip, WeekShapeLegend } from "@/components/admin/WeekShapeStrip";
-
-/** Job-split chip dot palette — a small fixed set of brand-token classes,
- *  indexed by the chip's position so each job gets a stable colour without an
- *  inline style (the repo bans the `style` attribute, so the mockup's per-dot
- *  inline colours are mapped to token classes here). */
-const SPLIT_DOT_CLASSES = [
-  "bg-brand-navy",
-  "bg-state-success",
-  "bg-accent-yellow",
-  "bg-state-info",
-  "bg-state-danger",
-] as const;
-
-function splitDotClass(index: number): string {
-  return SPLIT_DOT_CLASSES[index % SPLIT_DOT_CLASSES.length]!;
-}
+import { WeeklyCloseoutWizard } from "@/components/admin/WeeklyCloseoutWizard";
 
 /**
- * The interactive part of /hours/weekly. The server component fetches one
- * week of /api/time-entries-overview, derives the closeout model
- * (buildWeeklyHoursCloseout) and passes it in; this component renders the
- * decision-first board and fires the SAME approve / reject endpoints the
- * approvals queue uses (timesheetsClient) — no second status-transition
- * implementation. After every action it refreshes the route so the model is
- * rebuilt from persisted state, never locally guessed.
+ * The interactive part of /hours/weekly (desktop tree) — lean-reset redesign.
+ * The server component fetches one week of /api/time-entries-overview, derives
+ * the closeout model (buildWeeklyHoursCloseout) and passes it in; this
+ * component renders the design's This-week surface — the "Week of" card with
+ * the yellow "Start weekly closeout" wizard trigger, one card per worker
+ * (week total + status chip + the seven-day strip + in-place approve/reject on
+ * each submitted day) and the pay-period pointer — and fires the SAME
+ * approve / reject endpoints the approvals queue uses (timesheetsClient) — no
+ * second status-transition implementation. After every action it refreshes the
+ * route so the model is rebuilt from persisted state, never locally guessed.
  *
  * Lives in src/components/admin/ (not next to the page) for the same
  * Next.js 15.5 React Client Manifest bug that bit /hours/approvals — see
  * HoursApprovalsQueue.tsx for the digest.
  */
+
+const HOURS_WEEKLY: Route = "/hours/weekly" as Route;
+const HOURS_PERIOD: Route = "/hours/period" as Route;
+
+/** Week navigation for the "Week of" card — `?week=` values, sacred URLs. */
+export interface WeeklyBoardWeekNav {
+  prevWeek: string;
+  nextWeek: string;
+  currentWeek: string;
+  isCurrentWeek: boolean;
+}
 
 interface WeeklyHoursCloseoutBoardProps {
   closeout: WeeklyHoursCloseout;
@@ -66,6 +66,8 @@ interface WeeklyHoursCloseoutBoardProps {
   /** True when the viewer can undo (reopen is admin-tier; leading hands
    *  approve but cannot reopen, so they never see a button that would 403). */
   canUndo?: boolean;
+  /** Week arrows for the "Week of" card; omitted in tests. */
+  weekNav?: WeeklyBoardWeekNav;
 }
 
 type ActionState =
@@ -75,7 +77,7 @@ type ActionState =
   | { kind: "success"; label: string }
   | { kind: "error"; message: string };
 
-/** Result of one "Approve week" call — per-day truth, never a rollup lie. */
+/** Result of one "Approve all N days" call — per-day truth, never a rollup lie. */
 interface BulkOutcome {
   workerName: string;
   approvedCount: number;
@@ -84,30 +86,11 @@ interface BulkOutcome {
   undo: Array<{ userId: string; date: string }>;
 }
 
-const READINESS_TONE: Record<WorkerWeekReadiness, "info" | "warning" | "success" | "danger"> = {
-  "payroll-ready": "success",
-  "needs-review": "info",
-  "needs-worker": "danger",
-  "missing-hours": "warning",
-};
-
-const DAY_TONE: Record<WeeklyDayStatus, "neutral" | "info" | "success" | "danger" | "warning"> = {
-  approved: "success",
-  submitted: "info",
-  rejected: "danger",
-  draft: "warning",
-  missing: "warning",
-  leave: "info",
-  holiday: "neutral",
-  future: "neutral",
-  "not-required": "neutral",
-};
-
 function dayKey(workerId: string, date: string): string {
   return `${workerId}:${date}`;
 }
 
-/** "Mon 8" — board row label, UTC-parsed like the Phil strip. */
+/** "Mon 8" — board row label, UTC-parsed like the field-app strip. */
 function dayLabel(day: WeeklyHoursDay): string {
   const num = new Date(day.date + "T00:00:00Z").toLocaleDateString("en-AU", {
     day: "numeric",
@@ -116,10 +99,31 @@ function dayLabel(day: WeeklyHoursDay): string {
   return `${day.weekday} ${num}`;
 }
 
+/** The replica's per-worker status chip: Ready / Sent back / N to approve /
+ *  Missing hours — sent-back outranks the approve count (the office caused it). */
+function workerStatusChip(worker: WeeklyWorkerHours): {
+  tone: "success" | "danger" | "info" | "warning";
+  label: string;
+} {
+  if (worker.readiness === "payroll-ready") return { tone: "success", label: "Ready" };
+  if (worker.rejectedCount > 0) return { tone: "danger", label: "Sent back" };
+  if (worker.submittedCount > 0)
+    return { tone: "info", label: `${worker.submittedCount} to approve` };
+  if (worker.missingCount > 0) return { tone: "warning", label: "Missing hours" };
+  // Remaining open state is a draft — waiting on the worker to submit.
+  return { tone: "warning", label: "Waiting for worker" };
+}
+
+/** The replica's bulk label: "Approve this day" / "Approve all N days". */
+function bulkApproveLabel(submittedCount: number): string {
+  return submittedCount === 1 ? "Approve this day" : `Approve all ${submittedCount} days`;
+}
+
 export function WeeklyHoursCloseoutBoard({
   closeout,
   fetchError,
   canUndo = false,
+  weekNav,
 }: WeeklyHoursCloseoutBoardProps) {
   const router = useRouter();
   const payRun = buildPayRun(closeout);
@@ -127,11 +131,12 @@ export function WeeklyHoursCloseoutBoard({
   const [bulk, setBulk] = useState<BulkOutcome | null>(null);
   const [bulkBusyWorker, setBulkBusyWorker] = useState<string | null>(null);
   // "Approve all clean" runs across workers, so it is tracked separately from
-  // the per-worker "Approve week" busy flag.
+  // the per-worker bulk busy flag.
   const [cleanSweepBusy, setCleanSweepBusy] = useState(false);
   const [undoBusy, setUndoBusy] = useState(false);
   // Monotonic id so a stale 30s timer never clears a NEWER bulk result.
   const bulkSeqRef = useRef(0);
+  const [wizardOpen, setWizardOpen] = useState(false);
   const [markTarget, setMarkTarget] = useState<{
     worker: WeeklyWorkerHours;
     day: WeeklyHoursDay;
@@ -154,6 +159,8 @@ export function WeeklyHoursCloseoutBoard({
   const [reopenBlock, setReopenBlock] = useState<string | null>(null);
   const [reopenBusy, setReopenBusy] = useState(false);
   const [, startTransition] = useTransition();
+
+  const weekLabel = `${formatDateLabel(closeout.weekStart)} – ${formatDateLabel(closeout.weekEnd)}`;
 
   // Distinct strip tones present in the run — drives the legend (we only show
   // legend entries for states that actually appear, never a key for a tone the
@@ -244,7 +251,7 @@ export function WeeklyHoursCloseoutBoard({
    * "Approve all clean" — one bulk call for every submitted day of every
    * CLEAN week (workers whose only open state is pending-approval). Flagged
    * weeks (rejected / draft / missing) are never swept; they need a look. Same
-   * endpoint and outcome surface as the per-worker "Approve week".
+   * endpoint and outcome surface as the per-worker bulk approve.
    */
   async function approveAllClean() {
     const entries = [...payRun.cleanApproval];
@@ -433,12 +440,127 @@ export function WeeklyHoursCloseoutBoard({
         </Card>
       ) : null}
 
-      <PayRunHero
-        closeout={closeout}
-        payRun={payRun}
-        cleanSweepBusy={cleanSweepBusy}
-        onApproveAllClean={approveAllClean}
-      />
+      {/* ── "Week of" card — the design's header: range + nav, the yellow
+             wizard trigger, the explainer, and the run's progress + the
+             always-safe clean sweep (kept behaviour from the old hero). */}
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <CardTitle>Week of</CardTitle>
+            <CardDescription className="mt-1">{weekLabel}</CardDescription>
+          </div>
+          <div className="flex items-center gap-2">
+            {weekNav ? (
+              <div className="flex items-center gap-1">
+                <WeekNavLink
+                  week={weekNav.prevWeek}
+                  label="Previous week"
+                  icon={<ArrowLeft aria-hidden="true" className="h-4 w-4" />}
+                />
+                {!weekNav.isCurrentWeek ? (
+                  <Link
+                    href={{ pathname: HOURS_WEEKLY, query: { week: weekNav.currentWeek } }}
+                    className="rounded-card border border-border px-3 py-2 text-xs font-medium text-text hover:border-brand-navy"
+                  >
+                    This week
+                  </Link>
+                ) : null}
+                <WeekNavLink
+                  week={weekNav.nextWeek}
+                  label="Next week"
+                  icon={<ArrowRight aria-hidden="true" className="h-4 w-4" />}
+                />
+              </div>
+            ) : null}
+            <button
+              type="button"
+              data-testid="start-weekly-closeout"
+              disabled={closeout.workers.length === 0}
+              onClick={() => setWizardOpen(true)}
+              className="inline-flex h-10 items-center gap-2 rounded-card bg-accent-yellow px-4 font-display text-sm font-bold text-brand-navy shadow-card hover:brightness-95 active:translate-y-px disabled:opacity-50 disabled:hover:brightness-100"
+            >
+              <Play aria-hidden="true" className="h-4 w-4 fill-current" />
+              Start weekly closeout
+            </button>
+          </div>
+        </div>
+        <CardDescription className="mt-3">
+          Hours are approved once a week, here. Submitted days sit under each
+          worker — approve them in place, or reject with a reason and the day
+          bounces back to that worker&rsquo;s phone.
+        </CardDescription>
+
+        {payRun.hero.crewCount > 0 ? (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-text-muted">
+              <span>
+                <b className="font-semibold text-text tabular-nums">
+                  {payRun.hero.loggedHoursShort}h
+                </b>{" "}
+                logged
+              </span>
+              {payRun.hero.labourLabel ? (
+                <span>
+                  <span aria-hidden="true">· </span>
+                  <b className="font-semibold text-text tabular-nums">
+                    {payRun.hero.labourLabel}
+                  </b>{" "}
+                  labour
+                </span>
+              ) : null}
+              <span>
+                <span aria-hidden="true">· </span>
+                <b className="font-semibold text-text tabular-nums">{payRun.hero.crewCount}</b>{" "}
+                {payRun.hero.crewCount === 1 ? "worker" : "crew"}
+              </span>
+              {payRun.hero.needLookCount > 0 ? (
+                <span className="text-state-danger">
+                  <span aria-hidden="true">· </span>
+                  <b className="font-semibold tabular-nums">{payRun.hero.needLookCount}</b> need a
+                  look
+                </span>
+              ) : null}
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="w-40 space-y-1">
+                <div
+                  className="h-1.5 w-full overflow-hidden rounded-pill bg-surface-subtle"
+                  role="progressbar"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={payRun.hero.progressPct}
+                  aria-label="Workers approved this week"
+                >
+                  <div
+                    aria-hidden="true"
+                    className={cn(
+                      "h-full rounded-pill bg-accent-yellow transition-[width]",
+                      pctWidthClass(payRun.hero.readyCount, payRun.hero.crewCount),
+                    )}
+                  />
+                </div>
+                <p className="font-mono text-[10px] uppercase tracking-widest text-text-muted">
+                  {payRun.hero.readyCount} of {payRun.hero.crewCount} approved
+                </p>
+              </div>
+              {payRun.hero.allReady ? (
+                <Pill tone="success">All approved</Pill>
+              ) : payRun.cleanWorkerCount > 0 ? (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={approveAllClean}
+                  disabled={cleanSweepBusy}
+                >
+                  {cleanSweepBusy
+                    ? "Approving clean weeks…"
+                    : `Approve all clean · ${payRun.cleanWorkerCount}`}
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+      </Card>
 
       <ActionFeedback state={action} />
 
@@ -475,11 +597,10 @@ export function WeeklyHoursCloseoutBoard({
         />
       ) : (
         <>
-          {/* §5 mockup `hwk-list card` — one dense row per worker per week, the
-              flagged ones first (the model already sorts needs-action → ready).
-              Each row shows the seven-day NUMBER strip, the weekly total + labour
-              $, and a per-worker action; flagged weeks expand the reasons + the
-              per-day approve / reject controls. */}
+          {/* One card per worker per week — flagged ones first (the model
+              already sorts needs-action → ready). Name + week total + status
+              chip, the Mon–Sun strip, then the submitted days with in-place
+              Approve / Reject and the bulk "Approve all N days". */}
           <Card className="divide-y divide-border p-0">
             {closeout.workers.map((w) => (
               <WorkerRow
@@ -509,14 +630,69 @@ export function WeeklyHoursCloseoutBoard({
               <WeekShapeLegend tones={stripTones} />
             </div>
           ) : null}
-
-          <p className="text-xs text-text-muted">
-            Approving a week sends it to the payroll export below. Workers can
-            still see their hours in the field app; only the office approves. Rejecting a
-            day bounces it back to the worker on their phone with your reason.
-          </p>
         </>
       )}
+
+      {/* ── Pay-period pointer — the design's "Payroll export" card. The
+             committed run itself lives on the Pay period tab (and the batch
+             panel); this card only says whether the week is clear to roll up. */}
+      <Card>
+        <CardTitle>Payroll export</CardTitle>
+        <CardDescription className="mt-1.5">
+          Once every worker&rsquo;s week is approved, roll the period up for
+          payroll on the Pay period tab.{" "}
+          {closeout.workers.length === 0 ? null : closeout.summary.payrollReady ? (
+            <span className="font-semibold text-emerald-700">
+              This week is fully approved.
+            </span>
+          ) : (
+            <span className="text-amber-900">
+              {closeout.summary.workersNeedAction}{" "}
+              {closeout.summary.workersNeedAction === 1 ? "worker still needs" : "workers still need"}{" "}
+              a decision before payroll.
+            </span>
+          )}
+        </CardDescription>
+        {closeout.summary.approvedHours > 0 ? (
+          <p className="mt-2 text-sm text-text-muted">
+            <span className="font-display font-semibold text-text tabular-nums">
+              {formatHoursLabel(closeout.summary.approvedHours)}
+            </span>{" "}
+            approved so far
+            {closeout.approvedByJob.length > 0 ? (
+              <span>
+                {" · "}
+                {closeout.approvedByJob
+                  .map((j) => `${j.jobName} ${formatHoursLabel(j.hours)}`)
+                  .join(" · ")}
+              </span>
+            ) : null}
+          </p>
+        ) : null}
+        <div className="mt-3.5">
+          <Link
+            href={HOURS_PERIOD}
+            className="inline-flex items-center rounded-card border border-border px-4 py-2 text-sm font-semibold text-text hover:border-brand-navy"
+          >
+            Open pay period →
+          </Link>
+        </div>
+      </Card>
+
+      <p className="text-xs text-text-muted">
+        Approving a week sends it to the payroll rollup. Workers can still see
+        their hours in the field app; only the office approves. Rejecting a day
+        bounces it back to the worker on their phone with your reason.
+      </p>
+
+      {wizardOpen ? (
+        <WeeklyCloseoutWizard
+          closeout={closeout}
+          weekLabel={weekLabel}
+          canUndo={canUndo}
+          onClose={() => setWizardOpen(false)}
+        />
+      ) : null}
 
       <Modal
         open={rejectTarget !== null}
@@ -702,207 +878,28 @@ export function WeeklyHoursCloseoutBoard({
   );
 }
 
-/**
- * Progress-bar fill width as a STATIC Tailwind class (no inline style — the
- * repo bans the `style` attribute). Rounded to the nearest 10% bucket so the
- * class name is statically resolvable; the precise "X of Y" count sits beside
- * the bar, so this approximation never misleads. Mirrors the approach in
- * OnboardingProgress.
- */
-function progressFillClass(pct: number): string {
-  const clamped = Math.max(0, Math.min(100, Math.round(pct)));
-  if (clamped <= 0) return "w-0";
-  if (clamped >= 100) return "w-full";
-  const bucket = Math.round(clamped / 10) * 10;
-  switch (bucket) {
-    case 10:
-      return "w-[10%]";
-    case 20:
-      return "w-1/5";
-    case 30:
-      return "w-[30%]";
-    case 40:
-      return "w-2/5";
-    case 50:
-      return "w-1/2";
-    case 60:
-      return "w-3/5";
-    case 70:
-      return "w-[70%]";
-    case 80:
-      return "w-4/5";
-    case 90:
-      return "w-[90%]";
-    default:
-      return "w-1/2";
-  }
-}
-
-/**
- * The pay-run hero (§5 mockup `hrs-payday`) — the office's "this week's run"
- * banner. Eyebrow "Pay run · {payday}", a "{Week} ready to approve" headline,
- * a meta line — "{totalHrs}h logged · ${labour} labour · {crew} crew ·
- * {needLook} need a look" — a progress bar "{approved} of {total} approved",
- * and the one always-safe bulk action: "Approve all clean · {n}". Flagged
- * weeks (rejected / draft / missing) are excluded from the sweep.
- *
- * MONEY: /hours is admin-tier, so the §5 labour figure is correct here. It sums
- * ONLY rated workers; when NO worker has a cost rate (e.g. a leading-hand
- * viewer, or rates simply unset) the labour cell is omitted — never "$0".
- */
-function PayRunHero({
-  closeout,
-  payRun,
-  cleanSweepBusy,
-  onApproveAllClean,
+function WeekNavLink({
+  week,
+  label,
+  icon,
 }: {
-  closeout: WeeklyHoursCloseout;
-  payRun: ReturnType<typeof buildPayRun>;
-  cleanSweepBusy: boolean;
-  onApproveAllClean: () => void;
-}): ReactNode {
-  const s = closeout.summary;
-  const h = payRun.hero;
-  const cleanCount = payRun.cleanWorkerCount;
-
+  week: string;
+  label: string;
+  icon: ReactNode;
+}) {
   return (
-    <Card className="space-y-4 border-l-4 border-l-brand-navy">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        {/* Left — eyebrow, headline, the meta line. */}
-        <div className="min-w-0 space-y-1">
-          <p className="font-display text-xs uppercase tracking-widest text-text-muted">
-            Pay run · {h.rangeLabel}
-          </p>
-          <CardTitle>
-            {h.crewCount === 0
-              ? "No hours to approve this week"
-              : h.allReady
-                ? "This week is approved"
-                : `${h.crewCount} ${h.crewCount === 1 ? "week" : "weeks"} ready to approve`}
-          </CardTitle>
-          {h.crewCount > 0 ? (
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-text-muted">
-              <span>
-                <b className="font-semibold text-text tabular-nums">{h.loggedHoursShort}h</b>{" "}
-                logged
-              </span>
-              {h.labourLabel ? (
-                <span>
-                  <span aria-hidden="true">· </span>
-                  <b className="font-semibold text-text tabular-nums">{h.labourLabel}</b> labour
-                </span>
-              ) : null}
-              <span>
-                <span aria-hidden="true">· </span>
-                <b className="font-semibold text-text tabular-nums">{h.crewCount}</b>{" "}
-                {h.crewCount === 1 ? "worker" : "crew"}
-              </span>
-              <span className={h.needLookCount > 0 ? "text-state-danger" : undefined}>
-                <span aria-hidden="true">· </span>
-                <b
-                  className={cn(
-                    "font-semibold tabular-nums",
-                    h.needLookCount > 0 ? "text-state-danger" : "text-text",
-                  )}
-                >
-                  {h.needLookCount}
-                </b>{" "}
-                need a look
-              </span>
-            </div>
-          ) : null}
-        </div>
-
-        {/* Right — progress + the primary sweep action. */}
-        <div className="flex shrink-0 flex-col gap-2 sm:items-end">
-          <div className="w-full space-y-1 sm:w-52">
-            <div
-              className="h-1.5 w-full overflow-hidden rounded-pill bg-surface-subtle"
-              role="progressbar"
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-valuenow={h.progressPct}
-              aria-label="Workers approved this week"
-            >
-              <div
-                aria-hidden="true"
-                className={cn(
-                  "h-full rounded-pill bg-accent-yellow transition-[width]",
-                  progressFillClass(h.progressPct),
-                )}
-              />
-            </div>
-            <p className="font-mono text-[10px] uppercase tracking-widest text-text-muted">
-              {`${h.readyCount} of ${h.crewCount} approved`}
-            </p>
-          </div>
-          {h.allReady ? (
-            <Button disabled>All approved</Button>
-          ) : cleanCount > 0 ? (
-            <Button onClick={onApproveAllClean} disabled={cleanSweepBusy}>
-              {cleanSweepBusy
-                ? "Approving clean weeks…"
-                : `Approve all clean · ${cleanCount}`}
-            </Button>
-          ) : h.crewCount > 0 ? (
-            <Button disabled>Clean weeks done — clear the flags</Button>
-          ) : null}
-        </div>
-      </div>
-
-      <p className="border-t border-border pt-3 text-sm text-text-muted">
-        <span className="font-display text-lg font-semibold text-text tabular-nums">
-          {formatHoursLabel(s.approvedHours)}
-        </span>{" "}
-        approved so far
-        {closeout.approvedByJob.length > 0 ? (
-          <span>
-            {" · "}
-            {closeout.approvedByJob
-              .map((j) => `${j.jobName} ${formatHoursLabel(j.hours)}`)
-              .join(" · ")}
-          </span>
-        ) : null}
-      </p>
-    </Card>
-  );
-}
-
-/** Initials avatar — token-coloured, tints amber for a flagged week and green
- *  for a ready one (the mockup's `Avatar tone`). No image dependency. */
-function WorkerAvatar({
-  name,
-  tone,
-}: {
-  name: string;
-  tone: "ready" | "look" | "neutral";
-}): ReactNode {
-  const initials = name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((p) => p[0]!.toUpperCase())
-    .join("");
-  const toneClass =
-    tone === "ready"
-      ? "bg-emerald-100 text-emerald-800"
-      : tone === "look"
-        ? "bg-amber-100 text-amber-900"
-        : "bg-surface-subtle text-text-muted";
-  return (
-    <span
-      aria-hidden="true"
-      className={cn(
-        "flex h-9 w-9 shrink-0 items-center justify-center rounded-full font-display text-xs font-semibold",
-        toneClass,
-      )}
+    <Link
+      href={{ pathname: HOURS_WEEKLY, query: { week } }}
+      aria-label={label}
+      title={label}
+      className="rounded-card border border-border p-2 text-text-muted hover:border-brand-navy hover:text-text"
     >
-      {initials || "—"}
-    </span>
+      {icon}
+    </Link>
   );
 }
 
-/** The worker's sub-line: "{N jobs|single job} · {role}" — the mockup `hwk-sub`. */
+/** The worker's sub-line: "{N jobs|single job} · {role}". */
 function workerSubLine(worker: WeeklyWorkerHours): string {
   const jobs = worker.jobBreakdown;
   const jobPart =
@@ -915,17 +912,16 @@ function workerSubLine(worker: WeeklyWorkerHours): string {
 }
 
 /**
- * One worker's week — the §5 mockup `hwk` row. A four-part main line: who
- * (avatar + name + sub), the seven-day NUMBER strip, the weekly total + labour
- * $, and a per-worker action. A clean week shows "Approve week"; a flagged
- * ("needs a look") week shows a pill + the reason lines + "Reject…" +
- * "Approve anyway". A week spanning >1 job shows "Split this week" + a chip per
- * job. Flagged weeks also expand the per-day approve / reject controls (the
- * day-level decisions the office still makes).
- *
- * The "Reject…" path is the EXISTING reject-with-reason flow — it pushes the
- * reason to the worker on Phil. There is no separate non-rejecting "ask"
- * backend, so the row deliberately does not fake a two-way query thread.
+ * One worker's week — the design's per-worker card. Header: name + sub-line
+ * on the left; week total, labour $ (admin data — "—" when unrated, never a
+ * fake $0) and the status chip on the right. Below: the Mon–Sun strip, the
+ * job-split chips (>1 job), the honest "needs a look" reasons, then the
+ * submitted days in an inset box with in-place Approve / Reject per day and
+ * the bulk "Approve this day"/"Approve all N days" — and any other day that
+ * still needs a hand (rejected → Reopen, missing → Mark not worked, leave →
+ * Undo). The "Reject" path is the EXISTING reject-with-reason flow — it
+ * pushes the reason to the worker's phone; there is no separate non-rejecting
+ * "ask" backend, so the row deliberately does not fake a two-way query thread.
  */
 function WorkerRow({
   worker,
@@ -950,79 +946,61 @@ function WorkerRow({
   onMarkNotWorked: (worker: WeeklyWorkerHours, day: WeeklyHoursDay) => void;
   onUndoLeave: (worker: WeeklyWorkerHours, day: WeeklyHoursDay) => void;
 }): ReactNode {
-  const ready = worker.readiness === "payroll-ready";
+  const chip = workerStatusChip(worker);
   const needsLook = worker.needsLookReasons.length > 0;
-  const tone: "ready" | "look" | "neutral" = ready ? "ready" : needsLook ? "look" : "neutral";
   const split = worker.jobBreakdown.length > 1;
+  const labour = wholeDollarsFromCents(worker.labourCents);
 
   // Weekend rows only earn their place when something real happened on them.
   const dayRows = worker.days.filter(
     (d) => !(["Sat", "Sun"].includes(d.weekday) && d.entryId === null && d.status !== "missing"),
   );
-  // A flagged week with day-level decisions to make expands its per-day rows.
-  const showDayRows = needsLook || worker.submittedCount > 0;
-
-  const rowBg = ready ? "bg-emerald-50/40" : needsLook ? "bg-amber-50/40" : undefined;
+  const submittedDays = dayRows.filter((d) => d.status === "submitted");
+  // Non-submitted days that still need a hand or an explanation — rendered
+  // under the inset box. Future / not-required rows carry no decision meaning
+  // and stay off the card entirely (the strip already shows them as "·").
+  const attentionDays = dayRows.filter(
+    (d) =>
+      d.status === "rejected" ||
+      d.status === "draft" ||
+      d.status === "missing" ||
+      d.status === "leave" ||
+      (d.status === "approved" && canReopen && d.entryId !== null),
+  );
+  // A flagged week (or one with decisions to make) expands its day detail.
+  const expanded = needsLook || worker.submittedCount > 0;
 
   return (
-    <div className={cn("px-4 py-3.5", rowBg)}>
-      {/* Main line — who · strip · total+$ · action. */}
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:gap-5">
-        {/* Who. */}
-        <div className="flex min-w-0 items-center gap-3 lg:w-56 lg:shrink-0">
-          <WorkerAvatar name={worker.workerName} tone={tone} />
-          <div className="min-w-0">
-            <div className="truncate font-display text-sm font-bold text-text">
-              {worker.workerName}
-            </div>
-            <div className="truncate font-mono text-[10px] uppercase tracking-wide text-text-muted">
-              {workerSubLine(worker)}
-            </div>
+    <div className="flex flex-col gap-2.5 px-4 py-3.5">
+      {/* Header line — who · total · chip. */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="truncate font-display text-[15px] font-semibold text-text">
+            {worker.workerName}
+          </div>
+          <div className="truncate font-mono text-[10px] uppercase tracking-wide text-text-muted">
+            {workerSubLine(worker)}
           </div>
         </div>
-
-        {/* Seven-day NUMBER strip. */}
-        <div className={cn("lg:flex-1", ready ? "opacity-60" : undefined)}>
-          <WeekShapeStrip cells={workerStrip(worker)} workerName={worker.workerName} />
+        <div className="flex shrink-0 items-center gap-2.5">
+          <span className="font-mono text-[11px] text-text-muted tabular-nums">
+            {labour ?? "—"}
+          </span>
+          <span className="font-display text-[15px] font-bold text-text tabular-nums">
+            {formatHoursLabel(worker.loggedHours)}
+          </span>
+          <Pill tone={chip.tone}>{chip.label}</Pill>
         </div>
+      </div>
 
-        {/* Weekly total + labour $. */}
-        <div className="lg:w-24 lg:shrink-0 lg:text-right">
-          <div className="font-display text-xl font-bold leading-none text-text tabular-nums">
-            {worker.loggedHours}
-            <span className="ml-0.5 text-xs font-semibold text-text-muted">h</span>
-          </div>
-          <div className="mt-1 font-mono text-[11px] text-text-muted tabular-nums">
-            {wholeDollarsFromCents(worker.labourCents) ?? "—"}
-          </div>
-        </div>
-
-        {/* Per-worker action. */}
-        <div className="flex shrink-0 flex-wrap items-center gap-2 lg:w-44 lg:justify-end">
-          {ready ? (
-            <Pill tone="success">Approved</Pill>
-          ) : needsLook ? (
-            <>
-              <Pill tone={worker.rejectedCount > 0 ? "danger" : "warning"}>needs a look</Pill>
-              {worker.submittedCount > 0 ? (
-                <Button size="sm" disabled={bulkBusy} onClick={() => onApproveWeek(worker)}>
-                  {bulkBusy ? "Approving…" : "Approve anyway"}
-                </Button>
-              ) : null}
-            </>
-          ) : worker.submittedCount > 0 ? (
-            <Button size="sm" disabled={bulkBusy} onClick={() => onApproveWeek(worker)}>
-              {bulkBusy ? "Approving week…" : `Approve week (${worker.submittedCount})`}
-            </Button>
-          ) : (
-            <Pill tone={READINESS_TONE[worker.readiness]}>{readinessLabel(worker.readiness)}</Pill>
-          )}
-        </div>
+      {/* Seven-day strip, Mon → Sun. */}
+      <div className="overflow-x-auto">
+        <WeekShapeStrip cells={workerStrip(worker)} workerName={worker.workerName} />
       </div>
 
       {/* Job-split chips — only when the week spans >1 job. */}
       {split ? (
-        <div className="mt-3 flex flex-wrap items-center gap-2 pl-0 lg:pl-[3.75rem]">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="font-mono text-[10px] uppercase tracking-widest text-text-muted">
             Split this week
           </span>
@@ -1031,25 +1009,8 @@ function WorkerRow({
               key={j.jobId ?? `internal-${i}`}
               className="inline-flex items-center gap-1.5 rounded-pill border border-border bg-surface px-2.5 py-1 text-xs text-text"
             >
-              <span
-                aria-hidden="true"
-                className={cn("h-2 w-2 shrink-0 rounded-full", splitDotClass(i))}
-              />
               <span className="truncate">{j.jobName}</span>
               <b className="font-semibold tabular-nums">{j.hours}h</b>
-              {wholeDollarsFromCents(
-                worker.costRateCents != null
-                  ? Math.round(j.hours * worker.costRateCents)
-                  : null,
-              ) ? (
-                <span className="font-mono text-text-muted tabular-nums">
-                  {wholeDollarsFromCents(
-                    worker.costRateCents != null
-                      ? Math.round(j.hours * worker.costRateCents)
-                      : null,
-                  )}
-                </span>
-              ) : null}
             </span>
           ))}
         </div>
@@ -1057,7 +1018,7 @@ function WorkerRow({
 
       {/* Needs-a-look reasons — the honest "why" lines, from real signals. */}
       {needsLook ? (
-        <ul className="mt-3 space-y-1 pl-0 lg:pl-[3.75rem]">
+        <ul className="space-y-1">
           {worker.needsLookReasons.map((reason, i) => (
             <li key={i} className="flex items-start gap-2 text-xs text-text-muted">
               <span
@@ -1073,20 +1034,38 @@ function WorkerRow({
         </ul>
       ) : null}
 
-      {/* Expanded per-day controls — the day-level approve / reject / reopen /
-          mark-not-worked decisions for a flagged or pending week. */}
-      {showDayRows ? (
-        <ul className="mt-3 divide-y divide-border border-t border-border pl-0 lg:pl-[3.75rem]">
-          {dayRows.map((day) => (
+      {/* Submitted days — the design's inset decision box. */}
+      {submittedDays.length > 0 ? (
+        <div className="rounded-card border border-border bg-surface-subtle px-3 pb-2.5 pt-1">
+          {submittedDays.map((day) => (
+            <SubmittedDayRow
+              key={day.date}
+              worker={worker}
+              day={day}
+              action={action}
+              onApprove={onApprove}
+              onReject={onReject}
+            />
+          ))}
+          <div className="pt-2.5">
+            <Button size="sm" disabled={bulkBusy} onClick={() => onApproveWeek(worker)}>
+              {bulkBusy ? "Approving…" : bulkApproveLabel(worker.submittedCount)}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Other days that still need a hand — rejected / draft / missing /
+          leave (+ approved with Reopen for admins). */}
+      {expanded && attentionDays.length > 0 ? (
+        <ul className="divide-y divide-border border-t border-border">
+          {attentionDays.map((day) => (
             <li key={day.date} className="py-2.5">
-              <DayRow
+              <AttentionDayRow
                 worker={worker}
                 day={day}
-                action={action}
                 canReopen={canReopen}
-                onApprove={onApprove}
                 onReopen={onReopen}
-                onReject={onReject}
                 onMarkNotWorked={onMarkNotWorked}
                 onUndoLeave={onUndoLeave}
               />
@@ -1098,70 +1077,120 @@ function WorkerRow({
   );
 }
 
-function DayRow({
+/** One submitted day inside the inset box: date · hours (+OT split) · job
+ *  allocations · in-place Approve / Reject. */
+function SubmittedDayRow({
   worker,
   day,
   action,
-  canReopen,
   onApprove,
-  onReopen,
   onReject,
-  onMarkNotWorked,
-  onUndoLeave,
 }: {
   worker: WeeklyWorkerHours;
   day: WeeklyHoursDay;
   action: ActionState;
-  canReopen: boolean;
   onApprove: (worker: WeeklyWorkerHours, day: WeeklyHoursDay) => void;
-  onReopen: (worker: WeeklyWorkerHours, day: WeeklyHoursDay) => void;
   onReject: (worker: WeeklyWorkerHours, day: WeeklyHoursDay) => void;
-  onMarkNotWorked: (worker: WeeklyWorkerHours, day: WeeklyHoursDay) => void;
-  onUndoLeave: (worker: WeeklyWorkerHours, day: WeeklyHoursDay) => void;
 }): ReactNode {
   const key = dayKey(worker.workerId, day.date);
   const approving = action.kind === "approving" && action.key === key;
   const rejecting = action.kind === "rejecting" && action.key === key;
   const busy = approving || rejecting;
-  const quiet = day.status === "future" || day.status === "not-required";
+  const otLabel =
+    day.overtimeHours != null &&
+    day.overtimeHours > 0 &&
+    day.hours != null &&
+    day.ordinaryHours != null
+      ? otSplitLabel({
+          ordinaryHours: day.ordinaryHours,
+          overtimeHours: day.overtimeHours,
+          totalHours: day.hours,
+        })
+      : null;
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 border-b border-border py-2.5 last:border-b-0">
+      <span className="min-w-[96px] font-display text-[13.5px] font-semibold text-text">
+        {dayLabel(day)}
+      </span>
+      <span className="font-display text-[13.5px] font-bold text-text tabular-nums">
+        {day.hours != null ? formatHoursLabel(day.hours) : "—"}
+      </span>
+      {otLabel ? <span className="text-xs text-text-muted">({otLabel})</span> : null}
+      <span className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+        {day.jobLabel && day.jobLabel !== "No job" ? (
+          <span className="inline-flex items-center rounded-card border border-border bg-surface px-2 py-0.5 text-xs font-medium text-text">
+            {day.jobLabel}
+          </span>
+        ) : (
+          <Pill tone="warning">No job assigned</Pill>
+        )}
+        {day.leaveType ? (
+          <Pill tone="warning" title="Hours were logged on an approved-leave day">
+            Logged on leave
+          </Pill>
+        ) : null}
+      </span>
+      <span className="flex shrink-0 gap-2">
+        <Button size="sm" onClick={() => onApprove(worker, day)} disabled={busy}>
+          {approving ? "Approving…" : "Approve"}
+        </Button>
+        {/* Ghost-red per the replica — the solid danger button is the modal's
+            "Reject with reason" confirm. */}
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => onReject(worker, day)}
+          className="h-11 rounded-card border border-rose-200 bg-rose-50 px-3 text-sm font-semibold text-rose-800 hover:border-rose-300 disabled:opacity-60 sm:h-8"
+        >
+          {rejecting ? "Rejecting…" : "Reject"}
+        </button>
+      </span>
+      {day.note ? (
+        <p className="w-full text-xs text-text-muted">Note: {day.note}</p>
+      ) : null}
+    </div>
+  );
+}
+
+/** A non-submitted day that still needs a hand: rejected (reason + Reopen),
+ *  draft, missing (Mark not worked), leave (Undo), approved (Reopen). */
+function AttentionDayRow({
+  worker,
+  day,
+  canReopen,
+  onReopen,
+  onMarkNotWorked,
+  onUndoLeave,
+}: {
+  worker: WeeklyWorkerHours;
+  day: WeeklyHoursDay;
+  canReopen: boolean;
+  onReopen: (worker: WeeklyWorkerHours, day: WeeklyHoursDay) => void;
+  onMarkNotWorked: (worker: WeeklyWorkerHours, day: WeeklyHoursDay) => void;
+  onUndoLeave: (worker: WeeklyWorkerHours, day: WeeklyHoursDay) => void;
+}): ReactNode {
+  const DAY_TONE = {
+    approved: "success",
+    rejected: "danger",
+    draft: "warning",
+    missing: "warning",
+    leave: "info",
+  } as const;
+  const tone = DAY_TONE[day.status as keyof typeof DAY_TONE] ?? "neutral";
 
   return (
     <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto] sm:items-center">
-      <div className={quiet ? "opacity-50" : undefined}>
+      <div>
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <span className="w-14 font-medium text-text">{dayLabel(day)}</span>
-          {quiet ? (
-            <span className="text-text-muted">—</span>
-          ) : (
-            <Pill tone={DAY_TONE[day.status]}>{weeklyDayStatusLabel(day.status)}</Pill>
-          )}
+          <Pill tone={tone}>{weeklyDayStatusLabel(day.status)}</Pill>
           {day.hours != null ? (
             <span className="text-text-muted">{formatHoursLabel(day.hours)}</span>
           ) : null}
-          {/* #130: base/OT split, only when the day carries BOTH stored split
-              fields — never re-derived client-side, so the presenter's honesty
-              guard (ordinary+OT must reconcile to total) can still catch
-              garbage. ≤8h / unsplit days render byte-identical (the Phil
-              presenter applies the same `ordinaryHours != null` gate). */}
-          {day.overtimeHours != null && day.overtimeHours > 0 && day.hours != null && day.ordinaryHours != null
-            ? (() => {
-                const split = otSplitLabel({
-                  ordinaryHours: day.ordinaryHours,
-                  overtimeHours: day.overtimeHours,
-                  totalHours: day.hours,
-                });
-                return split ? (
-                  <span className="text-xs text-text-muted">({split})</span>
-                ) : null;
-              })()
-            : null}
           {day.jobLabel ? <span className="text-text-muted">· {day.jobLabel}</span> : null}
           {day.status === "leave" && day.leaveType ? (
             <span className="text-text-muted">({day.leaveType})</span>
-          ) : null}
-          {/* #137: name the holiday so the cell says WHY it isn't missing. */}
-          {day.status === "holiday" && day.holidayName ? (
-            <span className="text-text-muted">({day.holidayName})</span>
           ) : null}
           {day.status !== "leave" && day.leaveType && day.entryId ? (
             <Pill tone="warning" title="Hours were logged on an approved-leave day">
@@ -1183,18 +1212,9 @@ function DayRow({
         {day.note ? <p className="mt-1 text-xs text-text-muted">Note: {day.note}</p> : null}
       </div>
 
-      {day.status === "submitted" ? (
-        <div className="flex flex-wrap gap-2 sm:justify-end">
-          <Button size="sm" onClick={() => onApprove(worker, day)} disabled={busy}>
-            {approving ? "Approving…" : "Approve"}
-          </Button>
-          <Button size="sm" variant="danger" onClick={() => onReject(worker, day)} disabled={busy}>
-            {rejecting ? "Rejecting…" : "Reject"}
-          </Button>
-        </div>
-      ) : (day.status === "approved" || day.status === "rejected") && canReopen && day.entryId ? (
+      {(day.status === "approved" || day.status === "rejected") && canReopen && day.entryId ? (
         <div className="flex gap-2 sm:justify-end">
-          <Button size="sm" variant="ghost" onClick={() => onReopen(worker, day)} disabled={busy}>
+          <Button size="sm" variant="ghost" onClick={() => onReopen(worker, day)}>
             Reopen
           </Button>
         </div>

@@ -1,10 +1,8 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
-import { ArrowLeft, ArrowRight } from "lucide-react";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { isFlagEnabled } from "../../../../../api/_lib/feature-flags.js";
-import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { HoursTabs } from "@/components/admin/HoursTabs";
 import { WeeklyHoursCloseoutBoard } from "@/components/admin/WeeklyHoursCloseoutBoard";
 import { WeeklyHoursApprovalMobile } from "@/components/admin/WeeklyHoursApprovalMobile";
@@ -116,7 +114,7 @@ export default async function HoursWeeklyCloseoutPage({
 
   return (
     <AdminShell
-      title="Hours · weekly closeout"
+      title="Hours · this week"
       breadcrumb={
         <Link
           href="/hours"
@@ -147,46 +145,22 @@ export default async function HoursWeeklyCloseoutPage({
         />
       </div>
 
-      {/* Desktop (lg+): the dense pay-run board — the full closeout with the
-          payroll export panel. */}
-      <div className="mx-auto hidden max-w-4xl space-y-4 lg:block">
-        <Card>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <CardTitle>{isCurrentWeek ? "This week" : "Week"}</CardTitle>
-              <CardDescription className="mt-1">
-                {formatDateLabel(weekStart)} – {formatDateLabel(weekEnd)}
-              </CardDescription>
-            </div>
-            <div className="flex items-center gap-1">
-              <WeekNavLink
-                week={prevWeek}
-                label="Previous week"
-                icon={<ArrowLeft aria-hidden="true" className="h-4 w-4" />}
-              />
-              {!isCurrentWeek ? (
-                <Link
-                  href={{ pathname: "/hours/weekly", query: { week: weekStartOf(todayISO) } }}
-                  className="rounded-card border border-border px-3 py-2 text-xs font-medium text-text hover:border-brand-navy"
-                >
-                  This week
-                </Link>
-              ) : null}
-              <WeekNavLink
-                week={nextWeek}
-                label="Next week"
-                icon={<ArrowRight aria-hidden="true" className="h-4 w-4" />}
-              />
-            </div>
-          </div>
-          <CardDescription className="mt-2">
-            Daily entries roll up here for the weekly payroll closeout. Approve or
-            reject submitted days in place — rejected days bounce back to the
-            worker&rsquo;s phone with the reason.
-          </CardDescription>
-        </Card>
-
-        <WeeklyHoursCloseoutBoard closeout={closeout} fetchError={fetchError} canUndo={isAdminRole(session.role)} />
+      {/* Desktop (lg+): the This-week board (lean-reset redesign) — the
+          "Week of" card with the Start-weekly-closeout wizard, one card per
+          worker, and the pay-period pointer. The board owns the week header
+          + nav so the wizard trigger can sit inside it. */}
+      <div className="mx-auto hidden max-w-3xl space-y-4 lg:block">
+        <WeeklyHoursCloseoutBoard
+          closeout={closeout}
+          fetchError={fetchError}
+          canUndo={isAdminRole(session.role)}
+          weekNav={{
+            prevWeek,
+            nextWeek,
+            currentWeek: weekStartOf(todayISO),
+            isCurrentWeek,
+          }}
+        />
 
         {/* Committed payroll export (#126) — admin tier only; the endpoint
             itself is admin-gated, so the panel never renders for LH. */}
@@ -202,27 +176,6 @@ export default async function HoursWeeklyCloseoutPage({
         ) : null}
       </div>
     </AdminShell>
-  );
-}
-
-function WeekNavLink({
-  week,
-  label,
-  icon,
-}: {
-  week: string;
-  label: string;
-  icon: React.ReactNode;
-}) {
-  return (
-    <Link
-      href={{ pathname: "/hours/weekly", query: { week } }}
-      aria-label={label}
-      title={label}
-      className="rounded-card border border-border p-2 text-text-muted hover:border-brand-navy hover:text-text"
-    >
-      {icon}
-    </Link>
   );
 }
 

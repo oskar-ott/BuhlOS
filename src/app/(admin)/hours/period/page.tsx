@@ -21,7 +21,7 @@ import {
   weekEndOf,
   weekStartOf,
 } from "@/domains/timesheets/service";
-import { formatDateLabel } from "@/domains/timesheets/format";
+import { formatDateLabel, formatHoursLabel } from "@/domains/timesheets/format";
 import {
   buildWeeklyHoursCloseout,
   type WeeklyHoursCloseout,
@@ -318,17 +318,17 @@ export default async function HoursPeriodPage({
               />
             ) : null}
 
-            <Card className="overflow-x-auto">
+            <Card className="overflow-x-auto p-0">
               <table className="w-full min-w-[40rem] text-left text-sm">
                 <thead>
-                  <tr className="border-b border-border text-xs uppercase tracking-wide text-text-muted">
-                    <th className="px-2 py-2 font-medium">Worker</th>
-                    <th className="px-2 py-2 text-right font-medium">Approved</th>
-                    <th className="px-2 py-2 text-right font-medium">Ordinary</th>
-                    <th className="px-2 py-2 text-right font-medium">Overtime</th>
-                    <th className="px-2 py-2 text-right font-medium">Not exported</th>
-                    <th className="px-2 py-2 font-medium">Xero id</th>
-                    <th className="px-2 py-2 font-medium">Readiness</th>
+                  <tr className="border-b border-border bg-surface-subtle font-mono text-[10px] uppercase tracking-[.08em] text-text-muted">
+                    <th className="px-4 py-3 font-medium">Worker</th>
+                    <th className="px-2 py-3 text-right font-medium">Approved</th>
+                    <th className="px-2 py-3 text-right font-medium">Ord</th>
+                    <th className="px-2 py-3 text-right font-medium">OT</th>
+                    <th className="px-2 py-3 text-right font-medium">Not exp</th>
+                    <th className="px-2 py-3 font-medium">Xero</th>
+                    <th className="px-4 py-3 font-medium">Readiness</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -336,37 +336,53 @@ export default async function HoursPeriodPage({
                     const action = actions.get(w.workerId);
                     const needsAction = action?.needsAction ?? false;
                     return (
-                      <tr key={w.workerId} className="border-b border-border/60">
-                        <td className="px-2 py-2 font-medium text-text">
-                          {w.workerName}
-                          <span className="block text-xs font-normal text-text-muted">
+                      <tr key={w.workerId} className="border-b border-border/60 last:border-b-0">
+                        <td className="px-4 py-3">
+                          <span className="block font-display text-sm font-semibold text-text">
+                            {w.workerName}
+                          </span>
+                          <span className="block text-[11px] text-text-muted">
                             {w.approvedDayCount} day(s)
                           </span>
                         </td>
-                        <td className="px-2 py-2 text-right tabular-nums text-text">
-                          {w.approvedHours}
+                        <td className="px-2 py-3 text-right tabular-nums text-text">
+                          {formatHoursLabel(w.approvedHours)}
                         </td>
-                        <td className="px-2 py-2 text-right tabular-nums text-text-muted">
-                          {w.ordinaryHours}
+                        <td className="px-2 py-3 text-right tabular-nums text-text-muted">
+                          {formatHoursLabel(w.ordinaryHours)}
                         </td>
-                        <td className="px-2 py-2 text-right tabular-nums text-text-muted">
-                          {w.overtimeHours}
+                        <td className="px-2 py-3 text-right tabular-nums text-text-muted">
+                          {w.overtimeHours > 0 ? formatHoursLabel(w.overtimeHours) : "—"}
                         </td>
-                        <td className="px-2 py-2 text-right tabular-nums">
+                        <td className="px-2 py-3 text-right tabular-nums">
                           {w.unexportedApprovedHours > 0 ? (
-                            <span className="text-amber-900">{w.unexportedApprovedHours}</span>
+                            <span className="text-amber-900">
+                              {formatHoursLabel(w.unexportedApprovedHours)}
+                            </span>
                           ) : (
-                            <span className="text-text-muted">0</span>
+                            <span className="text-text-muted">0h</span>
                           )}
                         </td>
-                        <td className="px-2 py-2">
+                        <td className="px-2 py-3">
                           {w.xeroMapped ? (
-                            <span className="text-xs text-text-muted">set</span>
+                            <span className="inline-flex items-center gap-1.5 text-xs text-emerald-800">
+                              <span
+                                aria-hidden="true"
+                                className="h-2 w-2 rounded-full bg-state-success"
+                              />
+                              set
+                            </span>
                           ) : (
-                            <Pill tone="warning">No Xero id</Pill>
+                            <span className="inline-flex items-center gap-1.5 text-xs text-amber-900">
+                              <span
+                                aria-hidden="true"
+                                className="h-2 w-2 rounded-full bg-state-warning"
+                              />
+                              No Xero id
+                            </span>
                           )}
                         </td>
-                        <td className="px-2 py-2">
+                        <td className="px-4 py-3">
                           {needsAction ? (
                             <Pill tone="warning">
                               Needs action{action ? ` (${action.blockingWeeks} wk)` : ""}
@@ -390,9 +406,11 @@ export default async function HoursPeriodPage({
 
 function Metric({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-card border border-border bg-surface-subtle px-3 py-2">
+    <div className="rounded-card border border-border bg-surface-subtle px-3 py-2.5">
       <div className="text-xs text-text-muted">{label}</div>
-      <div className="mt-0.5 text-lg font-semibold tabular-nums text-text">{value}</div>
+      <div className="mt-0.5 font-display text-lg font-semibold tabular-nums text-text">
+        {formatHoursLabel(value)}
+      </div>
     </div>
   );
 }

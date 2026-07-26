@@ -14,12 +14,18 @@ interface HoursTab {
   exact?: boolean;
 }
 
+/**
+ * Lean-reset redesign: three visible tabs — Today · This week · Pay period.
+ * The Approvals ROUTE stays fully live (deep links, the Today page's
+ * "Review N pending" CTA and the mobile tab bar all still land on
+ * /hours/approvals) — it just no longer occupies a tab slot; the day-by-day
+ * queue is a drill-in from Today rather than a sibling surface.
+ */
 const TABS: ReadonlyArray<HoursTab> = [
-  { label: "Day", href: "/hours", exact: true },
-  { label: "Approvals", href: "/hours/approvals" },
+  { label: "Today", href: "/hours", exact: true },
   // `as Route` — typedRoutes' generated map is from the previous build
   // (same pattern as AdminSidebar's newer entries); validated by `next build`.
-  { label: "Weekly closeout", href: "/hours/weekly" as Route },
+  { label: "This week", href: "/hours/weekly" as Route },
   { label: "Pay period", href: "/hours/period" as Route },
 ];
 
