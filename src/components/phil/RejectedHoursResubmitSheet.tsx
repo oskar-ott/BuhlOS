@@ -18,6 +18,7 @@ import {
   resolveResubmitJob,
   resubmitFeedback,
   resubmitInitialJobId,
+  splitChangeInitialRows,
   splitResubmitInitialRows,
   type AssignableJob,
   type ResubmitJobResolution,
@@ -78,6 +79,13 @@ function reasonMessage(reason: Exclude<ResubmitJobResolution, { ok: true }>["rea
  * its consequence: the office gets the new version). Every rejected-variant
  * label and behaviour is byte-identical to before.
  *
+ * A single-allocation day can also be SPLIT across jobs from inside this flow
+ * (2026-07-26 owner-directed): the "Split across jobs" affordance — shown only
+ * to multi-job workers, mirroring LogHoursSheet's condition — swaps the form
+ * for the same split editor the split-resubmit path uses, seeded via
+ * `splitChangeInitialRows`. Submitting rides the identical split PATCH path;
+ * cancelling returns to the single-job form.
+ *
  * Attribution invariant (the #77/#80/#81 guarantee): a worker with active jobs
  * can never resubmit with `jobId: null`. The submit button is disabled and the
  * guard short-circuits unless `resolveResubmitJob` yields a real assigned job —
@@ -108,6 +116,10 @@ export function RejectedHoursResubmitSheet({
     resubmitInitialJobId(entry, assignedJobs),
   );
   const [notes, setNotes] = useState<string>(entry.notes ?? "");
+  // 2026-07-26 owner-directed: a SINGLE-allocation day can be split across
+  // jobs from inside this flow. When on, the single-job form yields to the
+  // split editor (seeded from the entry); Cancel there returns here.
+  const [splitMode, setSplitMode] = useState(false);
   const [state, setState] = useState<State>({ kind: "idle" });
   // Replay-safe key per fix attempt — a retry after a timeout reuses it; a
   // changed correction mints a fresh one; success clears it. (#497)
@@ -142,6 +154,17 @@ export function RejectedHoursResubmitSheet({
         ? { kind: "success", entry: fb.entry }
         : { kind: "error", message: fb.message, status: fb.status },
     );
+  }
+
+  // Enter/leave the split editor for a single-allocation day. A stale error
+  // from the other view is cleared so it can't mislead after the switch.
+  function openSplit() {
+    if (state.kind === "error") setState({ kind: "idle" });
+    setSplitMode(true);
+  }
+  function closeSplit() {
+    if (state.kind === "error") setState({ kind: "idle" });
+    setSplitMode(false);
   }
 
   async function submit() {
@@ -275,6 +298,28 @@ export function RejectedHoursResubmitSheet({
     );
   }
 
+  // 2026-07-26 owner-directed: the worker chose "Split across jobs" on a
+  // single-allocation day — same split editor, seeded with the day's current
+  // job carrying the day's hours plus an empty remainder row. Submit PATCHes
+  // through the exact split path above (same payload builder, same status
+  // semantics per variant); Cancel returns to the single-job form.
+  if (splitMode) {
+    const init = splitChangeInitialRows(entry, assignedJobs);
+    return (
+      <SplitDaySheet
+        open
+        onClose={closeSplit}
+        assignedJobs={assignedJobs}
+        submitting={submitting}
+        title={editingSubmitted ? "Change & resend the split day" : "Fix & resubmit the split day"}
+        initialTotal={init.total}
+        initialRows={init.rows}
+        errorMessage={state.kind === "error" ? state.message : null}
+        onSubmit={submitSplit}
+      />
+    );
+  }
+
   return (
     <div className="space-y-3 rounded-card border border-border bg-surface-subtle p-3">
       <p className="font-display text-xs uppercase tracking-widest text-text-muted">
@@ -331,6 +376,21 @@ export function RejectedHoursResubmitSheet({
           />
         </label>
       </fieldset>
+
+      {assignedJobs.length > 1 ? (
+        // 2026-07-26 owner-directed: the day can be split across jobs from
+        // here. Same words as the log sheet's split affordance; only shown to
+        // multi-job workers (a one-job worker has nothing to split into).
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={openSplit}
+          disabled={submitting}
+          data-testid="phil-change-split"
+        >
+          Split across jobs
+        </Button>
+      ) : null}
 
       <label className="block text-sm">
         <span className="mb-1 block font-medium text-text">Note (optional)</span>

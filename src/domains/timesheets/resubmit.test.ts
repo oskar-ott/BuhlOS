@@ -7,6 +7,7 @@ import {
   resolveResubmitJob,
   resubmitFeedback,
   resubmitInitialJobId,
+  splitChangeInitialRows,
   splitResubmitInitialRows,
 } from "./resubmit";
 import type { TimeEntry } from "./types";
@@ -104,6 +105,27 @@ describe("splitResubmitInitialRows", () => {
       { jobId: "job-a", hours: 4 },
       { jobId: null, hours: 3.6 },
     ]);
+  });
+});
+
+// 2026-07-26 owner-directed: split a SINGLE-allocation day across jobs from
+// inside the change/fix flow — the split editor is seeded from the entry.
+describe("splitChangeInitialRows", () => {
+  it("seeds row 1 with the current job carrying the day's hours, plus an empty remainder row", () => {
+    expect(splitChangeInitialRows(te(), JOBS)).toEqual({
+      total: 7.6,
+      rows: [
+        { jobId: "job-a", hours: 7.6 },
+        { jobId: null, hours: 0 },
+      ],
+    });
+  });
+  it("seeds null when the current job is no longer assigned (forces a re-pick, no stale attribution)", () => {
+    const stale = te({ allocations: [{ jobId: "job-z", hours: 7.6, notes: null }] });
+    expect(splitChangeInitialRows(stale, JOBS).rows[0]).toEqual({ jobId: null, hours: 7.6 });
+  });
+  it("always seeds TWO rows — SplitDaySheet only honours initialRows with 2+ rows", () => {
+    expect(splitChangeInitialRows(te(), JOBS).rows).toHaveLength(2);
   });
 });
 

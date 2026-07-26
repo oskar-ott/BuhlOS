@@ -85,6 +85,33 @@ export function splitResubmitInitialRows(
 }
 
 /**
+ * Seed the split editor when a SINGLE-allocation day is being split across
+ * jobs from inside the change/fix flow (2026-07-26 owner-directed). Row 1 is
+ * the day's current job carrying the day's full hours; row 2 is the empty
+ * remainder row the worker moves hours into. Two rows are seeded on purpose —
+ * SplitDaySheet only honours `initialRows` with 2+ rows (a split is 2+ jobs
+ * by definition), and its last row is always the computed remainder.
+ *
+ * Same attribution rule as `splitResubmitInitialRows`: a current job that is
+ * no longer one of the worker's active assigned jobs seeds `null`, so the
+ * worker must re-pick (never a silent attribution to a stale/unassigned job).
+ */
+export function splitChangeInitialRows(
+  entry: Pick<TimeEntry, "totalHours" | "allocations">,
+  assignedJobs: ReadonlyArray<AssignableJob>,
+): { total: number; rows: Array<{ jobId: string | null; hours: number }> } {
+  const current = primaryJobId(entry);
+  const jobId = current && assignedJobs.some((j) => j.id === current) ? current : null;
+  return {
+    total: entry.totalHours,
+    rows: [
+      { jobId, hours: entry.totalHours },
+      { jobId: null, hours: 0 },
+    ],
+  };
+}
+
+/**
  * The job to preselect when the resubmit form opens. Preserves the original
  * attribution where it is still valid, never guesses across multiple jobs:
  *   - original job id, if it's still one of the worker's active assigned jobs;
