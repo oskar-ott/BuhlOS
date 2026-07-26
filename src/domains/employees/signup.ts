@@ -20,21 +20,30 @@ export const SIGNUP_LINK_STATES = [
 export type SignupLinkState = (typeof SIGNUP_LINK_STATES)[number];
 
 /** Roles a stranger with the group-chat link may request — field tiers only. */
-export const SIGNUP_ROLES = ["electrician", "apprentice", "labourer", "leadinghand"] as const;
+export const SIGNUP_ROLES = ["electrician", "apprentice"] as const;
 export type SignupRole = (typeof SIGNUP_ROLES)[number];
+
+/**
+ * Roles that may still sit in the stored request queue from before the picker
+ * was narrowed to electrician/apprentice. The admin review schema and label
+ * map accept these so old pending rows keep rendering and can be approved;
+ * new submissions are held to SIGNUP_ROLES.
+ */
+export const LEGACY_SIGNUP_ROLES = [...SIGNUP_ROLES, "labourer", "leadinghand"] as const;
+export type LegacySignupRole = (typeof LEGACY_SIGNUP_ROLES)[number];
 
 /**
  * Which signup roles carry an apprentice-year tag. Data-driven so UI never
  * compares role-string literals (no-restricted-syntax tier-bug rule).
  */
-export const SIGNUP_ROLE_NEEDS_YEAR: Record<SignupRole, boolean> = {
+export const SIGNUP_ROLE_NEEDS_YEAR: Record<LegacySignupRole, boolean> = {
   electrician: false,
   apprentice: true,
   labourer: false,
   leadinghand: false,
 };
 
-export const SIGNUP_ROLE_LABELS: Record<SignupRole, string> = {
+export const SIGNUP_ROLE_LABELS: Record<LegacySignupRole, string> = {
   electrician: "Electrician",
   apprentice: "Apprentice",
   labourer: "Labourer",
@@ -94,7 +103,7 @@ export const SignupRequestPublicSchema = z.object({
   preferredName: z.string().nullable(),
   email: z.string(),
   mobile: z.string(),
-  role: z.enum(SIGNUP_ROLES),
+  role: z.enum(LEGACY_SIGNUP_ROLES),
   apprenticeYear: z.number().nullable(),
   legalName: z.string(),
   dob: z.string(),

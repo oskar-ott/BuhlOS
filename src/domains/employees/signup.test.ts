@@ -80,10 +80,13 @@ describe("public-link role guard", () => {
     expect(SIGNUP_ROLES).not.toContain("pm");
     expect(SIGNUP_ROLES).not.toContain("estimator");
   });
+  it("offers only electrician and apprentice — labourer/LH come via invite", () => {
+    expect([...SIGNUP_ROLES]).toEqual(["electrician", "apprentice"]);
+  });
   it("matches the FIELD_ROLES list in api/signup.js", () => {
     const fs = requireCjs("node:fs") as typeof import("node:fs");
     const src = fs.readFileSync(resolve(REPO, "api/signup.js"), "utf8");
-    expect(src).toContain("const FIELD_ROLES = ['leadinghand', 'electrician', 'apprentice', 'labourer'];");
+    expect(src).toContain("const FIELD_ROLES = ['electrician', 'apprentice'];");
   });
 });
 
@@ -119,5 +122,25 @@ describe("schemas", () => {
     // A row that smuggles pinHash still parses (zod strips), but the schema
     // must not DECLARE it — the api strips it server-side.
     expect("pinHash" in SignupRequestPublicSchema.shape).toBe(false);
+  });
+  it("still parses queue rows with legacy roles the picker no longer offers", () => {
+    const legacyRow = {
+      id: "sr_2",
+      linkId: "sl_1",
+      status: "pending",
+      firstName: "Sam",
+      lastName: "Hall",
+      preferredName: null,
+      email: "sam@x.com",
+      mobile: "+61400000001",
+      role: "labourer",
+      apprenticeYear: null,
+      legalName: "Samuel Hall",
+      dob: "1995-06-01",
+      startDate: null,
+      submittedAt: "2026-07-23T00:00:00.000Z",
+      flags: { duplicateEmail: false, duplicateName: false },
+    };
+    expect(SignupRequestPublicSchema.safeParse(legacyRow).success).toBe(true);
   });
 });

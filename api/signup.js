@@ -39,7 +39,8 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // The only roles a stranger with the group-chat link may request. Office
 // tiers are added by an admin in the register, never via public signup.
-const FIELD_ROLES = ['leadinghand', 'electrician', 'apprentice', 'labourer'];
+// Labourer / leading hand come in via admin invite, not the public link.
+const FIELD_ROLES = ['electrician', 'apprentice'];
 
 // Mirror of api/invites.js#isCommonPin / employees service — keep in sync.
 const BLOCKED_PINS = new Set(['0000', '1111', '1234', '4321', '1212', '6969', '2580', '0852']);
