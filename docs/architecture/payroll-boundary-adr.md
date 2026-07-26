@@ -80,8 +80,14 @@ remains the **payroll system of record**. Concretely:
   BuhlOS stays *integration, not payroll*, minimising compliance/legal blast radius.
 - **P7 obligation (binding acceptance criteria, not nice-to-haves):** every Xero
   exchange is **loud and reconcilable**. A push that "ran" is not a push that
-  "landed" ([#250]); unmapped/rejected items are **named blockers**, never silent
+  "landed" ([#250]); unmapped/rejected items are **named**, never silent
   drops ([#248]/[#249]/[#251]). No faked payroll state, no invented numbers.
+  *(Amended 2026-07-26, owner-ratified via the lean-reset replica's closeout
+  Xero stage: workers with no confirmed Xero employee link are **withheld with
+  a named warning** — their hours stay out of the batch and the rest pushes —
+  instead of blocking the whole period. The blocking error remains only when no
+  payable worker is mapped. Mapped-but-broken links stay blocking errors.
+  Nothing is silently dropped: the withheld list is itemised on the batch.)*
 - **P8 obligation:** while Xero is disconnected, every dependent surface **states it
   and how to reconnect** ([#247]) — never errors or hides.
 - **Data minimisation:** BuhlOS holds no statutory tax/super/bank truth; sensitive

@@ -195,6 +195,8 @@ describe("create / lock / unlock / delete", () => {
   });
 
   it("creates a BLOCKED batch when validation fails, with the reasons stored", async () => {
+    // Sole worker unmapped = the degenerate all-unmapped case, which still
+    // BLOCKS under the 2026-07-26 withhold-and-warn ratification (nothing to push).
     deps.mappingReadiness.mockResolvedValueOnce([{ workerId: "w1", employeeId: null, mapped: false }]);
     const out = await lib.createBatch({ ...PERIOD, actor: { id: "a" }, deps });
     expect(out.batch.status).toBe("blocked");
@@ -269,6 +271,93 @@ describe("correction chain", () => {
     await expect(
       lib.createBatch({ ...PERIOD, supersedesBatchId: "batch-none", actor: { id: "a" }, deps })
     ).rejects.toMatchObject({ category: "validation" });
+  });
+});
+
+// 2026-07-26 owner ratification (lean-reset replica): unmapped workers are
+// withheld with a warning; the batch pushes everyone else. Launch pain point:
+// one unmapped worker used to freeze the whole period's pay.
+describe("withhold-and-warn: unmapped workers", () => {
+  const mixedMapping = (ids: string[]) =>
+    ids.map((id) => ({ workerId: id, employeeId: id === "w2" ? null : "emp-1", mapped: id !== "w2" }));
+
+  beforeEach(() => {
+    liveRows = [row(), row({ workerId: "w2", workerName: "Alex West", hours: 6, ordinaryHours: 6, overtimeHours: 0 })];
+    deps.mappingReadiness.mockImplementation(async (ids: string[]) => mixedMapping(ids));
+  });
+
+  it("creates a READY batch that withholds the unmapped worker's rows entirely", async () => {
+    const out = await lib.createBatch({ ...PERIOD, actor: { id: "a", name: "Boss" }, deps });
+    expect(out.batch.status).toBe("ready");
+    expect(out.validation.ready).toBe(true);
+    const warning = out.validation.warnings.find((w: { code: string }) => w.code === "unmapped_workers_withheld");
+    expect(warning.withheldWorkers).toEqual([{ workerId: "w2", workerName: "Alex West", hours: 6 }]);
+    expect(out.validation.withheldWorkers).toEqual([{ workerId: "w2", workerName: "Alex West", hours: 6 }]);
+    // the snapshot (and therefore the export payload source) has NO withheld rows
+    expect(out.items.every((i: { workerId: string }) => i.workerId === "w1")).toBe(true);
+    expect(state.items.every((i) => i.worker_id === "w1")).toBe(true);
+    // the withheld list is recorded on the batch (validation snapshot + event)
+    const created = state.events.find((e) => e.event === "created");
+    expect(created!.detail.withheldWorkers).toEqual([{ workerId: "w2", workerName: "Alex West", hours: 6 }]);
+  });
+
+  it("the export payload builder receives no withheld worker", async () => {
+    const out = await lib.createBatch({ ...PERIOD, actor: { id: "a" }, deps });
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { buildTimesheets } = requireFromHere("../../../api/_lib/xero/timesheet-payload.js");
+    const built = buildTimesheets({
+      items: out.items,
+      periodStart: PERIOD.periodStart,
+      periodEnd: PERIOD.periodEnd,
+      employeesById: new Map([["emp-1", { name: "Karen Buhl", active: true, payload: { payrollCalendarID: "cal-1" } }]]),
+      calendarsById: new Map([["cal-1", { name: "Weekly", payload: { calendarType: "WEEKLY", startDate: "2026-07-06" } }]]),
+    });
+    expect(built.workers.map((w: { workerId: string }) => w.workerId)).toEqual(["w1"]);
+    expect(built.workers[0].timesheet.EmployeeID).toBe("emp-1");
+  });
+
+  it("withheld rows keep no exportId: a follow-up batch pays exactly them once the worker is mapped", async () => {
+    // batch A: w2 withheld, w1 pushed
+    const a = await lib.createBatch({ ...PERIOD, actor: { id: "a" }, deps });
+    expect(a.batch.status).toBe("ready");
+    await lib.lockBatch({ batchId: a.batch.id, actor: { id: "a" }, deps });
+
+    // after export, w1's source rows are stamped; w2's withheld rows are NOT.
+    // The worker then gets mapped in Xero settings.
+    liveRows = [
+      row({ exportId: String(a.batch.id) }),
+      row({ workerId: "w2", workerName: "Alex West", hours: 6, ordinaryHours: 6, overtimeHours: 0 }),
+    ];
+    deps.mappingReadiness.mockImplementation(async (ids: string[]) =>
+      ids.map((id) => ({ workerId: id, employeeId: "emp-1", mapped: true })));
+
+    // follow-up NORMAL batch over the same period validates cleanly and
+    // contains exactly the previously-withheld rows
+    const b = await lib.createBatch({ ...PERIOD, actor: { id: "a" }, deps });
+    expect(b.batch.status).toBe("ready");
+    expect(b.validation.ready).toBe(true);
+    expect(b.validation.errors).toEqual([]);
+    expect(b.validation.warnings.map((w: { code: string }) => w.code)).toContain("already_exported_excluded");
+    expect(b.items.map((i: { workerId: string }) => i.workerId)).toEqual(["w2"]);
+    expect(b.validation.withheldWorkers).toEqual([]);
+
+    // double-pay guard: once EVERYTHING is exported, another normal batch blocks
+    liveRows = [row({ exportId: String(a.batch.id) })];
+    const c = await lib.createBatch({ ...PERIOD, actor: { id: "a" }, deps });
+    expect(c.batch.status).toBe("blocked");
+    expect(c.validation.errors.map((e: { code: string }) => e.code)).toContain("already_exported");
+  });
+
+  it("mapping a withheld worker between create and lock reads as source drift — the lock refuses", async () => {
+    const a = await lib.createBatch({ ...PERIOD, actor: { id: "a" }, deps });
+    // w2 becomes mapped → the included set (and its hash) changes
+    deps.mappingReadiness.mockImplementation(async (ids: string[]) =>
+      ids.map((id) => ({ workerId: id, employeeId: "emp-1", mapped: true })));
+    await expect(lib.lockBatch({ batchId: a.batch.id, actor: { id: "a" }, deps })).rejects.toMatchObject({ category: "conflict" });
+    const b = state.batches.find((x) => x.id === a.batch.id)!;
+    expect(b.status).toBe("blocked");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((b.validation as any).errors.map((e: { code: string }) => e.code)).toContain("source_drift");
   });
 });
 

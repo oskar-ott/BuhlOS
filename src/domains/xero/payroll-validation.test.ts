@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 
 const requireFromHere = createRequire(import.meta.url);
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { validatePayroll } = requireFromHere("../../../api/_lib/xero/payroll-validation.js");
+const { validatePayroll, partitionPayrollRows } = requireFromHere("../../../api/_lib/xero/payroll-validation.js");
 
 const NOW = Date.UTC(2026, 6, 13);
 const FRESH = new Date(NOW - 60_000).toISOString();
@@ -81,7 +81,11 @@ describe("validatePayroll", () => {
     expect(rejectedOnly.errors.map((e: { code: string }) => e.code)).not.toContain("unapproved_entries");
   });
 
-  it("unmapped worker / work type block with names", () => {
+  // 2026-07-26 owner ratification (lean-reset replica): unmapped workers now
+  // WITHHOLD with a warning instead of blocking — the blocking error remains
+  // ONLY when no payable worker is mapped. This period has a single worker,
+  // so it IS the degenerate all-unmapped case and still blocks.
+  it("unmapped worker / work type block with names (degenerate: no one mapped)", () => {
     const v = validatePayroll(base({
       rows: [row({ ordinaryHours: 6, overtimeHours: 2, hours: 8 })],
       workerReadiness: [{ workerId: "w1", employeeId: null, mapped: false }],
@@ -93,6 +97,114 @@ describe("validatePayroll", () => {
     expect(codes(v).errors).toEqual(["unmapped_work_types", "unmapped_workers"]);
     expect(v.errors.find((e: { code: string }) => e.code === "unmapped_workers").workers).toEqual(["Karen Buhl"]);
     expect(v.errors.find((e: { code: string }) => e.code === "unmapped_work_types").workTypes).toEqual(["overtime"]);
+  });
+
+  // ── Withhold-and-warn (2026-07-26 owner-ratified, lean-reset replica) ──────
+  describe("unmapped workers are withheld, not blocking", () => {
+    const twoWorkers = () => [
+      row(), // w1 Karen Buhl — mapped
+      row({ workerId: "w2", workerName: "Alex West", hours: 6, ordinaryHours: 6, overtimeHours: 0 }),
+    ];
+    const mixedReadiness = [
+      { workerId: "w1", employeeId: "emp-1", mapped: true },
+      { workerId: "w2", employeeId: null, mapped: false },
+    ];
+
+    it("1 unmapped + 1 mapped → WARNING with the withheld list, NO error, ready", () => {
+      const v = validatePayroll(base({ rows: twoWorkers(), workerReadiness: mixedReadiness }));
+      expect(v.ready).toBe(true);
+      expect(codes(v).errors).toEqual([]);
+      expect(codes(v).warnings).toContain("unmapped_workers_withheld");
+      const w = v.warnings.find((x: { code: string }) => x.code === "unmapped_workers_withheld");
+      expect(w.withheldWorkers).toEqual([{ workerId: "w2", workerName: "Alex West", hours: 6 }]);
+      expect(w.message).toContain("Alex West");
+      expect(w.message).toContain("no Xero employee ID yet");
+      expect(w.message).toContain("follow-up batch");
+      expect(v.withheldWorkers).toEqual([{ workerId: "w2", workerName: "Alex West", hours: 6 }]);
+    });
+
+    it("the summary counts only what the batch pays (withheld hours stay out)", () => {
+      const v = validatePayroll(base({ rows: twoWorkers(), workerReadiness: mixedReadiness }));
+      expect(v.summary).toEqual({
+        approvedRowCount: 1, workerCount: 1, totalHours: 8, ordinaryHours: 8, overtimeHours: 0,
+      });
+    });
+
+    it("ALL payable workers unmapped → still the blocking error, nothing withheld", () => {
+      const v = validatePayroll(base({
+        rows: twoWorkers(),
+        workerReadiness: [
+          { workerId: "w1", employeeId: null, mapped: false },
+          { workerId: "w2", employeeId: null, mapped: false },
+        ],
+      }));
+      expect(v.ready).toBe(false);
+      expect(codes(v).errors).toContain("unmapped_workers");
+      expect(codes(v).warnings).not.toContain("unmapped_workers_withheld");
+      expect(v.withheldWorkers).toEqual([]);
+    });
+
+    it("a withheld worker's work type never blocks a batch that doesn't use it", () => {
+      const v = validatePayroll(base({
+        rows: [row(), row({ workerId: "w2", workerName: "Alex West", hours: 6, ordinaryHours: 4, overtimeHours: 2 })],
+        workerReadiness: mixedReadiness,
+        worktypeReadiness: [
+          { workType: "ordinary", label: "Ordinary hours", rateId: "er-1", rateName: "Ordinary Hours", mapped: true },
+          { workType: "overtime", label: "Overtime", rateId: null, rateName: null, mapped: false },
+        ],
+      }));
+      // only the withheld worker had overtime — the push contains none, so no block
+      expect(codes(v).errors).not.toContain("unmapped_work_types");
+      expect(v.ready).toBe(true);
+    });
+
+    it("partitionPayrollRows: withheld rows are excluded from the included set", () => {
+      const p = partitionPayrollRows({ rows: twoWorkers(), workerReadiness: mixedReadiness });
+      expect(p.includedRows.map((r: { workerId: string }) => r.workerId)).toEqual(["w1"]);
+      expect(p.withheldRows.map((r: { workerId: string }) => r.workerId)).toEqual(["w2"]);
+      expect(p.withheldWorkers).toEqual([{ workerId: "w2", workerName: "Alex West", hours: 6 }]);
+    });
+
+    it("follow-up batch: previously exported rows are EXCLUDED with a warning; the newly-mapped worker's rows validate cleanly", () => {
+      // batch A exported w1 (rows stamped); w2 was withheld and is now mapped
+      const rows = [
+        row({ exportId: "batch-A" }),
+        row({ workerId: "w2", workerName: "Alex West", hours: 6, ordinaryHours: 6, overtimeHours: 0 }),
+      ];
+      const bothMapped = [
+        { workerId: "w1", employeeId: "emp-1", mapped: true },
+        { workerId: "w2", employeeId: "emp-1", mapped: true },
+      ];
+      const v = validatePayroll(base({ rows, workerReadiness: bothMapped }));
+      expect(v.ready).toBe(true);
+      expect(codes(v).errors).toEqual([]);
+      expect(codes(v).warnings).toContain("already_exported_excluded");
+      expect(v.summary.totalHours).toBe(6); // only Alex's previously-withheld hours
+      const p = partitionPayrollRows({ rows, workerReadiness: bothMapped });
+      expect(p.includedRows.map((r: { workerId: string }) => r.workerId)).toEqual(["w2"]);
+      expect(p.exportedRows.map((r: { workerId: string }) => r.workerId)).toEqual(["w1"]);
+    });
+
+    it("double-pay guard: a fully-exported period still BLOCKS a normal batch", () => {
+      const v = validatePayroll(base({
+        rows: [row({ exportId: "batch-A" })],
+      }));
+      expect(codes(v).errors).toContain("already_exported");
+      const p = partitionPayrollRows({ rows: [row({ exportId: "batch-A" })], workerReadiness: base().workerReadiness });
+      expect(p.includedRows).toEqual([]); // an exported row can NEVER be included in a normal batch
+    });
+
+    it("an unmapped worker whose rows are all exported is not payable — no finding for them", () => {
+      // matches the /hours/period semantics: an already-exported unmapped
+      // worker must not disable a legitimate new-hours run
+      const v = validatePayroll(base({
+        rows: [row(), row({ workerId: "w2", workerName: "Alex West", exportId: "batch-A", hours: 6, ordinaryHours: 6, overtimeHours: 0 })],
+        workerReadiness: mixedReadiness,
+      }));
+      expect(codes(v).errors).toEqual([]);
+      expect(codes(v).warnings).toContain("already_exported_excluded");
+      expect(codes(v).warnings).not.toContain("unmapped_workers_withheld");
+    });
   });
 
   it("broken links: employee vanished, no calendar; terminated is a WARNING (final pay)", () => {

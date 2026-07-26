@@ -128,7 +128,7 @@ export function PayrollBatchPanel({
         const code = data && typeof data.code === "string" ? data.code : null;
         setError(
           code === "source_drift"
-            ? "The hours changed after this batch was created — it's now blocked. Recreate it to pick up the current data."
+            ? "The rows going into this batch changed after it was created (hours edited, or a worker's Xero link changed) — it's now blocked. Recreate it to pick up the current data."
             : code === "validation_failed"
               ? "Validation failed on re-check — the batch is now blocked with the reasons listed."
               : (data && typeof data.error === "string" && data.error) || "The action failed."
@@ -228,7 +228,7 @@ export function PayrollBatchPanel({
         </ul>
       ) : null}
       {v.warnings.length ? (
-        <ul className="mt-2 space-y-1">
+        <ul className="mt-2 space-y-1" data-testid="payroll-validation-warnings">
           {v.warnings.map((w) => (
             <li key={w.code} className="rounded-card border border-state-warning px-3 py-2 text-sm text-state-warning">
               {w.message}

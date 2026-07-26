@@ -11,6 +11,16 @@
 // recorded decision). Nothing is ever silently dropped: every rule that
 // excludes or flags something NAMES what it flagged.
 //
+// Withhold-and-warn (2026-07-26 owner-ratified, lean-reset replica): workers
+// with NO confirmed Xero employee link no longer block the whole batch — their
+// rows are WITHHELD (excluded from the batch, named in a warning + the
+// validation's `withheldWorkers` list) and everyone else pushes. Withheld rows
+// keep no exportId stamp, so a follow-up batch picks them up once the worker
+// is mapped. The old blocking `unmapped_workers` ERROR remains only for the
+// degenerate case where NO payable worker is mapped (nothing to push).
+// Mapped-but-broken links (employee_missing / employee_no_calendar) stay
+// ERRORS — that is corruption, not onboarding lag.
+//
 // The same engine runs at preview, at batch creation and again at lock time
 // (#893) — one rule set, no drift.
 
@@ -18,6 +28,58 @@ const STALE_REFERENCE_DAYS = 7; // matches reference-sync STALE_AFTER_DAYS
 
 function finding(code, message, extra) {
   return { code, message, ...(extra || {}) };
+}
+
+function round2(n) {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+/**
+ * PURE partition of a period's rows into what a batch may pay and what it must
+ * leave out. The batch service and validatePayroll both key off THIS function
+ * so the snapshot and the findings can never drift.
+ *
+ * - `exportedRows` (normal batches only): approved rows already in a committed
+ *   run — a normal batch NEVER pays them twice, so they are excluded up front
+ *   (correction batches include them deliberately via `allowExported`).
+ * - `withheldRows` / `withheldWorkers`: approved payable rows belonging to
+ *   workers with no confirmed Xero employee link — withheld with a warning,
+ *   UNLESS no payable worker is mapped at all (then nothing is withheld and
+ *   validatePayroll raises the blocking `unmapped_workers` error instead).
+ * - `includedRows`: what the batch snapshots, hashes and exports.
+ *
+ * @param {{ rows: Array<object>, workerReadiness: Array<{workerId: string, mapped: boolean}>, allowExported?: boolean }} input
+ */
+function partitionPayrollRows({ rows, workerReadiness, allowExported }) {
+  const approvedRows = (rows || []).filter((r) => r.status === 'approved');
+  const exportedRows = allowExported ? [] : approvedRows.filter((r) => r.exportId);
+  const payableRows = allowExported ? approvedRows : approvedRows.filter((r) => !r.exportId);
+
+  const readinessByWorker = new Map((workerReadiness || []).map((w) => [w.workerId, w]));
+  const isMapped = (workerId) => Boolean((readinessByWorker.get(workerId) || {}).mapped);
+  const payableWorkerIds = [...new Set(payableRows.map((r) => r.workerId))];
+  const mappedPayableCount = payableWorkerIds.filter(isMapped).length;
+  // Degenerate case: payable workers exist but NONE is mapped — nothing to
+  // push, so nothing is withheld; the validator blocks with `unmapped_workers`.
+  const allUnmapped = payableWorkerIds.length > 0 && mappedPayableCount === 0;
+
+  const includedRows = [];
+  const withheldRows = allUnmapped ? [] : payableRows.filter((r) => !isMapped(r.workerId));
+  for (const r of payableRows) {
+    if (!allUnmapped && !isMapped(r.workerId)) continue;
+    includedRows.push(r);
+  }
+
+  const withheldByWorker = new Map();
+  for (const r of withheldRows) {
+    const w = withheldByWorker.get(r.workerId) || { workerId: r.workerId, workerName: r.workerName, hours: 0 };
+    w.hours = round2(w.hours + Number(r.hours || 0));
+    withheldByWorker.set(r.workerId, w);
+  }
+  const withheldWorkers = [...withheldByWorker.values()]
+    .sort((a, b) => String(a.workerName).localeCompare(String(b.workerName)));
+
+  return { approvedRows, includedRows, withheldRows, withheldWorkers, exportedRows, allUnmapped };
 }
 
 /**
@@ -39,7 +101,12 @@ function validatePayroll(input) {
   const warnings = [];
   const now = input.now || Date.now();
   const rows = input.rows || [];
-  const approvedRows = rows.filter((r) => r.status === 'approved');
+  const partition = partitionPayrollRows({
+    rows,
+    workerReadiness: input.workerReadiness,
+    allowExported: input.allowExported,
+  });
+  const { approvedRows, includedRows, withheldWorkers, exportedRows, allUnmapped } = partition;
 
   // ── Hours approved: every entry in the period must be decided ─────────────
   const undecided = rows.filter((r) => r.status !== 'approved' && r.status !== 'rejected');
@@ -103,28 +170,47 @@ function validatePayroll(input) {
   }
 
   // ── Already exported (correction batches may include them, deliberately) ──
-  if (!input.allowExported) {
-    const exported = approvedRows.filter((r) => r.exportId);
-    if (exported.length) {
-      const ids = [...new Set(exported.map((r) => r.exportId))].sort();
+  // A normal batch EXCLUDES committed rows rather than paying them twice. If
+  // that leaves nothing else payable the batch is blocked (the old error); a
+  // partial overlap (e.g. a follow-up batch after a withheld worker was
+  // mapped) is a named warning and the rest pushes.
+  if (exportedRows.length) {
+    const ids = [...new Set(exportedRows.map((r) => r.exportId))].sort();
+    const payableLeft = approvedRows.length - exportedRows.length;
+    if (payableLeft === 0) {
       errors.push(finding(
         'already_exported',
-        `${exported.length} row(s) are already in committed run(s) ${ids.join(', ')} — a normal batch must not pay them twice. Use a correction batch if they genuinely need re-processing.`,
-        { count: exported.length, exportIds: ids }
+        `${exportedRows.length} row(s) are already in committed run(s) ${ids.join(', ')} — a normal batch must not pay them twice. Use a correction batch if they genuinely need re-processing.`,
+        { count: exportedRows.length, exportIds: ids }
+      ));
+    } else {
+      warnings.push(finding(
+        'already_exported_excluded',
+        `${exportedRows.length} row(s) are already in committed run(s) ${ids.join(', ')} — they stay out of this batch so nothing is paid twice.`,
+        { count: exportedRows.length, exportIds: ids }
       ));
     }
   }
 
   // ── Worker mapping (who gets paid) ─────────────────────────────────────────
+  // 2026-07-26 owner-ratified (lean-reset replica): unmapped workers are
+  // WITHHELD with a warning — the rest of the batch pushes. Blocking-error only
+  // when NO payable worker is mapped (nothing to push).
   const readinessByWorker = new Map((input.workerReadiness || []).map((w) => [w.workerId, w]));
-  const workersInPeriod = [...new Map(approvedRows.map((r) => [r.workerId, r.workerName])).entries()];
-  const unmapped = workersInPeriod.filter(([id]) => !(readinessByWorker.get(id) || {}).mapped);
-  if (unmapped.length) {
-    const names = unmapped.map(([, name]) => name).sort();
+  const workersInPeriod = [...new Map(includedRows.map((r) => [r.workerId, r.workerName])).entries()];
+  if (allUnmapped) {
+    const names = [...new Map(includedRows.map((r) => [r.workerId, r.workerName])).values()].sort();
     errors.push(finding(
       'unmapped_workers',
       `${names.length} worker(s) have no confirmed Xero employee link (${names.join(', ')}) — link them on the Xero settings page.`,
       { workers: names }
+    ));
+  } else if (withheldWorkers.length) {
+    const names = withheldWorkers.map((w) => w.workerName);
+    warnings.push(finding(
+      'unmapped_workers_withheld',
+      `${names.join(', ')} — no Xero employee ID yet, so those hours stay out of this push. Link them on the Xero settings page, then run a follow-up batch.`,
+      { workers: names, withheldWorkers }
     ));
   }
 
@@ -165,9 +251,11 @@ function validatePayroll(input) {
     ));
   }
 
-  // ── Work-type mapping (what kind of hours) ─────────────────────────────────
+  // ── Work-type mapping (what kind of hours) — scoped to the rows this batch
+  // actually pushes: a withheld worker's overtime must not freeze a batch that
+  // contains no overtime.
   const usedWorkTypes = new Set();
-  for (const r of approvedRows) {
+  for (const r of includedRows) {
     if (Number(r.ordinaryHours) > 0) usedWorkTypes.add('ordinary');
     if (Number(r.overtimeHours) > 0) usedWorkTypes.add('overtime');
   }
@@ -224,14 +312,20 @@ function validatePayroll(input) {
     ready: errors.length === 0,
     errors,
     warnings,
+    // What THIS batch pays (withheld/committed rows excluded) — the honest
+    // numbers for "what goes to Xero". Withheld hours are itemised alongside.
     summary: {
-      approvedRowCount: approvedRows.length,
+      approvedRowCount: includedRows.length,
       workerCount: workersInPeriod.length,
-      totalHours: Math.round(approvedRows.reduce((n, r) => n + Number(r.hours || 0), 0) * 100) / 100,
-      ordinaryHours: Math.round(approvedRows.reduce((n, r) => n + Number(r.ordinaryHours || 0), 0) * 100) / 100,
-      overtimeHours: Math.round(approvedRows.reduce((n, r) => n + Number(r.overtimeHours || 0), 0) * 100) / 100,
+      totalHours: Math.round(includedRows.reduce((n, r) => n + Number(r.hours || 0), 0) * 100) / 100,
+      ordinaryHours: Math.round(includedRows.reduce((n, r) => n + Number(r.ordinaryHours || 0), 0) * 100) / 100,
+      overtimeHours: Math.round(includedRows.reduce((n, r) => n + Number(r.overtimeHours || 0), 0) * 100) / 100,
     },
+    // [{workerId, workerName, hours}] — unmapped workers whose hours this
+    // batch withholds (empty when everyone payable is mapped). Persisted on
+    // the batch via its validation snapshot; surfaced by preview + batch GET.
+    withheldWorkers,
   };
 }
 
-module.exports = { validatePayroll, STALE_REFERENCE_DAYS };
+module.exports = { validatePayroll, partitionPayrollRows, STALE_REFERENCE_DAYS };
