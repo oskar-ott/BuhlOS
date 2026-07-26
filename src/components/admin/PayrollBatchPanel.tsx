@@ -152,7 +152,7 @@ export function PayrollBatchPanel({
   if (state === "loading") {
     return (
       <Card>
-        <CardTitle>Payroll batch (Xero-ready)</CardTitle>
+        <CardTitle>Finalise pay run</CardTitle>
         <CardDescription className="mt-1">Checking this period against every payroll rule…</CardDescription>
       </Card>
     );
@@ -160,7 +160,7 @@ export function PayrollBatchPanel({
   if (state === "not_connected") {
     return (
       <Card>
-        <CardTitle>Payroll batch (Xero-ready)</CardTitle>
+        <CardTitle>Finalise pay run</CardTitle>
         <CardDescription className="mt-1">
           Xero isn&rsquo;t connected (or no organisation is selected). Connect on the Xero settings
           page to start batching payroll — the CSV export below keeps working either way.
@@ -171,7 +171,7 @@ export function PayrollBatchPanel({
   if (state === "error" || !preview) {
     return (
       <Card>
-        <CardTitle>Payroll batch (Xero-ready)</CardTitle>
+        <CardTitle>Finalise pay run</CardTitle>
         <CardDescription className="mt-1">
           <span role="alert">Couldn&rsquo;t check this period. Reload to retry.</span>
         </CardDescription>
@@ -186,13 +186,15 @@ export function PayrollBatchPanel({
     <Card>
       <div className="flex items-start justify-between gap-3">
         <div>
-          <CardTitle>Payroll batch (Xero-ready)</CardTitle>
+          <CardTitle>Finalise pay run</CardTitle>
           <CardDescription className="mt-1">
-            {fromDate} → {toDate} · {v.summary.workerCount} worker{v.summary.workerCount === 1 ? "" : "s"} ·{" "}
-            {v.summary.totalHours}h ({v.summary.ordinaryHours} ordinary + {v.summary.overtimeHours} overtime).
-            A batch snapshots the approved hours and mappings; once locked it is immutable — the
-            safe source for the Xero draft-timesheet export (#249). Export happens per locked batch
-            below, only after you explicitly confirm; it creates drafts, never a pay run.
+            Commit an immutable payroll run for this period. {fromDate} → {toDate} ·{" "}
+            {v.summary.workerCount} worker{v.summary.workerCount === 1 ? "" : "s"} ·{" "}
+            {v.summary.totalHours}h ({v.summary.ordinaryHours} ordinary + {v.summary.overtimeHours}{" "}
+            overtime). A batch snapshots the approved hours and mappings; once locked it is
+            immutable — the safe source for the Xero draft-timesheet export (#249). Export happens
+            per locked batch below, only after you explicitly confirm; it creates drafts, never a
+            pay run in Xero.
           </CardDescription>
         </div>
         <span

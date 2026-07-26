@@ -28,6 +28,12 @@ function entry(p: Partial<TimeEntry> & { userId: string; date: string; userName:
   } as unknown as TimeEntry;
 }
 
+/** SSR splits adjacent text nodes with `<!-- -->` — strip them so phrase
+ *  assertions ("1 of 2 approved") match what the user actually reads. */
+function clean(html: string): string {
+  return html.replace(/<!-- -->/g, "");
+}
+
 function render(entries: TimeEntry[], missing: MissingLog[] = []) {
   const closeout = buildWeeklyHoursCloseout({
     entries,
@@ -35,8 +41,8 @@ function render(entries: TimeEntry[], missing: MissingLog[] = []) {
     weekStart: WEEK_START,
     todayISO: TODAY,
   });
-  return renderToString(
-    createElement(WeeklyHoursCloseoutBoard, { closeout, fetchError: null })
+  return clean(
+    renderToString(createElement(WeeklyHoursCloseoutBoard, { closeout, fetchError: null }))
   );
 }
 
@@ -47,40 +53,42 @@ function renderAsAdmin(entries: TimeEntry[], missing: MissingLog[] = []) {
     weekStart: WEEK_START,
     todayISO: TODAY,
   });
-  return renderToString(
-    createElement(WeeklyHoursCloseoutBoard, { closeout, fetchError: null, canUndo: true })
+  return clean(
+    renderToString(
+      createElement(WeeklyHoursCloseoutBoard, { closeout, fetchError: null, canUndo: true })
+    )
   );
 }
 
 /**
- * SSR smoke for the /hours/weekly decision board. The derivation rules live in
- * weekly-closeout.test.ts — this pins what the BOSS actually sees: readiness
- * first, needing-action before ready, real actions on submitted days, honest
- * empties, and no fabricated rows.
+ * SSR smoke for the /hours/weekly desktop board (lean-reset redesign). The
+ * derivation rules live in weekly-closeout.test.ts — this pins what the BOSS
+ * actually sees: the "Week of" card with the wizard trigger, per-worker cards
+ * with status chips and in-place actions on submitted days, honest empties,
+ * and no fabricated rows.
  */
 describe("WeeklyHoursCloseoutBoard (render)", () => {
-  it("leads with the §5 pay-run hero — eyebrow, headline, meta line, progress", () => {
+  it("leads with the Week-of card — range, wizard trigger, progress, clean sweep", () => {
     const html = render([
       entry({ userId: "u1", date: "2024-05-20", userName: "Tom Brown", totalHours: 8 }),
       entry({ userId: "u2", date: "2024-05-20", userName: "Jack Smith", status: "submitted", totalHours: 8 }),
     ]);
-    expect(html).toContain("Pay run");
-    // §5 headline + meta line: "{totalHrs}h logged · {crew} crew · {needLook}
-    // need a look", and the progress count. 16h logged (8 + 8), 2 crew, 0
-    // flagged (the one open week is clean/submitted). React splits "{n}" and
-    // "h" into separate SSR text nodes, so assert the number + word separately.
-    expect(html).toContain(">16<"); // total logged number in the hero meta
+    expect(html).toContain("Week of");
+    expect(html).toContain('data-testid="start-weekly-closeout"');
+    expect(html).toContain("Start weekly closeout");
+    // Progress + meta: 16h logged (8 + 8), u1 approved / u2 submitted → 1 of 2.
+    expect(html).toContain("16");
     expect(html).toContain("logged");
-    expect(html).toContain("need a look");
-    // u1 is approved (default), u2 submitted → 1 of 2 ready.
     expect(html).toContain("1 of 2 approved");
+    // The one open week is clean (submitted only) → the sweep is offered.
+    expect(html).toContain("Approve all clean");
   });
 
-  it("offers a clean-sweep button for weeks whose only open state is submitted", () => {
+  it("hides the 'need a look' meta when nothing is flagged (no zero-noise)", () => {
     const html = render([
       entry({ userId: "u1", date: "2024-05-20", userName: "Jack Smith", status: "submitted" }),
     ]);
-    expect(html).toContain("Approve all clean");
+    expect(html).not.toContain("need a look");
   });
 
   it("renders the seven-day shape strip per worker", () => {
@@ -91,29 +99,39 @@ describe("WeeklyHoursCloseoutBoard (render)", () => {
     expect(html).toContain("Week strip"); // the legend heading
   });
 
-  it("orders workers needing action before the payroll-ready ones in the list", () => {
+  it("orders workers needing action before the payroll-ready ones", () => {
     const html = render([
       entry({ userId: "u_ready", date: "2024-05-20", userName: "Tom Brown" }),
       entry({ userId: "u_review", date: "2024-05-21", userName: "Jack Smith", status: "submitted" }),
     ]);
-    // The dense list is one card; the model sorts needs-action first, so the
-    // submitted worker's row renders above the approved one.
+    // The model sorts needs-action first, so the submitted worker's card
+    // renders above the approved one.
     expect(html.indexOf("Jack Smith")).toBeLessThan(html.indexOf("Tom Brown"));
-    // The submitted worker offers "Approve week"; the ready one shows "Approved".
-    expect(html).toContain("Approve week");
-    expect(html).toContain("Approved");
+    // The submitted worker's chip counts the days; the ready one reads Ready.
+    expect(html).toContain("1 to approve");
+    expect(html).toContain("Ready");
   });
 
-  it("gives a submitted day Approve and Reject actions", () => {
+  it("gives a submitted day in-place Approve and ghost-red Reject actions", () => {
     const html = render([
       entry({ userId: "u1", date: "2024-05-21", userName: "Jack Smith", status: "submitted" }),
     ]);
-    expect(html).toContain("Submitted");
     expect(html).toContain("Approve");
     expect(html).toContain("Reject");
+    // The single submitted day gets the singular bulk label.
+    expect(html).toContain("Approve this day");
   });
 
-  it("shows a rejected day as waiting for the worker, with the reason", () => {
+  it("labels the bulk action 'Approve all N days' for a multi-day week", () => {
+    const html = render([
+      entry({ userId: "u1", userName: "Sam", date: "2024-05-20", status: "submitted" }),
+      entry({ userId: "u1", userName: "Sam", date: "2024-05-21", status: "submitted" }),
+      entry({ userId: "u1", userName: "Sam", date: "2024-05-22", status: "approved" }),
+    ]);
+    expect(html).toContain("Approve all 2 days");
+  });
+
+  it("shows a rejected day as Sent back + waiting for the worker, with the reason", () => {
     const html = render([
       entry({
         userId: "u1",
@@ -123,47 +141,45 @@ describe("WeeklyHoursCloseoutBoard (render)", () => {
         rejectedReason: "Wrong job",
       }),
     ]);
+    expect(html).toContain("Sent back");
     expect(html).toContain("Waiting for worker");
     expect(html).toContain("Reason: Wrong job");
-    // Rejected days are the worker's move — no approve button on them.
-    expect(html).not.toContain("Approve");
+    // Rejected days are the worker's move — no approve action on them.
+    expect(html).not.toMatch(/Approve (this day|all \d+ days)/);
   });
 
-  it("flags a server-missing day with a 'needs a look' pill and an honest reason", () => {
-    const html = render(
+  it("flags a server-missing day with the chip + an honest reason + Mark not worked", () => {
+    const html = renderAsAdmin(
       [entry({ userId: "u1", date: "2024-05-20", userName: "Oskar Ott" })],
       [{ date: "2024-05-22", userId: "u1", userName: "Oskar Ott", role: "tradie" } as MissingLog]
     );
-    // §5 row: a flagged week reads "needs a look" with a site-language reason,
-    // and the missing day still shows in the strip + the expanded day rows.
-    expect(html).toContain("needs a look");
+    expect(html).toContain("Missing hours");
     expect(html).toContain("No entry for Wed");
-    expect(html).toContain("Missing");
+    expect(html).toContain("mark-not-worked");
   });
 
-  it("totals every worker's LOGGED hours and shows the per-row total", () => {
+  it("totals every worker's LOGGED hours on the card header", () => {
     const html = render([
       entry({ userId: "u1", date: "2024-05-20", userName: "Tom Brown", totalHours: 8 }),
       entry({ userId: "u1", date: "2024-05-21", userName: "Tom Brown", totalHours: 8.5 }),
     ]);
-    // The row total is the dense number "16.5" (8 + 8.5), and the day numbers
-    // appear in the strip. A worker with no cost rate shows "—" for labour.
-    expect(html).toContain("16.5");
+    // 8 + 8.5 = 16.5 → "16h 30m", and the day numbers appear in the strip.
+    expect(html).toContain("16h 30m");
     expect(html).toContain(">8.5<"); // a day number in the strip
-    expect(html).toContain("Approved");
+    expect(html).toContain("Ready");
   });
 
   it("shows '—' for labour when the worker has no cost rate (never a fake $0)", () => {
     const html = render([
       entry({ userId: "u1", date: "2024-05-20", userName: "Tom Brown", totalHours: 8 }),
     ]);
-    // No costRatesByWorker passed → labour is "—", and the hero omits the
-    // labour figure entirely (no "$0", no column of dashes).
+    // No costRatesByWorker passed → labour is "—", and the Week-of card omits
+    // the labour figure entirely (no "$0", no column of dashes).
     expect(html).toContain("—");
     expect(html).not.toContain("labour");
   });
 
-  it("shows labour $ in the hero and the row when a cost rate is supplied", () => {
+  it("shows labour $ in the Week-of card and the row when a cost rate is supplied", () => {
     const closeout = buildWeeklyHoursCloseout({
       entries: [
         entry({ userId: "u1", date: "2024-05-20", userName: "Tom Brown", totalHours: 10 }),
@@ -173,18 +189,33 @@ describe("WeeklyHoursCloseoutBoard (render)", () => {
       todayISO: TODAY,
       costRatesByWorker: { u1: 5000 }, // $50.00/h loaded cost
     });
-    const html = renderToString(
-      createElement(WeeklyHoursCloseoutBoard, { closeout, fetchError: null }),
+    const html = clean(
+      renderToString(createElement(WeeklyHoursCloseoutBoard, { closeout, fetchError: null })),
     );
-    // 10h × $50 = $500 — shown in the row and summed into the hero labour.
+    // 10h × $50 = $500 — shown in the row and summed into the header labour.
     expect(html).toContain("$500");
     expect(html).toContain("labour");
+  });
+
+  it("points at the Pay period tab with an honest readiness line", () => {
+    const ready = render([
+      entry({ userId: "u1", date: "2024-05-20", userName: "Tom Brown" }),
+    ]);
+    expect(ready).toContain("Payroll export");
+    expect(ready).toContain("This week is fully approved.");
+    expect(ready).toContain("Open pay period →");
+
+    const notReady = render([
+      entry({ userId: "u1", date: "2024-05-20", userName: "Tom Brown", status: "submitted" }),
+    ]);
+    expect(notReady).toContain("still needs");
   });
 
   it("is honestly empty when the week has no entries and no missing days", () => {
     const html = render([]);
     expect(html).toContain("No hours found for this week");
-    expect(html).not.toContain("needs a look");
+    // The wizard has nothing to walk — the trigger is disabled.
+    expect(html).toMatch(/data-testid="start-weekly-closeout"[^>]*disabled/);
   });
 
   it("never fabricates missing days the server didn't flag", () => {
@@ -198,9 +229,7 @@ describe("WeeklyHoursCloseoutBoard (render)", () => {
 });
 
 describe("Overtime split display (#130)", () => {
-  it("shows the base/OT split on a day with stored overtime (expanded day row)", () => {
-    // A submitted day lands the worker in the expanded "Needs action" band,
-    // where the per-day rows (and the split) render.
+  it("shows the base/OT split on a submitted day with stored overtime", () => {
     const html = render([
       entry({
         userId: "u1",
@@ -248,21 +277,12 @@ describe("Overtime split display (#130)", () => {
   });
 });
 
-describe("Approve week (#124)", () => {
-  it("offers Approve week on a worker with submitted days, naming the count", () => {
-    const html = render([
-      entry({ userId: "u1", userName: "Sam", date: "2024-05-20", status: "submitted" }),
-      entry({ userId: "u1", userName: "Sam", date: "2024-05-21", status: "submitted" }),
-      entry({ userId: "u1", userName: "Sam", date: "2024-05-22", status: "approved" }),
-    ]);
-    expect(html).toContain("Approve week (2)");
-  });
-
-  it("hides Approve week when the worker has nothing submitted", () => {
+describe("Bulk approve (#124)", () => {
+  it("hides the bulk action when the worker has nothing submitted", () => {
     const html = render([
       entry({ userId: "u1", userName: "Sam", date: "2024-05-20", status: "rejected", rejectedReason: "x" }),
     ]);
-    expect(html).not.toContain("Approve week");
+    expect(html).not.toMatch(/Approve (this day|all \d+ days)/);
   });
 });
 
@@ -309,8 +329,10 @@ describe("Mark not worked (#127)", () => {
       todayISO: TODAY,
       leave: opts.leave,
     });
-    return renderToString(
-      createElement(WeeklyHoursCloseoutBoard, { closeout, fetchError: null, canUndo: true })
+    return clean(
+      renderToString(
+        createElement(WeeklyHoursCloseoutBoard, { closeout, fetchError: null, canUndo: true })
+      )
     );
   }
 
@@ -334,3 +356,31 @@ describe("Mark not worked (#127)", () => {
   });
 });
 
+describe("Week navigation (weekNav prop)", () => {
+  it("renders prev/next arrows and a This-week jump for a back-week", () => {
+    const closeout = buildWeeklyHoursCloseout({
+      entries: [entry({ userId: "u1", date: "2024-05-20", userName: "Tom Brown" })],
+      missing: [],
+      weekStart: WEEK_START,
+      todayISO: TODAY,
+    });
+    const html = clean(
+      renderToString(
+        createElement(WeeklyHoursCloseoutBoard, {
+          closeout,
+          fetchError: null,
+          weekNav: {
+            prevWeek: "2024-05-13",
+            nextWeek: "2024-05-27",
+            currentWeek: "2024-05-27",
+            isCurrentWeek: false,
+          },
+        }),
+      ),
+    );
+    expect(html).toContain("Previous week");
+    expect(html).toContain("Next week");
+    expect(html).toContain("This week");
+    expect(html).toContain("week=2024-05-13");
+  });
+});

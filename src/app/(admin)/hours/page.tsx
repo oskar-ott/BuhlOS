@@ -151,9 +151,21 @@ export default async function HoursOverviewPage({
 
   return (
     <AdminShell title="Hours">
-      {/* Section tabs (#415) — navigation chrome only, above all content. */}
+      {/* Section tabs (#415 → lean-reset: Today · This week · Pay period). */}
       <HoursTabs />
       <div className="mx-auto max-w-4xl space-y-4">
+        {/* ── Intro — the design's "Today · Friday 18 July" head. */}
+        <div className="space-y-1">
+          <h2 className="font-display text-base font-semibold text-text">
+            Today · {todayHeading(today)}
+          </h2>
+          <p className="max-w-[72ch] text-sm text-text-muted">
+            Who&rsquo;s on the clock and what the crew has logged this week.
+            Sign off submitted days on This week, then close the week out for
+            payroll.
+          </p>
+        </div>
+
         {errors.length > 0 ? (
           <Card className="border-amber-200 bg-amber-50" role="alert">
             <CardTitle>Some data couldn&rsquo;t load</CardTitle>
@@ -164,8 +176,26 @@ export default async function HoursOverviewPage({
           </Card>
         ) : null}
 
+        {/* ── The design's four stat tiles — live pulse + queue depth. */}
+        <DayStatTiles
+          pulse={pulse}
+          pendingCount={pending.length}
+          rejectedCount={rejected.length}
+        />
+
         {/* ── End-of-day closeout (today) ───────────────────────────── */}
         <TodayCloseout pulse={pulse} today={today} />
+
+        {/* ── Recent activity — the queue entries for the viewed week,
+               newest first (the design's activity card). */}
+        <RecentActivityCard
+          pending={pending}
+          approved={approved}
+          rejected={rejected}
+          weekStart={weekStart}
+          weekEnd={weekEnd}
+          isCurrentWeek={isCurrentWeek}
+        />
 
         {/* ── Filters (#216) — the bar writes ?status=/?person=; this
                server component re-renders with the narrowed view below. */}
@@ -206,14 +236,14 @@ export default async function HoursOverviewPage({
           />
         </div>
 
-        {/* ── Weekly closeout (the payroll ritual) ──────────────────── */}
+        {/* ── This week (the payroll ritual) — the design's pointer. ── */}
         <Card className="border-l-4 border-l-accent-yellow">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <CardTitle>Weekly closeout</CardTitle>
+              <CardTitle>This week</CardTitle>
               <CardDescription className="mt-1">
-                The week&rsquo;s daily entries as one decision view — who&rsquo;s
-                payroll-ready, who&rsquo;s blocking, what needs action.
+                Sign off submitted days worker by worker, then close the week
+                out for payroll.
               </CardDescription>
             </div>
             <Link
@@ -223,16 +253,16 @@ export default async function HoursOverviewPage({
               href={"/hours/weekly" as Route}
               className="inline-flex items-center rounded-card bg-brand-navy px-5 py-3 text-sm font-medium text-text-inverse hover:bg-accent-ink"
             >
-              Open weekly closeout →
+              Open This week →
             </Link>
           </div>
         </Card>
 
-        {/* ── This week ─────────────────────────────────────────────── */}
+        {/* ── Week rollup (named to not collide with the This-week tab). ── */}
         <Card>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <CardTitle>{isCurrentWeek ? "This week" : "Week"}</CardTitle>
+              <CardTitle>{isCurrentWeek ? "This week's rollup" : "Week rollup"}</CardTitle>
               <CardDescription className="mt-1">
                 {formatDateLabel(weekStart)} – {formatDateLabel(weekEnd)}
               </CardDescription>
@@ -313,6 +343,142 @@ export default async function HoursOverviewPage({
         </Card>
       </div>
     </AdminShell>
+  );
+}
+
+/** "Friday 18 July" — the intro's long-form date, UTC-parsed like every other
+ *  date label so the Sydney business date never shifts under the server TZ. */
+function todayHeading(isoDate: string): string {
+  return new Date(isoDate + "T00:00:00Z").toLocaleDateString("en-AU", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    timeZone: "UTC",
+  });
+}
+
+/**
+ * The design's four stat tiles: ON THE CLOCK · LOGGED TODAY (live pulse) ·
+ * AWAITING APPROVAL (amber) · REJECTED DAYS (red) — the last two from the
+ * approver queues. HONESTY: a missing pulse renders "—", never a 0. "Logged
+ * today" sums the pulse's submitted + approved hour totals — drafts are
+ * counted (draftCount) but the pulse carries no draft hours, so they are
+ * deliberately not guessed into the figure.
+ */
+function DayStatTiles({
+  pulse,
+  pendingCount,
+  rejectedCount,
+}: {
+  pulse: TodayPulseResponse | null;
+  pendingCount: number;
+  rejectedCount: number;
+}) {
+  const h = pulse?.hours ?? null;
+  const loggedToday = h ? formatHoursLabel(h.submittedTotal + h.approvedTotal) : "—";
+
+  const tiles: Array<{ label: string; value: string; tone: "neutral" | "warning" | "danger" }> = [
+    { label: "On the clock", value: h ? String(h.crewOnSite) : "—", tone: "neutral" },
+    { label: "Logged today", value: loggedToday, tone: "neutral" },
+    {
+      label: "Awaiting approval",
+      value: String(pendingCount),
+      tone: pendingCount > 0 ? "warning" : "neutral",
+    },
+    { label: "Rejected days", value: String(rejectedCount), tone: "danger" },
+  ];
+
+  return (
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      {tiles.map((t) => (
+        <div
+          key={t.label}
+          className={cn(
+            "rounded-card border p-4",
+            t.tone === "warning" && "border-amber-200 bg-amber-50",
+            t.tone === "danger" && "border-rose-200 bg-rose-50",
+            t.tone === "neutral" && "border-border bg-surface-raised shadow-card",
+          )}
+        >
+          <p className="font-mono text-[11px] uppercase tracking-[.12em] text-text-muted">
+            {t.label}
+          </p>
+          <p
+            className={cn(
+              "mt-1 font-display text-2xl font-semibold tabular-nums",
+              t.tone === "warning" && "text-amber-700",
+              t.tone === "danger" && "text-rose-700",
+              t.tone === "neutral" && "text-text",
+            )}
+          >
+            {t.value}
+          </p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * The design's "Recent activity" card — every queue entry in the viewed week,
+ * newest first: worker + date · job allocations · hours · status pill. Built
+ * from the ALREADY-LOADED approver queues (no new fetch), bounded to the
+ * viewed week so `?week=` navigation pages it like everything else.
+ */
+function RecentActivityCard({
+  pending,
+  approved,
+  rejected,
+  weekStart,
+  weekEnd,
+  isCurrentWeek,
+}: {
+  pending: ReadonlyArray<TimeEntry>;
+  approved: ReadonlyArray<TimeEntry>;
+  rejected: ReadonlyArray<TimeEntry>;
+  weekStart: string;
+  weekEnd: string;
+  isCurrentWeek: boolean;
+}) {
+  const entries = [...pending, ...approved, ...rejected]
+    .filter((e) => e.date >= weekStart && e.date <= weekEnd)
+    .sort((a, b) => b.date.localeCompare(a.date));
+
+  return (
+    <Card>
+      <CardTitle>Recent activity</CardTitle>
+      <CardDescription className="mt-1">
+        Every entry the crew has logged {isCurrentWeek ? "this week" : "in this week"}, newest
+        first.
+      </CardDescription>
+      {entries.length === 0 ? (
+        <p className="mt-3 rounded-card bg-surface-subtle px-3 py-2 text-sm text-text-muted">
+          Nothing logged {isCurrentWeek ? "this week" : "in this week"} yet.
+        </p>
+      ) : (
+        <ul className="mt-3 divide-y divide-border rounded-card border border-border">
+          {entries.map((e) => (
+            <li key={e.id} className="flex items-center gap-3 px-3.5 py-3">
+              <div className="min-w-[120px]">
+                <div className="font-display text-sm font-semibold text-text">
+                  {e.userName ?? e.userId}
+                </div>
+                <div className="text-xs text-text-muted">{formatDateLabel(e.date)}</div>
+              </div>
+              <div className="min-w-0 flex-1 truncate text-[13px] text-text-muted">
+                {allocationSummary(e)}
+              </div>
+              <div className="shrink-0 font-display text-sm font-semibold tabular-nums text-text">
+                {formatHoursLabel(e.totalHours)}
+              </div>
+              <Pill tone={statusTone(e.status)} className="shrink-0">
+                {statusLabel(e.status)}
+              </Pill>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
   );
 }
 
