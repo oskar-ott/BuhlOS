@@ -18,6 +18,20 @@ Clean approved weekly hours = payroll-ready.
 Payroll run = lock a batch on /hours/period. (Xero draft export #249, flag-gated)
 ```
 
+### Unmapped workers don't freeze the run (2026-07-26 owner-ratified, lean-reset replica)
+
+A worker with **no confirmed Xero employee link** no longer blocks the whole
+batch. Their approved hours are **withheld** — excluded from the batch and
+named in a `unmapped_workers_withheld` WARNING plus the validation's
+`withheldWorkers: [{workerId, workerName, hours}]` list — and everyone else
+pushes. Withheld rows keep **no** exportId stamp, so once the worker is linked
+on the Xero settings page a follow-up batch over the same period picks up
+exactly their hours (previously-committed rows are excluded with an
+`already_exported_excluded` warning, never paid twice). The blocking
+`unmapped_workers` ERROR remains only when **no** payable worker is mapped
+(nothing to push). Mapped-but-broken links (`employee_missing`,
+`employee_no_calendar`) still block — corruption, not onboarding lag.
+
 There is **no daily closeout** and **no worker "Submit timesheet" button** —
 daily entries are submitted as logged; the weekly closeout is a boss/admin
 concept. (The pre-existing "Today's closeout" card on `/hours` predates this
