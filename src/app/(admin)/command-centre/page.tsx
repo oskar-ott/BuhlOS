@@ -2,23 +2,7 @@ import Link from "next/link";
 import type { Route } from "next";
 import { redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
-import {
-  AlertOctagon,
-  AlertTriangle,
-  ArrowRight,
-  Briefcase,
-  Camera,
-  CheckCircle2,
-  ClipboardCheck,
-  FileCheck2,
-  Inbox,
-  Layers,
-  MessageCircleQuestion,
-  Package,
-  RotateCcw,
-  UserX,
-  type LucideIcon,
-} from "lucide-react";
+import { ArrowRight, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { PushNotificationsCard } from "@/components/pwa/PushNotificationsCard";
@@ -63,41 +47,27 @@ import type { Job } from "@/domains/jobs/types";
 import type { ObservationItem } from "@/domains/observations/types";
 import type { MaterialRequestItem } from "@/domains/material-requests/types";
 import { buildExceptions, decorateAges } from "@/domains/exceptions/service";
-import { buildBoard, type BoardIcon, type OpenWorkInput } from "@/domains/command-centre/board";
-import { NeedsNowCards } from "@/components/admin/NeedsNowCards";
+import {
+  buildNeedsYouQueue,
+  buildRightNow,
+  summaryHeadline,
+  type NeedsYouTone,
+} from "@/domains/command-centre/needs-you";
 import { summariseItpReviewQueue } from "./itp-queue-card";
 
 export const dynamic = "force-dynamic";
 
 /**
- * The board's icon-name vocabulary → lucide components. Mirrors NeedsNowCards'
- * SOURCE_ICON so the pulse tiles, open-work heatmap and "needs you now" cards
- * speak one icon language. board.ts stays React-free and names icons by string;
- * this is the single place those names resolve to components.
- */
-const BOARD_ICON: Record<BoardIcon, LucideIcon> = {
-  "clipboard-check": ClipboardCheck,
-  briefcase: Briefcase,
-  camera: Camera,
-  "alert-octagon": AlertOctagon,
-  "file-check": FileCheck2,
-  inbox: Inbox,
-  "rotate-ccw": RotateCcw,
-  "user-x": UserX,
-  layers: Layers,
-  package: Package,
-  "message-circle-question": MessageCircleQuestion,
-};
-
-/**
  * /command-centre — BuhlOS admin home.
  *
- * Queue-shaped per doc 27 §9.1: each card is a count + oldest item age +
- * one-click drill-in. No KPI cards, no charts — those land with the
- * reports phase. The home should always answer "what needs my attention
- * first?" rather than "what happened this week?"
+ * Lean-reset desktop layout (design: BuhlOS replica, command-centre frame):
+ * a one-line summary sentence ("2 things are holding up pay this week…"),
+ * the "Needs you — what blocks pay, first" row queue, then the "Right now"
+ * big-number strip. No KPI cards, no charts — those land with the reports
+ * phase. The home always answers "what needs my attention first?" rather
+ * than "what happened this week?"
  *
- * Nine queues today (real data only — no fake metrics):
+ * Queue sources (real data only — no fake metrics):
  *   - Hours pending approval — /api/time-entries?scope=approver&status=submitted
  *   - Evidence pending review — aggregated from /api/jobs?withStats=1
  *   - Snags needing attention — aggregated from /api/jobs?withStats=1
@@ -277,10 +247,9 @@ export default async function CommandCentrePage() {
 
   // Missing hours: assigned crew with no entry on a past weekday in the
   // rolling window (server-computed in /api/time-entries-overview — weekdays
-  // only, past days only, LH-scoped). The card count is the number of *people*
-  // who owe hours; the subtitle is the age of the oldest unlogged day.
+  // only, past days only, LH-scoped). The queue row counts worker-DAYS never
+  // logged (`total`) — the design's "past days never logged".
   const missingSummary = summariseMissing(hoursMissing);
-  const missingHoursCount = missingSummary.workerCount;
 
   // #276 chase — overdue RFIs across live jobs. The register store is per-job
   // (jobs/<id>/rfis.json, no cross-job index), so this is the one snapshot
@@ -376,62 +345,64 @@ export default async function CommandCentrePage() {
     !mobileAnySourceError &&
     !todayPulseError;
 
-  // ── §2 board view-model — the desktop Command Centre's four glance zones,
-  //    projected from the SAME already-loaded, permission-gated signals (no new
-  //    fetch). Proof-to-sign-off keeps its own dedicated section above, so it is
-  //    not double-counted here. ──
-  // Lean reset: a dark feature's loop is OMITTED from the board input — not a
-  // zero tile, no entry at all (buildBoard drops zeros anyway; omission keeps
-  // even the label/href out of the view-model, matching "no trace").
-  const openWork: OpenWorkInput[] = [
-    { key: "hours", label: "Hours pending approval", count: hoursPending.length, href: "/hours/approvals", icon: "clipboard-check" },
-    { key: "evidence", label: "Evidence to review", count: evidencePending, href: "/v2/jobs", icon: "camera" },
-    ...(snagsEnabled
-      ? [{ key: "snags", label: "Snags needing attention", count: snagsActive, href: "/v2/jobs", icon: "alert-octagon" as const }]
-      : []),
-    ...(itpEnabled
-      ? [{ key: "itp", label: "ITPs needing sign-off", count: itpReview.count, href: itpReview.href, icon: "file-check" as const }]
-      : []),
-    ...(obsEnabled
-      ? [{ key: "observations", label: "Observations to action", count: obsCount, href: "/observations", icon: "inbox" as const }]
-      : []),
-    { key: "rejected", label: "Rejected hours", count: rejectedHoursCount, href: "/hours/approvals", icon: "rotate-ccw" },
-    { key: "missing", label: "Missing hours", count: missingHoursCount, href: "/hours", icon: "user-x" },
-    ...(obsEnabled
-      ? [{ key: "plan", label: "Plan mismatches", count: planMismatchCount, href: "/observations", icon: "layers" as const }]
-      : []),
-    ...(matEnabled
-      ? [{ key: "materials", label: "Material requests", count: materialRequestCount, href: "/material-requests", icon: "package" as const }]
-      : []),
-    // #276 chase — overdue RFIs across live jobs. Count derived from the SAME
+  // ── Lean-reset desktop view-model (design: replica command-centre frame) —
+  //    the summary sentence, the "Needs you" queue and the "Right now" strip,
+  //    projected from the SAME already-loaded, permission-gated signals (no
+  //    new fetch). Proof-to-sign-off keeps its own dedicated section above, so
+  //    it is not double-counted here. ──
+  // The sentence only speaks for sources that LOADED: a failed source passes
+  // null and its clause is omitted (never counted as 0); total failure renders
+  // no sentence at all — the degradation card below discloses it.
+  const headline = summaryHeadline({
+    rejected: hoursRejectedError ? null : rejectedHoursCount,
+    missingDays: hoursMissingError ? null : missingSummary.total,
+    pending: hoursError ? null : hoursPending.length,
+  });
+  // Active-but-no-crew criticals from the SAME exceptions projection the
+  // mobile home ranks (source "job" emits critical only for no-crew; draft
+  // jobs are info) — one judgement, one number.
+  const noCrewJobs = exceptions.filter(
+    (e) => e.source === "job" && e.severity === "critical",
+  ).length;
+  // Lean reset: a dark feature's loop is OMITTED from the queue input — not a
+  // zero row, no entry at all (zero counts drop anyway; omission keeps even
+  // the label/href out of the view-model, matching "no trace").
+  const needsYou = buildNeedsYouQueue({
+    rejected: rejectedHoursCount,
+    missingDays: missingSummary.total,
+    noCrewJobs,
+    pending: hoursPending.length,
+    evidence: evidencePending,
+    ...(itpEnabled ? { itp: { count: itpReview.count, href: itpReview.href } } : {}),
+    ...(obsEnabled ? { observations: obsCount, planMismatches: planMismatchCount } : {}),
+    ...(matEnabled ? { materials: materialRequestCount } : {}),
+    // #276 chase — overdue RFIs across live jobs, counted from the SAME
     // exceptions projection (one judgement of "overdue", one number). No
-    // cross-job RFI surface exists, so the tile links to the jobs list (each
-    // needs-you-now card deep-links to its job's register); no tile when the
-    // flag is off, and buildBoard drops it at zero like every other loop.
+    // cross-job RFI surface exists, so the row links to the jobs list; no row
+    // when the flag is off.
     ...(rfiScan
-      ? [{ key: "rfis", label: "RFIs overdue", count: exceptions.filter((e) => e.source === "rfi").length, href: "/v2/jobs", icon: "message-circle-question" as const }]
-      : []),
-  ];
-  const board = buildBoard({
+      ? { rfisOverdue: exceptions.filter((e) => e.source === "rfi").length }
+      : {}),
+    ...(snagsEnabled ? { snags: snagsActive } : {}),
+  });
+  const rightNow = buildRightNow({
     crewOnSite: todayStrip ? todayStrip.crewCount : null,
     // Field-staff roster (leading hands + tradies) from /api/admin-stats; null
-    // when that fetch failed → buildBoard renders a plain count (honest, P7).
+    // when that fetch failed → a plain count, no fabricated denominator (P7).
     rosterTotal,
     loggedHoursLabel: todayStrip ? todayStrip.loggedHoursLabel : null,
-    pendingApprovals: hoursPending.length,
     jobsLiveToday: todayPulse ? todayPulse.jobs.jobsWithActivityToday : null,
-    exceptions,
-    openWork,
   });
-  const heatClasses: Record<"red" | "amber" | "calm", string> = {
-    red: "border-rose-200 bg-rose-50 text-rose-900 hover:border-rose-400",
-    amber: "border-amber-200 bg-amber-50 text-amber-900 hover:border-amber-400",
-    calm: "border-border bg-surface-raised text-text hover:border-brand-navy",
+  // Row accents (design: red/amber/neutral left border + tinted count numeral).
+  const toneAccent: Record<NeedsYouTone, string> = {
+    block: "border-l-state-danger",
+    wait: "border-l-state-warning",
+    calm: "border-l-border-strong",
   };
-  const heroClasses: Record<"critical" | "busy" | "calm", string> = {
-    critical: "border-rose-200 bg-rose-50",
-    busy: "border-amber-200 bg-amber-50",
-    calm: "border-emerald-200 bg-emerald-50",
+  const toneCount: Record<NeedsYouTone, string> = {
+    block: "text-state-danger-subtle-text",
+    wait: "text-state-warning-subtle-text",
+    calm: "text-text",
   };
 
   return (
@@ -533,131 +504,16 @@ export default async function CommandCentrePage() {
             — flip via FLAG_* env or the flags.json override (docs/feature-flags.md).
           </section>
         ) : null}
-        {/* §2 — state-of-play hero: one calm sentence + a glance tag. */}
-        <section aria-label="State of play">
-          <div
-            className={cn(
-              "flex items-center gap-4 rounded-card border p-5",
-              heroClasses[board.hero.tone],
-            )}
-          >
-            <span
-              className={cn(
-                "shrink-0",
-                board.hero.tone === "critical"
-                  ? "text-state-danger"
-                  : board.hero.tone === "busy"
-                    ? "text-state-warning"
-                    : "text-state-success",
-              )}
-            >
-              {board.hero.tone === "critical" ? (
-                <AlertOctagon aria-hidden="true" className="h-6 w-6" />
-              ) : board.hero.tone === "busy" ? (
-                <AlertTriangle aria-hidden="true" className="h-6 w-6" />
-              ) : (
-                <CheckCircle2 aria-hidden="true" className="h-6 w-6" />
-              )}
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="font-mono text-[11px] uppercase tracking-widest text-text-muted">
-                State of play
-              </p>
-              <p className="mt-0.5 font-display text-lg font-semibold text-text">
-                {board.hero.headline}
-              </p>
-            </div>
-            <span className="shrink-0 rounded-pill border border-current px-2.5 py-0.5 font-mono text-[11px] font-semibold tracking-wider text-text-muted">
-              {board.hero.tag}
-            </span>
-          </div>
-        </section>
+        {/* One-line summary sentence (design): what blocks pay + what waits on
+            you, derived from real counts only — a failed source drops its
+            clause; total failure renders no sentence (the card below owns it). */}
+        {headline ? (
+          <p className="max-w-[56ch] font-display text-[17px] font-medium leading-snug text-text">
+            {headline}
+          </p>
+        ) : null}
 
-        {/* §2 — pulse: four tiles. Unloaded signals read "—", never a fake 0.
-            On-the-clock renders an SVG donut ring (crew / roster) when a real
-            roster denominator loaded; otherwise a plain number. Approvals + jobs
-            lead with an icon (clipboard-check / briefcase). */}
-        <section aria-label="Today at a glance">
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            {board.pulse.map((tile) => {
-              const TileIcon = tile.icon ? BOARD_ICON[tile.icon] : null;
-              return (
-                <div
-                  key={tile.key}
-                  className={cn(
-                    "flex flex-col items-center gap-2 rounded-card border p-4 text-center",
-                    tile.amber
-                      ? "border-amber-200 bg-amber-50"
-                      : "border-border bg-surface-raised",
-                  )}
-                >
-                  {tile.ringPct != null ? (
-                    // SVG donut — strokeDasharray is an SVG attribute (NOT the
-                    // banned inline `style`); pathLength=100 lets the dash be a
-                    // literal percentage. Navy arc over a muted track ring.
-                    <span className="relative inline-flex h-16 w-16 items-center justify-center">
-                      <svg
-                        viewBox="0 0 36 36"
-                        className="h-16 w-16 -rotate-90"
-                        aria-hidden="true"
-                      >
-                        <circle
-                          cx="18"
-                          cy="18"
-                          r="15.5"
-                          fill="none"
-                          className="stroke-border"
-                          strokeWidth="3.5"
-                        />
-                        <circle
-                          cx="18"
-                          cy="18"
-                          r="15.5"
-                          fill="none"
-                          className="stroke-brand-navy"
-                          strokeWidth="3.5"
-                          strokeLinecap="round"
-                          pathLength={100}
-                          strokeDasharray={`${tile.ringPct} 100`}
-                        />
-                      </svg>
-                      <span className="absolute font-display text-base font-semibold tabular-nums text-text">
-                        {tile.value}
-                        {tile.denom ? (
-                          <span className="text-[11px] font-normal text-text-muted">
-                            {tile.denom}
-                          </span>
-                        ) : null}
-                      </span>
-                    </span>
-                  ) : (
-                    <div
-                      className={cn(
-                        "inline-flex items-center gap-1.5 font-display text-2xl font-semibold tabular-nums",
-                        tile.amber ? "text-state-warning" : "text-text",
-                      )}
-                    >
-                      {TileIcon ? (
-                        <TileIcon aria-hidden="true" className="h-[18px] w-[18px] text-text-muted" />
-                      ) : null}
-                      <span>
-                        {tile.value}
-                        {tile.denom ? (
-                          <span className="text-base font-normal text-text-muted">
-                            {tile.denom}
-                          </span>
-                        ) : null}
-                      </span>
-                    </div>
-                  )}
-                  <div className="text-xs text-text-muted">{tile.label}</div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-
-        {/* Honest degradation: a failed source means the board may undercount. */}
+        {/* Honest degradation: a failed source means the queue may undercount. */}
         {anySourceError ? (
           <Card className="border-amber-200 bg-amber-50" role="alert">
             <CardTitle>Couldn&rsquo;t load every signal</CardTitle>
@@ -669,7 +525,7 @@ export default async function CommandCentrePage() {
                 observationsError ??
                 materialRequestsError ??
                 rfiError}
-              . The board may be incomplete.
+              . The queue below may be incomplete.
             </CardDescription>
             <div className="mt-3">
               <RefreshButton />
@@ -677,80 +533,98 @@ export default async function CommandCentrePage() {
           </Card>
         ) : null}
 
-        {/* §2 — needs you now: the criticals as ≤4 action cards (+N more). */}
-        <section aria-label="Needs you now">
-          <h2 className="font-display text-sm uppercase tracking-wider text-text-muted">
-            Needs you now
-            {board.needsNow.total > 0 ? (
-              <span className="ml-2 rounded-pill bg-brand-navy px-2 py-0.5 font-mono text-xs text-text-inverse">
-                {board.needsNow.total}
-              </span>
-            ) : null}
-          </h2>
-          {board.needsNow.total === 0 ? (
-            <Card className="mt-3 border-emerald-200 bg-emerald-50" role="status">
-              <CardTitle className="text-emerald-900">All clear</CardTitle>
-              <CardDescription className="text-emerald-900">
-                Nothing is holding a crew up right now. New items land here as
-                they come in.
+        {/* "Needs you — what blocks pay, first" (design): a single vertical
+            list of rows — accent left border, big count numeral, title + one-
+            line explainer, right-aligned mono destination + chevron. Rows come
+            from buildNeedsYouQueue (zero counts drop; dark loops leave no
+            trace). */}
+        <section aria-label="Needs you">
+          <div className="flex items-baseline gap-3">
+            <h2 className="font-display text-[13px] font-semibold uppercase tracking-wider text-text-muted">
+              Needs you
+            </h2>
+            <span className="font-mono text-[11px] tracking-wide text-text-muted">
+              what blocks pay, first
+            </span>
+          </div>
+          {needsYou.length === 0 ? (
+            <Card
+              className="mt-3 border-state-success-subtle-border bg-state-success-subtle-bg"
+              role="status"
+            >
+              <CardTitle className="text-state-success-subtle-text">All clear</CardTitle>
+              <CardDescription className="text-state-success-subtle-text">
+                Nothing is holding up pay or waiting on you. New items land here
+                as they come in.
               </CardDescription>
             </Card>
           ) : (
-            <NeedsNowCards items={board.needsNow.items} cap={board.needsNow.cap} />
+            <div className="mt-3 flex flex-col overflow-hidden rounded-card border border-border bg-surface-raised shadow-card">
+              {needsYou.map((row, i) => (
+                <Link
+                  key={row.key}
+                  href={row.href as Route}
+                  aria-label={`${row.title}: ${row.count}`}
+                  className={cn(
+                    "grid w-full grid-cols-[52px_1fr_auto] items-center gap-4 border-l-[3px] px-5 py-5 text-left transition-colors hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-navy",
+                    i > 0 ? "border-t border-t-border" : "",
+                    toneAccent[row.tone],
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "font-display text-[26px] font-semibold leading-none tabular-nums",
+                      toneCount[row.tone],
+                    )}
+                  >
+                    {row.count}
+                  </span>
+                  <span className="flex min-w-0 flex-col gap-1">
+                    <span className="font-display text-[15px] font-semibold text-text">
+                      {row.title}
+                    </span>
+                    <span className="text-[13px] leading-snug text-text-muted">
+                      {row.sub}
+                    </span>
+                  </span>
+                  <span className="flex items-center gap-1.5 whitespace-nowrap font-mono text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+                    {row.cta}
+                    <ChevronRight aria-hidden="true" className="h-3.5 w-3.5" />
+                  </span>
+                </Link>
+              ))}
+            </div>
           )}
         </section>
 
-        {/* §2 — open work: colour-graded heatmap of the live loops. */}
-        <section aria-label="Open work">
-          <h2 className="font-display text-sm uppercase tracking-wider text-text-muted">
-            Open work
-            {board.openWork.total > 0 ? (
-              <span className="ml-2 rounded-pill bg-surface-subtle px-2 py-0.5 font-mono text-xs text-text-muted">
-                {board.openWork.total}
-              </span>
-            ) : null}
+        {/* "Right now" (design): the live pulse as three big-number tiles
+            divided by hairlines — same real signals the old pulse tiles showed;
+            unloaded signals read "—", never a fake 0. */}
+        <section aria-label="Right now">
+          <h2 className="font-display text-[13px] font-semibold uppercase tracking-wider text-text-muted">
+            Right now
           </h2>
-          {board.openWork.tiles.length === 0 ? (
-            <Card className="mt-3 border-border bg-surface-raised" role="status">
-              <CardTitle>No open work</CardTitle>
-              <CardDescription>
-                New submissions land here as they come in.
-              </CardDescription>
-            </Card>
-          ) : (
-            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-              {board.openWork.tiles.map((tile) => {
-                const TileIcon = tile.icon ? BOARD_ICON[tile.icon] : null;
-                return (
-                  <Link
-                    key={tile.key}
-                    href={tile.href as Route}
-                    aria-label={`${tile.label}: ${tile.count}`}
-                    className={cn(
-                      "relative block rounded-card border p-4 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-navy",
-                      heatClasses[tile.heat],
-                    )}
-                  >
-                    {TileIcon ? (
-                      // Corner icon, recoloured by heat (red/amber/calm) — the
-                      // text colour already carries the heat tint via heatClasses.
-                      <TileIcon
-                        aria-hidden="true"
-                        className={cn(
-                          "absolute right-3 top-3 h-[18px] w-[18px]",
-                          tile.heat === "calm" ? "text-text-muted" : "opacity-80",
-                        )}
-                      />
-                    ) : null}
-                    <div className="font-display text-2xl font-semibold tabular-nums">
-                      {tile.count}
-                    </div>
-                    <div className="mt-1 text-xs">{tile.label}</div>
-                  </Link>
-                );
-              })}
-            </div>
-          )}
+          <div className="mt-3.5 flex flex-wrap items-stretch gap-y-4">
+            {rightNow.map((tile, i) => (
+              <div
+                key={tile.key}
+                className={cn(
+                  "flex flex-col gap-1.5 pr-7",
+                  i > 0 ? "border-l border-border pl-7" : "",
+                )}
+              >
+                <span className="font-display text-[26px] font-semibold leading-none tabular-nums text-text">
+                  {tile.value}
+                  {tile.suffix ? (
+                    <span className="text-sm font-normal text-text-muted">
+                      {tile.suffix}
+                    </span>
+                  ) : null}
+                </span>
+                <span className="text-xs text-text-muted">{tile.label}</span>
+              </div>
+            ))}
+          </div>
         </section>
 
         {/* ServiceM8 daily job sync — flag-gated. The morning answer to "does

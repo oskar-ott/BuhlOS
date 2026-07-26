@@ -164,6 +164,8 @@ function pulseBody(hours: Partial<Record<string, number>> = {}): JsonBody {
 
 interface FetchFixtures {
   submittedEntries?: JsonBody[];
+  /** Rejected-not-resubmitted entries for scope=approver&status=rejected. */
+  rejectedEntries?: JsonBody[];
   pulse?: JsonBody;
   pulseStatus?: number;
   /** Submitted expense claims (the mobile "to approve" pulse + Approvals strip). */
@@ -184,6 +186,7 @@ interface FetchFixtures {
 
 function stubFetch({
   submittedEntries = [],
+  rejectedEntries = [],
   pulse,
   pulseStatus = 200,
   expenses = [],
@@ -213,7 +216,9 @@ function stubFetch({
       }
       if (url.includes("/api/time-entries")) {
         const isSubmitted = url.includes("status=submitted");
-        return jsonResponse({ entries: isSubmitted ? submittedEntries : [] });
+        return jsonResponse({
+          entries: isSubmitted ? submittedEntries : rejectedEntries,
+        });
       }
       // /api/auth?action=me — the mobile greeting name. Must precede /api/jobs
       // (neither contains the other, but keep the auth check explicit).
@@ -256,46 +261,50 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("/command-centre board (§2)", () => {
-  it("renders the board — hero, four pulse tiles, and an open-work tile for each non-empty loop", async () => {
+describe("/command-centre lean-reset board", () => {
+  it("renders the summary sentence, the Needs-you queue and the Right-now strip from real counts", async () => {
     stubFetch({
-      // Three pending entries → the hours loop has open work.
+      // Three pending days → the approval queue has work; one rejected day.
       submittedEntries: [timeEntry("t1"), timeEntry("t2"), timeEntry("t3")],
+      rejectedEntries: [{ ...timeEntry("r1"), status: "rejected" }],
       pulse: pulseBody({ submittedTotal: 7.6, crewOnSite: 2 }),
     });
     const html = await renderPage();
 
-    // State-of-play hero.
-    expect(html).toContain("State of play");
-    // The four pulse tiles.
-    for (const label of [
-      "on the clock",
-      "logged today",
-      "pending approvals",
-      "jobs live today",
-    ]) {
+    // Summary sentence — blocking clause (1 rejected) + pending clause (3 days).
+    expect(html).toContain(
+      "1 thing is holding up pay this week, and 3 days are waiting on your approval.",
+    );
+    // Needs-you queue rows with real counts + mono destination labels.
+    expect(html).toContain("Needs you");
+    expect(html).toContain("what blocks pay, first");
+    expect(html).toContain('aria-label="Days waiting on your approval: 3"');
+    expect(html).toContain('aria-label="Rejected day to re-submit: 1"');
+    expect(html).toContain('href="/hours/approvals"');
+    expect(html).toContain("Approve");
+    // Zero loops render NO row (the queue shows only what's open).
+    expect(html).not.toContain("Photos and tags to review");
+    // Right-now strip tiles.
+    expect(html).toContain("Right now");
+    for (const label of ["on the clock", "logged today", "jobs live today"]) {
       expect(html).toContain(label);
     }
-    // Open work: the hours loop (3 pending) renders a tile with its count; the
-    // zero loops do NOT render tiles (the heatmap shows only what's open).
-    expect(html).toContain("Open work");
-    expect(html).toContain('aria-label="Hours pending approval: 3"');
-    expect(html).not.toContain('aria-label="Evidence to review: 0"');
   });
 
-  it("is calm on a zero day — calm hero, All clear, No open work", async () => {
+  it("is calm on a zero day — all-clear sentence + All clear card, no queue rows", async () => {
     stubFetch({ submittedEntries: [], pulse: pulseBody() });
     const html = await renderPage();
-    expect(html).toContain("The desk is calm");
-    expect(html).toContain("CALM");
-    expect(html).toContain("All clear"); // needsNow empty
-    expect(html).toContain("No open work"); // openWork empty
+    expect(html).toContain(
+      "Nothing needs you. Every day this week is approved and no crew is waiting.",
+    );
+    expect(html).toContain("All clear");
+    expect(html).not.toContain('aria-label="Rejected');
   });
 
-  it("degrades the pulse honestly when today-pulse fails — '—', not a fabricated 0, board still renders", async () => {
+  it("degrades the strip honestly when today-pulse fails — '—', not a fabricated 0, page still renders", async () => {
     stubFetch({ submittedEntries: [], pulseStatus: 503 });
     const html = await renderPage();
-    expect(html).toContain("State of play");
+    expect(html).toContain("Right now");
     expect(html).toContain("on the clock");
     // A failed pulse → null signals render as an em-dash, never a fake number.
     expect(html).toContain("—");
@@ -316,7 +325,7 @@ describe("/command-centre board (§2)", () => {
     const html = await renderPage();
     expect(html).toContain("Couldn’t load proof to sign off");
     expect(html).toContain("Could not load jobs for the proof queue");
-    expect(html).not.toContain("waiting on you");
+    expect(html).not.toContain("with site photos waiting on you");
   });
 
   it("flags a PARTIAL proof scan (failedJobs) instead of presenting an undercount as the total", async () => {
@@ -352,7 +361,8 @@ describe("/command-centre board (§2)", () => {
     // (whose count is those three queues) leaves no trace — not a "0".
     expect(html).not.toContain("to approve");
     // The desktop board is present too (wrapped hidden md:block).
-    expect(html).toContain("State of play");
+    expect(html).toContain("Needs you");
+    expect(html).toContain("Right now");
   });
 
   it("shows the mobile 'to approve' pulse again when an approvals source (expenses) is live", async () => {
@@ -366,45 +376,39 @@ describe("/command-centre board (§2)", () => {
     expect(html).toContain("to approve");
   });
 
-  // ── §2 fidelity (FIX 1–4) ──────────────────────────────────────────────
-  it("renders the on-the-clock SVG ring when admin-stats supplies a roster", async () => {
+  // ── Right-now fidelity ─────────────────────────────────────────────────
+  it("shows the on-the-clock roster ratio (4/21-style suffix) when admin-stats supplies a roster", async () => {
     stubFetch({
       submittedEntries: [],
       pulse: pulseBody({ crewOnSite: 14 }),
       byRole: { admin: 3, leadingHand: 6, tradie: 15, client: 4 }, // roster = 21
     });
     const html = await renderPage();
-    // Donut: navy arc + muted track, dashed to the percentage (round(14/21*100)=67).
-    expect(html).toContain('stroke-dasharray="67 100"');
-    expect(html).toContain("stroke-brand-navy");
-    expect(html).toContain("stroke-border");
-    // The crew/roster value still reads honestly inside the ring.
+    // Big-number tile with the honest crew/roster ratio.
     expect(html).toContain("/21");
+    expect(html).toContain("on the clock");
   });
 
-  it("degrades the ring to a plain number when admin-stats fails (no fabricated roster)", async () => {
+  it("degrades the ratio to a plain number when admin-stats fails (no fabricated roster)", async () => {
     stubFetch({
       submittedEntries: [],
       pulse: pulseBody({ crewOnSite: 14 }),
       adminStatsStatus: 503,
     });
     const html = await renderPage();
-    // No ring arc and no denominator — just the count.
-    expect(html).not.toContain("stroke-dasharray");
+    // No denominator — just the count.
     expect(html).not.toContain("/21");
     expect(html).toContain("on the clock");
   });
 
-  it("renders heat-coloured corner icons on the open-work tiles", async () => {
-    // 9 pending hours → a red 'hi' tile carrying the clipboard-check icon.
+  it("pluralises the pending queue row and keeps its approval routing at high counts", async () => {
     stubFetch({
       submittedEntries: Array.from({ length: 9 }, (_, i) => timeEntry(`t${i}`)),
       pulse: pulseBody(),
     });
     const html = await renderPage();
-    expect(html).toContain('aria-label="Hours pending approval: 9"');
-    // lucide renders an <svg class="lucide lucide-clipboard-check ...">.
-    expect(html).toMatch(/lucide-clipboard-check/);
+    expect(html).toContain('aria-label="Days waiting on your approval: 9"');
+    expect(html).toContain('href="/hours/approvals"');
   });
 
   it("hides the 'Owner numbers' link while the reports flag is dark (lean reset — /reports 404s)", async () => {
@@ -450,17 +454,15 @@ describe("/command-centre board (§2)", () => {
       jobs: [jobWithStats("j1", { statsSnagsV2Active: 3, statsItpsNeedsReview: 2 })],
     });
     const html = await renderPage();
-    // No open-work tiles for the hidden loops...
-    expect(html).not.toContain("Snags needing attention");
-    expect(html).not.toContain("ITPs needing sign-off");
-    // ...no jobExceptions-derived needs-you-now cards...
+    // No queue rows for the hidden loops...
+    expect(html).not.toContain("Open snags on live jobs");
+    expect(html).not.toContain("ITPs waiting on sign-off");
     expect(html).not.toContain("open snag");
-    expect(html).not.toContain("need sign-off");
-    // ...and the board is honestly calm — the hidden work is absent, not "0".
+    // ...and the queue is honestly calm — the hidden work is absent, not "0".
     expect(html).toContain("All clear");
   });
 
-  it("surfaces the snag/ITP queues again when their flags are on (same job stats drive tiles + cards)", async () => {
+  it("surfaces the snag/ITP queues again when their flags are on (same job stats drive the rows)", async () => {
     h.flagsOn = new Set(["snags", "itp"]);
     stubFetch({
       submittedEntries: [],
@@ -468,11 +470,8 @@ describe("/command-centre board (§2)", () => {
       jobs: [jobWithStats("j1", { statsSnagsV2Active: 3, statsItpsNeedsReview: 2 })],
     });
     const html = await renderPage();
-    expect(html).toContain('aria-label="Snags needing attention: 3"');
-    expect(html).toContain('aria-label="ITPs needing sign-off: 2"');
-    // The needs-you-now cards from jobExceptions come back too.
-    expect(html).toContain("3 open snags");
-    expect(html).toContain("2 ITPs need sign-off");
+    expect(html).toContain('aria-label="Open snags on live jobs: 3"');
+    expect(html).toContain('aria-label="ITPs waiting on sign-off: 2"');
   });
 
   // ── RFIs overdue (#276 chase, flagged rfi_register) ─────────────────────
@@ -512,17 +511,16 @@ describe("/command-centre board (§2)", () => {
     expect(html).not.toContain("RFIs overdue");
   });
 
-  it("surfaces an overdue RFI when the flag is on — needs-you-now card + open-work tile, deep-linked to the register", async () => {
+  it("surfaces an overdue RFI when the flag is on — a queue row with the real count, routed to jobs", async () => {
     h.rfiFlagOn = true;
     h.rfiResult = { rfis: [overdueRfi("rfi_1", 10)], scannedJobs: 1, failedJobs: [] };
     stubFetch({ submittedEntries: [], pulse: pulseBody() });
     const html = await renderPage();
     expect(h.rfiScanCalls).toBe(1);
-    // Needs-you-now card: real ref + subject, linked to the job's register.
-    expect(html).toContain("RFI-004 overdue — Panel location");
-    expect(html).toContain('href="/v2/jobs/j1/rfis"');
-    // Open-work heatmap tile with the real count.
-    expect(html).toContain('aria-label="RFIs overdue: 1"');
+    // Queue row (singular) with the real count; no cross-job RFI surface
+    // exists, so the row routes to the jobs list.
+    expect(html).toContain('aria-label="RFI overdue for an answer: 1"');
+    expect(html).toContain('href="/v2/jobs"');
   });
 
   it("stays calm with the flag on and nothing overdue — no tile (buildBoard drops zero loops), All clear intact", async () => {
