@@ -71,6 +71,21 @@ describe("RejectedHoursResubmitSheet", () => {
     expect(html).toContain("No active assigned job");
   });
 
+  // 2026-07-26 owner-directed: a single-allocation day can be SPLIT across
+  // jobs from inside the fix flow — but only for multi-job workers (mirrors
+  // LogHoursSheet's condition; never a dead end for a one-job worker).
+  it("offers 'Split across jobs' on a single-allocation day when 2+ jobs are assigned", () => {
+    const html = render({ entry: te(), assignedJobs: TWO_JOBS, defaultOpen: true });
+    expect(html).toContain("phil-change-split");
+    expect(html).toContain("Split across jobs");
+  });
+
+  it("hides the split affordance for a one-job worker", () => {
+    const html = render({ entry: te(), assignedJobs: ONE_JOB, defaultOpen: true });
+    expect(html).not.toContain("phil-change-split");
+    expect(html).not.toContain("Split across jobs");
+  });
+
   it("shows no admin / payroll controls", () => {
     const html = render({ entry: te(), assignedJobs: ONE_JOB, defaultOpen: true });
     for (const banned of ["Payroll", "Xero", "Pay run", "Approve", "Reject"]) {
@@ -101,6 +116,7 @@ describe("RejectedHoursResubmitSheet", () => {
     expect(html).toContain("Fix &amp; resubmit the split day");
     expect(html).not.toContain("Hours for this job"); // NOT the single-job legend
     expect(html).not.toContain("Submit correction"); // NOT the single-job action
+    expect(html).not.toContain("phil-change-split"); // already split — no toggle
   });
 
   it("blocks a split resubmit honestly when jobs failed to load", () => {
@@ -154,6 +170,17 @@ describe("RejectedHoursResubmitSheet — submitted (undecided) variant", () => {
     expect(html).toContain("Change &amp; resend the split day");
     expect(html).not.toContain("Fix &amp; resubmit the split day");
     expect(html).not.toContain("Hours for this job"); // NOT the single-job form
+  });
+
+  it("offers 'Split across jobs' on a single-allocation day too, keeping the P12 consequence line", () => {
+    const html = render({ entry: submitted(), assignedJobs: TWO_JOBS, defaultOpen: true });
+    expect(html).toContain("phil-change-split");
+    expect(html).toContain("Split across jobs");
+    // The consequence line survives the new affordance (P12).
+    expect(html).toContain("The office gets the new version — the old one is replaced.");
+    // One-job worker: no split affordance in this variant either.
+    const one = render({ entry: submitted(), assignedJobs: ONE_JOB, defaultOpen: true });
+    expect(one).not.toContain("phil-change-split");
   });
 
   it("still blocks honestly when jobs failed to load / none assigned", () => {
