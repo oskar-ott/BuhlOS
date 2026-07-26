@@ -123,11 +123,14 @@ describe("PhilHoursSharpened — week cards", () => {
     expect(html).toContain("Fix rejected hours");
   });
 
-  it("a submitted (undecided) day carries the 'Change these hours' affordance (2026-07-26 owner-directed)", () => {
+  it("a submitted (undecided) day carries the compact 'Change' pill (2026-07-26 owner-directed, one small button per row)", () => {
     const html = render([entry({ date: MONDAY, status: "submitted" })]);
     expect(html).toContain("Waiting on the office");
-    expect(html).toContain("Change these hours");
     expect(html).toContain("phil-edit-submitted");
+    expect(html).toContain(">Change<");
+    // The full-width collapsed bar is gone — the sheet body mounts only once
+    // the pill is tapped (client state, not SSR-reachable).
+    expect(html).not.toContain("Change these hours");
   });
 
   it("mounts the EXISTING LogHoursSheet in this week's card (logging home)", () => {

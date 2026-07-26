@@ -38,6 +38,12 @@ interface RejectedHoursResubmitSheetProps {
   jobsError?: boolean;
   /** Test seam: render with the editor already expanded. Default collapsed. */
   defaultOpen?: boolean;
+  /** Controlled-open mode (2026-07-26 owner-directed compaction): the parent
+   *  owns the trigger — a compact pill in the day row's action slot — so this
+   *  component renders NOTHING while closed instead of its own full-width
+   *  button. Pass with `onOpenChange` so Cancel can hand control back. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 type State =
@@ -83,10 +89,20 @@ export function RejectedHoursResubmitSheet({
   assignedJobs,
   jobsError = false,
   defaultOpen = false,
+  open: openProp,
+  onOpenChange,
 }: RejectedHoursResubmitSheetProps) {
   // The submitted (undecided) variant — same editors, "change & resend" words.
   const editingSubmitted = entry.status === "submitted";
-  const [open, setOpen] = useState(defaultOpen);
+  const [openState, setOpenState] = useState(defaultOpen);
+  // Controlled when the parent owns the trigger (compact day-row pill);
+  // uncontrolled with the built-in trigger button otherwise.
+  const controlled = openProp !== undefined;
+  const open = controlled ? openProp : openState;
+  const setOpen = (next: boolean) => {
+    if (!controlled) setOpenState(next);
+    onOpenChange?.(next);
+  };
   const [totalHours, setTotalHours] = useState<number>(entry.totalHours);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(() =>
     resubmitInitialJobId(entry, assignedJobs),
@@ -190,6 +206,9 @@ export function RejectedHoursResubmitSheet({
   }
 
   if (!open) {
+    // Controlled mode: the parent renders the trigger (a compact pill in the
+    // day row's action slot) — nothing to show while closed.
+    if (controlled) return null;
     if (editingSubmitted) {
       // Quiet secondary affordance — never the yellow primary (P10: this sits
       // inside the day's existing status slot, not a new level-one action).
