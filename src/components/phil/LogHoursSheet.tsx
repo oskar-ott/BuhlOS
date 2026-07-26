@@ -206,6 +206,9 @@ export function LogHoursSheet({
   }, [state]);
 
   const dateInWindow = isWithinBackdateWindow(date);
+  // A submitted/approved SELECTED day never renders the log actions at all —
+  // it gets an explained status instead (2026-07-26 owner-directed: no bare
+  // disabled primary with no visible reason, ever).
   const lockedByStatus = entryForSelectedDate
     ? entryForSelectedDate.status === "submitted" || entryForSelectedDate.status === "approved"
     : false;
@@ -344,7 +347,11 @@ export function LogHoursSheet({
   }
 
   const submitting = state.kind === "submitting";
-  const statusEntry = entryForSelectedDate ?? todayEntry;
+  // Status reflects the SELECTED date ONLY (2026-07-26 owner-directed bug
+  // fix): the old `?? todayEntry` fallback showed TODAY's status / fix card
+  // under a past date that simply has no entry — a wrong-day lie. A day with
+  // no entry shows no status.
+  const statusEntry = entryForSelectedDate;
   // Custom-hours validity, surfaced inline in the sheet (not only on submit).
   const customHoursInvalid = customHours <= 0 || customHours > MAX_HOURS_PER_DAY;
 
@@ -403,108 +410,122 @@ export function LogHoursSheet({
           ) : null}
         </div>
 
-        <JobAttribution
-          jobs={assignedJobs}
-          selectedJobId={selectedJobId}
-          onSelect={(id) => {
-            setSelectedJobId(id);
-            setMoreOpen(true); // open the note disclosure once a job is chosen
-          }}
-          lastLoggedJobId={lastLoggedJobId}
-          lastLoggedDate={lastLoggedDate}
-          jobsError={jobsError}
-          disabled={submitting}
-        />
+        {lockedByStatus && statusEntry ? (
+          // 2026-07-26 owner-directed: the log actions never render as a bare
+          // disabled primary with no explanation. A submitted selected day
+          // shows what's true (sent, undecided) + the change affordance; an
+          // approved day names its absence (P7) — locked for pay, no button.
+          <LockedDayStatus
+            entry={statusEntry}
+            assignedJobs={assignedJobs}
+            jobsError={jobsError}
+          />
+        ) : (
+          <>
+            <JobAttribution
+              jobs={assignedJobs}
+              selectedJobId={selectedJobId}
+              onSelect={(id) => {
+                setSelectedJobId(id);
+                setMoreOpen(true); // open the note disclosure once a job is chosen
+              }}
+              lastLoggedJobId={lastLoggedJobId}
+              lastLoggedDate={lastLoggedDate}
+              jobsError={jobsError}
+              disabled={submitting}
+            />
 
-        {/* The design's compact yellow "Log today's hours" action (md-act.log)
-            in place of a screen-filling navy block. Same submit handler, same
-            disabled gating, same "Submit Standard day" aria-label the smoke
-            clicks — purely visual. The title flips to "Log hours for this day"
-            when the selected date isn't today (week-strip taps / ?fixDate=
-            deep links preselect past days), so it never claims "today" while
-            writing a backdated entry. */}
-        <button
-          type="button"
-          onClick={submitStandardDay}
-          disabled={submitting || lockedByStatus || !dateInWindow || !jobReady}
-          aria-label="Submit Standard day, 7 hours 36 minutes"
-          className={styles.logAction}
-        >
-          <span className={styles.logActionIcon} aria-hidden="true">
-            <Clock className="h-[18px] w-[18px]" />
-          </span>
-          <span className={styles.logActionText}>
-            <span className={styles.logActionTitle}>
-              {submitting ? "Logging…" : logActionTitle(date, localDateString())}
-            </span>
-            {/* Kept short: this sub-label is UPPERCASE + wide letter-spacing, so
-                the old "<date> · standard day 7h 36m" overflowed the fixed-height
-                button. The day is already named in the title above and the exact
-                date sits in the Day picker right below, so the date is dropped. */}
-            <span className={styles.logActionSub}>
-              Standard day · {formatHoursLabel(STANDARD_DAY_HOURS)}
-            </span>
-          </span>
-          <span className={styles.logActionArrow} aria-hidden="true">
-            →
-          </span>
-        </button>
+            {/* The design's compact yellow "Log today's hours" action (md-act.log)
+                in place of a screen-filling navy block. Same submit handler, same
+                disabled gating, same "Submit Standard day" aria-label the smoke
+                clicks — purely visual. The title flips to "Log hours for this day"
+                when the selected date isn't today (week-strip taps / ?fixDate=
+                deep links preselect past days), so it never claims "today" while
+                writing a backdated entry. */}
+            <button
+              type="button"
+              onClick={submitStandardDay}
+              disabled={submitting || !dateInWindow || !jobReady}
+              aria-label="Submit Standard day, 7 hours 36 minutes"
+              className={styles.logAction}
+            >
+              <span className={styles.logActionIcon} aria-hidden="true">
+                <Clock className="h-[18px] w-[18px]" />
+              </span>
+              <span className={styles.logActionText}>
+                <span className={styles.logActionTitle}>
+                  {submitting ? "Logging…" : logActionTitle(date, localDateString())}
+                </span>
+                {/* Kept short: this sub-label is UPPERCASE + wide letter-spacing, so
+                    the old "<date> · standard day 7h 36m" overflowed the fixed-height
+                    button. The day is already named in the title above and the exact
+                    date sits in the Day picker right below, so the date is dropped. */}
+                <span className={styles.logActionSub}>
+                  Standard day · {formatHoursLabel(STANDARD_DAY_HOURS)}
+                </span>
+              </span>
+              <span className={styles.logActionArrow} aria-hidden="true">
+                →
+              </span>
+            </button>
 
-        {/* The two secondary log actions now sit DIRECTLY under the standard-day
-            action (owner reposition): custom/overtime + split are no longer
-            behind the "More options" expander. Only the optional note stays
-            tucked below, so the lead is still the job + the two yellow actions. */}
-        <button
-          type="button"
-          onClick={() => setCustomOpen(true)}
-          disabled={submitting || lockedByStatus || !dateInWindow || !jobReady}
-          className={styles.subAction}
-        >
-          <span className={styles.subActionIcon} aria-hidden="true">
-            <Timer className="h-[17px] w-[17px]" />
-          </span>
-          <span className={styles.subActionLabel}>Custom / overtime hours</span>
-          <ChevronRight className={cn(styles.subActionChev, "h-[17px] w-[17px]")} aria-hidden="true" />
-        </button>
+            {/* The two secondary log actions now sit DIRECTLY under the standard-day
+                action (owner reposition): custom/overtime + split are no longer
+                behind the "More options" expander. Only the optional note stays
+                tucked below, so the lead is still the job + the two yellow actions. */}
+            <button
+              type="button"
+              onClick={() => setCustomOpen(true)}
+              disabled={submitting || !dateInWindow || !jobReady}
+              className={styles.subAction}
+            >
+              <span className={styles.subActionIcon} aria-hidden="true">
+                <Timer className="h-[17px] w-[17px]" />
+              </span>
+              <span className={styles.subActionLabel}>Custom / overtime hours</span>
+              <ChevronRight className={cn(styles.subActionChev, "h-[17px] w-[17px]")} aria-hidden="true" />
+            </button>
 
-        {assignedJobs.length > 1 ? (
-          <button
-            type="button"
-            onClick={() => setSplitOpen(true)}
-            disabled={submitting || lockedByStatus || !dateInWindow || !hasJobs}
-            className={styles.subAction}
-            data-testid="split-across-jobs"
-          >
-            <span className={styles.subActionIcon} aria-hidden="true">
-              <Split className="h-[17px] w-[17px]" />
-            </span>
-            <span className={styles.subActionLabel}>Split across jobs</span>
-            <ChevronRight className={cn(styles.subActionChev, "h-[17px] w-[17px]")} aria-hidden="true" />
-          </button>
-        ) : null}
+            {assignedJobs.length > 1 ? (
+              <button
+                type="button"
+                onClick={() => setSplitOpen(true)}
+                disabled={submitting || !dateInWindow || !hasJobs}
+                className={styles.subAction}
+                data-testid="split-across-jobs"
+              >
+                <span className={styles.subActionIcon} aria-hidden="true">
+                  <Split className="h-[17px] w-[17px]" />
+                </span>
+                <span className={styles.subActionLabel}>Split across jobs</span>
+                <ChevronRight className={cn(styles.subActionChev, "h-[17px] w-[17px]")} aria-hidden="true" />
+              </button>
+            ) : null}
 
-        {/* Only the optional note is tucked under "More options" now. */}
-        <details
-          className={styles.moreOptions}
-          open={moreOpen}
-          onToggle={(e) => setMoreOpen(e.currentTarget.open)}
-        >
-          <summary className={styles.moreOptionsSummary}>More options</summary>
-          <div className="mt-3 space-y-3">
-            <label className="block text-sm">
-              <span className="mb-1 block font-medium text-text">Notes (optional)</span>
-              <textarea
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                disabled={submitting}
-                rows={2}
-                maxLength={500}
-                placeholder="Anything the office should know…"
-                className="block w-full rounded-card border border-border bg-surface px-3 py-2 text-sm focus:border-brand-navy focus:outline-none"
-              />
-            </label>
-          </div>
-        </details>
+            {/* Only the optional note is tucked under "More options" now. */}
+            <details
+              className={styles.moreOptions}
+              open={moreOpen}
+              onToggle={(e) => setMoreOpen(e.currentTarget.open)}
+            >
+              <summary className={styles.moreOptionsSummary}>More options</summary>
+              <div className="mt-3 space-y-3">
+                <label className="block text-sm">
+                  <span className="mb-1 block font-medium text-text">Notes (optional)</span>
+                  <textarea
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    disabled={submitting}
+                    rows={2}
+                    maxLength={500}
+                    placeholder="Anything the office should know…"
+                    className="block w-full rounded-card border border-border bg-surface px-3 py-2 text-sm focus:border-brand-navy focus:outline-none"
+                  />
+                </label>
+              </div>
+            </details>
+          </>
+        )}
       </div>
 
       <FeedbackBanner state={state} />
@@ -805,6 +826,60 @@ function JobAttribution({
         This logs one job. On more than one today? Use “Split across jobs” above.
       </p>
     </div>
+  );
+}
+
+/**
+ * What renders IN PLACE OF the log actions when the selected day is already
+ * submitted or approved (2026-07-26 owner-directed — kills the silent
+ * disabled-primary state; P10: it fills the existing day-status slot, nothing
+ * new at level one).
+ *
+ *   - submitted: the day is sent but undecided — a calm status line plus the
+ *     "Change these hours" affordance (the same tested fix sheet, submitted
+ *     variant). The worker can fix a sent day until the office decides.
+ *   - approved: a named absence (P7) — locked for pay, no button, and the
+ *     copy says who to ask.
+ */
+function LockedDayStatus({
+  entry,
+  assignedJobs,
+  jobsError,
+}: {
+  entry: TimeEntry;
+  assignedJobs: ReadonlyArray<{ id: string; name: string }>;
+  jobsError: boolean;
+}): ReactNode {
+  if (entry.status === "submitted") {
+    return (
+      <div className="space-y-2" data-testid="phil-day-sent-status">
+        <p role="status" className="text-sm font-medium text-text">
+          Sent to the office — waiting for approval
+        </p>
+        {canResubmitInPhil(entry) ? (
+          // The same tested sheet, submitted variant — keyed by entry id so
+          // switching dates resets the form to that entry's values.
+          <RejectedHoursResubmitSheet
+            key={entry.id}
+            entry={entry}
+            assignedJobs={assignedJobs}
+            jobsError={jobsError}
+          />
+        ) : (
+          // Residual honest limit: a submitted entry with no usable
+          // allocation (legacy/degenerate) — the office must sort it.
+          <p className="text-xs text-text-muted">
+            These hours can&rsquo;t be changed here — ask the office.
+          </p>
+        )}
+      </div>
+    );
+  }
+  // approved — locked for pay, honestly no button (P7 named absence).
+  return (
+    <p role="status" className="text-sm text-text-muted" data-testid="phil-day-approved-status">
+      Approved and locked for pay. If something&rsquo;s wrong, ask the office.
+    </p>
   );
 }
 

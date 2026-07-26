@@ -186,6 +186,10 @@ export const AUDIT_ACTIONS = [
   "hours.bulk_rejected",
   "hours.submitted",
   "hours.resubmitted",
+  // 2026-07-26 owner-directed: a content edit of a still-submitted (undecided)
+  // entry — a sent day changed before the office decided. Kept in sync with
+  // api/_lib/audit-log.js.
+  "hours.edited_while_submitted",
   // #370: daywork register (api/dayworks.js). daywork.created on POST;
   // daywork.signed on the supervisor sign; daywork.transitioned on the
   // signed → invoiced change (metadata.from/to); daywork.amended when a

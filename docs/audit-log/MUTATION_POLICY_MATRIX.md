@@ -19,7 +19,7 @@ This matrix proposes the target policy for future implementation. It is not enfo
 | Domain | Mutation | Required audit? | Blocking? | Reason | Notes |
 | ------ | -------- | --------------- | --------- | ------ | ----- |
 | Time entries | Worker submit | NEEDS_DECISION | NEEDS_DECISION | Field capture should not be casually blocked, but submitted hours are payroll-adjacent | Consider best-effort for worker submit, blocking for office on-behalf submit |
-| Time entries | Admin/LH edit submitted/rejected entry | REQUIRED_BLOCKING | Yes | Payroll-adjacent state changes require traceability | Worker edits before approval may be a separate policy |
+| Time entries | Admin/LH edit submitted/rejected entry | REQUIRED_BLOCKING | Yes | Payroll-adjacent state changes require traceability | Worker edits before approval: ALLOWED, journalled as `hours.edited_while_submitted` (best-effort) + `editedWhileSubmittedAt` stamp on the entry — decided 2026-07-26, owner-directed |
 | Time entries | Approve | REQUIRED_BLOCKING | Yes | Approval authorizes payable hours | Include actor, target user, date, totals, job allocations |
 | Time entries | Reject | REQUIRED_BLOCKING | Yes | Rejection and reason must be durable | Include reason, previous status, target user, date |
 | Time entries | Bulk approve | REQUIRED_BLOCKING | Yes | Bulk payroll decision | Include bulk request id and per-entry audit rows or grouped entry plus details |

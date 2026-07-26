@@ -100,6 +100,7 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "hours.bulk_rejected": "Bulk-rejected hours",
   "hours.submitted": "Submitted hours",
   "hours.resubmitted": "Resubmitted hours",
+  "hours.edited_while_submitted": "Edited submitted hours",
   // #370: daywork register (targetType 'daywork' groups as Other, like time_entry).
   "daywork.created": "Raised daywork docket",
   "daywork.signed": "Signed daywork docket",

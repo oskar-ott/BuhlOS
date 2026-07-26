@@ -44,11 +44,13 @@ export const dynamic = "force-dynamic";
 /**
  * /phil/hours — the worker's own history of submissions.
  *
- * Mostly read-only: the one write action is fixing a REJECTED entry. Each
- * rejected single-allocation entry gets an in-place
- * <RejectedHoursResubmitSheet/> that edits the hours / job / note and PATCHes
- * the entry back to `submitted` via the existing /api/time-entries endpoint
- * (the rejected→submitted transition `main` already supports — no API change).
+ * Mostly read-only: the write actions are fixing a REJECTED entry and —
+ * 2026-07-26 owner-directed — changing a SUBMITTED (undecided) one. Each
+ * such entry gets an in-place <RejectedHoursResubmitSheet/> that edits the
+ * hours / job / note and PATCHes the entry with `status: "submitted"` via
+ * the existing /api/time-entries endpoint (the rejected→submitted transition
+ * `main` already supports; a submitted entry's status simply doesn't move).
+ * Draft rows on the week summary get a real Send (draft→submitted).
  *
  * The worker's active assigned jobs are loaded alongside the history so the
  * resubmit form can preserve the original job attribution (or require a real
@@ -156,6 +158,8 @@ export default async function PhilHoursPage({
             entries={entries}
             todayISO={todayISO}
             weekAnchorISO={weekAnchorISO}
+            assignedJobs={assignedJobs.jobs}
+            jobsError={assignedJobs.error}
           />
         )}
 

@@ -105,7 +105,9 @@ describe("buildPhilWeek — entry status awareness (#113 weekly view)", () => {
     expect(w.days[0]).toMatchObject({ state: "logged", statusWord: "approved" });
     expect(w.days[1]).toMatchObject({ state: "logged", statusWord: "waiting" });
     // Draft = logged but never submitted → amber attention, not a green tick.
-    expect(w.days[2]).toMatchObject({ state: "miss", statusWord: "draft", hours: 7.6 });
+    // "not sent" is the draft word from the ONE status vocabulary
+    // (status-words.ts, 2026-07-26 owner-directed).
+    expect(w.days[2]).toMatchObject({ state: "miss", statusWord: "not sent", hours: 7.6 });
   });
 
   it("keeps the original words when status is unknown (older callers/fixtures)", () => {

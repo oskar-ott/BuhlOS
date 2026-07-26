@@ -7,9 +7,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * A FIELD worker logging their own hours may only attribute a non-null
  * allocation jobId to a job they are assigned to that is active (not draft /
  * archived). Arbitrary, unassigned, draft or archived jobIds are rejected
- * (403). A null jobId is still accepted server-side for backward
+ * (403). On CREATE a null jobId is still accepted server-side for backward
  * compatibility (legacy submissions / overhead) — the Phil UI is what blocks
- * a null jobId when the worker has active assigned jobs.
+ * a null jobId when the worker has active assigned jobs. On PATCH
+ * (self-edit), a null jobId is now REJECTED server-side (2026-07-26
+ * owner-directed — the documented follow-up is closed for edits).
  *
  * Admin/LH and on-behalf flows keep their existing latitude (the check is
  * scoped to non-delegated field submissions), and PR #64 approval/PATCH
@@ -320,9 +322,19 @@ describe("PATCH /api/time-entries — field job attribution on self-edits", () =
     expect(res.statusCode).toBe(403);
   });
 
-  it("still accepts a null jobId on edit (backward-compat, same as create)", async () => {
+  it("REJECTS a null jobId on a field self-edit (2026-07-26 owner-directed — the documented hole is closed)", async () => {
     seedStoredEntry("rejected", null);
     const res = await patch("u_field", "electrician", resubmitBody(null));
+    expect(res.statusCode).toBe(403);
+    expect((res.body as { error: string }).error).toMatch(/active job/i);
+    // The stored entry is untouched — still the rejected null-job legacy row.
+    const stored = storedFor("u_field") as unknown as { status: string };
+    expect(stored.status).toBe("rejected");
+  });
+
+  it("still lets a delegated (office) edit carry a null jobId (latitude preserved)", async () => {
+    seedStoredEntry("rejected", null);
+    const res = await patch("u_office", "office", resubmitBody(null), { userId: "u_field" });
     expect(res.statusCode).toBe(200);
   });
 

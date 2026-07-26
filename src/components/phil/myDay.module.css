@@ -400,6 +400,21 @@ details[open] > .moreOptionsSummary::before {
   color: var(--md-amber);
 }
 
+/* Submitted (waiting) day — 2026-07-26 owner-directed: submitted must not
+   read as approved at a glance. Waiting = OUTLINED green (surface fill, solid
+   green border, word restored); approved keeps the FILLED green tint and
+   gains a tick. Applied after .logged so the outline wins. Token-only. */
+.waiting .box {
+  background: var(--surface);
+  border: 1px solid var(--md-green-bd);
+}
+/* The approved tick glyph — sits in the status slot at the 12px floor. */
+.approvedTick {
+  width: 13px;
+  height: 13px;
+  stroke-width: 3;
+}
+
 /* rejected entry — the one logged state that needs the worker's hand */
 .fix .box {
   background: var(--md-red-bg);

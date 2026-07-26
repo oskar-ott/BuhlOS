@@ -1,6 +1,7 @@
 import { PhilOfflineLink } from "./PhilOfflineLink";
-import { CheckCircle2 } from "lucide-react";
+import { Check, CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { STATUS_CELL_WORDS } from "@/domains/timesheets/status-words";
 import type { TimeEntry } from "@/domains/timesheets/types";
 import { buildPhilWeek, isWeekSquaredAway, type WeekDayCell, type WeekDayState } from "./philWeek";
 import styles from "./myDay.module.css";
@@ -53,8 +54,8 @@ function dayTapLabel(d: WeekDayCell, todayISO: string): string {
     case "fix":
       return `${datePart} — rejected. Fix and resubmit this day.`;
     case "miss":
-      return d.statusWord === "draft"
-        ? `${datePart} — draft. Open this day in the hours form.`
+      return d.statusWord === STATUS_CELL_WORDS.draft
+        ? `${datePart} — not sent. Open this day in the hours form.`
         : `${datePart} — not logged. Log hours for this day.`;
     default:
       return `${datePart} — ${d.statusWord}. Open this day in the hours form.`;
@@ -62,29 +63,28 @@ function dayTapLabel(d: WeekDayCell, todayISO: string): string {
 }
 
 /**
- * The SHORT visible label inside a day cell. The full status words ("not logged",
- * "approved", "waiting", …) overflow the ~1-of-7 mobile cell at the 12px font
- * floor, so the cell leans on the hours number + the colour tint: a logged /
- * number-bearing day AND a not-logged day show NO word (the "—" dash + the amber
- * tint already say "nothing here"). Only the action states keep a short word.
- * The FULL prompt is unchanged in the tap aria-label (`dayTapLabel`), so a
- * screen reader still hears "not logged. Log hours for this day."
- *
- * Note: "approved" and "waiting" share the green logged tint already, so dropping
- * the word means they read the same at a glance here; the exact status stays on
- * /phil/hours. (Per the chosen "drop word, lean on colour + number" direction.)
+ * The SHORT visible label inside a day cell. The full status words ("not
+ * logged", "approved", …) overflow the ~1-of-7 mobile cell at the 12px font
+ * floor, so most cells lean on the hours number + the colour tint. Exceptions
+ * (2026-07-26 owner-directed — submitted must not read as approved at a
+ * glance):
+ *   - "waiting" (submitted) keeps its word — an undecided day is named;
+ *   - approved shows a tick glyph instead of a word (rendered by the strip);
+ *   - the action states keep their short word ("log now" / "fix").
+ * The FULL status is always in the tap aria-label (`dayTapLabel`), so a
+ * screen reader still hears "not logged. Log hours for this day." /
+ * "approved. Open this day in the hours form."
  */
 function cellStatusLabel(d: WeekDayCell): string {
   switch (d.statusWord) {
     case "not logged": // no accusatory "miss" chip — the dash + amber tint suffice
-    case "approved":
-    case "waiting":
+    case "approved": // the tick glyph carries it (see the cell render)
     case "logged":
-    case "draft":
+    case "not sent": // draft — hours + amber tint carry it; full word in aria
     case "today":
       return ""; // number / dash + tint conveys it; the word would overflow / be redundant
     default:
-      return d.statusWord; // "log now" | "fix" | "—" — already short enough
+      return d.statusWord; // "waiting" | "log now" | "fix" | "—" — short enough
   }
 }
 
@@ -152,6 +152,12 @@ export function PhilWeekStrip({ entries, todayISO, selectedDate }: Props) {
 
       <ul className={styles.days}>
         {week.days.map((d) => {
+          // 2026-07-26 owner-directed: submitted ≠ approved at a glance.
+          // Approved = the filled green cell WITH a tick; submitted (waiting)
+          // = an outlined green cell with its word restored. aria-labels
+          // (dayTapLabel) carry the exact status either way.
+          const isApproved = d.state === "logged" && d.statusWord === STATUS_CELL_WORDS.approved;
+          const isWaiting = d.state === "logged" && d.statusWord === STATUS_CELL_WORDS.submitted;
           const cell = (
             <>
               <span className={styles.dayLabel}>{d.weekday}</span>
@@ -159,7 +165,13 @@ export function PhilWeekStrip({ entries, todayISO, selectedDate }: Props) {
                 <span className={styles.hours}>
                   {d.hours != null ? decimalHours(d.hours) : "—"}
                 </span>
-                <span className={styles.status}>{cellStatusLabel(d)}</span>
+                <span className={styles.status}>
+                  {isApproved ? (
+                    <Check aria-hidden="true" className={styles.approvedTick} />
+                  ) : (
+                    cellStatusLabel(d)
+                  )}
+                </span>
               </div>
             </>
           );
@@ -169,7 +181,12 @@ export function PhilWeekStrip({ entries, todayISO, selectedDate }: Props) {
           return (
             <li
               key={d.date}
-              className={cn(styles.day, DAY_STATE[d.state], isSelected && styles.selected)}
+              className={cn(
+                styles.day,
+                DAY_STATE[d.state],
+                isWaiting && styles.waiting,
+                isSelected && styles.selected,
+              )}
             >
               {tappable ? (
                 <PhilOfflineLink

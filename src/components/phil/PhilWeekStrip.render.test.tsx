@@ -121,6 +121,20 @@ describe("PhilWeekStrip (render)", () => {
     expect(html).toContain("approved. Open this day in the hours form."); // word kept for a11y
   });
 
+  it("submitted ≠ approved at a glance (2026-07-26 owner-directed): waiting keeps its word, approved gets the tick", () => {
+    const html = render([
+      { date: "2024-05-20", totalHours: 7.6, status: "approved" } as unknown as TimeEntry,
+      { date: "2024-05-21", totalHours: 7.6, status: "submitted" } as unknown as TimeEntry,
+    ]);
+    // The submitted cell shows its restored short word…
+    expect(html).toContain(">waiting<");
+    // …and both exact statuses stay in the tap aria-labels.
+    expect(html).toContain("waiting. Open this day in the hours form.");
+    expect(html).toContain("approved. Open this day in the hours form.");
+    // The approved cell carries a tick glyph (an svg in the status slot), not a word.
+    expect(html).not.toContain(">approved<");
+  });
+
   it("echoes a calm 'Week squared away' line only when the whole week is approved (#427)", () => {
     // Today = Tuesday; Mon + Tue both approved, nothing else loggable yet.
     const approved = (date: string): TimeEntry =>

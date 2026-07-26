@@ -11,9 +11,10 @@ import type { PatchTimeEntryPayload, TimeEntry, TimeEntryMutationResponse } from
  * The hard rule this slice protects (the #77/#80/#81 guarantee, see
  * src/domains/qa/time-entry-attribution.ts): a field worker with active
  * assigned jobs must never (re)submit hours with `jobId: null`. The server's
- * PATCH path (api/time-entries.js handlePatch) does NOT re-run the create-path
- * field-attribution check, so — exactly as on the create path — the Phil UI is
- * the guardrail. `resolveResubmitJob` is that guard; `buildResubmitPayload`
+ * PATCH path (api/time-entries.js handlePatch) re-runs the field-attribution
+ * gate and — 2026-07-26 owner-directed — also rejects `jobId: null` from a
+ * field self-edit, but the Phil UI stays the first guardrail:
+ * `resolveResubmitJob` is that guard; `buildResubmitPayload`
  * only accepts a non-null `jobId: string`, so a null job can't reach the wire.
  *
  * The transition itself is already supported on `main`: PATCH
@@ -34,19 +35,28 @@ export interface AssignableJob {
 }
 
 /**
- * Can this entry be fixed-and-resubmitted from inside Phil?
+ * Can this entry be fixed-and-resubmitted (or changed-and-resent) from inside
+ * Phil?
  *
- * Any `rejected` entry with at least one allocation. Phil now creates split
- * days itself (#128 `buildSplitDayPayload`), so a rejected split is no longer
- * "legacy" — it must be fixable in Phil too. The single-job form is never
- * allowed to collapse a split: `isSplitResubmit` routes a multi-allocation
- * entry to the split editor (which preserves every allocation), while a
- * single-allocation entry uses the single-job form. The attribution invariant
- * is enforced at submit by both editors (every row needs a real assigned job),
- * not by excluding splits here.
+ * Any `rejected` entry with at least one allocation — and, 2026-07-26
+ * owner-directed, any `submitted` (undecided) entry too: the worker can fix a
+ * sent day until the office decides. The rejected semantics are unchanged;
+ * a submitted entry rides the exact same editors, just with "change & resend"
+ * words instead of "fix & resubmit". Phil now creates split days itself
+ * (#128 `buildSplitDayPayload`), so a split is no longer "legacy" — it must
+ * be fixable in Phil too. The single-job form is never allowed to collapse a
+ * split: `isSplitResubmit` routes a multi-allocation entry to the split
+ * editor (which preserves every allocation), while a single-allocation entry
+ * uses the single-job form. The attribution invariant is enforced at submit
+ * by both editors (every row needs a real assigned job), not by excluding
+ * splits here.
  */
 export function canResubmitInPhil(entry: Pick<TimeEntry, "status" | "allocations">): boolean {
-  return entry.status === "rejected" && Array.isArray(entry.allocations) && entry.allocations.length >= 1;
+  return (
+    (entry.status === "rejected" || entry.status === "submitted") &&
+    Array.isArray(entry.allocations) &&
+    entry.allocations.length >= 1
+  );
 }
 
 /**

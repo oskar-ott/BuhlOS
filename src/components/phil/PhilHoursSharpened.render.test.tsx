@@ -115,11 +115,19 @@ describe("PhilHoursSharpened — week cards", () => {
         rejectedReason: "Lunch break wasn’t deducted — log 7.6h, not 8.6h.",
       }),
     ]);
-    expect(html).toContain("Rejected");
+    // The one status vocabulary (status-words.ts): rejected = "Fix needed".
+    expect(html).toContain("Fix needed");
     expect(html).toContain("Why it bounced back");
     expect(html).toContain("Lunch break wasn’t deducted");
     // The EXISTING RejectedHoursResubmitSheet, collapsed entry point.
     expect(html).toContain("Fix rejected hours");
+  });
+
+  it("a submitted (undecided) day carries the 'Change these hours' affordance (2026-07-26 owner-directed)", () => {
+    const html = render([entry({ date: MONDAY, status: "submitted" })]);
+    expect(html).toContain("Waiting on the office");
+    expect(html).toContain("Change these hours");
+    expect(html).toContain("phil-edit-submitted");
   });
 
   it("mounts the EXISTING LogHoursSheet in this week's card (logging home)", () => {
@@ -140,8 +148,9 @@ describe("PhilHoursSharpened — send week (draft flush)", () => {
 
     const withoutDraft = render([entry({ date: MONDAY, status: "submitted" })]);
     expect(withoutDraft).not.toContain("Send this week to the office");
-    // A logged day reads its true status — logging already submits.
-    expect(withoutDraft).toContain("Submitted");
+    // A logged day reads its true status — logging already submits. The one
+    // vocabulary word for submitted is "Waiting on the office".
+    expect(withoutDraft).toContain("Waiting on the office");
   });
 
   it("an unattributable draft is blocked with the honest reason, never sent silently", () => {

@@ -7,6 +7,9 @@ import { cn } from "@/lib/cn";
 import type { TimeEntry } from "@/domains/timesheets/types";
 import { formatHoursLabel, otSplitLabel } from "@/domains/timesheets/format";
 import { addDays, weekStartOf } from "@/domains/timesheets/service";
+import { STATUS_WORDS } from "@/domains/timesheets/status-words";
+import { draftSendBlockReason, type HoursJobRef } from "./philHoursWeeks";
+import { SendDraftDayButton } from "./SendDraftDayButton";
 import { buildPhilWeek, isWeekSquaredAway, type WeekDayCell } from "./philWeek";
 
 /**
@@ -14,15 +17,19 @@ import { buildPhilWeek, isWeekSquaredAway, type WeekDayCell } from "./philWeek";
  * My Day strip links to. Answers, in worker words, within a glance:
  *   what's approved · what's waiting · what needs fixing · what to log.
  *
+ * Status copy comes from the ONE worker vocabulary (status-words.ts,
+ * 2026-07-26 owner-directed).
+ *
  * Honest by construction (same rules as the strip / philWeek.ts):
  *   - every row is a real entry or a real calendar day;
  *   - a past weekday with no entry is "Not logged" (a nudge, with a one-tap
  *     Log action) — today is prompted separately and future days are never
  *     flagged;
  *   - weekends only appear when actually worked;
- *   - a draft (logged, never submitted) is shown truthfully WITHOUT an
- *     action — modern Phil has no draft-edit flow yet, so we don't render a
- *     button that dead-ends (drafts are edited on the legacy My day).
+ *   - a draft (logged, never sent) gets a real "Send" action (2026-07-26
+ *     owner-directed — the draft→submitted PATCH the server already
+ *     supports); when it can't be sent from here (no job attached / jobs
+ *     failed to load) the reason is named instead — never a dead button.
  *
  * No admin or payroll language — that lives in BuhlOS (/hours/weekly).
  */
@@ -44,7 +51,8 @@ function weekVerdict(counts: {
 
 const VERDICT_LABEL: Record<Verdict, string> = {
   "needs-action": "Needs action",
-  waiting: "Waiting for approval",
+  // The one submitted word (status-words.ts, 2026-07-26 owner-directed).
+  waiting: STATUS_WORDS.submitted,
   "all-approved": "All approved",
   "nothing-yet": "Nothing logged yet",
 };
@@ -84,6 +92,8 @@ function weekRangeLabel(startISO: string, endISO: string): string {
 }
 
 interface DayRowView {
+  /** YYYY-MM-DD — keys the row and resolves the draft entry for Send. */
+  date: string;
   label: string;
   hours: string | null;
   status: string;
@@ -93,6 +103,9 @@ interface DayRowView {
   muted: boolean;
   danger: boolean;
   action: { label: string; href: string } | null;
+  /** True for a draft (logged, never sent) day — renders the Send affordance
+   *  (2026-07-26 owner-directed) instead of a link action. */
+  draft?: boolean;
 }
 
 /** Worker-words OT split for a logged cell, from the STORED portions only. */
@@ -109,6 +122,7 @@ function overtimeFor(day: WeekDayCell): string | null {
 }
 
 function rowFor(day: WeekDayCell, todayISO: string): DayRowView | null {
+  const date = day.date;
   const label = `${day.weekday} ${dayNum(day.date)}`;
   const hours = day.hours != null ? formatHoursLabel(day.hours) : null;
   const overtime = overtimeFor(day);
@@ -117,10 +131,11 @@ function rowFor(day: WeekDayCell, todayISO: string): DayRowView | null {
   switch (day.state) {
     case "fix":
       return {
+        date,
         label,
         hours,
         overtime,
-        status: "Rejected — fix needed",
+        status: STATUS_WORDS.rejected,
         muted: false,
         danger: true,
         action: { label: "Fix", href: logHref },
@@ -128,6 +143,7 @@ function rowFor(day: WeekDayCell, todayISO: string): DayRowView | null {
     case "today":
       if (day.hours == null) {
         return {
+          date,
           label,
           hours: null,
           overtime: null,
@@ -138,6 +154,7 @@ function rowFor(day: WeekDayCell, todayISO: string): DayRowView | null {
         };
       }
       return {
+        date,
         label,
         hours,
         overtime,
@@ -147,22 +164,26 @@ function rowFor(day: WeekDayCell, todayISO: string): DayRowView | null {
         action: null,
       };
     case "logged":
-      return { label, hours, overtime, status: statusText(day.statusWord), muted: false, danger: false, action: null };
+      return { date, label, hours, overtime, status: statusText(day.statusWord), muted: false, danger: false, action: null };
     case "miss":
       // Draft entries borrow the amber "miss" styling on the strip but carry
-      // hours — show them truthfully, with no dead-end action.
+      // hours — shown truthfully, with a real Send action (2026-07-26
+      // owner-directed; the component resolves sendability honestly).
       if (day.hours != null) {
         return {
+          date,
           label,
           hours,
           overtime,
-          status: "Draft — not submitted",
+          status: STATUS_WORDS.draft,
           muted: false,
           danger: false,
           action: null,
+          draft: true,
         };
       }
       return {
+        date,
         label,
         hours: null,
         overtime: null,
@@ -172,18 +193,19 @@ function rowFor(day: WeekDayCell, todayISO: string): DayRowView | null {
         action: { label: "Log", href: logHref },
       };
     case "upcoming":
-      return { label, hours: null, overtime: null, status: "—", muted: true, danger: false, action: null };
+      return { date, label, hours: null, overtime: null, status: "—", muted: true, danger: false, action: null };
   }
 }
 
+/** philWeek's short cell word → the full site word (status-words.ts). */
 function statusText(statusWord: string): string {
   switch (statusWord) {
     case "approved":
-      return "Approved";
+      return STATUS_WORDS.approved;
     case "waiting":
-      return "Waiting for approval";
-    case "draft":
-      return "Draft — not submitted";
+      return STATUS_WORDS.submitted;
+    case "not sent":
+      return STATUS_WORDS.draft;
     default:
       return "Logged";
   }
@@ -193,13 +215,21 @@ export function PhilWeekSummary({
   entries,
   todayISO,
   weekAnchorISO,
+  assignedJobs = [],
+  jobsError = false,
 }: {
   entries: ReadonlyArray<TimeEntry>;
   todayISO: string;
   /** Any date inside the week to show; omit for the current week. */
   weekAnchorISO?: string;
+  /** The worker's ACTIVE assigned jobs — gates the draft Send honestly
+   *  (a null-job / stale-job draft names its reason instead of a button). */
+  assignedJobs?: ReadonlyArray<HoursJobRef>;
+  /** True when the assigned-jobs fetch failed — Send is blocked, not nulled. */
+  jobsError?: boolean;
 }) {
   const week = buildPhilWeek(entries, { todayISO, weekAnchorISO });
+  const entriesByDate = new Map(entries.map((e) => [e.date, e]));
   const verdict = weekVerdict(week.counts);
   // Calm completion (#427): a single quiet "Week squared away" acknowledgement
   // when every loggable day is approved and nothing's left for the worker — and
@@ -310,10 +340,46 @@ export function PhilWeekSummary({
               >
                 {row.action.label}
               </PhilOfflineLink>
+            ) : row.draft ? (
+              // 2026-07-26 owner-directed: the draft dead-end gets a real
+              // Send (draft → submitted PATCH), gated honestly — a draft
+              // that can't be sent from here names its reason instead.
+              <DraftSendCell
+                entry={entriesByDate.get(row.date) ?? null}
+                assignedJobs={assignedJobs}
+                jobsError={jobsError}
+              />
             ) : null}
           </li>
         ))}
       </ul>
     </Card>
   );
+}
+
+/**
+ * The action cell for a draft row: a real Send when the draft is sendable
+ * (every allocation on an active assigned job — the same
+ * `draftSendBlockReason` gate the sharpened week-send uses), otherwise the
+ * honest reason it can't be sent from here. Never a dead button (P7).
+ */
+function DraftSendCell({
+  entry,
+  assignedJobs,
+  jobsError,
+}: {
+  entry: TimeEntry | null;
+  assignedJobs: ReadonlyArray<HoursJobRef>;
+  jobsError: boolean;
+}) {
+  if (!entry) return null;
+  const blockReason = draftSendBlockReason(entry, assignedJobs, jobsError);
+  if (blockReason) {
+    return (
+      <p className="max-w-[45%] shrink-0 text-right text-xs text-text-muted">
+        Can&rsquo;t be sent from here — {blockReason.charAt(0).toLowerCase() + blockReason.slice(1)}
+      </p>
+    );
+  }
+  return <SendDraftDayButton entry={entry} />;
 }

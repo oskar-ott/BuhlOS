@@ -227,7 +227,12 @@ export default async function MyDayPage({
     // rejected) has nothing to fix here — the attention hero and the Hours
     // tab carry the day's real status.
     const fixEntry = fixDate ? (recentEntries.find((e) => e.date === fixDate) ?? null) : null;
-    const showFixCard = fixEntry !== null && canResubmitInPhil(fixEntry);
+    // Rejected-only here: canResubmitInPhil also covers submitted days now
+    // (2026-07-26 owner-directed), but THIS card's "was sent back" framing is
+    // a rejection story — a submitted day's change affordance lives on the
+    // Hours tab / LogHoursSheet instead.
+    const showFixCard =
+      fixEntry !== null && fixEntry.status === "rejected" && canResubmitInPhil(fixEntry);
     return (
       <PhilShell
         title="My day"

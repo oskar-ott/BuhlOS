@@ -206,6 +206,9 @@ const VALID_ACTIONS = new Set([
   'hours.bulk_rejected',
   'hours.submitted',
   'hours.resubmitted',
+  // 2026-07-26 owner-directed: a content edit of a still-submitted (undecided)
+  // entry — the worker (or staff) changed a sent day before the office decided.
+  'hours.edited_while_submitted',
   // #370: daywork register (api/dayworks.js). daywork.created on POST;
   // daywork.signed on the supervisor sign; daywork.transitioned on the
   // signed → invoiced change (metadata.from/to carry the direction);

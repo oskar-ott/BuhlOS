@@ -62,6 +62,9 @@ export const TimeEntrySchema = z
     notes: z.string().nullable().optional(),
     status: TimeEntryStatusSchema,
     submittedAt: z.string().nullable().optional(),
+    /** 2026-07-26 owner-directed: stamped when a content edit lands on a
+     *  still-submitted (undecided) entry — "changed since sent". */
+    editedWhileSubmittedAt: z.string().nullable().optional(),
     approvedBy: z.string().nullable().optional(),
     /** Stamped by the committed payroll export (#126). */
     exportId: z.string().optional(),

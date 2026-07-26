@@ -37,9 +37,12 @@ describe("canResubmitInPhil", () => {
   it("allows a rejected single-allocation entry", () => {
     expect(canResubmitInPhil(te({ status: "rejected" }))).toBe(true);
   });
-  it("rejects non-rejected statuses", () => {
+  it("ALLOWS a submitted (undecided) entry — 2026-07-26 owner-directed: the worker can fix a sent day until the office decides", () => {
+    expect(canResubmitInPhil(te({ status: "submitted" }))).toBe(true);
+    expect(canResubmitInPhil(te({ status: "submitted", allocations: [] }))).toBe(false);
+  });
+  it("rejects approved (locked) and draft (its own send flow) statuses", () => {
     expect(canResubmitInPhil(te({ status: "approved" }))).toBe(false);
-    expect(canResubmitInPhil(te({ status: "submitted" }))).toBe(false);
     expect(canResubmitInPhil(te({ status: "draft" }))).toBe(false);
   });
   it("ALLOWS a rejected multi-allocation (split) entry — routed to the split editor", () => {

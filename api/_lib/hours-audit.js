@@ -38,7 +38,9 @@ function buildHoursAuditEntry({ action, actor, entry, reason }) {
     jobId: jobIds[0] || null,
     targetType: 'time_entry',
     targetId: (entry && entry.id) || `${entry && entry.userId}:${entry && entry.date}`,
-    summary: `${(actor && actor.username) || 'someone'} ${action.replace('hours.', '').replace('_', ' ')} ${userName || (entry && entry.userId)}'s hours for ${entry && entry.date}`.slice(0, 240),
+    // /_/g (not a single replace): hours.edited_while_submitted has two
+    // underscores; existing single-underscore actions render identically.
+    summary: `${(actor && actor.username) || 'someone'} ${action.replace('hours.', '').replace(/_/g, ' ')} ${userName || (entry && entry.userId)}'s hours for ${entry && entry.date}`.slice(0, 240),
     metadata: {
       userId: (entry && entry.userId) || null,
       userName,

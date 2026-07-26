@@ -12,6 +12,9 @@ Worker logs hours in Phil.            POST /api/time-entries (status: submitted)
 Office sees them in BuhlOS.           /hours + /hours/approvals (scope=approver)
 Office approves or rejects.           POST /api/time-entries-approve | -reject (reason required)
 Worker sees the result in Phil.       /phil/my-day week strip + status line + push notification
+Worker can change a sent day          "Change these hours" on a submitted (undecided) day —
+until the office decides.             content-edit PATCH, journalled hours.edited_while_submitted
+                                      (2026-07-26 owner-directed)
 Rejected hours are fixed in place.    /phil/my-day?fixDate= → inline fix-and-resubmit (PATCH → submitted)
 Approved hours are locked.            PATCH 403 for non-admin; admin uses /api/time-entries-reopen
 State persists.                       Vercel Blob: users/<userId>/time-entries/<date>.json
@@ -38,9 +41,17 @@ State persists.                       Vercel Blob: users/<userId>/time-entries/<
   Needs You feed both use it, so the fix is one tap away. Invalid values are
   ignored (`parseFixDate`). The entries window stretches to include an older
   `fixDate` so the entry to fix is always loaded.
+- **Sent day, not decided yet → the worker can still fix it** (2026-07-26
+  owner-directed). A submitted day shows "Sent to the office — waiting for
+  approval" plus a quiet "Change these hours" affordance (the same fix sheet
+  the rejected flow uses, with change-and-resend words and a named
+  consequence: the office gets the new version). The edit is a content PATCH
+  (status stays `submitted`), stamps `editedWhileSubmittedAt` and journals
+  `hours.edited_while_submitted`.
 - **Duplicates:** one entry per worker+date. The server answers 409 on a
-  duplicate POST; the UI disables the action when the selected day is already
-  submitted/approved.
+  duplicate POST; a selected day that's already submitted/approved never shows
+  the log actions — it shows its status (and, for submitted, the change
+  affordance; approved says it's locked for pay) instead of a dead button.
 - **History:** `/phil/hours` (linked from the week strip) lists every entry
   with status, reason, and the same fix-and-resubmit flow.
 
@@ -64,14 +75,19 @@ State persists.                       Vercel Blob: users/<userId>/time-entries/<
 draft     → submitted          worker (or staff on behalf)
 submitted → approved           admin/LH via /api/time-entries-approve (never self)
 submitted → rejected           admin/LH via /api/time-entries-reject (reason required; 30s undo)
+submitted → submitted          worker content-edits a sent, undecided day (2026-07-26
+                               owner-directed); stamps editedWhileSubmittedAt, journals
+                               hours.edited_while_submitted; attribution gate applies
 rejected  → submitted          worker fixes + resubmits (PATCH; attribution gate applies)
 approved  → (locked)           PATCH 403 for non-admin; admin /api/time-entries-reopen
 ```
 
 Not possible: worker editing/resubmitting an approved entry, approving via
-PATCH, rejecting without a reason, duplicate active entries for one
-worker+date, field self-edits re-allocating hours to a job the worker isn't
-assigned to (the create-path gate now also runs on PATCH — see
+PATCH, rewinding submitted → draft, rejecting without a reason, duplicate
+active entries for one worker+date, field self-edits re-allocating hours to a
+draft/archived/unknown job or to NO job — a `jobId: null` allocation on a
+field self-edit PATCH is refused server-side (2026-07-26 owner-directed; the
+create path keeps its backward-compat null acceptance — see
 `docs/phil-hours-job-attribution.md`).
 
 ## Notifications
