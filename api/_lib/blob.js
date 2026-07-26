@@ -89,21 +89,84 @@ class BlobReadError extends Error {
   }
 }
 
+// ── Deterministic-URL fast path ─────────────────────────────────────────
+// Every writeBlob puts with addRandomSuffix:false, so a key's public URL is
+// exactly `https://<storeHost>/<encoded key>`. The store host is NOT derivable
+// from the token (verified: the token's embedded id differs from the URL host),
+// so it is LEARNED once per warm instance — from the first list() match or
+// put() result whose URL cleanly matches its pathname — and every later read
+// skips the list() round-trip entirely.
+//
+// Why this matters: list() is an API call to the store's ORIGIN region while
+// the GET is served by the CDN edge. Measured from Sydney (syd1 functions):
+// list ~0.9s, put ~1.4s, edge GET ~10-70ms. The old list-then-fetch shape made
+// EVERY blob read pay the cross-region list; pages that fan out over a dozen
+// keys paid it a dozen times.
+//
+// Correctness never depends on the fast path: a 404 on the derived URL falls
+// through to the ORIGINAL list() verification — so blobs written elsewhere
+// WITH random suffixes (e.g. legend-crop PNG uploads) still resolve, and
+// "genuine absence → fallback" is still decided by list(), never by a bare
+// 404 (#576 discipline).
+let _publicHost = null;
+
+function _encodeKey(key) {
+  return String(key).split('/').map(encodeURIComponent).join('/');
+}
+
+function _learnPublicHost(url, pathname) {
+  try {
+    const u = new URL(url);
+    if (u.pathname === '/' + _encodeKey(pathname)) _publicHost = u.hostname;
+  } catch {
+    /* learning is best-effort — never let it break a read/write */
+  }
+}
+
+// Test-only injection seam: blob.js is loaded via createRequire in tests, so
+// vi.mock can't reach its SDK imports. Production never calls this.
+let _overrides = {};
+function __setTestOverrides(o) { _overrides = o || {}; _publicHost = null; }
+
 async function _doReadBlob(key, fallback) {
+  const doFetch = _overrides.fetch || fetch;
+  const doList = _overrides.list || list;
+
+  // Fast path: derived public URL, no list() round-trip. Cache-busting query
+  // stays so any CDN in front of Blob returns fresh data on a cache miss; the
+  // in-memory cache above is what prevents repeated network calls in the
+  // common case.
+  if (_publicHost) {
+    let r;
+    try {
+      r = await doFetch(`https://${_publicHost}/${_encodeKey(key)}?t=${Date.now()}`, { cache: 'no-store' });
+    } catch (e) {
+      throw new BlobReadError(key, `fetch: ${e && e.message}`);
+    }
+    if (r.ok) {
+      try {
+        return await r.json();
+      } catch (e) {
+        throw new BlobReadError(key, `json: ${e && e.message}`);
+      }
+    }
+    if (r.status !== 404) throw new BlobReadError(key, `http ${r.status}`);
+    // 404 → fall through: legacy random-suffix blob or genuine absence —
+    // only list() can tell them apart.
+  }
+
   let blobs;
   try {
-    ({ blobs } = await list({ prefix: key, token: token() }));
+    ({ blobs } = await doList({ prefix: key, token: token() }));
   } catch (e) {
     throw new BlobReadError(key, `list: ${e && e.message}`);
   }
   const match = blobs.find(b => b.pathname === key);
   if (!match) return fallback; // genuine absence — the ONLY fallback path
+  _learnPublicHost(match.url, match.pathname);
   let r;
   try {
-    // Cache-busting query stays so any CDN in front of Blob returns
-    // fresh data on a cache miss; the in-memory cache above is what
-    // prevents repeated network calls in the common case.
-    r = await fetch(match.url + '?t=' + Date.now(), { cache: 'no-store' });
+    r = await doFetch(match.url + '?t=' + Date.now(), { cache: 'no-store' });
   } catch (e) {
     throw new BlobReadError(key, `fetch: ${e && e.message}`);
   }
@@ -232,12 +295,15 @@ async function writeBlob(key, data, opts = {}) {
   data = stamped;
 
   const serialized = JSON.stringify(data);
-  await put(key, serialized, {
+  const putResult = await (_overrides.put || put)(key, serialized, {
     access: 'public',
     contentType: 'application/json',
     addRandomSuffix: false,
     token: token(),
   });
+  // A successful put teaches this instance the store's public host, so every
+  // subsequent readBlob takes the deterministic-URL fast path with no list().
+  if (putResult && putResult.url) _learnPublicHost(putResult.url, key);
   // Set the local cache to the just-written data so subsequent reads
   // on this instance see fresh state without going back to Vercel
   // Blob's read endpoint, which has multi-second propagation lag
@@ -302,4 +368,9 @@ module.exports = {
   setNoCache,
   blobUploadedAt,
   BlobReadError,
+  // Test-only seams (production never calls these):
+  __setTestOverrides,
+  __learnPublicHost: _learnPublicHost,
+  __getPublicHost: () => _publicHost,
+  __encodeKey: _encodeKey,
 };
