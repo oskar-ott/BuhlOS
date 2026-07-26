@@ -9,15 +9,19 @@ import { InviteStatusCard } from "./InviteStatusCard";
 import { LicencesSection } from "./LicencesSection";
 import { CostRateSection } from "./CostRateSection";
 import { EmployeeStatusChip } from "./EmployeeStatusChip";
+import type { ActiveJobOption } from "./AddEmployeeDrawer";
 import { cn } from "@/lib/cn";
 import { issueInvite, revokeInvite, disableEmployee, errorText } from "@/domains/employees/client";
-import { displayNameFor, displayRoleLabel } from "@/domains/employees/service";
+import { displayNameFor, displayRoleLabel, initialsFor } from "@/domains/employees/service";
 import { formatDateTime, formatShortDate } from "@/domains/employees/format";
 import type { EmployeeRow } from "@/domains/employees/types";
 
 interface EmployeeDetailDrawerProps {
   row: EmployeeRow | null;
   emailConfigured: boolean;
+  /** Active jobs (id/name/ref) the screen already loads for the add-drawer —
+   *  reused to name this worker's assigned jobs without a new fetch. */
+  activeJobs?: ReadonlyArray<ActiveJobOption>;
   onClose: () => void;
   onUpdated: (row: EmployeeRow) => void;
 }
@@ -25,6 +29,7 @@ interface EmployeeDetailDrawerProps {
 export function EmployeeDetailDrawer({
   row,
   emailConfigured,
+  activeJobs = [],
   onClose,
   onUpdated,
 }: EmployeeDetailDrawerProps) {
@@ -72,7 +77,23 @@ export function EmployeeDetailDrawer({
         subtitle={`${displayRoleLabel(employee.role)}${apprentice}`}
       >
         <div className="space-y-4">
-          <div className="flex flex-wrap items-center gap-2">
+          {/* Lean-reset head (replica lines 458-463): navy initials avatar +
+              role/mobile, status pill on the right. The replica's Reset PIN /
+              Assign to job buttons are NOT built — no fake actions; resend/
+              revoke live in the invite card below, disable in the danger zone. */}
+          <div className="flex items-center gap-4 rounded-card border border-border bg-surface-raised p-4 shadow-card">
+            <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-brand-navy font-display text-lg font-semibold text-text-inverse">
+              {initialsFor(employee)}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-display text-base font-semibold text-text">
+                {displayRoleLabel(employee.role)}
+                {apprentice}
+              </span>
+              <span className="block truncate text-sm text-text-muted">
+                {employee.phone || employee.email || "—"}
+              </span>
+            </span>
             <EmployeeStatusChip employee={employee} invite={invite} />
           </div>
 
@@ -117,8 +138,42 @@ export function EmployeeDetailDrawer({
                 <div className="mt-0.5 text-sm text-text-muted">none</div>
               )}
             </div>
-            <DetailField label="Jobs assigned" value={String(row.jobsCount)} muted={row.jobsCount === 0} />
             <DetailField label="Gear assigned" value={row.gearCount > 0 ? String(row.gearCount) : "none"} muted={row.gearCount === 0} />
+          </section>
+
+          {/* Assigned jobs (replica line 471) — ref · name resolved from the
+              active-jobs summary the screen already loads for the add drawer
+              (no new fetch). A job that's no longer active falls back to its
+              raw id rather than inventing a name. The replica's "Gear held"
+              card is omitted: the gear register is parked, so per-item names
+              aren't loaded — the honest count stays in the grid above. */}
+          <section className="rounded-card border border-border bg-surface px-3 py-2">
+            <h3 className="font-mono text-[10px] uppercase tracking-wider text-text-muted">
+              Assigned jobs
+            </h3>
+            {employee.assignedJobIds.length === 0 ? (
+              <p className="mt-0.5 text-sm text-text-muted">No jobs assigned.</p>
+            ) : (
+              <ul className="mt-1 space-y-1 text-sm text-text">
+                {employee.assignedJobIds.map((jobId) => {
+                  const job = activeJobs.find((j) => j.id === jobId);
+                  return (
+                    <li key={jobId} className="truncate">
+                      {job ? (
+                        <>
+                          <span className="font-mono text-[12px] text-text-muted">
+                            {job.ref ?? job.id}
+                          </span>{" "}
+                          · {job.name}
+                        </>
+                      ) : (
+                        <span className="font-mono text-[12px] text-text-muted">{jobId}</span>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
           </section>
 
           {employee.notes ? (

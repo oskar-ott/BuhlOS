@@ -57,12 +57,10 @@ export async function EmployeesScreen({ selectedId }: { selectedId?: string | nu
       }
     >
       <div className="mx-auto max-w-6xl space-y-4">
-        {/* Title lives in the top bar (AdminTopbar h1); this is the glanceable
-            sub-line + KPI header from the §7 prototype. */}
+        {/* Title lives in the top bar (AdminTopbar h1); this is the lean-reset
+            sub-line + KPI header (replica lines 421-428). */}
         <p className="text-sm text-text-muted">
-          {summary
-            ? summary.subline
-            : "Add a worker, send an invite, and they set up BuhlOS on their own phone."}
+          Add a worker, send an invite, and they set up BuhlOS on their own phone.
         </p>
 
         {summary ? <ResourceStatRow label="People at a glance" tiles={summary.tiles} /> : null}

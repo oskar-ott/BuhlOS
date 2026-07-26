@@ -76,24 +76,23 @@ describe("admin data tables stay horizontally scrollable on mobile", () => {
     expect(read(file)).not.toContain(BANNED_WRAPPER);
   });
 
-  it("the employee register grid scrolls (overflow-x-auto + min-w floor) instead of overflowing", () => {
+  it("the employee register never reintroduces a fixed-width column grid (lean reset)", () => {
+    // The lean-reset register (replica lines 429-442) is a single-column row
+    // list — avatar · name · pills — that truncates instead of overflowing, so
+    // it needs NO horizontal-scroll container. Freeze that: a min-width floor
+    // or a fixed column template would mean the dense grid crept back without
+    // a scroll wrapper.
     const src = read("EmployeeRegisterClient.tsx");
-    expect(src).toContain("overflow-x-auto");
-    // A min-width floor keeps the dense column grid legible and forces the
-    // wrapper to scroll rather than crush the columns. The exact value tracks
-    // the column count (widened to 760px when the Mobile column was added, §7A).
-    expect(src).toMatch(/min-w-\[\d+px\]/);
+    expect(src).not.toMatch(/min-w-\[\d+px\]/);
+    expect(src).not.toContain("grid-cols-[");
   });
 
-  it("the dense registers ship a mobile card list (sm:hidden) beside the desktop table/grid", () => {
-    // Employees and Gear are the registers a boss checks on a phone: each
-    // renders a stacked card list below sm and the dense column table/grid at
-    // sm+ (no sideways-scrolling a 6-column grid on a phone). Freeze both.
-    for (const file of ["EmployeeRegisterClient.tsx", "GearRegisterClient.tsx"]) {
-      const src = read(file);
-      expect(src, `${file} mobile card list`).toContain("sm:hidden");
-      expect(src, `${file} desktop table/grid`).toMatch(/sm:block|sm:grid/);
-    }
+  it("the dense gear register ships a mobile card list (sm:hidden) beside the desktop table/grid", () => {
+    // Gear keeps the dense column grid, so it still needs the stacked card
+    // list below sm and the grid at sm+ (no sideways-scrolling on a phone).
+    const src = read("GearRegisterClient.tsx");
+    expect(src, "GearRegisterClient.tsx mobile card list").toContain("sm:hidden");
+    expect(src, "GearRegisterClient.tsx desktop table/grid").toMatch(/sm:block|sm:grid/);
   });
 
   it("every admin component that renders a <table> wraps it in overflow-x-auto (or is exempt)", () => {
