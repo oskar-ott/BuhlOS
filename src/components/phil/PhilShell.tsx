@@ -98,7 +98,13 @@ export function PhilShell({
   return (
     <div
       data-testid="phil-shell"
-      className="mx-auto flex min-h-screen w-full max-w-md flex-col bg-surface"
+      // Viewport-BOUND (not min-h-screen): the shell must never grow past the
+      // screen, or the document becomes a second scroller behind PullToRefresh's
+      // overscroll-contained container — which then eats upward gestures and the
+      // page "can't scroll back up" (field report 2026-07-26, /phil/hours once
+      // it grew taller than one screen). h-screen is the 100vh fallback; dvh
+      // tracks iOS Safari's collapsing toolbars where plain 100vh over-measures.
+      className="mx-auto flex h-screen w-full max-w-md flex-col overflow-hidden bg-surface supports-[height:100dvh]:h-dvh"
     >
       <PhilHeader title={title} sharpened={sharpened} accountInitials={accountInitials} />
       {/* The providers let in-page quick-action tiles open the global Capture
