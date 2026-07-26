@@ -36,9 +36,9 @@ export function CrewWeekPanel() {
 
   return (
     <Card role="region" aria-label="Crew availability this week">
-      <CardTitle>Crew this week</CardTitle>
+      <CardTitle className="text-base">This week&rsquo;s crew</CardTitle>
       <CardDescription className="mt-1">
-        Who&rsquo;s on leave, assigned, or free — approved leave only; the job column
+        Who&rsquo;s assigned, free, or on leave — approved leave only; the job column
         is who&rsquo;s <em>currently</em> assigned, not a forward schedule.
       </CardDescription>
 

@@ -8,6 +8,7 @@ import { HoursPolicySection } from "@/components/admin/HoursPolicySection";
 import { JobTypesSection } from "@/components/admin/JobTypesSection";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
+import { isOwnerRole } from "@/lib/auth/roles";
 import { isFlagEnabled } from "../../../../api/_lib/feature-flags.js";
 
 export const dynamic = "force-dynamic";
@@ -35,7 +36,9 @@ export const dynamic = "force-dynamic";
  * cutover (so there's no live page to link out to), and no v2 replacement is
  * built yet — this hub names where they stand rather than faking a control.
  * Notification prefs (#218) and task-generation rules (#224) already have their
- * own /settings/* pages; this hub links to them.
+ * own /settings/* pages; this hub links to them. Lean-reset re-skin (replica
+ * lines 541-563): page-level sub-line instead of an intro card, and an
+ * owner-only Owner Console link in "More settings".
  *
  * Admin-tier gated via the normalised-role surface check (same pattern as
  * /settings/notifications) — never a literal 'admin' comparison. Both endpoints
@@ -57,24 +60,24 @@ export default async function SettingsHubPage() {
   // #247: the Xero connection page link renders only when the flag is on for
   // this viewer — the integration stays invisible while dark.
   const xeroEnabled = await isFlagEnabled("xero_connection", session);
+  // Owner Console link (replica line 557) — owner-only; everyone else never
+  // sees a link they can't open (the /owner gate is fail-closed anyway).
+  const owner = isOwnerRole(session.role);
 
   return (
     <AdminShell title="Settings">
-      <div className="mx-auto max-w-3xl space-y-6">
-        <Card>
-          <CardTitle>Settings</CardTitle>
-          <CardDescription className="mt-1">
-            Company-level configuration for the new BuhlOS surfaces. Each section
-            below either works here or points you to where it lives. Personal
-            settings — profile, password and look &amp; feel — are not duplicated
-            here; see &ldquo;More settings&rdquo; below for where they stand.
-          </CardDescription>
-        </Card>
+      <div className="mx-auto max-w-3xl space-y-4">
+        {/* Title lives in the top bar (AdminTopbar h1); this is the lean-reset
+            sub-line (replica line 543). */}
+        <p className="max-w-[62ch] text-sm text-text-muted">
+          Company-level configuration for BuhlOS. Each section below either
+          works here or points you to where it lives.
+        </p>
 
         <section aria-label="Hours policy">
           <Card className="space-y-4">
             <div>
-              <CardTitle>Hours policy</CardTitle>
+              <CardTitle className="text-base">Hours policy</CardTitle>
               <CardDescription className="mt-1">
                 The daily-hours threshold for flagging long days on approvals.
               </CardDescription>
@@ -86,7 +89,7 @@ export default async function SettingsHubPage() {
         <section aria-label="Job types">
           <Card className="space-y-4">
             <div>
-              <CardTitle>Job types</CardTitle>
+              <CardTitle className="text-base">Job types</CardTitle>
               <CardDescription className="mt-1">
                 The labels you put on jobs (and that seed the task-generation
                 rules). Add, rename or delete them here.
@@ -98,17 +101,12 @@ export default async function SettingsHubPage() {
 
         <section aria-label="More settings">
           <Card className="space-y-3">
-            <div>
-              <CardTitle>More settings</CardTitle>
-              <CardDescription className="mt-1">
-                Other company configuration that already has its own page.
-              </CardDescription>
-            </div>
+            <CardTitle className="text-base">More settings</CardTitle>
             <ul className="space-y-2 text-sm">
               <li>
                 <Link
                   href={"/settings/notifications" as Route}
-                  className="font-medium text-brand-navy underline underline-offset-2"
+                  className="font-semibold text-brand-navy underline underline-offset-2"
                 >
                   Notification settings
                 </Link>{" "}
@@ -119,7 +117,7 @@ export default async function SettingsHubPage() {
               <li>
                 <Link
                   href={"/settings/task-rules" as Route}
-                  className="font-medium text-brand-navy underline underline-offset-2"
+                  className="font-semibold text-brand-navy underline underline-offset-2"
                 >
                   Task generation rules
                 </Link>{" "}
@@ -127,11 +125,24 @@ export default async function SettingsHubPage() {
                   — repeatable task lists by job type / area.
                 </span>
               </li>
+              {owner ? (
+                <li>
+                  <Link
+                    href={"/owner" as Route}
+                    className="font-semibold text-brand-navy underline underline-offset-2"
+                  >
+                    Owner Console
+                  </Link>{" "}
+                  <span className="text-text-muted">
+                    — platform control &amp; the feature board (owner only).
+                  </span>
+                </li>
+              ) : null}
               {xeroEnabled ? (
                 <li>
                   <Link
                     href={"/settings/integrations/xero" as Route}
-                    className="font-medium text-brand-navy underline underline-offset-2"
+                    className="font-semibold text-brand-navy underline underline-offset-2"
                   >
                     Xero connection
                   </Link>{" "}
@@ -141,11 +152,10 @@ export default async function SettingsHubPage() {
                 </li>
               ) : null}
               <li className="text-text-muted">
-                <span className="font-medium text-text">
+                <span className="font-semibold text-text">
                   Profile, change password &amp; look &amp; feel
                 </span>{" "}
-                — not rebuilt in v2 yet. The old settings page was retired in the
-                interface cutover; a personal-settings slice is tracked for later.
+                — not rebuilt in v2 yet.
               </li>
             </ul>
           </Card>

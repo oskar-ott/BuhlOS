@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Plus, Search, ShieldAlert } from "lucide-react";
+import { ChevronRight, Plus, Search, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { cn } from "@/lib/cn";
@@ -16,7 +16,6 @@ import {
   displayRoleLabel,
   initialsFor,
 } from "@/domains/employees/service";
-import { lastActiveLabel } from "@/domains/employees/format";
 import type { EmployeeFilterKey, EmployeeRow } from "@/domains/employees/types";
 
 interface EmployeeRegisterClientProps {
@@ -41,6 +40,14 @@ const FILTERS: { key: EmployeeFilterKey; label: string }[] = [
   { key: "disabled", label: "Disabled" },
 ];
 
+/**
+ * Employee register — lean-reset re-skin (replica lines 429-442): one card,
+ * "Employee register" head + navy "Add worker" button, then one row per worker
+ * (navy initials avatar · name · role + mobile · status pills · chevron).
+ * Search, the filter pills and the licence-attention toggle are EXISTING
+ * behaviour the replica doesn't show — kept, restyled to sit inside the card.
+ * Everything else (drawers, deep-link, recents) is unchanged behaviour.
+ */
 export function EmployeeRegisterClient({
   initialRows,
   emailConfigured,
@@ -100,159 +107,90 @@ export function EmployeeRegisterClient({
           type="employee"
         />
       ) : null}
-      {/* Header row */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex w-full items-center gap-2 rounded-card border border-border bg-surface px-2 sm:w-auto">
-          <Search aria-hidden="true" className="h-4 w-4 shrink-0 text-text-muted" />
-          <input
-            className="h-9 w-full bg-transparent text-sm outline-none sm:w-56"
-            placeholder="Search name or email…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            aria-label="Search employees"
-          />
-        </div>
-        <Button size="sm" onClick={() => setAddOpen(true)}>
-          <Plus aria-hidden="true" className="h-4 w-4" />
-          Add employee
-        </Button>
-      </div>
 
-      {/* Filter bar */}
-      {!isEmpty ? (
-        <div className="flex flex-wrap gap-1.5">
-          {FILTERS.map((f) => {
-            const active = filter === f.key;
-            const count = counts[f.key];
-            return (
-              <button
-                key={f.key}
-                type="button"
-                onClick={() => setFilter(f.key)}
-                className={cn(
-                  "flex items-center gap-1.5 rounded-pill border px-3 py-1 font-mono text-[10.5px] uppercase tracking-wider transition-colors",
-                  active
-                    ? "border-brand-navy bg-brand-navy text-text-inverse"
-                    : "border-border bg-surface text-text-muted hover:bg-surface-subtle"
-                )}
-              >
-                {f.label}
-                <span className={cn("rounded-pill px-1.5 font-semibold", active ? "bg-accent-yellow text-brand-navy" : "bg-surface-subtle text-text")}>
-                  {count}
-                </span>
-              </button>
-            );
-          })}
-          {licenceAttentionCount > 0 ? (
-            <button
-              type="button"
-              onClick={() => setLicenceAttentionOnly((v) => !v)}
-              data-testid="licence-attention-toggle"
-              className={cn(
-                "flex items-center gap-1.5 rounded-pill border px-3 py-1 font-mono text-[10.5px] uppercase tracking-wider transition-colors",
-                licenceAttentionOnly
-                  ? "border-rose-700 bg-rose-700 text-text-inverse"
-                  : "border-rose-200 bg-rose-50 text-rose-800 hover:bg-rose-100"
-              )}
-            >
-              <ShieldAlert aria-hidden="true" className="h-3.5 w-3.5" />
-              Licences need attention
-              <span className={cn("rounded-pill px-1.5 font-semibold", licenceAttentionOnly ? "bg-accent-yellow text-brand-navy" : "bg-surface text-rose-800")}>
-                {licenceAttentionCount}
-              </span>
-            </button>
-          ) : null}
-        </div>
-      ) : null}
-
-      {/* Register */}
       {isEmpty ? (
         <EmptyState
-          title="No employees yet"
-          description="Add your first employee to start using BuhlOS for hours, gear and jobs."
+          title="No workers yet"
+          description="Add your first worker to start using BuhlOS for hours, gear and jobs."
           action={
             <Button size="sm" onClick={() => setAddOpen(true)}>
               <Plus aria-hidden="true" className="h-4 w-4" />
-              Add employee
+              Add worker
             </Button>
           }
         />
       ) : (
-        <>
-        {/* Mobile (<sm): stacked card list — every field is visible without
-            the horizontal scroll the desktop column grid needs. A boss checks
-            workers on a phone; sideways-scrolling a 6-column grid is exactly
-            the "should be a mobile card list" case. */}
-        <ul className="divide-y divide-border overflow-hidden rounded-card border border-border bg-surface sm:hidden">
-          {visible.length === 0 ? (
-            <li className="px-4 py-6 text-center text-sm text-text-muted">No employees match this filter.</li>
-          ) : (
-            visible.map((row) => {
-              const e = row.employee;
-              // eslint-disable-next-line no-restricted-syntax -- apprenticeYear belongs to the literal apprentice role, not a tier
-              const apprentice = e.role === "apprentice" && e.apprenticeYear ? ` · Y${e.apprenticeYear}` : "";
-              const access = e.appAccess === "phil" ? "Field" : e.appAccess === "both" ? "Field + office" : "Office";
-              const flag = licenceFlagFor(row);
-              return (
-                <li key={e.id}>
+        <div className="overflow-hidden rounded-card border border-border bg-surface-raised shadow-card">
+          {/* Card head — replica line 430. */}
+          <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-4 sm:px-5">
+            <h2 className="font-display text-base text-text">Employee register</h2>
+            <Button size="sm" onClick={() => setAddOpen(true)}>
+              <Plus aria-hidden="true" className="h-4 w-4" />
+              Add worker
+            </Button>
+          </div>
+
+          {/* Search + filters — existing behaviour, restyled into the card. */}
+          <div className="space-y-2.5 border-b border-border px-4 py-3 sm:px-5">
+            <div className="flex w-full items-center gap-2 rounded-card border border-border bg-surface px-2 sm:w-72">
+              <Search aria-hidden="true" className="h-4 w-4 shrink-0 text-text-muted" />
+              <input
+                className="h-9 w-full bg-transparent text-sm outline-none"
+                placeholder="Search name or email…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                aria-label="Search employees"
+              />
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {FILTERS.map((f) => {
+                const active = filter === f.key;
+                const count = counts[f.key];
+                return (
                   <button
+                    key={f.key}
                     type="button"
-                    onClick={() => setSelectedId(e.id)}
-                    className="flex w-full items-start gap-3 px-4 py-3 text-left hover:bg-surface-subtle"
+                    onClick={() => setFilter(f.key)}
+                    className={cn(
+                      "flex items-center gap-1.5 rounded-pill border px-3 py-1 font-mono text-[10.5px] uppercase tracking-wider transition-colors",
+                      active
+                        ? "border-brand-navy bg-brand-navy text-text-inverse"
+                        : "border-border bg-surface text-text-muted hover:bg-surface-subtle"
+                    )}
                   >
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-subtle font-mono text-[11px] font-bold text-brand-navy">
-                      {initialsFor(e)}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-start justify-between gap-2">
-                        <span className="min-w-0">
-                          <span className="block truncate font-display text-sm text-text">{displayNameFor(e)}</span>
-                          <span className="block truncate font-mono text-[11px] text-text-muted">{e.email || "—"}</span>
-                        </span>
-                        <span className="flex shrink-0 flex-col items-end gap-1">
-                          <EmployeeStatusChip employee={e} invite={row.invite} />
-                          {flag ? (
-                            <span
-                              className={cn(
-                                "rounded-pill px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-wider",
-                                flag === "expired" ? "bg-rose-100 text-rose-800" : "bg-amber-100 text-amber-900"
-                              )}
-                            >
-                              {flag === "expired" ? "Ticket expired" : "Ticket expiring"}
-                            </span>
-                          ) : null}
-                        </span>
-                      </span>
-                      <span className="mt-1 block text-xs text-text-muted">
-                        {displayRoleLabel(e.role)}{apprentice} · {access}
-                      </span>
-                      <span className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[11px] text-text-muted">
-                        <span>{row.jobsCount || 0} jobs</span>
-                        <span>{row.gearCount || 0} gear</span>
-                        <span>{lastActiveLabel(e.lastActiveAt)}</span>
-                      </span>
+                    {f.label}
+                    <span className={cn("rounded-pill px-1.5 font-semibold", active ? "bg-accent-yellow text-brand-navy" : "bg-surface-subtle text-text")}>
+                      {count}
                     </span>
                   </button>
-                </li>
-              );
-            })
-          )}
-        </ul>
-
-        {/* Desktop / tablet (sm+): the dense column grid (contained horizontal
-            scroll on tablet). */}
-        <div className="hidden overflow-x-auto rounded-card border border-border bg-surface sm:block">
-          {/* Column header — min-w keeps the 6 columns legible; the wrapper
-              scrolls horizontally rather than crushing/overflowing the page. */}
-          <div className="grid min-w-[760px] grid-cols-[1.6fr_1fr_1fr_0.9fr_0.5fr_0.5fr_0.8fr] gap-3 border-b border-border bg-surface-subtle px-4 py-2 font-mono text-[9.5px] uppercase tracking-wider text-text-muted">
-            <span>Employee</span>
-            <span>Role</span>
-            <span>Mobile</span>
-            <span>Status</span>
-            <span>Jobs</span>
-            <span>Gear</span>
-            <span>Last active</span>
+                );
+              })}
+              {licenceAttentionCount > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setLicenceAttentionOnly((v) => !v)}
+                  data-testid="licence-attention-toggle"
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-pill border px-3 py-1 font-mono text-[10.5px] uppercase tracking-wider transition-colors",
+                    licenceAttentionOnly
+                      ? "border-state-danger bg-state-danger text-text-inverse"
+                      : "border-state-danger-subtle-border bg-state-danger-subtle-bg text-state-danger-subtle-text hover:opacity-90"
+                  )}
+                >
+                  <ShieldAlert aria-hidden="true" className="h-3.5 w-3.5" />
+                  Licences to watch
+                  <span className={cn("rounded-pill px-1.5 font-semibold", licenceAttentionOnly ? "bg-accent-yellow text-brand-navy" : "bg-surface text-state-danger-subtle-text")}>
+                    {licenceAttentionCount}
+                  </span>
+                </button>
+              ) : null}
+            </div>
           </div>
+
+          {/* Register rows — replica lines 431-441: avatar · name · role +
+              mobile · licence pill · status pill · chevron. Email stands in on
+              the sub-line when no mobile is on file (never a fake number);
+              jobs/gear/last-active moved to the detail drawer. */}
           {visible.length === 0 ? (
             <p className="px-4 py-6 text-center text-sm text-text-muted">
               No employees match this filter.
@@ -263,52 +201,42 @@ export function EmployeeRegisterClient({
                 const e = row.employee;
                 // eslint-disable-next-line no-restricted-syntax -- apprenticeYear belongs to the literal apprentice role, not a tier
                 const apprentice = e.role === "apprentice" && e.apprenticeYear ? ` · Y${e.apprenticeYear}` : "";
+                const flag = licenceFlagFor(row);
                 return (
                   <li key={e.id}>
                     <button
                       type="button"
                       onClick={() => setSelectedId(e.id)}
-                      className="grid w-full min-w-[760px] grid-cols-[1.6fr_1fr_1fr_0.9fr_0.5fr_0.5fr_0.8fr] items-center gap-3 border-b border-border px-4 py-3 text-left text-sm last:border-b-0 hover:bg-surface-subtle"
+                      className="flex w-full items-center gap-3.5 border-b border-border px-4 py-3.5 text-left last:border-b-0 hover:bg-surface-subtle sm:px-5"
                     >
-                      <span className="flex min-w-0 items-center gap-2.5">
-                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-surface-subtle font-mono text-[10px] font-bold text-brand-navy">
-                          {initialsFor(e)}
-                        </span>
-                        <span className="min-w-0">
-                          <span className="block truncate font-display text-text">{displayNameFor(e)}</span>
-                          <span className="block truncate font-mono text-[11px] text-text-muted">{e.email || "—"}</span>
-                        </span>
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-navy font-display text-[13px] font-semibold text-text-inverse">
+                        {initialsFor(e)}
                       </span>
-                      <span className="min-w-0">
-                        <span className="block truncate text-text">{displayRoleLabel(e.role)}{apprentice}</span>
-                        <span className="block font-mono text-[10px] uppercase tracking-wider text-text-muted">
-                          {e.appAccess === "phil" ? "Field" : e.appAccess === "both" ? "Field + office" : "Office"}
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-display text-[15px] font-semibold text-text">
+                          {displayNameFor(e)}
+                        </span>
+                        <span className="block truncate text-[13px] text-text-muted">
+                          {displayRoleLabel(e.role)}
+                          {apprentice} · {e.phone || e.email || "—"}
                         </span>
                       </span>
-                      {/* Mobile — the field "call number". The whole row is a
-                          button (opens the drawer), so this is plain text here;
-                          the one-tap tel: link lives in the detail drawer. */}
-                      <span className="min-w-0 truncate font-mono text-[11px] text-text-muted">
-                        {e.phone || "—"}
-                      </span>
-                      <span className="flex flex-wrap items-center gap-1">
-                        <EmployeeStatusChip employee={e} invite={row.invite} />
-                        {licenceFlagFor(row) ? (
+                      <span className="flex shrink-0 items-center gap-2">
+                        {flag ? (
                           <span
                             className={cn(
-                              "rounded-pill px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-wider",
-                              licenceFlagFor(row) === "expired"
-                                ? "bg-rose-100 text-rose-800"
-                                : "bg-amber-100 text-amber-900"
+                              "rounded-pill border px-2 py-0.5 text-[11px] font-semibold",
+                              flag === "expired"
+                                ? "border-state-danger-subtle-border bg-state-danger-subtle-bg text-state-danger-subtle-text"
+                                : "border-state-warning-subtle-border bg-state-warning-subtle-bg text-state-warning-subtle-text"
                             )}
                           >
-                            {licenceFlagFor(row) === "expired" ? "Ticket expired" : "Ticket expiring"}
+                            {flag === "expired" ? "Licence expired" : "Licence due soon"}
                           </span>
                         ) : null}
+                        <EmployeeStatusChip employee={e} invite={row.invite} />
+                        <ChevronRight aria-hidden="true" className="h-4 w-4 text-text-muted" />
                       </span>
-                      <span className="font-mono tabular-nums text-text">{row.jobsCount || "—"}</span>
-                      <span className="font-mono tabular-nums text-text">{row.gearCount || "—"}</span>
-                      <span className="font-mono text-[11px] text-text-muted">{lastActiveLabel(e.lastActiveAt)}</span>
                     </button>
                   </li>
                 );
@@ -316,7 +244,6 @@ export function EmployeeRegisterClient({
             </ul>
           )}
         </div>
-        </>
       )}
 
       <AddEmployeeDrawer
@@ -329,6 +256,7 @@ export function EmployeeRegisterClient({
       <EmployeeDetailDrawer
         row={selected}
         emailConfigured={emailConfigured}
+        activeJobs={activeJobs}
         onClose={() => setSelectedId(null)}
         onUpdated={(row) => upsert(row)}
       />

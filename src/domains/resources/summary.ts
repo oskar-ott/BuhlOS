@@ -2,6 +2,7 @@ import type { EmployeeRow } from "@/domains/employees/types";
 import type { GearAsset } from "@/domains/gear/types";
 import { deriveStatus } from "@/domains/gear/service";
 import { calibrationFlag } from "@/domains/gear/format";
+import { isAdminRole, isLeadingHandRole } from "@/lib/auth/roles";
 
 /**
  * Resources summary view-model (brief §7). Pure projections over the data the
@@ -14,12 +15,11 @@ import { calibrationFlag } from "@/domains/gear/format";
  * the existing server-computed licence worst-status map.
  *
  * HONESTY (the project's #1 law — no fake UI, no invented numbers):
- *   - The prototype's "On site now" People tile is OMITTED: there is no Phil
+ *   - Any live "on site now" figure stays OMITTED: there is no field-app
  *     heartbeat (employee.lastActiveAt is never populated today), so a live
- *     on-site count cannot be derived without fabricating it. In its place the
- *     People row carries a real, spec-relevant tile — "Licences need
- *     attention" — sourced from the same server-computed worst-status map the
- *     register already uses.
+ *     on-site count cannot be derived without fabricating it. The People row's
+ *     "Licences to watch" tile is sourced from the same server-computed
+ *     worst-status map the register already uses.
  *   - The prototype's "Quarantined" Gear tile is relabelled "Damaged / missing"
  *     (the real condition states; there is no "quarantine" status in the model).
  *   - When a derivation has no real input the tile reads "—", never a fake 0.
@@ -48,8 +48,6 @@ export interface PeopleSummaryInput {
 }
 
 export interface PeopleSummaryVM {
-  /** Page sub-line: "12 employees · 3 pending setup". */
-  subline: string;
   tiles: ReadonlyArray<StatTile>;
 }
 
@@ -67,72 +65,68 @@ function licenceFlagForRow(
 export function buildPeopleSummary(input: PeopleSummaryInput): PeopleSummaryVM {
   const { rows, licenceStatusByUserId } = input;
 
-  // appAccess is derived from role on every row (server-side), so the
-  // office/field split is real, not a guess.
-  const office = rows.filter(
-    (r) => r.employee.appAccess === "buhlos" || r.employee.appAccess === "both",
-  ).length;
-  const field = rows.filter((r) => r.employee.appAccess === "phil").length;
-  // "Pending setup" = anyone not yet active (disabled excluded — they're not
-  // pending, they're off). Mirrors the register's "active" marker: a worker is
-  // pending until employee.status flips to "active".
-  const pending = rows.filter(
-    (r) => r.employee.status !== "active" && r.employee.status !== "disabled",
-  ).length;
+  // Lean-reset tile row (replica lines 424-428). All four figures are pure
+  // projections over the register rows + the server-computed licence map:
+  //   On the books   — live accounts (disabled workers are off the books)
+  //   Set up on phone — finished self-setup (status flips to "active" on
+  //                     invite acceptance), with pending invites as the hint
+  //   Leading hands  — role-tier counts via the shared auth predicates
+  //   Licences to watch — expired/due from the one shared licence engine
+  const onBooks = rows.filter((r) => r.employee.status !== "disabled");
+  const setUp = onBooks.filter((r) => r.employee.status === "active").length;
+  const pending = onBooks.length - setUp;
+  const leadingHands = onBooks.filter((r) => isLeadingHandRole(r.employee.role)).length;
+  const admins = onBooks.filter((r) => isAdminRole(r.employee.role)).length;
 
-  // Licence attention: expired beats expiring; only workers with an account
+  // Licence attention: expired beats due; only workers with an account
   // (userId) and on-file records contribute (others can't have a status yet).
   let licenceExpired = 0;
-  let licenceExpiring = 0;
+  let licenceDue = 0;
   for (const row of rows) {
     const flag = licenceFlagForRow(row, licenceStatusByUserId);
     if (flag === "expired") licenceExpired += 1;
-    else if (flag === "expiring") licenceExpiring += 1;
+    else if (flag === "expiring") licenceDue += 1;
   }
-  const licenceAttention = licenceExpired + licenceExpiring;
+  const licenceAttention = licenceExpired + licenceDue;
 
   const tiles: StatTile[] = [
     {
-      key: "office",
-      label: "Office · BuhlOS",
-      value: String(office),
-      hint: "admin + payroll",
+      key: "books",
+      label: "On the books",
+      value: String(onBooks.length),
+      hint: onBooks.length === 1 ? "active account" : "active accounts",
       tone: "neutral",
     },
     {
-      key: "field",
-      label: "Field",
-      value: String(field),
-      hint: "tradies + apprentices",
+      key: "setup",
+      label: "Set up on phone",
+      value: String(setUp),
+      hint:
+        pending > 0
+          ? `+${pending} invite${pending === 1 ? "" : "s"} pending`
+          : "everyone set up",
       tone: "neutral",
     },
     {
-      key: "pending",
-      label: "Pending setup",
-      value: String(pending),
-      hint: pending > 0 ? "invite not finished" : "everyone set up",
-      tone: pending > 0 ? "warning" : "neutral",
+      key: "leads",
+      label: "Leading hands",
+      value: String(leadingHands),
+      hint: `+${admins} admin`,
+      tone: "neutral",
     },
     {
       key: "licences",
-      label: "Licences need attention",
+      label: "Licences to watch",
       value: String(licenceAttention),
       hint:
-        licenceExpired > 0
-          ? `${licenceExpired} expired · ${licenceExpiring} expiring`
-          : licenceAttention > 0
-            ? "expiring soon"
-            : "all current",
-      tone:
-        licenceExpired > 0 ? "danger" : licenceAttention > 0 ? "warning" : "success",
+        licenceAttention > 0
+          ? `${licenceExpired} expired · ${licenceDue} due`
+          : "all current",
+      tone: licenceAttention > 0 ? "warning" : "neutral",
     },
   ];
 
-  const subline = `${rows.length} ${
-    rows.length === 1 ? "employee" : "employees"
-  } · ${pending} pending setup`;
-
-  return { subline, tiles };
+  return { tiles };
 }
 
 export interface GearSummaryInput {

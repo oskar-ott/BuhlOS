@@ -26,7 +26,7 @@ describe("EmployeeRegisterClient", () => {
         activeJobs: [],
       })
     );
-    expect(html).toContain("Add employee");
+    expect(html).toContain("Add worker");
     expect(html).toContain("Liam Marriott");
     expect(html).toContain("Jared Doust");
     // Fixed status vocabulary (bible §08).
@@ -46,7 +46,7 @@ describe("EmployeeRegisterClient", () => {
         activeJobs: [],
       })
     );
-    expect(html).toContain("Add your first employee to start using BuhlOS");
+    expect(html).toContain("Add your first worker to start using BuhlOS");
   });
 });
 

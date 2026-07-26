@@ -11,7 +11,7 @@ import { CrewWeekPanel } from "./CrewWeekPanel";
 describe("CrewWeekPanel — initial render", () => {
   it("renders the title, the honest current-assignment note, and a loading state", () => {
     const html = renderToString(createElement(CrewWeekPanel));
-    expect(html).toContain("Crew this week");
+    expect(html).toContain("This week’s crew");
     expect(html).toContain("currently");
     expect(html).toContain("Loading");
   });

@@ -16,6 +16,7 @@ function row(over: {
   appAccess: AppAccess;
   status: EmployeeStatus;
   userId?: string | null;
+  role?: EmployeeRow["employee"]["role"];
 }): EmployeeRow {
   return {
     employee: {
@@ -23,7 +24,7 @@ function row(over: {
       firstName: "Test",
       lastName: over.id,
       email: `${over.id}@example.com`,
-      role: over.appAccess === "phil" ? "electrician" : "office",
+      role: over.role ?? (over.appAccess === "phil" ? "electrician" : "office"),
       appAccess: over.appAccess,
       status: over.status,
       assignedJobIds: [],
@@ -65,36 +66,49 @@ const TODAY = "2026-06-15";
  * ------------------------------------------------------------------------- */
 
 describe("buildPeopleSummary", () => {
-  it("splits office vs field by appAccess and counts pending (non-active, non-disabled)", () => {
+  it("counts on-the-books (non-disabled), set-up (active) and pending invites", () => {
     const rows: EmployeeRow[] = [
       row({ id: "a", appAccess: "buhlos", status: "active" }),
       row({ id: "b", appAccess: "both", status: "active" }),
       row({ id: "c", appAccess: "phil", status: "active" }),
       row({ id: "d", appAccess: "phil", status: "invited" }), // pending
       row({ id: "e", appAccess: "phil", status: "draft" }), // pending
-      row({ id: "f", appAccess: "phil", status: "disabled" }), // NOT pending
+      row({ id: "f", appAccess: "phil", status: "disabled" }), // off the books
     ];
     const vm = buildPeopleSummary({ rows, licenceStatusByUserId: {} });
 
     const byKey = Object.fromEntries(vm.tiles.map((t) => [t.key, t]));
-    expect(byKey.office!.value).toBe("2"); // buhlos + both
-    expect(byKey.field!.value).toBe("4"); // four phil rows (incl. disabled)
-    expect(byKey.pending!.value).toBe("2"); // invited + draft, not disabled
-    expect(byKey.pending!.tone).toBe("warning");
-    expect(vm.subline).toBe("6 employees · 2 pending setup");
+    expect(byKey.books!.value).toBe("5"); // disabled excluded
+    expect(byKey.books!.hint).toBe("active accounts");
+    expect(byKey.setup!.value).toBe("3"); // status "active"
+    expect(byKey.setup!.hint).toBe("+2 invites pending");
   });
 
-  it("calm tones + 'everyone set up' hint when nothing is pending and licences clear", () => {
+  it("counts leading hands via the shared role predicates, with admins as the hint", () => {
+    const rows: EmployeeRow[] = [
+      row({ id: "lh", appAccess: "phil", status: "active", role: "leadinghand" }),
+      row({ id: "boss", appAccess: "both", status: "active", role: "admin" }),
+      row({ id: "sparky", appAccess: "phil", status: "active", role: "electrician" }),
+      // disabled leading hand is off the books → not counted
+      row({ id: "gone", appAccess: "phil", status: "disabled", role: "leadinghand" }),
+    ];
+    const vm = buildPeopleSummary({ rows, licenceStatusByUserId: {} });
+    const leads = vm.tiles.find((t) => t.key === "leads")!;
+    expect(leads.value).toBe("1");
+    expect(leads.hint).toBe("+1 admin");
+  });
+
+  it("'everyone set up' hint when nothing is pending; licences calm when clear", () => {
     const rows: EmployeeRow[] = [row({ id: "a", appAccess: "buhlos", status: "active" })];
     const vm = buildPeopleSummary({ rows, licenceStatusByUserId: {} });
     const byKey = Object.fromEntries(vm.tiles.map((t) => [t.key, t]));
-    expect(byKey.pending!.value).toBe("0");
-    expect(byKey.pending!.tone).toBe("neutral");
-    expect(byKey.licences!.tone).toBe("success");
+    expect(byKey.setup!.hint).toBe("everyone set up");
+    expect(byKey.licences!.value).toBe("0");
+    expect(byKey.licences!.tone).toBe("neutral");
     expect(byKey.licences!.hint).toBe("all current");
   });
 
-  it("licence attention counts only workers with an account + on-file status; expired beats expiring", () => {
+  it("licences-to-watch counts only workers with an account + on-file status", () => {
     const worst: LicenceWorst = {
       u_sam: "expired",
       u_jess: "expiring",
@@ -109,29 +123,19 @@ describe("buildPeopleSummary", () => {
     ];
     const vm = buildPeopleSummary({ rows, licenceStatusByUserId: worst });
     const lic = vm.tiles.find((t) => t.key === "licences")!;
-    expect(lic.value).toBe("2"); // expired + expiring
-    expect(lic.tone).toBe("danger"); // any expired → danger
-    expect(lic.hint).toBe("1 expired · 1 expiring");
+    expect(lic.value).toBe("2"); // expired + due
+    expect(lic.tone).toBe("warning"); // the replica's amber attention tile
+    expect(lic.hint).toBe("1 expired · 1 due");
   });
 
-  it("licence tile is warning (not danger) when only expiring, none expired", () => {
-    const worst: LicenceWorst = { u_jess: "expiring" };
-    const rows: EmployeeRow[] = [
-      row({ id: "jess", appAccess: "phil", status: "active", userId: "u_jess" }),
-    ];
-    const vm = buildPeopleSummary({ rows, licenceStatusByUserId: worst });
-    const lic = vm.tiles.find((t) => t.key === "licences")!;
-    expect(lic.value).toBe("1");
-    expect(lic.tone).toBe("warning");
-    expect(lic.hint).toBe("expiring soon");
-  });
-
-  it("singular subline for one employee", () => {
+  it("singular grammar for one account / one pending invite", () => {
     const vm = buildPeopleSummary({
-      rows: [row({ id: "a", appAccess: "buhlos", status: "active" })],
+      rows: [row({ id: "a", appAccess: "phil", status: "invited" })],
       licenceStatusByUserId: {},
     });
-    expect(vm.subline).toBe("1 employee · 0 pending setup");
+    const byKey = Object.fromEntries(vm.tiles.map((t) => [t.key, t]));
+    expect(byKey.books!.hint).toBe("active account");
+    expect(byKey.setup!.hint).toBe("+1 invite pending");
   });
 });
 

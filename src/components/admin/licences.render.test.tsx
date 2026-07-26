@@ -44,10 +44,10 @@ describe("EmployeeRegisterClient — licence attention layer", () => {
         licenceStatusByUserId: { u_jared: "expired", u_oskar: "expiring" },
       })
     );
-    expect(html).toContain("Licences need attention");
+    expect(html).toContain("Licences to watch");
     expect(html).toContain("licence-attention-toggle");
-    expect(html).toContain("Ticket expired");
-    expect(html).toContain("Ticket expiring");
+    expect(html).toContain("Licence expired");
+    expect(html).toContain("Licence due soon");
   });
 
   it("renders no licence layer at all when the map is empty (fail-soft)", () => {
@@ -59,8 +59,8 @@ describe("EmployeeRegisterClient — licence attention layer", () => {
         licenceStatusByUserId: {},
       })
     );
-    expect(html).not.toContain("Licences need attention");
-    expect(html).not.toContain("Ticket expired");
+    expect(html).not.toContain("Licences to watch");
+    expect(html).not.toContain("Licence expired");
   });
 
   it("an all-ok register shows no warning chips", () => {
@@ -72,8 +72,8 @@ describe("EmployeeRegisterClient — licence attention layer", () => {
         licenceStatusByUserId: { u_jared: "ok" },
       })
     );
-    expect(html).not.toContain("Ticket expired");
-    expect(html).not.toContain("Licences need attention");
+    expect(html).not.toContain("Licence expired");
+    expect(html).not.toContain("Licences to watch");
   });
 });
 
