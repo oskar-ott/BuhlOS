@@ -7,6 +7,7 @@ import type { Route } from "next";
 import { Briefcase, ClipboardCheck, LayoutGrid, MoreHorizontal, Users } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { AdminMoreSheet } from "./AdminMoreSheet";
+import { useNavCounts } from "./useNavCounts";
 
 /**
  * BuhlOS admin bottom tab bar — the calm mobile office nav (the audit's
@@ -22,14 +23,21 @@ import { AdminMoreSheet } from "./AdminMoreSheet";
  * hamburger. It is a `<button>`, not a `<Link>`, so it carries no route (mirrors
  * the Phil Capture FAB).
  *
+ * Lean-reset redesign: the third tab is "This week" → /hours/weekly (the weekly
+ * pay-run closeout, the boss's actual recurring hours job on a phone), replacing
+ * the old Approvals tab. /hours/approvals stays a live route — it is reachable
+ * from the Hours tabs and the More sheet, it just no longer owns a primary slot.
+ *
  * The tab hrefs are validated by scripts/check-route-ownership.js, which parses
  * the `TAB_ITEMS` array literal below — keep each item one-level with a
  * double-quoted `href`, and keep every href in APPROVED_ADMIN_HREFS.
  *
  * Badges are honest-or-absent (P7): a count renders only when a real, positive
- * value is passed. There is no cheap client-side counts endpoint today, so the
- * shell mounts this without counts; a page that already computes them (e.g.
- * /command-centre) can feed them in future without this component changing.
+ * value lands. "This week" self-serves from useNavCounts (the same cached
+ * fan-out the desktop nav pills use — submitted hours awaiting the approver);
+ * a failed source yields no badge, never a fabricated 0. The `badges` prop
+ * remains as an explicit override for a page that already computed fresher
+ * counts.
  */
 interface TabItem {
   label: string;
@@ -42,7 +50,7 @@ interface TabItem {
 const TAB_ITEMS: ReadonlyArray<TabItem> = [
   { label: "Today", href: "/command-centre", icon: LayoutGrid, activeFor: ["/command-centre"] },
   { label: "Jobs", href: "/v2/jobs" as Route, icon: Briefcase, activeFor: ["/v2/jobs"] },
-  { label: "Approvals", href: "/hours/approvals" as Route, icon: ClipboardCheck, activeFor: ["/hours"] },
+  { label: "This week", href: "/hours/weekly" as Route, icon: ClipboardCheck, activeFor: ["/hours"] },
   { label: "People", href: "/employees" as Route, icon: Users, activeFor: ["/employees"] },
 ];
 
@@ -51,8 +59,9 @@ function isTabActive(tab: TabItem, pathname: string): boolean {
 }
 
 interface AdminMobileTabBarProps {
-  /** Optional honest badge counts, rendered only when > 0. */
-  badges?: { today?: number; approvals?: number };
+  /** Optional honest badge counts, rendered only when > 0. Overrides the
+   *  self-served useNavCounts figure when supplied. */
+  badges?: { today?: number; week?: number };
   /** #760: owner-disabled feature hrefs — hide the matching primary tab, and
    *  filter the "More" sheet's full IA. Undefined = show everything. */
   hiddenHrefs?: ReadonlyArray<string>;
@@ -61,12 +70,15 @@ interface AdminMobileTabBarProps {
 export function AdminMobileTabBar({ badges, hiddenHrefs }: AdminMobileTabBarProps = {}) {
   const pathname = usePathname() ?? "";
   const [moreOpen, setMoreOpen] = useState(false);
+  const navCounts = useNavCounts();
   const hidden = hiddenHrefs && hiddenHrefs.length > 0 ? new Set(hiddenHrefs) : null;
   const tabs = hidden ? TAB_ITEMS.filter((t) => !hidden.has(t.href)) : TAB_ITEMS;
+  // Hours submitted and awaiting the approver — the weekly closeout's real
+  // queue. Explicit prop wins; otherwise the shared cached fan-out.
+  const weekCount = badges?.week ?? navCounts.hours;
   const badgeFor: Record<string, { n: number; tone: "danger" | "amber" } | undefined> = {
     Today: badges?.today && badges.today > 0 ? { n: badges.today, tone: "danger" } : undefined,
-    Approvals:
-      badges?.approvals && badges.approvals > 0 ? { n: badges.approvals, tone: "amber" } : undefined,
+    "This week": weekCount && weekCount > 0 ? { n: weekCount, tone: "amber" } : undefined,
   };
 
   return (

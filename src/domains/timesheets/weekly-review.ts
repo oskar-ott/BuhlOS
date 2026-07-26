@@ -103,6 +103,28 @@ export function workerOrdOtSplit(worker: WeeklyWorkerHours): WorkerOrdOt {
   return { ordinary, overtime, hasOvertime: overtime > 0 };
 }
 
+/**
+ * The ordinary / overtime split across a worker's APPROVED days only — the
+ * hours a Xero push actually carries.
+ *
+ * Distinct from `workerOrdOtSplit`, which spans the whole logged week: on a
+ * mixed week (some days approved, some rejected or still draft) the week-wide
+ * figure overstates what is being sent. Same trap `submittedHoursOf` exists to
+ * avoid for the approve button, so the pairing here is
+ * `approvedOrdOtSplit` ↔ `approvedHours`.
+ */
+export function approvedOrdOtSplit(worker: WeeklyWorkerHours): WorkerOrdOt {
+  let overtime = 0;
+  let logged = 0;
+  for (const d of worker.days) {
+    if (d.status !== "approved") continue;
+    if (d.hours != null) logged += d.hours;
+    if (d.overtimeHours != null && d.overtimeHours > 0) overtime += d.overtimeHours;
+  }
+  overtime = round2(overtime);
+  return { ordinary: round2(Math.max(0, logged - overtime)), overtime, hasOvertime: overtime > 0 };
+}
+
 /** Long (stored-OT or >10h) days this week — the "needs your nod" sub-signal. */
 export function workerLongDayCount(worker: WeeklyWorkerHours): number {
   return worker.days.filter(

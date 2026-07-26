@@ -21,6 +21,9 @@ const config: Config = {
         "accent-yellow": "var(--accent-yellow)",
         "brand-navy": "var(--brand-navy)",
         "accent-ink": "var(--accent-ink)",
+        // Partner brand (Xero) — the "send to Xero" affordance only.
+        "brand-xero": "var(--brand-xero)",
+        "brand-xero-hover": "var(--brand-xero-hover)",
         surface: {
           DEFAULT: "var(--surface)",
           subtle: "var(--surface-subtle)",

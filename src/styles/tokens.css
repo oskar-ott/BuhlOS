@@ -13,6 +13,14 @@
   --brand-navy: #0d1f35;
   --accent-ink: #0f172a;
 
+  /*
+   * Partner brand — Xero's own blue. NOT part of the BuhlOS palette and never
+   * a status colour: it marks the one control that hands data to Xero, so the
+   * boss can see at a glance that the button leaves our system.
+   */
+  --brand-xero: #13b5ea;
+  --brand-xero-hover: #0f9ec9;
+
   /* Surfaces */
   --surface: #ffffff;
   --surface-subtle: #f6f7f9;

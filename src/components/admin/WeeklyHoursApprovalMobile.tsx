@@ -9,8 +9,8 @@ import {
   ArrowRight,
   Check,
   ChevronRight,
+  ClipboardCheck,
   RotateCcw,
-  Sunrise,
   TriangleAlert,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
@@ -31,6 +31,7 @@ import {
   type WeeklyWorkerHours,
 } from "@/domains/timesheets/weekly-closeout";
 import {
+  approvedOrdOtSplit,
   buildQueryReason,
   MOBILE_QUERY_REASONS,
   mobileSummary,
@@ -39,7 +40,12 @@ import {
   workerLongDayCount,
   workerOrdOtSplit,
   type MobileQueryReason,
-} from "@/domains/timesheets/weekly-approval-mobile";
+} from "@/domains/timesheets/weekly-review";
+import {
+  WeeklyCloseoutXeroFinale,
+  type XeroFinaleGate,
+} from "@/components/admin/WeeklyCloseoutXeroFinale";
+import type { ReviewCandidate } from "@/domains/timesheets/xero-closeout";
 
 /**
  * WeeklyHoursApprovalMobile — the phone surface for /hours/weekly.
@@ -81,6 +87,12 @@ interface WeeklyHoursApprovalMobileProps {
   /** True when the viewer can undo (reopen is admin tier). */
   canUndo: boolean;
   fetchError: string | null;
+  /**
+   * Server-resolved role + Xero flags. When this allows it, finishing the
+   * review ends at the Xero finale instead of the plain "Week reviewed" card;
+   * the finale itself decides what's honest once it has read the connection.
+   */
+  xeroGate?: XeroFinaleGate;
   className?: string;
 }
 
@@ -111,6 +123,7 @@ export function WeeklyHoursApprovalMobile({
   weekNav,
   canUndo,
   fetchError,
+  xeroGate,
   className,
 }: WeeklyHoursApprovalMobileProps) {
   const router = useRouter();
@@ -121,6 +134,33 @@ export function WeeklyHoursApprovalMobile({
     for (const w of closeout.workers) m.set(w.workerId, w);
     return m;
   }, [closeout]);
+
+  // Server-known: role + both Xero flags. NOT a promise that the push will
+  // work — the finale still has to read the connection — but enough to stop
+  // the page claiming export is desktop-only when it isn't.
+  const xeroPushable = Boolean(
+    xeroGate?.isAdmin && xeroGate.connectionFlag && xeroGate.exportFlag,
+  );
+
+  // What the Xero finale would send: everyone with approved hours this week.
+  // Derived from the closeout already in memory — the finale never refetches
+  // hours, so the numbers on the last screen are the ones the boss just saw.
+  const xeroCandidates = useMemo<ReviewCandidate[]>(
+    () =>
+      closeout.workers
+        .filter((w) => w.approvedHours > 0)
+        .map((w) => {
+          const split = approvedOrdOtSplit(w);
+          return {
+            workerId: w.workerId,
+            workerName: w.workerName,
+            approvedHours: w.approvedHours,
+            overtimeHours: split.overtime,
+            hasOvertime: split.hasOvertime,
+          };
+        }),
+    [closeout],
+  );
 
   const [overlay, setOverlay] = useState<Overlay>({});
   // Per-worker in-flight guard. A ref is the source of truth (synchronous, so a
@@ -405,8 +445,21 @@ export function WeeklyHoursApprovalMobile({
       ) : null}
 
       <p className="px-1 text-xs text-text-muted">
-        Approve here on the move. <b className="font-semibold text-text">Payroll export and the
-        full audit trail run in BuhlOS on desktop</b> — approved hours flow straight to the run.
+        {xeroPushable ? (
+          <>
+            Approve here on the move, then{" "}
+            <b className="font-semibold text-text">send the week to Xero as draft timesheets</b> —
+            you review and post the pay run in Xero.
+          </>
+        ) : (
+          <>
+            Approve here on the move.{" "}
+            <b className="font-semibold text-text">
+              Payroll export and the full audit trail run in BuhlOS on desktop
+            </b>{" "}
+            — approved hours flow straight to the run.
+          </>
+        )}
       </p>
 
       {/* One-at-a-time review sheet. */}
@@ -424,6 +477,11 @@ export function WeeklyHoursApprovalMobile({
           onQuery={queryWorker}
           onUndo={undoWorker}
           onClose={closeSheet}
+          weekStart={closeout.weekStart}
+          weekEnd={closeout.weekEnd}
+          periodLabel={summary.rangeLabel}
+          xeroGate={xeroGate}
+          xeroCandidates={xeroCandidates}
         />
       ) : null}
 
@@ -612,12 +670,14 @@ function ReviewCTA({
       className="flex w-full items-center gap-3 rounded-card bg-accent-yellow px-4 py-3.5 text-left text-brand-navy shadow-card active:translate-y-px"
     >
       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-card bg-brand-navy text-accent-yellow">
-        <Sunrise aria-hidden="true" className="h-5 w-5" />
+        <ClipboardCheck aria-hidden="true" className="h-5 w-5" />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block font-display text-[15px] font-extrabold tracking-tight">Review each →</span>
-        <span className="block text-xs opacity-75">
-          Step through {pendingCount} {pendingCount === 1 ? "week" : "weeks"}, one at a time
+        <span className="block font-display text-[15px] font-extrabold tracking-tight">
+          Start weekly closeout
+        </span>
+        <span className="block font-mono text-[11px] font-medium opacity-75">
+          {pendingCount} {pendingCount === 1 ? "timesheet" : "timesheets"} still to approve
         </span>
       </span>
       <ChevronRight aria-hidden="true" className="h-5 w-5 shrink-0" />
@@ -978,6 +1038,11 @@ function ReviewSheet({
   onQuery,
   onUndo,
   onClose,
+  weekStart,
+  weekEnd,
+  periodLabel,
+  xeroGate,
+  xeroCandidates,
 }: {
   ids: string[];
   startId: string;
@@ -991,6 +1056,11 @@ function ReviewSheet({
   onQuery: (worker: WeeklyWorkerHours, reason: MobileQueryReason, note: string) => void;
   onUndo: (worker: WeeklyWorkerHours) => void;
   onClose: () => void;
+  weekStart: string;
+  weekEnd: string;
+  periodLabel: string;
+  xeroGate?: XeroFinaleGate;
+  xeroCandidates: ReviewCandidate[];
 }) {
   const panelRef = useDialogFocus(true);
   const [shown, setShown] = useState(false);
@@ -1004,14 +1074,23 @@ function ReviewSheet({
     return () => cancelAnimationFrame(id);
   }, []);
 
+  // A Xero push is in flight — the sheet must not be dismissed under it, or
+  // the boss loses the only report of what Xero actually did. (The write
+  // itself is durable and idempotent, so this costs visibility, not data.)
+  const [finaleBusy, setFinaleBusy] = useState(false);
+  const guardedClose = () => {
+    if (finaleBusy) return;
+    onClose();
+  };
+
   // Close on Escape (backdrop click handled below).
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape" && !finaleBusy) onClose();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, finaleBusy]);
 
   const id = ids[cursor]!;
   const worker = workerById.get(id);
@@ -1051,7 +1130,7 @@ function ReviewSheet({
       aria-modal="true"
       aria-label="Review week"
       className="fixed inset-0 z-[60] flex flex-col justify-end bg-accent-ink/40"
-      onClick={onClose}
+      onClick={guardedClose}
     >
       <div
         ref={panelRef}
@@ -1067,7 +1146,16 @@ function ReviewSheet({
         </div>
 
         {mode === "done" || !worker ? (
-          <DonePanel count={ids.length} onClose={onClose} />
+          <WeeklyCloseoutXeroFinale
+            reviewedCount={ids.length}
+            weekStart={weekStart}
+            weekEnd={weekEnd}
+            periodLabel={periodLabel}
+            gate={xeroGate ?? { isAdmin: false, connectionFlag: false, exportFlag: false }}
+            candidates={xeroCandidates}
+            onClose={onClose}
+            onBusyChange={setFinaleBusy}
+          />
         ) : (
           <>
             <div className="border-b border-border px-5 pb-4 pt-3">
@@ -1374,36 +1462,3 @@ function QueryPanel({
   );
 }
 
-function DonePanel({ count, onClose }: { count: number; onClose: () => void }) {
-  return (
-    <>
-      <div className="px-5 pb-2 pt-3">
-        <h3 className="font-display text-lg font-bold text-text">Week reviewed</h3>
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-        <div className="flex flex-col items-center gap-3 py-4 text-center">
-          <span className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
-            <Check aria-hidden="true" className="h-7 w-7" />
-          </span>
-          <div>
-            <p className="font-display text-base font-bold text-text">
-              All {count} {count === 1 ? "week" : "weeks"} reviewed
-            </p>
-            <p className="mt-1 text-sm text-text-muted">
-              Approved hours are cleared for the payroll run.
-            </p>
-          </div>
-        </div>
-        <div className="rounded-card border border-border bg-surface-subtle p-3 text-xs text-text-muted">
-          Payroll export and the full audit trail run in <b className="font-semibold text-text">BuhlOS on desktop</b>. You
-          approve on the move; the numbers land there.
-        </div>
-      </div>
-      <div className="border-t border-border px-5 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-        <Button className="w-full" onClick={onClose}>
-          Done
-        </Button>
-      </div>
-    </>
-  );
-}

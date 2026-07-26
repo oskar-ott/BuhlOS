@@ -62,6 +62,33 @@ function render(entries: TimeEntry[], missing: MissingLog[] = [], canUndo = true
   );
 }
 
+/** Same surface, with the server-resolved Xero role + flag gate supplied. */
+function renderWithGate(xeroGate: {
+  isAdmin: boolean;
+  connectionFlag: boolean;
+  exportFlag: boolean;
+}) {
+  const closeout = buildWeeklyHoursCloseout({
+    entries: [
+      entry({ userId: "u1", date: "2024-05-20", userName: "Ari Boland", status: "submitted" }),
+    ],
+    missing: [],
+    weekStart: WEEK_START,
+    todayISO: TODAY,
+  });
+  return strip(
+    renderToString(
+      createElement(WeeklyHoursApprovalMobile, {
+        closeout,
+        weekNav: WEEK_NAV,
+        canUndo: true,
+        fetchError: null,
+        xeroGate,
+      }),
+    ),
+  );
+}
+
 /**
  * SSR smoke for the phone weekly-approval surface. The band/summary rules live
  * in weekly-approval-mobile.test.ts — this pins what the BOSS actually sees on
@@ -85,13 +112,13 @@ describe("WeeklyHoursApprovalMobile (render)", () => {
     expect(html).toContain("Overtime");
   });
 
-  it("offers the guided 'Review each' stepper, naming the pending count", () => {
+  it("offers the yellow 'Start weekly closeout' stepper CTA, naming the pending count", () => {
     const html = render([
       entry({ userId: "u1", date: "2024-05-20", userName: "Ari Boland", status: "submitted" }),
       entry({ userId: "u2", date: "2024-05-20", userName: "Rhys Kelly", status: "submitted" }),
     ]);
-    expect(html).toContain("Review each");
-    expect(html).toContain("Step through 2 weeks");
+    expect(html).toContain("Start weekly closeout");
+    expect(html).toContain("2 timesheets still to approve");
     expect(html).toContain("data-testid=\"wha-review-each\"");
   });
 
@@ -100,7 +127,7 @@ describe("WeeklyHoursApprovalMobile (render)", () => {
       entry({ userId: "u1", date: "2024-05-20", userName: "Ari Boland", status: "approved" }),
     ]);
     expect(html).toContain("Week reviewed");
-    expect(html).not.toContain("Step through");
+    expect(html).not.toContain("Start weekly closeout");
   });
 
   it("gives a submitted week inline Approve + Query, under 'To approve'", () => {
@@ -161,11 +188,30 @@ describe("WeeklyHoursApprovalMobile (render)", () => {
     expect(html).not.toContain(">Approve<");
   });
 
-  it("names the desktop-only home of payroll export (honest boundary)", () => {
+  it("names the desktop-only home of payroll export when no Xero push is available", () => {
     const html = render([
       entry({ userId: "u1", date: "2024-05-20", userName: "Ari Boland", status: "submitted" }),
     ]);
     expect(html).toContain("Payroll export and the");
+    expect(html).toContain("BuhlOS on desktop");
+  });
+
+  it("stops claiming export is desktop-only once the Xero push is available here", () => {
+    // The old copy was a description of where the feature lived, not a rule.
+    // Leaving it up while the phone can push would be a plain untruth.
+    const html = renderWithGate({ isAdmin: true, connectionFlag: true, exportFlag: true });
+    expect(html).toContain("send the week to Xero as draft timesheets");
+    expect(html).not.toContain("BuhlOS on desktop");
+  });
+
+  it("keeps the desktop copy for a leading hand, who cannot push", () => {
+    const html = renderWithGate({ isAdmin: false, connectionFlag: true, exportFlag: true });
+    expect(html).toContain("BuhlOS on desktop");
+    expect(html).not.toContain("Xero");
+  });
+
+  it("keeps the desktop copy while the write flag is dark", () => {
+    const html = renderWithGate({ isAdmin: true, connectionFlag: true, exportFlag: false });
     expect(html).toContain("BuhlOS on desktop");
   });
 
