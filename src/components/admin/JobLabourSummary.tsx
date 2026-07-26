@@ -35,19 +35,6 @@ import type { TimeEntry } from "@/domains/timesheets/types";
 
 const WORKER_LIMIT = 6;
 
-function LabourStat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center gap-2 rounded-card border border-border bg-surface px-3 py-2">
-      <div className="min-w-0">
-        <div className="font-display text-base leading-tight text-text">{value}</div>
-        <div className="font-mono text-[10px] uppercase tracking-wider text-text-muted">
-          {label}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export function JobLabourSummary({
   entries,
   jobId,
@@ -113,16 +100,48 @@ export function JobLabourSummary({
         </p>
       ) : (
         <>
-          <dl className="mt-3 flex flex-wrap gap-2">
-            <LabourStat label="Approved" value={formatHoursLabel(summary.approvedHours)} />
-            <LabourStat
-              label="Awaiting approval"
-              value={formatHoursLabel(summary.pendingHours)}
-            />
-            {summary.latestDate ? (
-              <LabourStat label="Latest" value={formatDateLabel(summary.latestDate)} />
-            ) : null}
+          {/* Lean-reset replica 390-394: the pending box carries the warning
+              tone only while something actually awaits approval — a cleared
+              queue renders calm, never a fake amber alarm over "0h". */}
+          <dl className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div
+              className={
+                summary.pendingHours > 0
+                  ? "rounded-card border border-state-warning-subtle-border bg-state-warning-subtle-bg px-3.5 py-3"
+                  : "rounded-card border border-border bg-surface-subtle px-3.5 py-3"
+              }
+            >
+              <dt
+                className={
+                  summary.pendingHours > 0
+                    ? "text-xs text-state-warning-subtle-text"
+                    : "text-xs text-text-muted"
+                }
+              >
+                Awaiting approval on this job
+              </dt>
+              <dd
+                className={
+                  summary.pendingHours > 0
+                    ? "mt-0.5 font-display text-xl font-semibold text-state-warning-subtle-text"
+                    : "mt-0.5 font-display text-xl font-semibold text-text"
+                }
+              >
+                {formatHoursLabel(summary.pendingHours)}
+              </dd>
+            </div>
+            <div className="rounded-card border border-border bg-surface-subtle px-3.5 py-3">
+              <dt className="text-xs text-text-muted">Approved to date</dt>
+              <dd className="mt-0.5 font-display text-xl font-semibold text-text">
+                {formatHoursLabel(summary.approvedHours)}
+              </dd>
+            </div>
           </dl>
+          {summary.latestDate ? (
+            <p className="mt-2 text-xs text-text-muted">
+              Latest entry {formatDateLabel(summary.latestDate)}
+            </p>
+          ) : null}
 
           {workers.length > 0 ? (
             <div className="mt-3">
