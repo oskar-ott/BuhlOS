@@ -120,14 +120,14 @@ export function StartFromBlueprintCard() {
           {selected ? (
             <div className="mt-3 space-y-2 rounded-card border border-border p-3">
               <label className="block">
-                <span className="mb-1 block font-mono text-[10.5px] uppercase tracking-wider text-text-muted">
+                <span className="mb-1.5 block font-display text-[13px] font-semibold text-text">
                   New job name
                 </span>
                 <input
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder={selected.name}
-                  className="w-full rounded-card border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-border-strong"
+                  className="h-11 w-full rounded-card border border-border bg-surface px-3 text-sm outline-none focus:border-border-strong"
                   data-testid="blueprint-job-name"
                 />
               </label>

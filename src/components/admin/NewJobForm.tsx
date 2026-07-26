@@ -112,10 +112,12 @@ export function NewJobForm() {
         </Field>
       </div>
 
-      <div className="mt-5 flex items-center justify-between gap-2">
+      {/* Lean-reset replica 368-371: actions right-aligned — ghost Cancel +
+          navy Create draft. */}
+      <div className="mt-5 flex items-center justify-end gap-2">
         <Link
           href={"/v2/jobs" as Route}
-          className="text-sm text-text-muted underline decoration-border underline-offset-4 hover:text-text"
+          className="inline-flex h-10 items-center rounded-card border border-border bg-surface px-4 text-sm font-semibold text-text transition-colors hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-brand-navy"
         >
           Cancel
         </Link>
@@ -128,7 +130,7 @@ export function NewJobForm() {
 }
 
 const inputClass =
-  "w-full rounded-card border border-border bg-surface px-3 py-2 text-sm text-text outline-none focus:border-border-strong";
+  "h-11 w-full rounded-card border border-border bg-surface px-3 text-sm text-text outline-none focus:border-border-strong";
 
 function Field({
   label,
@@ -145,7 +147,7 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="mb-1 block font-mono text-[10.5px] uppercase tracking-wider text-text-muted">
+      <span className="mb-1.5 block font-display text-[13px] font-semibold text-text">
         {label}
         {required ? <span className="ml-0.5 text-rose-600">*</span> : null}
       </span>

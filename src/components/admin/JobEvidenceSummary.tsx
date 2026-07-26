@@ -63,13 +63,26 @@ export function JobEvidenceSummary({
 
   return (
     <Card>
-      <div className="flex items-center gap-2">
-        <Camera aria-hidden="true" className="h-5 w-5 text-text-muted" />
-        <CardTitle>Evidence</CardTitle>
+      {/* Lean-reset replica 396-399: title block left, the "Review →" ghost
+          button right — the one deep link into the full review queue. */}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <Camera aria-hidden="true" className="h-5 w-5 text-text-muted" />
+            <CardTitle>Evidence</CardTitle>
+          </div>
+          <CardDescription className="mt-1">
+            Photo and note captures from the field on this job.
+          </CardDescription>
+        </div>
+        <a
+          href={evidenceHref}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-card border border-border bg-surface px-3.5 py-2 text-sm font-semibold text-text transition-colors hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-brand-navy"
+        >
+          Review
+          <ArrowRight aria-hidden="true" className="h-3.5 w-3.5" />
+        </a>
       </div>
-      <CardDescription className="mt-1">
-        Photo and note captures from the field on this job.
-      </CardDescription>
 
       {fetchError ? (
         <p
@@ -129,15 +142,6 @@ export function JobEvidenceSummary({
         </>
       )}
 
-      <div className="mt-4">
-        <a
-          href={evidenceHref}
-          className="inline-flex items-center gap-1 text-sm font-medium text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-4 focus:outline-none focus:ring-2 focus:ring-brand-navy"
-        >
-          Open evidence
-          <ArrowRight aria-hidden="true" className="h-3.5 w-3.5" />
-        </a>
-      </div>
     </Card>
   );
 }

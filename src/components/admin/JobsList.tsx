@@ -50,6 +50,7 @@ import {
   type RememberedFilterSpec,
 } from "@/lib/storage/remembered-filters";
 import { useApplyRememberedFiltersOnce } from "@/lib/storage/use-remembered-filters";
+import { pctWidthClass } from "@/components/admin/pct-width";
 import { cn } from "@/lib/cn";
 
 /** Streamed per-job extras (full ?withStats read): task progress + the admin-tier
@@ -298,22 +299,31 @@ export function JobsList({ jobs, canBuild = false, newJobHref, cardExtrasPromise
         </Suspense>
       ) : null}
 
-      {/* Portfolio header — title + the real "N jobs · M need attention" read,
-          the honest total-contract readout (admin-only data), and the create /
-          archive actions. */}
-      <div className="flex flex-wrap items-start justify-between gap-3 rounded-card border border-border bg-surface-raised px-4 py-3">
-        <div className="min-w-0">
-          <h2 className="font-display text-lg font-semibold text-text">Jobs</h2>
-          <p className="mt-0.5 text-sm text-text-muted">{portfolio.subline}</p>
-        </div>
+      {/* Portfolio header (lean-reset replica 320-328) — the "Jobs" head lives
+          in the shell topbar; this row is the real "N jobs · M need attention"
+          subline, the honest total-contract readout (admin-only data), and the
+          create / archive actions. No card chrome — a plain header row. */}
+      <div className="flex flex-wrap items-center justify-between gap-3 px-0.5">
+        <p className="min-w-0 text-sm text-text-muted">{portfolio.subline}</p>
         <div className="flex flex-wrap items-center gap-3">
           {portfolio.totalContract ? (
             <div className="text-right">
-              <div className="font-display text-base font-semibold text-text">
-                {portfolio.totalContract.value}
+              <div className="flex items-baseline justify-end gap-1.5">
+                <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-text-muted">
+                  Total contract
+                </span>
+                <span className="font-display text-base font-bold text-text">
+                  {portfolio.totalContract.value}
+                </span>
+                <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-text-muted">
+                  Admin only
+                </span>
               </div>
-              <div className="font-mono text-[10px] uppercase tracking-wider text-text-muted">
-                total contract · {portfolio.totalContract.hint}
+              {/* Honesty: the sum only covers jobs that actually carry a value —
+                  keep the priced-subset context so a part-priced portfolio never
+                  implies a whole-portfolio total. */}
+              <div className="font-mono text-[10px] text-text-muted">
+                {portfolio.totalContract.hint}
               </div>
             </div>
           ) : null}
@@ -485,13 +495,14 @@ const HEALTH_TONE: Record<JobHealthLevel, "danger" | "warning" | "success" | "ne
   unknown: "neutral",
 };
 
-/** Risk-meter fill tone — mirrors the prototype's red/amber/calm bar, but the
- *  fill is driven by the real health level, not a fabricated 0–100 score. */
+/** Risk-meter fill tone — mirrors the replica's red/amber/calm bar (66%/25%),
+ *  but the fill is driven by the real health level, not a fabricated 0–100
+ *  score. Widths come off the pctWidthClass ladder (inline styles are banned). */
 const RISK_BAR: Record<JobHealthLevel, { width: string; bar: string }> = {
-  "at-risk": { width: "w-full", bar: "bg-state-danger" },
-  watch: { width: "w-2/3", bar: "bg-state-warning" },
-  good: { width: "w-1/4", bar: "bg-state-success" },
-  unknown: { width: "w-1/12", bar: "bg-border" },
+  "at-risk": { width: pctWidthClass(100, 100), bar: "bg-state-danger" },
+  watch: { width: pctWidthClass(66, 100), bar: "bg-state-warning" },
+  good: { width: pctWidthClass(25, 100), bar: "bg-state-success" },
+  unknown: { width: pctWidthClass(5, 100), bar: "bg-border" },
 };
 
 function JobCard({

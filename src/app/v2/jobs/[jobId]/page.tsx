@@ -144,7 +144,7 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
           </Link>
         }
       >
-        <div className="mx-auto max-w-4xl space-y-4">
+        <div className="mx-auto max-w-3xl space-y-4">
           <Card>
             <CardTitle>This job isn&rsquo;t available</CardTitle>
             <CardDescription className="mt-2">
@@ -171,7 +171,7 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
           </Link>
         }
       >
-        <div className="mx-auto max-w-4xl space-y-4">
+        <div className="mx-auto max-w-3xl space-y-4">
           <Card className="border-amber-200 bg-amber-50" role="alert">
             <CardTitle>Couldn&rsquo;t load this job</CardTitle>
             <CardDescription className="text-amber-900">
@@ -198,7 +198,7 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
         </Link>
       }
     >
-      <div className="mx-auto max-w-4xl space-y-4">
+      <div className="mx-auto max-w-3xl space-y-4">
         {/* #215 — record this job view in the device-local recents ring buffer
             so ⌘K can offer a one-keystroke jump back. Renders nothing. */}
         <RecentItemTracker path={`/v2/jobs/${job.id}`} title={job.name} type="job" />
@@ -210,7 +210,7 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
             recent activity, readiness + induction, services, field-view
             toggle. Kept by owner call: Build & publish (everyone can create),
             Profitability + Budget. */}
-        <JobHeaderCard job={job} canBuild={canBuild} />
+        <JobHeaderCard job={job} />
         <JobBuildCard job={job} canBuild={canBuild} />
         <JobLabourSummary
           entries={data.hours.entries}
@@ -255,39 +255,25 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
 }
 
 /**
- * Job hero (brief §3, prototype admin-jobs.jsx). Name + a rich
- * "Ref · type · address" subline + the status pill, plus ONE contextual
- * primary action. The action only ever links to a REAL route:
- *   - office-only (not published) + admin builder → "Open builder" (publish
- *     happens inside the builder; we never fake a one-click Publish here).
- *   - published → no action (lean reset #916 call 1: plans/drawings left
- *     the job pages; the /plans route stays URL-reachable, unlinked).
- * An LH viewer (no build access) gets the hero without the action.
+ * Ref strip (lean-reset replica 379-381). The job NAME is the shell head
+ * (AdminShell title), so this card carries only the "Ref · type · address"
+ * identity line + the status pill. The builder entry point lives on the
+ * Build & publish card directly below — no duplicate action here.
  */
-function JobHeaderCard({ job, canBuild }: { job: Job; canBuild: boolean }) {
+function JobHeaderCard({ job }: { job: Job }) {
   const subline = [job.ref && `Ref ${job.ref}`, job.typeName, job.siteAddress]
     .filter(Boolean)
     .join(" · ");
-  const published = isVisibleToField(job);
   return (
     <Card>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <CardTitle className="break-words">{job.name}</CardTitle>
-          {subline ? (
-            <CardDescription className="mt-1 break-words">{subline}</CardDescription>
-          ) : null}
-        </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        {/* Fall back to the name so the strip never renders as a bare pill on a
+            job with no ref/type/address yet. */}
+        <p className="min-w-0 break-words text-sm text-text-muted">
+          {subline || job.name}
+        </p>
+        <div className="shrink-0">
           <Pill tone={statusTone(job.status)}>{statusLabel(job.status)}</Pill>
-          {canBuild && !published ? (
-            <a
-              href={`/v2/jobs/${encodeURIComponent(job.id)}/builder` as Route}
-              className="inline-flex items-center gap-1.5 rounded-card bg-brand-navy px-3 py-2 text-sm font-medium text-text-inverse transition-colors hover:bg-accent-ink focus:outline-none focus:ring-2 focus:ring-brand-navy"
-            >
-              <PencilRuler aria-hidden="true" className="h-4 w-4" /> Open builder
-            </a>
-          ) : null}
         </div>
       </div>
     </Card>
@@ -403,7 +389,7 @@ function SiteField({
         {icon}
       </span>
       <div className="min-w-0 flex-1">
-        <dt className="font-display text-[11px] uppercase tracking-wider text-text-muted">
+        <dt className="font-mono text-[10px] uppercase tracking-wider text-text-muted">
           {label}
         </dt>
         <dd className="mt-0.5 whitespace-pre-line break-words text-text">

@@ -49,7 +49,7 @@ describe("JobLabourSummary", () => {
       jobId: "job-1",
       fetchError: null,
     });
-    expect(html).toContain("Awaiting approval");
+    expect(html).toContain("Awaiting approval on this job"); // lean-reset amber box label
     expect(html).toContain("12h"); // 8 + 4 pending
     expect(html).toContain("By worker");
     expect(html).toContain("Jack");
@@ -67,7 +67,7 @@ describe("JobLabourSummary", () => {
       jobId: "job-1",
       fetchError: null,
     });
-    expect(html).toContain("Approved");
+    expect(html).toContain("Approved to date"); // lean-reset approved box label
     expect(html).toContain("12h"); // approved now surfaces
     expect(html).toContain("Awaiting approval");
     expect(html).toContain("8h"); // pending

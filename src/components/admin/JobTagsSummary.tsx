@@ -20,10 +20,15 @@ export function JobTagsSummary({ job }: { job: Job }) {
   if (expired === 0 && expiring === 0) return null;
 
   return (
-    <Card role="region" aria-label="Test and tag">
+    <Card role="region" aria-label="Tag register">
+      {/* Lean-reset replica 400-407 shows per-tag rows (tagNumber + appliance +
+          Current/Overdue pill) and an "N tags" meta count; the hub's jobs read
+          only carries the expired/expiring COUNTS (statsExpiredTags /
+          statsExpiringTags) — so the rows and total are omitted rather than
+          invented, and the real counts render as pills. */}
       <div className="flex items-start justify-between gap-3">
         <div>
-          <CardTitle>Test &amp; tag</CardTitle>
+          <CardTitle>Tag register</CardTitle>
           <CardDescription className="mt-1">
             From this job&rsquo;s register — the field adds and retests entries on the job page.
           </CardDescription>

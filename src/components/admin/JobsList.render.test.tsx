@@ -232,6 +232,10 @@ describe("JobsList — §3 portfolio card presentation (admin redesign)", () => 
     const html = render("", jobs);
     expect(html).toContain("$1,500,000"); // per-card Value
     expect(html).toContain("$2.00M"); // summed total-contract readout (2dp under $10M)
+    // Lean-reset header row: mono "TOTAL CONTRACT … ADMIN ONLY" labels + the
+    // honest priced-subset context line.
+    expect(html).toContain("Total contract");
+    expect(html).toContain("Admin only");
     expect(html).toContain("across 2 priced jobs");
   });
 
@@ -239,7 +243,8 @@ describe("JobsList — §3 portfolio card presentation (admin redesign)", () => 
     const jobs: ReadonlyArray<Job> = [job({ id: "a", name: "Alpha", status: "active" })];
     const html = render("", jobs);
     expect(html).toContain("—");
-    expect(html).not.toContain("total contract");
+    expect(html).not.toContain("Total contract");
+    expect(html).not.toContain("Admin only");
   });
 
   it("renders the risk meter with the real health level (no fabricated 0–100 score)", () => {

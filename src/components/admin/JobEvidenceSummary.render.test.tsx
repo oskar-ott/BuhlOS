@@ -38,7 +38,7 @@ describe("JobEvidenceSummary", () => {
     const html = render({ evidence: [], jobId: "job-1", fetchError: null });
     expect(html).toContain("No evidence captured for this job yet");
     expect(html).toContain("/v2/jobs/job-1/evidence");
-    expect(html).toContain("Open evidence");
+    expect(html).toContain("Review"); // lean-reset "Review →" header button
   });
 
   it("breaks captures down by status with the latest-capture caption", () => {
