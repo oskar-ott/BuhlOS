@@ -84,9 +84,14 @@ export function canSubmit(status: TimeEntryStatus): boolean {
 /**
  * True if the entry is editable by the worker. Approved entries are locked
  * behind admin reopen.
+ *
+ * 2026-07-26 owner-directed: a `submitted` (undecided) day is editable too —
+ * the worker can fix a sent day until the office decides. Mirrors the server
+ * (api/time-entries.js handlePatch), which has always allowed the owner to
+ * content-edit a submitted entry; only approved/exported are admin-locked.
  */
 export function canEdit(status: TimeEntryStatus): boolean {
-  return status === "draft" || status === "rejected";
+  return status === "draft" || status === "rejected" || status === "submitted";
 }
 
 /**

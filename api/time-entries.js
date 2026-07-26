@@ -126,10 +126,12 @@ async function handleCreate(req, res, user) {
   // accepted any/arbitrary/unassigned/archived jobId with no check.
   //
   // Deliberately narrow: admin/LH and on-behalf flows keep their existing
-  // latitude, and a null jobId is still accepted here for backward
-  // compatibility (legacy submissions, overhead). The Phil UI is what blocks
-  // a null jobId when the worker has active assigned jobs; a server-side
-  // null-block for field roles is a documented follow-up.
+  // latitude, and a null jobId is still accepted on CREATE for backward
+  // compatibility (legacy submissions, overhead) — the Phil UI is what blocks
+  // a null jobId here. The PATCH path no longer shares that hole: a field
+  // self-edit sending allocations rejects jobId: null server-side
+  // (2026-07-26 owner-directed — see handlePatch; the follow-up this comment
+  // used to document is closed for edits, open-by-design for create).
   // Idempotency (#497): a retry carrying the same client key returns the
   // ORIGINAL entry instead of a duplicate or a confusing 409. Scoped to
   // user+date so a key reused across days can never false-replay. Without a
@@ -313,13 +315,22 @@ async function handlePatch(req, res, user) {
 
   // ── Job attribution integrity (field self-edits) ────────────────────
   // Parity with handleCreate: a field worker re-allocating their OWN hours
-  // (the rejected→submitted fix path, or a draft edit) can only point them at
-  // an active job they are assigned to. Until now the Phil UI was the sole
-  // guard on this path. Scoped to PATCHes that actually send `allocations`, so
-  // a notes-only edit of an entry whose job has since been archived still
-  // works; delegated (admin/LH) edits keep their existing latitude; a null
-  // jobId stays accepted for backward compatibility, exactly like create.
+  // (the rejected→submitted fix path, a submitted-day change, or a draft
+  // edit) can only point them at an active job. Scoped to PATCHes that
+  // actually send `allocations`, so a notes-only edit of an entry whose job
+  // has since been archived still works; delegated (admin/LH) edits keep
+  // their existing latitude.
+  //
+  // 2026-07-26 owner-directed: the documented null-job hole is closed on this
+  // path — a field self-edit may not attribute hours to no job (jobId: null),
+  // same 403 shape as the active-job gate. Create keeps accepting null for
+  // backward compatibility (legacy/overhead); the Phil UI remains the guard
+  // there.
   if (isSelf && isFieldRole(user.role) && body.allocations !== undefined) {
+    const hasNullJob = (body.allocations || []).some((a) => !a || !a.jobId);
+    if (hasNullJob) {
+      return res.status(403).json({ error: 'forbidden — hours can only be logged against an active job' });
+    }
     const gateError = await fieldAllocationGateError(user, body.allocations);
     if (gateError) return res.status(403).json({ error: gateError });
   }
@@ -339,6 +350,11 @@ async function handlePatch(req, res, user) {
 
   const now = new Date().toISOString();
   const wasRejected = existing.status === 'rejected';
+  // 2026-07-26 owner-directed: a content edit landing on a still-submitted
+  // (undecided) entry — owner or staff, no status change — is allowed but
+  // stamped + journalled, so office surfaces CAN later show "changed since
+  // sent". (No office UI is built for it here; the stamp is the seam.)
+  const editedWhileSubmitted = !transitioningToSubmitted && existing.status === 'submitted';
 
   const updated = {
     ...existing,
@@ -352,6 +368,9 @@ async function handlePatch(req, res, user) {
     updatedAt: now,
     status: nextStatus,
     submittedAt: transitioningToSubmitted ? now : existing.submittedAt,
+    // Rides through entryView untouched (the view only strips the
+    // idempotency ring), so every read surface can see the stamp.
+    editedWhileSubmittedAt: editedWhileSubmitted ? now : (existing.editedWhileSubmittedAt || null),
     rejectedReason: wasRejected && transitioningToSubmitted ? null : existing.rejectedReason,
     // If a non-self user (LH or admin) is editing, refresh the
     // delegated-entry fields so the tradie's My Day reflects the latest
@@ -407,12 +426,23 @@ async function handlePatch(req, res, user) {
   // #390: a draft/rejected → submitted transition is a worker submission — write
   // it to the canonical audit journal (the feed #220 reads + per-job history).
   // rejected→submitted is a RESUBMIT (the worker fixed a rejected day);
-  // draft→submitted is a first submit. Best-effort after the write so a journal
-  // failure never affects the saved entry. A notes-only edit writes nothing here.
+  // draft→submitted is a first submit. 2026-07-26 owner-directed: a content
+  // edit of a still-submitted entry journals hours.edited_while_submitted (it
+  // changes payroll-adjacent numbers the office may already have looked at).
+  // Best-effort after the write so a journal failure never affects the saved
+  // entry. A draft/rejected edit with no transition still writes nothing here.
   if (transitioningToSubmitted) {
     await appendAuditLog(
       buildHoursAuditEntry({
         action: wasRejected ? 'hours.resubmitted' : 'hours.submitted',
+        actor: user,
+        entry: entryView(updated),
+      }),
+    ).catch(() => {});
+  } else if (editedWhileSubmitted) {
+    await appendAuditLog(
+      buildHoursAuditEntry({
+        action: 'hours.edited_while_submitted',
         actor: user,
         entry: entryView(updated),
       }),

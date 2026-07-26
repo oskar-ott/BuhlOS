@@ -160,13 +160,16 @@ describe("status transitions", () => {
     expect(canSubmit("approved")).toBe(false);
   });
 
-  it("worker can edit drafts and rejected entries", () => {
+  it("worker can edit drafts, rejected AND submitted (undecided) entries", () => {
     expect(canEdit("draft")).toBe(true);
     expect(canEdit("rejected")).toBe(true);
+    // 2026-07-26 owner-directed: a worker can fix a sent day until the office
+    // decides. The server has always allowed this (handlePatch only locks
+    // approved/exported); the client predicate now tells the same truth.
+    expect(canEdit("submitted")).toBe(true);
   });
 
-  it("worker cannot edit submitted or approved entries", () => {
-    expect(canEdit("submitted")).toBe(false);
+  it("worker cannot edit approved entries (locked for pay)", () => {
     expect(canEdit("approved")).toBe(false);
   });
 

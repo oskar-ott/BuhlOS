@@ -98,11 +98,22 @@ describe("buildHoursAuditEntry (#390)", () => {
       "hours.reopened",
       "hours.submitted",
       "hours.resubmitted",
+      "hours.edited_while_submitted", // 2026-07-26 owner-directed
     ]) {
       const p = buildHoursAuditEntry({ action, actor: ACTOR, entry: ENTRY });
       expect(AUDIT_ACTIONS).toContain(p.action);
       expect(AUDIT_TARGET_TYPES).toContain(p.targetType);
     }
+  });
+
+  it("renders every underscore in a multi-underscore action's summary as spaces", () => {
+    const p = buildHoursAuditEntry({
+      action: "hours.edited_while_submitted",
+      actor: ACTOR,
+      entry: ENTRY,
+    });
+    expect(p.summary).toContain("edited while submitted");
+    expect(p.summary).not.toContain("_");
   });
 });
 

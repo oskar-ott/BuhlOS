@@ -109,3 +109,57 @@ describe("RejectedHoursResubmitSheet", () => {
     expect(html).not.toContain("split-day-sheet"); // editor not shown until jobs load
   });
 });
+
+// 2026-07-26 owner-directed: the SUBMITTED (undecided) variant — the worker
+// can fix a sent day until the office decides. Same editors, "change &
+// resend" words; every rejected-variant label above stays byte-identical.
+describe("RejectedHoursResubmitSheet — submitted (undecided) variant", () => {
+  const submitted = (over: Partial<TimeEntry> = {}) =>
+    te({ status: "submitted", rejectedReason: null, ...over });
+
+  it("collapses to a quiet secondary 'Change these hours' trigger (never the yellow primary)", () => {
+    const html = render({ entry: submitted(), assignedJobs: ONE_JOB });
+    expect(html).toContain("Change these hours");
+    expect(html).toContain("phil-edit-submitted");
+    expect(html).not.toContain("Fix rejected hours");
+    expect(html).not.toContain("Send the fix");
+  });
+
+  it("opens to 'Change & resend' with 'Send the fix' and the P12 consequence line", () => {
+    const html = render({ entry: submitted(), assignedJobs: ONE_JOB, defaultOpen: true });
+    expect(html).toContain("Change &amp; resend");
+    expect(html).toContain("Send the fix");
+    expect(html).toContain("phil-edit-submitted-send");
+    // P12 — the consequence is named before the action.
+    expect(html).toContain("The office gets the new version — the old one is replaced.");
+    // No rejection framing on an undecided day.
+    expect(html).not.toContain("Reason:");
+    expect(html).not.toContain("Fix &amp; resubmit");
+    expect(html).not.toContain("Submit correction");
+  });
+
+  it("routes a submitted SPLIT day through the split editor, with change-and-resend words", () => {
+    const html = render({
+      entry: submitted({
+        totalHours: 7.6,
+        allocations: [
+          { jobId: "job-a", hours: 4, notes: null },
+          { jobId: "job-b", hours: 3.6, notes: null },
+        ],
+      }),
+      assignedJobs: TWO_JOBS,
+      defaultOpen: true,
+    });
+    expect(html).toContain("split-day-sheet");
+    expect(html).toContain("Change &amp; resend the split day");
+    expect(html).not.toContain("Fix &amp; resubmit the split day");
+    expect(html).not.toContain("Hours for this job"); // NOT the single-job form
+  });
+
+  it("still blocks honestly when jobs failed to load / none assigned", () => {
+    const err = render({ entry: submitted(), assignedJobs: [], jobsError: true, defaultOpen: true });
+    expect(err).toContain("load your jobs");
+    const none = render({ entry: submitted(), assignedJobs: [], defaultOpen: true });
+    expect(none).toContain("No active assigned job");
+  });
+});

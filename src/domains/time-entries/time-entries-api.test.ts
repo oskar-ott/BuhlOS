@@ -94,6 +94,28 @@ function validEntry(extra: Record<string, unknown> = {}) {
   };
 }
 
+// Scan every canonical audit month bucket (audit/<yyyy-mm>.json) and flatten
+// its entries. The per-user hours audit lives under
+// users/<id>/time-entries-audit/ and is deliberately excluded.
+function auditEntries(): Array<Record<string, unknown>> {
+  const out: Array<Record<string, unknown>> = [];
+  for (const [key, val] of blob.entries()) {
+    if (
+      key.startsWith("audit/") &&
+      val &&
+      Array.isArray((val as { entries?: unknown[] }).entries)
+    ) {
+      out.push(...(val as { entries: Array<Record<string, unknown>> }).entries);
+    }
+  }
+  return out;
+}
+
+const hoursActions = () =>
+  auditEntries()
+    .filter((e) => String(e.action).startsWith("hours."))
+    .map((e) => e.action);
+
 beforeEach(() => {
   process.env.SESSION_SECRET = "test-session-secret-long-enough";
   blob = new Map<string, unknown>([
@@ -229,6 +251,49 @@ describe("PATCH /api/time-entries — self-approval is blocked (payroll integrit
     expect(entry.reopenedBy).toBeUndefined();
     expect(entry.reopenedAt).toBeUndefined();
     expect(entry.unknownControl).toBeUndefined();
+    // 2026-07-26 owner-directed: a content edit of a still-submitted entry is
+    // stamped ("changed since sent") and journalled in the canonical audit
+    // log — the office CAN later see the day changed after it was sent.
+    expect(entry.editedWhileSubmittedAt).toBeTruthy();
+    expect(hoursActions()).toEqual(["hours.edited_while_submitted"]);
+  });
+
+  it("a worker editing a submitted day cannot smuggle status: 'approved' in the same PATCH", async () => {
+    const res = await call({
+      method: "PATCH",
+      userId: "u_field",
+      role: "electrician",
+      query: { date: TODAY },
+      body: validEntry({ status: "approved", notes: "sneaky" }),
+    });
+    expect(res.statusCode).toBe(403);
+    const stored = blob.get(`users/u_field/time-entries/${TODAY}.json`) as {
+      status: string;
+      notes: string | null;
+      editedWhileSubmittedAt?: string;
+    };
+    expect(stored.status).toBe("submitted");
+    expect(stored.notes).toBeFalsy(); // the ride-along content edit didn't land either
+    expect(stored.editedWhileSubmittedAt).toBeUndefined();
+    expect(hoursActions()).toEqual([]);
+  });
+
+  it("rejects a field self-edit that attributes hours to no job (jobId: null) — the PATCH null-job hole is closed", async () => {
+    // 2026-07-26 owner-directed. Same 403 error shape as the create-path
+    // active-job gate; create keeps its backward-compat null acceptance.
+    const res = await call({
+      method: "PATCH",
+      userId: "u_field",
+      role: "electrician",
+      query: { date: TODAY },
+      body: validEntry({ allocations: [{ jobId: null, hours: 8 }] }),
+    });
+    expect(res.statusCode).toBe(403);
+    expect((res.body as { error: string }).error).toMatch(/active job/i);
+    const stored = blob.get(`users/u_field/time-entries/${TODAY}.json`) as {
+      allocations: Array<{ jobId: string | null }>;
+    };
+    expect(stored.allocations[0]?.jobId).toBe("job-x"); // unchanged
   });
 
   it("blocks generic status rewinds instead of letting PATCH unsubmit hours", async () => {
@@ -444,27 +509,6 @@ describe("#130 — server stores the ordinary/overtime split as sent (accept-as-
 // builder → append → blob — which also guards the silent-drop gap where a verb
 // missing from audit-log.js's VALID_ACTIONS set would write nothing.
 describe("#390 — worker submit/resubmit writes the canonical audit journal", () => {
-  // Scan every audit month bucket and flatten its entries. The per-user hours
-  // audit lives under users/<id>/time-entries-audit/ and is deliberately excluded.
-  function auditEntries(): Array<Record<string, unknown>> {
-    const out: Array<Record<string, unknown>> = [];
-    for (const [key, val] of blob.entries()) {
-      if (
-        key.startsWith("audit/") &&
-        val &&
-        Array.isArray((val as { entries?: unknown[] }).entries)
-      ) {
-        out.push(...(val as { entries: Array<Record<string, unknown>> }).entries);
-      }
-    }
-    return out;
-  }
-
-  const hoursActions = () =>
-    auditEntries()
-      .filter((e) => String(e.action).startsWith("hours."))
-      .map((e) => e.action);
-
   it("a create-as-submitted writes one hours.submitted (best-effort, after the save)", async () => {
     // u_field2 has no entry for TODAY (only u_field is seeded), so this creates.
     const res = await call({
@@ -538,9 +582,10 @@ describe("#390 — worker submit/resubmit writes the canonical audit journal", (
     expect(hoursActions()).toEqual(["hours.resubmitted"]);
   });
 
-  it("a notes-only edit that does not transition to submitted writes NO hours.* entry", async () => {
-    // The seeded u_field entry is already 'submitted'; a self notes edit keeps it
-    // submitted (no transition) so it must not re-log a submission.
+  it("a notes-only edit of a SUBMITTED entry journals hours.edited_while_submitted — never a fake re-submission", async () => {
+    // The seeded u_field entry is already 'submitted'; a self notes edit keeps
+    // it submitted (no transition) so it must not re-log a submission — but,
+    // 2026-07-26 owner-directed, it DOES journal the edit-while-undecided.
     const res = await call({
       method: "PATCH",
       userId: "u_field",
@@ -549,6 +594,43 @@ describe("#390 — worker submit/resubmit writes the canonical audit journal", (
       body: { notes: "tweak" },
     });
     expect(res.statusCode).toBe(200);
+    expect(hoursActions()).toEqual(["hours.edited_while_submitted"]);
+    expect(
+      (res.body as { entry: { editedWhileSubmittedAt?: string } }).entry.editedWhileSubmittedAt,
+    ).toBeTruthy();
+  });
+
+  it("a content edit of a DRAFT entry (no transition) still writes NO hours.* entry", async () => {
+    blob.set(`users/u_field2/time-entries/${TODAY}.json`, {
+      id: "e_draft2",
+      userId: "u_field2",
+      userName: "mate",
+      userRole: "tradie",
+      date: TODAY,
+      totalHours: 8,
+      ordinaryHours: 8,
+      overtimeHours: 0,
+      status: "draft",
+      submittedAt: null,
+      approvedBy: null,
+      approvedAt: null,
+      rejectedReason: null,
+      allocations: [{ jobId: "job-x", hours: 8, notes: null, sortOrder: 0 }],
+      createdAt: `${TODAY}T07:00:00.000Z`,
+      updatedAt: `${TODAY}T07:00:00.000Z`,
+    });
+    const res = await call({
+      method: "PATCH",
+      userId: "u_field2",
+      role: "tradie",
+      query: { date: TODAY },
+      body: { notes: "draft tweak" },
+    });
+    expect(res.statusCode).toBe(200);
     expect(hoursActions()).toEqual([]);
+    expect(
+      (res.body as { entry: { editedWhileSubmittedAt?: string | null } }).entry
+        .editedWhileSubmittedAt,
+    ).toBeFalsy();
   });
 });

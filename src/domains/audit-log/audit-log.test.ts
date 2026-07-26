@@ -183,6 +183,9 @@ describe("AuditLogEntrySchema", () => {
       "hours.approved",
       "hours.bulk_approved",
       "hours.bulk_rejected",
+      // 2026-07-26 owner-directed: a sent day content-edited before the
+      // office decided ('edited' sorts between 'bulk_' and 'reject_').
+      "hours.edited_while_submitted",
       "hours.reject_undone",
       "hours.rejected",
       "hours.reopened",

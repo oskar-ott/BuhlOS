@@ -1,6 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
+
+// The draft Send button (a client child) reads useRouter — stub
+// next/navigation for SSR, same pattern as LogHoursSheet.render.test.tsx.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: () => {}, push: () => {}, replace: () => {} }),
+}));
+
 import { PhilWeekSummary } from "./PhilWeekSummary";
 import type { TimeEntry } from "@/domains/timesheets/types";
 
@@ -22,8 +29,12 @@ function otEntry(
   return { date, status, totalHours, ordinaryHours, overtimeHours } as unknown as TimeEntry;
 }
 
-function render(entries: TimeEntry[], todayISO = TODAY) {
-  return renderToString(createElement(PhilWeekSummary, { entries, todayISO }));
+function render(
+  entries: TimeEntry[],
+  todayISO = TODAY,
+  extra: Partial<Parameters<typeof PhilWeekSummary>[0]> = {},
+) {
+  return renderToString(createElement(PhilWeekSummary, { entries, todayISO, ...extra }));
 }
 
 /**
@@ -40,7 +51,9 @@ describe("PhilWeekSummary (render)", () => {
     ]);
     expect(html).toContain("This week");
     expect(html).toContain("Approved");
-    expect(html).toContain("Waiting for approval");
+    // The one submitted word (status-words.ts, 2026-07-26 owner-directed).
+    expect(html).toContain("Waiting on the office");
+    expect(html).not.toContain("Waiting for approval");
     // verdict: nothing to fix/log besides past gaps? Wed+Thu are unlogged
     // past weekdays → needs action, honestly.
     expect(html).toContain("Needs action");
@@ -53,7 +66,8 @@ describe("PhilWeekSummary (render)", () => {
       entry("2024-05-20", "approved"),
       entry("2024-05-21", "rejected"),
     ]);
-    expect(html).toContain("Rejected — fix needed");
+    // The one rejected word (status-words.ts): "Fix needed".
+    expect(html).toContain("Fix needed");
     expect(html).toContain("/phil/my-day?fixDate=2024-05-21");
     expect(html).toContain("Fix");
   });
@@ -108,11 +122,37 @@ describe("PhilWeekSummary (render)", () => {
     expect(nothing).not.toContain("Week squared away");
   });
 
-  it("shows a draft truthfully without a dead-end action", () => {
-    const html = render([entry("2024-05-20", "draft")], "2024-05-21");
-    expect(html).toContain("Draft — not submitted");
-    // No Fix/Log action for drafts — modern Phil has no draft-edit flow.
+  it("gives a sendable draft a real Send action (2026-07-26 owner-directed — no more dead end)", () => {
+    const draft = {
+      date: "2024-05-20",
+      totalHours: 7.6,
+      status: "draft",
+      allocations: [{ jobId: "job-a", hours: 7.6, notes: null }],
+    } as unknown as TimeEntry;
+    const html = render([draft], "2024-05-21", {
+      assignedJobs: [{ id: "job-a", name: "Smith St" }],
+    });
+    expect(html).toContain("Not sent"); // the one draft word (status-words.ts)
+    expect(html).not.toContain("Draft — not submitted");
+    expect(html).toContain("phil-send-draft-day");
+    expect(html).toContain("Send");
+    // Still no Fix/Log link for drafts — Send is the action.
     expect(html).not.toContain("/phil/my-day?fixDate=2024-05-20");
+  });
+
+  it("a draft that CAN'T be sent names the reason instead of a dead button (P7)", () => {
+    const nullJobDraft = {
+      date: "2024-05-20",
+      totalHours: 7.6,
+      status: "draft",
+      allocations: [{ jobId: null, hours: 7.6, notes: null }],
+    } as unknown as TimeEntry;
+    const html = render([nullJobDraft], "2024-05-21", {
+      assignedJobs: [{ id: "job-a", name: "Smith St" }],
+    });
+    expect(html).toContain("Not sent");
+    expect(html).not.toContain("phil-send-draft-day");
+    expect(html).toContain("no job attached");
   });
 
   it("shows the overtime a worker worked, in worker words — never 'OT' jargon (#130)", () => {

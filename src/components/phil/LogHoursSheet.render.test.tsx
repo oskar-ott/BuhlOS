@@ -183,6 +183,9 @@ describe("LogHoursSheet — rejected entry fix flow", () => {
       assignedJobs: [{ id: "j1", name: "Smith St Rewire" }],
       recentEntries: [],
       initialTodayEntry: rejectedEntry(singleAllocation),
+      // Status reflects the SELECTED date only (2026-07-26 fix) — select the
+      // entry's own day, as the ?fixDate= deep link does.
+      initialDate: "2026-06-07",
     });
 
     // The rejection reason and the fix action live together on My Day —
@@ -198,6 +201,7 @@ describe("LogHoursSheet — rejected entry fix flow", () => {
       assignedJobs: [{ id: "j1", name: "Smith St Rewire" }],
       recentEntries: [],
       initialTodayEntry: rejectedEntry(singleAllocation),
+      initialDate: "2026-06-07",
       autoOpenFix: true,
     });
 
@@ -216,6 +220,7 @@ describe("LogHoursSheet — rejected entry fix flow", () => {
         { jobId: "j1", hours: 4, notes: null },
         { jobId: "j2", hours: 3.6, notes: null },
       ]),
+      initialDate: "2026-06-07",
     });
 
     // Split days are now fixable in Phil (route to the split editor), so the
@@ -226,44 +231,86 @@ describe("LogHoursSheet — rejected entry fix flow", () => {
   });
 });
 
-describe("LogHoursSheet — status card only for actionable (rejected) days", () => {
-  function entryWithStatus(status: "approved" | "submitted") {
-    return {
-      id: "te-2",
-      userId: "u1",
-      date: "2026-06-11",
-      totalHours: 7.6,
-      ordinaryHours: 7.6,
-      overtimeHours: 0,
-      status,
-      allocations: [{ jobId: "j1", hours: 7.6, notes: null }],
-      createdAt: "2026-06-11T06:00:00Z",
-      updatedAt: "2026-06-11T06:00:00Z",
-    };
-  }
+function entryWithStatus(status: "approved" | "submitted") {
+  return {
+    id: "te-2",
+    userId: "u1",
+    date: "2026-06-11",
+    totalHours: 7.6,
+    ordinaryHours: 7.6,
+    overtimeHours: 0,
+    status,
+    allocations: [{ jobId: "j1", hours: 7.6, notes: null }],
+    createdAt: "2026-06-11T06:00:00Z",
+    updatedAt: "2026-06-11T06:00:00Z",
+  };
+}
 
-  it("hides the informational 'X logged · status' card for an approved entry", () => {
+describe("LogHoursSheet — submitted/approved selected day (2026-07-26 owner-directed)", () => {
+  it("a submitted day: calm status + 'Change these hours', never a bare disabled primary", () => {
+    const html = render({
+      assignedJobs: [{ id: "j1", name: "Smith St Rewire" }],
+      recentEntries: [],
+      initialTodayEntry: entryWithStatus("submitted"),
+      initialDate: "2026-06-11",
+    });
+    expect(html).toContain("Sent to the office — waiting for approval");
+    expect(html).toContain("Change these hours");
+    expect(html).toContain("phil-edit-submitted");
+    // The log actions are replaced, not silently disabled.
+    expect(html).not.toContain("Submit Standard day");
+    expect(html).not.toContain("Custom / overtime hours");
+  });
+
+  it("an approved day: the named absence — locked for pay, no button (P7)", () => {
     const html = render({
       assignedJobs: [{ id: "j1", name: "Smith St Rewire" }],
       recentEntries: [],
       initialTodayEntry: entryWithStatus("approved"),
+      initialDate: "2026-06-11",
     });
-    // The crossed-out card ("7h 36m logged … Approved") is gone…
-    expect(html).not.toContain("logged");
-    expect(html).not.toContain("Approved");
-    // …but the worker can still log (the action stays in view).
-    expect(html).toContain("Standard day");
+    expect(html).toContain("Approved and locked for pay");
+    expect(html).toContain("ask the office");
+    // No log actions and no change affordance on a locked day.
+    expect(html).not.toContain("Submit Standard day");
+    expect(html).not.toContain("Change these hours");
   });
 
-  it("still shows the card (reason + inline fix) for a rejected entry", () => {
+  it("still shows the reason + inline fix for a rejected entry", () => {
     const html = render({
       assignedJobs: [{ id: "j1", name: "Smith St Rewire" }],
       recentEntries: [],
       initialTodayEntry: rejectedEntry([{ jobId: "j1", hours: 7.6, notes: null }]),
+      initialDate: "2026-06-07",
     });
     expect(html).toContain("logged"); // the card title renders only for rejected
     expect(html).toContain("Wrong job");
     expect(html).toContain("Fix rejected hours");
+  });
+});
+
+describe("LogHoursSheet — status is scoped to the SELECTED date (regression, 2026-07-26)", () => {
+  it("a selected past day with NO entry never borrows today's status or fix card", () => {
+    // Today's entry is rejected, but the sheet is opened on a different day
+    // that has no entry — the old `?? todayEntry` fallback wrongly showed
+    // today's rejection (and its fix card) under that date.
+    const html = render({
+      assignedJobs: [{ id: "j1", name: "Smith St Rewire" }],
+      recentEntries: [],
+      initialTodayEntry: rejectedEntry([{ jobId: "j1", hours: 7.6, notes: null }]), // dated 2026-06-07
+      initialDate: "2026-06-05", // a different day, no entry
+    });
+    expect(html).not.toContain("Wrong job");
+    expect(html).not.toContain("Fix rejected hours");
+    // And a submitted today never locks a different, unlogged day.
+    const html2 = render({
+      assignedJobs: [{ id: "j1", name: "Smith St Rewire" }],
+      recentEntries: [],
+      initialTodayEntry: entryWithStatus("submitted"), // dated 2026-06-11
+      initialDate: "2026-06-05",
+    });
+    expect(html2).not.toContain("Sent to the office");
+    expect(html2).toContain("Submit Standard day");
   });
 });
 

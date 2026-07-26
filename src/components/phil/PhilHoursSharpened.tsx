@@ -11,6 +11,8 @@ import { LogHoursSheet } from "./LogHoursSheet";
 import { RejectedHoursResubmitSheet } from "./RejectedHoursResubmitSheet";
 import { timesheetsClient } from "@/domains/timesheets/client";
 import { formatHoursLabel } from "@/domains/timesheets/format";
+import { STATUS_WORDS } from "@/domains/timesheets/status-words";
+import { canResubmitInPhil } from "@/domains/timesheets/resubmit";
 import {
   STANDARD_DAY_HOURS,
   addDays,
@@ -51,9 +53,12 @@ import {
  *     home): the existing LogHoursSheet — standard day / custom / split —
  *     is mounted in the current week's card, unchanged mechanics. Because
  *     every Phil logging path already submits at creation, a logged day
- *     truthfully reads "Submitted"; there is no separate "not sent yet"
- *     state to invent, and no Edit for submitted entries (the office owns
- *     them once sent) — honest absence, not a dead button.
+ *     truthfully reads "Waiting on the office"; there is no separate "not
+ *     sent yet" state to invent. 2026-07-26 owner-directed: a submitted
+ *     (undecided) day now carries the "Change these hours" affordance —
+ *     the same tested fix sheet — because the worker can fix a sent day
+ *     until the office decides. The old honest absence is now an honest
+ *     affordance.
  *   - "Send this week to the office" appears ONLY when a week really holds
  *     DRAFT entries (legacy / office-created — Phil itself never writes
  *     drafts). It flushes them through the existing draft→submitted PATCH,
@@ -88,18 +93,19 @@ const DOT_CLASS: Record<HoursWeekDot, string> = {
   neutral: "bg-state-neutral-dot",
 };
 
-/** Real status → the one badge language. Draft = logged but never sent, a
- *  domain word (warning tone, explicit) — not one of the canonical statuses. */
+/** Real status → the ONE worker status vocabulary (status-words.ts —
+ *  2026-07-26 owner-directed). Non-canonical badge labels carry an explicit
+ *  tone, as the badge's type contract requires. */
 function entryStatusBadge(status: TimeEntry["status"]) {
   switch (status) {
     case "approved":
-      return <PhilStatusBadge label="Approved" />;
+      return <PhilStatusBadge label={STATUS_WORDS.approved} tone="success" />;
     case "submitted":
-      return <PhilStatusBadge label="Submitted" />;
+      return <PhilStatusBadge label={STATUS_WORDS.submitted} tone="info" />;
     case "rejected":
-      return <PhilStatusBadge label="Rejected" />;
+      return <PhilStatusBadge label={STATUS_WORDS.rejected} tone="danger" />;
     case "draft":
-      return <PhilStatusBadge label="Not sent" tone="warning" />;
+      return <PhilStatusBadge label={STATUS_WORDS.draft} tone="warning" />;
   }
 }
 
@@ -503,6 +509,17 @@ function EntryRow({
             jobsError={jobsError}
           />
         </div>
+      ) : null}
+
+      {/* 2026-07-26 owner-directed: a submitted (undecided) day is changeable
+          until the office decides — the SAME tested sheet, submitted variant
+          (collapsed "Change these hours" trigger). */}
+      {entry.status === "submitted" && canResubmitInPhil(entry) ? (
+        <RejectedHoursResubmitSheet
+          entry={entry}
+          assignedJobs={assignedJobs.map((j) => ({ id: j.id, name: j.name }))}
+          jobsError={jobsError}
+        />
       ) : null}
     </div>
   );

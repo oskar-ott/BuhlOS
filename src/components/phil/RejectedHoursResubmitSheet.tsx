@@ -28,8 +28,9 @@ import type { TimeEntry } from "@/domains/timesheets/types";
 const HOURS_OPTIONS = [4, 5, 6, 7, 7.6, 8, 9, 10] as const;
 
 interface RejectedHoursResubmitSheetProps {
-  /** The rejected entry to fix (canResubmitInPhil). Single-allocation entries
-   *  use the inline form; split days (2+ allocations) open the split editor. */
+  /** The rejected OR submitted entry to fix (canResubmitInPhil).
+   *  Single-allocation entries use the inline form; split days
+   *  (2+ allocations) open the split editor. */
   entry: TimeEntry;
   /** The worker's ACTIVE assigned jobs (server-loaded). Drives attribution. */
   assignedJobs: ReadonlyArray<AssignableJob>;
@@ -57,10 +58,19 @@ function reasonMessage(reason: Exclude<ResubmitJobResolution, { ok: true }>["rea
 }
 
 /**
- * In-Phil "fix a rejected entry and resubmit" form. Lives on /phil/hours under a
- * rejected entry. Edits the hours / job / note and PATCHes the existing entry to
- * `submitted` via `timesheetsClient.editOwnEntry` — the rejected→submitted
- * transition `main` already supports. No admin/approval or payroll controls.
+ * In-Phil "fix a rejected entry and resubmit" form — and, 2026-07-26
+ * owner-directed, the "change a sent day" form too. Lives on /phil/hours (and
+ * anywhere the rejected fix mounts) under a rejected OR submitted entry. Edits
+ * the hours / job / note and PATCHes the existing entry with
+ * `status: "submitted"` via `timesheetsClient.editOwnEntry` — for a rejected
+ * entry that is the rejected→submitted transition `main` already supports; for
+ * a submitted entry the status doesn't move (a content edit of an undecided
+ * day, which the server has always allowed). No admin/approval or payroll
+ * controls.
+ *
+ * The two variants differ ONLY in words (P12 — the submitted variant names
+ * its consequence: the office gets the new version). Every rejected-variant
+ * label and behaviour is byte-identical to before.
  *
  * Attribution invariant (the #77/#80/#81 guarantee): a worker with active jobs
  * can never resubmit with `jobId: null`. The submit button is disabled and the
@@ -74,6 +84,8 @@ export function RejectedHoursResubmitSheet({
   jobsError = false,
   defaultOpen = false,
 }: RejectedHoursResubmitSheetProps) {
+  // The submitted (undecided) variant — same editors, "change & resend" words.
+  const editingSubmitted = entry.status === "submitted";
   const [open, setOpen] = useState(defaultOpen);
   const [totalHours, setTotalHours] = useState<number>(entry.totalHours);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(() =>
@@ -150,6 +162,21 @@ export function RejectedHoursResubmitSheet({
   // After a successful resubmit the form is done — the entry is back in the
   // approval queue. The list around us is server-rendered, so offer a refresh.
   if (state.kind === "success") {
+    if (editingSubmitted) {
+      return (
+        <div data-testid="phil-edit-submitted-success">
+          <PhilNotice tone="success" role="status" title="Fix sent">
+            <p>
+              {formatHoursLabel(state.entry.totalHours)} sent to the office — the old version is
+              replaced.
+            </p>
+            <div className="mt-3">
+              <RefreshButton label="Refresh status" />
+            </div>
+          </PhilNotice>
+        </div>
+      );
+    }
     return (
       <PhilNotice tone="success" role="status" title="Resubmitted">
         <p>
@@ -163,12 +190,28 @@ export function RejectedHoursResubmitSheet({
   }
 
   if (!open) {
+    if (editingSubmitted) {
+      // Quiet secondary affordance — never the yellow primary (P10: this sits
+      // inside the day's existing status slot, not a new level-one action).
+      return (
+        <Button
+          variant="secondary"
+          size="lg"
+          onClick={() => setOpen(true)}
+          data-testid="phil-edit-submitted"
+        >
+          Change these hours
+        </Button>
+      );
+    }
     return (
       <Button variant="secondary" size="lg" onClick={() => setOpen(true)}>
         Fix rejected hours
       </Button>
     );
   }
+
+  const headerLabel = editingSubmitted ? "Change & resend" : "Fix & resubmit";
 
   // Split day → the split editor, pre-filled from the rejected allocations, so
   // the correction keeps every job (never collapses to one). Jobs must be loaded
@@ -178,7 +221,7 @@ export function RejectedHoursResubmitSheet({
       return (
         <div className="space-y-3 rounded-card border border-border bg-surface-subtle p-3">
           <p className="font-display text-xs uppercase tracking-widest text-text-muted">
-            Fix &amp; resubmit
+            {headerLabel}
           </p>
           <PhilNotice
             tone="warning"
@@ -204,7 +247,7 @@ export function RejectedHoursResubmitSheet({
         onClose={() => setOpen(false)}
         assignedJobs={assignedJobs}
         submitting={submitting}
-        title="Fix &amp; resubmit the split day"
+        title={editingSubmitted ? "Change & resend the split day" : "Fix & resubmit the split day"}
         initialTotal={init.total}
         initialRows={init.rows}
         errorMessage={state.kind === "error" ? state.message : null}
@@ -216,7 +259,7 @@ export function RejectedHoursResubmitSheet({
   return (
     <div className="space-y-3 rounded-card border border-border bg-surface-subtle p-3">
       <p className="font-display text-xs uppercase tracking-widest text-text-muted">
-        Fix &amp; resubmit
+        {headerLabel}
       </p>
 
       {entry.rejectedReason ? (
@@ -284,19 +327,36 @@ export function RejectedHoursResubmitSheet({
       </label>
 
       {state.kind === "error" ? (
-        <PhilNotice tone="danger" role="alert" title="Couldn’t resubmit">
+        <PhilNotice
+          tone="danger"
+          role="alert"
+          title={editingSubmitted ? "Couldn’t send the fix" : "Couldn’t resubmit"}
+        >
           {state.message}
           {state.status ? <span className="ml-1 text-xs">(HTTP {state.status})</span> : null}
         </PhilNotice>
+      ) : null}
+
+      {editingSubmitted ? (
+        // P12 — name the consequence before the irreversible-looking action.
+        <p className="text-xs text-text-muted" data-testid="phil-edit-submitted-consequence">
+          The office gets the new version — the old one is replaced.
+        </p>
       ) : null}
 
       <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
         <Button variant="ghost" onClick={() => setOpen(false)} disabled={submitting}>
           Cancel
         </Button>
-        <Button onClick={submit} disabled={!canSubmit}>
-          {submitting ? "Resubmitting…" : "Submit correction"}
-        </Button>
+        {editingSubmitted ? (
+          <Button onClick={submit} disabled={!canSubmit} data-testid="phil-edit-submitted-send">
+            {submitting ? "Sending…" : "Send the fix"}
+          </Button>
+        ) : (
+          <Button onClick={submit} disabled={!canSubmit}>
+            {submitting ? "Resubmitting…" : "Submit correction"}
+          </Button>
+        )}
       </div>
     </div>
   );

@@ -71,9 +71,15 @@ submit payload, job attribution guard, and create-path behaviour are unchanged.
 - After a successful resubmit the surrounding list is server-rendered, so the
   form shows a success banner with a **Refresh status** button rather than live-
   mutating the list.
-- **Known follow-up (unchanged from #92):** a server-side null-job block for
-  field roles on the PATCH path. Today the UI is the guard (as on create); a
-  defence-in-depth server check is a separate, safe hardening.
+- **Known follow-up — CLOSED 2026-07-26 (owner-directed):** the PATCH path now
+  rejects `jobId: null` allocations from a field self-edit server-side (same
+  403 shape as the active-job gate in `api/time-entries.js`), so the UI is no
+  longer the sole guard on edits. The create path keeps its backward-compat
+  null acceptance (legacy/overhead), where the Phil UI remains the guard.
+  The same owner direction extended this sheet to SUBMITTED (undecided)
+  entries — "Change these hours" / "Change & resend" — because a worker can
+  fix a sent day until the office decides; content edits of a submitted entry
+  are journalled as `hours.edited_while_submitted`.
 
 ## Tests
 

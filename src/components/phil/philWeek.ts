@@ -1,5 +1,6 @@
 import type { TimeEntry } from "@/domains/timesheets/types";
 import { addDays, weekStartOf } from "@/domains/timesheets/service";
+import { STATUS_CELL_WORDS } from "@/domains/timesheets/status-words";
 
 /**
  * Pure logic for the My Day "This week" payroll strip (the approved final
@@ -89,16 +90,18 @@ export function isoWeekNumber(dateISO: string): number {
   return 1 + Math.round((d.getTime() - firstThursday.getTime()) / (7 * 86_400_000));
 }
 
-/** Worker-facing status word for a logged entry. Undefined status (older
- *  callers / partial fixtures) keeps the original plain "logged". */
+/** Worker-facing status word for a logged entry — drawn from the ONE status
+ *  vocabulary (status-words.ts, 2026-07-26 owner-directed), in its short cell
+ *  form. Undefined status (older callers / partial fixtures) keeps the
+ *  original plain "logged". */
 function loggedStatusWord(status: TimeEntry["status"] | undefined): string {
   switch (status) {
     case "approved":
-      return "approved";
+      return STATUS_CELL_WORDS.approved;
     case "submitted":
-      return "waiting";
+      return STATUS_CELL_WORDS.submitted;
     case "draft":
-      return "draft";
+      return STATUS_CELL_WORDS.draft;
     default:
       return "logged";
   }
@@ -181,11 +184,11 @@ export function buildPhilWeek(
       // The one logged state that needs the worker's hand — never shown as a
       // calm green "logged", even when it's today's entry.
       state = "fix";
-      statusWord = "fix";
+      statusWord = STATUS_CELL_WORDS.rejected;
     } else if (logged && status === "draft") {
       // Logged but never submitted — amber attention, not a calm green tick.
       state = "miss";
-      statusWord = "draft";
+      statusWord = STATUS_CELL_WORDS.draft;
     } else if (logged) {
       // A real submitted/approved entry reads as DONE → green, INCLUDING today's
       // (so logging a day turns its cell green right away). The "today" cell is
