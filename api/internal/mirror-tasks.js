@@ -18,13 +18,27 @@
 // GATING (skip CLEANLY, stay green):
 //   * no SUPABASE_DB_URL              → skipped (Supabase not wired, e.g. prod).
 //   * supabase_dual_write_tasks off   → skipped (task mirror dark).
+//
+// This entry point also carries the jobs-mirror RECONCILE sweep
+// (api/_lib/jobs-reconcile.js): the write-through job mirror is one-shot, so a
+// transient failure at create time leaves a permanent hole until the job is
+// re-saved (prod proof: DCA Alexandria, absent twelve days → quarantined hours
+// allocations). The sweep re-mirrors any jobs.json id missing from public.jobs
+// every cron tick. Independently gated on supabase_dual_write_jobs — either
+// half can run while the other is dark.
 
 const { setNoCache } = require('../_lib/blob');
 const { cronAuthState } = require('../_lib/cron-auth');
 const { mirrorTasks } = require('../_lib/task-mirror');
+const { reconcileJobsMirror } = require('../_lib/jobs-reconcile');
 
 async function handleMirrorTasks(req, res, deps = {}) {
-  const { env = process.env, cronState = cronAuthState, run = mirrorTasks } = deps;
+  const {
+    env = process.env,
+    cronState = cronAuthState,
+    run = mirrorTasks,
+    reconcile = reconcileJobsMirror,
+  } = deps;
 
   setNoCache(res);
   if (req.method === 'OPTIONS') return res.status(200).end();
@@ -39,18 +53,30 @@ async function handleMirrorTasks(req, res, deps = {}) {
     return res.status(503).json({ error: 'cron auth unconfigured' });
   }
 
-  // mirrorTasks gates internally (env + flag) and is best-effort (never throws).
+  // Both halves gate internally (env + flag) and are best-effort (never throw).
   const summary = await run();
-  // A best-effort run error → 500 so the Vercel cron run shows RED (a free alarm);
-  // it never affected a worker's toggle (Blob is authoritative).
+  const jobsReconcile = await reconcile();
+  // A best-effort run error in EITHER half → 500 so the Vercel cron run shows
+  // RED (a free alarm); neither ever affected a worker's write (Blob is
+  // authoritative).
   if (summary && summary.reason === 'error') {
-    return res.status(500).json({ ok: false, error: summary.error });
+    return res.status(500).json({ ok: false, error: summary.error, jobsReconcile });
   }
-  // Gated skip (no env / flag off / no tenant) → stay green.
-  if (summary && summary.ran === false) {
-    return res.status(200).json({ ok: true, skipped: true, reason: summary.reason });
+  if (jobsReconcile && jobsReconcile.reason === 'error') {
+    return res.status(500).json({ ok: false, error: jobsReconcile.error, jobsReconcile });
   }
-  return res.status(200).json({ ok: true, ...summary });
+  // Gated skip on BOTH halves (no env / flags off / no tenant) → stay green.
+  const tasksSkipped = summary && summary.ran === false;
+  const reconcileSkipped = jobsReconcile && jobsReconcile.ran === false;
+  if (tasksSkipped && reconcileSkipped) {
+    return res.status(200).json({ ok: true, skipped: true, reason: summary.reason, jobsReconcile });
+  }
+  if (tasksSkipped) {
+    // Task mirror dark but the jobs sweep ran — report the sweep, keep the
+    // task-skip reason visible.
+    return res.status(200).json({ ok: true, tasksSkipped: summary.reason, jobsReconcile });
+  }
+  return res.status(200).json({ ok: true, ...summary, jobsReconcile });
 }
 
 module.exports = handleMirrorTasks;

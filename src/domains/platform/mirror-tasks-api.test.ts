@@ -59,3 +59,58 @@ describe("handleMirrorTasks — cron route", () => {
     expect(res.statusCode).toBe(405);
   });
 });
+
+describe("handleMirrorTasks — jobs reconcile wiring", () => {
+  const authed = { cronState: () => "ok" as const, env: { CRON_SECRET: "x" } };
+
+  it("runs the sweep alongside the task mirror and reports both", async () => {
+    const res = createRes();
+    await handle(req(), res, {
+      ...authed,
+      run: async () => ({ ran: true, jobs: 2, changed: 0 }),
+      reconcile: async () => ({ ran: true, checked: 2, missing: 1, remirrored: 1, failed: 0 }),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({
+      ok: true, ran: true, jobs: 2,
+      jobsReconcile: { ran: true, missing: 1, remirrored: 1 },
+    });
+  });
+
+  it("task mirror dark but sweep live → 200 with sweep summary + skip reason", async () => {
+    const res = createRes();
+    await handle(req(), res, {
+      ...authed,
+      run: async () => ({ ran: false, reason: "flag off" }),
+      reconcile: async () => ({ ran: true, checked: 2, missing: 0, remirrored: 0, failed: 0 }),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({
+      ok: true, tasksSkipped: "flag off",
+      jobsReconcile: { ran: true, checked: 2 },
+    });
+    expect((res.body as { skipped?: boolean }).skipped).toBeUndefined();
+  });
+
+  it("both halves gated → 200 skipped (existing green-skip shape preserved)", async () => {
+    const res = createRes();
+    await handle(req(), res, {
+      ...authed,
+      run: async () => ({ ran: false, reason: "flag off" }),
+      reconcile: async () => ({ ran: false, reason: "no supabase env" }),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({ ok: true, skipped: true, reason: "flag off" });
+  });
+
+  it("sweep error → 500 red cron even when the task mirror was fine", async () => {
+    const res = createRes();
+    await handle(req(), res, {
+      ...authed,
+      run: async () => ({ ran: true, jobs: 2 }),
+      reconcile: async () => ({ ran: false, reason: "error", error: "pooler down" }),
+    });
+    expect(res.statusCode).toBe(500);
+    expect(res.body).toMatchObject({ ok: false, error: "pooler down" });
+  });
+});
