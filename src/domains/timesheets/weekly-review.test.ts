@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import type { MissingLog, TimeEntry } from "./types";
 import { buildWeeklyHoursCloseout } from "./weekly-closeout";
 import {
+  approvedOrdOtSplit,
   CLOSEOUT_DEFAULT_REJECT_REASON,
   closeoutRejectReason,
   reviewDayRows,
   weeklyReviewQueue,
+  workerOrdOtSplit,
   workerStatusWord,
 } from "./weekly-review";
 
@@ -153,5 +155,44 @@ describe("reviewDayRows", () => {
     const rows = reviewDayRows(workerById(c, "u1"));
     const byDay = Object.fromEntries(rows.map((r) => [r.day.weekday, r.note]));
     expect(byDay["Wed"]).toBe("Not yet");
+  });
+});
+
+describe("approvedOrdOtSplit", () => {
+  it("counts only APPROVED days, unlike the week-wide split", () => {
+    // Mon approved with 2h OT; Tue still submitted with 3h OT. A Xero push
+    // carries the approved day only, so the OT it reports must be 2h — the
+    // week-wide split would say 5h and overstate what is being sent.
+    const c = build([
+      entry({ userId: "u1", date: "2024-05-20", status: "approved", totalHours: 10, ordinaryHours: 8, overtimeHours: 2 }),
+      entry({ userId: "u1", date: "2024-05-21", status: "submitted", totalHours: 11, ordinaryHours: 8, overtimeHours: 3 }),
+    ]);
+    const w = workerById(c, "u1");
+    expect(approvedOrdOtSplit(w).overtime).toBe(2);
+    expect(workerOrdOtSplit(w).overtime).toBe(5);
+  });
+
+  it("pairs with approvedHours — ordinary + overtime equals the approved total", () => {
+    const c = build([
+      entry({ userId: "u1", date: "2024-05-20", status: "approved", totalHours: 10, ordinaryHours: 8, overtimeHours: 2 }),
+      entry({ userId: "u1", date: "2024-05-21", status: "approved", totalHours: 8, ordinaryHours: 8, overtimeHours: 0 }),
+    ]);
+    const w = workerById(c, "u1");
+    const split = approvedOrdOtSplit(w);
+    expect(split.ordinary + split.overtime).toBe(w.approvedHours);
+  });
+
+  it("is all-zero when nothing is approved yet", () => {
+    const c = build([entry({ userId: "u1", date: "2024-05-20", status: "submitted", totalHours: 10, overtimeHours: 2 })]);
+    expect(approvedOrdOtSplit(workerById(c, "u1"))).toEqual({
+      ordinary: 0,
+      overtime: 0,
+      hasOvertime: false,
+    });
+  });
+
+  it("reports no overtime on a plain approved week", () => {
+    const c = build([entry({ userId: "u1", date: "2024-05-20", status: "approved", totalHours: 8, overtimeHours: 0 })]);
+    expect(approvedOrdOtSplit(workerById(c, "u1")).hasOvertime).toBe(false);
   });
 });

@@ -65,6 +65,21 @@ export default async function HoursWeeklyCloseoutPage({
   // #760: Hours kill-switch — hide the office surface when the owner turns it off.
   if (!(await isFlagEnabled("hours", session))) notFound();
 
+  // #249: the phone closeout can finish by sending the week to Xero as draft
+  // timesheets. Same two gates the desktop batch surface (/hours/period) uses —
+  // `xero_connection` for the feature, `xero_payroll_export` for the WRITE —
+  // plus admin tier, because the Xero endpoints are admin-only and this page
+  // also renders for leading hands.
+  const [xeroConnectionEnabled, xeroExportEnabled] = await Promise.all([
+    isFlagEnabled("xero_connection", session),
+    isFlagEnabled("xero_payroll_export", session),
+  ]);
+  const xeroGate = {
+    isAdmin: isAdminRole(session.role),
+    connectionFlag: xeroConnectionEnabled,
+    exportFlag: xeroExportEnabled,
+  };
+
   // `?week=` is any date inside the desired week (nav links pass a Monday).
   // DEFAULT to the most recent COMPLETE week (last week), not the in-progress
   // current week — the closeout is a pay-run ritual run AFTER a week ends, so
@@ -142,6 +157,7 @@ export default async function HoursWeeklyCloseoutPage({
           }}
           canUndo={isAdminRole(session.role)}
           fetchError={fetchError}
+          xeroGate={xeroGate}
         />
       </div>
 

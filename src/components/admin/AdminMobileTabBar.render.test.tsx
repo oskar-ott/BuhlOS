@@ -31,7 +31,7 @@ describe("AdminMobileTabBar (mobile admin redesign)", () => {
     const html = render("/command-centre");
     expect(html).toContain('aria-label="BuhlOS tabs"');
     expect(html).toContain("md:hidden"); // never shown on desktop
-    for (const label of ["Today", "Jobs", "Approvals", "People", "More"]) {
+    for (const label of ["Today", "Jobs", "This week", "People", "More"]) {
       expect(html).toContain(label);
     }
   });
@@ -40,7 +40,7 @@ describe("AdminMobileTabBar (mobile admin redesign)", () => {
     const html = render("/command-centre");
     expect(html).toContain('href="/command-centre"');
     expect(html).toContain('href="/v2/jobs"');
-    expect(html).toContain('href="/hours/approvals"');
+    expect(html).toContain('href="/hours/weekly"');
     expect(html).toContain('href="/employees"');
     // More opens the IA sheet — it must be a dialog trigger, not a nav link.
     expect(html).toContain('aria-haspopup="dialog"');
@@ -58,12 +58,12 @@ describe("AdminMobileTabBar (mobile admin redesign)", () => {
     expect(onToday).toContain("bg-accent-yellow");
   });
 
-  it("keeps Approvals active across the hours routes; Jobs active on a nested job", () => {
-    const approvalsActive = (html: string) =>
-      (html.match(/<a[^>]*href="\/hours\/approvals"[^>]*aria-current="page"/) ||
-        html.match(/aria-current="page"[^>]*href="\/hours\/approvals"/)) != null;
-    expect(approvalsActive(render("/hours"))).toBe(true);
-    expect(approvalsActive(render("/hours/weekly"))).toBe(true);
+  it("keeps This week active across the hours routes; Jobs active on a nested job", () => {
+    const weekActive = (html: string) =>
+      (html.match(/<a[^>]*href="\/hours\/weekly"[^>]*aria-current="page"/) ||
+        html.match(/aria-current="page"[^>]*href="\/hours\/weekly"/)) != null;
+    expect(weekActive(render("/hours"))).toBe(true);
+    expect(weekActive(render("/hours/approvals"))).toBe(true);
     const onJob = render("/v2/jobs/j1/evidence");
     const jobsAnchor = onJob.match(/<a[^>]*href="\/v2\/jobs"[^>]*>/);
     expect(jobsAnchor![0]).toContain('aria-current="page"');

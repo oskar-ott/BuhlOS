@@ -237,7 +237,7 @@ export function MobileToday(props: MobileTodayProps) {
             ) : null}
             {pendingHours > 0 ? (
               <StripCard
-                href={"/hours/approvals" as Route}
+                href={"/hours/weekly" as Route}
                 icon={<Calendar aria-hidden="true" className="h-5 w-5" />}
                 title="Hours for payroll"
                 sub={`${pendingHours} timesheet${pendingHours === 1 ? "" : "s"} awaiting weekly approval`}
