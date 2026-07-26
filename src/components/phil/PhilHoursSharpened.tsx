@@ -464,6 +464,12 @@ function EntryRow({
 }) {
   const allocations = entry.allocations ?? [];
   const split = allocations.length > 1;
+  // 2026-07-26 owner-directed compaction: the "change a sent day" trigger is a
+  // compact pill in the row's action slot (same slot the Log pill uses), not a
+  // full-width bar under every submitted day. The sheet body only mounts below
+  // the row while it's open.
+  const changeable = entry.status === "submitted" && canResubmitInPhil(entry);
+  const [changeOpen, setChangeOpen] = useState(false);
   return (
     <div className="space-y-2">
       <div className="flex items-start justify-between gap-3">
@@ -491,6 +497,16 @@ function EntryRow({
             {formatHoursLabel(entry.totalHours)}
           </span>
           {entryStatusBadge(entry.status)}
+          {changeable && !changeOpen ? (
+            <button
+              type="button"
+              onClick={() => setChangeOpen(true)}
+              data-testid="phil-edit-submitted"
+              className="mt-0.5 rounded-pill border border-border px-4 py-2 text-sm font-medium text-text hover:border-brand-navy"
+            >
+              Change
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -512,13 +528,16 @@ function EntryRow({
       ) : null}
 
       {/* 2026-07-26 owner-directed: a submitted (undecided) day is changeable
-          until the office decides — the SAME tested sheet, submitted variant
-          (collapsed "Change these hours" trigger). */}
-      {entry.status === "submitted" && canResubmitInPhil(entry) ? (
+          until the office decides — the SAME tested sheet, submitted variant,
+          controlled by the compact row pill above (owner: one small button,
+          no full-width bar per day). */}
+      {changeable && changeOpen ? (
         <RejectedHoursResubmitSheet
           entry={entry}
           assignedJobs={assignedJobs.map((j) => ({ id: j.id, name: j.name }))}
           jobsError={jobsError}
+          open
+          onOpenChange={setChangeOpen}
         />
       ) : null}
     </div>
