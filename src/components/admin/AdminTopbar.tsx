@@ -1,48 +1,33 @@
-import type { ReactNode } from "react";
+import Link from "next/link";
+import type { Route } from "next";
+import { Settings } from "lucide-react";
 import { AdminSearchBox } from "./AdminSearchBox";
+import { SignOutButton } from "./SignOutButton";
 
 interface AdminTopbarProps {
-  title: string;
-  breadcrumb?: ReactNode;
+  /** Static initials for the viewer avatar chip — null renders no chip
+   *  (honest-or-absent; resolved from the real session in AdminShell). */
+  viewerInitials?: string | null;
 }
 
 /**
- * Admin top bar — page title + optional breadcrumb.
+ * The top bar's right-hand cluster (lean-reset redesign, 2026-07-26 replica):
+ * universal search + ⌘K hint, a settings gear (the /settings hub, #222 — no
+ * longer a rail footer link), sign-out, and a STATIC viewer-initials avatar
+ * chip. The chip is display-only — per doc 27 §13 (as amended for the
+ * redesign) there is still NO profile dropdown on this surface.
  *
- * Profile / settings lives in the sidebar footer (sign-out) and the
- * dedicated Settings section once that ships. Per doc 27 §13 there is
- * NO profile dropdown / avatar pill in the top-right — that pattern is
- * banned for this surface. The one interactive element is the universal
- * search box (#188), mounted as a client child so this stays a server
- * component.
- *
- * Mobile (< md): the bühl brand mark leads the bar (the sidebar that carries
- * the wordmark is desktop-only) and primary navigation moves to the bottom tab
- * bar (AdminMobileTabBar) + its "More" sheet — so the old hamburger is gone.
- * Detail pages keep their own back affordance via the breadcrumb. The title
- * stays visible at every width so a phone always knows which surface it is on.
+ * The page title + breadcrumb moved into the content column (AdminShell), per
+ * the replica. Mobile (< md): search stays; the gear / sign-out / avatar
+ * cluster hides — those live in AdminMobileTabBar's "More" sheet, which is
+ * untouched by this slice.
  */
-export function AdminTopbar({ title, breadcrumb }: AdminTopbarProps) {
+export function AdminTopbar({ viewerInitials }: AdminTopbarProps) {
   return (
-    <header className="flex h-16 items-center gap-3 border-b border-border bg-surface px-4 sm:gap-4 sm:px-6">
-      {/* Mobile brand mark — the office's top-corner bühl mark below md, where
-          the desktop sidebar (which carries the wordmark) is hidden. */}
-      {/* eslint-disable-next-line @next/next/no-img-element -- static brand asset in /public, not a remote/optimised image */}
-      <img
-        src="/brand/buhl-logo-ink.png"
-        alt="bühl electrical"
-        className="h-6 w-auto shrink-0 md:hidden"
-      />
-      <div className="min-w-0 flex-1">
-        <h1 className="truncate font-display text-lg text-text">{title}</h1>
-        {breadcrumb ? (
-          <div className="mt-0.5 text-xs text-text-muted">{breadcrumb}</div>
-        ) : null}
-      </div>
-      {/* #188: universal search — the topbar's one interactive element
-          (no profile dropdown per doc 27 §13). Server-scoped admin/LH. */}
+    <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
+      {/* #188: universal search — server-scoped admin/LH results. */}
       <AdminSearchBox />
-      {/* #215: ONE topbar affordance for the ⌘K command layer — a subtle,
+      {/* #215: ONE affordance for the ⌘K command layer — a subtle,
           NON-interactive hint (not a second search input or clickable
           control). ⌘K is the primary affordance; this just advertises it.
           The palette itself is the surface (mounted in AdminShell). */}
@@ -53,6 +38,27 @@ export function AdminTopbar({ title, breadcrumb }: AdminTopbarProps) {
       >
         <span className="text-sm leading-none">⌘</span>K
       </kbd>
-    </header>
+      <Link
+        href={"/settings" as Route}
+        aria-label="Settings"
+        data-testid="admin-settings-link"
+        className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-card text-text-muted transition-colors hover:bg-surface-subtle hover:text-text md:inline-flex"
+      >
+        <Settings aria-hidden="true" className="h-4 w-4" />
+      </Link>
+      <SignOutButton
+        iconOnly
+        className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-card text-text-muted transition-colors hover:bg-surface-subtle hover:text-text disabled:opacity-60 md:inline-flex"
+      />
+      {viewerInitials ? (
+        <span
+          data-testid="admin-viewer-avatar"
+          aria-label={`Signed in as ${viewerInitials}`}
+          className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-pill bg-brand-navy font-display text-sm font-bold text-text-inverse md:flex"
+        >
+          {viewerInitials}
+        </span>
+      ) : null}
+    </div>
   );
 }

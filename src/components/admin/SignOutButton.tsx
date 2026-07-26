@@ -13,20 +13,24 @@ import { useState } from "react";
  * — without that, the user could land on a stale client-side cached page.
  */
 /**
- * Default styling targets the dark navy sidebar (slate-300 on navy). The mobile
- * nav drawer has a light background, so it passes a light-theme `className` and
- * a distinct `testId` (the Playwright logout helper targets the sidebar's
+ * Default styling is a full-width light-surface row (the "More" sheet look).
+ * Callers on other surfaces pass their own `className`, and a distinct
+ * `testId` where needed (the Playwright logout helper targets the shell's
  * `data-testid="logout"`; a second identical id would break its strict match).
+ * `iconOnly` renders the icon with an sr-only label — the top bar's compact
+ * sign-out control (lean-reset redesign).
  */
-const SIDEBAR_CLASS =
-  "flex w-full items-center gap-3 rounded-card px-3 py-2 text-sm text-slate-300 hover:bg-accent-ink hover:text-text-inverse disabled:opacity-60";
+const DEFAULT_CLASS =
+  "flex w-full items-center gap-3 rounded-card px-3 py-2 text-sm text-text-muted hover:bg-surface-subtle hover:text-text disabled:opacity-60";
 
 export function SignOutButton({
   className,
   testId = "logout",
+  iconOnly = false,
 }: {
   className?: string;
   testId?: string;
+  iconOnly?: boolean;
 } = {}) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
@@ -54,10 +58,17 @@ export function SignOutButton({
       type="button"
       onClick={signOut}
       disabled={pending}
-      className={className ?? SIDEBAR_CLASS}
+      aria-label={iconOnly ? "Sign out" : undefined}
+      className={className ?? DEFAULT_CLASS}
     >
       <LogOut aria-hidden="true" className="h-4 w-4" />
-      {pending ? "Signing out…" : "Sign out"}
+      {iconOnly ? (
+        <span className="sr-only">{pending ? "Signing out…" : "Sign out"}</span>
+      ) : pending ? (
+        "Signing out…"
+      ) : (
+        "Sign out"
+      )}
     </button>
   );
 }

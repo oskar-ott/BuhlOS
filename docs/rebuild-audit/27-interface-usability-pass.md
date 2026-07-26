@@ -153,13 +153,13 @@ Binding for every admin surface. Refines [13] §Foundational rules.
 
 - KPI cards along the top of `/command-centre` with fake numbers.
 - "Charts" before real data exists. Phase F+ only.
-- Pill tab navigation across the top of a section. Sidebar only (per [13] §Banned patterns).
+- Pill tab navigation across the top of a *section* (sub-navigation belongs in in-page tabs like HoursTabs). *(Amended 2026-07-26 by the owner's lean-reset replica: the PRIMARY nav is now the shell's horizontal top-nav pill row per [13] — this ban now covers per-section top tabs, not the shell nav.)*
 - Buttons that open `alert()` / `confirm()` / `prompt()`.
 - "Coming soon" modals. Use `UnderConstructionPanel`.
 - Three-dot menus where the primary action lives.
 - Cluttered "recent activity" widgets that aren't really audit log entries.
 - Page-level breadcrumbs that don't help navigation ("Home / Admin / Jobs / Edit Job" — the sidebar already shows where you are).
-- "Profile dropdown in top-right" pattern for settings. Settings is its own sidebar section.
+- "Profile dropdown in top-right" pattern for settings. Settings is the top bar's gear icon → the `/settings` hub *(amended 2026-07-26 with the lean-reset top nav; previously a sidebar footer link)*.
 - Confirmation modals for low-stakes actions (don't confirm a search filter; do confirm a delete).
 
 ---
@@ -240,11 +240,16 @@ When a new entity in Phase D / E / F introduces a new state:
 
 ### 7.2 · BuhlOS Admin
 
-- **Left sidebar, single column, 14 sections.** Order per [13] §"Left sidebar sections" (Command Centre · Hours · Jobs · Workers · Gear · Materials · Plans · ITP · RFIs · Defects · Variations · Reports · Settings · Support).
-- Each section name + lucide icon + optional real-count badge.
+> *(Amended 2026-07-26 by the owner's lean-reset replica — the primary nav
+> moved from the navy left rail to a horizontal top nav. The honesty and
+> single-source rules are unchanged.)*
+
+- **One white top bar.** bühl wordmark, then the nav pill row rendered flattened from `NAV_GROUPS` in `nav.ts` (order per [13] §"Primary nav sections (top nav)"), then search + ⌘K hint, settings gear (→ `/settings` hub), sign-out, static viewer-initials avatar chip.
+- Each section name + lucide icon + optional real-count chip (honest-or-absent).
 - UC sections render with the "UC" pill, no link, `cursor: not-allowed`.
-- Active section: brand-navy left border, ink background.
-- No top-bar tabs for sub-navigation. Use a sub-sidebar OR tab pills inside the section if needed (e.g., `/hours` has Overview / Approvals tabs at section top).
+- Active section: navy pill (brand-navy background, inverse semibold label).
+- The nav row scrolls horizontally when flags put more items on than fit — never wraps, never hides items behind a "More" overflow on desktop.
+- Sub-navigation stays in in-page tabs inside the section (e.g., `/hours` has Day / Approvals / Weekly closeout / Pay period tabs at section top) — never a second shell-level nav.
 - Breadcrumbs only for ≥3-deep pages (`/jobs/[jobId]/evidence/[evidenceId]` would breadcrumb; `/jobs` does not).
 
 ---
@@ -450,7 +455,7 @@ When the Phase D build sessions land, these are the items to actively NOT add (o
 
 - KPI cards on `/command-centre` (until Phase F).
 - "Recent activity" widget on `/command-centre`. The activity feed has its own page.
-- Profile dropdown menu in the top-right. Profile is the "More" tab on Phil, the Settings sidebar section on Admin.
+- Profile dropdown menu in the top-right. Profile is the "More" tab on Phil, the top bar's Settings gear (`/settings` hub) on Admin. *(Amended 2026-07-26 by the owner's lean-reset replica: the top bar DOES carry a static viewer-initials avatar chip — display-only, non-interactive. The ban on a dropdown/menu behind it stands.)*
 - Per-row three-dot menus where the primary action exists as a button.
 - Page-level breadcrumbs on shallow pages (≤2 segments deep).
 - "Toast" notifications as primary feedback. Inline status changes are primary.
@@ -491,7 +496,7 @@ These can land in small follow-up PRs before Phase D D1 starts:
 1. **Audit existing pages for unearned elements.** Remove any UI on Phase A/B/C surfaces that doesn't pass §3 #1. Likely candidates: helper text, illustrations, "X of Y" counters that don't matter.
 2. **Audit status pills.** Confirm every pill on every surface uses the §6 tone palette and a §6.2 dictionary label. Fix any drift.
 3. **Confirm DemoModeBanner state.** Run the Playwright check from [17] §B.9 — banner must be OFF on all real-data routes (Phase B + Phase C).
-4. **Confirm the SignOutButton is in the right place.** Sidebar footer per PR #7. Not in the top-right of every page.
+4. **Confirm the SignOutButton is in the right place.** Since the 2026-07-26 lean-reset amendment: the top bar's right cluster (icon button, testid `logout`), plus the mobile "More" sheet — one instance per surface, not on every page body.
 5. **Confirm `/command-centre` welcome card is accurate** — PR #6 fixed BUG-C-001 (was stale Phase C copy). Verify post-Phase-D update lands in the same PR as the evidence count.
 6. **Lint check for any new `*-client.tsx` under deep route folders.** Run the [26] §A.1 grep on `main` now to confirm zero existing offenders. (As of `52d629e`, the only known offender was the `approvals-client.tsx` Session 2 fixed in PR #6 — but a fresh grep is cheap insurance.)
 7. **Phil tab bar audit.** Today / Jobs / Gear / Snag / More — confirm Snag is UC, all others are correct. Confirm tab order matches §7.1.

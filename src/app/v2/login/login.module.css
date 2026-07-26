@@ -1,33 +1,27 @@
 /* ─────────────────────────────────────────────────────────────────────
-   BuhlOS — desktop sign-in.
+   BuhlOS — sign-in (lean-reset redesign, 2026-07-26 owner-ratified replica).
 
-   Ported from the Claude Design handoff (buhlos-phil/project/login/login.css,
-   which built on ops-base.css tokens). Scoped to this route as a CSS Module:
-   the design's own colour/spacing system is preserved verbatim (the exact
-   bühl yellow #f5d020 + navy #0d1b34, JetBrains Mono labels, Inter Tight
-   headings) rather than re-derived from the global Tailwind tokens, which
-   differ slightly (#ffcc00 / #0d1f35) and have no mono face.
-
-   Tokens are declared on `.login` (not :root) so nothing leaks out of the
-   login subtree. Light theme only — the prototype's dark/HC/centered variants
-   were design-review tweaks, not shipped surfaces.
+   One centred "Welcome back." card on the warm off-white ground: ink wordmark,
+   display heading with a yellow underline accent, mono uppercase micro-labels,
+   underline-style fields, navy full-width submit. A mono footer strip pins to
+   the bottom of the screen. The replica's own colour system is preserved
+   verbatim as scoped tokens (same approach as the previous handoff): declared
+   on `.login` (not :root) so nothing leaks out of the login subtree.
    ───────────────────────────────────────────────────────────────────── */
 
 .login {
-  /* design tokens (ops-base.css "light"), scoped to the login subtree */
-  --bg:        #f4f5f7;
+  /* replica tokens, scoped to the login subtree */
+  --bg:        #f4f3ee;
   --paper:     #ffffff;
-  --paper-2:   #f8f9fb;
+  --paper-2:   #f6f7f9;
   --paper-3:   #eef0f4;
   --navy:      #0d1b34;
   --ink:       #0d1b34;
   --ink-2:     #36446b;
   --ink-3:     #6a7591;
   --ink-4:     #9aa3bc;
-  --rule:      #dde1ea;
-  --rule-2:    #c8cee0;
-  --yellow:    #f5d020;
-  --yellow-ink:#1d1700;
+  --rule:      rgba(13, 27, 52, 0.2);
+  --yellow:    #ffcc00;
   --red:       #c0312f;
   --red-bg:    #fbeceb;
   --red-bd:    #ecc6c4;
@@ -38,116 +32,66 @@
 
   min-height: 100dvh;
   display: flex;
+  flex-direction: column;
   background: var(--bg);
   color: var(--ink);
   font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
   font-feature-settings: "ss01", "cv11";
-  overflow: hidden;
 }
 
-/* ── Brand panel (left) ──────────────────────────────────────────────── */
-.brand {
-  width: 46%; max-width: 660px; flex-shrink: 0;
-  background: var(--navy);
-  color: #fff;
-  display: flex; flex-direction: column;
-  padding: 44px 52px;
-  position: relative; overflow: hidden;
-}
-.brand::before {
-  content: ""; position: absolute; inset: 0;
-  background: radial-gradient(720px 420px at 78% -5%, rgba(245, 208, 32, .12), transparent 60%);
-}
-.brand::after {
-  content: ""; position: absolute; inset: 0;
-  background-image: radial-gradient(rgba(255, 255, 255, .06) 1px, transparent 1px);
-  background-size: 24px 24px;
-  -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, .7), transparent 72%);
-  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, .7), transparent 72%);
-}
-.brand > * { position: relative; z-index: 1; }
-
-.brandTop { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
-.brandLogo { width: 150px; height: auto; margin: -8px 0 -14px -6px; }
-.brandCo {
-  font-family: var(--font-mono); font-size: 12px; font-weight: 500;
-  letter-spacing: .14em; text-transform: uppercase; color: rgba(255, 255, 255, .5);
-}
-
-.brandMid { margin-top: auto; margin-bottom: auto; padding: 28px 0; }
-.brandH {
-  font-family: var(--font-display); font-weight: 700; font-size: 42px;
-  line-height: 1.04; letter-spacing: -.032em; color: #fff; max-width: 15ch; margin: 0;
-  text-wrap: balance;
-}
-.brandH em { color: var(--yellow); font-style: normal; }
-.brandSub {
-  margin: 16px 0 0; font-size: 14.5px; line-height: 1.6; color: rgba(255, 255, 255, .62); max-width: 40ch;
-}
-.brandPoints { list-style: none; margin: 26px 0 0; padding: 0; display: flex; flex-direction: column; gap: 11px; }
-.brandPoints li {
-  display: flex; align-items: center; gap: 11px;
-  font-size: 13.5px; color: rgba(255, 255, 255, .82);
-}
-.brandPoints li .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--yellow); flex-shrink: 0; }
-
-.brandFoot {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  font-family: var(--font-mono); font-size: 12px; font-weight: 500;
-  letter-spacing: .1em; text-transform: uppercase; color: rgba(255, 255, 255, .4);
-  border-top: 1px solid rgba(255, 255, 255, .1); padding-top: 18px;
-}
-
-/* ── Sign-in side (right) ────────────────────────────────────────────── */
 .main {
-  flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center;
-  padding: 32px; overflow: auto;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 24px;
+  overflow: auto;
 }
-.card { width: 100%; max-width: 384px; }
+.card { width: 100%; max-width: 392px; }
 
-.topmark { display: none; align-items: center; justify-content: center; margin-bottom: 22px; }
-.topmarkLogo { width: 138px; height: auto; }
+.topmark { display: flex; align-items: center; justify-content: center; }
+.topmarkLogo { width: 148px; height: auto; margin: -19px 0 -6px; }
 
-.eyebrow {
-  font-family: var(--font-mono); font-size: 12px; font-weight: 600;
-  letter-spacing: .16em; text-transform: uppercase; color: var(--ink-3);
-}
 .h {
-  font-family: var(--font-display); font-weight: 700; font-size: 27px;
-  letter-spacing: -.026em; color: var(--ink); margin: 7px 0 0; line-height: 1.1;
+  font-family: var(--font-display); font-weight: 700; font-size: 40px;
+  line-height: 1.06; letter-spacing: -0.035em; color: var(--ink);
+  margin: 14px 0 0; text-align: center;
 }
-.p { font-size: 13.5px; color: var(--ink-2); margin: 8px 0 0; line-height: 1.5; max-width: 40ch; }
+/* yellow underline accent under the heading (replica) */
+.accentBar { width: 46px; height: 4px; background: var(--yellow); margin: 20px auto 0; }
 
-.form { margin-top: 22px; display: flex; flex-direction: column; gap: 14px; }
+.form { margin-top: 32px; display: flex; flex-direction: column; gap: 22px; }
 
-.field { display: flex; flex-direction: column; gap: 6px; }
+.field { display: flex; flex-direction: column; gap: 7px; }
+.labelRow { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .label {
-  display: flex; align-items: baseline; justify-content: space-between; gap: 10px; white-space: nowrap;
   font-family: var(--font-mono); font-size: 12px; font-weight: 600;
-  letter-spacing: .13em; text-transform: uppercase; color: var(--ink-3);
+  letter-spacing: 0.15em; text-transform: uppercase; color: var(--ink-3);
+  white-space: nowrap;
 }
+/* SHOW / HIDE toggle — mono micro-label at the right of the PASSWORD row */
+.eye {
+  border: 0; background: none; padding: 0; cursor: pointer;
+  font-family: var(--font-mono); font-size: 12px; font-weight: 600;
+  letter-spacing: 0.15em; text-transform: uppercase; color: var(--ink-3);
+}
+.eye:hover { color: var(--ink); }
 
 .inputWrap { position: relative; display: flex; align-items: center; }
 .input {
-  width: 100%; height: 46px; box-sizing: border-box;
-  border: 1px solid var(--rule-2); border-radius: 11px; background: var(--paper);
-  padding: 0 14px; font-family: var(--font-body); font-size: 14.5px; color: var(--ink);
-  letter-spacing: -.005em; transition: border-color .12s, box-shadow .12s;
+  width: 100%; height: 44px; box-sizing: border-box;
+  border: 0; border-bottom: 1.5px solid var(--rule); border-radius: 0;
+  background: transparent; padding: 0 2px;
+  font-family: var(--font-body); font-size: 16.5px; color: var(--ink);
+  transition: border-color 0.12s;
 }
 .input::placeholder { color: var(--ink-4); }
-.input:focus { outline: none; border-color: var(--navy); box-shadow: 0 0 0 3px rgba(13, 27, 52, .09); }
-.input.hasEye { padding-right: 58px; }
-.input.err { border-color: var(--red); }
-.input.err:focus { box-shadow: 0 0 0 3px rgba(192, 49, 47, .12); }
-.eye {
-  position: absolute; right: 6px; height: 34px; padding: 0 11px; border: 0; background: transparent;
-  font-family: var(--font-mono); font-size: 12px; font-weight: 600; letter-spacing: .1em;
-  text-transform: uppercase; color: var(--ink-3); cursor: pointer; border-radius: 7px;
-}
-.eye:hover { background: var(--paper-3); color: var(--ink); }
+.input:focus { outline: none; border-bottom-color: var(--navy); }
+.input.err { border-bottom-color: var(--red); }
 .msg {
-  font-family: var(--font-mono); font-size: 12px; letter-spacing: .03em;
+  font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.03em;
   color: var(--red); display: flex; align-items: center; gap: 6px;
 }
 
@@ -162,68 +106,45 @@
   background: var(--red); color: #fff; display: flex; align-items: center; justify-content: center;
   font-size: 12px; font-weight: 800; font-family: var(--font-display);
 }
-.banner b { font-family: var(--font-display); font-weight: 700; font-size: 12.5px; letter-spacing: -.01em; color: var(--ink); display: block; }
+.banner b { font-family: var(--font-display); font-weight: 700; font-size: 12.5px; letter-spacing: -0.01em; color: var(--ink); display: block; }
 .banner p { margin: 2px 0 0; font-size: 12px; color: var(--ink-2); line-height: 1.4; }
 
-/* submit */
+/* submit — navy full-width "Sign in →" (replica) */
 .submit {
-  height: 48px; border: 0; border-radius: 11px; width: 100%; margin-top: 2px; white-space: nowrap;
-  background: var(--yellow); color: var(--yellow-ink);
-  font-family: var(--font-display); font-weight: 700; font-size: 15.5px; letter-spacing: -.012em;
+  height: 54px; border: 0; border-radius: 10px; width: 100%; margin-top: 2px; white-space: nowrap;
+  background: var(--navy); color: #fff;
+  font-family: var(--font-display); font-weight: 700; font-size: 16px; letter-spacing: -0.015em;
   display: flex; align-items: center; justify-content: center; gap: 9px;
-  cursor: pointer; transition: filter .12s, transform .08s;
+  cursor: pointer; transition: background 0.12s, transform 0.08s;
 }
-.submit:hover { filter: brightness(1.03); }
+.submit:hover { background: #16264a; }
 .submit:active { transform: translateY(1px); }
 .submit.busy, .submit:disabled { background: var(--paper-3); color: var(--ink-4); pointer-events: none; }
 
 .spinner {
   width: 16px; height: 16px; border-radius: 50%;
   border: 2px solid currentColor; border-right-color: transparent;
-  animation: spin .7s linear infinite;
+  animation: spin 0.7s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-.or {
-  display: flex; align-items: center; gap: 12px; margin: 4px 0;
-  font-family: var(--font-mono); font-size: 12px; font-weight: 600;
-  letter-spacing: .14em; text-transform: uppercase; color: var(--ink-4);
-}
-.or::before, .or::after { content: ""; flex: 1; height: 1px; background: var(--rule); }
-
-/* SSO — present but not yet wired (no SSO backend); shown disabled. */
-.sso {
-  height: 46px; border: 1px solid var(--rule); border-radius: 11px; width: 100%; white-space: nowrap;
-  background: var(--paper-2); color: var(--ink-3);
-  font-family: var(--font-display); font-weight: 600; font-size: 14px; letter-spacing: -.01em;
-  display: flex; align-items: center; justify-content: center; gap: 10px; cursor: not-allowed;
-}
-.sso .key {
-  width: 16px; height: 16px; border-radius: 4px; background: var(--rule-2);
-  display: inline-flex; align-items: center; justify-content: center; color: var(--paper);
-  font-size: 12px; font-weight: 800;
-}
-.ssoNote {
-  margin: 8px 0 0; text-align: center;
-  font-family: var(--font-mono); font-size: 12px; font-weight: 600; letter-spacing: .08em;
-  text-transform: uppercase; color: var(--ink-4);
-}
-
 .foot {
-  margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--rule);
-  font-family: var(--font-mono); font-size: 12px; letter-spacing: .04em;
+  margin-top: 26px;
+  font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.04em;
   color: var(--ink-3); line-height: 1.6; text-align: center;
 }
-.foot b { color: var(--ink-2); font-weight: 600; }
 
-/* ── Responsive — collapse to the centered card on narrow screens ─────── */
-@media (max-width: 900px) {
-  .brand { display: none; }
-  .main {
-    background: radial-gradient(900px 460px at 50% -8%, rgba(13, 27, 52, .05), transparent 60%), var(--bg);
-  }
-  .topmark { display: flex; }
+/* the mono strip pinned to the bottom of the screen (replica) */
+.screenFoot {
+  flex-shrink: 0;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: center;
+  gap: 8px 26px; padding: 0 24px 30px;
+  font-family: var(--font-mono); font-size: 12px; font-weight: 500;
+  letter-spacing: 0.13em; text-transform: uppercase; color: var(--ink-3);
+  text-align: center;
 }
+.screenFoot b { color: var(--ink-2); font-weight: 600; }
+
 @media (prefers-reduced-motion: reduce) {
   .spinner { animation: none; }
 }
@@ -245,6 +166,7 @@
   height: 52px;
   border: 1px solid var(--paper-3, #d9dce3);
   border-radius: 12px;
+  background: var(--paper);
   padding: 0 16px;
   font-size: 22px;
   letter-spacing: 0.5em;
