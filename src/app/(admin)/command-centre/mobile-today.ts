@@ -7,49 +7,10 @@ import { sortExceptions } from "@/domains/exceptions/service";
  * The mobile home is a SIMPLER projection of the SAME already-loaded,
  * admin-gated sources the desktop page uses — no new read-model. These helpers
  * keep the page thin and the behaviour unit-testable (mirrors the house pattern
- * in itp-queue-card.ts / queue-card-targets.ts).
+ * in queue-card-targets.ts).
  *
  * Truth over theatre (P7): counts come only from sources that genuinely exist.
- * Hours are a WEEKLY payroll closeout, so they are NOT part of the daily
- * "to approve" total; that total is the day-to-day office queues that have a
- * real approve action today — expenses + ITPs + materials. (Proof to sign off
- * is added by the flagged PR6 surface; dayworks has no office-approval concept,
- * so it is deliberately excluded.)
  */
-
-export interface MobileTodayApprovals {
-  /** Submitted expense claims awaiting review (/api/expenses?status=submitted). */
-  expenses: number;
-  /** Witnessed ITPs awaiting sign-off (statsItpsNeedsReview rollup). */
-  itps: number;
-  /** Open material requests awaiting the office (/api/material-requests). */
-  materials: number;
-}
-
-/** Which approvals sources are live for this viewer (lean reset — each is a
- *  dark launch-gate; the page resolves the flags and passes the booleans). */
-export interface MobileTodayApprovalsEnabled {
-  expenses: boolean;
-  itps: boolean;
-  materials: boolean;
-}
-
-/**
- * The approvals breakdown line ("3 expenses · 2 ITPs · 1 materials") naming
- * ONLY live sources — a dark feature leaves no label, not a "0 expenses"
- * ghost. Returns null when every source is dark: the caller then renders no
- * approvals pulse segment and no approvals row at all (no trace, P7).
- */
-export function approvalsBreakdownLabel(
-  a: MobileTodayApprovals,
-  enabled: MobileTodayApprovalsEnabled,
-): string | null {
-  const parts: string[] = [];
-  if (enabled.expenses) parts.push(`${a.expenses} expenses`);
-  if (enabled.itps) parts.push(`${a.itps} ITPs`);
-  if (enabled.materials) parts.push(`${a.materials} materials`);
-  return parts.length > 0 ? parts.join(" · ") : null;
-}
 
 export interface MobileTodayNeedsYou {
   /** The loudest few items, ranked (severity → actionable → oldest). */
@@ -58,16 +19,6 @@ export interface MobileTodayNeedsYou {
   remaining: number;
   /** The full ranked list (for "View all"). */
   all: ExceptionItem[];
-}
-
-/**
- * Day-to-day approvals total for the "to approve" pulse — the queues that route
- * to /hours/approvals: expenses + ITPs + materials. Hours are a weekly closeout
- * (excluded); proof-to-sign-off has its OWN surface on Today (the Command
- * Centre proof section), so it is NOT folded into this hub-bound count.
- */
-export function dailyApprovalsTotal(a: MobileTodayApprovals): number {
-  return a.expenses + a.itps + a.materials;
 }
 
 /**

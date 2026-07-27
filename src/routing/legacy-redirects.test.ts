@@ -68,7 +68,7 @@ describe("vercel.json legacy redirect matrix", () => {
     ["/admin/jobs", "/v2/jobs"],
     ["/admin/jobs/:jobId", "/v2/jobs/:jobId"],
     ["/admin/assets", "/gear"],
-    ["/admin/materials", "/material-requests"],
+    ["/admin/materials", "/command-centre"],
     ["/buhlos/admin", "/command-centre"],
   ])("redirects %s → %s", (source, destination) => {
     const rule = bySource.get(source);

@@ -4,7 +4,7 @@
 // an unknown key is a type error here and a thrown error at runtime.
 
 export type FlagKey =
-  | "signup_link"
+  // Supabase migration + perf data-plane levers (protected: env/ops only)
   | "supabase_dual_write"
   | "supabase_dual_write_jobs"
   | "supabase_dual_write_tasks"
@@ -20,57 +20,25 @@ export type FlagKey =
   | "supabase_read_admin_tasks"
   | "supabase_read_admin_evidence"
   | "supabase_read_phil_evidence"
+  | "phil_jobs_summary_read" // Phil field job-LIST read from the summary projection — protected
+  // Dark launch-gates
   | "admin_flags_readout"
-  | "admin_job_field_view"
-  | "admin_proof_review"
-  | "job_doc_import"
-  | "safety_docs"
-  | "certificates_register"
-  | "rfi_register"
-  | "variations_register"
-  | "progress_claims"
-  | "minutes_register"
-  | "site_instructions_register"
-  | "ai_assistant"
-  // 2026-07 standalone AI batch (#246/#262/#267/#347/#373) — dark launch-gates
-  | "ai_photo_labels"
-  | "ai_snag_suggestions"
-  | "ai_insights_digest"
-  | "ai_quote_drafts"
-  | "ai_contract_obligations"
-  | "ai_office_daily_summary" // #171 office daily summary — dark launch-gate
-  | "ai_drawings" // #197 Epic 5 page understanding — dark launch-gate
-  | "job_builder_redesign" // BuhlOS Job Builder redesign campaign — dark launch-gate
-  | "ai_plan_tasks" // #213 suggest job tasks from plan fittings — dark launch-gate
-  | "servicem8_sync" // daily ServiceM8 → BuhlOS job sync — dark launch-gate; needs SERVICEM8_API_KEY
-  | "phil_sharpened" // Phil field-surface redesign campaign — dark launch-gate; flips via governance (P15)
-  | "phil_job_rooms" // #133 in-job four-rooms experiment — dark launch-gate; requires phil_sharpened
-  | "xero_connection" // #247 Xero OAuth connection foundation — dark launch-gate
+  | "servicem8_sync" // daily ServiceM8 → BuhlOS job sync; needs SERVICEM8_API_KEY
+  | "phil_sharpened" // Phil field-surface redesign campaign — flips via governance (P15)
+  | "phil_job_rooms" // #133 in-job four-rooms experiment — requires phil_sharpened
+  | "xero_connection" // #247 Xero OAuth connection foundation
   | "xero_payroll_export" // #249 first Xero WRITE — draft-timesheet export; independent write gate
-  | "itp_simple" // #912 simple mobile ITP builder — dark launch-gate
-  | "itp"
-  // #760 owner feature-control kill-switches (LIVE features, default ON)
+  | "signup_link" // crew sign-up link — /onboarding/<code> + the employees review queue
+  | "itp_simple" // #912 simple mobile ITP builder
+  // #760 owner feature-control kill-switches (LIVE features, default ON).
+  // The 2026-07 lean reset + gut left only the lean core here; every other
+  // feature's flag was deleted with its code (docs/product/02-lean-reset.md).
   | "jobs"
   | "hours"
   | "evidence"
-  | "observations_inbox"
-  | "material_requests"
-  | "expenses"
-  | "quotes"
-  | "defects"
-  | "dayworks"
   | "employees"
   | "gear"
-  | "reports"
-  | "job_photos"
-  | "snags"
-  | "scope_reconciliation"
-  | "job_control"
-  | "closeout"
-  | "documents"
-  | "circuit_schedule"
-  | "diary"
-  | "job_activity";
+  | "job_photos";
 
 export interface FlagDefinition {
   description: string;

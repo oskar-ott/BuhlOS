@@ -6,14 +6,8 @@ import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { JobBuilderClient } from "@/components/admin/JobBuilderClient";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
-import { isFlagEnabled } from "../../../../../../api/_lib/feature-flags.js";
 import { JobDetailResponseSchema } from "@/domains/jobs/schema";
 import type { Job } from "@/domains/jobs/types";
-import {
-  blobReconciliationReadDeps,
-  runScopeReconciliationView,
-  type ScopeReconciliationView,
-} from "@/server/job-control/reconciliation-read";
 
 export const dynamic = "force-dynamic";
 
@@ -57,26 +51,7 @@ export default async function JobBuilderPage({ params }: PageParams) {
     redirect(`/v2/jobs/${jobId}`);
   }
 
-  // Flags first (one cached flags.json read — 5s TTL — serves all three), so
-  // the job read can skip the withStats enrichment when nothing consumes it.
-  // Plan Studio (#206 rooms→areas) is dark behind ai_drawings (admin-tier); the
-  // redesign-campaign tabs (Spec & circuits, Deliver) ride the campaign flag.
-  // This page is already admin-gated, so the checks just resolve flag state.
-  const planStudioEnabled = await isFlagEnabled("ai_drawings", session);
-  const planTasksEnabled = await isFlagEnabled("ai_plan_tasks", session);
-  const redesignEnabled = await isFlagEnabled("job_builder_redesign", session);
-
-  // The three loads are independent — run them in PARALLEL instead of the old
-  // sequential job → users → reconciliation waterfall (three back-to-back
-  // round-trips was the single biggest builder-load cost).
-  //   - reconciliation (#366): the real source of per-clause certainty for the
-  //     cockpit Inspector; degrades to a `missing` view, never fakes certainty.
-  //   - withStats only when the redesign's Deliver tab (its sole consumer) can
-  //     render: flag-off, the enrichment was 6 pure-waste blob reads per load.
-  const [result, reconciliation] = await Promise.all([
-    loadJob(raw, jobId, { withStats: redesignEnabled }),
-    loadReconciliation(jobId),
-  ]);
+  const result = await loadJob(raw, jobId);
 
   if (result.kind === "not_found" || result.kind === "forbidden") {
     return (
@@ -108,13 +83,7 @@ export default async function JobBuilderPage({ params }: PageParams) {
 
   return (
     <BuilderShell jobId={jobId} title={result.job.name}>
-      <JobBuilderClient
-        job={result.job}
-        reconciliation={reconciliation}
-        planStudioEnabled={planStudioEnabled}
-        planTasksEnabled={planTasksEnabled}
-        redesignEnabled={redesignEnabled}
-      />
+      <JobBuilderClient job={result.job} />
     </BuilderShell>
   );
 }
@@ -153,11 +122,7 @@ type LoadResult =
   | { kind: "forbidden" }
   | { kind: "error"; message: string };
 
-async function loadJob(
-  cookieValue: string | undefined,
-  jobId: string,
-  opts: { withStats: boolean }
-): Promise<LoadResult> {
+async function loadJob(cookieValue: string | undefined, jobId: string): Promise<LoadResult> {
   const h = await headers();
   const host = h.get("x-forwarded-host") ?? h.get("host");
   const proto = h.get("x-forwarded-proto") ?? "http";
@@ -165,12 +130,8 @@ async function loadJob(
   try {
     // includeArchived=1 — the admin-editor read. Lets the builder render
     // archived structure as read-only rows next to the editable live structure (#377).
-    // withStats=1 — the same per-job stats enrichment the job hub loads (6 extra
-    // blob reads server-side); ONLY the redesign's Deliver step consumes it
-    // (Wave 4 real counts, P7), so the caller passes withStats=redesignEnabled
-    // and every flag-off load skips the cost entirely.
     const res = await fetch(
-      `${base}/api/jobs?id=${encodeURIComponent(jobId)}&includeArchived=1${opts.withStats ? "&withStats=1" : ""}`,
+      `${base}/api/jobs?id=${encodeURIComponent(jobId)}&includeArchived=1`,
       {
         cache: "no-store",
         headers: cookieValue
@@ -192,20 +153,5 @@ async function loadJob(
       kind: "error",
       message: err instanceof Error ? err.message : "Network error",
     };
-  }
-}
-
-/**
- * Read the confirmed scope reconciliation for this job. The reader never throws
- * on a missing/invalid artifact (returns a typed missing/unreadable view); this
- * wrapper additionally swallows an unexpected blob-store error to null so the
- * builder always renders — certainty chips simply don't appear when there's no
- * reconciliation, which is the honest "not tracked yet" state.
- */
-async function loadReconciliation(jobId: string): Promise<ScopeReconciliationView | null> {
-  try {
-    return await runScopeReconciliationView(blobReconciliationReadDeps(), jobId);
-  } catch {
-    return null;
   }
 }

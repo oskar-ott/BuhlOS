@@ -204,9 +204,9 @@ describe("GET /api/owner — payload (real, honest, no secrets, read-only)", () 
     const supa = body.flags.items.find((f) => f.key === "supabase_dual_write");
     expect(supa?.protected).toBe(true);
     expect(supa?.toggleable).toBe(false);
-    const safety = body.flags.items.find((f) => f.key === "safety_docs");
-    expect(safety?.protected).toBe(false);
-    expect(safety?.toggleable).toBe(true);
+    const previewable = body.flags.items.find((f) => f.key === "itp_simple");
+    expect(previewable?.protected).toBe(false);
+    expect(previewable?.toggleable).toBe(true);
     // Coverage auditTracked is DERIVED from the real audit registry, so Hours
     // (which has hours.* actions) is tracked.
     const hours = body.coverage.rows.find((r) => r.area === "Hours");
@@ -239,9 +239,9 @@ describe("GET /api/owner — payload (real, honest, no secrets, read-only)", () 
     expect(body.settings).toBeTruthy();
     expect(body.settings?.items.length ?? 0).toBeGreaterThan(0);
     const cap = body.settings?.items.find(
-      (s) => s.featureKey === "safety_docs" && s.key === "maxUploadMb",
+      (s) => s.featureKey === "itp_simple" && s.key === "maxUploadMb",
     );
-    expect(cap?.value).toBe(25); // default until overridden
+    expect(cap?.value).toBe(8); // default until overridden
   });
 });
 
@@ -326,7 +326,7 @@ describe("GET /api/owner — errors panel (#154, honest partial coverage)", () =
     };
     const tracked = body.coverage.rows.filter((r) => r.errorsTracked).map((r) => r.area);
     expect(tracked.sort()).toEqual(
-      ["Hours", "Jobs", "Observations / RFIs / Snags", "Phil — Hours"].sort(),
+      ["Hours", "Jobs", "Phil — Hours"].sort(),
     );
     // Command centre has no wrapped handler — stays honest-false.
     const cc = body.coverage.rows.find((r) => r.area === "Command centre");
@@ -372,7 +372,7 @@ function auditEntriesThisMonth(): Array<Record<string, unknown>> {
   return doc?.entries ?? [];
 }
 
-const OK = { key: "safety_docs", scope: "customer", value: true };
+const OK = { key: "itp_simple", scope: "customer", value: true };
 
 describe("POST /api/owner-flags — access (fails closed, same boundary as GET)", () => {
   it("401s anon, 403s field/client/non-owner-admin", async () => {
@@ -406,13 +406,13 @@ describe("POST /api/owner-flags — validation (fails closed)", () => {
   });
 
   it("400s a bad scope", async () => {
-    const res = await callWrite({ body: { key: "safety_docs", scope: "nope", value: true } });
+    const res = await callWrite({ body: { key: "itp_simple", scope: "nope", value: true } });
     expect(res.statusCode).toBe(400);
     expect((res.body as { code: string }).code).toBe("bad_scope");
   });
 
   it("400s a non-boolean / non-null value", async () => {
-    const res = await callWrite({ body: { key: "safety_docs", scope: "customer", value: "yes" } });
+    const res = await callWrite({ body: { key: "itp_simple", scope: "customer", value: "yes" } });
     expect(res.statusCode).toBe(400);
     expect((res.body as { code: string }).code).toBe("bad_value");
   });
@@ -429,80 +429,80 @@ describe("POST /api/owner-flags — validation (fails closed)", () => {
 
 describe("POST /api/owner-flags — write semantics", () => {
   it("customer toggle pins the launch gate and echoes resolved + rev", async () => {
-    const res = await callWrite({ body: { key: "safety_docs", scope: "customer", value: true } });
+    const res = await callWrite({ body: { key: "itp_simple", scope: "customer", value: true } });
     expect(res.statusCode).toBe(200);
     const body = res.body as { resolved: { customer: boolean; owner: boolean }; rev: number };
     expect(body.resolved.customer).toBe(true);
-    expect(flagsDoc().flags?.safety_docs).toBe(true);
+    expect(flagsDoc().flags?.itp_simple).toBe(true);
     expect(Number.isFinite(body.rev)).toBe(true);
   });
 
   it("owner-preview write sets the override without changing the customer baseline", async () => {
-    const res = await callWrite({ body: { key: "safety_docs", scope: "ownerPreview", value: true } });
+    const res = await callWrite({ body: { key: "itp_simple", scope: "ownerPreview", value: true } });
     expect(res.statusCode).toBe(200);
     const body = res.body as { resolved: { customer: boolean; owner: boolean } };
     expect(body.resolved.owner).toBe(true);
     expect(body.resolved.customer).toBe(false); // customers still don't see it
-    expect(flagsDoc().ownerPreview?.safety_docs).toBe(true);
-    expect(flagsDoc().flags?.safety_docs).toBeUndefined();
+    expect(flagsDoc().ownerPreview?.itp_simple).toBe(true);
+    expect(flagsDoc().flags?.itp_simple).toBeUndefined();
   });
 
   it("value:null clears an override", async () => {
-    await callWrite({ body: { key: "safety_docs", scope: "ownerPreview", value: true } });
-    expect(flagsDoc().ownerPreview?.safety_docs).toBe(true);
-    const res = await callWrite({ body: { key: "safety_docs", scope: "ownerPreview", value: null } });
+    await callWrite({ body: { key: "itp_simple", scope: "ownerPreview", value: true } });
+    expect(flagsDoc().ownerPreview?.itp_simple).toBe(true);
+    const res = await callWrite({ body: { key: "itp_simple", scope: "ownerPreview", value: null } });
     expect(res.statusCode).toBe(200);
-    expect(flagsDoc().ownerPreview?.safety_docs).toBeUndefined();
+    expect(flagsDoc().ownerPreview?.itp_simple).toBeUndefined();
   });
 
   it("409s a stale write (CAS) and leaves the blob unchanged", async () => {
     blob.set("flags.json", { flags: {}, __rev: 5 });
     const res = await callWrite({
-      body: { key: "safety_docs", scope: "customer", value: true, expectedRev: 0 },
+      body: { key: "itp_simple", scope: "customer", value: true, expectedRev: 0 },
     });
     expect(res.statusCode).toBe(409);
     expect((res.body as { code: string }).code).toBe("stale_write");
-    expect(flagsDoc().flags?.safety_docs).toBeUndefined();
+    expect(flagsDoc().flags?.itp_simple).toBeUndefined();
   });
 });
 
 describe("POST /api/owner-flags — staged rollout (#760 easy control)", () => {
   it("rollout:live sets customer on and clears the owner-preview override (one write)", async () => {
     // Start from a preview state, then release to everyone.
-    await callWrite({ body: { key: "safety_docs", scope: "ownerPreview", value: true } });
-    const res = await callWrite({ body: { key: "safety_docs", rollout: "live" } });
+    await callWrite({ body: { key: "itp_simple", scope: "ownerPreview", value: true } });
+    const res = await callWrite({ body: { key: "itp_simple", rollout: "live" } });
     expect(res.statusCode).toBe(200);
     const body = res.body as { rollout: string; resolved: { customer: boolean; owner: boolean } };
     expect(body.rollout).toBe("live");
     expect(body.resolved.customer).toBe(true);
     expect(body.resolved.owner).toBe(true);
-    expect(flagsDoc().flags?.safety_docs).toBe(true);
-    expect(flagsDoc().ownerPreview?.safety_docs).toBeUndefined(); // cleared
+    expect(flagsDoc().flags?.itp_simple).toBe(true);
+    expect(flagsDoc().ownerPreview?.itp_simple).toBeUndefined(); // cleared
   });
 
   it("rollout:preview hides from customers but keeps it visible to the owner", async () => {
-    const res = await callWrite({ body: { key: "safety_docs", rollout: "preview" } });
+    const res = await callWrite({ body: { key: "itp_simple", rollout: "preview" } });
     expect(res.statusCode).toBe(200);
     const body = res.body as { resolved: { customer: boolean; owner: boolean } };
     expect(body.resolved.customer).toBe(false);
     expect(body.resolved.owner).toBe(true);
-    expect(flagsDoc().flags?.safety_docs).toBe(false);
-    expect(flagsDoc().ownerPreview?.safety_docs).toBe(true);
+    expect(flagsDoc().flags?.itp_simple).toBe(false);
+    expect(flagsDoc().ownerPreview?.itp_simple).toBe(true);
   });
 
   it("rollout:off darkens the feature for everyone (both dials off)", async () => {
-    await callWrite({ body: { key: "safety_docs", rollout: "live" } });
-    const res = await callWrite({ body: { key: "safety_docs", rollout: "off" } });
+    await callWrite({ body: { key: "itp_simple", rollout: "live" } });
+    const res = await callWrite({ body: { key: "itp_simple", rollout: "off" } });
     expect(res.statusCode).toBe(200);
     const body = res.body as { resolved: { customer: boolean; owner: boolean } };
     expect(body.resolved.customer).toBe(false);
     expect(body.resolved.owner).toBe(false);
-    expect(flagsDoc().flags?.safety_docs).toBe(false);
-    expect(flagsDoc().ownerPreview?.safety_docs).toBe(false);
+    expect(flagsDoc().flags?.itp_simple).toBe(false);
+    expect(flagsDoc().ownerPreview?.itp_simple).toBe(false);
   });
 
   it("400s an unknown rollout state", async () => {
-    const res = await callWrite({ body: { key: "safety_docs", rollout: "sideways" } });
+    const res = await callWrite({ body: { key: "itp_simple", rollout: "sideways" } });
     expect(res.statusCode).toBe(400);
     expect((res.body as { code: string }).code).toBe("bad_rollout");
   });
@@ -513,7 +513,7 @@ describe("POST /api/owner-flags — staged rollout (#760 easy control)", () => {
   });
 
   it("records the rollout state in the audit metadata", async () => {
-    await callWrite({ body: { key: "safety_docs", rollout: "preview", reason: "testing first" } });
+    await callWrite({ body: { key: "itp_simple", rollout: "preview", reason: "testing first" } });
     const entry = auditEntriesThisMonth().find((e) => e.action === "feature_flag.toggled");
     expect((entry?.metadata as { rollout?: string })?.rollout).toBe("preview");
     expect((entry?.metadata as { reason?: string })?.reason).toBe("testing first");
@@ -522,17 +522,17 @@ describe("POST /api/owner-flags — staged rollout (#760 easy control)", () => {
 
 describe("POST /api/owner-flags — audit", () => {
   it("emits a feature_flag.toggled entry on a successful toggle", async () => {
-    await callWrite({ body: { key: "safety_docs", scope: "customer", value: true } });
+    await callWrite({ body: { key: "itp_simple", scope: "customer", value: true } });
     const entry = auditEntriesThisMonth().find((e) => e.action === "feature_flag.toggled");
     expect(entry).toBeTruthy();
     expect(entry?.targetType).toBe("feature_flag");
-    expect(entry?.targetId).toBe("safety_docs");
+    expect(entry?.targetId).toBe("itp_simple");
     expect((entry?.metadata as { scope?: string })?.scope).toBe("customer");
   });
 
   it("threads the board's optional reason into the audit metadata (#760 board)", async () => {
     await callWrite({
-      body: { key: "safety_docs", scope: "customer", value: false, reason: "not ready for launch" },
+      body: { key: "itp_simple", scope: "customer", value: false, reason: "not ready for launch" },
     });
     const entry = auditEntriesThisMonth().find((e) => e.action === "feature_flag.toggled");
     expect((entry?.metadata as { reason?: string })?.reason).toBe("not ready for launch");
@@ -547,8 +547,8 @@ describe("POST /api/owner-flags — audit", () => {
       if (String(key).startsWith("audit/")) throw new Error("audit down");
       return realWrite(key, data, opts);
     });
-    const res = await callWrite({ body: { key: "safety_docs", scope: "customer", value: true } });
+    const res = await callWrite({ body: { key: "itp_simple", scope: "customer", value: true } });
     expect(res.statusCode).toBe(200);
-    expect(flagsDoc().flags?.safety_docs).toBe(true);
+    expect(flagsDoc().flags?.itp_simple).toBe(true);
   });
 });

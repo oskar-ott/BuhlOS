@@ -16,7 +16,7 @@
 //      nothing ever fake-sends),
 //   4. returns aggregated outcome counts `{ sent, pruned, skipped }`.
 //
-// Best-effort, ALWAYS. Business flows (approve, reject, log, raise a snag) must
+// Best-effort, ALWAYS. Business flows (approve, reject, log hours) must
 // never fail because push is misconfigured or a recipient muted a type — every
 // call site fires-and-forgets (`notify(...).catch(() => {})`), exactly as the
 // raw `sendPushToUserId(...).catch(() => {})` did. `notify()` itself also
@@ -62,12 +62,6 @@ const REGISTRY = {
     channels: ["push"],
     audience: "the worker whose submitted hours were approved",
   },
-  snagAssigned: {
-    kind: "snagAssigned",
-    prefKey: "snagAssigned",
-    channels: ["push"],
-    audience: "the field/LH user a snag was assigned to (auto or explicit)",
-  },
   dailyHoursReminder: {
     kind: "dailyHoursReminder",
     prefKey: "dailyHoursReminder",
@@ -77,12 +71,6 @@ const REGISTRY = {
   dailyDigest: {
     kind: "dailyDigest",
     prefKey: "dailyDigest",
-    channels: ["push"],
-    audience: "admin-tier users with a push subscription",
-  },
-  staleSnags: {
-    kind: "staleSnags",
-    prefKey: "staleSnags",
     channels: ["push"],
     audience: "admin-tier users with a push subscription",
   },

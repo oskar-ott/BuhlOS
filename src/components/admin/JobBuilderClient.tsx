@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Route } from "next";
 import Link from "next/link";
@@ -28,16 +28,9 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ScopeOfWorkSection } from "./ScopeOfWorkSection";
-import dynamic from "next/dynamic";
-import { ProductSpecSection } from "./ProductSpecSection";
-import { DocumentsSection } from "./DocumentsSection";
-import type { AcceptRoomsResponse } from "@/domains/ai-drawings/schema";
-import { acceptedAreaRefsFrom } from "@/domains/ai-drawings/room-rev-diff";
-import { ScopeReconciliationStatus } from "./ScopeReconciliationStatus";
 import { ClientContractSection } from "./ClientContractSection";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
-import { ReadinessRing } from "@/components/ui/ReadinessRing";
 import {
   captureStructurePreset,
   getJobForEdit,
@@ -72,14 +65,6 @@ import {
 } from "@/domains/jobs/builder";
 import { JobBuilderCockpit, type CockpitNavGroup, type CockpitSectionStatus } from "./JobBuilderCockpit";
 import { Inspector, type InspectorRow } from "./Inspector";
-import { ReviewQueue, type ReviewClause } from "./ReviewQueue";
-import { classifyScopeClause } from "./jobControlAuthoringClient";
-import { certaintyForClassification, type CertaintyState } from "@/domains/jobs/certainty";
-import type { ScopeClassification } from "@/domains/job-control/reconciliation";
-import type {
-  ScopeClauseView,
-  ScopeReconciliationView,
-} from "@/server/job-control/reconciliation-read";
 import { validateJobBasics } from "@/domains/jobs/validate";
 import { statusLabel, statusTone } from "@/domains/jobs/format";
 import { SaveAsBlueprintCard } from "./SaveAsBlueprintCard";
@@ -124,48 +109,12 @@ import { cn } from "@/lib/cn";
 
 type DeliverKey = "plans" | "materials" | "gear" | "itps" | "risks";
 
-// The two AI panels are the heaviest components the builder can render
-// (SheetUnderstandingPanel alone is ~1.4k lines + the overlay/schedule dep
-// graph) and both are dark behind ai_drawings — so they're code-split out of
-// the builder bundle and only fetched when the Plan Studio tab actually
-// renders. ssr:false: they're fetch-on-mount client panels with no SSR value.
-const PlanStudioPanel = dynamic(
-  () => import("./PlanStudioPanel").then((m) => m.PlanStudioPanel),
-  {
-    ssr: false,
-    loading: () => (
-      <Card>
-        <p className="text-sm text-text-muted" role="status">
-          Loading Plan Studio…
-        </p>
-      </Card>
-    ),
-  },
-);
-const SheetUnderstandingPanel = dynamic(
-  () => import("./SheetUnderstandingPanel").then((m) => m.SheetUnderstandingPanel),
-  {
-    ssr: false,
-    loading: () => (
-      <Card>
-        <p className="text-sm text-text-muted" role="status">
-          Loading plan analysis…
-        </p>
-      </Card>
-    ),
-  },
-);
-
 type TabKey =
   | "overview"
   | "basics"
-  | "documents"
   | "scope"
   | "structure"
   | "modules"
-  | "planStudio"
-  | "spec"
-  | "deliver"
   | DeliverKey
   | "preview"
   | "publish"
@@ -174,13 +123,9 @@ type TabKey =
 const TABS: ReadonlyArray<{ key: TabKey; label: string }> = [
   { key: "overview", label: "Overview" },
   { key: "basics", label: "Basics" },
-  { key: "documents", label: "Documents" },
   { key: "scope", label: "Scope" },
   { key: "structure", label: "Structure" },
   { key: "modules", label: "Field modules" },
-  { key: "planStudio", label: "Plan Studio" },
-  { key: "spec", label: "Spec & circuits" },
-  { key: "deliver", label: "Deliver" },
   { key: "plans", label: "Plans & docs" },
   { key: "materials", label: "Materials" },
   { key: "gear", label: "Gear" },
@@ -282,26 +227,10 @@ const SECTION_TESTID: Partial<Record<TabKey, string>> = {
 };
 
 const COCKPIT_GROUPS: ReadonlyArray<{ heading: string; keys: ReadonlyArray<TabKey> }> = [
-  { heading: "Build", keys: ["overview", "basics", "documents", "scope", "structure", "modules", "planStudio", "spec"] },
-  { heading: "Deliver", keys: ["deliver", "plans", "materials", "gear", "itps", "risks"] },
+  { heading: "Build", keys: ["overview", "basics", "scope", "structure", "modules"] },
+  { heading: "Deliver", keys: ["plans", "materials", "gear", "itps", "risks"] },
   { heading: "Ship", keys: ["preview", "publish"] },
   { heading: "More", keys: ["more"] },
-];
-
-// Redesign-on Build order — the rail reads in the order the work actually
-// happens: basics → scope → plans & documents → analyse (Plan Studio) →
-// structure (areas/tasks the analysis feeds) → product spec → field modules.
-// The legacy (flag-off) rail keeps COCKPIT_GROUPS' order byte-for-byte. Same
-// key set as the Build group above — only the order differs.
-const REDESIGN_BUILD_ORDER: ReadonlyArray<TabKey> = [
-  "overview",
-  "basics",
-  "scope",
-  "documents",
-  "planStudio",
-  "structure",
-  "spec",
-  "modules",
 ];
 
 /**
@@ -345,50 +274,16 @@ const DELIVER_LINKS: Record<
   },
 };
 
-/** Office labels for the reconciliation classifications shown in the Inspector. */
-const CLAUSE_CLASSIFICATION_LABEL: Record<ScopeClassification, string> = {
-  priced: "Priced",
-  general_allowance: "General allowance",
-  excluded: "Excluded",
-  by_others: "By others",
-  reuse_existing: "Reuse existing",
-  pc_provisional: "PC / provisional",
-  variation_trigger: "Variation trigger",
-  closeout: "Closeout obligation",
-  admin_only: "Admin only",
-  unclear: "Not yet classified",
-};
-
-export function JobBuilderClient({
-  job: initialJob,
-  reconciliation = null,
-  planStudioEnabled = false,
-  planTasksEnabled = false,
-  redesignEnabled = false,
-}: {
-  job: Job;
-  /** The confirmed scope reconciliation (server-loaded), or null/missing. Source
-   *  of real per-clause certainty for the cockpit Inspector. */
-  reconciliation?: ScopeReconciliationView | null;
-  /** ai_drawings flag (admin-tier, dark) — gates the Plan Studio tab. */
-  planStudioEnabled?: boolean;
-  /** ai_plan_tasks flag (admin-tier, dark) — gates the tasks-from-fittings review. */
-  planTasksEnabled?: boolean;
-  /** job_builder_redesign flag (admin-tier, dark) — gates the redesign-campaign
-   *  tabs: Spec & circuits (Wave 3) + the consolidated Deliver step (Wave 4a)
-   *  + the Documents step with per-file field visibility (Wave 4b). When ON,
-   *  the five individual Deliver link-out tabs collapse into "Deliver". */
-  redesignEnabled?: boolean;
-}) {
+export function JobBuilderClient({ job: initialJob }: { job: Job }) {
   const router = useRouter();
   const [savedJob, setSavedJob] = useState<Job>(initialJob);
   const [form, setForm] = useState<JobBuilderForm>(() => jobToForm(initialJob));
   const [tab, setTab] = useState<TabKey>("basics");
-  // Unsaved-changes guard: a section with its own Save (basics contract / scope /
-  // product spec) reports its dirty state up via onDirtyChange; leaving while
-  // dirty opens a confirm instead of silently unmounting the section and losing
-  // the edits. Only USER navigation routes through requestTab; programmatic jumps
-  // (hash init, post-accept → Structure) use setTab directly.
+  // Unsaved-changes guard: a section with its own Save (basics contract / scope)
+  // reports its dirty state up via onDirtyChange; leaving while dirty opens a
+  // confirm instead of silently unmounting the section and losing the edits.
+  // Only USER navigation routes through requestTab; programmatic jumps (hash
+  // init) use setTab directly.
   const [dirtyTab, setDirtyTab] = useState<TabKey | null>(null);
   const [pendingTab, setPendingTab] = useState<TabKey | null>(null);
   function requestTab(target: TabKey) {
@@ -397,24 +292,6 @@ export function JobBuilderClient({
   }
   const onBasicsDirty = useCallback((d: boolean) => setDirtyTab(d ? "basics" : null), []);
   const onScopeDirty = useCallback((d: boolean) => setDirtyTab(d ? "scope" : null), []);
-  const onSpecDirty = useCallback((d: boolean) => setDirtyTab(d ? "spec" : null), []);
-  // Plan Studio (#206) — the success banner shown on Structure after rooms are
-  // accepted into areas, and the reload that makes Structure reflect them.
-  const [planAreasBanner, setPlanAreasBanner] = useState<AcceptRoomsResponse | null>(null);
-  const handleAreasCreated = useCallback(
-    async (summary: AcceptRoomsResponse) => {
-      setPlanAreasBanner(summary);
-      // The client holds savedJob in state, so a router.refresh alone wouldn't
-      // update it — re-read the job so the new areas show in Structure.
-      const res = await getJobForEdit(savedJob.id);
-      if (res.ok) {
-        setSavedJob(res.data.job);
-        setForm(jobToForm(res.data.job));
-      }
-      setTab("structure");
-    },
-    [savedJob.id],
-  );
   // Honour a deep-link hash on mount (e.g. `…/builder#publish`). Runs once,
   // client-only; a non-tab hash leaves the default tab untouched.
   useEffect(() => {
@@ -424,8 +301,8 @@ export function JobBuilderClient({
   }, []);
   // Keep savedJob in sync with the server-provided job. A sibling section (e.g.
   // ScopeOfWorkSection) can save + router.refresh(), handing down a fresh `job`
-  // prop; without this, its scopeOfWork edits wouldn't reach the review queue /
-  // chips until a hard reload. jobToForm ignores scopeOfWork, so a scope-only
+  // prop; without this, its scopeOfWork edits wouldn't reach the rest of the
+  // builder until a hard reload. jobToForm ignores scopeOfWork, so a scope-only
   // change leaves the basics/structure form and its dirty state untouched.
   useEffect(() => {
     setSavedJob(initialJob);
@@ -484,10 +361,6 @@ export function JobBuilderClient({
     return () => window.removeEventListener("beforeunload", warn);
   }, [dirty, dirtyTab]);
 
-  // Plan Studio staleness bridge: the analysis panel bumps this after mapping
-  // new rooms so the accept panel refetches (see renderPlanStudio).
-  const [planStudioRefresh, setPlanStudioRefresh] = useState(0);
-
   const basicsErrors = validateJobBasics(
     {
       name: form.name,
@@ -513,23 +386,12 @@ export function JobBuilderClient({
       key === "modules" ||
       key === "more" ||
       key === "overview" ||
-      key === "spec" ||
-      key === "deliver" ||
-      key === "documents" ||
-      key === "planStudio" ||
+      key === "scope" ||
       key in DELIVER_LINKS
     ) {
       return "none";
     }
     if (key === "publish") return readiness.canPublish ? "ok" : "block";
-    if (key === "scope") {
-      // Scope owns the reconciliation: a red RAG = real conflicts (block); any
-      // un-triaged clause or an amber RAG = needs a look (warn); a clean
-      // confirmed reconciliation = ok; no scope/reconciliation yet = none.
-      if (reconciledView?.rag === "red") return "block";
-      if (untriagedClauses.length > 0 || reconciledView?.rag === "amber") return "warn";
-      return reconciledView ? "ok" : "none";
-    }
     const all = [...readiness.blockers, ...readiness.warnings];
     // Preview is "what the field sees", so it surfaces the field-lint symptom;
     // every other section owns the issues whose fix lives there.
@@ -544,77 +406,9 @@ export function JobBuilderClient({
     return "ok";
   }
 
-  /** Wave 2 (job_builder_redesign) — live rail sub-labels. Real counts only
-   *  (P7): a section whose data is absent (e.g. the crew list failed to load)
-   *  gets NO sub-label, never an invented number. Reads the SAVED job — the
-   *  same honesty rule as sectionStatus. Called only from the cockpitNav build
-   *  (after untriagedClauses exists), like sectionStatus. */
-  function sectionSub(key: TabKey): string | undefined {
-    // Plan Studio advertises its flag state regardless of the redesign flag, so
-    // it's discoverable even when ai_drawings is off (no more "where is it?").
-    if (key === "planStudio") return planStudioEnabled ? undefined : "behind flag";
-    if (!redesignEnabled) return undefined;
-    if (key === "scope") {
-      return untriagedClauses.length > 0 ? `${untriagedClauses.length} to triage` : undefined;
-    }
-    if (key === "structure") {
-      const s = summariseStructure(savedJob);
-      return `${s.areaCount} area${s.areaCount === 1 ? "" : "s"}`;
-    }
-    if (key === "modules") {
-      const on = MODULE_TOGGLES.filter((m) => moduleEnabled(savedJob, m.key)).length;
-      return `${on} on`;
-    }
-    return undefined;
-  }
-
   function goToIssue(issue: ReadinessIssue) {
     requestTab(ISSUE_SECTION[issue.code] ?? "publish");
   }
-
-  // §4 certainty: per-clause certainty derived from the CONFIRMED reconciliation
-  // — the only real source (the saved job carries no classification). The review
-  // queue's optimistic overrides layer on top so chips + counts update the
-  // instant a clause is classified (the write persists in the background). We
-  // never fake a green: an un-triaged clause has no certainty entry → no chip.
-  const reconciledView =
-    reconciliation && reconciliation.status === "reconciled" ? reconciliation : null;
-  const clauseInfo = useMemo(() => {
-    const m = new Map<string, { certainty: CertaintyState; view: ScopeClauseView }>();
-    if (reconciledView) {
-      for (const c of reconciledView.clauses) {
-        m.set(c.clauseId, { certainty: certaintyForClassification(c.classification), view: c });
-      }
-    }
-    return m;
-  }, [reconciledView]);
-
-  // Optimistic classifications applied via the review queue this session.
-  const [classifiedOverrides, setClassifiedOverrides] = useState<Map<string, ScopeClassification>>(
-    () => new Map()
-  );
-
-  /** Effective certainty for a clause: a fresh override wins, else the confirmed
-   *  reconciliation, else none (un-triaged). */
-  const clauseState = useCallback(
-    (
-      clauseId: string
-    ): { certainty: CertaintyState; classification: ScopeClassification } | null => {
-      const ov = classifiedOverrides.get(clauseId);
-      if (ov) return { certainty: certaintyForClassification(ov), classification: ov };
-      const info = clauseInfo.get(clauseId);
-      if (info) return { certainty: info.certainty, classification: info.view.classification };
-      return null;
-    },
-    [classifiedOverrides, clauseInfo]
-  );
-
-  const certaintyByClauseId = useMemo(() => {
-    const m = new Map<string, CertaintyState>();
-    for (const [id, info] of clauseInfo) m.set(id, info.certainty);
-    for (const [id, cls] of classifiedOverrides) m.set(id, certaintyForClassification(cls));
-    return m;
-  }, [clauseInfo, classifiedOverrides]);
 
   // The cockpit Inspector's selected row (a scope line or an area), or null →
   // the Inspector falls back to the build-readiness view.
@@ -632,131 +426,23 @@ export function JobBuilderClient({
   }
 
   function selectClause(clauseId: string, title: string, detail: string) {
-    const st = clauseState(clauseId);
-    const view = clauseInfo.get(clauseId)?.view ?? null;
     setSelectedRow({
       entity: "clause",
       id: clauseId,
       title: title.trim() || "Untitled scope line",
       detail: detail.trim() || null,
-      certainty: st?.certainty ?? null,
-      classificationLabel: st ? CLAUSE_CLASSIFICATION_LABEL[st.classification] : null,
-      boqLineCount: view?.boqLineCount ?? 0,
-      deliveredByCount: view?.deliveredByCount ?? 0,
-      requiredEvidenceCount: view?.requiredEvidenceCount ?? 0,
-      warningText: view?.warningText ?? null,
     });
   }
 
-  // ── §4 review queue: keyboard-fast classify of the un-triaged scope lines ──
-  const scopeClauses = useMemo<ReviewClause[]>(
-    () =>
-      (savedJob.scopeOfWork ?? [])
-        .slice()
-        .sort((a, b) => a.order - b.order)
-        .map((c) => ({ id: c.id, title: c.title, detail: c.detail || null })),
-    [savedJob.scopeOfWork]
-  );
-  /** Needs triage = no certainty yet (untracked) OR still `needs_review` (an
-   *  `unclear` reconciliation clause). A real classification → `confirmed` drops
-   *  it from the queue. */
-  const untriagedClauses = useMemo(
-    () =>
-      scopeClauses.filter((c) => {
-        const st = clauseState(c.id);
-        return st === null || st.certainty === "needs_review";
-      }),
-    [scopeClauses, clauseState]
-  );
-
-  // Built here (after reconciledView + untriagedClauses) so the Scope section's
-  // status can read them without a TDZ trap.
   const cockpitNav: CockpitNavGroup[] = COCKPIT_GROUPS.map((g) => ({
     heading: g.heading,
-    items: (redesignEnabled && g.heading === "Build" ? REDESIGN_BUILD_ORDER : g.keys)
-      // Plan Studio stays in the REDESIGN rail even when ai_drawings is off — it
-      // shows a "behind flag" sub + a flagged-off canvas so it's discoverable, not
-      // hidden. The legacy (redesign-off) rail keeps today's behaviour (only when
-      // ai_drawings is on), so OFF stays byte-for-byte.
-      .filter((key) => key !== "planStudio" || planStudioEnabled || redesignEnabled)
-      // Redesign campaign (job_builder_redesign): ON shows Spec & circuits +
-      // Documents (Wave 4b) + the single Deliver step and hides the five
-      // per-hub link-out tabs the Deliver cards replace; OFF is today's
-      // rail, byte-for-byte.
-      .filter((key) =>
-        redesignEnabled
-          ? !(key in DELIVER_LINKS)
-          : key !== "spec" && key !== "deliver" && key !== "documents"
-      )
-      .map((key) => ({
-        key,
-        label: TABS.find((t) => t.key === key)!.label,
-        status: sectionStatus(key),
-        testId: SECTION_TESTID[key],
-        sub: sectionSub(key),
-      })),
+    items: g.keys.map((key) => ({
+      key,
+      label: TABS.find((t) => t.key === key)!.label,
+      status: sectionStatus(key),
+      testId: SECTION_TESTID[key],
+    })),
   }));
-
-  // Compact readiness ring (updated design) — an HONEST proportion: the same
-  // per-section ready/total the rail bar rolls up, never an invented score (P7).
-  const scoredSections = cockpitNav.flatMap((g) => g.items).filter((i) => i.status !== "none");
-  const readySections = scoredSections.filter((i) => i.status === "ok").length;
-  const readinessPct = scoredSections.length > 0 ? (readySections / scoredSections.length) * 100 : 100;
-  const readinessSub =
-    readiness.blockingCount > 0
-      ? `${readiness.blockingCount} blocking`
-      : readiness.warningCount > 0
-        ? `${readiness.warningCount} to review`
-        : "Clear to publish";
-
-  const [reviewOpen, setReviewOpen] = useState(false);
-  const [reviewSession, setReviewSession] = useState<ReviewClause[]>([]);
-  const [reviewIndex, setReviewIndex] = useState(0);
-  const [reviewError, setReviewError] = useState<string | null>(null);
-  const reviewCleared = reviewSession.filter((c) => classifiedOverrides.has(c.id)).length;
-  // Each classify is a read-modify-write of the one reconciliation blob (no CAS).
-  // Serialise the confirms through a tail promise so a fast reviewer's writes
-  // can't interleave and clobber each other (last-write-wins lost update).
-  const confirmTail = useRef<Promise<unknown>>(Promise.resolve());
-
-  function openReview() {
-    setReviewSession(untriagedClauses);
-    setReviewIndex(0);
-    setReviewError(null);
-    setReviewOpen(true);
-  }
-  function classifyInReview(
-    clauseId: string,
-    classification: ScopeClassification,
-    warningText?: string,
-  ) {
-    // Optimistic: record + advance so chips/counts update now; persist to the
-    // real reconciliation in the background, strictly serialised. On failure
-    // revert the override AND rewind to re-present the clause — we never leave a
-    // green chip, nor silently drop a clause, for a classification that didn't save.
-    // `warningText` (AC4) rides the same confirm write — the producer stores it
-    // on the clause and #367 compiles it onto the delivering packages.
-    setClassifiedOverrides((m) => new Map(m).set(clauseId, classification));
-    setReviewIndex((i) => i + 1);
-    setReviewError(null);
-    const session = reviewSession;
-    confirmTail.current = confirmTail.current
-      .catch(() => {}) // a prior failure must not stall the chain
-      .then(() => classifyScopeClause(savedJob.id, clauseId, classification, warningText))
-      .then((res) => {
-        if (res && !res.ok) {
-          setClassifiedOverrides((m) => {
-            const next = new Map(m);
-            next.delete(clauseId);
-            return next;
-          });
-          const pos = session.findIndex((c) => c.id === clauseId);
-          if (pos >= 0) setReviewIndex((i) => Math.min(i, pos)); // re-present, never skip an unsaved line
-          const title = session.find((c) => c.id === clauseId)?.title ?? "that scope line";
-          setReviewError(`Couldn't save "${title}" — try again.`);
-        }
-      });
-  }
 
   async function save() {
     if (!basicsValid) {
@@ -847,29 +533,12 @@ export function JobBuilderClient({
     set(stage === "roughIn" ? "roughInTasks" : "fitOffTasks", rows);
   }
 
-  // Wave 2 (job_builder_redesign) — the header eyebrow (the PageHead idiom:
-  // mono-uppercase ref · site line above the title). PageHead itself doesn't
-  // fit this header's composition (inline status pill + visibility line +
-  // save column), so the eyebrow matches its classes inline. Only the fields
-  // that exist; both absent → no line at all (P7).
-  const headerEyebrow = [savedJob.ref ? `Ref ${savedJob.ref}` : null, savedJob.siteAddress || null]
-    .filter(Boolean)
-    .join(" · ");
-
   return (
     <div className="space-y-4">
       {/* Header: name, status, dirty/save */}
       <Card>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            {redesignEnabled && headerEyebrow ? (
-              <p
-                data-testid="builder-header-eyebrow"
-                className="mb-1 font-mono text-[12px] uppercase tracking-wider text-text-muted"
-              >
-                {headerEyebrow}
-              </p>
-            ) : null}
             <div className="flex items-center gap-2">
               <CardTitle className="break-words">{savedJob.name}</CardTitle>
               <Pill tone={statusTone(savedJob.status)}>{statusLabel(savedJob.status)}</Pill>
@@ -887,36 +556,26 @@ export function JobBuilderClient({
               )}
             </CardDescription>
           </div>
-          <div className="flex shrink-0 items-start gap-4">
-            {redesignEnabled ? (
-              <ReadinessRing
-                pct={readinessPct}
-                tone={readiness.tone}
-                label={readiness.stateLabel}
-                sub={readinessSub}
-              />
-            ) : null}
-            <div className="flex flex-col items-end gap-1">
-              <Button
-                data-testid="save-changes"
-                onClick={save}
-                disabled={!dirty || saving || !basicsValid}
-              >
-                <Save className="h-4 w-4" aria-hidden="true" />
-                {saving ? "Saving…" : dirty ? "Save changes" : savedTick ? "Saved ✓" : "Saved"}
-              </Button>
-              <span
-                data-testid="save-state"
-                className={cn(
-                  "text-[11px] uppercase tracking-wider",
-                  // Dirty is the state that needs the eye — read as attention,
-                  // not the same muted grey as "all saved".
-                  dirty ? "font-semibold text-state-warning" : "text-text-muted"
-                )}
-              >
-                {dirty ? "Unsaved changes" : "All changes saved"}
-              </span>
-            </div>
+          <div className="flex shrink-0 flex-col items-end gap-1">
+            <Button
+              data-testid="save-changes"
+              onClick={save}
+              disabled={!dirty || saving || !basicsValid}
+            >
+              <Save className="h-4 w-4" aria-hidden="true" />
+              {saving ? "Saving…" : dirty ? "Save changes" : savedTick ? "Saved ✓" : "Saved"}
+            </Button>
+            <span
+              data-testid="save-state"
+              className={cn(
+                "text-[11px] uppercase tracking-wider",
+                // Dirty is the state that needs the eye — read as attention,
+                // not the same muted grey as "all saved".
+                dirty ? "font-semibold text-state-warning" : "text-text-muted"
+              )}
+            >
+              {dirty ? "Unsaved changes" : "All changes saved"}
+            </span>
           </div>
         </div>
         {saveError ? (
@@ -941,33 +600,9 @@ export function JobBuilderClient({
         readiness={readiness}
         nav={cockpitNav}
         activeKey={tab}
-        onSelect={(k) => {
-          setReviewOpen(false);
-          requestTab(k as TabKey);
-        }}
-        onMeterClick={() => {
-          setReviewOpen(false);
-          requestTab("publish");
-        }}
-        reviewCount={untriagedClauses.length}
-        reviewActive={reviewOpen}
-        onOpenReview={openReview}
-        redesign={redesignEnabled}
-        canvas={
-          reviewOpen ? (
-            <ReviewQueue
-              session={reviewSession}
-              index={reviewIndex}
-              cleared={reviewCleared}
-              error={reviewError}
-              onClassify={classifyInReview}
-              onSkip={() => setReviewIndex((i) => i + 1)}
-              onClose={() => setReviewOpen(false)}
-            />
-          ) : (
-            renderActiveSection()
-          )
-        }
+        onSelect={(k) => requestTab(k as TabKey)}
+        onMeterClick={() => requestTab("publish")}
+        canvas={renderActiveSection()}
         inspector={
           <Inspector
             target={selectedRow ? { kind: "row", row: selectedRow } : { kind: "readiness" }}
@@ -1157,84 +792,6 @@ export function JobBuilderClient({
   );
 
   /* ---- the active section node fed into the cockpit canvas ---- */
-  function renderPlanStudio() {
-    // One place, whole flow, read top-down: upload (Plan Studio header) →
-    // ANALYSE (the analysis panel, slotted between — the same component the
-    // documents page mounts) → review detected rooms → accept into areas.
-    // Previously analyse lived only on /documents, which read as "upload here,
-    // then go somewhere else" — the single most confusing step of the builder.
-    // onRoomsChanged bumps the accept panel so freshly mapped rooms appear
-    // without a manual refresh.
-    return (
-      <PlanStudioPanel
-        jobId={savedJob.id}
-        acceptedAreas={acceptedAreaRefsFrom(savedJob.areaGroups ?? [])}
-        planTasksEnabled={planTasksEnabled}
-        onAreasCreated={handleAreasCreated}
-        refreshToken={planStudioRefresh}
-        analysisSlot={
-          <SheetUnderstandingPanel
-            jobId={savedJob.id}
-            onRoomsChanged={() => setPlanStudioRefresh((n) => n + 1)}
-          />
-        }
-      />
-    );
-  }
-
-  /** Flagged-off Plan Studio: shown (not hidden) so the step is discoverable.
-   *  Honest about the gate — our flags are owner-controlled, so there's no fake
-   *  in-page toggle; it points at the real enable path. */
-  function renderPlanStudioLocked() {
-    return (
-      <Card>
-        <div className="flex items-center gap-2">
-          <CardTitle>Plan Studio</CardTitle>
-          <span className="rounded-pill bg-surface-subtle px-2 py-0.5 font-mono text-xs text-text-muted">
-            ai_drawings · off
-          </span>
-        </div>
-        <CardDescription className="mt-1">
-          AI reads a visible plan and proposes rooms as areas and a fittings takeoff —
-          you accept, edit or dismiss every line. Nothing auto-applies.
-        </CardDescription>
-        <p className="mt-3 rounded-card bg-surface-subtle px-3 py-2 text-sm text-text-muted">
-          It&rsquo;s behind the <span className="font-mono text-xs">ai_drawings</span> flag,
-          which is off for you. An owner can switch it on from the owner console — the
-          rest of the builder works without it.
-        </p>
-      </Card>
-    );
-  }
-
-  function renderPlanAreasBanner() {
-    if (!planAreasBanner) return null;
-    const madeSheets = planAreasBanner.sheets.filter((s) => s.created > 0);
-    const considered = planAreasBanner.sheets.reduce((n, s) => n + s.considered, 0);
-    return (
-      <Card className="border-state-success" role="status" data-testid="structure-plan-areas-banner">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <CardTitle>
-              {planAreasBanner.created} of {considered} area{planAreasBanner.created === 1 ? "" : "s"} created from
-              plans
-            </CardTitle>
-            <CardDescription className="mt-1">
-              {madeSheets.length > 0
-                ? madeSheets
-                    .map((s) => `${s.created} from ${s.planLabel}${s.revision ? ` Rev ${s.revision}` : ""}`)
-                    .join(" · ")
-                : "No new areas — every reviewed room was already created."}
-            </CardDescription>
-          </div>
-          <Button variant="ghost" size="sm" onClick={() => setPlanAreasBanner(null)}>
-            Dismiss
-          </Button>
-        </div>
-      </Card>
-    );
-  }
-
   function renderActiveSection() {
     switch (tab) {
       case "overview":
@@ -1252,13 +809,6 @@ export function JobBuilderClient({
         );
       case "scope":
         return renderScope();
-      case "documents":
-        // Wave 4b — the Documents step (register + per-file field visibility).
-        // planStudioEnabled already resolves ai_drawings — reuse it to gate the
-        // uploader's AI metadata auto-fill (no new flag).
-        return redesignEnabled ? (
-          <DocumentsSection jobId={savedJob.id} aiAutofillEnabled={planStudioEnabled} />
-        ) : null;
       case "plans":
       case "materials":
       case "gear":
@@ -1266,22 +816,9 @@ export function JobBuilderClient({
       case "risks":
         return renderDeliverLink(tab);
       case "structure":
-        return (
-          <>
-            {planAreasBanner ? renderPlanAreasBanner() : null}
-            {renderStructure()}
-          </>
-        );
+        return renderStructure();
       case "modules":
         return renderModules();
-      case "planStudio":
-        return planStudioEnabled ? renderPlanStudio() : renderPlanStudioLocked();
-      case "spec":
-        return redesignEnabled ? (
-          <ProductSpecSection jobId={savedJob.id} onDirtyChange={onSpecDirty} />
-        ) : null;
-      case "deliver":
-        return redesignEnabled ? renderDeliver() : null;
       case "preview":
         return renderPreview();
       case "publish":
@@ -1301,52 +838,8 @@ export function JobBuilderClient({
     const stats: Array<{ label: string; value: number; to: TabKey; danger?: boolean }> = [
       { label: "Blockers", value: readiness.blockingCount, to: "publish", danger: true },
       { label: "Warnings", value: readiness.warningCount, to: "publish" },
-      { label: "Scope to triage", value: untriagedClauses.length, to: "scope" },
       { label: "Areas", value: struct.areaCount, to: "structure" },
     ];
-    // Updated-design Overview tiles: status left-border + a big number-first count
-    // + a two-line label. Only blockers/warnings carry a status accent; the tiles
-    // stay clickable jump targets (requestTab is unsaved-edit-guard aware).
-    const overviewTiles: Array<{
-      num: number;
-      unit?: string;
-      label: string;
-      sub: string;
-      accent: "danger" | "amber" | "none";
-      to: TabKey;
-    }> = [
-      {
-        num: readiness.blockingCount,
-        label: "Publish blockers",
-        sub: "Must fix before publish",
-        accent: readiness.blockingCount > 0 ? "danger" : "none",
-        to: "publish",
-      },
-      {
-        num: readiness.warningCount,
-        label: "Warnings",
-        sub: "Review, won't block",
-        accent: readiness.warningCount > 0 ? "amber" : "none",
-        to: "publish",
-      },
-      {
-        num: struct.areaCount,
-        unit: struct.areaCount === 1 ? "area" : "areas",
-        label: "Structure",
-        sub: `across ${struct.areaGroupCount} group${struct.areaGroupCount === 1 ? "" : "s"}`,
-        accent: "none",
-        to: "structure",
-      },
-      {
-        num: untriagedClauses.length,
-        unit: untriagedClauses.length === 1 ? "clause" : "clauses",
-        label: "Unclassified scope",
-        sub: untriagedClauses.length > 0 ? "Awaiting triage" : "All classified",
-        accent: "none",
-        to: "scope",
-      },
-    ];
-    const publishIssuesOverview = [...readiness.blockers, ...readiness.warnings];
     return (
       <div className="space-y-4">
         <Card>
@@ -1375,119 +868,34 @@ export function JobBuilderClient({
           <CardDescription className="mt-1">
             The running rollup of what stands between this job and the field.
           </CardDescription>
-          {redesignEnabled ? (
-            /* Updated-design Overview tiles (job_builder_redesign): number-first
-               status tiles with a coloured left accent for blockers/warnings, each
-               a jump target via requestTab (unsaved-edit guard aware). */
-            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {overviewTiles.map((t) => (
-                <button
-                  key={t.label}
-                  type="button"
-                  onClick={() => requestTab(t.to)}
-                  aria-label={`${t.label}: ${t.num}${t.unit ? ` ${t.unit}` : ""}`}
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {stats.map((s) => (
+              <button
+                key={s.label}
+                type="button"
+                onClick={() => requestTab(s.to)}
+                className="rounded-card border border-border bg-surface-subtle px-3 py-2 text-left transition-colors hover:border-brand-navy"
+              >
+                <span
                   className={cn(
-                    "rounded-card border border-border bg-surface px-3 py-2.5 text-left transition-colors hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-navy",
-                    t.accent === "danger" && "border-l-[3px] border-l-state-danger",
-                    t.accent === "amber" && "border-l-[3px] border-l-state-warning"
+                    "block font-mono text-lg font-semibold",
+                    s.danger && s.value > 0 ? "text-state-danger" : "text-text"
                   )}
                 >
-                  <span className="flex items-baseline gap-1">
-                    <span
-                      className={cn(
-                        "font-display text-2xl font-bold tabular-nums",
-                        t.accent === "danger"
-                          ? "text-state-danger"
-                          : t.accent === "amber"
-                            ? "text-state-warning"
-                            : "text-text"
-                      )}
-                    >
-                      {t.num}
-                    </span>
-                    {t.unit ? <span className="text-xs text-text-muted">{t.unit}</span> : null}
-                  </span>
-                  <span className="mt-0.5 block text-sm font-medium text-text">{t.label}</span>
-                  <span className="block text-xs text-text-muted">{t.sub}</span>
-                </button>
+                  {s.value}
+                </span>
+                <span className="block text-[11px] text-text-muted">{s.label}</span>
+              </button>
+            ))}
+          </div>
+          {readiness.blockers.length > 0 ? (
+            <ul className="mt-3 space-y-1.5">
+              {readiness.blockers.slice(0, 3).map((b) => (
+                <li key={b.code} className="flex items-start gap-2 text-sm text-state-danger">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" /> {b.message}
+                </li>
               ))}
-            </div>
-          ) : (
-            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {stats.map((s) => (
-                <button
-                  key={s.label}
-                  type="button"
-                  onClick={() => requestTab(s.to)}
-                  className="rounded-card border border-border bg-surface-subtle px-3 py-2 text-left transition-colors hover:border-brand-navy"
-                >
-                  <span
-                    className={cn(
-                      "block font-mono text-lg font-semibold",
-                      s.danger && s.value > 0 ? "text-state-danger" : "text-text"
-                    )}
-                  >
-                    {s.value}
-                  </span>
-                  <span className="block text-[11px] text-text-muted">{s.label}</span>
-                </button>
-              ))}
-            </div>
-          )}
-          {!redesignEnabled ? (
-            // Legacy Overview — unchanged (byte-for-byte when the flag is off).
-            readiness.blockers.length > 0 ? (
-              <ul className="mt-3 space-y-1.5">
-                {readiness.blockers.slice(0, 3).map((b) => (
-                  <li key={b.code} className="flex items-start gap-2 text-sm text-state-danger">
-                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" /> {b.message}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="mt-3 inline-flex items-center gap-1.5 text-sm text-state-success">
-                <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> No blockers — clear to publish.
-              </p>
-            )
-          ) : publishIssuesOverview.length > 0 ? (
-            // Updated design — "what's stopping publish": blockers + warnings, each
-            // with a section breadcrumb (the honest target step, not a faked path)
-            // and a guard-aware Fix/Triage jump.
-            <div className="mt-3">
-              <p className="font-mono text-xs text-text-muted">
-                {readiness.blockingCount} blocker{readiness.blockingCount === 1 ? "" : "s"} ·{" "}
-                {readiness.warningCount} warning{readiness.warningCount === 1 ? "" : "s"}
-              </p>
-              <ul className="mt-1.5 space-y-1.5">
-                {publishIssuesOverview.slice(0, 5).map((it) => {
-                  const target = ISSUE_SECTION[it.code] ?? "publish";
-                  const crumb = TABS.find((t) => t.key === target)?.label ?? "Publish";
-                  const isError = it.severity === "error";
-                  return (
-                    <li key={`${it.source}-${it.code}`} className="flex items-start gap-2 text-sm">
-                      <AlertTriangle
-                        className={cn(
-                          "mt-0.5 h-4 w-4 shrink-0",
-                          isError ? "text-state-danger" : "text-state-warning"
-                        )}
-                        aria-hidden="true"
-                      />
-                      <span className="min-w-0 flex-1">
-                        <span className={isError ? "text-state-danger" : "text-text"}>{it.message}</span>
-                        <span className="ml-1.5 font-mono text-xs text-text-muted">→ {crumb}</span>
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => goToIssue(it)}
-                        className="shrink-0 text-xs font-medium text-brand-navy hover:underline"
-                      >
-                        {target === "scope" ? "Triage" : "Fix"} →
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
+            </ul>
           ) : (
             <p className="mt-3 inline-flex items-center gap-1.5 text-sm text-state-success">
               <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> No blockers — clear to publish.
@@ -1522,96 +930,6 @@ export function JobBuilderClient({
   }
 
   /* ===================== DELIVER (link-out facets) ==================== */
-  /**
-   * Wave 4 (job_builder_redesign) — the consolidated Deliver step: one card per
-   * live hub, kept in sync with the job, each opening its own BuhlOS surface.
-   * Counts come from the SAME ?withStats=1 read the job hub uses (loaded with
-   * the builder page) — a hub whose count isn't in that aggregate shows no
-   * number at all rather than an invented one (P7). Replaces the five per-hub
-   * link-out tabs while the flag is on; they return untouched when it's off.
-   */
-  function renderDeliver() {
-    const s = savedJob;
-    const countLine = (key: DeliverKey): string | null => {
-      if (key === "plans") {
-        return typeof s.statsDocumentsCurrent === "number"
-          ? `${s.statsDocumentsCurrent} current document${s.statsDocumentsCurrent === 1 ? "" : "s"}`
-          : null;
-      }
-      if (key === "itps") {
-        return typeof s.statsItpsActive === "number"
-          ? `${s.statsItpsActive} active ITP${s.statsItpsActive === 1 ? "" : "s"}`
-          : null;
-      }
-      if (key === "gear") {
-        if (typeof s.statsExpiredTags === "number" && typeof s.statsExpiringTags === "number") {
-          if (s.statsExpiredTags === 0 && s.statsExpiringTags === 0) return "test tags current";
-          return `${s.statsExpiredTags} expired · ${s.statsExpiringTags} expiring tags`;
-        }
-        return null;
-      }
-      if (key === "materials") {
-        return typeof s.statsMaterialRequestsOpen === "number"
-          ? `${s.statsMaterialRequestsOpen} open request${s.statsMaterialRequestsOpen === 1 ? "" : "s"}`
-          : null;
-      }
-      if (key === "risks") {
-        return typeof s.statsRfisOpen === "number"
-          ? `${s.statsRfisOpen} open RFI${s.statsRfisOpen === 1 ? "" : "s"}`
-          : null;
-      }
-      // Anything else: no number in the withStats aggregate → no invented one.
-      return null;
-    };
-    return (
-      <div className="space-y-4">
-        <Card>
-          <CardTitle>Deliver</CardTitle>
-          <CardDescription className="mt-1">
-            Live hubs — plans, materials, gear, QA and RFIs — kept in sync with the job. Each
-            opens on its own BuhlOS surface; the builder links out rather than duplicating it.
-            Counts are from the last page load.
-          </CardDescription>
-        </Card>
-        <div className="grid gap-4 md:grid-cols-2" data-testid="deliver-hub-cards">
-          {(Object.keys(DELIVER_LINKS) as DeliverKey[]).map((key) => {
-            const cfg = DELIVER_LINKS[key];
-            const moduleOn = cfg.module ? moduleEnabled(savedJob, cfg.module) : null;
-            const count = countLine(key);
-            return (
-              <Card key={key} data-testid="deliver-hub-card">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <CardTitle>{cfg.label}</CardTitle>
-                    <CardDescription className="mt-1">{cfg.desc}</CardDescription>
-                  </div>
-                  {moduleOn !== null ? (
-                    <Pill tone={moduleOn ? "success" : "neutral"}>
-                      Field module {moduleOn ? "on" : "off"}
-                    </Pill>
-                  ) : null}
-                </div>
-                {count ? (
-                  <p className="mt-3 font-mono text-sm text-text" data-testid="deliver-hub-count">
-                    {count}
-                  </p>
-                ) : null}
-                <div className="mt-3">
-                  <Link
-                    href={cfg.path(savedJob.id) as Route}
-                    className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-2"
-                  >
-                    Opens in BuhlOS <span aria-hidden="true">→</span>
-                  </Link>
-                </div>
-              </Card>
-            );
-          })}
-        </div>
-      </div>
-    );
-  }
-
   function renderDeliverLink(key: DeliverKey) {
     const cfg = DELIVER_LINKS[key];
     const moduleOn = cfg.module ? moduleEnabled(savedJob, cfg.module) : null;
@@ -1653,41 +971,15 @@ export function JobBuilderClient({
           <CardTitle>Scope intake</CardTitle>
           <CardDescription className="mt-1">
             The agreed scope — the one source the structure, tasks and quote build from.
-            Classify each line so nothing becomes silent field work; the review queue triages
-            the unclassified ones fast.
           </CardDescription>
-          {untriagedClauses.length > 0 ? (
-            <Button
-              size="sm"
-              className="mt-3"
-              data-testid="scope-open-review"
-              onClick={openReview}
-            >
-              <ListChecks className="h-4 w-4" aria-hidden="true" />
-              Review {untriagedClauses.length} unclassified line
-              {untriagedClauses.length === 1 ? "" : "s"}
-            </Button>
-          ) : reconciledView ? (
-            <p className="mt-3 inline-flex items-center gap-1.5 text-sm text-state-success">
-              <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> Every scope line classified.
-            </p>
-          ) : null}
         </Card>
 
         <ScopeOfWorkSection
           job={savedJob}
-          certaintyByClauseId={certaintyByClauseId}
           selectedClauseId={selectedRow?.entity === "clause" ? selectedRow.id : null}
           onInspectClause={selectClause}
           onDirtyChange={onScopeDirty}
         />
-
-        {/* The confirmed scope-vs-quote reconciliation (RAG + findings + clause
-            table). Renders its own honest "no reconciliation yet" state.
-            Interactive here (#366 AC2): each open finding carries resolve /
-            accept-with-reason actions; the write goes through the confirm route
-            and router.refresh() re-reads the persisted result. */}
-        {reconciliation ? <ScopeReconciliationStatus view={reconciliation} interactive /> : null}
       </div>
     );
   }

@@ -20,7 +20,7 @@ function ex(over: Partial<ExceptionItem> & { id: string }): ExceptionItem {
 }
 
 const ITEMS: ExceptionItem[] = [
-  ex({ id: "a", jobId: "j1", jobName: "Alpha", source: "snag", severity: "warning", actionHref: "/v2/jobs/j1/snags" }),
+  ex({ id: "a", jobId: "j1", jobName: "Alpha", source: "evidence", severity: "warning", actionHref: "/v2/jobs/j1/evidence" }),
   ex({ id: "b", jobId: "j1", jobName: "Alpha", source: "job", severity: "critical", actionHref: "/v2/jobs/j1/builder" }),
   ex({ id: "c", jobId: "j2", jobName: "Bravo", source: "evidence", severity: "info", actionHref: "/v2/jobs/j2/evidence" }),
   ex({ id: "d", source: "hours", severity: "warning", jobId: undefined, actionHref: "/hours/approvals" }), // no job → General
@@ -54,9 +54,9 @@ describe("groupExceptionsBySource", () => {
     const groups = groupExceptionsBySource([
       ex({ id: "1", source: "hours" }),
       ex({ id: "2", source: "hours" }),
-      ex({ id: "3", source: "snag" }),
+      ex({ id: "3", source: "job" }),
     ]);
-    expect(groups.map((g) => g.source)).toEqual(["hours", "snag"]);
+    expect(groups.map((g) => g.source)).toEqual(["hours", "job"]);
     expect(groups[0]).toMatchObject({ sourceLabel: "Hours", count: 2 });
   });
 });

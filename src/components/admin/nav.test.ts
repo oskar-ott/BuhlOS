@@ -20,24 +20,14 @@ describe("NAV_GROUPS / ALL_ITEMS (#215 shared source)", () => {
       "Jobs",
       "Hours",
       "People & gear",
-      "Company",
     ]);
     const hrefs = ALL_ITEMS.map((i) => i.href);
     expect(hrefs).toEqual([
       "/command-centre",
-      "/observations",
-      "/material-requests",
-      "/expenses",
       "/v2/jobs",
-      "/v2/quotes",
-      "/defects",
-      "/itp-templates",
-      "/qa",
-      "/v2/dayworks",
       "/hours",
       "/employees",
       "/gear",
-      "/reports",
     ]);
     expect(new Set(hrefs).size).toBe(hrefs.length);
   });
@@ -53,8 +43,8 @@ describe("NAV_GROUPS / ALL_ITEMS (#215 shared source)", () => {
 describe("activeHref (#215 longest-prefix)", () => {
   it("matches an exact route to its own item", () => {
     expect(activeHref("/command-centre")).toBe("/command-centre");
-    expect(activeHref("/reports")).toBe("/reports");
-    expect(activeHref("/qa")).toBe("/qa");
+    expect(activeHref("/employees")).toBe("/employees");
+    expect(activeHref("/gear")).toBe("/gear");
   });
 
   it("keeps the single Hours item active across all three hours routes (#415)", () => {
@@ -64,13 +54,13 @@ describe("activeHref (#215 longest-prefix)", () => {
   });
 
   it("a deeper job path keeps Jobs active", () => {
-    expect(activeHref("/v2/jobs/j1/itps")).toBe("/v2/jobs");
+    expect(activeHref("/v2/jobs/j1/evidence")).toBe("/v2/jobs");
   });
 
-  it("distinct /v2 prefixes never steal each other (longest-prefix, not first-match)", () => {
-    // /v2/quotes/<id> must resolve to Quotes, not Jobs — they share no prefix
-    // beyond /v2, which isn't an activeFor, so both must stay independent.
-    expect(activeHref("/v2/quotes/qv2_abc123")).toBe("/v2/quotes");
+  it("a /v2 sibling that is not a nav destination matches nothing", () => {
+    // Only /v2/jobs is an activeFor prefix; /v2 alone is not, so a sibling
+    // /v2/* path can never inherit the Jobs item's active state.
+    expect(activeHref("/v2/phil")).toBeNull();
     expect(activeHref("/v2/jobs/j1")).toBe("/v2/jobs");
   });
 
@@ -83,7 +73,7 @@ describe("activeHref (#215 longest-prefix)", () => {
   it("does not treat a sibling string-prefix as a path match (/hours-foo ≠ /hours)", () => {
     // startsWith uses a trailing slash, so /hoursful or /hours-x is NOT under /hours.
     expect(activeHref("/hoursful")).toBeNull();
-    expect(activeHref("/reports-archive")).toBeNull();
+    expect(activeHref("/gear-archive")).toBeNull();
   });
 });
 
@@ -94,18 +84,18 @@ describe("visibleNavGroups (#760 owner feature-control)", () => {
   });
 
   it("drops the hidden hrefs and keeps the rest", () => {
-    const groups = visibleNavGroups(["/reports", "/gear"]);
+    const groups = visibleNavGroups(["/hours", "/gear"]);
     const hrefs = groups.flatMap((g) => g.items.map((i) => i.href));
-    expect(hrefs).not.toContain("/reports");
+    expect(hrefs).not.toContain("/hours");
     expect(hrefs).not.toContain("/gear");
     expect(hrefs).toContain("/v2/jobs");
     expect(hrefs).toContain("/command-centre");
   });
 
   it("drops a whole group when all its items are hidden", () => {
-    // Company only holds /reports; hiding it removes the group entirely.
-    const groups = visibleNavGroups(["/reports"]);
-    expect(groups.some((g) => g.heading === "Company")).toBe(false);
+    // Hours only holds /hours; hiding it removes the group entirely.
+    const groups = visibleNavGroups(["/hours"]);
+    expect(groups.some((g) => g.heading === "Hours")).toBe(false);
     // People & gear still shows Employees when only Gear is hidden.
     const peopleGear = visibleNavGroups(["/gear"]).find((g) => g.heading === "People & gear");
     expect(peopleGear?.items.map((i) => i.href)).toEqual(["/employees"]);
@@ -113,7 +103,7 @@ describe("visibleNavGroups (#760 owner feature-control)", () => {
 
   it("never mutates the source NAV_GROUPS", () => {
     const before = NAV_GROUPS.flatMap((g) => g.items).length;
-    visibleNavGroups(["/reports", "/gear", "/v2/jobs"]);
+    visibleNavGroups(["/hours", "/gear", "/v2/jobs"]);
     expect(NAV_GROUPS.flatMap((g) => g.items).length).toBe(before);
   });
 });
@@ -123,9 +113,8 @@ describe("FLAGGED_ITEMS (#760)", () => {
     const byHref = Object.fromEntries(FLAGGED_ITEMS.map((f) => [f.href, f.flag]));
     expect(byHref["/v2/jobs"]).toBe("jobs");
     expect(byHref["/hours"]).toBe("hours");
-    expect(byHref["/observations"]).toBe("observations_inbox");
-    expect(byHref["/itp-templates"]).toBe("itp");
-    expect(byHref["/qa"]).toBe("itp"); // QA status rides the same ITP kill-switch
+    expect(byHref["/employees"]).toBe("employees");
+    expect(byHref["/gear"]).toBe("gear");
     // Command centre must stay reachable so the owner can't self-lock.
     expect(byHref["/command-centre"]).toBeUndefined();
   });

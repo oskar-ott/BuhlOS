@@ -377,29 +377,6 @@ module.exports = async (req, res) => {
       }
     } catch (e) { console.error('digest hours walk failed', e); }
 
-    // Snags opened/resolved today — walk per-job data blobs. Lean reset:
-    // skipped entirely while the snags feature is hidden (counts stay 0, so
-    // the digest line never mentions a feature the surface no longer shows).
-    let snagsOpenedToday = 0;
-    let snagsResolvedToday = 0;
-    if (await isFlagEnabled('snags')) {
-      try {
-        const jobs = (await readBlob('jobs.json', { jobs: [] })).jobs || [];
-        const active = jobs.filter(j => (j.status || 'active') === 'active');
-        for (const j of active) {
-          let d;
-          try { d = await readBlob(`jobs/${j.id}/data.json`, { snags: [] }); }
-          catch { continue; }
-          for (const s of (d.snags || [])) {
-            const created = (s.createdAt || s.date || '').slice(0, 10);
-            const closed  = (s.closedAt  || '').slice(0, 10);
-            if (created === today) snagsOpenedToday++;
-            if (closed  === today) snagsResolvedToday++;
-          }
-        }
-      } catch (e) { console.error('digest snags walk failed', e); }
-    }
-
     const usersData = await readBlob(USERS_KEY, { users: [] });
     const admins = (usersData.users || []).filter(u =>
       isAdminRole(u.role) &&
@@ -411,17 +388,15 @@ module.exports = async (req, res) => {
     }
 
     // Nothing-to-report case: skip the push entirely. Brief §17 rule —
-    // don't make him read "0 hours, 0 snags". Silence is the signal.
-    if (!hoursSubmittedCount && !hoursPendingCount && !snagsOpenedToday && !snagsResolvedToday) {
+    // don't make him read "0 hours". Silence is the signal.
+    if (!hoursSubmittedCount && !hoursPendingCount) {
       return res.status(200).json({ ok: true, date: today, sent: 0, skipped: 'nothing to report' });
     }
 
-    // Compose a single tight line — "5 entries · 24.5h · 2 pending · 1 snag opened · 1 resolved".
+    // Compose a single tight line — "5 entries · 24.5h · 2 pending".
     const bits = [];
     if (hoursSubmittedCount) bits.push(`${hoursSubmittedCount} entr${hoursSubmittedCount === 1 ? 'y' : 'ies'} · ${hoursSubmittedTotal.toFixed(1)}h`);
     if (hoursPendingCount)   bits.push(`${hoursPendingCount} pending`);
-    if (snagsOpenedToday)    bits.push(`${snagsOpenedToday} snag${snagsOpenedToday === 1 ? '' : 's'} opened`);
-    if (snagsResolvedToday)  bits.push(`${snagsResolvedToday} resolved`);
 
     const payload = {
       title: 'End of day',
@@ -439,112 +414,7 @@ module.exports = async (req, res) => {
 
     return res.status(200).json({
       ok: true, date: today, sent, pruned,
-      digest: { hoursSubmittedCount, hoursSubmittedTotal, hoursPendingCount, snagsOpenedToday, snagsResolvedToday },
-    });
-  }
-
-  // ── send-stale-snags: Monday-morning triage push for admins ───────────
-  // Snags rot in silence. A snag opened three weeks ago without a follow-up
-  // is the kind of thing that costs money at handover. This cron walks all
-  // open snags on active jobs and pushes admins a single line: "N stale
-  // snags · X high priority", with a link straight to /admin/snags.
-  //
-  // Age thresholds are tuned to priority — a High open >3 days is louder
-  // than a Low at the same age, because real defects don't wait a fortnight.
-  //   High:   stale after 3 days
-  //   Medium: stale after 7 days
-  //   Low:    stale after 14 days
-  //
-  // Runs Mon 09:00 Sydney (= Sun 23:00 UTC). Skipped entirely when nothing
-  // qualifies — same "silence is the signal" rule as the daily digest.
-  if (action === 'send-stale-snags' && req.method === 'GET') {
-    if (!requireCron(req, res)) return;
-    if (!getWebPush()) return res.status(503).json({ error: 'push not configured (missing VAPID env vars)' });
-    // Lean reset: snags are hidden — a triage push would be a trace of a
-    // feature the surface no longer shows. 200 (not an error) so the cron
-    // reads as healthy; flips back on with the flag.
-    if (!(await isFlagEnabled('snags'))) {
-      return res.status(200).json({ ok: true, sent: 0, pruned: 0, skipped: 'snags flag off' });
-    }
-
-    const now = Date.now();
-    const DAY_MS = 24 * 60 * 60 * 1000;
-    const thresholdDays = { High: 3, Medium: 7, Low: 14 };
-
-    let stale = [];
-    try {
-      const jobs = (await readBlob('jobs.json', { jobs: [] })).jobs || [];
-      const active = jobs.filter(j => (j.status || 'active') === 'active');
-      for (const j of active) {
-        let d;
-        try { d = await readBlob(`jobs/${j.id}/data.json`, { snags: [] }); }
-        catch { continue; }
-        for (const s of (d.snags || [])) {
-          if ((s.status || 'Open') !== 'Open') continue;
-          const created = s.createdAt || s.date || '';
-          if (!created) continue;
-          const t = Date.parse(created);
-          if (!Number.isFinite(t)) continue;
-          const ageDays = (now - t) / DAY_MS;
-          const prio = s.priority || 'Medium';
-          const threshold = thresholdDays[prio] ?? thresholdDays.Medium;
-          if (ageDays < threshold) continue;
-          stale.push({ jobId: j.id, jobName: j.name, priority: prio, ageDays });
-        }
-      }
-    } catch (e) { console.error('stale-snags walk failed', e); }
-
-    const usersData = await readBlob(USERS_KEY, { users: [] });
-    const admins = (usersData.users || []).filter(u =>
-      isAdminRole(u.role) &&
-      !u.archived &&
-      Array.isArray(u.pushSubscriptions) && u.pushSubscriptions.length);
-
-    if (!admins.length) {
-      return res.status(200).json({ ok: true, sent: 0, skipped: 'no admin subscribers', staleCount: stale.length });
-    }
-    if (!stale.length) {
-      return res.status(200).json({ ok: true, sent: 0, skipped: 'no stale snags' });
-    }
-
-    const byPriority = { High: 0, Medium: 0, Low: 0 };
-    const jobSet = new Set();
-    let oldestDays = 0;
-    for (const s of stale) {
-      byPriority[s.priority] = (byPriority[s.priority] || 0) + 1;
-      jobSet.add(s.jobId);
-      if (s.ageDays > oldestDays) oldestDays = s.ageDays;
-    }
-
-    const bits = [];
-    bits.push(`${stale.length} stale snag${stale.length === 1 ? '' : 's'}`);
-    if (byPriority.High) bits.push(`${byPriority.High} high priority`);
-    if (jobSet.size > 1) bits.push(`across ${jobSet.size} jobs`);
-    bits.push(`oldest ${Math.floor(oldestDays)}d`);
-
-    const payload = {
-      title: 'Snags need triage',
-      body: bits.join(' · '),
-      url: '/command-centre',
-      tag: 'buhl-stale-snags-' + new Date().toISOString().slice(0, 10),
-    };
-
-    // PILOT cron migration (#162): fan out through the notify() engine so the
-    // `staleSnags` pref is finally consulted — an admin who muted stale-snag
-    // triage now gets nothing, while the rest still do. The audience
-    // (admin-tier, not archived, has subscriptions) and payload are unchanged;
-    // notify() layers the per-user prefs filter on top and returns the same
-    // { sent, pruned } shape this response already reports. One engine call
-    // routes the whole audience.
-    const { sent, pruned } = await notify({
-      kind: 'staleSnags',
-      audience: admins,
-      payload,
-    });
-
-    return res.status(200).json({
-      ok: true, sent, pruned,
-      stale: { total: stale.length, byPriority, jobs: jobSet.size, oldestDays: Math.floor(oldestDays) },
+      digest: { hoursSubmittedCount, hoursSubmittedTotal, hoursPendingCount },
     });
   }
 

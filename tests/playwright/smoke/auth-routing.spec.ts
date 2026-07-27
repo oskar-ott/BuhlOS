@@ -13,36 +13,6 @@ test("unauthenticated users are redirected from protected BuhlOS routes", async 
   await expect(page.getByTestId("login-submit")).toBeVisible();
 });
 
-test("unauthenticated users are redirected from the defects register (#414)", async ({
-  page,
-}) => {
-  await page.goto("/defects");
-  await expect(page).toHaveURL(/\/v2\/login\?next=%2Fdefects/);
-  await expect(page.getByTestId("login-submit")).toBeVisible();
-});
-
-test("unauthenticated users are redirected from the reports dashboard (#316)", async ({
-  page,
-}) => {
-  await page.goto("/reports");
-  await expect(page).toHaveURL(/\/v2\/login\?next=%2Freports/);
-  await expect(page.getByTestId("login-submit")).toBeVisible();
-});
-
-test("unauthenticated users are redirected from the quotes list (#183)", async ({ page }) => {
-  await page.goto("/v2/quotes");
-  await expect(page).toHaveURL(/\/v2\/login\?next=%2Fv2%2Fquotes/);
-  await expect(page.getByTestId("login-submit")).toBeVisible();
-});
-
-test("unauthenticated users are redirected from the quote builder (#183)", async ({ page }) => {
-  // Non-mutating: any id works — the middleware gate fires before the page
-  // (and its API read) is ever reached.
-  await page.goto("/v2/quotes/qv2_smoke");
-  await expect(page).toHaveURL(/\/v2\/login\?next=%2Fv2%2Fquotes%2Fqv2_smoke/);
-  await expect(page.getByTestId("login-submit")).toBeVisible();
-});
-
 test("unauthenticated users are redirected from notification settings (#218)", async ({
   page,
 }) => {

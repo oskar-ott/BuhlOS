@@ -3,14 +3,8 @@
 import { useMemo } from "react";
 import { X } from "lucide-react";
 import { Pill } from "@/components/ui/Pill";
-import {
-  PHOTO_LABEL_TAXONOMY,
-  hasVisibleLabel,
-  isUnlabelled,
-} from "@/domains/evidence/labels";
 import { EVIDENCE_STAGES } from "@/domains/evidence/schema";
 import { stageLabel } from "@/domains/evidence/format";
-import { photoLabelDisplay } from "./EvidenceLabelChips";
 import type {
   EvidenceItem,
   EvidenceStage,
@@ -31,14 +25,6 @@ export type StatusFilter = "all" | ServerEvidenceStatus;
  */
 export const NO_AREA = "__none__";
 
-/**
- * Sentinel for the "no visible labels" axis (#262). Follows the NO_AREA
- * idiom: null = any; NO_LABELS = isUnlabelled(item); otherwise a taxonomy
- * label matched via hasVisibleLabel. "No labels" is a normal, honest state
- * — filterable, never spoofed.
- */
-export const NO_LABELS = "__unlabelled__";
-
 export interface FilterState {
   status: StatusFilter;
   capturedById: string | null;
@@ -52,9 +38,6 @@ export interface FilterState {
   stage: EvidenceStage | null;
   /** Task context filter (#260). null = any task; an exact taskId otherwise. */
   taskId: string | null;
-  /** Label filter (#262). null = any; NO_LABELS = no visible labels;
-   *  otherwise a PHOTO_LABEL_TAXONOMY label. AND-combines with the rest. */
-  label: string | null;
 }
 
 export const DEFAULT_FILTER: FilterState = {
@@ -66,7 +49,6 @@ export const DEFAULT_FILTER: FilterState = {
   areaId: null,
   stage: null,
   taskId: null,
-  label: null,
 };
 
 /** A selectable area in the context filter. `archived` flags areas referenced
@@ -128,10 +110,6 @@ interface Props {
   /** Visible row count after the filter is applied. Drives the "showing N
    *  of M" copy in the bar. */
   visibleCount: number;
-  /** #262 — true when the viewer is an admin AND the ai_photo_labels flag
-   *  is on. The Label filter axis doesn't render at all otherwise — the
-   *  feature stays dark. */
-  aiLabelsEnabled?: boolean;
 }
 
 /**
@@ -151,7 +129,6 @@ export function EvidenceFilterBar({
   value,
   onChange,
   visibleCount,
-  aiLabelsEnabled = false,
 }: Props) {
   const captureBy = useMemo(() => {
     const map = new Map<string, string>();
@@ -175,8 +152,7 @@ export function EvidenceFilterBar({
     value.toDate === DEFAULT_FILTER.toDate &&
     value.areaId === DEFAULT_FILTER.areaId &&
     value.stage === DEFAULT_FILTER.stage &&
-    value.taskId === DEFAULT_FILTER.taskId &&
-    value.label === DEFAULT_FILTER.label;
+    value.taskId === DEFAULT_FILTER.taskId;
 
   return (
     <div className="rounded-card border border-border bg-surface-raised p-3 shadow-card">
@@ -258,29 +234,6 @@ export function EvidenceFilterBar({
             ))}
           </select>
         </FilterField>
-
-        {aiLabelsEnabled ? (
-          <FilterField label="Label">
-            <select
-              value={value.label ?? ""}
-              onChange={(e) =>
-                onChange({
-                  ...value,
-                  label: e.target.value === "" ? null : e.target.value,
-                })
-              }
-              className="block h-10 rounded-card border border-border bg-surface px-3 text-sm focus:border-brand-navy focus:outline-none"
-            >
-              <option value="">All</option>
-              <option value={NO_LABELS}>Unlabelled</option>
-              {PHOTO_LABEL_TAXONOMY.map((l) => (
-                <option key={l} value={l}>
-                  {photoLabelDisplay(l)}
-                </option>
-              ))}
-            </select>
-          </FilterField>
-        ) : null}
 
         <FilterField label="From">
           <input
@@ -380,14 +333,6 @@ export function matchesFilter(item: EvidenceItem, filter: FilterState): boolean 
   if (filter.stage && item.stage !== filter.stage) return false;
   // Task context (#260) — exact taskId match when set.
   if (filter.taskId && item.taskId !== filter.taskId) return false;
-  // Label axis (#262). NO_LABELS matches rows with no VISIBLE labels
-  // (rejected / below-confidence-floor entries don't count); a taxonomy
-  // label matches via the display contract. AND-combines with the rest.
-  if (filter.label === NO_LABELS) {
-    if (!isUnlabelled(item)) return false;
-  } else if (filter.label && !hasVisibleLabel(item, filter.label)) {
-    return false;
-  }
   if (filter.fromDate || filter.toDate) {
     const day = typeof item.capturedAt === "string" ? item.capturedAt.slice(0, 10) : "";
     if (filter.fromDate && day < filter.fromDate) return false;

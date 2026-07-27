@@ -24,7 +24,7 @@ import type { CanonicalTask } from "./task-index";
  *
  * Cross-ref:
  *   src/domains/jobs/task-index.ts — CanonicalTask (state + id)
- *   src/domains/job-control/task-ref-compat.ts — legacy TaskRef ↔ canonical (#483)
+ *   src/domains/jobs/task-ref.ts — legacy TaskRef ↔ canonical (#483)
  *   docs/architecture/task-blockers.md
  */
 

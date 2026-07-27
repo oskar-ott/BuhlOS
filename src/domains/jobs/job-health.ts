@@ -18,7 +18,7 @@ import type { Job } from "./types";
  *   - HARD: expired gear tags (statsExpiredTags) — out-of-test equipment on site
  *     is a live compliance breach, so ANY drives at-risk. (Cross-job: its
  *     destination is /gear, not a per-job tab — see `reason.key`.)
- *   - SOFT: evidence to review, open snags, ITPs to sign off — actionable
+ *   - SOFT: evidence to review — actionable
  *     backlog, each with a per-job tab. A large soft backlog also tips at-risk.
  *
  * Cross-ref:
@@ -30,7 +30,7 @@ export type JobHealthLevel = "good" | "watch" | "at-risk" | "unknown";
 
 /** Reason key. For soft reasons this doubles as the per-job tab segment
  *  (/v2/jobs/<id>/<key>); `tags` is cross-job (its destination is /gear). */
-export type JobHealthReasonKey = "evidence" | "snags" | "itps" | "tags";
+export type JobHealthReasonKey = "evidence" | "tags";
 
 export interface JobHealthReason {
   key: JobHealthReasonKey;
@@ -48,7 +48,7 @@ export interface JobHealth {
 }
 
 /**
- * A large soft backlog (evidence + snags + ITPs) tips a job from "watch" to
+ * A large soft backlog (evidence to review) tips a job from "watch" to
  * "at-risk" even with no hard breach. Conservative + documented
  * (docs/job-health-thresholds.md); tune in ONE place. A hard signal trips
  * at-risk on its own regardless of this.
@@ -72,16 +72,7 @@ function positive(v: number | null | undefined): number {
  * zero/missing count are omitted; when no stat is loaded at all the level is
  * `unknown` (not a fabricated "good").
  */
-/** Kill-switch state for flagged health inputs (#915): stats arrive
- *  flag-blind, so hidden features' backlogs are excluded HERE — a "Watch ·
- *  N open snags" pill must not surface a feature the product has hidden.
- *  Omitted key = feature on. */
-export interface JobHealthFeatures {
-  snags?: boolean;
-  itps?: boolean;
-}
-
-export function deriveJobHealth(job: HealthStats, features: JobHealthFeatures = {}): JobHealth {
+export function deriveJobHealth(job: HealthStats): JobHealth {
   const anySignalLoaded =
     isPresent(job.statsExpiredTags) ||
     isPresent(job.statsEvidenceV2Pending) ||
@@ -91,8 +82,6 @@ export function deriveJobHealth(job: HealthStats, features: JobHealthFeatures = 
   const candidates: JobHealthReason[] = [
     { key: "tags", label: "Expired gear tags", count: positive(job.statsExpiredTags), severity: "hard" },
     { key: "evidence", label: "Evidence to review", count: positive(job.statsEvidenceV2Pending), severity: "soft" },
-    { key: "snags", label: "Open snags", count: features.snags === false ? 0 : positive(job.statsSnagsV2Active), severity: "soft" },
-    { key: "itps", label: "ITPs to sign off", count: features.itps === false ? 0 : positive(job.statsItpsNeedsReview), severity: "soft" },
   ];
   const reasons = candidates.filter((c) => c.count > 0); // already HARD-first by order
 

@@ -10,7 +10,6 @@ import {
   PhilMyDaySharpenedHeader,
   philNeedsYouBadge,
 } from "./PhilMyDaySharpened";
-import { CaptureLauncherProvider } from "./captureLauncherContext";
 import type { PhilNeedsYouItem } from "@/domains/phil/needs-you";
 
 /**
@@ -30,13 +29,13 @@ const rejected: PhilNeedsYouItem = {
   severity: "urgent",
 };
 
-const snag: PhilNeedsYouItem = {
-  id: "snag:s1",
-  kind: "snag",
-  title: "Redo GPO heights in kitchen",
+const calibration: PhilNeedsYouItem = {
+  id: "calibration:a1",
+  kind: "calibration",
+  title: "Fluke 1663 calibration due Fri 11 Jul",
   detail: "Birdwood Estate",
-  href: "/phil/jobs/job-1#phil-job-snags",
-  actionLabel: "Open snag",
+  href: "/phil/gear",
+  actionLabel: "View gear",
   severity: "warning",
 };
 
@@ -71,7 +70,7 @@ describe("PhilMyDayLogHoursBanner", () => {
 describe("PhilMyDayDoThisNow", () => {
   it("renders the most urgent item as the hero with its real destination", () => {
     const html = renderToString(
-      createElement(PhilMyDayDoThisNow, { items: [rejected, snag] }),
+      createElement(PhilMyDayDoThisNow, { items: [rejected, calibration] }),
     );
     expect(html).toContain("Do this now");
     expect(html).toContain("Thu 3 Jul hours need a fix");
@@ -83,13 +82,13 @@ describe("PhilMyDayDoThisNow", () => {
 
   it("lists the remaining items under a counted Needs-you heading with badges", () => {
     const html = renderToString(
-      createElement(PhilMyDayDoThisNow, { items: [rejected, snag] }),
+      createElement(PhilMyDayDoThisNow, { items: [rejected, calibration] }),
     );
     expect(html).toContain("Needs you · 1");
-    expect(html).toContain("Redo GPO heights in kitchen");
-    // The snag row carries an honest Open badge, not a fabricated status.
-    expect(html).toContain(">Open<");
-    expect(html).toContain("/phil/jobs/job-1#phil-job-snags");
+    expect(html).toContain("Fluke 1663 calibration due Fri 11 Jul");
+    // The calibration row carries an honest badge, not a fabricated status.
+    expect(html).toContain(">Due soon<");
+    expect(html).toContain("/phil/gear");
   });
 
   it("shows an honest all-clear when nothing needs the worker — no fake urgency", () => {
@@ -102,12 +101,9 @@ describe("PhilMyDayDoThisNow", () => {
   it("maps needs-you kinds to honest badge words", () => {
     expect(philNeedsYouBadge(rejected)).toEqual({ label: "Rejected", tone: "danger" });
     expect(
-      philNeedsYouBadge({ ...snag, kind: "calibration", severity: "urgent" }),
+      philNeedsYouBadge({ ...calibration, severity: "urgent" }),
     ).toEqual({ label: "Expired", tone: "danger" });
-    expect(
-      philNeedsYouBadge({ ...snag, kind: "calibration", severity: "warning" }),
-    ).toEqual({ label: "Due soon", tone: "warning" });
-    expect(philNeedsYouBadge(snag)).toEqual({ label: "Open", tone: "warning" });
+    expect(philNeedsYouBadge(calibration)).toEqual({ label: "Due soon", tone: "warning" });
   });
 });
 
@@ -141,7 +137,7 @@ describe("PhilMyDayOnJobCard", () => {
 
 function renderGrid(props: Parameters<typeof PhilMyDayQuickGrid>[0]) {
   return renderToString(
-    createElement(CaptureLauncherProvider, null, createElement(PhilMyDayQuickGrid, props)),
+    createElement(PhilMyDayQuickGrid, props),
   );
 }
 
@@ -167,9 +163,8 @@ describe("PhilMyDayQuickGrid", () => {
     expect(withoutJob).not.toContain("Who to call");
   });
 
-  it("keeps the real issue entry and adds NO duplicate Capture tile (the FAB is capture)", () => {
+  it("adds NO duplicate Capture tile (the FAB is capture)", () => {
     const html = renderGrid({ hoursDue: true, callJobId: "job-1" });
-    expect(html).toContain("Report an issue");
     // Capture stays the tab bar FAB — no lookalike tile in the grid.
     expect(html).not.toContain(">Capture<");
   });

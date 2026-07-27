@@ -9,10 +9,10 @@ import type { TrayPhoto } from "./CapturePhotoTray";
 /**
  * SSR smoke for the SHARPENED Capture body (§2.5, phil_sharpened) — first
  * paint only (effects don't run under renderToString). The write flows are
- * covered by capture-batch.test.ts, captureSharpened.test.ts (mapping/rules)
- * and rfis-api.test.ts (the field raise gate). Flag-off byte-safety is
- * covered by PhilCaptureLauncher.render.test.tsx (no provider → the current
- * sheet) — plus a provider-wrapped launcher assertion here.
+ * covered by capture-batch.test.ts and captureSharpened.test.ts
+ * (mapping/rules). Flag-off byte-safety is covered by
+ * PhilCaptureLauncher.render.test.tsx (no provider → the current sheet) —
+ * plus a provider-wrapped launcher assertion here.
  */
 
 function makeProps(over: Partial<PhilCaptureSharpenedProps> = {}): PhilCaptureSharpenedProps {
@@ -42,17 +42,7 @@ function makeProps(over: Partial<PhilCaptureSharpenedProps> = {}): PhilCaptureSh
     onNoteChange: () => {},
     purpose: "progress",
     onPurposeChange: () => {},
-    // Register on by default in this harness so the RFI-branch tests exercise
-    // the full chip row; the register-off contract has its own tests below.
-    rfiRegister: true,
-    rfiQuestion: "",
-    onRfiQuestionChange: () => {},
-    snagTitle: "",
-    onSnagTitleChange: () => {},
     online: true,
-    onWriteNoteInstead: () => {},
-    canWriteNote: true,
-    onSendToOffice: () => {},
     onClose: () => {},
     ...over,
   };
@@ -104,28 +94,13 @@ describe("PhilCaptureSharpened — first paint", () => {
     expect(html).toContain("2 photos"); // CapturePhotoTray header (remove/errors live there)
   });
 
-  it("offers exactly the four backed purpose chips — no ITP / Highlight dead selections", () => {
+  it("offers exactly the backed purpose chips — no ITP / Highlight dead selections", () => {
     const html = render();
-    for (const key of ["progress", "covered", "snag", "rfi"]) {
+    for (const key of ["progress", "covered"]) {
       expect(html).toContain(`data-testid="capture-purpose-${key}"`);
     }
     expect(html).not.toContain("ITP");
     expect(html).not.toContain("Highlight");
-    expect(html).toContain("Save &amp; file to job");
-  });
-
-  it("hides the RFI chip when the register is off — the raise 404s, so the chip would be a dead selection (P7)", () => {
-    const html = render({ rfiRegister: false });
-    expect(html).not.toContain('data-testid="capture-purpose-rfi"');
-    // The other chips are unaffected.
-    for (const key of ["progress", "covered", "snag"]) {
-      expect(html).toContain(`data-testid="capture-purpose-${key}"`);
-    }
-  });
-
-  it("register off + a stray rfi purpose in kept state → falls back to the default branch, never a doomed RFI form", () => {
-    const html = render({ rfiRegister: false, purpose: "rfi" });
-    expect(html).not.toContain('data-testid="capture-rfi-branch"');
     expect(html).toContain("Save &amp; file to job");
   });
 
@@ -138,20 +113,6 @@ describe("PhilCaptureSharpened — first paint", () => {
     expect(render({ fromJobContext: false })).not.toContain("Phil knows where you are");
   });
 
-  it("keeps the no-photo note path one tap away", () => {
-    expect(render()).toContain("No photo — write a note instead");
-    // …but never as a dead control when the worker has no jobs.
-    expect(render({ canWriteNote: false, jobs: [], selectedJobId: null })).not.toContain(
-      "write a note instead",
-    );
-  });
-
-  it("snag chip reveals the real snag path (title + honest destination line)", () => {
-    const html = render({ purpose: "snag" });
-    expect(html).toContain('data-testid="capture-snag-title"');
-    expect(html).toContain("snag list");
-    expect(html).toContain("Save &amp; raise the snag");
-  });
 });
 
 describe("PhilCaptureSharpened — partial-failure honesty (F1)", () => {
@@ -167,69 +128,9 @@ describe("PhilCaptureSharpened — partial-failure honesty (F1)", () => {
     expect(buttonTag(html, "capture-sharpened-save")).toContain('disabled=""');
   });
 
-  it("an unreadable photo BLOCKS a snag raise with the honest reason — never a raise with fewer photos than the batch shows", () => {
-    const html = render({
-      purpose: "snag",
-      snagTitle: "GPO ring damaged at riser",
-      photos: [trayPhoto("a"), unreadablePhoto("b")],
-    });
-    expect(html).toContain('data-testid="capture-unreadable-guard"');
-    expect(html).toContain("raise the snag");
-    expect(buttonTag(html, "capture-sharpened-save")).toContain('disabled=""');
-  });
-
-  it("an unreadable photo blocks the RFI send too; a retryable failure does NOT (it goes up with the raise)", () => {
-    const blockedHtml = render({
-      purpose: "rfi",
-      rfiQuestion: "Where does the panel go?",
-      photos: [unreadablePhoto("b")],
-    });
-    expect(blockedHtml).toContain('data-testid="capture-unreadable-guard"');
-    expect(buttonTag(blockedHtml, "capture-sharpened-save")).toContain('disabled=""');
-
-    // A retryable failure is IN the send batch — the raise only proceeds once
-    // it saves (saveBatch fails first otherwise), so Save stays actionable.
-    const retryableHtml = render({
-      purpose: "rfi",
-      rfiQuestion: "Where does the panel go?",
-      photos: [failedPhoto("a")],
-    });
-    expect(retryableHtml).not.toContain('data-testid="capture-unreadable-guard"');
-    expect(buttonTag(retryableHtml, "capture-sharpened-save")).not.toContain('disabled=""');
-  });
-
-  it("the unreadable guard belongs to the raise purposes only — a progress save mirrors the launcher (failed tiles say why)", () => {
+  it("a photo save mirrors the launcher — a failed tile says why, no extra guard", () => {
     const html = render({ photos: [trayPhoto("a"), unreadablePhoto("b")] });
     expect(html).not.toContain('data-testid="capture-unreadable-guard"');
-  });
-});
-
-describe("PhilCaptureSharpened — RFI branch", () => {
-  it("reveals the question, the Office/PM route and the send button", () => {
-    const html = render({ purpose: "rfi" });
-    expect(html).toContain('data-testid="capture-rfi-branch"');
-    expect(html).toContain("What do you need answered?");
-    expect(html).toContain("Office / PM");
-    expect(html).toContain("Send RFI to the office");
-    // The photo-caption note field belongs to the photo purposes, not RFI.
-    expect(html).not.toContain('id="capture-sharpened-note"');
-  });
-
-  it("withholds the blocked checkbox without a full task coordinate — honest hint instead", () => {
-    const html = render({ purpose: "rfi", stage: "roughIn", areaId: "a1", taskId: null });
-    expect(html).not.toContain('data-testid="capture-rfi-block"');
-    expect(html).toContain('data-testid="capture-rfi-block-hint"');
-  });
-
-  it("offers the blocked checkbox only for a full stage+area+task coordinate", () => {
-    const html = render({ purpose: "rfi", stage: "roughIn", areaId: "a1", taskId: "t1" });
-    expect(html).toContain('data-testid="capture-rfi-block"');
-    expect(html).toContain("blocked");
-  });
-
-  it("never renders a 'see the RFI' link — Phil has no field RFI read surface", () => {
-    const html = render({ purpose: "rfi" });
-    expect(html.toLowerCase()).not.toContain("see the rfi");
   });
 });
 
@@ -247,24 +148,20 @@ describe("PhilCaptureLauncher + provider — the flag actually switches the body
       ),
     );
     expect(html).toContain('data-testid="phil-capture-sharpened"');
-    expect(html).not.toContain("Or log something");
     // The dialog accessible name stays exactly "Capture" (smoke contract).
     expect(html).toContain('aria-label="Capture"');
   });
 
   it("no provider (flag off) → the current sheet, unchanged", () => {
-    // observationsEnabled true so the current sheet's own marker ("Or log
-    // something") proves the un-sharpened body rendered; the flag's dark
-    // default is covered in PhilCaptureLauncher.render.test.tsx.
     const html = renderToString(
       createElement(PhilCaptureLauncher, {
         open: true,
         onClose: () => {},
         initialJobId: "job-1",
-        observationsEnabled: true,
       }),
     );
     expect(html).not.toContain('data-testid="phil-capture-sharpened"');
-    expect(html).toContain("Or log something");
+    // The current sheet's own camera-first marker.
+    expect(html).toContain("Take a photo");
   });
 });

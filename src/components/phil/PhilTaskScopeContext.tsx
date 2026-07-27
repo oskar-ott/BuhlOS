@@ -12,8 +12,7 @@ import {
   type PhilTaskContext,
   type TaskContextEvidenceReq,
 } from "@/domains/job-control/task-context";
-import type { GoverningDocRef, TaskRef, WorkPackageMaterial } from "@/domains/job-control/types";
-import { proofStatusMessage, type ProofActionStatus } from "./jobControlEvidenceLinkClient";
+import type { GoverningDocRef, WorkPackageMaterial } from "@/domains/job-control/types";
 
 /**
  * Phil — task scope context (#368).
@@ -49,45 +48,15 @@ const EVIDENCE_KIND_LABEL: Record<TaskContextEvidenceReq["kind"], string> = {
 export function PhilTaskScopeContext({
   context,
   jobId,
-  onCaptureProof,
-  onFlagVariation,
-  proofActionState,
-  canCaptureProof = false,
 }: {
   context: PhilTaskContext;
   /** This task's job — needed to build the link to the Phil plans viewer for a
    *  governing drawing/spec. When omitted, each governing doc renders as plain
    *  text (today's behavior — zero regression). */
   jobId?: string;
-  /** Capture proof for a specific unmet requirement. When omitted, no capture
-   *  affordance renders (read-only context, today's behavior). The `kind` lets
-   *  the parent route a `test_result` requirement to the structured test-record
-   *  sheet instead of the photo/note CaptureSheet (#517). */
-  onCaptureProof?: (target: {
-    workPackageId: string;
-    requiredEvidenceId: string;
-    kind: TaskContextEvidenceReq["kind"];
-    taskRef?: TaskRef;
-  }) => void;
-  /** Start a variation flag for a "stop — flag a variation first" warning. When
-   *  omitted, the danger notice renders text-only (today's behavior — the notice
-   *  tells the worker to flag one, with no button). When wired, a "Flag a
-   *  variation" action appears under the notice and opens the EXISTING variation
-   *  capture flow (parent-wired) — additive, never a dead button. */
-  onFlagVariation?: (trigger: { warningId: string; taskRef?: TaskRef }) => void;
-  /** Per-requirement (requiredEvidenceId → status) action feedback. */
-  proofActionState?: Readonly<Record<string, ProofActionStatus>>;
-  /** Whether a capture+link can run now (a job-control revision is available).
-   *  When false, the affordance is hidden — never a broken action. */
-  canCaptureProof?: boolean;
 }) {
   // Zero-regression guarantee: nothing compiled for this task → render nothing.
   if (context.isEmpty) return null;
-
-  const workPackageId = context.workPackageId;
-  // The capture affordance only appears with a real package + requirement, a
-  // wired handler, and a current revision — otherwise the row is read-only.
-  const canCapture = Boolean(onCaptureProof && canCaptureProof && workPackageId);
 
   const { variationTriggers, byOthers, reuseExisting } = classifyTaskWarnings(context.warnings);
   const hasWarning = context.warnings.length > 0;
@@ -111,13 +80,6 @@ export function PhilTaskScopeContext({
         {variationTriggers.map((w) => (
           <PhilNotice key={w.id} tone="danger" title="Stop — flag a variation first" role="alert">
             <p>{w.text}</p>
-            {/* The notice's own words tell the worker to flag a variation; when
-                the parent wires the action, give them the button that does it
-                (opens the existing variation capture flow). Absent ⇒ text only,
-                exactly as today — additive, never a dead button. */}
-            {onFlagVariation ? (
-              <FlagVariationAction onFlag={() => onFlagVariation({ warningId: w.id })} />
-            ) : null}
           </PhilNotice>
         ))}
         {byOthers.map((w) => (
@@ -202,23 +164,6 @@ export function PhilTaskScopeContext({
                     {e.note ? (
                       <span className="mt-0.5 block text-xs text-text-muted">{e.note}</span>
                     ) : null}
-                    {!e.met && canCapture ? (
-                      <ProofAction
-                        status={proofActionState?.[e.id]}
-                        onCapture={() =>
-                          onCaptureProof?.({
-                            workPackageId: workPackageId as string,
-                            requiredEvidenceId: e.id,
-                            // route on kind: a test_result opens the structured
-                            // test-record sheet; everything else the photo/note sheet.
-                            kind: e.kind,
-                            // scope the link to the requirement's own task when it is
-                            // task-authored (#502); package-level requirement → no taskRef
-                            ...(e.taskRef ? { taskRef: e.taskRef } : {}),
-                          })
-                        }
-                      />
-                    ) : null}
                   </span>
                 </li>
               ))}
@@ -227,48 +172,6 @@ export function PhilTaskScopeContext({
         ) : null}
       </div>
     </details>
-  );
-}
-
-/** The per-requirement capture affordance: a small "Capture proof" button plus a
- *  one-line status. Tapping triggers the existing capture sheet (parent-wired);
- *  the proof only reads `met` once the link route confirms. */
-function ProofAction({ status, onCapture }: { status?: ProofActionStatus; onCapture: () => void }) {
-  const saving = status === "saving";
-  return (
-    <span className="mt-1.5 block">
-      <button
-        type="button"
-        onClick={onCapture}
-        disabled={saving}
-        className="inline-flex min-h-[36px] items-center gap-1.5 rounded-pill border border-border bg-surface px-3 py-1 font-display text-xs font-semibold text-text transition-colors hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-brand-navy disabled:cursor-not-allowed disabled:opacity-60"
-      >
-        {saving ? "Saving…" : "Capture proof"}
-      </button>
-      {status && status !== "saving" ? (
-        <span className="mt-1 block text-xs text-state-warning">{proofStatusMessage(status)}</span>
-      ) : null}
-    </span>
-  );
-}
-
-/** The "flag a variation" affordance under a variation-trigger warning. A pill
- *  button (≥44px touch target) that hands off to the EXISTING variation capture
- *  flow (parent-wired) — this component authors no variation form and invents no
- *  estimate fields (P7). Mirrors ProofAction's styling so the two read as one
- *  family. */
-function FlagVariationAction({ onFlag }: { onFlag: () => void }) {
-  return (
-    <span className="mt-2 block">
-      <button
-        type="button"
-        onClick={onFlag}
-        className="inline-flex min-h-[44px] items-center gap-1.5 rounded-pill border border-state-danger/40 bg-surface px-3.5 py-1 font-display text-xs font-semibold text-text transition-colors hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-brand-navy"
-      >
-        <AlertTriangle aria-hidden="true" className="h-4 w-4 shrink-0 text-state-danger" />
-        Flag a variation
-      </button>
-    </span>
   );
 }
 

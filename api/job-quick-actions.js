@@ -12,16 +12,10 @@
 //                       → "Fix rejected hours from <date>"
 //   2. draft-hours      today's entry is in draft with hours on this job
 //                       → "Submit your hours (X.Xh)"
-//   3. high-snags       open assigned snags marked High
-//                       → "N high-priority snag(s) need attention"
-//   4. snags-no-photo   open assigned snags with zero photos
-//                       → "Add photos to N snag(s)"
-//   5. old-snags        open assigned snags > 7 days old
-//                       → "N snag(s) overdue (oldest Nd)"
-//   6. log-hours        no time-entry today + at least one allocation
+//   3. log-hours        no time-entry today + at least one allocation
 //                       to this job in the last 14 days
 //                       → "Log today's hours"
-//   7. continue-area    a dwelling with progress > 0 but < 100
+//   4. continue-area    a dwelling with progress > 0 but < 100
 //                       → "Continue [area name] (Nd% complete)"
 //
 // Results are sorted by priority, capped to `limit` (default 3, max 5).
@@ -38,10 +32,8 @@
 const { list } = require('@vercel/blob');
 const { readBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, canWrite, isAdminRole, isClientRole } = require('./_lib/auth');
-const { isFlagEnabled } = require('./_lib/feature-flags');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const SNAG_OLD_DAYS = 7;
 
 function sydneyToday() {
   return new Intl.DateTimeFormat('en-CA', {
@@ -82,32 +74,7 @@ module.exports = async (req, res) => {
   const job = (jobsBlob.jobs || []).find(j => j.id === jobId);
   if (!job) return res.status(404).json({ error: 'job not found' });
 
-  const data = await readBlob(`jobs/${jobId}/data.json`, { dwellings: {}, snags: [] });
-
-  // ── Snags assigned to me, scoped to this job ─────────────────────────
-  // Lean reset: with the snags feature hidden, no snag-derived quick action
-  // may surface (its #phil-job-snags target no longer renders). Emptying the
-  // source list drops all three snag action types below in one gate.
-  const snagsOn = await isFlagEnabled('snags', me);
-  const now = Date.now();
-  const myOpenSnags = [];
-  for (const s of (snagsOn ? data.snags || [] : [])) {
-    if ((s.status || 'Open') !== 'Open') continue;
-    if (s.assignedToUserId !== me.id) continue;
-    const created = s.createdAt || s.date || '';
-    const t = created ? Date.parse(created) : NaN;
-    const ageDays = Number.isFinite(t) ? Math.floor((now - t) / DAY_MS) : 0;
-    myOpenSnags.push({
-      id: s.id, desc: s.desc || '',
-      priority: s.priority || 'Medium',
-      ageDays,
-      photoCount: (s.photos || []).length,
-    });
-  }
-  const myHighSnags    = myOpenSnags.filter(s => s.priority === 'High');
-  const myNoPhotoSnags = myOpenSnags.filter(s => s.photoCount === 0);
-  const myOldSnags     = myOpenSnags.filter(s => s.ageDays >= SNAG_OLD_DAYS);
-  const oldestSnagAge  = myOldSnags.reduce((m, s) => Math.max(m, s.ageDays), 0);
+  const data = await readBlob(`jobs/${jobId}/data.json`, { dwellings: {} });
 
   // ── Today's hours entry (one read by exact path) ─────────────────────
   const todayEntry = await readBlob(`users/${me.id}/time-entries/${today}.json`, null);
@@ -198,33 +165,6 @@ module.exports = async (req, res) => {
       label: `Submit your hours (${(Math.round(myHoursOnJobToday * 10) / 10).toFixed(1)}h)`,
       url: '/phil/my-day',
       meta: { hours: Math.round(myHoursOnJobToday * 10) / 10 },
-    });
-  }
-
-  if (myHighSnags.length) {
-    actions.push({
-      type: 'high-snags',
-      label: `${myHighSnags.length} high-priority snag${myHighSnags.length === 1 ? '' : 's'} need attention`,
-      url: '/phil/jobs/' + jobId + '#phil-job-snags',
-      meta: { count: myHighSnags.length },
-    });
-  }
-
-  if (myNoPhotoSnags.length) {
-    actions.push({
-      type: 'snags-no-photo',
-      label: `Add photo${myNoPhotoSnags.length === 1 ? '' : 's'} to ${myNoPhotoSnags.length} snag${myNoPhotoSnags.length === 1 ? '' : 's'}`,
-      url: '/phil/jobs/' + jobId + '#phil-job-snags',
-      meta: { count: myNoPhotoSnags.length },
-    });
-  }
-
-  if (myOldSnags.length) {
-    actions.push({
-      type: 'old-snags',
-      label: `${myOldSnags.length} snag${myOldSnags.length === 1 ? '' : 's'} overdue (oldest ${oldestSnagAge}d)`,
-      url: '/phil/jobs/' + jobId + '#phil-job-snags',
-      meta: { count: myOldSnags.length, oldestDays: oldestSnagAge },
     });
   }
 

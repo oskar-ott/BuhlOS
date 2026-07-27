@@ -17,10 +17,9 @@ import { BUSINESS_TIMEZONE, localDateString } from "@/domains/timesheets/service
  *   - the ?fixDate= deep-link contract still holds without the day-logger:
  *     a rejected day's link renders the focused fix card with the SAME
  *     resubmit sheet auto-opened; a non-rejected day renders no fix card.
- *   - lean reset: the quick-capture tiles (observations_inbox) and the
- *     reimbursements section (expenses) are flag-gated; both flags resolve
- *     dark here (no env/blob override), so NEITHER section renders — no
- *     trace of a hidden feature.
+ *   - lean reset: the quick-capture tiles and the reimbursements section are
+ *     GONE with their features, so NEITHER renders — no trace of a deleted
+ *     feature.
  */
 
 const COOKIE_VALUE =
@@ -54,7 +53,6 @@ vi.mock("@/lib/phil/sharpened", async (importOriginal) => {
     philSharpenedFlags: async () => ({
       sharpened: true,
       jobRooms: false,
-      rfiRegister: false,
     }),
   };
 });
@@ -166,8 +164,8 @@ describe("sharpened /phil/my-day — one hours affordance", () => {
     expect(html).not.toContain("This week"); // PhilWeekStrip
     expect(html).not.toContain("Standard day"); // LogHoursSheet's big action
     expect(html).not.toContain('data-testid="split-across-jobs"');
-    // Lean reset: observations_inbox + expenses resolve dark here, so the
-    // quick-capture tiles and the reimbursements section leave NO trace.
+    // Lean reset: the quick-capture tiles and the reimbursements section were
+    // deleted with their features — they leave NO trace.
     expect(html).not.toContain("Quick actions");
     expect(html).not.toContain("Reimbursements");
   });

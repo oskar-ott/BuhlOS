@@ -1,6 +1,6 @@
 import { buildPhilNeedsYou } from "@/domains/phil/needs-you";
 import type { TimeEntry } from "@/domains/timesheets/types";
-import { loadAssignedSnags, loadHeldCalibrations } from "./PhilNeedsYouSection";
+import { loadHeldCalibrations } from "./PhilNeedsYouSection";
 import { PhilMyDayDoThisNow } from "./PhilMyDaySharpened";
 import { PhilSkeleton } from "./ui/PhilSkeleton";
 
@@ -9,8 +9,8 @@ import { PhilSkeleton } from "./ui/PhilSkeleton";
  * (phil_sharpened, dark).
  *
  * Same streaming shape as the current screen's PhilNeedsYouSection (which it
- * shares its loaders with): snags are job-scoped and calibrations are a
- * separate read, i.e. a SECOND data wave of ~1.3–2.1s Blob round-trips
+ * shares its loaders with): calibrations are a separate read, i.e. a SECOND
+ * data wave of ~1.3–2.1s Blob round-trips
  * (#670). Rendering inside <Suspense> lets the sharpened shell (greeting,
  * job card, quick grid) paint on wave one and this section stream in — never
  * a blank screen, never a fabricated interim row.
@@ -23,23 +23,13 @@ export async function PhilMyDaySharpenedAttention({
   cookieValue,
   viewerId,
   entries,
-  jobs,
-  snagsEnabled = false,
 }: {
   cookieValue: string | undefined;
   viewerId: string | null;
   entries: ReadonlyArray<TimeEntry>;
-  jobs: ReadonlyArray<{ id: string; name: string }>;
-  /** `snags` flag, resolved SERVER-side by the page. False (the default —
-   *  safe-by-dark) skips the per-job snag fan-out entirely: the reads 404
-   *  while the flag is off. No snag items; hours + calibrations unchanged. */
-  snagsEnabled?: boolean;
 }) {
-  const [jobSnags, calibrations] = await Promise.all([
-    snagsEnabled ? loadAssignedSnags(jobs, cookieValue) : [],
-    loadHeldCalibrations(cookieValue),
-  ]);
-  const items = buildPhilNeedsYou({ viewerId, entries, jobSnags, calibrations });
+  const calibrations = await loadHeldCalibrations(cookieValue);
+  const items = buildPhilNeedsYou({ viewerId, entries, calibrations });
   return <PhilMyDayDoThisNow items={items} />;
 }
 

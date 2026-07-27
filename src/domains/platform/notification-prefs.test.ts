@@ -26,7 +26,7 @@ describe("NotificationPrefsSchema — missing keys default true", () => {
     const parsed = NotificationPrefsSchema.parse({ hoursApproved: false });
     expect(parsed.hoursApproved).toBe(false);
     expect(parsed.dailyDigest).toBe(true);
-    expect(parsed.snagAssigned).toBe(true);
+    expect(parsed.tagReminders).toBe(true);
   });
 
   it("strips unknown keys (the server constrains writes via VALID_KEYS)", () => {
@@ -109,8 +109,8 @@ describe("toggle state machine — optimistic flip + rollback (the panel core)",
 
   it("applyServerEcho trusts the server object on success, keeps local on null", () => {
     const local = defaultPrefs();
-    const server = { ...local, staleSnags: false };
-    expect(applyServerEcho(local, server).staleSnags).toBe(false);
+    const server = { ...local, dailyDigest: false };
+    expect(applyServerEcho(local, server).dailyDigest).toBe(false);
     expect(applyServerEcho(local, null)).toBe(local);
   });
 });

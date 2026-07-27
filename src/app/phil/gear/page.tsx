@@ -40,21 +40,14 @@ export default async function PhilGearPage() {
   }
 
   // Sharpened-chrome flag (cached flags.json read) — server-resolved boolean.
-  // observations_inbox rides the same wave: it gates the Capture launcher's
-  // observation options.
-  const [sharpenedFlags, observationsEnabled] = await Promise.all([
-    philSharpenedFlags(session),
-    isFlagEnabled("observations_inbox", session),
-  ]);
+  const sharpenedFlags = await philSharpenedFlags(session);
 
   return (
     <PhilShell
       title={sharpenedFlags.sharpened ? "Gear" : "My gear"}
       userId={session.userId ?? ""}
       sharpened={sharpenedFlags.sharpened}
-      rfiRegister={sharpenedFlags.rfiRegister}
       jobRoomsEnabled={sharpenedFlags.jobRooms}
-      observationsEnabled={observationsEnabled}
       accountInitials={philInitials(session.name ?? session.username)}
     >
       <div className="space-y-4">

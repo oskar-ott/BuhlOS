@@ -1,28 +1,26 @@
 // Cross-resource search for admins / leading hands.
 //
 //   GET /api/search?q=<text>
-//       &types=jobs,snags,users   (optional; defaults to all three)
+//       &types=jobs,users        (optional; defaults to both)
 //       &limit=20                 (per-type cap; default 10, max 50)
 //
 // Lightweight prefix + substring search across the resources Daniel
 // most often needs to *find*: jobs (by name), users (by username), and
-// snags (by description). Returns a flat de-duplicated list of typed
+// Returns a flat de-duplicated list of typed
 // results, scored simply — exact / prefix match first, then substring.
 //
 // Why this exists:
-//   "Where was that meter-box snag again?" — answered without first
 //   guessing which job it was on. The command palette in /admin
 //   (PR #36 Phase 04) will consume this when it lands; until then,
 //   it's a usable read-only endpoint for any quick lookup UI.
 //
 // Permissions:
-//   - admin: searches all jobs / snags / users
-//   - leadingHand: snags & jobs restricted to their assignedJobIds;
+//   - admin: searches all jobs / users
+//   - leadingHand: jobs restricted to their assignedJobIds;
 //                  users restricted to those on shared jobs
 //   - everyone else: 403
 //
 // Notes:
-//   - Snag walk is bounded by visible-jobs count, not snag count.
 //   - All matching is case-insensitive.
 //   - Results are sorted by score within type, then merged.
 
@@ -30,7 +28,7 @@ const { readBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, isStaffRole, isAdminRole, isLeadingHandRole, isClientRole } = require('./_lib/auth');
 const { isFlagEnabled } = require('./_lib/feature-flags');
 
-const TYPES = new Set(['jobs', 'snags', 'users']);
+const TYPES = new Set(['jobs', 'users']);
 
 // Return a score for a haystack match against the lowercased needle.
 // 3 = exact, 2 = prefix, 1 = substring, 0 = no match.
@@ -59,7 +57,7 @@ module.exports = async (req, res) => {
     return res.status(200).json({ q, results: [] });
   }
 
-  const requestedTypes = (req.query.types ? String(req.query.types) : 'jobs,snags,users')
+  const requestedTypes = (req.query.types ? String(req.query.types) : 'jobs,users')
     .split(',').map(s => s.trim()).filter(s => TYPES.has(s));
   const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 50);
 
@@ -140,46 +138,6 @@ module.exports = async (req, res) => {
     matches.sort((a, b) => b._score - a._score);
     for (const m of matches.slice(0, limit)) {
       delete m._score;
-      results.push(m);
-    }
-  }
-
-  // ── Snags ─────────────────────────────────────────────────────────────
-  // Lean reset: with the snags feature hidden, search must not surface snag
-  // results (their /v2/jobs/<id>/snags targets 404 while the flag is off).
-  if (requestedTypes.includes('snags') && (await isFlagEnabled('snags', me))) {
-    // Per-job walks in parallel — bounded by visible-job count.
-    const perJob = await Promise.all(visibleJobs.map(async j => {
-      let data;
-      try { data = await readBlob(`jobs/${j.id}/data.json`, { snags: [] }); }
-      catch { return []; }
-      const out = [];
-      for (const s of (data.snags || [])) {
-        const score = scoreMatch(s.desc, q);
-        if (score > 0) {
-          out.push({
-            type: 'snag',
-            id: s.id,
-            jobId: j.id,
-            label: s.desc || '(no description)',
-            sub: j.name + ' · ' + (s.status || 'Open') +
-                 (s.priority ? ' · ' + s.priority : ''),
-            url: '/v2/jobs/' + j.id + '/snags',
-            _score: score,
-            _createdAt: s.createdAt || s.date || '',
-          });
-        }
-      }
-      return out;
-    }));
-    const flat = [].concat.apply([], perJob);
-    flat.sort((a, b) => {
-      if (b._score !== a._score) return b._score - a._score;
-      // Newer first within same score
-      return (b._createdAt || '').localeCompare(a._createdAt || '');
-    });
-    for (const m of flat.slice(0, limit)) {
-      delete m._score; delete m._createdAt;
       results.push(m);
     }
   }

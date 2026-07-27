@@ -287,210 +287,7 @@ const REGISTRY = {
     target: 'admin-tier',
     expires: '2026-09-30',
   },
-  // Office "Field view" of a job (mobile-admin redesign): when on, the admin
-  // job hub (/v2/jobs/[jobId]) offers an Office/Field segmented toggle whose
-  // Field view is a READ-ONLY admin render of the Phil job command model (what
-  // the crew sees on site). Admin-tier; resolved server-side and passed down as
-  // a boolean (the client never reads the flag). Default OFF, unset in prod.
-  admin_job_field_view: {
-    description: 'Show the Office/Field view toggle + read-only Phil job render on /v2/jobs/[jobId] (mobile-admin redesign).',
-    default: false,
-    target: 'admin-tier',
-    expires: '2026-09-25',
-  },
-  // Office "Proof to sign off" (#503): when on, the cross-job submitted-proof
-  // queue (a Command Centre card + an Approvals view) and the approve /
-  // send-back surface are shown to the admin tier, wired to the EXISTING
-  // proof-review engine. Admin-tier; resolved server-side. Default OFF, unset
-  // in prod. Gates only the OFFICE surface — the Phil submit path stays live.
-  admin_proof_review: {
-    description: 'Show the office Proof-to-sign-off approve/send-back surface + Command Centre queue (#503).',
-    default: false,
-    target: 'admin-tier',
-    expires: '2026-09-25',
-  },
-  // Read-only pricing/BOQ workbook import PREVIEW (#365 first increment): gates
-  // POST /api/job-doc-import + the /v2/tools/job-doc-import admin page. Parses an
-  // uploaded .xlsx pricing sheet into a structured, reviewable BOQ (lines +
-  // commercial reconciliation + ambiguity flags) and RETURNS it. It writes NO
-  // job/quote/material/blob — turning a reviewed preview into job data is a later
-  // slice (gated on #479). Admin-tier; dark by default so the surface is invisible
-  // until proven on a preview deploy.
-  job_doc_import: {
-    description: 'Enable the read-only pricing/BOQ workbook import preview — POST /api/job-doc-import + /v2/tools/job-doc-import (#365). Writes nothing. Dark.',
-    default: false,
-    target: 'admin-tier',
-    expires: '2026-12-31',
-  },
-  // Per-job progress claims (#372): gates /api/job-claims (+ /export), the
-  // /v2/jobs/[jobId]/claims register + print view, and the job-hub claims card.
-  // Claim lines seed from the linked quote's priced lines (where #365/#828
-  // imported BOQ lines land) or compiled work packages; evidence links per line;
-  // submit freezes; CSV export matches Payapps keying. ADMIN-TIER (billing) and
-  // dark by default so the money surface is invisible until proven on preview.
-  progress_claims: {
-    description: 'Enable per-job progress claims — /api/job-claims + /v2/jobs/[jobId]/claims: lines from BOQ/packages, evidence per line, immutable submit, Payapps-ready CSV (#372). Dark.',
-    default: false,
-    target: 'admin-tier',
-    expires: '2026-12-31',
-  },
-  // Safety documents on the job + acknowledge-read in Phil (#219): gates
-  // /api/safety-docs, the /v2/jobs/[jobId]/safety admin sub-route, and the Phil
-  // Safety section/route. GLOBAL (not admin-tier) so assigned field crew can see
-  // and acknowledge their SWMS/SDS once it's on — admin-only upload is enforced
-  // in the handler, not by the flag. Default OFF; the Phil home hides the section
-  // until real (presence-gated, no flag read on the LCP path).
-  safety_docs: {
-    description: 'Enable safety documents (SWMS/SDS) on the job with acknowledge-read in Phil — /api/safety-docs + /v2/jobs/[jobId]/safety + Phil Safety section (#219). Dark.',
-    default: false,
-    target: 'global',
-    expires: '2026-12-31',
-  },
-  // Commissioning documents + certificates register (#231): gates /api/certificates,
-  // the /v2/jobs/[jobId]/certificates admin register, and the Phil read-only certs
-  // section. GLOBAL so assigned crew see the read-only list once on; admin-only
-  // upload is enforced in the handler. Default OFF.
-  certificates_register: {
-    description: 'Enable the commissioning documents + certificates register — /api/certificates + /v2/jobs/[jobId]/certificates + Phil read-only certs (#231). Dark.',
-    default: false,
-    target: 'global',
-    expires: '2026-12-31',
-  },
-  // Per-job RFI register (#276): gates /api/rfis + the /v2/jobs/[jobId]/rfis admin
-  // register (raise / send / answer / close). GLOBAL flag; admin/managing-LH only
-  // is enforced in the handler (RFIs are office-side — the field raises questions
-  // via the Phil observation chip). Default OFF.
-  rfi_register: {
-    description: 'Enable the per-job RFI register — /api/rfis + /v2/jobs/[jobId]/rfis (#276). Dark.',
-    default: false,
-    target: 'global',
-    expires: '2026-12-31',
-  },
-  // Per-job variation-claims register (#280): gates the /v2/jobs/[jobId]/variations
-  // admin register UI + the observations "Convert to variation claim" promotion
-  // (api/variations.js itself stays admin-tier-gated regardless — money is never
-  // flag-open). ADMIN-TIER target (not global): claims are billing, an office
-  // concern — the LH job hub never advertises the section and the API 403s
-  // non-admin anyway. Default OFF.
-  variations_register: {
-    description: 'Enable the per-job variation-claims register UI — /v2/jobs/[jobId]/variations over api/variations.js (#280). Dark.',
-    default: false,
-    target: 'admin-tier',
-    expires: '2026-12-31',
-  },
-  // Per-job meeting-minutes register (#217): gates /api/job-minutes + the
-  // /v2/jobs/[jobId]/minutes admin register (record minutes / add amendment).
-  // An append-only record of meeting minutes (date, title, attendees, body
-  // and/or a PDF attachment) with stamped amendments — the original is never
-  // mutated. GLOBAL flag; admin/managing-LH only is enforced in the handler
-  // (read admin/LH; write admin). Default OFF.
-  minutes_register: {
-    description: 'Enable the per-job meeting-minutes register — /api/job-minutes + /v2/jobs/[jobId]/minutes (#217). Dark.',
-    default: false,
-    target: 'global',
-    expires: '2026-12-31',
-  },
 
-  // Per-job site-instructions register (#283): gates /api/site-instructions +
-  // the /v2/jobs/[jobId]/instructions admin register. Records builder
-  // instructions (who/what/when/channel), a formal acknowledgement back, and a
-  // cost/time-implication flag so costed instructions spawn an RFI/variation
-  // instead of becoming free work. GLOBAL flag; admin/managing-LH only is
-  // enforced in the handler (read admin/LH; write admin). Default OFF.
-  site_instructions_register: {
-    description: 'Enable the per-job site-instructions register — /api/site-instructions + /v2/jobs/[jobId]/instructions (#283). Dark.',
-    default: false,
-    target: 'global',
-    expires: '2026-12-31',
-  },
-  // AI assistant foundation (#170, Epic 6): gates /api/ai-assistant — the
-  // permission-scoped tool layer's first consumer (the job-summary backend for
-  // #173). GLOBAL flag; the handler + tool gates enforce admin/managing-LH
-  // (canManageJob) per tool, admin-tier for company-wide tools. No UI yet.
-  // Default OFF so the endpoint is invisible until proven on a preview deploy.
-  ai_assistant: {
-    description: 'Enable the AI assistant endpoint — /api/ai-assistant (permission-scoped tool layer + job summary backend, #170). No UI. Dark.',
-    default: false,
-    target: 'global',
-    expires: '2026-12-31',
-  },
-  // Standalone AI batch (2026-07): five suggestion features on the #170
-  // foundation. All launch-gates, default OFF — AI output is draft/suggested
-  // until a human reviews it; the flags keep each surface invisible until
-  // proven on a preview deploy. Admin-tier: every one is an office review
-  // surface; Phil renders none of them.
-  ai_photo_labels: {
-    description: 'AI photo classification on the evidence queue — suggested labels with confidence, human correct/override (#262). Dark.',
-    default: false,
-    target: 'admin-tier',
-    expires: '2026-12-31',
-  },
-  ai_snag_suggestions: {
-    description: 'Suggest a snag from photos labelled possible-defect — accept/dismiss in evidence review, snag created only on accept (#267). Dark.',
-    default: false,
-    target: 'admin-tier',
-    expires: '2026-12-31',
-  },
-  ai_insights_digest: {
-    description: 'Weekly plain-English digest of deterministic anomalies, every number grounded in the findings payload (#347). Dark.',
-    default: false,
-    target: 'admin-tier',
-    expires: '2026-12-31',
-  },
-  ai_quote_drafts: {
-    description: 'AI draft quote lines from pasted scope on the v2 builder — per-line accept/edit/discard, nothing enters totals unreviewed (#246). Dark.',
-    default: false,
-    target: 'admin-tier',
-    expires: '2026-12-31',
-  },
-  ai_contract_obligations: {
-    description: 'Extract contract obligations from pasted contract text into a review queue — accepted items become scope clauses (#373). Dark.',
-    default: false,
-    target: 'admin-tier',
-    expires: '2026-12-31',
-  },
-  ai_office_daily_summary: {
-    description: 'Morning summary of yesterday across jobs — deterministic facts (hours/snags/evidence/blockers), AI only rephrases, every number grounded (#171). Dark.',
-    default: false,
-    target: 'admin-tier',
-    expires: '2026-12-31',
-  },
-  // Epic 5 — AI Drawing Interpretation, foundation slice (#197): gates
-  // /api/ai-drawings (page understanding — sheet classification + title-block
-  // parse with per-field confidence, behind a human review-and-correct loop)
-  // and the sheet-understanding panel on /v2/jobs/[jobId]/documents.
-  // Extractions persist in Supabase (first extraction tables); vision spend
-  // rides the SHARED per-job AI cap (#510 ledger). Default OFF until proven
-  // on a real uploaded drawing set.
-  ai_drawings: {
-    description: 'Enable AI drawing interpretation — /api/ai-drawings page understanding + the review panel on job documents (#197). Dark.',
-    default: false,
-    target: 'admin-tier',
-    expires: '2026-12-31',
-  },
-  // BuhlOS Job Builder redesign (campaign). The office job-builder is re-skinned
-  // to the Claude-Design prototype in coordinated WAVES; this dark gate lets each
-  // redesigned surface be preview-verified before it becomes the admin default
-  // (Wave 1 = the New Job screen; cockpit polish + gap steps follow). Admin-only
-  // surface. Default OFF. See docs/job-builder-redesign.md.
-  job_builder_redesign: {
-    description: 'Render the redesigned BuhlOS Job Builder surfaces (Wave 1: New Job; cockpit polish + gap steps follow). Dark. See docs/job-builder-redesign.md.',
-    default: false,
-    target: 'admin-tier',
-    expires: '2026-12-31',
-  },
-  // Plan Studio — suggest tasks from detected fittings (#213 adjacent): a
-  // REVIEW-ONLY proposal of job-level rough-in / fit-off tasks derived from the
-  // AI fitting counts. Its OWN flag (separate from ai_drawings) so the
-  // rooms→areas bridge ships without the task-suggestion step. Keys off
-  // job-level task templates + canonical task identity — never deepens
-  // area-owned task arrays (task-led ADR) — and never auto-seeds. Dark.
-  ai_plan_tasks: {
-    description: 'Suggest job tasks from AI-detected plan fittings — review-only, admin adds them to the job-level task templates (#213). Dark.',
-    default: false,
-    target: 'admin-tier',
-    expires: '2026-12-31',
-  },
   // Daily ServiceM8 → BuhlOS job sync. A cron pulls the active 'Work Order'
   // jobs from ServiceM8 and auto-creates any missing from BuhlOS, so a field
   // worker is never blocked from logging hours because the office booked the
@@ -551,9 +348,11 @@ const REGISTRY = {
   // changes until the owner flips it. `jobs`/`hours`/`evidence` are the CORE
   // spine — gateable but the board warns before you turn them off.
   //
-  // Lean reset (2026-07): only the lean core keeps a default-ON kill-switch —
-  // jobs, hours, evidence, employees, gear. Every other shipped feature moved
-  // to the lean-reset block below (default OFF, no killSwitch).
+  // Lean reset (2026-07) + the gut (2026-07-27): only the lean core keeps a
+  // default-ON kill-switch — jobs, hours, evidence, employees, gear, job_photos.
+  // Every other shipped feature was hidden by the reset and then DELETED from
+  // the tree by the gut (docs/product/02-lean-reset.md → "The gut"); its flag is
+  // gone with it. Restore point: the `pre-gut-archive` tag.
   jobs: {
     description: 'CORE. The jobs list + job hub — /v2/jobs + api/jobs. Live; owner kill-switch (turning off hides the whole Jobs surface).',
     default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
@@ -575,9 +374,9 @@ const REGISTRY = {
     default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
   },
 
-  // NEW build mandated BY the lean reset (step 6) — not one of the archived
-  // features below: the field's simple ITP builder, dark until the owner
-  // preview-verifies and flips it.
+  // NEW builds mandated BY the lean reset (steps 5–6): the crew sign-up link
+  // and the field's simple ITP builder, dark until the owner preview-verifies
+  // and flips them.
   signup_link: {
     description: 'Crew sign-up link — one shareable /onboarding/<code> URL for the group chat; workers self-signup into a review queue, admin approves → account + welcome email. Public side api/signup.js, admin side /employees. Dark.',
     default: false,
@@ -585,93 +384,18 @@ const REGISTRY = {
     expires: '2027-06-30',
   },
   itp_simple: {
-    description: 'Simple mobile ITP builder — job-scoped areas + photos rendered to a plain PDF in Phil (#912, lean-reset step 6). Metadata Supabase-first, binaries in Blob. Independent of the heavy `itp` system. Dark.',
+    description: 'Simple mobile ITP builder — job-scoped areas + photos rendered to a plain PDF in Phil (#912, lean-reset step 6). Metadata Supabase-first, binaries in Blob. Dark.',
     default: false,
     target: 'global',
     expires: '2026-12-31',
   },
 
-  // ── Lean reset (2026-07): shipped features HIDDEN from the product ─────────
-  // Product-owner scope decision (docs/product/02-lean-reset.md): the lean core
-  // is hours (log → approve → Xero), basic jobs, the per-job tag register,
-  // capture/evidence and gear. Everything below is ARCHIVED, not deleted —
-  // reclassified from kill-switch back to dark launch-gate (default OFF). Code,
-  // routes, APIs and data all remain, and each flag keeps its board
-  // presentation, so the owner can re-enable any of these from /owner (Live
-  // dial / owner preview). NO TRACE of a hidden feature may show on kept
-  // surfaces: no nav items, no "under construction" panels, no tiles.
-  itp: {
-    description: 'Per-job ITP / QA — hold/witness/record points + office sign-off (#474/#476). Hidden by the 2026-07 lean reset; re-enable from /owner.',
-    default: false,
-    target: 'global',
-    expires: '2027-06-30',
-  },
-  observations_inbox: {
-    description: 'The From-site inbox + per-job observations — /observations + api/observations. Hidden by the 2026-07 lean reset; re-enable from /owner.',
-    default: false, target: 'global', expires: '2027-06-30',
-  },
-  material_requests: {
-    description: 'Field-to-office material requests — /material-requests + per-job register + api/material-requests. Hidden by the 2026-07 lean reset; re-enable from /owner.',
-    default: false, target: 'global', expires: '2027-06-30',
-  },
-  expenses: {
-    description: 'Reimbursements — field receipts the office reviews — /expenses + api/expenses. Hidden by the 2026-07 lean reset; re-enable from /owner.',
-    default: false, target: 'global', expires: '2027-06-30',
-  },
-  quotes: {
-    description: 'The quote builder — /v2/quotes + api/quotes. Hidden by the 2026-07 lean reset; re-enable from /owner.',
-    default: false, target: 'global', expires: '2027-06-30',
-  },
-  defects: {
-    description: 'The cross-job defects register — /defects. Hidden by the 2026-07 lean reset; re-enable from /owner.',
-    default: false, target: 'global', expires: '2027-06-30',
-  },
-  dayworks: {
-    description: 'The daywork dockets register — /v2/dayworks + per-job dayworks + api/dayworks. Hidden by the 2026-07 lean reset; re-enable from /owner.',
-    default: false, target: 'global', expires: '2027-06-30',
-  },
-  reports: {
-    description: 'The owner-numbers reports surface — /reports. Hidden by the 2026-07 lean reset; re-enable from /owner.',
-    default: false, target: 'global', expires: '2027-06-30',
-  },
   // job_photos left the hidden list by owner decision (#916 call 2,
   // 2026-07-18): the gallery completes the capture loop, so it is lean-core —
-  // back to a kill-switch (default ON).
+  // a kill-switch (default ON).
   job_photos: {
     description: 'The read-only job photo gallery ("Job Bible") — /v2/jobs/[id]/photos + /phil/jobs/[id]/photos. Lean-core (capture loop); owner kill-switch.',
     default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
-  },
-  snags: {
-    description: 'Per-job snags/defects raised by the field — /v2/jobs/[id]/snags + api/snags. Hidden by the 2026-07 lean reset; re-enable from /owner.',
-    default: false, target: 'global', expires: '2027-06-30',
-  },
-  scope_reconciliation: {
-    description: 'Scope-vs-quote reconciliation — /v2/jobs/[id]/scope. Hidden by the 2026-07 lean reset; re-enable from /owner.',
-    default: false, target: 'global', expires: '2027-06-30',
-  },
-  job_control: {
-    description: 'Required-proof authoring (job control) — /v2/jobs/[id]/job-control. Hidden by the 2026-07 lean reset; re-enable from /owner.',
-    default: false, target: 'global', expires: '2027-06-30',
-  },
-  closeout: {
-    description: 'The handover closeout matrix — /v2/jobs/[id]/closeout. Hidden by the 2026-07 lean reset; re-enable from /owner.',
-    default: false, target: 'global', expires: '2027-06-30',
-  },
-  documents: {
-    description: 'The per-job document & specs register — /v2/jobs/[id]/documents + api/documents. Hidden by the 2026-07 lean reset; re-enable from /owner.',
-    default: false, target: 'global', expires: '2027-06-30',
-  },
-  circuit_schedule: {
-    description: 'AS/NZS-3000 circuit schedules — /v2/jobs/[id]/circuit-schedule + api/job-circuits. Hidden by the 2026-07 lean reset; re-enable from /owner.',
-    default: false, target: 'global', expires: '2027-06-30',
-  },
-  diary: {
-    description: 'The per-job site diary — /v2/jobs/[id]/diary + api/diary. Hidden by the 2026-07 lean reset; re-enable from /owner.',
-    default: false, target: 'global', expires: '2027-06-30',
-  },
-  job_activity: {
-    description: 'The per-job activity/audit trail — /v2/jobs/[id]/history. Hidden by the 2026-07 lean reset; re-enable from /owner.',
-    default: false, target: 'global', expires: '2027-06-30',
   },
 };
 
@@ -684,30 +408,9 @@ const REGISTRY = {
 // features point at their own route; job-scoped features (sections inside a job)
 // point at /v2/jobs — open any job and the section is visible while previewing.
 const FLAG_PRESENTATION = {
-  itp: { label: 'ITPs', domain: 'QA & compliance', surface: 'Shared', previewHref: '/itp-templates' },
   signup_link: { label: 'Crew sign-up link', domain: 'Company', surface: 'Shared', previewHref: '/employees' },
   itp_simple: { label: 'Simple ITP builder (Phil)', domain: 'QA & compliance', surface: 'Phil', previewHref: '/phil/jobs' },
-  rfi_register: { label: 'RFIs', domain: 'QA & compliance', surface: 'Shared', previewHref: '/v2/jobs' },
-  certificates_register: { label: 'Certificates', domain: 'QA & compliance', surface: 'BuhlOS', previewHref: '/v2/jobs' },
-  safety_docs: { label: 'Safety docs (SWMS/SDS)', domain: 'QA & compliance', surface: 'Shared', previewHref: '/v2/jobs' },
-  admin_proof_review: { label: 'Proof sign-off', domain: 'QA & compliance', surface: 'BuhlOS', previewHref: '/command-centre' },
-  minutes_register: { label: 'Meeting minutes', domain: 'Site records', surface: 'BuhlOS', previewHref: '/v2/jobs' },
-  site_instructions_register: { label: 'Site instructions', domain: 'Site records', surface: 'BuhlOS', previewHref: '/v2/jobs' },
-  job_doc_import: { label: 'BOQ / pricing import', domain: 'Commercial', surface: 'BuhlOS', previewHref: '/v2/tools/job-doc-import' },
-  variations_register: { label: 'Variation claims', domain: 'Commercial', surface: 'BuhlOS', previewHref: '/v2/jobs' },
-  progress_claims: { label: 'Progress claims', domain: 'Commercial', surface: 'BuhlOS', previewHref: '/v2/jobs' },
-  admin_job_field_view: { label: 'Office / Field job view', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/v2/jobs' },
   admin_flags_readout: { label: 'Flags readout card', domain: 'Platform', surface: 'BuhlOS', previewHref: '/command-centre' },
-  ai_assistant: { label: 'AI assistant (API foundation)', domain: 'Platform', surface: 'BuhlOS', previewHref: '/v2/jobs' },
-  ai_photo_labels: { label: 'AI photo labels', domain: 'Field capture', surface: 'BuhlOS', previewHref: '/v2/jobs' },
-  ai_snag_suggestions: { label: 'AI snag suggestions', domain: 'Field capture', surface: 'BuhlOS', previewHref: '/v2/jobs' },
-  ai_insights_digest: { label: 'AI insights digest', domain: 'Company', surface: 'BuhlOS', previewHref: '/reports' },
-  ai_quote_drafts: { label: 'AI quote drafts', domain: 'Commercial', surface: 'BuhlOS', previewHref: '/v2/quotes' },
-  ai_contract_obligations: { label: 'AI contract obligations', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/v2/jobs' },
-  ai_office_daily_summary: { label: 'AI office daily summary', domain: 'Company', surface: 'BuhlOS', previewHref: '/reports' },
-  ai_drawings: { label: 'AI drawings — sheet understanding', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/v2/jobs' },
-  job_builder_redesign: { label: 'Job Builder redesign', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/v2/jobs/new' },
-  ai_plan_tasks: { label: 'AI plan tasks from fittings', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/v2/jobs' },
   servicem8_sync: { label: 'ServiceM8 job sync', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/command-centre' },
   phil_sharpened: { label: 'Phil sharpened redesign', domain: 'Phil', surface: 'Phil', previewHref: '/phil/my-day' },
   phil_job_rooms: { label: 'Phil in-job rooms (#133)', domain: 'Phil', surface: 'Phil', previewHref: '/phil/jobs' },
@@ -719,24 +422,9 @@ const FLAG_PRESENTATION = {
   jobs: { label: 'Jobs', domain: 'Jobs', surface: 'Shared', core: true, previewHref: '/v2/jobs' },
   hours: { label: 'Hours', domain: 'Hours', surface: 'Shared', core: true, previewHref: '/hours' },
   evidence: { label: 'Evidence', domain: 'Field capture', surface: 'Shared', core: true, previewHref: '/v2/jobs' },
-  observations_inbox: { label: 'From site (observations)', domain: 'Field capture', surface: 'Shared', previewHref: '/observations' },
-  material_requests: { label: 'Material requests', domain: 'Commercial', surface: 'Shared', previewHref: '/material-requests' },
-  expenses: { label: 'Expenses', domain: 'Commercial', surface: 'Shared', previewHref: '/expenses' },
-  quotes: { label: 'Quotes', domain: 'Commercial', surface: 'BuhlOS', previewHref: '/v2/quotes' },
-  defects: { label: 'Defects', domain: 'QA & compliance', surface: 'BuhlOS', previewHref: '/defects' },
-  dayworks: { label: 'Dayworks', domain: 'Commercial', surface: 'BuhlOS', previewHref: '/v2/dayworks' },
   employees: { label: 'Employees', domain: 'People & gear', surface: 'BuhlOS', previewHref: '/employees' },
   gear: { label: 'Gear / test & tag', domain: 'People & gear', surface: 'BuhlOS', previewHref: '/gear' },
-  reports: { label: 'Reports', domain: 'Company', surface: 'BuhlOS', previewHref: '/reports' },
   job_photos: { label: 'Photos (Job Bible)', domain: 'Field capture', surface: 'Shared', previewHref: '/v2/jobs' },
-  snags: { label: 'Snags', domain: 'Field capture', surface: 'Shared', previewHref: '/v2/jobs' },
-  scope_reconciliation: { label: 'Scope reconciliation', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/v2/jobs' },
-  job_control: { label: 'Job control (required proof)', domain: 'Jobs', surface: 'Shared', previewHref: '/v2/jobs' },
-  closeout: { label: 'Closeout', domain: 'QA & compliance', surface: 'BuhlOS', previewHref: '/v2/jobs' },
-  documents: { label: 'Documents & specs', domain: 'Site records', surface: 'Shared', previewHref: '/v2/jobs' },
-  circuit_schedule: { label: 'Circuit schedules', domain: 'QA & compliance', surface: 'Shared', previewHref: '/v2/jobs' },
-  diary: { label: 'Site diary', domain: 'Site records', surface: 'BuhlOS', previewHref: '/v2/jobs' },
-  job_activity: { label: 'Activity (audit trail)', domain: 'Platform', surface: 'BuhlOS', previewHref: '/v2/jobs' },
 };
 
 /** Board presentation (label/domain/surface) for a flag, or null if none. */

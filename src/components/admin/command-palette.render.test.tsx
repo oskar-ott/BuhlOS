@@ -78,7 +78,7 @@ describe("Open-palette command projection (#215)", () => {
     expect(hrefs).toContain("/command-centre");
     expect(hrefs).toContain("/v2/jobs");
     expect(hrefs).toContain("/employees");
-    expect(hrefs).toContain("/reports");
+    expect(hrefs).toContain("/gear");
     // Actions are reachable in the same flat sequence.
     expect(hrefs).toContain("/v2/jobs/new"); // New job
   });

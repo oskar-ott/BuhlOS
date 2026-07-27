@@ -5,7 +5,7 @@ import { buildBoard, heatFor, type BoardSignals, type OpenWorkInput } from "./bo
 function ex(id: string, severity: ExceptionSeverity): ExceptionItem {
   return {
     id,
-    source: "snag",
+    source: "job",
     sourceId: id,
     title: `Exception ${id}`,
     severity,
@@ -61,7 +61,7 @@ describe("buildBoard — hero", () => {
     expect(warnOnly.hero.tone).toBe("busy");
     expect(warnOnly.hero.headline).toBe("1 item needs action — nothing critical.");
 
-    const workOnly = buildBoard(signals({ openWork: [work("snags", 3)] }));
+    const workOnly = buildBoard(signals({ openWork: [work("evidence", 3)] }));
     expect(workOnly.hero.tone).toBe("busy");
     expect(workOnly.hero.headline).toContain("3 open items across the loops");
   });
@@ -122,13 +122,13 @@ describe("buildBoard — openWork", () => {
     const vm = buildBoard(
       signals({
         openWork: [
-          { key: "snags", label: "Snags", count: 9, href: "/s", icon: "alert-octagon" },
+          { key: "evidence", label: "Evidence", count: 9, href: "/e", icon: "camera" },
           { key: "hours", label: "Hours", count: 3, href: "/h", icon: "clipboard-check" },
         ],
       }),
     );
     const tile = (key: string) => vm.openWork.tiles.find((t) => t.key === key)!;
-    expect(tile("snags").icon).toBe("alert-octagon");
+    expect(tile("evidence").icon).toBe("camera");
     expect(tile("hours").icon).toBe("clipboard-check");
   });
 });

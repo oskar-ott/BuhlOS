@@ -22,14 +22,8 @@ import { TagListResponseSchema, type TagItem } from "@/domains/tags/schema";
 import { JobContactsResponseSchema, type JobContact } from "@/domains/contacts/schema";
 import { parseJobTaskState } from "@/domains/jobs/taskState";
 import { EvidenceListResponseSchema } from "@/domains/evidence/schema";
-import { SnagListResponseSchema } from "@/domains/snags/schema";
-import { ObservationListResponseSchema } from "@/domains/observations/schema";
-import { ITPListResponseSchema } from "@/domains/itp/schema";
 import type { Job } from "@/domains/jobs/types";
 import type { EvidenceItem } from "@/domains/evidence/types";
-import type { SnagItem } from "@/domains/snags/types";
-import type { ObservationItem } from "@/domains/observations/types";
-import type { ITPInstance } from "@/domains/itp/types";
 
 export const dynamic = "force-dynamic";
 
@@ -83,28 +77,13 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
   // Sharpened chrome + the in-job four-rooms takeover (phil_job_rooms — the
   // filed #133 experiment). Resolved ONCE server-side (cached flags.json);
   // philSharpenedFlags enforces jobRooms ⇒ sharpened, so with either flag off
-  // the job screen (and its chrome) renders exactly as today. The lean-reset
-  // gates ride the same wave: itp / snags gate their sections AND their
-  // server fetches (each API 404s while dark — see api/job-itps.js /
-  // api/snags.js), observations_inbox gates the observation fetch and the
-  // Capture launcher's observation options. Booleans only — never the flags
-  // blob (docs/feature-flags.md).
-  const [
-    sharpenedFlags,
-    itpEnabled,
-    itpSimpleEnabled,
-    snagsEnabled,
-    observationsEnabled,
-    photosGalleryEnabled,
-  ] = await Promise.all([
+  // the job screen (and its chrome) renders exactly as today. Booleans only —
+  // never the flags blob (docs/feature-flags.md).
+  const [sharpenedFlags, itpSimpleEnabled, photosGalleryEnabled] = await Promise.all([
     philSharpenedFlags(session),
-    isFlagEnabled("itp", session),
     isFlagEnabled("itp_simple", session),
-    isFlagEnabled("snags", session),
-    isFlagEnabled("observations_inbox", session),
     // #915: the gallery card is data-driven — without the flag it would
-    // render a dead link to a flag-gated 404 route. (The circuit card left
-    // the page entirely with the #916 strip.)
+    // render a dead link to a flag-gated 404 route.
     isFlagEnabled("job_photos", session),
   ]);
   const accountInitials = philInitials(session.name ?? session.username);
@@ -127,11 +106,9 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
         title="Job"
         userId={viewerId}
         sharpened={sharpenedFlags.sharpened}
-        rfiRegister={sharpenedFlags.rfiRegister}
         accountInitials={accountInitials}
         roomsActive={sharpenedFlags.jobRooms}
         jobRoomsEnabled={sharpenedFlags.jobRooms}
-        observationsEnabled={observationsEnabled}
       >
         {/* #145: remember this open so the jobs list can surface it in Recent. */}
         <PhilJobViewRecorder userId={viewerId} jobId={jobId} />
@@ -142,10 +119,7 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
           viewerId,
           viewerRole,
           jobRooms: sharpenedFlags.jobRooms,
-          itpEnabled,
           itpSimpleEnabled,
-          snagsEnabled,
-          observationsEnabled,
           photosGalleryEnabled,
         })}
       </PhilShell>
@@ -167,11 +141,9 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
       title={shellHeader?.name ?? "Job"}
       userId={viewerId}
       sharpened={sharpenedFlags.sharpened}
-      rfiRegister={sharpenedFlags.rfiRegister}
       accountInitials={accountInitials}
       roomsActive={sharpenedFlags.jobRooms}
       jobRoomsEnabled={sharpenedFlags.jobRooms}
-      observationsEnabled={observationsEnabled}
     >
       {/* #145: remember this open so the jobs list can surface it in Recent. */}
       <PhilJobViewRecorder userId={viewerId} jobId={jobId} />
@@ -183,10 +155,7 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
           viewerId={viewerId}
           viewerRole={viewerRole}
           jobRooms={sharpenedFlags.jobRooms}
-          itpEnabled={itpEnabled}
           itpSimpleEnabled={itpSimpleEnabled}
-          snagsEnabled={snagsEnabled}
-          observationsEnabled={observationsEnabled}
           photosGalleryEnabled={photosGalleryEnabled}
         />
       </Suspense>
@@ -210,10 +179,7 @@ async function PhilJobDetailFull({
   viewerId,
   viewerRole,
   jobRooms,
-  itpEnabled,
   itpSimpleEnabled,
-  snagsEnabled,
-  observationsEnabled,
   photosGalleryEnabled,
 }: {
   raw: string | undefined;
@@ -224,41 +190,22 @@ async function PhilJobDetailFull({
   /** phil_job_rooms (dark, #133): render the four-rooms takeover. Resolved by
    *  the page via philSharpenedFlags (jobRooms ⇒ sharpened enforced there). */
   jobRooms: boolean;
-  /** Lean-reset gates, resolved by the page. When a flag is off its backing
-   *  API 404s (itp → api/job-itps.js, snags → api/snags.js,
-   *  observations_inbox → api/observations.js), so the fetch is skipped
-   *  entirely — empty data in, section hidden in PhilJobDetail. */
-  itpEnabled: boolean;
   /** itp_simple (#912): link-out card only — the builder route/API 404 dark. */
   itpSimpleEnabled: boolean;
-  snagsEnabled: boolean;
-  observationsEnabled: boolean;
   /** #915: gate for the data-driven gallery card, whose route 404s dark. */
   photosGalleryEnabled: boolean;
 }) {
   // Lean reset step 5 (#916): the work-to-do machinery left the job page —
   // no task-state read (blocking or streamed), no job-control spine read, no
   // documents/services reads. Restore from git if structure returns.
-  const [
-    result,
-    initialEvidence,
-    initialSnags,
-    initialObservations,
-    initialItps,
-    tagsResult,
-    initialContacts,
-    initialMyInduction,
-  ] = await Promise.all([
-    loadJob(raw, jobId),
-    loadInitialEvidence(raw, jobId),
-    // Dark-feature loads are SKIPPED, not fired-and-404'd (lean reset).
-    snagsEnabled ? loadInitialSnags(raw, jobId) : [],
-    observationsEnabled ? loadInitialObservations(raw, jobId) : [],
-    itpEnabled ? loadInitialItps(raw, jobId) : [],
-    loadInitialTags(raw, jobId),
-    loadInitialContacts(raw, jobId),
-    loadInitialMyInduction(raw, jobId),
-  ]);
+  const [result, initialEvidence, tagsResult, initialContacts, initialMyInduction] =
+    await Promise.all([
+      loadJob(raw, jobId),
+      loadInitialEvidence(raw, jobId),
+      loadInitialTags(raw, jobId),
+      loadInitialContacts(raw, jobId),
+      loadInitialMyInduction(raw, jobId),
+    ]);
 
   if (result.kind === "not_found" || result.kind === "forbidden") {
     return (
@@ -290,33 +237,17 @@ async function PhilJobDetailFull({
     );
   }
 
-  // #219: env-only flag read (no blob, off the LCP path) — mount the Safety
-  // home section only when the flag is on; otherwise it isn't even mounted, so
-  // a dark prod fires zero extra requests on the field home.
-  const safetyDocsRaw = (process.env.FLAG_SAFETY_DOCS ?? "").toLowerCase();
-  const safetyEnabled =
-    safetyDocsRaw === "1" || safetyDocsRaw === "true" || safetyDocsRaw === "on";
-  const certsRaw = (process.env.FLAG_CERTIFICATES_REGISTER ?? "").toLowerCase();
-  const certificatesEnabled = certsRaw === "1" || certsRaw === "true" || certsRaw === "on";
-
   return (
     <PhilJobDetail
       job={result.job}
       initialEvidence={initialEvidence}
-      initialSnags={initialSnags}
-      initialObservations={initialObservations}
-      initialItps={initialItps}
       initialTags={tagsResult.tags}
       tagsError={tagsResult.error}
       initialContacts={initialContacts}
       initialMyInduction={initialMyInduction}
       viewer={{ id: viewerId, role: viewerRole }}
       autoCaptureToken={captureToken}
-      safetyEnabled={safetyEnabled}
-      certificatesEnabled={certificatesEnabled}
-      itpEnabled={itpEnabled}
       itpSimpleEnabled={itpSimpleEnabled}
-      snagsEnabled={snagsEnabled}
       photosGalleryEnabled={photosGalleryEnabled}
     />
   );
@@ -435,111 +366,6 @@ async function loadInitialEvidence(
     return [];
   }
 }
-
-/**
- * Fetch the snags for this job. Server returns every snag on the job
- * for every field user assigned to it (same visibility as the admin
- * queue). Non-blocking: a failure returns [] and the panel shows its
- * empty state.
- */
-async function loadInitialSnags(
-  cookieValue: string | undefined,
-  jobId: string
-): Promise<SnagItem[]> {
-  const h = await headers();
-  const host = h.get("x-forwarded-host") ?? h.get("host");
-  const proto = h.get("x-forwarded-proto") ?? "http";
-  const base = host ? `${proto}://${host}` : "http://localhost:3000";
-  try {
-    const res = await fetch(
-      `${base}/api/snags?jobId=${encodeURIComponent(jobId)}`,
-      {
-        cache: "no-store",
-        headers: cookieValue
-          ? { cookie: `${SESSION_COOKIE}=${cookieValue}` }
-          : undefined,
-      }
-    );
-    if (!res.ok) return [];
-    const body = await res.json();
-    const parsed = SnagListResponseSchema.safeParse(body);
-    if (!parsed.success) return [];
-    return parsed.data.snags;
-  } catch {
-    return [];
-  }
-}
-
-/**
- * Fetch the observations for this job (#504 — the real blocker source). Server
- * returns the job's observations the viewer may see. Non-blocking: a failure
- * returns [] and nothing is treated as blocked. Mirrors loadInitialSnags.
- */
-async function loadInitialObservations(
-  cookieValue: string | undefined,
-  jobId: string
-): Promise<ObservationItem[]> {
-  const h = await headers();
-  const host = h.get("x-forwarded-host") ?? h.get("host");
-  const proto = h.get("x-forwarded-proto") ?? "http";
-  const base = host ? `${proto}://${host}` : "http://localhost:3000";
-  try {
-    const res = await fetch(
-      `${base}/api/observations?jobId=${encodeURIComponent(jobId)}`,
-      {
-        cache: "no-store",
-        headers: cookieValue
-          ? { cookie: `${SESSION_COOKIE}=${cookieValue}` }
-          : undefined,
-      }
-    );
-    if (!res.ok) return [];
-    const body = await res.json();
-    const parsed = ObservationListResponseSchema.safeParse(body);
-    if (!parsed.success) return [];
-    return [...parsed.data.observations];
-  } catch {
-    return [];
-  }
-}
-
-/**
- * Fetch the ITP instances for this job (Phase E1b). Server returns
- * every attached instance the viewer is allowed to see — admin/LH see
- * all; tradies see the ones on their assigned jobs. Non-blocking: a
- * failure returns [] and the JobItpPanel shows its empty state.
- *
- * Mirrors loadInitialEvidence / loadInitialSnags so the panel renders
- * server-rendered content on first paint without a client-side spinner.
- */
-async function loadInitialItps(
-  cookieValue: string | undefined,
-  jobId: string
-): Promise<ITPInstance[]> {
-  const h = await headers();
-  const host = h.get("x-forwarded-host") ?? h.get("host");
-  const proto = h.get("x-forwarded-proto") ?? "http";
-  const base = host ? `${proto}://${host}` : "http://localhost:3000";
-  try {
-    const res = await fetch(
-      `${base}/api/job-itps?jobId=${encodeURIComponent(jobId)}`,
-      {
-        cache: "no-store",
-        headers: cookieValue
-          ? { cookie: `${SESSION_COOKIE}=${cookieValue}` }
-          : undefined,
-      }
-    );
-    if (!res.ok) return [];
-    const body = await res.json();
-    const parsed = ITPListResponseSchema.safeParse(body);
-    if (!parsed.success) return [];
-    return [...parsed.data.instances];
-  } catch {
-    return [];
-  }
-}
-
 
 /**
  * Fetch worker-visible task state from the per-job data blob

@@ -188,9 +188,9 @@ describe("JobsList — remembered default (storage mocked)", () => {
 
 describe("JobsList — health indicators + filter/sort (#227)", () => {
   const HEALTH_JOBS: ReadonlyArray<Job> = [
-    job({ id: "h_good", name: "Healthy Job", status: "active", statsSnagsV2Active: 0, statsEvidenceV2Pending: 0, statsItpsNeedsReview: 0, statsExpiredTags: 0 }),
+    job({ id: "h_good", name: "Healthy Job", status: "active", statsEvidenceV2Pending: 0, statsExpiredTags: 0 }),
     job({ id: "h_risk", name: "Risky Job", status: "active", statsExpiredTags: 2 }),
-    job({ id: "h_watch", name: "Watchful Job", status: "active", statsSnagsV2Active: 1 }),
+    job({ id: "h_watch", name: "Watchful Job", status: "active", statsEvidenceV2Pending: 1 }),
   ];
 
   it("renders a per-row health badge incl. an At-risk pill and an On-track pill", () => {

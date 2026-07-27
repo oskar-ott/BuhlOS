@@ -10,7 +10,6 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { PhilTabBar } from "./PhilTabBar";
-import { CaptureLauncherProvider } from "./captureLauncherContext";
 import {
   PhilJobRoomsBarContext,
   type PhilJobRoomsBarBinding,
@@ -36,11 +35,7 @@ function renderBar(
     createElement(
       PhilJobRoomsBarContext.Provider,
       { value: { binding, setBinding: () => {} } },
-      createElement(
-        CaptureLauncherProvider,
-        null,
-        createElement(PhilTabBar, { sharpened, roomsActive }),
-      ),
+      createElement(PhilTabBar, { sharpened, roomsActive }),
     ),
   );
 }

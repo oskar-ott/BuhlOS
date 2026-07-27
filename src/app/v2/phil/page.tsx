@@ -1,7 +1,6 @@
 import Link from "next/link";
 import type { Route } from "next";
 import { cookies, headers } from "next/headers";
-import { isFlagEnabled } from "../../../../api/_lib/feature-flags.js";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { PhilMyLicencesCard } from "@/components/phil/PhilMyLicencesCard";
 import { PhilMyInductionsCard } from "@/components/phil/PhilMyInductionsCard";
@@ -39,16 +38,14 @@ export default async function PhilV2HomePage() {
   const store = await cookies();
   const session = decodeSessionCookie(store.get(SESSION_COOKIE)?.value);
   const viewerId = session?.userId ?? session?.sub ?? "";
-  const [{ credentials, fetchError }, inductions, myRecord, observationsEnabled] =
+  const [{ credentials, fetchError }, inductions, myRecord] =
     await Promise.all([
       loadMyLicences(),
       loadMyInductions(),
       loadMyRecord(),
-      // observations_inbox gates the Capture launcher's observation options.
-      isFlagEnabled("observations_inbox", session),
     ]);
   return (
-    <PhilShell title="BuhlOS" observationsEnabled={observationsEnabled}>
+    <PhilShell title="BuhlOS">
       <div className="space-y-4">
         <Card className="space-y-2">
           <CardTitle>You&rsquo;re on BuhlOS</CardTitle>

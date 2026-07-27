@@ -24,11 +24,8 @@ Non-protected feature flags also carry presentation metadata (`label`, `domain`,
 |---|---|---|---|
 | `supabase_dual_write` | global | 2026-09-30 | Mirror blob writes into Supabase per migrated domain (#152) |
 | `admin_flags_readout` | admin-tier | 2026-09-30 | The active-flags readout card on /command-centre |
-| `admin_job_field_view` | admin-tier | 2026-09-25 | The Office/Field view toggle + read-only Phil job render on `/v2/jobs/[jobId]` (mobile-admin redesign) |
-| `admin_proof_review` | admin-tier | 2026-09-25 | The office Proof-to-sign-off approve/send-back surface + Command Centre queue (#503) |
-| `itp` | global | 2027-06-30 | Per-job ITP / QA — hold/witness/record + office sign-off (#474/#476). **Hidden by the 2026-07 lean reset** (was a kill-switch); the owner can re-enable it from `/owner` |
 | `signup_link` | global | 2027-06-30 | Crew sign-up link — shareable `/onboarding/<code>` for the group chat; public `api/signup.js` (resolve/submit), admin link + review queue on `/employees` (`api/employees.js?action=signup*`). A submission is pending until an admin approves (approval = account + welcome email E5); default OFF |
-| `itp_simple` | global | 2026-12-31 | Simple mobile ITP builder in Phil (#912, lean-reset step 6) — job-scoped areas + photos rendered to a plain PDF at `/phil/jobs/[jobId]/itp-reports` + `api/itp-simple`. Metadata Supabase-first, binaries in Blob. Independent of the heavy `itp` system; default OFF |
+| `itp_simple` | global | 2026-12-31 | Simple mobile ITP builder in Phil (#912, lean-reset step 6) — job-scoped areas + photos rendered to a plain PDF at `/phil/jobs/[jobId]/itp-reports` + `api/itp-simple`. Metadata Supabase-first, binaries in Blob; default OFF |
 | `supabase_read_health` | global | 2026-12-31 | `GET /api/supabase-health` — the read-only Supabase connectivity proving slice (#533) |
 | `supabase_read_hours` | global | 2026-12-31 | Serve the hours display read (`listUserEntries`) from Postgres with a Blob fallback (#152) |
 | `supabase_dual_write_jobs` | global | 2026-12-31 | Mirror one job's `jobs.json` structure write into Postgres, best-effort, Blob authoritative (#152, J8) |
@@ -45,6 +42,8 @@ Non-protected feature flags also carry presentation metadata (`label`, `domain`,
 | `phil_sharpened` | global | 2026-12-31 | Phil field-surface redesign ("sharpened"): 5-slot global nav (Today·Jobs·Capture·Hours·Gear, account on the header avatar) + screen re-skins. Behavioural change to the ratified Phil package — flips only via governance (P15) |
 | `phil_job_rooms` | global | 2026-12-31 | In-job four-rooms navigation (Now·Work·Proof·Site + Capture) on `/phil/jobs/[jobId]` — the #133 tabbed-job experiment, judged by the tabs criterion. Requires `phil_sharpened` |
 | `xero_connection` | admin-tier | 2026-12-31 | The Xero payroll foundation — connection, reference sync, worker + work-type mappings, immutable payroll batches on `/hours/period` (#247/#610/#248/#611/#893/#894). No Xero write exists behind this flag; the timesheet push (#249) gets its own independent gate |
+| `servicem8_sync` | admin-tier | 2027-06-30 | Daily ServiceM8 → BuhlOS job sync (auto-create missing Work Orders) + the Command Centre card. Needs `SERVICEM8_API_KEY` |
+| `phil_jobs_summary_read` | global | 2026-12-31 | Serve the FIELD job LIST read (`/api/jobs`) from the derived `jobs-summary.json` projection, freshness-gated with a full `jobs.json` fallback (Phil LCP). Protected; env-only |
 | `xero_payroll_export` | admin-tier | 2026-12-31 | The first Xero WRITE — export a LOCKED payroll batch to Xero Payroll AU as DRAFT timesheets with per-worker readback reconciliation (#249). Independent of `xero_connection`; default OFF. DRAFT timesheets only — no pay runs / approval / STP / tax / super / payslips (payroll-boundary ADR #609). Gates the Preview/Export/Retry/Reconcile controls on `/hours/period`; the batch-CSV download stays available without it |
 
 ## Flipping a flag
@@ -131,7 +130,9 @@ There are exactly two shapes. The kind is declared on the flag, not inferred:
 A feature can move **between** kinds: the 2026-07 **lean reset** reclassified
 most kill-switches back to dark launch-gates (`default: false`, `killSwitch`
 removed) — the sanctioned way to *archive* a shipped feature without deleting
-it. See "Feature kill-switches" below.
+it. Archiving is a **holding position, not a resting place**: the 2026-07-27
+**gut** deleted those archived features outright, flags included. See
+"Feature kill-switches" below.
 
 The resolver is identical for both — `isFlagOn` / `isFlagEnabled` already honour
 `def.default`, so a kill-switch is just a flag whose default happens to be
@@ -148,14 +149,14 @@ non-`killSwitch` flag is `default: false`.
 ## Feature kill-switches — the owner controls the whole interface (#760)
 
 Every shipped feature carries a flag the owner can control from `/owner`.
-**Since the 2026-07 lean reset** (`docs/product/02-lean-reset.md`), only the
-lean core remains a default-ON kill-switch: **jobs, hours, evidence,
-employees, gear**. Everything else — observations, material requests,
-expenses, quotes, defects, dayworks, reports, ITPs, snags, photos gallery,
-scope, job control, closeout, documents, circuit schedules, diary, job
-activity, … — is **hidden**: reclassified to a dark launch-gate
-(`default: false`), archived-not-deleted, re-enable from `/owner` any time.
-Each such flag gates the feature at **three layers**, so
+**Since the 2026-07 lean reset and the 2026-07-27 gut**
+(`docs/product/02-lean-reset.md`), the kill-switch set IS the lean core:
+**jobs, hours, evidence, employees, gear, job_photos**. The reset hid every
+other shipped feature by reclassifying its kill-switch to a dark launch-gate;
+the gut then **deleted those features' code and their flags** — the registry
+went from 66 flags to 30. There is no `/owner` dial for a gutted feature any
+more; restoring one means restoring from the `pre-gut-archive` tag.
+Each kill-switch flag gates its feature at **three layers**, so
 turning it off removes the feature everywhere — not just visually:
 
 1. **Navigation** — `src/components/admin/nav.ts` tags each sidebar item with

@@ -11,7 +11,6 @@ vi.mock("next/navigation", () => ({
 
 import { PhilShell } from "./PhilShell";
 import { PhilTabBar } from "./PhilTabBar";
-import { CaptureLauncherProvider } from "./captureLauncherContext";
 import {
   rememberPhilChrome,
   resetPhilChromeMemoryForTests,
@@ -40,7 +39,7 @@ function renderShell(overrides: Partial<Parameters<typeof PhilShell>[0]> = {}) {
 
 function renderBar(props: Parameters<typeof PhilTabBar>[0] = {}) {
   return renderToString(
-    createElement(CaptureLauncherProvider, null, createElement(PhilTabBar, props)),
+    createElement(PhilTabBar, props),
   );
 }
 

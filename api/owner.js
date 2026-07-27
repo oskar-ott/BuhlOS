@@ -404,30 +404,24 @@ function buildCoverage() {
   const ns = (n) => (n ? auditedNamespaces.has(n) : false);
 
   // #154: areas whose PRIMARY api/*.js handlers are wrapped with
-  // withErrorCapture (api/jobs.js, api/data.js, api/time-entries.js,
-  // api/observations.js). ESCAPED errors only — a route's internal catches
+  // withErrorCapture (api/jobs.js, api/data.js, api/time-entries.js).
+  // ESCAPED errors only — a route's internal catches
   // still swallow. Areas served by other, unwrapped handlers stay false.
   const ERROR_WRAPPED_AREAS = new Set([
     'Jobs',
     'Hours',
     'Phil — Hours',
-    'Observations / RFIs / Snags',
   ]);
 
   // [area, surface, accessGuarded, auditNamespace|null]
   const defs = [
     ['Command centre', 'BuhlOS', true, null],
     ['Jobs', 'BuhlOS', true, 'job'],
-    ['Quotes', 'BuhlOS', true, 'quote'],
     ['Hours', 'BuhlOS', true, 'hours'],
     ['Gear', 'BuhlOS', true, 'gear'],
     ['Employees', 'BuhlOS', true, 'employee'],
-    ['QA / ITPs', 'BuhlOS', true, 'itp'],
-    ['Materials', 'BuhlOS', true, 'material_request'],
-    ['Observations / RFIs / Snags', 'BuhlOS', true, 'observation'],
-    ['Reports (owner numbers)', 'BuhlOS', true, null],
     ['Phil — My Day', 'Phil', true, 'evidence'],
-    ['Phil — Jobs', 'Phil', true, 'snag'],
+    ['Phil — Jobs', 'Phil', true, 'tag'],
     ['Phil — Hours', 'Phil', true, 'hours'],
     ['Phil — Gear', 'Phil', true, 'gear'],
     ['Login / Auth', 'Shared', false, null],

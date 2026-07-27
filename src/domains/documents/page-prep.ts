@@ -9,7 +9,7 @@ import { setPlanPages } from "./client";
  *
  * Shared by two callers:
  *   - DocumentUploadButton — prep at upload time (the happy path);
- *   - SheetUnderstandingPanel — RETRO prep for documents that have no pages
+ *   - RETRO prep for documents that have no pages
  *     (uploads made while pdf.js was broken pre-#867, and image files, which
  *     the uploader never prepped at all).
  *

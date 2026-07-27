@@ -9,10 +9,8 @@
 //
 //   dailyHoursReminder  — tradie / LH: "did you log hours?" 16:30 push
 //   dailyDigest         — admin:       end-of-day digest 17:00 push
-//   staleSnags          — admin:       Monday 09:00 stale-snag triage push
 //   tagReminders        — admin / LH:  weekly tag-expiry digest
 //   hoursApproved       — tradie / LH: per-entry approval push to recipient
-//   snagAssigned        — LH / admin:  per-snag auto-assign push to recipient
 //
 // Why this exists:
 //   Push is a hammer — once a user has it on, they get every type. Some
@@ -42,10 +40,8 @@ const { getCurrentUser } = require('./_lib/auth');
 const VALID_KEYS = new Set([
   'dailyHoursReminder',
   'dailyDigest',
-  'staleSnags',
   'tagReminders',
   'hoursApproved',
-  'snagAssigned',
 ]);
 
 // Resolve a user's effective prefs — missing keys default true so behaviour

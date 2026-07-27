@@ -1,14 +1,12 @@
 "use client";
 
 import {
-  AlertOctagon,
   AlertTriangle,
   Camera,
   CheckCircle2,
   ChevronRight,
   Circle,
   CircleDot,
-  ClipboardCheck,
   ExternalLink,
   FileText,
   Loader2,
@@ -41,25 +39,14 @@ import {
   type AreaStageAvailability,
 } from "./philJobWorkTree";
 import { PhilTaskScopeContext } from "./PhilTaskScopeContext";
-import type { ProofActionStatus } from "./jobControlEvidenceLinkClient";
-import {
-  proofReviewStatusLabel,
-  proofSubmitMessage,
-  type ProofSubmitStatus,
-} from "./jobControlProofReviewClient";
 import {
   summarisePhilTaskProof,
   type PhilTaskContext,
-  type TaskContextEvidenceReq,
 } from "@/domains/job-control/task-context";
-import { taskRefKey } from "@/domains/job-control/spine";
-import type { ProofReview, TaskRef } from "@/domains/job-control/types";
 import type { PhilTaskReadiness } from "@/domains/jobs/phil-task-projection";
 import { cn } from "@/lib/cn";
 
 const LINK_ICON = {
-  snags: AlertOctagon,
-  itps: ClipboardCheck,
   photos: Camera,
 } as const;
 
@@ -105,28 +92,6 @@ interface Props {
    *  production, so this is visually inert until that data flows (zero
    *  regression). */
   readinessByTaskId?: ReadonlyMap<string, PhilTaskReadiness>;
-  /** Capture proof for a specific unmet requirement on a task. The parent fills
-   *  the area/stage coordinate; the row adds `taskId`. Omitted ⇒ no affordance. */
-  onCaptureProof?: (target: { workPackageId: string; requiredEvidenceId: string; kind: TaskContextEvidenceReq["kind"]; taskId: string; taskRef?: TaskRef }) => void;
-  /** Flag a variation from a task's "stop — flag a variation first" warning
-   *  (#368). The row supplies the task coordinate (`taskRef`) when `areaId` is
-   *  known. Omitted ⇒ the warning stays text-only (today's behavior). */
-  onFlagVariation?: (trigger: { warningId: string; taskRef?: TaskRef }) => void;
-  /** Per-requirement (requiredEvidenceId → status) capture/link feedback. */
-  proofActionState?: Readonly<Record<string, ProofActionStatus>>;
-  /** Whether a capture+link can run now (a job-control revision is available). */
-  canCaptureProof?: boolean;
-  /** The area these tasks belong to — needed to build each task's coordinate for
-   *  per-task proof review (#503). Absent ⇒ no submit/review affordance. */
-  areaId?: string;
-  /** Task-instance proof reviews for this job (#503). */
-  proofReviews?: ReadonlyArray<ProofReview>;
-  /** Submit a task's captured proof for review (#503). */
-  onSubmitForReview?: (taskRef: TaskRef) => void;
-  /** Per-task (taskRefKey → status) submit feedback. */
-  proofSubmitStatus?: Readonly<Record<string, ProofSubmitStatus>>;
-  /** Whether a submit can run now (a job-control revision is available). */
-  canSubmitForReview?: boolean;
 }
 
 /**
@@ -139,8 +104,8 @@ interface Props {
  *
  *   1. Area header (name + space type).
  *   2. "In this area" quick links — one chip per real, area-linked
- *      count (snags · area ITPs · photos). Each scrolls to the matching
- *      job section. Hidden entirely when nothing is outstanding.
+ *      count (photos). Each scrolls to the matching job section. Hidden
+ *      entirely when nothing is outstanding.
  *   3. Stage selector — only when the area has BOTH a rough-in and a
  *      fit-off plan. With a single stage there's nothing to choose, so
  *      we show a static stage label instead (the parent has already
@@ -176,15 +141,6 @@ export function PhilJobAreaDetail({
   pendingTaskIds,
   taskContextById,
   readinessByTaskId,
-  onCaptureProof,
-  onFlagVariation,
-  proofActionState,
-  canCaptureProof,
-  areaId,
-  proofReviews,
-  onSubmitForReview,
-  proofSubmitStatus,
-  canSubmitForReview,
 }: Props) {
   const links = areaQuickLinks(counts);
   const sole = soleStage(stages);
@@ -278,16 +234,7 @@ export function PhilJobAreaDetail({
         {hasAnyStage(stages) ? (
           tasks.length > 0 ? (
             <ul className="mt-2 divide-y divide-border overflow-hidden rounded-card border border-border bg-surface">
-              {tasks.map((t) => {
-                // Per-task proof-review (#503): the task coordinate, its current
-                // review (if any), and the submit handler — only when the parent
-                // supplied the areaId.
-                const tref: TaskRef | null = areaId ? { areaId, stage, taskId: t.id } : null;
-                const rk = tref ? taskRefKey(tref) : null;
-                const review = rk
-                  ? proofReviews?.find((r) => taskRefKey(r.taskRef) === rk) ?? null
-                  : null;
-                return (
+              {tasks.map((t) => (
                 <TaskRow
                   key={t.id}
                   jobId={jobId}
@@ -300,27 +247,8 @@ export function PhilJobAreaDetail({
                       ? () => onToggleTask(t.id, nextToggleState(t.state))
                       : undefined
                   }
-                  onCaptureProof={onCaptureProof}
-                  onFlagVariation={
-                    onFlagVariation
-                      ? (trigger) =>
-                          onFlagVariation({
-                            ...trigger,
-                            ...(tref ? { taskRef: tref } : {}),
-                          })
-                      : undefined
-                  }
-                  proofActionState={proofActionState}
-                  canCaptureProof={canCaptureProof}
-                  review={review}
-                  onSubmitForReview={
-                    tref && onSubmitForReview ? () => onSubmitForReview(tref) : undefined
-                  }
-                  submitStatus={rk ? proofSubmitStatus?.[rk] : undefined}
-                  canSubmitForReview={canSubmitForReview}
                 />
-                );
-              })}
+              ))}
             </ul>
           ) : (
             <p className="mt-2 rounded-card border border-dashed border-border bg-surface-subtle p-4 text-sm text-text-muted">
@@ -473,14 +401,6 @@ function TaskRow({
   onToggle,
   context,
   readiness,
-  onCaptureProof,
-  onFlagVariation,
-  proofActionState,
-  canCaptureProof,
-  review,
-  onSubmitForReview,
-  submitStatus,
-  canSubmitForReview,
 }: {
   jobId?: string;
   task: WorkerTask;
@@ -488,14 +408,6 @@ function TaskRow({
   onToggle?: () => void;
   context?: PhilTaskContext;
   readiness?: PhilTaskReadiness;
-  onCaptureProof?: (target: { workPackageId: string; requiredEvidenceId: string; kind: TaskContextEvidenceReq["kind"]; taskId: string; taskRef?: TaskRef }) => void;
-  onFlagVariation?: (trigger: { warningId: string; taskRef?: TaskRef }) => void;
-  proofActionState?: Readonly<Record<string, ProofActionStatus>>;
-  canCaptureProof?: boolean;
-  review?: ProofReview | null;
-  onSubmitForReview?: () => void;
-  submitStatus?: ProofSubmitStatus;
-  canSubmitForReview?: boolean;
 }) {
   const done = isComplete(task.state);
   const blocked = readiness?.readiness === "blocked";
@@ -578,65 +490,7 @@ function TaskRow({
           </p>
         )
       ) : null}
-      {/* Per-task proof review (#503): the current review status, then a submit /
-          resubmit affordance when proof is all captured and nothing is awaiting
-          review. */}
-      {review ? (
-        <p
-          className={cn(
-            "mt-1.5 flex items-start gap-1.5 text-xs",
-            review.status === "approved"
-              ? "text-state-success"
-              : review.status === "rejected"
-                ? "text-state-warning"
-                : "text-text-muted",
-          )}
-        >
-          <span>
-            <span className="font-display font-semibold">Review</span> — {proofReviewStatusLabel(review)}
-          </span>
-        </p>
-      ) : null}
-      {onSubmitForReview &&
-      canSubmitForReview &&
-      proof?.eligibleForReview &&
-      review?.status !== "submitted" &&
-      review?.status !== "approved" ? (
-        <div className="mt-1.5">
-          <button
-            type="button"
-            onClick={onSubmitForReview}
-            disabled={submitStatus === "submitting"}
-            className={cn(
-              "inline-flex min-h-[40px] items-center gap-1.5 rounded-pill border border-border bg-surface px-3 font-display text-xs font-semibold text-text",
-              "hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-brand-navy disabled:cursor-not-allowed disabled:opacity-60",
-            )}
-          >
-            {submitStatus === "submitting"
-              ? "Submitting…"
-              : review?.status === "rejected"
-                ? "Resubmit for review"
-                : "Submit for review"}
-          </button>
-          {submitStatus && submitStatus !== "submitting" ? (
-            <span className="mt-1 block text-xs text-state-warning">{proofSubmitMessage(submitStatus)}</span>
-          ) : null}
-        </div>
-      ) : null}
-      {context ? (
-        <PhilTaskScopeContext
-          context={context}
-          jobId={jobId}
-          onCaptureProof={
-            onCaptureProof
-              ? (t) => onCaptureProof({ ...t, taskId: task.id })
-              : undefined
-          }
-          onFlagVariation={onFlagVariation}
-          proofActionState={proofActionState}
-          canCaptureProof={canCaptureProof}
-        />
-      ) : null}
+      {context ? <PhilTaskScopeContext context={context} jobId={jobId} /> : null}
     </li>
   );
 }

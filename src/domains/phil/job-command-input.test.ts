@@ -5,24 +5,17 @@ import {
 } from "./job-command-input";
 import { buildPhilJobCommandModel } from "./job-command-model";
 import type { Job } from "@/domains/jobs/types";
-import type { SnagItem } from "@/domains/snags/types";
-import type { ITPInstance } from "@/domains/itp/types";
 import type { Document } from "@/domains/documents/types";
 
 const job = (over: Partial<Job> = {}): Job =>
   ({ id: "job-1", name: "Birdwood IV3232", ...over }) as unknown as Job;
-const snag = (status: string): SnagItem => ({ status }) as unknown as SnagItem;
-const itp = (status: string, archived = false): ITPInstance =>
-  ({ status, archived }) as unknown as ITPInstance;
 const doc = (status?: string): Document => ({ status }) as unknown as Document;
 
 describe("philJobCommandInputFromJobData — module gating", () => {
-  it("uses server module defaults: photos/snags/plans on, itps off", () => {
+  it("uses server module defaults: photos/plans on", () => {
     const inp = philJobCommandInputFromJobData({ job: job() });
     expect(inp.capture.kind).toBe("available");
-    expect(inp.snags.kind).toBe("count");
     expect(inp.plans.kind).toBe("count");
-    expect(inp.itps.kind).toBe("not_configured"); // ITP module defaults OFF
   });
 
   it("honours an explicit module-off flag (photos)", () => {
@@ -30,25 +23,18 @@ describe("philJobCommandInputFromJobData — module gating", () => {
     expect(inp.capture.kind).toBe("unavailable");
   });
 
-  it("counts outstanding ITP checks only when the ITP module is on", () => {
+  it("keeps the deleted snag/ITP registers permanently not_configured", () => {
+    // Even with the per-job modules explicitly ON: the registers, their APIs
+    // and their job sections are gone, so no action may anchor at them.
     const inp = philJobCommandInputFromJobData({
-      job: job({ modules: { itps: true } }),
-      itps: [itp("pending"), itp("in-progress"), itp("witnessed"), itp("signed-off"), itp("pending", true)],
+      job: job({ modules: { snags: true, itps: true } }),
     });
-    // pending + in-progress = 2; witnessed/signed-off/archived excluded
-    expect(inp.itps).toEqual({ kind: "count", value: 2 });
+    expect(inp.snags).toEqual({ kind: "not_configured" });
+    expect(inp.itps).toEqual({ kind: "not_configured" });
   });
 });
 
 describe("philJobCommandInputFromJobData — honest counts", () => {
-  it("counts only active (open) snags", () => {
-    const inp = philJobCommandInputFromJobData({
-      job: job(),
-      snags: [snag("open"), snag("in_progress"), snag("resolved"), snag("verified"), snag("closed"), snag("rejected")],
-    });
-    expect(inp.snags).toEqual({ kind: "count", value: 3 }); // open + in_progress + resolved
-  });
-
   it("counts only current documents (missing status defaults to current)", () => {
     const inp = philJobCommandInputFromJobData({
       job: job(),
@@ -58,8 +44,8 @@ describe("philJobCommandInputFromJobData — honest counts", () => {
   });
 
   it("treats a genuinely empty list as a real zero, not unknown", () => {
-    const inp = philJobCommandInputFromJobData({ job: job(), snags: [] });
-    expect(inp.snags).toEqual({ kind: "count", value: 0 });
+    const inp = philJobCommandInputFromJobData({ job: job(), documents: [] });
+    expect(inp.plans).toEqual({ kind: "count", value: 0 });
   });
 
   it("derives visible task count from the same preview the live surface uses", () => {
@@ -100,12 +86,11 @@ describe("philJobCommandInputFromJobData — honest counts", () => {
 describe("philJobCommandInputFromJobData — failed loads become unknown, not false zero", () => {
   it("marks a list as unknown when its fetch failed", () => {
     const inp = philJobCommandInputFromJobData({
-      job: job({ modules: { itps: true } }),
-      loadErrors: { snags: true, documents: true, itps: true },
+      job: job(),
+      loadErrors: { documents: true, tags: true },
     });
-    expect(inp.snags.kind).toBe("unknown");
     expect(inp.plans.kind).toBe("unknown");
-    expect(inp.itps.kind).toBe("unknown");
+    expect(inp.tags.kind).toBe("unknown");
   });
 });
 
@@ -137,26 +122,21 @@ describe("bridge + model end to end", () => {
     const model = buildPhilJobCommandModel(
       philJobCommandInputFromJobData({
         job: job({ roughInTasks: [{ id: "t1", name: "Rough in" }] }),
-        snags: [snag("open")],
         documents: [doc("current"), doc("current")],
       }),
     );
     expect(model.state).toBe("ready");
     expect(model.jobName).toBe("Birdwood IV3232");
     const ids = [model.primaryAction, ...model.actions].map((a) => a?.id);
-    expect(ids).toEqual(expect.arrayContaining(["capture", "view_plans", "report_issue", "continue_tasks", "log_hours"]));
-    // open snags surface as awareness, rejected hours as an honest limitation
-    expect(model.attention.some((a) => a.id === "open-snags")).toBe(true);
+    expect(ids).toEqual(expect.arrayContaining(["capture", "view_plans", "continue_tasks", "log_hours"]));
+    // rejected hours surface as an honest limitation
     expect(model.limitations.some((l) => l.id === "rejected-hours-unknown")).toBe(true);
   });
 
-  it("globally hidden snags/ITPs derive not_configured — no report_issue, no dead anchor (#915)", () => {
+  it("derives no snag/ITP action or attention — the registers are gone (#915)", () => {
     const model = buildPhilJobCommandModel(
       philJobCommandInputFromJobData({
         job: job({ roughInTasks: [{ id: "t1", name: "Rough in" }] }),
-        features: { snags: false, itps: false },
-        snags: [],
-        itps: [],
         documents: [doc("current")],
       }),
     );

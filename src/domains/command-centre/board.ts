@@ -24,14 +24,9 @@ export type BoardIcon =
   | "clipboard-check"
   | "briefcase"
   | "camera"
-  | "alert-octagon"
-  | "file-check"
-  | "inbox"
   | "rotate-ccw"
   | "user-x"
-  | "layers"
-  | "package"
-  | "message-circle-question";
+  | "layers";
 
 /** critical first, then warning; info never reaches needsNow. */
 const SEVERITY_RANK: Record<ExceptionSeverity, number> = {

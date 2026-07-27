@@ -8,7 +8,6 @@ import {
 } from "@/domains/phil/job-command-model";
 import { philJobCommandInputFromJobData } from "@/domains/phil/job-command-input";
 import type { Job } from "@/domains/jobs/types";
-import type { SnagItem } from "@/domains/snags/types";
 import type { Document } from "@/domains/documents/types";
 
 /**
@@ -204,14 +203,13 @@ function jobFixture(over: Partial<Job> = {}): Job {
     id: "job-1",
     name: "Birdwood Rd",
     status: "active",
-    modules: { photos: true, plans: true, snags: true, itps: true },
+    modules: { photos: true, plans: true },
     roughInTasks: [{ id: "t1", name: "Rough in GPOs" }],
     areaGroups: [{ id: "g1", name: "Ground", areas: [{ id: "a1", name: "Kitchen" }] }],
     ...over,
   } as unknown as Job;
 }
 
-const openSnag = { id: "s1", status: "open" } as unknown as SnagItem;
 const currentDoc = { id: "d1", status: "current" } as unknown as Document;
 
 describe("PhilJobCommandPanel — from the real bridge", () => {
@@ -219,16 +217,13 @@ describe("PhilJobCommandPanel — from the real bridge", () => {
     const model = buildPhilJobCommandModel(
       philJobCommandInputFromJobData({
         job: jobFixture(),
-        snags: [openSnag],
         documents: [currentDoc, currentDoc],
-        itps: [],
         // no taskState → tasks stay list_only ("View your tasks"), never a faked count
       }),
     );
     const html = render(model);
     expect(html).toContain("Quick actions");
     expect(html).toContain("View your tasks"); // list_only, honest
-    expect(html).toContain("Report an issue");
     expect(html).toContain("View plans"); // "View plans & docs (N)" — & is entity-encoded
     // rejected hours isn't fetched on the job page → honest limitation, not a fake card
     expect(html).toContain("Rejected hours aren’t shown on the job screen");

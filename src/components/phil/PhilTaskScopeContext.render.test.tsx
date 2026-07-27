@@ -3,7 +3,6 @@ import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import { PhilTaskScopeContext } from "./PhilTaskScopeContext";
 import type { PhilTaskContext } from "@/domains/job-control/task-context";
-import type { TaskRef } from "@/domains/job-control/types";
 
 /**
  * The component renders ONLY from a PhilTaskContext the model already built —
@@ -17,36 +16,9 @@ function render(context: PhilTaskContext): string {
   return renderToString(createElement(PhilTaskScopeContext, { context })).replace(/<!-- -->/g, "");
 }
 
-function renderWithProof(
-  context: PhilTaskContext,
-  opts: {
-    onCaptureProof?: (t: { workPackageId: string; requiredEvidenceId: string }) => void;
-    canCaptureProof?: boolean;
-    proofActionState?: Record<string, "saving" | "saved_not_linked" | "stale" | "error">;
-  },
-): string {
-  return renderToString(
-    createElement(PhilTaskScopeContext, {
-      context,
-      onCaptureProof: opts.onCaptureProof,
-      canCaptureProof: opts.canCaptureProof,
-      proofActionState: opts.proofActionState,
-    }),
-  ).replace(/<!-- -->/g, "");
-}
-
 function renderWithJob(context: PhilTaskContext, jobId?: string): string {
   return renderToString(
     createElement(PhilTaskScopeContext, { context, jobId }),
-  ).replace(/<!-- -->/g, "");
-}
-
-function renderWithVariation(
-  context: PhilTaskContext,
-  onFlagVariation?: (t: { warningId: string; taskRef?: TaskRef }) => void,
-): string {
-  return renderToString(
-    createElement(PhilTaskScopeContext, { context, onFlagVariation }),
   ).replace(/<!-- -->/g, "");
 }
 
@@ -146,52 +118,6 @@ describe("PhilTaskScopeContext", () => {
     expect(html).toContain("<details");
   });
 
-  it("renders NO capture affordance without a handler/revision (today's read-only default)", () => {
-    expect(render(FULL)).not.toContain("Capture proof");
-  });
-
-  it("renders a 'Capture proof' action ONLY for an unmet requirement when handler + revision + workPackage exist", () => {
-    // FULL has re1 met, re2 unmet → exactly one capture action (for re2).
-    const html = renderWithProof(FULL, { onCaptureProof: () => {}, canCaptureProof: true });
-    expect((html.match(/Capture proof/g) ?? []).length).toBe(1);
-  });
-
-  it("hides the capture action when no revision is available (canCaptureProof false)", () => {
-    expect(renderWithProof(FULL, { onCaptureProof: () => {}, canCaptureProof: false })).not.toContain(
-      "Capture proof",
-    );
-  });
-
-  it("hides the capture action when the task belongs to no work package (workPackageId null)", () => {
-    const noPkg: PhilTaskContext = {
-      ...FULL,
-      workPackageId: null,
-      // keep it non-empty so the disclosure still renders
-      scopeNote: "Some note",
-    };
-    expect(renderWithProof(noPkg, { onCaptureProof: () => {}, canCaptureProof: true })).not.toContain(
-      "Capture proof",
-    );
-  });
-
-  it("shows a plain status message for a stale link attempt", () => {
-    const html = renderWithProof(FULL, {
-      onCaptureProof: () => {},
-      canCaptureProof: true,
-      proofActionState: { re2: "stale" },
-    });
-    expect(html).toContain("Refresh and try again");
-  });
-
-  it("shows a 'Saving…' button while a link is in flight", () => {
-    const html = renderWithProof(FULL, {
-      onCaptureProof: () => {},
-      canCaptureProof: true,
-      proofActionState: { re2: "saving" },
-    });
-    expect(html).toContain("Saving…");
-  });
-
   it("links a governing drawing into the Phil plans viewer when jobId is provided (#368)", () => {
     const html = renderWithJob(FULL, "job-7");
     // The named sheet renders inside an anchor to THIS job's plans viewer.
@@ -228,37 +154,9 @@ describe("PhilTaskScopeContext", () => {
     expect(html).toContain('href="/phil/jobs/job-7/plans"');
   });
 
-  it("renders NO 'Flag a variation' action without a handler (today's text-only notice)", () => {
-    // The danger notice still appears, but with no button.
+  it("renders the variation-trigger notice as text only — no action button", () => {
     const html = render(FULL);
     expect(html).toContain("Stop — flag a variation first");
-    expect(html).not.toContain("Flag a variation");
     expect(html).not.toContain("<button");
-  });
-
-  it("renders a 'Flag a variation' action under the danger notice when onFlagVariation is wired", () => {
-    const html = renderWithVariation(FULL, () => {});
-    // The stop notice's title is untouched; the action is the new, distinct text.
-    expect(html).toContain("Stop — flag a variation first");
-    expect(html).toContain("Flag a variation");
-    expect(html).toContain("<button");
-    // One variation trigger in FULL → exactly one flag action.
-    expect((html.match(/Flag a variation/g) ?? []).length).toBe(1);
-  });
-
-  it("renders one 'Flag a variation' action per variation-trigger warning only", () => {
-    // Two variation triggers + a by_others warning → exactly two flag actions
-    // (by_others never gets one).
-    const twoTriggers: PhilTaskContext = {
-      ...FULL,
-      warnings: [
-        { id: "w1", kind: "variation_trigger", text: "PL3 pendants — confirm", scopeClauseId: null },
-        { id: "w3", kind: "variation_trigger", text: "Extra GPO run — confirm", scopeClauseId: null },
-        { id: "w2", kind: "by_others", text: "A/V by others", scopeClauseId: null },
-      ],
-    };
-    const html = renderWithVariation(twoTriggers, () => {});
-    expect((html.match(/Flag a variation/g) ?? []).length).toBe(2);
-    expect(html).toContain("By others");
   });
 });

@@ -31,11 +31,6 @@ export const NOTIFICATION_PREF_META: ReadonlyArray<NotificationPrefMeta> = [
     description: "A ping when your submitted hours are signed off. Sent to the worker whose hours were approved.",
   },
   {
-    key: "snagAssigned",
-    label: "Snag assigned to you",
-    description: "When a defect is assigned to you. Sent to the field worker or leading hand it lands on.",
-  },
-  {
     key: "dailyHoursReminder",
     label: "Daily hours reminder",
     description: "An afternoon nudge if you haven't logged hours yet. Sent to crew and leading hands.",
@@ -44,11 +39,6 @@ export const NOTIFICATION_PREF_META: ReadonlyArray<NotificationPrefMeta> = [
     key: "dailyDigest",
     label: "End-of-day digest",
     description: "A 5pm summary of the day's activity. Sent to office and management.",
-  },
-  {
-    key: "staleSnags",
-    label: "Stale-snag triage",
-    description: "A Monday-morning roll-up of defects going cold. Sent to office and management.",
   },
   {
     key: "tagReminders",

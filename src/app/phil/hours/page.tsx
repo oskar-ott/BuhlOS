@@ -83,14 +83,12 @@ export default async function PhilHoursPage({
 
   // History + the worker's active assigned jobs in parallel — the jobs feed
   // the resubmit form's attribution guard so a fix can't land jobId:null.
-  const [{ entries, fetchError }, assignedJobs, sharpenedFlags, observationsEnabled] =
+  const [{ entries, fetchError }, assignedJobs, sharpenedFlags] =
     await Promise.all([
       loadHistory(raw),
       loadAssignedJobs(raw),
       // Sharpened-chrome flag (cached flags.json read) — server-resolved boolean.
       philSharpenedFlags(session),
-      // observations_inbox gates the Capture launcher's observation options.
-      isFlagEnabled("observations_inbox", session),
     ]);
 
   // ── Sharpened Hours (phil_sharpened, dark — Wave 2c) ─────────────────────
@@ -104,9 +102,7 @@ export default async function PhilHoursPage({
         title="Hours"
         userId={session.userId ?? ""}
         sharpened
-        rfiRegister={sharpenedFlags.rfiRegister}
         jobRoomsEnabled={sharpenedFlags.jobRooms}
-        observationsEnabled={observationsEnabled}
         accountInitials={philInitials(session.name ?? session.username)}
       >
         <div className="space-y-4">
@@ -132,9 +128,7 @@ export default async function PhilHoursPage({
       title="Hours history"
       userId={session.userId ?? ""}
       sharpened={sharpenedFlags.sharpened}
-      rfiRegister={sharpenedFlags.rfiRegister}
       jobRoomsEnabled={sharpenedFlags.jobRooms}
-      observationsEnabled={observationsEnabled}
       accountInitials={philInitials(session.name ?? session.username)}
     >
       <div className="space-y-4">

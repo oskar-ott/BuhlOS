@@ -56,45 +56,30 @@ describe("Inspector — readiness view", () => {
 });
 
 describe("Inspector — row view (the real selected-row inspector)", () => {
-  it("inspects a scope clause with known certainty (live CertaintyChip + refs)", () => {
+  it("inspects a scope clause — the persisted title and detail", () => {
     const row: InspectorRow = {
       entity: "clause",
       id: "sw_1",
       title: "Supply and install DB-1",
       detail: "Includes mains tails",
-      certainty: "confirmed",
-      classificationLabel: "Priced",
-      boqLineCount: 2,
-      deliveredByCount: 1,
-      requiredEvidenceCount: 3,
-      warningText: null,
     };
     const html = render({ kind: "row", row });
     expect(html).toContain("Scope line");
     expect(html).toContain("Supply and install DB-1");
     expect(html).toContain("Includes mains tails");
-    expect(html).toContain("Confirmed"); // CertaintyChip label
-    expect(html).toContain("Priced");
-    expect(html).toContain("Required proof");
   });
 
-  it("inspects an un-reconciled clause honestly — no faked certainty", () => {
+  it("inspects a clause with no detail without inventing one", () => {
     const row: InspectorRow = {
       entity: "clause",
       id: "sw_2",
       title: "Make-safe existing",
       detail: null,
-      certainty: null,
-      classificationLabel: null,
-      boqLineCount: 0,
-      deliveredByCount: 0,
-      requiredEvidenceCount: 0,
-      warningText: null,
     };
     const html = render({ kind: "row", row });
-    expect(html).toContain("Not reconciled yet");
-    expect(html).not.toContain("Confirmed");
-    expect(html).not.toContain("Required proof");
+    expect(html).toContain("Scope line");
+    expect(html).toContain("Make-safe existing");
+    expect(html).not.toContain("Certainty");
   });
 
   it("inspects an area as a structural facet with no certainty", () => {

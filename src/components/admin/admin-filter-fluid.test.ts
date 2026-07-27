@@ -20,13 +20,9 @@ const ADMIN_DIR = resolve(dirname(fileURLToPath(import.meta.url)));
 const read = (rel: string): string => readFileSync(join(ADMIN_DIR, rel), "utf8");
 
 // Each file → the marker strings that uniquely identify its filter select(s).
-// The §6 inbox redesign hoisted the From-site (Observations) + Material-requests
-// filter select into the shared InboxShell (InboxFilterSelect), so the fluid
-// contract for those two now lives — and is frozen — in InboxShell.tsx.
 const FILTER_SELECTS: ReadonlyArray<{ file: string; floors: string[] }> = [
   { file: "HoursFilterBar.tsx", floors: ["sm:min-w-[10rem]"] },
   { file: "EvidenceFilterBar.tsx", floors: ["sm:min-w-[10rem]"] },
-  { file: "InboxShell.tsx", floors: ["sm:min-w-[8rem]"] },
 ];
 
 describe("admin filter bars are fluid on phones (#661)", () => {
@@ -47,14 +43,4 @@ describe("admin filter bars are fluid on phones (#661)", () => {
     });
   }
 
-  it("DefectsRegister job + priority selects fill the row on phones", () => {
-    const src = read("DefectsRegister.tsx");
-    // Job select: capped at 220px only at sm+.
-    expect(src).toContain("sm:max-w-[220px]");
-    expect(src.replace(/sm:max-w-\[220px\]/g, "")).not.toContain("max-w-[220px]");
-    // Both filter selects carry the fluid fragment.
-    const selectLines = src.split("\n").filter((l) => l.includes("focus:ring-brand-navy") && l.includes("rounded-card"));
-    const fluid = selectLines.filter((l) => l.includes("w-full") && l.includes("sm:w-auto"));
-    expect(fluid.length).toBeGreaterThanOrEqual(2);
-  });
 });

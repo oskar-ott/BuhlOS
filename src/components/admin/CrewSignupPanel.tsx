@@ -25,7 +25,7 @@ export function CrewSignupPanel() {
   const [busy, setBusy] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   // House rule: no window.confirm — destructive link actions arm on first
-  // click ("Sure?") and fire on the second (see DefectsRegister).
+  // click ("Sure?") and fire on the second.
   const [armed, setArmed] = useState<"revoke" | "newlink" | null>(null);
 
   const load = useCallback(async () => {

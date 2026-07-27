@@ -1,7 +1,5 @@
 import { AlertTriangle, CheckCircle2, Info, MapPin, ScrollText, X } from "lucide-react";
 import type { BuilderReadiness, ReadinessIssue } from "@/domains/jobs/builder";
-import type { CertaintyState } from "@/domains/jobs/certainty";
-import { CertaintyChip } from "./CertaintyChip";
 
 /**
  * The Job Builder cockpit's right pane (§4) — a real selected-row inspector.
@@ -10,13 +8,7 @@ import { CertaintyChip } from "./CertaintyChip";
  * blocker and warning from the real publish gate + field-lint, each jumping to
  * the section that owns the fix) and invites a selection. Click a row in the
  * canvas — a scope line or an area — and it inspects that row: its real,
- * persisted detail, plus the CertaintyChip for a scope line whose certainty is
- * known (derived from the confirmed reconciliation classification, never
- * invented). It only ever shows what the job actually holds.
- *
- * Certainty TRANSITIONS (confirm/RFI/ignore over availableTransitions) are not
- * here yet — re-classifying a clause is the reconciliation/review-queue flow
- * (a later PR). The chip is shown read-only where real certainty exists.
+ * persisted detail. It only ever shows what the job actually holds.
  */
 
 /** A row the inspector can inspect — only persisted fields, no invented data. */
@@ -34,13 +26,6 @@ export type InspectorRow =
       id: string;
       title: string;
       detail: string | null;
-      /** null when the job isn't reconciled yet — certainty isn't being tracked. */
-      certainty: CertaintyState | null;
-      classificationLabel: string | null;
-      boqLineCount: number;
-      deliveredByCount: number;
-      requiredEvidenceCount: number;
-      warningText: string | null;
     };
 
 export type InspectorTarget = { kind: "readiness" } | { kind: "row"; row: InspectorRow };
@@ -117,38 +102,7 @@ function RowInspector({ row, onDeselect }: { row: InspectorRow; onDeselect?: () 
       <p className="mt-1 font-display text-sm font-semibold text-text">{row.title}</p>
 
       {row.entity === "clause" ? (
-        <>
-          {row.detail ? <p className="mt-1 text-xs text-text-muted">{row.detail}</p> : null}
-          <div className="mt-3 border-t border-border pt-2">
-            <p className="font-mono text-[10px] uppercase tracking-wider text-text-muted">Certainty</p>
-            {row.certainty ? (
-              <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                <CertaintyChip cert={row.certainty} />
-                {row.classificationLabel ? (
-                  <span className="text-xs text-text-muted">{row.classificationLabel}</span>
-                ) : null}
-              </div>
-            ) : (
-              <p className="mt-1 text-xs text-text-muted">
-                Not reconciled yet — classify this scope against the quote in Job control to set its
-                certainty.
-              </p>
-            )}
-          </div>
-          {row.certainty ? (
-            <div className="mt-2 border-t border-border pt-2">
-              <DetailRow label="Priced lines" value={String(row.boqLineCount)} />
-              <DetailRow label="Delivered by" value={`${row.deliveredByCount} task(s)`} />
-              <DetailRow label="Required proof" value={`${row.requiredEvidenceCount} item(s)`} />
-            </div>
-          ) : null}
-          {row.warningText ? (
-            <p className="mt-2 flex items-start gap-1.5 rounded-card border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
-              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-              {row.warningText}
-            </p>
-          ) : null}
-        </>
+        row.detail ? <p className="mt-1 text-xs text-text-muted">{row.detail}</p> : null
       ) : (
         <div className="mt-3 border-t border-border pt-2">
           <DetailRow label="Group" value={row.group || "—"} />

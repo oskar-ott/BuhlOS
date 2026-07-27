@@ -52,6 +52,12 @@ function exists(rel) { return fs.existsSync(path.join(REPO, rel)); }
 // ── Contract: approved modern nav targets ────────────────────────────
 // Live nav items may only link to these. UC (non-clickable) items are
 // excluded from the check — they render as <span>, not <Link>.
+// The 2026-07-27 gut (docs/product/02-lean-reset.md) deleted every non-core
+// office surface; what remains is the lean core. The deleted top-level routes
+// (/observations, /material-requests, /expenses, /defects, /reports, /qa,
+// /itp-templates, /activity, /v2/quotes, /v2/dayworks) now 307 to
+// /command-centre per the §6 "no modern equivalent — single honest entry"
+// pattern, so no nav item may point at them again.
 const APPROVED_ADMIN_HREFS = new Set([
   '/command-centre',
   '/hours',
@@ -59,16 +65,7 @@ const APPROVED_ADMIN_HREFS = new Set([
   '/hours/weekly', // PR #113 — weekly hours closeout / payroll readiness
   '/gear',
   '/employees',
-  '/observations', // PR 3 — cross-job field-to-office observations inbox
-  '/material-requests', // PR 11 — cross-job procurement inbox
-  '/expenses', // #536 — cross-worker reimbursement review queue
-  '/defects', // #414 — cross-job defects register (both snag stores)
-  '/reports', // #316 — owner numbers dashboard (the six daily numbers)
-  '/v2/jobs',
-  '/v2/quotes', // #183 — v2 quote builder foundation; same /admin/* future as /v2/jobs
-  '/itp-templates', // #284 template library; nav entry added by #187 // transitional — live admin Jobs index; -> /admin/jobs later
-  '/qa', // #290 — cross-job ITP/QA status dashboard (read-only); Jobs group
-  '/v2/dayworks', // #370 — cross-job daywork register (payment-risk rollup); Jobs group
+  '/v2/jobs', // transitional — live admin Jobs index; -> /admin/jobs later
   '/settings', // #222 — the v2 settings hub (hours policy + job types); sidebar FOOTER link (not a nav group)
   '/settings/notifications', // #218 — notification prefs; sidebar FOOTER link (not a nav group), reached from the #222 hub
 ]);
@@ -117,32 +114,18 @@ const REQUIRED_SOURCES = [
   'src/app/(admin)/hours/approvals/page.tsx',
   'src/app/(admin)/hours/weekly/page.tsx',
   'src/app/(admin)/hours/period/page.tsx', // #131 — pay-period roll-up (documented, was un-guarded)
-  'src/app/(admin)/activity/page.tsx', // #220 — cross-job activity feed (documented, was un-guarded)
   'src/app/(admin)/gear/page.tsx',
   'src/app/(admin)/employees/page.tsx',
   'src/app/(admin)/employees/[id]/page.tsx',
-  'src/app/(admin)/observations/page.tsx',
-  'src/app/(admin)/material-requests/page.tsx',
-  'src/app/(admin)/expenses/page.tsx',
-  'src/app/(admin)/defects/page.tsx',
-  'src/app/(admin)/reports/page.tsx',
   // Owner Console (docs/owner-console.md) — owner-only platform control. No nav
   // link by design (not in the shared admin sidebar), so it is verified by its
   // required source + shell contract, not the nav scan.
   'src/app/(admin)/owner/page.tsx',
-  'src/app/(admin)/qa/page.tsx',
   'src/app/v2/jobs/page.tsx',
   'src/app/v2/jobs/[jobId]/page.tsx',
   'src/app/v2/jobs/[jobId]/builder/page.tsx',
   'src/app/v2/jobs/[jobId]/plans/page.tsx',
   'src/app/v2/jobs/[jobId]/photos/page.tsx', // #242 — read-only "Job Bible" photo gallery
-  'src/app/v2/jobs/[jobId]/scope/page.tsx', // #366 — scope reconciliation review (read-only)
-  'src/app/v2/jobs/[jobId]/closeout/page.tsx', // #374 — closeout matrix (handover obligations; admin authoring)
-  'src/app/v2/jobs/[jobId]/diary/page.tsx', // #210 — per-job site diary (daily record)
-  'src/app/v2/quotes/page.tsx',
-  'src/app/v2/quotes/[quoteId]/page.tsx',
-  'src/app/v2/dayworks/page.tsx', // #370 — cross-job daywork rollup
-  'src/app/v2/jobs/[jobId]/dayworks/page.tsx', // #370 — per-job daywork register
   'src/app/(admin)/settings/page.tsx',
   'src/app/(admin)/settings/notifications/page.tsx',
   'src/app/(admin)/settings/task-rules/page.tsx', // #224 — task-generation rules (documented, was un-guarded)

@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  AlertOctagon,
   Camera,
   CheckCircle2,
   ChevronLeft,
@@ -10,7 +9,6 @@ import {
   ExternalLink,
   FileText,
   Loader2,
-  PenLine,
   Undo2,
 } from "lucide-react";
 import { PhilNotice } from "./ui/PhilNotice";
@@ -33,21 +31,11 @@ import {
 } from "@/domains/jobs/taskState";
 import { hasAnyStage, soleStage, type AreaStageAvailability } from "./philJobWorkTree";
 import { PhilTaskScopeContext } from "./PhilTaskScopeContext";
-import type { ProofActionStatus } from "./jobControlEvidenceLinkClient";
-import {
-  proofReviewStatusLabel,
-  proofSubmitMessage,
-  type ProofSubmitStatus,
-} from "./jobControlProofReviewClient";
 import {
   summarisePhilTaskProof,
   type PhilTaskContext,
-  type TaskContextEvidenceReq,
 } from "@/domains/job-control/task-context";
-import { taskRefKey } from "@/domains/job-control/spine";
-import type { ProofReview, TaskRef } from "@/domains/job-control/types";
 import type { PhilTaskReadiness } from "@/domains/jobs/phil-task-projection";
-import type { OwedProofItem } from "./philJobRooms";
 import { cn } from "@/lib/cn";
 
 interface Props {
@@ -74,27 +62,9 @@ interface Props {
   onToggleTask?: (taskId: string, next: TaskState) => void;
   taskContextById?: ReadonlyMap<string, PhilTaskContext>;
   readinessByTaskId?: ReadonlyMap<string, PhilTaskReadiness>;
-  onCaptureProof?: (target: {
-    workPackageId: string;
-    requiredEvidenceId: string;
-    kind: TaskContextEvidenceReq["kind"];
-    taskId: string;
-    taskRef?: TaskRef;
-  }) => void;
-  onFlagVariation?: (trigger: { warningId: string; taskRef?: TaskRef }) => void;
-  proofActionState?: Readonly<Record<string, ProofActionStatus>>;
-  canCaptureProof?: boolean;
-  proofReviews?: ReadonlyArray<ProofReview>;
-  onSubmitForReview?: (taskRef: TaskRef) => void;
-  proofSubmitStatus?: Readonly<Record<string, ProofSubmitStatus>>;
-  canSubmitForReview?: boolean;
-  /** Whole-job owed proof (authored granularity); filtered to this area here. */
-  owedProof: ReadonlyArray<OwedProofItem>;
   onBack: () => void;
-  /** Sticky capture bar — all three ride the EXISTING capture paths. */
+  /** Sticky capture bar — rides the EXISTING job capture path. */
   onCapturePhoto: () => void;
-  onCaptureNote: () => void;
-  onCaptureIssue: () => void;
 }
 
 /**
@@ -111,7 +81,6 @@ interface Props {
  */
 export function PhilJobRoomArea({
   jobId,
-  areaId,
   areaName,
   spaceType,
   stages,
@@ -126,19 +95,8 @@ export function PhilJobRoomArea({
   onToggleTask,
   taskContextById,
   readinessByTaskId,
-  onCaptureProof,
-  onFlagVariation,
-  proofActionState,
-  canCaptureProof,
-  proofReviews,
-  onSubmitForReview,
-  proofSubmitStatus,
-  canSubmitForReview,
-  owedProof,
   onBack,
   onCapturePhoto,
-  onCaptureNote,
-  onCaptureIssue,
 }: Props) {
   const sole = soleStage(stages);
   const showSelector = hasAnyStage(stages) && sole === null;
@@ -155,7 +113,6 @@ export function PhilJobRoomArea({
     : tasks
         .map((t) => ({ task: t, readiness: readinessByTaskId?.get(t.id) }))
         .filter((r) => r.readiness?.readiness === "blocked");
-  const areaOwedProof = owedProof.filter((item) => item.areaIds.includes(areaId));
 
   return (
     <div className="space-y-4" data-testid="phil-room-area">
@@ -223,37 +180,6 @@ export function PhilJobRoomArea({
         ) : null
       ) : null}
 
-      {/* Needs you here — real owed proof touching this area. Absent otherwise. */}
-      {areaOwedProof.length > 0 ? (
-        <section
-          aria-label="Needs you here"
-          className="rounded-card border border-border border-l-[5px] border-l-accent-yellow bg-surface-raised p-3.5 shadow-card"
-        >
-          <h3 className="font-display text-[12px] font-bold uppercase tracking-[0.09em] text-text-muted">
-            Needs you here
-          </h3>
-          <ul className="mt-2 space-y-2">
-            {areaOwedProof.map((item) => (
-              <li
-                key={`${item.workPackageId}:${item.requirement.id}`}
-                className="flex min-h-[44px] items-center gap-2.5"
-              >
-                <Camera aria-hidden="true" className="h-4 w-4 shrink-0 text-state-warning" />
-                <span className="min-w-0 flex-1">
-                  <span className="block break-words text-sm font-semibold text-text">
-                    {item.requirement.label}
-                  </span>
-                  <span className="block truncate text-[12px] text-text-muted">
-                    {item.workPackageTitle}
-                  </span>
-                </span>
-                <PhilStatusBadge label="Needs photo" className="shrink-0" />
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
-
       {/* Blocked banner — real observation-derived blockers only. */}
       {blockedRows.length > 0 ? (
         <PhilNotice tone="danger" title="Blocked" role="status">
@@ -299,41 +225,21 @@ export function PhilJobRoomArea({
             </div>
           ) : tasks.length > 0 ? (
             <ul className="mt-2 divide-y divide-border overflow-hidden rounded-card border border-border bg-surface-raised">
-              {tasks.map((t) => {
-                const tref: TaskRef = { areaId, stage: viewedStage, taskId: t.id };
-                const rk = taskRefKey(tref);
-                const review =
-                  proofReviews?.find((r) => taskRefKey(r.taskRef) === rk) ?? null;
-                return (
-                  <RoomTaskRow
-                    key={t.id}
-                    jobId={jobId}
-                    task={t}
-                    pending={pendingTaskIds?.has(t.id) ?? false}
-                    context={taskContextById?.get(t.id)}
-                    readiness={readinessByTaskId?.get(t.id)}
-                    onToggle={
-                      onToggleTask
-                        ? () => onToggleTask(t.id, nextToggleState(t.state))
-                        : undefined
-                    }
-                    onCaptureProof={onCaptureProof}
-                    onFlagVariation={
-                      onFlagVariation
-                        ? (trigger) => onFlagVariation({ ...trigger, taskRef: tref })
-                        : undefined
-                    }
-                    proofActionState={proofActionState}
-                    canCaptureProof={canCaptureProof}
-                    review={review}
-                    onSubmitForReview={
-                      onSubmitForReview ? () => onSubmitForReview(tref) : undefined
-                    }
-                    submitStatus={proofSubmitStatus?.[rk]}
-                    canSubmitForReview={canSubmitForReview}
-                  />
-                );
-              })}
+              {tasks.map((t) => (
+                <RoomTaskRow
+                  key={t.id}
+                  jobId={jobId}
+                  task={t}
+                  pending={pendingTaskIds?.has(t.id) ?? false}
+                  context={taskContextById?.get(t.id)}
+                  readiness={readinessByTaskId?.get(t.id)}
+                  onToggle={
+                    onToggleTask
+                      ? () => onToggleTask(t.id, nextToggleState(t.state))
+                      : undefined
+                  }
+                />
+              ))}
             </ul>
           ) : (
             <p className="mt-2 rounded-card border border-dashed border-border bg-surface-subtle p-4 text-sm text-text-muted">
@@ -382,15 +288,13 @@ export function PhilJobRoomArea({
         </section>
       ) : null}
 
-      {/* Sticky capture bar (§2.4) — always thumb-reachable; all three ride
-          the EXISTING capture paths (job CaptureSheet / launcher presets). */}
+      {/* Sticky capture bar (§2.4) — always thumb-reachable; rides the
+          EXISTING capture path (the job CaptureSheet). */}
       <div
         data-testid="phil-room-area-capture-bar"
         className="sticky bottom-2 z-10 flex gap-2 rounded-card border border-border bg-surface-raised p-2 shadow-raised"
       >
         <CaptureBarButton icon={Camera} label="Photo" onClick={onCapturePhoto} />
-        <CaptureBarButton icon={PenLine} label="Note" onClick={onCaptureNote} />
-        <CaptureBarButton icon={AlertOctagon} label="Issue" onClick={onCaptureIssue} />
       </div>
     </div>
   );
@@ -468,14 +372,6 @@ function RoomTaskRow({
   onToggle,
   context,
   readiness,
-  onCaptureProof,
-  onFlagVariation,
-  proofActionState,
-  canCaptureProof,
-  review,
-  onSubmitForReview,
-  submitStatus,
-  canSubmitForReview,
 }: {
   jobId?: string;
   task: WorkerTask;
@@ -483,20 +379,6 @@ function RoomTaskRow({
   onToggle?: () => void;
   context?: PhilTaskContext;
   readiness?: PhilTaskReadiness;
-  onCaptureProof?: (target: {
-    workPackageId: string;
-    requiredEvidenceId: string;
-    kind: TaskContextEvidenceReq["kind"];
-    taskId: string;
-    taskRef?: TaskRef;
-  }) => void;
-  onFlagVariation?: (trigger: { warningId: string; taskRef?: TaskRef }) => void;
-  proofActionState?: Readonly<Record<string, ProofActionStatus>>;
-  canCaptureProof?: boolean;
-  review?: ProofReview | null;
-  onSubmitForReview?: () => void;
-  submitStatus?: ProofSubmitStatus;
-  canSubmitForReview?: boolean;
 }) {
   const done = isComplete(task.state);
   const blocked = readiness?.readiness === "blocked";
@@ -566,61 +448,7 @@ function RoomTaskRow({
           </p>
         )
       ) : null}
-      {review ? (
-        <p
-          className={cn(
-            "mt-1.5 text-xs",
-            review.status === "approved"
-              ? "text-state-success"
-              : review.status === "rejected"
-                ? "text-state-warning"
-                : "text-text-muted",
-          )}
-        >
-          <span className="font-display font-semibold">Review</span> —{" "}
-          {proofReviewStatusLabel(review)}
-        </p>
-      ) : null}
-      {onSubmitForReview &&
-      canSubmitForReview &&
-      proof?.eligibleForReview &&
-      review?.status !== "submitted" &&
-      review?.status !== "approved" ? (
-        <div className="mt-1.5">
-          <button
-            type="button"
-            onClick={onSubmitForReview}
-            disabled={submitStatus === "submitting"}
-            className={cn(
-              "inline-flex min-h-[44px] items-center gap-1.5 rounded-pill border border-border bg-surface px-3 font-display text-xs font-semibold text-text",
-              "hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-brand-navy disabled:cursor-not-allowed disabled:opacity-60",
-            )}
-          >
-            {submitStatus === "submitting"
-              ? "Submitting…"
-              : review?.status === "rejected"
-                ? "Resubmit for review"
-                : "Submit for review"}
-          </button>
-          {submitStatus && submitStatus !== "submitting" ? (
-            <span className="mt-1 block text-xs text-state-warning">
-              {proofSubmitMessage(submitStatus)}
-            </span>
-          ) : null}
-        </div>
-      ) : null}
-      {context ? (
-        <PhilTaskScopeContext
-          context={context}
-          jobId={jobId}
-          onCaptureProof={
-            onCaptureProof ? (t) => onCaptureProof({ ...t, taskId: task.id }) : undefined
-          }
-          onFlagVariation={onFlagVariation}
-          proofActionState={proofActionState}
-          canCaptureProof={canCaptureProof}
-        />
-      ) : null}
+      {context ? <PhilTaskScopeContext context={context} jobId={jobId} /> : null}
     </li>
   );
 }

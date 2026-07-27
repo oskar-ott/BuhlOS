@@ -1,17 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
-  buildObservationPayload,
-  buildOfficeObservationPayload,
   captureHref,
   launchableJobs,
   launcherDecision,
   philJobDetailId,
   preselectCaptureJob,
   recentShortcutJobs,
-  resolveQuickCapture,
   type LaunchableJob,
 } from "./philCapture";
-import { officeOptionByKey, workerOptionByKey } from "@/domains/observations/service";
 import type { Job } from "@/domains/jobs/types";
 
 function job(over: Partial<Job> & { id: string; name: string }): Job {
@@ -100,74 +96,6 @@ describe("philJobDetailId", () => {
   });
 });
 
-describe("buildObservationPayload", () => {
-  it("maps a classification option + note into a create payload", () => {
-    const blocker = workerOptionByKey("blocker")!;
-    const payload = buildObservationPayload(blocker, "  Cable path blocked  ", "  riser is full ");
-    expect(payload).toEqual({
-      type: "blocker",
-      title: "Cable path blocked",
-      requiresAction: true,
-      description: "riser is full",
-    });
-  });
-
-  it("omits an empty description rather than sending a blank string", () => {
-    const note = workerOptionByKey("note")!;
-    const payload = buildObservationPayload(note, "Tidied the board", "   ");
-    expect(payload).toEqual({ type: "note", title: "Tidied the board", requiresAction: false });
-    expect("description" in payload).toBe(false);
-  });
-
-  it("carries the 'Not sure — office review' override (note that still needs action)", () => {
-    const unsure = workerOptionByKey("unsure")!;
-    const payload = buildObservationPayload(unsure, "Something's off near the board", "");
-    expect(payload.type).toBe("note");
-    expect(payload.requiresAction).toBe(true);
-  });
-
-  it("#369: carries variation estimate fields on a variation capture", () => {
-    const variation = workerOptionByKey("variation")!;
-    const payload = buildObservationPayload(variation, "Extra GPO in store", "boss wants it", {
-      askedBy: "  Dave  ",
-      labourHours: 3,
-      materialsNote: "  1x GPO + 10m cable  ",
-    });
-    expect(payload).toMatchObject({
-      type: "variation",
-      title: "Extra GPO in store",
-      variationAskedBy: "Dave",
-      variationLabourHours: 3,
-      variationMaterialsNote: "1x GPO + 10m cable",
-    });
-  });
-
-  it("#369: omits blank variation fields rather than sending them empty", () => {
-    const variation = workerOptionByKey("variation")!;
-    const payload = buildObservationPayload(variation, "Extra work", "", {
-      askedBy: "   ",
-      labourHours: null,
-      materialsNote: "",
-    });
-    expect("variationAskedBy" in payload).toBe(false);
-    expect("variationLabourHours" in payload).toBe(false);
-    expect("variationMaterialsNote" in payload).toBe(false);
-  });
-
-  it("#369: ignores variation extras on a non-variation option (no leakage)", () => {
-    const blocker = workerOptionByKey("blocker")!;
-    const payload = buildObservationPayload(blocker, "Blocked", "", { askedBy: "Dave", labourHours: 2 });
-    expect("variationAskedBy" in payload).toBe(false);
-    expect("variationLabourHours" in payload).toBe(false);
-  });
-
-  it("#369: drops a non-finite labour-hours value", () => {
-    const variation = workerOptionByKey("variation")!;
-    const payload = buildObservationPayload(variation, "Extra", "", { labourHours: Number.NaN });
-    expect("variationLabourHours" in payload).toBe(false);
-  });
-});
-
 describe("preselectCaptureJob", () => {
   const jobs = [
     { id: "a", name: "Alpha", siteAddress: null },
@@ -193,74 +121,6 @@ describe("preselectCaptureJob", () => {
 
   it("returns null when there are no jobs at all", () => {
     expect(preselectCaptureJob([], "a")).toBeNull();
-  });
-});
-
-describe("buildOfficeObservationPayload", () => {
-  it("maps an office category + gist into a no-job payload that always needs action", () => {
-    const gear = officeOptionByKey("gear")!;
-    const payload = buildOfficeObservationPayload(gear, "  Drill smoked itself  ", " on the way to site ");
-    expect(payload).toEqual({
-      type: "defect",
-      title: "Drill smoked itself",
-      requiresAction: true,
-      description: "on the way to site",
-    });
-  });
-
-  it("omits a blank description and keeps requiresAction true for paperwork", () => {
-    const paperwork = officeOptionByKey("paperwork")!;
-    const payload = buildOfficeObservationPayload(paperwork, "Parking fine", "   ");
-    expect(payload).toEqual({ type: "note", title: "Parking fine", requiresAction: true });
-    expect("description" in payload).toBe(false);
-  });
-
-  it("every office option maps to a valid type and never claims job context", () => {
-    for (const key of ["paperwork", "gear", "other"]) {
-      const option = officeOptionByKey(key)!;
-      const payload = buildOfficeObservationPayload(option, "x", "");
-      expect(payload.requiresAction).toBe(true);
-      expect("stage" in payload).toBe(false);
-      expect("areaId" in payload).toBe(false);
-    }
-  });
-});
-
-describe("resolveQuickCapture", () => {
-  const lj = (id: string, name: string): LaunchableJob => ({ id, name, siteAddress: null });
-  const ONE = [lj("only", "Only Job")];
-  const MANY = [lj("a", "Alpha"), lj("b", "Bravo")];
-
-  it("maps an office option to send-to-office mode with that option", () => {
-    const r = resolveQuickCapture({ kind: "office", optionKey: "paperwork" }, MANY, null);
-    expect(r.mode).toBe("office");
-    if (r.mode === "office") expect(r.option.key).toBe("paperwork");
-  });
-
-  it("jumps a worker option straight to the note step on the worker's only job", () => {
-    const r = resolveQuickCapture({ kind: "worker", optionKey: "blocker" }, ONE, null);
-    expect(r.mode).toBe("worker-note");
-    if (r.mode === "worker-note") {
-      expect(r.job.id).toBe("only");
-      expect(r.option.key).toBe("blocker");
-    }
-  });
-
-  it("targets the launched job when several exist and one is preselected", () => {
-    const r = resolveQuickCapture({ kind: "worker", optionKey: "material_request" }, MANY, "b");
-    expect(r.mode).toBe("worker-note");
-    if (r.mode === "worker-note") expect(r.job.id).toBe("b");
-  });
-
-  it("falls back to the job picker (carrying the option) when the job is ambiguous", () => {
-    const r = resolveQuickCapture({ kind: "worker", optionKey: "defect" }, MANY, null);
-    expect(r.mode).toBe("worker-pick");
-    if (r.mode === "worker-pick") expect(r.option.key).toBe("defect");
-  });
-
-  it("returns 'none' for an unknown key rather than a dead end (worker + office)", () => {
-    expect(resolveQuickCapture({ kind: "worker", optionKey: "nope" }, ONE, null).mode).toBe("none");
-    expect(resolveQuickCapture({ kind: "office", optionKey: "nope" }, ONE, null).mode).toBe("none");
   });
 });
 

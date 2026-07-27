@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { ExceptionItem } from "@/domains/exceptions/types";
-import { approvalsBreakdownLabel, dailyApprovalsTotal, rankNeedsYou } from "./mobile-today";
+import { rankNeedsYou } from "./mobile-today";
 
 function ex(id: string, severity: ExceptionItem["severity"], createdAt?: string): ExceptionItem {
   return {
     id,
-    source: "observation",
+    source: "hours",
     sourceId: id,
     title: `item ${id}`,
     severity,
@@ -13,38 +13,6 @@ function ex(id: string, severity: ExceptionItem["severity"], createdAt?: string)
     createdAt,
   };
 }
-
-describe("dailyApprovalsTotal (hours + proof excluded from the hub-bound count)", () => {
-  it("sums the /hours/approvals queues only — expenses + ITPs + materials", () => {
-    expect(dailyApprovalsTotal({ expenses: 3, itps: 2, materials: 1 })).toBe(6);
-    expect(dailyApprovalsTotal({ expenses: 0, itps: 0, materials: 0 })).toBe(0);
-  });
-});
-
-describe("approvalsBreakdownLabel (lean reset: a dark feature leaves no label)", () => {
-  const counts = { expenses: 3, itps: 2, materials: 1 };
-
-  it("names all three sources when all are live", () => {
-    expect(
-      approvalsBreakdownLabel(counts, { expenses: true, itps: true, materials: true }),
-    ).toBe("3 expenses · 2 ITPs · 1 materials");
-  });
-
-  it("drops dark sources from the label entirely — no '0 expenses' ghost", () => {
-    expect(
-      approvalsBreakdownLabel(counts, { expenses: false, itps: true, materials: false }),
-    ).toBe("2 ITPs");
-    expect(
-      approvalsBreakdownLabel(counts, { expenses: true, itps: false, materials: true }),
-    ).toBe("3 expenses · 1 materials");
-  });
-
-  it("returns null when every source is dark — the caller renders no approvals pulse/row", () => {
-    expect(
-      approvalsBreakdownLabel(counts, { expenses: false, itps: false, materials: false }),
-    ).toBeNull();
-  });
-});
 
 describe("rankNeedsYou", () => {
   it("ranks critical → warning → info, then oldest first, and keeps the full list", () => {

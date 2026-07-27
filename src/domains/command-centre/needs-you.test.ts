@@ -106,39 +106,6 @@ describe("buildNeedsYouQueue", () => {
     expect(many.find((r) => r.key === "pending")?.title).toBe("Days waiting on your approval");
   });
 
-  it("leaves NO trace of a dark (omitted) flag-gated loop", () => {
-    const rows = buildNeedsYouQueue({ ...ZERO, pending: 1 });
-    expect(rows.map((r) => r.key)).toEqual(["pending"]);
-  });
-
-  it("adds flag-gated rows between pending and evidence when their loop is live", () => {
-    const rows = buildNeedsYouQueue({
-      ...ZERO,
-      pending: 1,
-      evidence: 2,
-      itp: { count: 2, href: "/v2/jobs/j1" },
-      observations: 1,
-      planMismatches: 1,
-      materials: 3,
-      rfisOverdue: 1,
-      snags: 4,
-    });
-    expect(rows.map((r) => r.key)).toEqual([
-      "pending",
-      "itp",
-      "observations",
-      "plan",
-      "materials",
-      "rfis",
-      "snags",
-      "evidence",
-    ]);
-    expect(rows.find((r) => r.key === "itp")?.href).toBe("/v2/jobs/j1");
-    // A live-but-empty loop still drops at zero (no "0" rows).
-    const empty = buildNeedsYouQueue({ ...ZERO, pending: 1, snags: 0, observations: 0 });
-    expect(empty.map((r) => r.key)).toEqual(["pending"]);
-  });
-
   it("returns an empty queue on an all-zero day (page renders the all-clear card)", () => {
     expect(buildNeedsYouQueue(ZERO)).toEqual([]);
   });

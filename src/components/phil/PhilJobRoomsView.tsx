@@ -1,19 +1,16 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import type { Route } from "next";
 import {
   AlertOctagon,
   AlertTriangle,
   Camera,
-  ChevronDown,
   ChevronRight,
-  ClipboardList,
   Images,
   Info,
   Map as MapIcon,
   MapPin,
-  Zap,
 } from "lucide-react";
 import { PhilOfflineLink } from "./PhilOfflineLink";
 import { PhilActionButton } from "./ui/PhilActionButton";
@@ -21,29 +18,18 @@ import { PhilNotice } from "./ui/PhilNotice";
 import { PhilSkeleton } from "./ui/PhilSkeleton";
 import { PhilStatusBadge, type PhilStatusTone } from "./ui/PhilStatusBadge";
 import { useOnline } from "./useOnline";
-import { scheduleSummaryLine } from "@/domains/circuit-schedule/format";
 import { statusLabel, statusTone } from "@/domains/jobs/format";
-import { needsWorkerAttention as snagNeedsAttention } from "@/domains/snags/format";
 import { isCurrent } from "@/domains/documents/format";
-import { isRequiredEvidenceMet } from "@/domains/job-control/task-context";
-import type { Job, JobAreaGroup, JobStage } from "@/domains/jobs/types";
-import type { SnagItem } from "@/domains/snags/types";
-import type { ITPInstance } from "@/domains/itp/types";
+import type { Job, JobAreaGroup } from "@/domains/jobs/types";
 import type { EvidenceItem } from "@/domains/evidence/types";
 import type { Document } from "@/domains/documents/types";
 import type { JobContact } from "@/domains/contacts/schema";
 import type { TagItem } from "@/domains/tags/schema";
-import type {
-  EvidenceLink,
-  ProofReview,
-  WorkPackage,
-} from "@/domains/job-control/types";
 import type { TaskProgressRollup } from "@/domains/jobs/task-progress-rollup";
 import type { AttentionItem } from "./PhilJobAttention";
 import {
   roomForAttentionAnchor,
   type JobWorkCounts,
-  type OwedProofItem,
   type PhilJobRoom,
 } from "./philJobRooms";
 import {
@@ -52,16 +38,12 @@ import {
   type AreaCountMaps,
 } from "./philJobWorkTree";
 import { TodaysCapturesStrip } from "./TodaysCapturesStrip";
-import { JobSnagsPanel } from "./JobSnagsPanel";
-import { JobItpPanel } from "./JobItpPanel";
 import { JobTagsPanel } from "./JobTagsPanel";
 import { JobDocumentsPanel } from "./JobDocumentsPanel";
 import { PhilJobSiteCard, type SiteCardInduction } from "./PhilJobSiteCard";
 import { PhilJobServicesCard } from "./PhilJobServicesCard";
 import { PhilJobContactsCard } from "./PhilJobContactsCard";
 import { PhilJobCrewCard } from "./PhilJobCrewCard";
-import { PhilSafetyHomeSection } from "./PhilSafetyHomeSection";
-import { PhilCertificatesHomeSection } from "./PhilCertificatesHomeSection";
 import { moduleEnabled } from "@/domains/jobs/builder";
 import type { ServiceLocationRecord } from "@/domains/services-locations/types";
 import { cn } from "@/lib/cn";
@@ -148,23 +130,11 @@ interface Props {
   taskStateErr: string | null;
   jobComplete: boolean;
   rollup: TaskProgressRollup;
-  blockedByArea: ReadonlyMap<string, number>;
-  owedByArea: ReadonlyMap<string, number>;
   areaCountMaps: AreaCountMaps;
-  workPackages?: ReadonlyArray<WorkPackage>;
-  evidenceLinks: ReadonlyArray<EvidenceLink>;
-  snags: ReadonlyArray<SnagItem>;
-  snagContext: { stage: JobStage | null; areaId: string | null };
 
   // ── Proof ──────────────────────────────────────────────────────────────
-  owedProof: ReadonlyArray<OwedProofItem>;
-  proofReviews: ReadonlyArray<ProofReview>;
-  itps: ReadonlyArray<ITPInstance>;
   tags: ReadonlyArray<TagItem>;
   tagsError?: boolean;
-  hasCircuitSchedule: boolean;
-  circuitBoards?: ReadonlyArray<{ circuits?: ReadonlyArray<{ install?: string }> }>;
-  certificatesEnabled: boolean;
 
   // ── Site ───────────────────────────────────────────────────────────────
   documents?: ReadonlyArray<Document>;
@@ -175,7 +145,6 @@ interface Props {
   canWriteServiceLocations: boolean;
   onCapturePhotoForServices: () => Promise<EvidenceItem | null>;
   siteInduction: SiteCardInduction | null;
-  safetyEnabled: boolean;
 }
 
 /**
@@ -429,21 +398,9 @@ function WorkRoom(props: Props) {
     taskStateErr,
     jobComplete,
     rollup,
-    blockedByArea,
-    owedByArea,
     areaCountMaps,
-    workPackages,
-    evidenceLinks,
-    snags,
     onOpenArea,
   } = props;
-
-  // In-room reveals (reset when the room remounts on re-select).
-  const [scopeOpen, setScopeOpen] = useState(false);
-  const [issuesOpen, setIssuesOpen] = useState(false);
-
-  const openSnags = snags.filter((s) => snagNeedsAttention(s.status)).length;
-  const hasScope = (workPackages?.length ?? 0) > 0;
 
   return (
     <div className="space-y-4" data-testid="phil-room-work">
@@ -477,16 +434,12 @@ function WorkRoom(props: Props) {
               <div
                 className="mt-2 flex h-2.5 gap-0.5 overflow-hidden rounded-pill bg-surface-subtle"
                 role="img"
-                aria-label={`${workCounts.done} done, ${workCounts.going} going, ${workCounts.blocked} blocked, ${workCounts.todo} to do`}
+                aria-label={`${workCounts.done} done, ${workCounts.going} going, ${workCounts.todo} to do`}
               >
                 <Segment count={workCounts.done} total={workCounts.total} className="bg-state-success" />
                 <Segment count={workCounts.going} total={workCounts.total} className="bg-state-info" />
-                <Segment count={workCounts.blocked} total={workCounts.total} className="bg-state-danger" />
               </div>
               <div className="mt-2.5 flex flex-wrap gap-1.5">
-                {workCounts.blocked > 0 ? (
-                  <PhilStatusBadge label={`${workCounts.blocked} blocked`} tone="danger" />
-                ) : null}
                 {workCounts.going > 0 ? (
                   <PhilStatusBadge label={`${workCounts.going} going`} tone="info" />
                 ) : null}
@@ -503,121 +456,8 @@ function WorkRoom(props: Props) {
         </div>
       </section>
 
-      {/* Scope of work — ONLY when the office has really compiled work
-          packages (the real artifact). Honest absence otherwise: no row. */}
-      {hasScope ? (
-        <section aria-label="Scope of work" className="space-y-1.5">
-          <button
-            type="button"
-            onClick={() => setScopeOpen((v) => !v)}
-            aria-expanded={scopeOpen}
-            data-testid="phil-room-scope-row"
-            className="flex min-h-[56px] w-full items-center gap-3 rounded-card border border-border bg-surface-raised px-4 py-3 text-left shadow-card transition-colors hover:bg-surface-subtle"
-          >
-            <ClipboardList aria-hidden="true" className="h-5 w-5 shrink-0 text-brand-navy" />
-            <span className="min-w-0 flex-1">
-              <span className="block font-display text-sm font-semibold text-text">
-                Scope of work
-              </span>
-              <span className="mt-0.5 block truncate text-[12px] text-text-muted">
-                {`What we're contracted to do — ${workPackages!.length} ${
-                  workPackages!.length === 1 ? "package" : "packages"
-                }`}
-              </span>
-            </span>
-            <ChevronDown
-              aria-hidden="true"
-              className={cn(
-                "h-5 w-5 shrink-0 text-text-muted transition-transform",
-                scopeOpen ? "rotate-180" : "",
-              )}
-            />
-          </button>
-          {scopeOpen ? (
-            <ul className="divide-y divide-border overflow-hidden rounded-card border border-border bg-surface-raised">
-              {workPackages!.map((wp) => {
-                const reqs = wp.requiredEvidence ?? [];
-                const met = reqs.filter((r) =>
-                  isRequiredEvidenceMet(evidenceLinks, wp.id, r.id),
-                ).length;
-                return (
-                  <li key={wp.id} className="px-4 py-3">
-                    <p className="break-words font-display text-sm font-semibold text-text">
-                      {wp.title}
-                    </p>
-                    {wp.scopeNote ? (
-                      <p className="mt-0.5 break-words text-[12px] text-text-muted">
-                        {wp.scopeNote}
-                      </p>
-                    ) : null}
-                    {reqs.length > 0 ? (
-                      <p
-                        className={cn(
-                          "mt-1 text-[12px]",
-                          met === reqs.length ? "text-state-success" : "text-state-warning",
-                        )}
-                      >
-                        {`Proof ${met}/${reqs.length} captured`}
-                      </p>
-                    ) : null}
-                  </li>
-                );
-              })}
-            </ul>
-          ) : null}
-        </section>
-      ) : null}
-
-      {/* Issues — the existing snags surface, one honest count on the row. */}
-      {props.viewer ? (
-        <section aria-label="Issues" className="space-y-1.5">
-          <button
-            type="button"
-            onClick={() => setIssuesOpen((v) => !v)}
-            aria-expanded={issuesOpen}
-            data-testid="phil-room-issues-row"
-            className="flex min-h-[56px] w-full items-center gap-3 rounded-card border border-border bg-surface-raised px-4 py-3 text-left shadow-card transition-colors hover:bg-surface-subtle"
-          >
-            <AlertOctagon
-              aria-hidden="true"
-              className={cn(
-                "h-5 w-5 shrink-0",
-                openSnags > 0 ? "text-state-warning" : "text-brand-navy",
-              )}
-            />
-            <span className="min-w-0 flex-1">
-              <span className="block font-display text-sm font-semibold text-text">
-                Issues
-              </span>
-              <span className="mt-0.5 block text-[12px] text-text-muted">
-                {openSnags > 0
-                  ? `${openSnags} open`
-                  : "Nothing open"}
-              </span>
-            </span>
-            <ChevronDown
-              aria-hidden="true"
-              className={cn(
-                "h-5 w-5 shrink-0 text-text-muted transition-transform",
-                issuesOpen ? "rotate-180" : "",
-              )}
-            />
-          </button>
-          {issuesOpen ? (
-            <JobSnagsPanel
-              job={job}
-              initialSnags={snags}
-              context={props.snagContext}
-              recentEvidence={props.evidenceItems}
-              viewer={props.viewer}
-            />
-          ) : null}
-        </section>
-      ) : null}
-
       {/* Areas — grouped cards; tap opens the Area view. Counts are real:
-          rollup per area, observation-derived blocked, compiled owed proof,
-          viewer-scoped photos. */}
+          rollup per area and viewer-scoped photos. */}
       {groups.length > 0 ? (
         groups.map((group) => {
           const areas = group.areas ?? [];
@@ -629,8 +469,6 @@ function WorkRoom(props: Props) {
                 {areas.map((area) => {
                   const progress = rollup.byArea[area.id];
                   const stages = areaStageAvailability(job, area);
-                  const blocked = blockedByArea.get(area.id) ?? 0;
-                  const owed = owedByArea.get(area.id) ?? 0;
                   const counts = countsForArea(areaCountMaps, area.id);
                   return (
                     <li key={area.id}>
@@ -673,12 +511,6 @@ function WorkRoom(props: Props) {
                           {stages.fitOff ? (
                             <PhilStatusBadge label="Fit-off" tone="neutral" />
                           ) : null}
-                          {blocked > 0 ? (
-                            <PhilStatusBadge label={`${blocked} blocked`} tone="danger" />
-                          ) : null}
-                          {owed > 0 ? (
-                            <PhilStatusBadge label="Proof needed" tone="warning" />
-                          ) : null}
                           {counts.photos > 0 ? (
                             <PhilStatusBadge
                               label={`${counts.photos} ${counts.photos === 1 ? "photo" : "photos"}`}
@@ -720,103 +552,10 @@ function Segment({
 /* ── PROOF — "am I covered?" in one room ─────────────────────────────────── */
 
 function ProofRoom(props: Props) {
-  const {
-    job,
-    owedProof,
-    proofReviews,
-    workPackages,
-    onOpenArea,
-    areaNames,
-  } = props;
-
-  const submitted = proofReviews.filter((r) => r.status === "submitted");
-  const hasCompiledProof = (workPackages ?? []).some(
-    (wp) => (wp.requiredEvidence?.length ?? 0) > 0,
-  );
+  const { job } = props;
 
   return (
     <div className="space-y-4" data-testid="phil-room-proof">
-      {/* Proof needed — real owed items at their AUTHORED granularity
-          (package-granular today; a per-task-authored item stays task-scoped).
-          Capture happens where the work is: a row opens its area in Work. */}
-      <section aria-label="Proof needed" className="space-y-1.5">
-        <SectionHeading>Proof needed</SectionHeading>
-        {owedProof.length > 0 ? (
-          <ul className="divide-y divide-border overflow-hidden rounded-card border border-border bg-surface-raised shadow-card">
-            {owedProof.map((item) => {
-              const targetAreaId = item.areaIds.length === 1 ? item.areaIds[0]! : null;
-              const areaLine = item.areaIds
-                .map((id) => areaNames[id])
-                .filter(Boolean)
-                .join(" · ");
-              const body = (
-                <>
-                  <Camera aria-hidden="true" className="h-5 w-5 shrink-0 text-state-warning" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block break-words font-display text-sm font-semibold text-text">
-                      {item.requirement.label}
-                    </span>
-                    <span className="mt-0.5 block truncate text-[12px] text-text-muted">
-                      {[item.workPackageTitle, areaLine].filter(Boolean).join(" — ")}
-                    </span>
-                  </span>
-                  <PhilStatusBadge label="Needs photo" className="shrink-0" />
-                </>
-              );
-              return (
-                <li key={`${item.workPackageId}:${item.requirement.id}`}>
-                  {targetAreaId ? (
-                    <button
-                      type="button"
-                      // onOpenArea lands in Work → this area (it owns the room
-                      // switch), where the capture-proof flow lives.
-                      onClick={() => onOpenArea(targetAreaId)}
-                      className="flex min-h-[56px] w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-subtle"
-                    >
-                      {body}
-                      <ChevronRight
-                        aria-hidden="true"
-                        className="h-5 w-5 shrink-0 text-text-muted/60"
-                      />
-                    </button>
-                  ) : (
-                    <div className="flex min-h-[56px] items-center gap-3 px-4 py-3">
-                      {body}
-                    </div>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        ) : hasCompiledProof ? (
-          <PhilNotice tone="success" title="All required proof is captured." role="status">
-            Everything the office asked for on this job is on file.
-          </PhilNotice>
-        ) : (
-          <p className="rounded-card border border-dashed border-border bg-surface-subtle p-4 text-sm text-text-muted">
-            The office hasn&rsquo;t compiled proof requirements for this job yet —
-            nothing is owed here.
-          </p>
-        )}
-        {submitted.length > 0 ? (
-          <p className="px-1 text-[12px] text-text-muted">
-            {`${submitted.length} ${submitted.length === 1 ? "task is" : "tasks are"} waiting on review.`}
-          </p>
-        ) : null}
-      </section>
-
-      {/* Checks (ITP) — the existing panel wholesale (rows → recording pages). */}
-      <JobItpPanel job={job} initialItps={props.itps} />
-
-      {/* Boards & gear — existing surfaces stay reachable. */}
-      {props.hasCircuitSchedule ? (
-        <RouteRow
-          href={`/phil/jobs/${encodeURIComponent(job.id)}/circuit-schedule`}
-          icon={Zap}
-          title="Circuit schedule"
-          subtitle={scheduleSummaryLine(props.circuitBoards)}
-        />
-      ) : null}
       {moduleEnabled(job, "tags") ? (
         <JobTagsPanel jobId={job.id} initialTags={props.tags} loadError={props.tagsError} />
       ) : null}
@@ -830,9 +569,6 @@ function ProofRoom(props: Props) {
           subtitle="Every photo on this job — date-grouped, read-only"
         />
       ) : null}
-
-      {/* #231 certificates — hidden-until-real, flag-gated by the page. */}
-      {props.certificatesEnabled ? <PhilCertificatesHomeSection jobId={job.id} /> : null}
     </div>
   );
 }
@@ -845,8 +581,8 @@ function SiteRoom(props: Props) {
 
   return (
     <div className="space-y-4" data-testid="phil-room-site">
-      {/* Paper — plans (current-rev filter is the viewer's own rule), safety
-          docs (real unread count inside), site files. */}
+      {/* Paper — plans (current-rev filter is the viewer's own rule) and
+          site files. */}
       <section aria-label="Paper" className="space-y-2">
         <SectionHeading>Paper</SectionHeading>
         {moduleEnabled(job, "plans") ? (
@@ -861,7 +597,6 @@ function SiteRoom(props: Props) {
             }
           />
         ) : null}
-        {props.safetyEnabled ? <PhilSafetyHomeSection jobId={job.id} /> : null}
         <JobDocumentsPanel initialDocuments={documents} fetchError={documentsError} />
       </section>
 

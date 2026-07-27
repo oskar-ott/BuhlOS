@@ -1,7 +1,6 @@
 {
   "framework": "nextjs",
   "functions": {
-    "api/ai-drawings.js": { "maxDuration": 60 },
     "api/itp-simple.js": { "maxDuration": 60 },
     "api/backup-snapshot.js": { "maxDuration": 60 },
     "api/internal/sync-checks/hours.js": { "maxDuration": 60 },
@@ -54,7 +53,7 @@
     { "source": "/admin/jobs/:jobId", "destination": "/v2/jobs/:jobId", "permanent": false },
     { "source": "/admin/job-builder", "destination": "/v2/jobs", "permanent": false },
     { "source": "/admin/assets", "destination": "/gear", "permanent": false },
-    { "source": "/admin/materials", "destination": "/material-requests", "permanent": false },
+    { "source": "/admin/materials", "destination": "/command-centre", "permanent": false },
     { "source": "/admin/snags", "destination": "/command-centre", "permanent": false },
     { "source": "/admin/itp", "destination": "/command-centre", "permanent": false },
     { "source": "/admin/plans", "destination": "/command-centre", "permanent": false },
@@ -90,29 +89,37 @@
     { "source": "/buhlos/admin/support", "destination": "/command-centre", "permanent": false },
     { "source": "/buhlos/admin/assets", "destination": "/gear", "permanent": false },
     { "source": "/buhlos/admin/activity", "destination": "/command-centre", "permanent": false },
-    { "source": "/buhlos/admin/materials", "destination": "/material-requests", "permanent": false },
+    { "source": "/buhlos/admin/materials", "destination": "/command-centre", "permanent": false },
     { "source": "/buhlos/admin/cash", "destination": "/command-centre", "permanent": false },
     { "source": "/buhlos/jobs", "destination": "/v2/jobs", "permanent": false },
-    { "source": "/buhlos/jobs/:jobId", "destination": "/v2/jobs/:jobId", "permanent": false }
+    { "source": "/buhlos/jobs/:jobId", "destination": "/v2/jobs/:jobId", "permanent": false },
+
+    { "source": "/observations", "destination": "/command-centre", "permanent": false },
+    { "source": "/material-requests", "destination": "/command-centre", "permanent": false },
+    { "source": "/expenses", "destination": "/command-centre", "permanent": false },
+    { "source": "/defects", "destination": "/command-centre", "permanent": false },
+    { "source": "/reports", "destination": "/command-centre", "permanent": false },
+    { "source": "/qa", "destination": "/command-centre", "permanent": false },
+    { "source": "/itp-templates", "destination": "/command-centre", "permanent": false },
+    { "source": "/activity", "destination": "/command-centre", "permanent": false },
+    { "source": "/v2/quotes", "destination": "/command-centre", "permanent": false },
+    { "source": "/v2/quotes/:quoteId", "destination": "/command-centre", "permanent": false },
+    { "source": "/v2/dayworks", "destination": "/command-centre", "permanent": false }
   ],
   "crons": [
     { "path": "/api/notifications?action=send-daily-reminders", "schedule": "30 5 * * 1-5" },
     { "path": "/api/notifications?action=send-tag-reminders",   "schedule": "0 21 * * *"   },
     { "path": "/api/notifications?action=send-licence-reminders", "schedule": "10 21 * * *" },
     { "path": "/api/notifications?action=send-daily-digest",    "schedule": "0 7 * * 1-5"  },
-    { "path": "/api/notifications?action=send-stale-snags",     "schedule": "0 23 * * 0"   },
     { "path": "/api/notifications?action=send-inactive-users",  "schedule": "0 23 * * 1"   },
     { "path": "/api/payroll-reminder",                          "schedule": "0 8 * * 0"    },
     { "path": "/api/payroll-reminder",                          "schedule": "30 21 * * 0"  },
-    { "path": "/api/cash-watch?action=check-overruns",          "schedule": "30 22 * * *"  },
     { "path": "/api/users?action=sweep",                        "schedule": "0 19 * * *"   },
     { "path": "/api/backup-snapshot?action=run",                "schedule": "0 16 * * *"   },
     { "path": "/api/internal/sync-checks/hours",                "schedule": "0 17 * * *"   },
     { "path": "/api/internal/sync-checks/structure",            "schedule": "0 18 * * *"   },
     { "path": "/api/internal/sync-checks/servicem8",            "schedule": "15 19 * * *"  },
     { "path": "/api/internal/mirror-tasks",                     "schedule": "*/10 * * * *" },
-    { "path": "/api/internal/mirror-evidence",                  "schedule": "*/15 * * * *" },
-    { "path": "/api/insights-digest?action=generate",           "schedule": "0 21 * * 0"   },
-    { "path": "/api/office-daily-summary?action=generate",      "schedule": "30 20 * * *"  }
+    { "path": "/api/internal/mirror-evidence",                  "schedule": "*/15 * * * *" }
   ]
 }
