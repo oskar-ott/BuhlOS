@@ -10,8 +10,6 @@ import {
   availableTransitions,
   canTransition,
   transition,
-  certaintyForClassification,
-  classificationNeedsReview,
 } from "./certainty";
 
 describe("certainty states", () => {
@@ -92,31 +90,6 @@ describe("transition machine", () => {
   it("only ever lists valid states as targets", () => {
     for (const s of CERTAINTY_STATES) {
       for (const t of availableTransitions(s)) expect(CERTAINTY_STATES).toContain(t);
-    }
-  });
-});
-
-describe("reconciliation bridge (extend, don't fork)", () => {
-  it("maps an unclear clause to needs_review", () => {
-    expect(certaintyForClassification("unclear")).toBe("needs_review");
-    expect(classificationNeedsReview("unclear")).toBe(true);
-  });
-
-  it("maps every decided classification to the confirmed floor", () => {
-    const decided = [
-      "priced",
-      "general_allowance",
-      "excluded",
-      "by_others",
-      "reuse_existing",
-      "pc_provisional",
-      "variation_trigger",
-      "closeout",
-      "admin_only",
-    ] as const;
-    for (const c of decided) {
-      expect(certaintyForClassification(c)).toBe("confirmed");
-      expect(classificationNeedsReview(c)).toBe(false);
     }
   });
 });

@@ -1,5 +1,4 @@
 import { z } from "zod";
-import type { ScopeClassification } from "../job-control/reconciliation";
 
 /**
  * Certainty — the builder-time triage lifecycle of a cert-bearing item (a scope
@@ -19,12 +18,7 @@ import type { ScopeClassification } from "../job-control/reconciliation";
  *   - `rfi` is the explicit unknown — a raised question, never a guess. It is
  *     acknowledged (out of the review queue) but NOT resolved: it keeps
  *     depressing readiness until it's answered.
- *
- * Reconciliation bridge (extend, don't fork): the scope-vs-quote engine
- * (job-control/reconciliation.ts) already forces every clause into a
- * classification, with `unclear` as its amber not-yet-decided state. That maps
- * exactly onto `needs_review` here — see certaintyForClassification.
- */
+ * */
 
 export const CERTAINTY_STATES = [
   "suggested", // proposed by import/AI; not yet triaged
@@ -120,24 +114,4 @@ export function transition(from: CertaintyState, to: CertaintyState): CertaintyS
     throw new Error(`Illegal certainty transition: ${from} → ${to}`);
   }
   return to;
-}
-
-/* ---------------------------------------------------------------------
- * Reconciliation bridge (extend, don't fork)
- * -------------------------------------------------------------------*/
-
-/**
- * The pivot the brief names: a scope clause the reconciliation engine left
- * `unclear` is exactly a `needs_review` item here; any clause the office has
- * already classified reads as (at least) `confirmed`. The finer
- * field-eligible-vs-ignored split is a per-facet decision the builder makes —
- * the classification alone doesn't fix it, so we map to the honest floor.
- */
-export function certaintyForClassification(classification: ScopeClassification): CertaintyState {
-  return classification === "unclear" ? "needs_review" : "confirmed";
-}
-
-/** True when a clause's reconciliation classification still owes a decision. */
-export function classificationNeedsReview(classification: ScopeClassification): boolean {
-  return classification === "unclear";
 }
