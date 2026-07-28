@@ -133,9 +133,13 @@ describe("PhilHoursSharpened — week cards", () => {
     expect(html).toContain("Waiting on the office");
     expect(html).toContain("phil-edit-submitted");
     expect(html).toContain(">Change<");
-    // The full-width collapsed bar is gone — the sheet body mounts only once
-    // the pill is tapped (client state, not SSR-reachable).
-    expect(html).not.toContain("Change these hours");
+    // The full-width collapsed bar is gone from the day rows — the sheet body
+    // mounts only once the pill is tapped (client state, not SSR-reachable).
+    // Scope to the rows region: when today IS Monday, the "Log your day"
+    // section below legitimately shows its own "Change these hours" affordance
+    // for the picked (submitted) day.
+    const dayRows = html.split("Log your day")[0];
+    expect(dayRows).not.toContain("Change these hours");
   });
 
   it("mounts the EXISTING LogHoursSheet in this week's card (logging home)", () => {

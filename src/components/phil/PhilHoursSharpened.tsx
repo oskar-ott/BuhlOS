@@ -26,6 +26,7 @@ import {
   defaultOpenWeeks,
   hoursDayLabel,
   hoursWeekLabel,
+  mergeSavedEntries,
   toggleWeek,
   NO_JOB_LABEL,
   UNKNOWN_JOB_LABEL,
@@ -129,9 +130,23 @@ function JobRefChip({ refCode }: { refCode: string }) {
 export function PhilHoursSharpened({ entries, todayISO, assignedJobs, jobsError }: Props) {
   const router = useRouter();
 
+  // Optimistic overlay (2026-07-28): the store's listing can lag a fresh
+  // write, so the refresh after a save can re-render WITHOUT the day the
+  // worker just logged. Every confirmed save (log / change / fix / send-week)
+  // reports its server-returned entry here and is merged over the server list
+  // until it catches up — the day flips instantly and never vanishes.
+  const [savedEntries, setSavedEntries] = useState<ReadonlyArray<TimeEntry>>([]);
+  function recordSaved(entry: TimeEntry) {
+    setSavedEntries((prev) => [...prev.filter((e) => e.date !== entry.date), entry]);
+  }
+  const mergedEntries = useMemo(
+    () => mergeSavedEntries(entries, savedEntries),
+    [entries, savedEntries],
+  );
+
   const { weeks, hiddenWeekCount } = useMemo(
-    () => buildHoursWeeks(entries, { todayISO, assignedJobs, jobsError }),
-    [entries, todayISO, assignedJobs, jobsError],
+    () => buildHoursWeeks(mergedEntries, { todayISO, assignedJobs, jobsError }),
+    [mergedEntries, todayISO, assignedJobs, jobsError],
   );
 
   // Fold state: this week open, prior weeks folded (design §2.6). Weeks that
@@ -178,8 +193,10 @@ export function PhilHoursSharpened({ entries, todayISO, assignedJobs, jobsError 
         draft.date,
         buildDraftSendPayload(draft),
       );
-      if (result.ok) ok += 1;
-      else failed += 1;
+      if (result.ok) {
+        ok += 1;
+        recordSaved(result.data.entry);
+      } else failed += 1;
     }
     setSendStates((s) => ({
       ...s,
@@ -192,11 +209,11 @@ export function PhilHoursSharpened({ entries, todayISO, assignedJobs, jobsError 
   }
 
   const lastLogged = useMemo(
-    () => lastLoggedJobFor(entries, assignedJobs.map((j) => j.id)),
-    [entries, assignedJobs],
+    () => lastLoggedJobFor(mergedEntries, assignedJobs.map((j) => j.id)),
+    [mergedEntries, assignedJobs],
   );
   const soleJobId = assignedJobs.length === 1 ? assignedJobs[0]!.id : null;
-  const initialTodayEntry = entries.find((e) => e.date === todayISO) ?? null;
+  const initialTodayEntry = mergedEntries.find((e) => e.date === todayISO) ?? null;
 
   return (
     <div className="space-y-4" data-testid="phil-hours-sharpened">
@@ -228,6 +245,7 @@ export function PhilHoursSharpened({ entries, todayISO, assignedJobs, jobsError 
           assignedJobs={assignedJobs}
           jobsError={jobsError}
           onLogDay={logDay}
+          onSaved={recordSaved}
           sendState={sendStateFor(week)}
           onSendWeek={() => void sendWeek(week)}
           logSheet={
@@ -237,7 +255,8 @@ export function PhilHoursSharpened({ entries, todayISO, assignedJobs, jobsError 
                 <LogHoursSheet
                   key={logDate ?? "today"}
                   initialTodayEntry={initialTodayEntry}
-                  recentEntries={entries}
+                  recentEntries={mergedEntries}
+                  onSaved={recordSaved}
                   assignedJobs={assignedJobs.map((j) => ({ id: j.id, name: j.name }))}
                   jobsError={jobsError}
                   initialJobId={soleJobId}
@@ -276,6 +295,7 @@ function WeekCard({
   assignedJobs,
   jobsError,
   onLogDay,
+  onSaved,
   sendState,
   onSendWeek,
   logSheet,
@@ -287,6 +307,7 @@ function WeekCard({
   assignedJobs: ReadonlyArray<HoursJobRef>;
   jobsError: boolean;
   onLogDay: (date: string) => void;
+  onSaved: (entry: TimeEntry) => void;
   sendState: SendState;
   onSendWeek: () => void;
   logSheet: React.ReactNode;
@@ -363,6 +384,7 @@ function WeekCard({
             assignedJobs={assignedJobs}
             jobsError={jobsError}
             onLogDay={onLogDay}
+            onSaved={onSaved}
           />
 
           <SendWeekBlock
@@ -397,12 +419,14 @@ function DayRows({
   assignedJobs,
   jobsError,
   onLogDay,
+  onSaved,
 }: {
   week: HoursWeek;
   todayISO: string;
   assignedJobs: ReadonlyArray<HoursJobRef>;
   jobsError: boolean;
   onLogDay: (date: string) => void;
+  onSaved: (entry: TimeEntry) => void;
 }) {
   const byDate = new Map(week.entries.map((e) => [e.date, e]));
   const rows: Array<{ date: string; entry: TimeEntry | null }> = [];
@@ -427,7 +451,7 @@ function DayRows({
       {rows.map(({ date, entry }) => (
         <li key={date} className="py-2.5">
           {entry ? (
-            <EntryRow entry={entry} date={date} todayISO={todayISO} assignedJobs={assignedJobs} jobsError={jobsError} />
+            <EntryRow entry={entry} date={date} todayISO={todayISO} assignedJobs={assignedJobs} jobsError={jobsError} onSaved={onSaved} />
           ) : (
             <MissedRow date={date} todayISO={todayISO} onLogDay={onLogDay} />
           )}
@@ -455,12 +479,14 @@ function EntryRow({
   todayISO,
   assignedJobs,
   jobsError,
+  onSaved,
 }: {
   entry: TimeEntry;
   date: string;
   todayISO: string;
   assignedJobs: ReadonlyArray<HoursJobRef>;
   jobsError: boolean;
+  onSaved: (entry: TimeEntry) => void;
 }) {
   const allocations = entry.allocations ?? [];
   const split = allocations.length > 1;
@@ -523,6 +549,7 @@ function EntryRow({
             entry={entry}
             assignedJobs={assignedJobs.map((j) => ({ id: j.id, name: j.name }))}
             jobsError={jobsError}
+            onSaved={onSaved}
           />
         </div>
       ) : null}
@@ -538,6 +565,7 @@ function EntryRow({
           jobsError={jobsError}
           open
           onOpenChange={setChangeOpen}
+          onSaved={onSaved}
         />
       ) : null}
     </div>

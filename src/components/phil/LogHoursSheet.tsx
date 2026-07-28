@@ -100,6 +100,12 @@ interface LogHoursSheetProps {
    * behaviour — one tap from the notification to the fix).
    */
   autoOpenFix?: boolean;
+  /**
+   * Reports the server-confirmed entry after every successful save (log,
+   * change, fix), so the parent can overlay it over a lagging server list —
+   * the day flips instantly instead of waiting out the store's listing lag.
+   */
+  onSaved?: (entry: TimeEntry) => void;
 }
 
 type Mode = "standard" | "custom";
@@ -130,6 +136,7 @@ export function LogHoursSheet({
   lastLoggedDate = null,
   initialDate = null,
   autoOpenFix = false,
+  onSaved,
 }: LogHoursSheetProps) {
   const router = useRouter();
   // One replay-safe key per logical submission: a retry after a timeout reuses
@@ -314,6 +321,7 @@ export function LogHoursSheet({
       // starts a fresh one (a later identical-looking submit is genuinely new).
       submissionKey.clear();
       setTodayEntry(result.data.entry);
+      onSaved?.(result.data.entry);
       setState({ kind: "success", entry: result.data.entry, mode });
       setNotes("");
       // Re-fetch the server data so the "This week" strip + hero reflect the new
@@ -369,6 +377,7 @@ export function LogHoursSheet({
               assignedJobs={assignedJobs}
               jobsError={jobsError}
               defaultOpen={autoOpenFix}
+              onSaved={onSaved}
             />
           ) : (
             // Single AND split days are now fixable in Phil (#128). This is the
@@ -419,6 +428,7 @@ export function LogHoursSheet({
             entry={statusEntry}
             assignedJobs={assignedJobs}
             jobsError={jobsError}
+            onSaved={onSaved}
           />
         ) : (
           <>
@@ -845,10 +855,12 @@ function LockedDayStatus({
   entry,
   assignedJobs,
   jobsError,
+  onSaved,
 }: {
   entry: TimeEntry;
   assignedJobs: ReadonlyArray<{ id: string; name: string }>;
   jobsError: boolean;
+  onSaved?: (entry: TimeEntry) => void;
 }): ReactNode {
   if (entry.status === "submitted") {
     return (
@@ -864,6 +876,7 @@ function LockedDayStatus({
             entry={entry}
             assignedJobs={assignedJobs}
             jobsError={jobsError}
+            onSaved={onSaved}
           />
         ) : (
           // Residual honest limit: a submitted entry with no usable
