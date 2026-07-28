@@ -92,7 +92,9 @@ async function createSignupAccount({ request, reqBlob, reviewedBy, req }) {
     // Payroll-match facts for the office's Xero connect step.
     legalName: request.legalName,
     dob: request.dob,
+    // Pre-instant pending rows carry a full startDate; newer rows just the year.
     startDate: request.startDate || null,
+    startYear: request.startYear ?? null,
     createdAt: ts,
     createdBy: reviewedBy,
     lastActiveAt: null,

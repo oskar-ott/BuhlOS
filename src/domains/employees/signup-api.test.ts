@@ -74,7 +74,7 @@ function submitBody(over: Record<string, unknown> = {}) {
     apprenticeYear: null,
     legalName: "Alfredo Reyes Garcia",
     dob: "1998-03-14",
-    startDate: null,
+    startYear: null,
     pin: "8053",
     confirmPin: "8053",
     ...over,
@@ -222,6 +222,18 @@ describe("POST /api/signup?action=submit — instant access", () => {
     expect(actions).toContain("signup.submitted");
     expect(actions).toContain("signup.approved");
     expect(actions).toContain("employee.activated");
+  });
+
+  it("start year: a plausible year lands on the employee row; a rubbish one refuses", async () => {
+    const bad = await submit({ startYear: 1899 });
+    expect(bad.statusCode).toBe(400);
+    expect((bad.body as { error: string }).error).toContain("Start year");
+
+    const res = await submit({ startYear: 2024 });
+    expect(res.statusCode).toBe(200);
+    const e = employees().find((x) => x.email === "alfredo.reyes@gmail.com");
+    expect(e!.startYear).toBe(2024);
+    expect(e!.startDate).toBeNull();
   });
 
   it("the new account signs in with email + PIN straight away", async () => {

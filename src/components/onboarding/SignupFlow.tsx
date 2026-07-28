@@ -1,8 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowRight, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/cn";
+import {
+  ANDROID_INSTALL_STEPS,
+  IOS_INSTALL_STEPS,
+  StepList,
+} from "@/components/pwa/InstallAppCard";
 import { validatePin, pinsMatch, isValidAuMobile } from "@/domains/employees/service";
 import {
   SIGNUP_ROLES,
@@ -156,7 +161,7 @@ function DeadState({ state }: { state: SignupLinkState }) {
 
 /* ---- the steps ---- */
 
-type Step = "landing" | "about" | "payroll" | "pin" | "review" | "done";
+type Step = "landing" | "about" | "payroll" | "pin" | "review" | "done" | "homescreen";
 
 interface Draft {
   firstName: string;
@@ -168,7 +173,7 @@ interface Draft {
   apprenticeYear: number | null;
   legalName: string;
   dob: string;
-  startDate: string;
+  startYear: string;
   pin: string;
   confirmPin: string;
 }
@@ -183,7 +188,7 @@ const EMPTY: Draft = {
   apprenticeYear: null,
   legalName: "",
   dob: "",
-  startDate: "",
+  startYear: "",
   pin: "",
   confirmPin: "",
 };
@@ -242,7 +247,7 @@ function Steps({
           apprenticeYear: draft.apprenticeYear,
           legalName: draft.legalName.trim(),
           dob: draft.dob,
-          startDate: draft.startDate || null,
+          startYear: draft.startYear ? Number(draft.startYear) : null,
           pin: draft.pin,
           confirmPin: draft.confirmPin,
         }),
@@ -423,12 +428,14 @@ function Steps({
               autoComplete="bday"
             />
           </Field>
-          <Field label="Start date" hint="If you know it — otherwise leave it.">
+          <Field label="Start year" hint="The year you started with the company — if you know it, otherwise leave it.">
             <input
               className={inputCls}
-              type="date"
-              value={draft.startDate}
-              onChange={(e) => set({ startDate: e.target.value })}
+              inputMode="numeric"
+              placeholder="2026"
+              maxLength={4}
+              value={draft.startYear}
+              onChange={(e) => set({ startYear: e.target.value.replace(/\D/g, "").slice(0, 4) })}
             />
           </Field>
         </div>
@@ -493,7 +500,7 @@ function Steps({
       ["Role", draft.role ? SIGNUP_ROLE_LABELS[draft.role] + (SIGNUP_ROLE_NEEDS_YEAR[draft.role] && draft.apprenticeYear != null ? ` · year ${draft.apprenticeYear}` : "") : ""],
       ["Legal name", draft.legalName],
       ["Date of birth", draft.dob],
-      ["Start date", draft.startDate || "—"],
+      ["Start year", draft.startYear || "—"],
     ];
     return (
       <Screen>
@@ -530,20 +537,103 @@ function Steps({
     );
   }
 
-  // done — the account is live (instant access); point straight at sign-in.
+  if (step === "done") {
+    // done — the account is live (instant access); one more screen before
+    // sign-in: put the app on their home screen while they're right here.
+    return (
+      <Screen>
+        <div className="my-auto text-center">
+          <p className="font-mono text-[12px] uppercase tracking-widest text-text-muted">
+            You&rsquo;re in
+          </p>
+          <h1 className="mt-2 font-display text-2xl text-text">Nice one, {draft.preferredName || draft.firstName}.</h1>
+          <p className="mt-3 text-[15px] leading-relaxed text-text-muted">
+            Your login works right now — your email{" "}
+            <span className="font-semibold text-text">{draft.email}</span> and your 4-digit PIN.
+            Keep an eye out for a welcome email too. See you on site.
+          </p>
+        </div>
+        <PrimaryCta onClick={() => setStep("homescreen")}>
+          One last thing <ArrowRight className="h-5 w-5" aria-hidden />
+        </PrimaryCta>
+      </Screen>
+    );
+  }
+
+  return <SignupHomeScreenStep />;
+}
+
+/* ---- home screen (after done) ---- */
+
+type SignupPlatform = "ios" | "android";
+
+/**
+ * Final signup screen: put BuhlOS on the home screen before first sign-in.
+ * The worker picks their phone (pre-selected from the user agent when it's
+ * unambiguous — still switchable); the steps reuse the More-tab install
+ * card's copy so the instructions can't drift. Exported for render tests.
+ */
+export function SignupHomeScreenStep({
+  initialPlatform = null,
+}: {
+  initialPlatform?: SignupPlatform | null;
+}) {
+  const [platform, setPlatform] = useState<SignupPlatform | null>(initialPlatform);
+
+  // Detect after mount (navigator isn't there during SSR).
+  useEffect(() => {
+    if (initialPlatform !== null) return;
+    const ua = navigator.userAgent;
+    if (/iPhone|iPad|iPod/i.test(ua)) setPlatform("ios");
+    else if (/Android/i.test(ua)) setPlatform("android");
+  }, [initialPlatform]);
+
   return (
     <Screen>
-      <div className="my-auto text-center">
-        <p className="font-mono text-[12px] uppercase tracking-widest text-text-muted">
-          You&rsquo;re in
+      <div className="pt-4" data-testid="signup-homescreen-step">
+        <h1 className="font-display text-xl text-text">Put BuhlOS on your home screen.</h1>
+        <p className="mt-2 text-[15px] leading-relaxed text-text-muted">
+          One tap from the ute — no hunting through the browser. Takes 10 seconds, best done
+          right now.
         </p>
-        <h1 className="mt-2 font-display text-2xl text-text">Nice one, {draft.preferredName || draft.firstName}.</h1>
-        <p className="mt-3 text-[15px] leading-relaxed text-text-muted">
-          Your login works right now — your email{" "}
-          <span className="font-semibold text-text">{draft.email}</span> and your 4-digit PIN.
-          Keep an eye out for a welcome email too. See you on site.
+        <div className="mt-5">
+          <span className="mb-1 block font-mono text-[12px] font-semibold uppercase tracking-widest text-text-muted">
+            What phone have you got?
+          </span>
+          <div className="grid grid-cols-2 gap-2">
+            {(
+              [
+                ["ios", "iPhone"],
+                ["android", "Android"],
+              ] as const
+            ).map(([p, label]) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setPlatform(p)}
+                data-testid={`signup-platform-${p}`}
+                className={cn(
+                  "h-12 rounded-card border text-[15px] font-semibold",
+                  platform === p
+                    ? "border-brand-navy bg-brand-navy text-white"
+                    : "border-border bg-white text-text",
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {platform ? (
+          <div className="mt-4 rounded-card border border-border bg-white p-4">
+            <StepList steps={platform === "ios" ? IOS_INSTALL_STEPS : ANDROID_INSTALL_STEPS} />
+          </div>
+        ) : null}
+        <p className="mt-4 text-[13px] leading-relaxed text-text-muted">
+          Skipping it? No stress — the same steps live under More once you&rsquo;re signed in.
         </p>
       </div>
+      <div className="mt-6" />
       <a
         href="/v2/login?mode=worker"
         className="mt-auto flex h-14 w-full items-center justify-center gap-2 rounded-card bg-accent-yellow text-base font-semibold text-brand-navy active:opacity-90"

@@ -41,7 +41,39 @@ function isStandalone(): boolean {
   );
 }
 
-function StepList({ steps }: { steps: ReadonlyArray<React.ReactNode> }) {
+// Shared with the signup flow's home-screen step — one source for the
+// install instructions, so the copy can't drift between surfaces.
+export const IOS_INSTALL_STEPS: ReadonlyArray<React.ReactNode> = [
+  <>
+    Open <span className="font-semibold">buhlos.com</span> in{" "}
+    <span className="font-semibold">Safari</span> (this won&rsquo;t work from another
+    browser or the group chat).
+  </>,
+  <>
+    Tap the <span className="font-semibold">Share</span> button — the square with the
+    arrow pointing up.
+  </>,
+  <>
+    Scroll down and tap <span className="font-semibold">Add to Home Screen</span>, then{" "}
+    <span className="font-semibold">Add</span>.
+  </>,
+];
+
+export const ANDROID_INSTALL_STEPS: ReadonlyArray<React.ReactNode> = [
+  <>
+    Open <span className="font-semibold">buhlos.com</span> in{" "}
+    <span className="font-semibold">Chrome</span>.
+  </>,
+  <>
+    Tap the <span className="font-semibold">⋮ menu</span> (top right).
+  </>,
+  <>
+    Tap <span className="font-semibold">Add to Home screen</span> (some phones say{" "}
+    <span className="font-semibold">Install app</span>).
+  </>,
+];
+
+export function StepList({ steps }: { steps: ReadonlyArray<React.ReactNode> }) {
   return (
     <ol className="space-y-1.5 text-sm text-text">
       {steps.map((s, i) => (
@@ -120,41 +152,10 @@ export function InstallAppCard() {
         </button>
       ) : platform === "ios" ? (
         <div className="space-y-2">
-          <StepList
-            steps={[
-              <>
-                Open <span className="font-semibold">buhlos.com</span> in{" "}
-                <span className="font-semibold">Safari</span> (this won&rsquo;t work from
-                another browser or the group chat).
-              </>,
-              <>
-                Tap the <span className="font-semibold">Share</span> button — the square
-                with the arrow pointing up.
-              </>,
-              <>
-                Scroll down and tap{" "}
-                <span className="font-semibold">Add to Home Screen</span>, then{" "}
-                <span className="font-semibold">Add</span>.
-              </>,
-            ]}
-          />
+          <StepList steps={IOS_INSTALL_STEPS} />
         </div>
       ) : (
-        <StepList
-          steps={[
-            <>
-              Open <span className="font-semibold">buhlos.com</span> in{" "}
-              <span className="font-semibold">Chrome</span>.
-            </>,
-            <>
-              Tap the <span className="font-semibold">⋮ menu</span> (top right).
-            </>,
-            <>
-              Tap <span className="font-semibold">Add to Home screen</span> (some phones
-              say <span className="font-semibold">Install app</span>).
-            </>,
-          ]}
-        />
+        <StepList steps={ANDROID_INSTALL_STEPS} />
       )}
     </Card>
   );
