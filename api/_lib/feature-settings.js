@@ -38,52 +38,28 @@ const SETTINGS_KEY = 'feature-settings.json';
 /** @type {Record<string, Record<string, SettingDef>>} */
 const SETTINGS_REGISTRY = {
   // Each default MUST equal the feature's current hardcoded constant.
-  safety_docs: {
+  // The 2026-07-27 gut deleted every previously-registered feature; what
+  // remains is the lean core's knobs.
+  itp_simple: {
     maxUploadMb: {
       type: 'number',
-      label: 'Max upload size (MB)',
-      description: 'Largest SWMS / SDS / safety file a manager can upload.',
-      default: 25,
+      label: 'Max photo size (MB)',
+      description: 'Largest single photo a worker can attach to a simple ITP report.',
+      default: 8,
       min: 1,
-      max: 100,
+      max: 25,
       step: 1,
       unit: 'MB',
     },
-  },
-  certificates_register: {
-    maxUploadMb: {
+    maxPdfPhotos: {
       type: 'number',
-      label: 'Max upload size (MB)',
-      description: 'Largest certificate file a manager can upload.',
-      default: 25,
-      min: 1,
-      max: 100,
-      step: 1,
-      unit: 'MB',
-    },
-  },
-  minutes_register: {
-    bodyMaxChars: {
-      type: 'number',
-      label: 'Minutes body length cap',
-      description: 'Maximum characters in a meeting-minutes body.',
-      default: 10000,
-      min: 500,
-      max: 50000,
-      step: 100,
-      unit: 'chars',
-    },
-  },
-  site_instructions_register: {
-    instructionTextMaxChars: {
-      type: 'number',
-      label: 'Instruction text length cap',
-      description: 'Maximum characters in a site-instruction body.',
-      default: 2000,
-      min: 200,
-      max: 20000,
-      step: 100,
-      unit: 'chars',
+      label: 'Max photos per PDF',
+      description: 'Serverless memory/time guard — split the report past this many photos.',
+      default: 120,
+      min: 10,
+      max: 400,
+      step: 10,
+      unit: 'photos',
     },
   },
 };

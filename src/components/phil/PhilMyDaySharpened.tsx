@@ -3,7 +3,6 @@
 import { useState } from "react";
 import type { Route } from "next";
 import {
-  AlertOctagon,
   ArrowRight,
   ChevronRight,
   Clock,
@@ -13,7 +12,6 @@ import {
 import { PhilOfflineLink } from "./PhilOfflineLink";
 import { PhilStatusBadge, type PhilStatusTone } from "./ui/PhilStatusBadge";
 import { useOnline } from "./useOnline";
-import { useCaptureLauncher } from "./captureLauncherContext";
 import { cn } from "@/lib/cn";
 import type { PhilNeedsYouItem } from "@/domains/phil/needs-you";
 import { STANDARD_DAY_HOURS } from "@/domains/timesheets/service";
@@ -31,8 +29,8 @@ import { formatHoursLabel } from "@/domains/timesheets/format";
  *     no write outbox in Phil today, so "online" truthfully means nothing is
  *     queued — when an outbox ships, this pill must also check it.
  *   - "Do this now" is the single most urgent item from the EXISTING
- *     needs-you model (buildPhilNeedsYou: rejected hours, assigned snags,
- *     calibration lapses). It is a needs-you surface, NOT a recommender —
+ *     needs-you model (buildPhilNeedsYou: rejected hours, calibration
+ *     lapses). It is a needs-you surface, NOT a recommender —
  *     P4/P3: the worker's instruction outranks computed ordering; we only
  *     surface what genuinely needs their hand. "Not yet" dismisses the hero
  *     (client state only) and the item drops into the list below — nothing
@@ -144,8 +142,7 @@ function heroActionLabel(item: PhilNeedsYouItem): string {
 /**
  * One badge per needs-you kind, honest to what the item IS:
  *   rejected-hours → the canonical Rejected;
- *   calibration    → Expired / Due soon (domain words, danger/warning tone);
- *   snag           → Open (the selector only emits open / in-progress snags).
+ *   calibration    → Expired / Due soon (domain words, danger/warning tone).
  */
 export function philNeedsYouBadge(item: PhilNeedsYouItem): {
   label: string;
@@ -158,8 +155,6 @@ export function philNeedsYouBadge(item: PhilNeedsYouItem): {
       return item.severity === "urgent"
         ? { label: "Expired", tone: "danger" }
         : { label: "Due soon", tone: "warning" };
-    case "snag":
-      return { label: "Open", tone: item.severity === "warning" ? "warning" : "neutral" };
   }
 }
 
@@ -320,8 +315,6 @@ export function PhilMyDayQuickGrid({
    *  contacts live on the job) — with none the tile is omitted, not faked. */
   callJobId: string | null;
 }) {
-  const { openQuickCapture } = useCaptureLauncher();
-
   const tileClass =
     "flex min-h-[84px] flex-col gap-1.5 rounded-card border border-border bg-surface-raised p-3 text-left shadow-card transition-colors active:bg-surface-subtle";
 
@@ -343,20 +336,6 @@ export function PhilMyDayQuickGrid({
             {hoursDue ? "Today's not logged yet" : "Today's hours"}
           </span>
         </PhilOfflineLink>
-
-        {/* Report an issue — the EXISTING worker "Issue / defect" capture
-            preset (same launcher, same submit path as the current tiles). */}
-        <button
-          type="button"
-          onClick={() => openQuickCapture({ kind: "worker", optionKey: "defect" })}
-          className={tileClass}
-        >
-          <span className="inline-flex h-9 w-9 items-center justify-center rounded-[10px] bg-state-danger-subtle-bg text-state-danger-subtle-text">
-            <AlertOctagon className="h-[18px] w-[18px]" aria-hidden="true" />
-          </span>
-          <span className="text-sm font-semibold leading-tight text-text">Report an issue</span>
-          <span className="text-xs leading-tight text-text-muted">Damage or bad work to fix</span>
-        </button>
 
         {/* Who to call — the current job's real contacts section. Omitted
             without a job context (no invented directory). */}

@@ -9,7 +9,6 @@ import {
   ArrowRight,
   Calendar,
   ChevronRight,
-  ClipboardCheck,
   Inbox,
   Users,
 } from "lucide-react";
@@ -22,22 +21,16 @@ import type { ExceptionItem } from "@/domains/exceptions/types";
 import { SEVERITY_TONE, sourceLabel } from "@/domains/exceptions/labels";
 import { isActionable } from "@/domains/exceptions/service";
 import type { TodayStripModel } from "@/domains/timesheets/today-strip";
-import {
-  approvalsBreakdownLabel,
-  dailyApprovalsTotal,
-  rankNeedsYou,
-  type MobileTodayApprovals,
-  type MobileTodayApprovalsEnabled,
-} from "./mobile-today";
+import { rankNeedsYou } from "./mobile-today";
 
 /**
  * Mobile Command Centre ("Today") — the calm phone home that answers
  * "what needs me first?" in one screen (the audit's single ranked list, not
  * nine equal cards). Rendered `md:hidden`; the desktop page is untouched.
  *
- * Every value is real or honestly absent (P7): the pulse + needs-you list +
- * approval counts are a simpler projection of the SAME loadSnapshot data the
- * desktop page uses. There is no fabricated presence, count or action.
+ * Every value is real or honestly absent (P7): the pulse + needs-you list are
+ * a simpler projection of the SAME loadSnapshot data the desktop page uses.
+ * There is no fabricated presence, count or action.
  */
 
 interface MobileTodayProps {
@@ -53,10 +46,6 @@ interface MobileTodayProps {
   jobsWithActivityToday: number | null;
   /** Hours submitted and awaiting approval (the weekly payroll closeout). */
   pendingHours: number;
-  approvals: MobileTodayApprovals;
-  /** Lean reset: which approvals sources are live. A dark source is never
-   *  named; all three dark ⇒ no "to approve" pulse and no approvals row. */
-  approvalsEnabled: MobileTodayApprovalsEnabled;
   /** The ranked exception list (already built + age-decorated by the page). */
   exceptions: ExceptionItem[];
   anySourceError: boolean;
@@ -89,8 +78,6 @@ export function MobileToday(props: MobileTodayProps) {
     todayPulseError,
     jobsWithActivityToday,
     pendingHours,
-    approvals,
-    approvalsEnabled,
     exceptions,
     anySourceError,
     errorMessage,
@@ -98,10 +85,6 @@ export function MobileToday(props: MobileTodayProps) {
   } = props;
 
   const { top, remaining, all } = rankNeedsYou(exceptions, 4);
-  const dailyApprovals = dailyApprovalsTotal(approvals);
-  // null ⇔ every approvals source is dark (lean reset) — render no "to
-  // approve" pulse segment and no approvals strip card at all.
-  const approvalsSub = approvalsBreakdownLabel(approvals, approvalsEnabled);
   const [showAll, setShowAll] = useState(false);
   const [selected, setSelected] = useState<ExceptionItem | null>(null);
   const visible = showAll ? all : top;
@@ -114,18 +97,10 @@ export function MobileToday(props: MobileTodayProps) {
         <p className="mt-1 text-sm text-text-muted">{dateLabel} · here&rsquo;s what needs you</p>
       </header>
 
-      {/* Pulse — one calm navy row, three tappable segments */}
+      {/* Pulse — one calm navy row, two tappable segments */}
       <div className="flex items-stretch overflow-hidden rounded-card bg-brand-navy shadow-card">
         <PulseSegment href="/hours" value={todayStrip ? String(todayStrip.crewCount) : "—"} label="on the clock" />
         <PulseSegment href="/hours" value={todayStrip ? todayStrip.loggedHoursLabel : "—"} label="logged today" />
-        {approvalsSub !== null ? (
-          <PulseSegment
-            href={"/hours/approvals" as Route}
-            value={String(dailyApprovals)}
-            label="to approve"
-            hot
-          />
-        ) : null}
       </div>
       {todayPulseError ? (
         <p className="-mt-3 px-1 text-xs text-text-muted">
@@ -217,34 +192,21 @@ export function MobileToday(props: MobileTodayProps) {
         </section>
       ) : null}
 
-      {/* Waiting on you — day-to-day approvals (hours are a weekly closeout).
-          The breakdown names only LIVE sources; with every approvals source
-          dark the section carries hours alone, so the meta counts those. */}
-      {dailyApprovals > 0 || pendingHours > 0 ? (
+      {/* Waiting on you — the weekly hours closeout. */}
+      {pendingHours > 0 ? (
         <section>
-          <SectionLabel meta={`${approvalsSub !== null ? dailyApprovals : pendingHours} to action`}>
+          <SectionLabel meta={`${pendingHours} to action`}>
             Waiting on you
           </SectionLabel>
           <div className="mt-2 space-y-2">
-            {dailyApprovals > 0 && approvalsSub !== null ? (
-              <StripCard
-                href={"/hours/approvals" as Route}
-                icon={<ClipboardCheck aria-hidden="true" className="h-5 w-5" />}
-                title="Approvals queue"
-                sub={approvalsSub}
-                count={dailyApprovals}
-              />
-            ) : null}
-            {pendingHours > 0 ? (
-              <StripCard
-                href={"/hours/weekly" as Route}
-                icon={<Calendar aria-hidden="true" className="h-5 w-5" />}
-                title="Hours for payroll"
-                sub={`${pendingHours} timesheet${pendingHours === 1 ? "" : "s"} awaiting weekly approval`}
-                count={pendingHours}
-                tone="yellow"
-              />
-            ) : null}
+            <StripCard
+              href={"/hours/weekly" as Route}
+              icon={<Calendar aria-hidden="true" className="h-5 w-5" />}
+              title="Hours for payroll"
+              sub={`${pendingHours} timesheet${pendingHours === 1 ? "" : "s"} awaiting weekly approval`}
+              count={pendingHours}
+              tone="yellow"
+            />
           </div>
         </section>
       ) : null}
@@ -321,24 +283,17 @@ function PulseSegment({
   href,
   value,
   label,
-  hot,
 }: {
   href: Route;
   value: string;
   label: string;
-  hot?: boolean;
 }) {
   return (
     <Link
       href={href}
       className="relative flex flex-1 flex-col gap-0.5 px-3 py-3 text-left first:pl-4 [&+a]:before:absolute [&+a]:before:left-0 [&+a]:before:top-3 [&+a]:before:bottom-3 [&+a]:before:w-px [&+a]:before:bg-white/15"
     >
-      <span
-        className={cn(
-          "font-display text-xl font-bold leading-none tracking-tight",
-          hot ? "text-accent-yellow" : "text-text-inverse",
-        )}
-      >
+      <span className="font-display text-xl font-bold leading-none tracking-tight text-text-inverse">
         {value}
       </span>
       <span className="font-mono text-[10px] uppercase tracking-wider text-white/60">{label}</span>

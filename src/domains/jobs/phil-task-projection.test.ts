@@ -8,9 +8,9 @@ import { buildWorkerTasks, parseJobTaskState } from "./taskState";
 import { visibleAreaGroups } from "./format";
 import type { TaskBlocker, TaskDependency } from "./task-blockers";
 import {
-  canonicalTaskToLegacyTaskRef,
-  findCanonicalTaskForLegacyRef,
-} from "../job-control/task-ref-compat";
+  canonicalTaskToCoordinate,
+  findCanonicalTaskByCoordinate,
+} from "./task-ref";
 import type { Job } from "./types";
 
 /**
@@ -186,13 +186,13 @@ describe("workerTasksFromCanonicalIndex — legacy TaskRef compatibility (#483)"
     // area + stage + the row's template id) resolves back to the EAST instance,
     // never west's.
     const ref = { areaId: "east", stage: "roughIn" as const, taskId: eastRow.id };
-    const resolved = findCanonicalTaskForLegacyRef({ canonicalTasks: index, ref });
+    const resolved = findCanonicalTaskByCoordinate(index, ref);
     expect(resolved).not.toBeNull();
     expect(resolved?.areaId).toBe("east");
-    expect(canonicalTaskToLegacyTaskRef(resolved!)).toEqual(ref);
+    expect(canonicalTaskToCoordinate(resolved!)).toEqual(ref);
 
     const westRef = { areaId: "west", stage: "roughIn" as const, taskId: eastRow.id };
-    expect(findCanonicalTaskForLegacyRef({ canonicalTasks: index, ref: westRef })?.areaId).toBe(
+    expect(findCanonicalTaskByCoordinate(index, westRef)?.areaId).toBe(
       "west",
     );
   });

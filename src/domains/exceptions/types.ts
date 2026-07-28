@@ -1,8 +1,5 @@
 import type { TimeEntry } from "@/domains/timesheets/types";
 import type { Job } from "@/domains/jobs/types";
-import type { ObservationItem } from "@/domains/observations/types";
-import type { MaterialRequestItem } from "@/domains/material-requests/types";
-import type { Rfi } from "@/domains/rfi/schema";
 import type { ExceptionActionState } from "./routes";
 
 export type { ExceptionActionState } from "./routes";
@@ -10,25 +7,19 @@ export type { ExceptionActionState } from "./routes";
 /**
  * Exceptions Inbox ("Needs Attention") — a PROJECTION layer, not a new source
  * of truth. An `ExceptionItem` is derived deterministically from existing,
- * already-permission-gated source records (hours, observations, job stats,
- * material requests). The inbox NEVER stores anything and NEVER exposes raw
- * source records — it builds minimal, safe, actionable items that link back to
- * the canonical source surface.
+ * already-permission-gated source records (hours, job stats). The inbox NEVER
+ * stores anything and NEVER exposes raw source records — it builds minimal,
+ * safe, actionable items that link back to the canonical source surface.
  *
- * Named `exceptions` (not `observations`) on purpose: `src/domains/observations`
- * is a distinct field-capture record store that is ONE source feeding this
- * projection.
+ * The gut pass (docs/product/02-lean-reset.md) removed the observation,
+ * material-request, RFI, snag and ITP sources with their features; the
+ * projection shape is unchanged for the sources that remain.
  */
 
 export type ExceptionSource =
   | "hours"
-  | "observation"
   | "evidence"
-  | "snag"
-  | "itp"
   | "job"
-  | "material"
-  | "rfi"
   | "planMarkup"
   | "gear";
 
@@ -104,26 +95,11 @@ export interface ExceptionCounts {
 /** Action-availability filter buckets. */
 export type ActionAvailability = "all" | "actionable" | "waiting";
 
-/** An RFI record decorated with its job's display name (the register stores
- *  only jobId; the cross-job scan joins the name for the inbox grouping). */
-export type ExceptionRfi = Rfi & { jobName?: string };
-
 /** The already-loaded, admin-gated source snapshot the projection reads. */
 export interface ExceptionSources {
   hoursPending: ReadonlyArray<TimeEntry>;
   hoursRejected: ReadonlyArray<TimeEntry>;
   jobs: ReadonlyArray<Job>;
-  observations: ReadonlyArray<ObservationItem>;
-  materialRequests: ReadonlyArray<MaterialRequestItem>;
-  /**
-   * #276 chase — RFIs awaiting an answer (open/sent) across live jobs, judged
-   * overdue against `today` (business-timezone YYYY-MM-DD, injected — the
-   * projection never calls Date.now()). BOTH fields are OPTIONAL: a caller
-   * that didn't fetch RFIs (or runs with `rfi_register` off) omits them and
-   * the projection is byte-for-byte unchanged.
-   */
-  rfis?: ReadonlyArray<ExceptionRfi>;
-  today?: string;
 }
 
 export interface ExceptionFilters {

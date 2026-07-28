@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
-import { isFlagEnabled } from "../../../../api/_lib/feature-flags.js";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { PhilPageIntro } from "@/components/phil/ui/PhilPageIntro";
 import { PhilBackLink } from "@/components/phil/ui/PhilBackLink";
@@ -25,20 +24,11 @@ export default async function PhilLeavePage() {
     redirect("/v2/login");
   }
 
-  // observations_inbox gates the Capture launcher's observation options
-  // (server-resolved boolean; cached flags.json read).
-  const [{ requests, error }, observationsEnabled] = await Promise.all([
-    loadMine(raw),
-    isFlagEnabled("observations_inbox", session),
-  ]);
+  const { requests, error } = await loadMine(raw);
   const todayISO = localDateString(new Date(), BUSINESS_TIMEZONE);
 
   return (
-    <PhilShell
-      title="Leave"
-      userId={session.userId ?? ""}
-      observationsEnabled={observationsEnabled}
-    >
+    <PhilShell title="Leave" userId={session.userId ?? ""}>
       <div className="space-y-4">
         <PhilBackLink href="/phil/my-day">My day</PhilBackLink>
         <PhilPageIntro

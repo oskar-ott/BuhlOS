@@ -10,9 +10,7 @@ vi.mock("next/navigation", () => ({
 
 import { PhilJobRoomsView } from "./PhilJobRoomsView";
 import type { AttentionItem } from "./PhilJobAttention";
-import type { OwedProofItem } from "./philJobRooms";
 import type { Job, JobAreaGroup } from "@/domains/jobs/types";
-import type { WorkPackage } from "@/domains/job-control/types";
 import type { TaskProgressRollup } from "@/domains/jobs/task-progress-rollup";
 
 /**
@@ -74,26 +72,14 @@ function baseProps(over: Partial<ViewProps> = {}): ViewProps {
     onEvidenceUpdated: () => {},
     onOpenCapture: () => {},
     groups,
-    workCounts: { total: 0, done: 0, going: 0, blocked: 0, todo: 0 },
+    workCounts: { total: 0, done: 0, going: 0, todo: 0 },
     taskStatePending: false,
     taskStateErr: null,
     jobComplete: false,
     rollup: emptyRollup,
-    blockedByArea: new Map(),
-    owedByArea: new Map(),
-    areaCountMaps: { snags: new Map(), itps: new Map(), photos: new Map() },
-    workPackages: undefined,
-    evidenceLinks: [],
-    snags: [],
-    snagContext: { stage: "roughIn", areaId: "a1" },
-    owedProof: [],
-    proofReviews: [],
-    itps: [],
+    areaCountMaps: { photos: new Map() },
     tags: [],
     tagsError: false,
-    hasCircuitSchedule: false,
-    circuitBoards: undefined,
-    certificatesEnabled: false,
     documents: [],
     documentsError: null,
     contacts: [],
@@ -102,7 +88,6 @@ function baseProps(over: Partial<ViewProps> = {}): ViewProps {
     canWriteServiceLocations: false,
     onCapturePhotoForServices: () => Promise.resolve(null),
     siteInduction: null,
-    safetyEnabled: false,
     ...over,
   };
 }
@@ -139,19 +124,19 @@ describe("NOW room", () => {
   it("renders real needs-you rows with the total in the heading", () => {
     const items: AttentionItem[] = [
       {
-        id: "rejected:s1",
-        tone: "danger",
-        kind: "Snag rejected",
-        title: "GPO height wrong",
-        reasonShown: "Admin pushed back with a reason.",
-        actionLabel: "Open Snags",
-        anchor: "#phil-job-snags",
+        id: "induction",
+        tone: "info",
+        kind: "Site induction",
+        title: "Site induction required",
+        reasonShown: "Confirm with your leading hand before starting work.",
+        actionLabel: "Open Site",
+        anchor: "#phil-job-site",
       },
     ];
     const html = render({ room: "now", attention: { items, total: 1 } });
     expect(html).toContain("Needs you · 1");
-    expect(html).toContain("GPO height wrong");
-    expect(html).toContain('data-testid="phil-room-needs-you-rejected:s1"');
+    expect(html).toContain("Site induction required");
+    expect(html).toContain('data-testid="phil-room-needs-you-induction"');
   });
 });
 
@@ -159,23 +144,18 @@ describe("WORK room", () => {
   it("shows real rolled-up counts + chips, and the area card's real n/m", () => {
     const html = render({
       room: "work",
-      workCounts: { total: 84, done: 31, going: 8, blocked: 5, todo: 40 },
+      workCounts: { total: 84, done: 31, going: 8, todo: 45 },
       rollup: {
         ...emptyRollup,
         byArea: { a1: { total: 9, complete: 4, pct: 44 } },
       },
-      blockedByArea: new Map([["a1", 1]]),
-      owedByArea: new Map([["a1", 2]]),
     });
     expect(html).toContain("31 of 84 tasks done");
-    expect(html).toContain("5 blocked");
     expect(html).toContain("8 going");
-    expect(html).toContain("40 to do");
+    expect(html).toContain("45 to do");
     expect(html).toContain("Areas — Front of house");
     expect(html).toContain("Reception");
     expect(html).toContain("4/9");
-    expect(html).toContain("1 blocked");
-    expect(html).toContain("Proof needed");
     expect(html).toContain('data-testid="phil-room-area-card-a1"');
   });
 
@@ -184,37 +164,6 @@ describe("WORK room", () => {
     expect(html).toContain('aria-label="Loading job progress"');
     expect(html).not.toContain("0 of 0 tasks done");
     expect(html).not.toContain("4/9");
-  });
-
-  it("omits the Scope row when no work packages are compiled (honest absence)", () => {
-    const html = render({ room: "work" });
-    expect(html).not.toContain("Scope of work");
-  });
-
-  it("shows the Scope row only for a REAL compiled artifact", () => {
-    const html = render({
-      room: "work",
-      workPackages: [
-        {
-          id: "wp1",
-          jobId: "j1",
-          title: "Reception power",
-          scopeClauseIds: [],
-          boqLineRefs: [],
-          taskRefs: [],
-          order: 0,
-        } as unknown as WorkPackage,
-      ],
-    });
-    expect(html).toContain('data-testid="phil-room-scope-row"');
-    expect(html).toContain("Scope of work");
-    expect(html).toContain("1 package");
-  });
-
-  it("Issues row carries the real open count — 'Nothing open' when none", () => {
-    const html = render({ room: "work" });
-    expect(html).toContain('data-testid="phil-room-issues-row"');
-    expect(html).toContain("Nothing open");
   });
 
   it("renders the parent-composed area view when the drill-in is open", () => {
@@ -229,59 +178,13 @@ describe("WORK room", () => {
 });
 
 describe("PROOF room", () => {
-  it("names the reason when the office hasn't compiled proof requirements", () => {
-    const html = render({ room: "proof" });
-    expect(html).toContain("compiled proof requirements for this job yet");
-    expect(html).not.toContain("All required proof is captured");
-  });
-
-  it("celebrates only a REAL all-captured state (compiled requirements exist)", () => {
-    const html = render({
-      room: "proof",
-      workPackages: [
-        {
-          id: "wp1",
-          jobId: "j1",
-          title: "Reception power",
-          scopeClauseIds: [],
-          boqLineRefs: [],
-          taskRefs: [],
-          requiredEvidence: [{ id: "re1", label: "Photo", kind: "photo" }],
-          order: 0,
-        } as unknown as WorkPackage,
-      ],
-      owedProof: [],
-    });
-    expect(html).toContain("All required proof is captured");
-  });
-
-  it("lists owed proof at its authored granularity with the area named", () => {
-    const owed: OwedProofItem[] = [
-      {
-        workPackageId: "wp1",
-        workPackageTitle: "Reception power",
-        requirement: { id: "re1", label: "Covered-work photo", kind: "photo" },
-        areaIds: ["a1"],
-      },
-    ];
-    const html = render({ room: "proof", owedProof: owed });
-    expect(html).toContain("Covered-work photo");
-    expect(html).toContain("Reception power");
-    expect(html).toContain(">Needs photo<");
-  });
-
-  it("keeps the circuit schedule + photos reachable only when they exist", () => {
+  it("keeps the photo gallery reachable only when captures exist", () => {
     const none = render({ room: "proof" });
-    expect(none).not.toContain("Circuit schedule");
     expect(none).not.toContain("All photos");
     const some = render({
       room: "proof",
-      hasCircuitSchedule: true,
-      circuitBoards: [{ circuits: [] }],
       evidenceItems: [{ id: "ev1" } as never],
     });
-    expect(some).toContain("Circuit schedule");
-    expect(some).toContain('href="/phil/jobs/j1/circuit-schedule"');
     expect(some).toContain("All photos");
     expect(some).toContain('href="/phil/jobs/j1/photos"');
   });

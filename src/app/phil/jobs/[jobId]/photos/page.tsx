@@ -63,17 +63,15 @@ export default async function PhilJobPhotosPage({ params }: PageParams) {
     notFound();
   }
 
-  // observations_inbox gates the Capture launcher's observation options.
-  const [jobResult, evidenceResult, catalogResult, observationsEnabled] = await Promise.all([
+  const [jobResult, evidenceResult, catalogResult] = await Promise.all([
     loadJob(raw, jobId),
     loadEvidence(raw, jobId),
     loadCatalog(raw, jobId),
-    isFlagEnabled("observations_inbox", session),
   ]);
 
   if (jobResult.kind === "not_found" || jobResult.kind === "forbidden") {
     return (
-      <PhilShell title="Photos" observationsEnabled={observationsEnabled}>
+      <PhilShell title="Photos">
         <div className="space-y-4">
           <PhilBackLink href="/phil/jobs">All jobs</PhilBackLink>
           <Card>
@@ -91,7 +89,7 @@ export default async function PhilJobPhotosPage({ params }: PageParams) {
 
   if (jobResult.kind === "error") {
     return (
-      <PhilShell title="Photos" observationsEnabled={observationsEnabled}>
+      <PhilShell title="Photos">
         <div className="space-y-4">
           <PhilBackLink href={`/phil/jobs/${encodeURIComponent(jobId)}`}>Back to job</PhilBackLink>
           <PhilNotice tone="warning" title="Couldn’t load this job" role="alert">
@@ -110,7 +108,6 @@ export default async function PhilJobPhotosPage({ params }: PageParams) {
   return (
     <PhilShell
       title={`Photos · ${jobResult.job.name}`}
-      observationsEnabled={observationsEnabled}
     >
       <div className="space-y-4">
         <PhilBackLink href={`/phil/jobs/${encodeURIComponent(jobId)}`}>Back to job</PhilBackLink>

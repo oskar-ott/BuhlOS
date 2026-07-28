@@ -136,11 +136,10 @@ describe("'Switchboard' nav-label detector spares the electrical sense", () => {
 });
 
 // Sanity: removing the product name must not nuke real electrical
-// terminology. The ITP scope schema is the canonical electrical sense.
+// terminology. (The ITP scope schema was the other canonical electrical sense
+// until the 2026-07-27 gut deleted the heavy ITP feature; the jobs schema's
+// field module is now the one that must survive.)
 describe("electrical 'switchboard' terminology is preserved", () => {
-  it("the ITP scope schema still defines the 'switchboard' scope", () => {
-    expect(read("src/domains/itp/schema.ts")).toContain('"switchboard"');
-  });
   it("the jobs schema still models the switchboards field module", () => {
     expect(read("src/domains/jobs/schema.ts")).toContain("switchboards");
   });

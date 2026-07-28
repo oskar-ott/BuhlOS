@@ -1,22 +1,21 @@
 import { list, put } from "@vercel/blob";
 
 /**
- * TypeScript blob helper for the job-control runtime boundary (ADR:
- * docs/architecture/job-control-runtime-adr.md).
+ * TypeScript blob helper for server components / route handlers.
  *
  * The legacy `api/*.js` Vercel functions persist via `api/_lib/blob.js`, which
- * TypeScript route handlers cannot import. This is the smallest TS equivalent —
- * read/write a JSON blob by key over `@vercel/blob`, mirroring that module's
- * `put` conventions (`access: public`, JSON content type, no random suffix, the
+ * TypeScript cannot import. This is the smallest TS equivalent — read/write a
+ * JSON blob by key over `@vercel/blob`, mirroring that module's `put`
+ * conventions (`access: public`, JSON content type, no random suffix, the
  * `BLOB_READ_WRITE_TOKEN`). It is intentionally minimal: no cache layer, no
  * store abstraction. It does NOT replace `api/_lib/blob.js` and changes no
  * existing route.
  *
- * Scope: job-control producer/read endpoints only. `writeJsonBlob` is provided
- * for the later L0/L1 producers and is NOT called by the runtime-check route
- * (GET-only). Before any real production write lands, register the key in
- * `api/_lib/backup-manifest.js` (see the ADR) and decide whether to port the
- * #157 write guards or route the write through the JS layer.
+ * It arrived with the job-control runtime boundary and outlived it: the gut
+ * pass (docs/product/02-lean-reset.md) deleted job-control, and the ServiceM8
+ * command-centre card is now the only reader. Before any real production write
+ * lands, register the key in `api/_lib/backup-manifest.js` and decide whether
+ * to port the #157 write guards or route the write through the JS layer.
  */
 
 const token = (): string | undefined => process.env.BLOB_READ_WRITE_TOKEN;

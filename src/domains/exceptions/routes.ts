@@ -63,18 +63,6 @@ export const ACTION_ROUTES = {
     defaultLabel: "Review approvals",
     perJob: false,
   },
-  observationsInbox: {
-    build: () => "/observations",
-    sourceFile: "src/app/(admin)/observations/page.tsx",
-    defaultLabel: "Open observations",
-    perJob: false,
-  },
-  materialRequests: {
-    build: () => "/material-requests",
-    sourceFile: "src/app/(admin)/material-requests/page.tsx",
-    defaultLabel: "Open material requests",
-    perJob: false,
-  },
   jobHub: {
     build: (p) => `/v2/jobs/${encodeSegment(p.jobId!)}`,
     sourceFile: "src/app/v2/jobs/[jobId]/page.tsx",
@@ -91,30 +79,6 @@ export const ACTION_ROUTES = {
     build: (p) => `/v2/jobs/${encodeSegment(p.jobId!)}/evidence`,
     sourceFile: "src/app/v2/jobs/[jobId]/evidence/page.tsx",
     defaultLabel: "Open evidence",
-    perJob: true,
-  },
-  jobSnags: {
-    build: (p) => `/v2/jobs/${encodeSegment(p.jobId!)}/snags`,
-    sourceFile: "src/app/v2/jobs/[jobId]/snags/page.tsx",
-    defaultLabel: "Open snags",
-    perJob: true,
-  },
-  jobItps: {
-    build: (p) => `/v2/jobs/${encodeSegment(p.jobId!)}/itps`,
-    sourceFile: "src/app/v2/jobs/[jobId]/itps/page.tsx",
-    defaultLabel: "Open ITPs",
-    perJob: true,
-  },
-  jobObservations: {
-    build: (p) => `/v2/jobs/${encodeSegment(p.jobId!)}/observations`,
-    sourceFile: "src/app/v2/jobs/[jobId]/observations/page.tsx",
-    defaultLabel: "Open observation",
-    perJob: true,
-  },
-  jobRfis: {
-    build: (p) => `/v2/jobs/${encodeSegment(p.jobId!)}/rfis`,
-    sourceFile: "src/app/v2/jobs/[jobId]/rfis/page.tsx",
-    defaultLabel: "Open RFI register",
     perJob: true,
   },
 } as const satisfies Record<string, RouteDef>;

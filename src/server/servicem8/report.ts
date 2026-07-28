@@ -3,7 +3,7 @@
 // /api/internal/sync-checks/servicem8 cron). The command-centre card renders
 // this snapshot — the page never talks to ServiceM8 itself.
 
-import { readJsonBlob } from "@/server/job-control/blob";
+import { readJsonBlob } from "@/server/blob";
 
 export const SERVICEM8_REPORT_KEY = "servicem8-sync.json";
 

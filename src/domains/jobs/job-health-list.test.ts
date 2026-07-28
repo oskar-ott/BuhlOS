@@ -40,11 +40,11 @@ describe("rank + parse", () => {
 describe("sortByHealth — stable, trouble first", () => {
   it("orders at-risk → watch → good → unknown, preserving input order within a level", () => {
     const items = [
-      withHealth("good1", { statsSnagsV2Active: 0, statsEvidenceV2Pending: 0 }), // good
+      withHealth("good1", { statsEvidenceV2Pending: 0 }), // good
       withHealth("risk1", { statsExpiredTags: 2 }), // at-risk (hard)
-      withHealth("watch1", { statsSnagsV2Active: 1 }), // watch
+      withHealth("watch1", { statsEvidenceV2Pending: 1 }), // watch
       withHealth("unknown1", {}), // no signals → unknown
-      withHealth("good2", { statsSnagsV2Active: 0, statsEvidenceV2Pending: 0 }), // good
+      withHealth("good2", { statsEvidenceV2Pending: 0 }), // good
     ];
     expect(sortByHealth(items).map((x) => x.job.id)).toEqual([
       "risk1",
@@ -60,8 +60,8 @@ describe("healthCounts — for the filter pills", () => {
   it("tallies each level", () => {
     const items = [
       withHealth("a", { statsExpiredTags: 1 }),
-      withHealth("b", { statsSnagsV2Active: 1 }),
-      withHealth("c", { statsSnagsV2Active: 0, statsEvidenceV2Pending: 0 }),
+      withHealth("b", { statsEvidenceV2Pending: 1 }),
+      withHealth("c", { statsEvidenceV2Pending: 0 }),
       withHealth("d", {}),
     ];
     expect(healthCounts(items)).toEqual({ "at-risk": 1, watch: 1, good: 1, unknown: 1 });

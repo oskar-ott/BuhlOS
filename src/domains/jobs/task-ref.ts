@@ -16,13 +16,15 @@ import type { JobTaskState } from "./taskState";
  *
  * Why this lives here (and not in job-control)
  * --------------------------------------------
- * The first bridge shipped inside job-control (`task-ref-compat.ts`, #483)
+ * The first bridge shipped inside job-control (`task-ref-compat.ts`, #483 —
+ * deleted with job-control by the 2026-07-27 gut)
  * because that is where the legacy `TaskRef` tuple lives. But the SAME resolution
  * is needed by every other surface that holds a tuple — evidence, ITP/QA, the
  * task-instance projection (#500), future facets. Re-using a job-control module
  * from those surfaces would couple them to job-control for no reason. So the
  * shared core lives in the jobs domain (next to the index it resolves against),
- * and job-control's `task-ref-compat` now DELEGATES to it (its public API and
+ * and job-control's `task-ref-compat` delegated to it until the gut removed it
+ * (its public API and
  * behaviour are unchanged — see that file). No fork, one resolver.
  *
  * No import cycle: the jobs domain never imports job-control; job-control imports
@@ -45,7 +47,6 @@ import type { JobTaskState } from "./taskState";
  *
  * Cross-ref:
  *   src/domains/jobs/task-index.ts — CanonicalTask + id/source primitives
- *   src/domains/job-control/task-ref-compat.ts — the job-control delegate (#483)
  *   docs/architecture/task-led-job-architecture.md — "The compatibility bridge"
  */
 

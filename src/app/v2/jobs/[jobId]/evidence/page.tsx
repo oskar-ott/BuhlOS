@@ -10,10 +10,8 @@ import { canAccessSurface } from "@/lib/auth/permissions";
 import { isAdminRole, isLeadingHandRole } from "@/lib/auth/roles";
 import { JobDetailResponseSchema } from "@/domains/jobs/schema";
 import { EvidenceListResponseSchema } from "@/domains/evidence/schema";
-import { SnagListResponseSchema } from "@/domains/snags/schema";
 import type { Job } from "@/domains/jobs/types";
 import type { EvidenceItem } from "@/domains/evidence/types";
-import type { SnagItem } from "@/domains/snags/types";
 
 export const dynamic = "force-dynamic";
 
@@ -62,29 +60,10 @@ export default async function AdminEvidenceReviewPage({ params }: PageParams) {
   if (!(await isFlagEnabled("evidence", session))) notFound();
   const isAdmin = isAdminRole(session.role);
 
-  // #262 / #267 — both AI features are admin-only and dark-flagged. When a
-  // flag is off (or the viewer is LH) the corresponding controls don't
-  // render at all — the API 404s anyway, so no dead buttons.
-  const [aiLabelsFlag, snagSuggestionsFlag] = await Promise.all([
-    isFlagEnabled("ai_photo_labels", session),
-    isFlagEnabled("ai_snag_suggestions", session),
-  ]);
-  const aiLabelsEnabled = isAdmin && aiLabelsFlag;
-  let snagSuggestionsEnabled = isAdmin && snagSuggestionsFlag;
-
-  const [jobResult, evidenceResult, snagsResult] = await Promise.all([
+  const [jobResult, evidenceResult] = await Promise.all([
     loadJob(raw, jobId),
     loadEvidence(raw, jobId),
-    // #267 — the suggested/linked projection needs the job's snags.
-    snagSuggestionsEnabled
-      ? loadSnags(raw, jobId)
-      : Promise.resolve({ snags: [] as SnagItem[], error: null }),
   ]);
-
-  // Without the snag list we can't tell 'suggested' from 'linked' — degrade
-  // the whole suggestion surface dark rather than risk suggesting a snag
-  // that already exists (honest failure over a wrong suggestion).
-  if (snagsResult.error) snagSuggestionsEnabled = false;
 
   if (jobResult.kind === "not_found" || jobResult.kind === "forbidden") {
     return (
@@ -149,9 +128,6 @@ export default async function AdminEvidenceReviewPage({ params }: PageParams) {
              server-side canManageJob passes). So admin OR LH here == can
              manage this job for the as-built FLAG permission. */
           viewerCanManageJob={isAdmin || isLeadingHandRole(session.role)}
-          aiLabelsEnabled={aiLabelsEnabled}
-          snagSuggestionsEnabled={snagSuggestionsEnabled}
-          initialSnags={snagsResult.snags}
         />
       </div>
     </AdminShell>
@@ -237,43 +213,3 @@ async function loadEvidence(
   }
 }
 
-/**
- * #267 — fetch the job's snagsV2 rows for the defect-suggestion
- * projection ('linked' state = a snag already carries the photo). Only
- * called when the ai_snag_suggestions flag is on; a failure degrades the
- * suggestion surface dark (see the caller) rather than blocking the page.
- */
-async function loadSnags(
-  cookieValue: string | undefined,
-  jobId: string
-): Promise<{ snags: SnagItem[]; error: string | null }> {
-  const h = await headers();
-  const host = h.get("x-forwarded-host") ?? h.get("host");
-  const proto = h.get("x-forwarded-proto") ?? "http";
-  const base = host ? `${proto}://${host}` : "http://localhost:3000";
-  try {
-    const res = await fetch(
-      `${base}/api/snags?jobId=${encodeURIComponent(jobId)}`,
-      {
-        cache: "no-store",
-        headers: cookieValue
-          ? { cookie: `${SESSION_COOKIE}=${cookieValue}` }
-          : undefined,
-      }
-    );
-    if (!res.ok) {
-      return { snags: [], error: `Snags API returned ${res.status}` };
-    }
-    const body = await res.json();
-    const parsed = SnagListResponseSchema.safeParse(body);
-    if (!parsed.success) {
-      return { snags: [], error: "Unexpected snags response shape" };
-    }
-    return { snags: parsed.data.snags, error: null };
-  } catch (err) {
-    return {
-      snags: [],
-      error: err instanceof Error ? err.message : "Network error",
-    };
-  }
-}

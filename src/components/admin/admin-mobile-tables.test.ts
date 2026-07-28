@@ -30,29 +30,19 @@ const read = (rel: string): string => readFileSync(join(ADMIN_DIR, rel), "utf8")
 // it inside a horizontal-scroll container so the page never overflows a phone.
 const MOBILE_SCROLL_TABLES = [
   "EvidenceQueue.tsx",
-  "ITPsQueue.tsx",
-  "SnagsQueue.tsx",
   "GearRegisterClient.tsx",
-  "QaStatusBoard.tsx",
 ];
 
-// These three shipped wrapping their <table> in `overflow-hidden`, which
-// clipped the Actions column off-screen on phones. The fix swapped the wrapper
-// to overflow-x-auto; this freezes that so the clip can't return.
-const PREVIOUSLY_CLIPPED = ["EvidenceQueue.tsx", "ITPsQueue.tsx", "SnagsQueue.tsx"];
+// This one shipped wrapping its <table> in `overflow-hidden`, which clipped the
+// Actions column off-screen on phones. The fix swapped the wrapper to
+// overflow-x-auto; this freezes that so the clip can't return.
+const PREVIOUSLY_CLIPPED = ["EvidenceQueue.tsx"];
 const BANNED_WRAPPER = "overflow-hidden rounded-card border border-border bg-surface-raised";
 
-// Raw <table>s intentionally OUTSIDE the mobile-scroll contract:
-//  - CompliancePackView: a print/PDF deliverable (the ITP compliance pack),
-//    laid out for paper, not a phone viewport.
-// circuit-schedule/{ScheduleBuilder,SchedulePreview} were exempt as the
-// desktop-only authoring tool; #666 wrapped both tables in overflow-x-auto
-// (+ a header-wrap mobile fallback), so they now meet the contract and are
-// scanned like any other admin table below.
-// If you add a table here, say why; don't use it to dodge a real fix.
-const TABLE_EXEMPT = new Set([
-  "CompliancePackView.tsx",
-]);
+// Raw <table>s intentionally OUTSIDE the mobile-scroll contract. If you add a
+// table here, say why; don't use it to dodge a real fix. (The 2026-07-27 gut
+// deleted every previous exemption with its feature.)
+const TABLE_EXEMPT = new Set<string>([]);
 
 function walkTsx(dir: string): string[] {
   const out: string[] = [];

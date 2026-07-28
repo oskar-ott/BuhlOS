@@ -7,12 +7,10 @@
  *   buildRightNow     — the "Right now" big-number strip
  *
  * Pure + deterministic (unit-tested in isolation); the page does the
- * permission/flag-gated loading and renders these VMs. Honest-data rules
+ * permission-gated loading and renders these VMs. Honest-data rules
  * (P7) are baked in:
  *   - a FAILED source is passed as null and its clause/value is OMITTED or
  *     rendered "—" — never a fabricated 0;
- *   - a DARK (flag-off) loop is omitted from the input entirely and leaves
- *     no row, label or count — dark is not zero;
  *   - zero-count rows drop from the queue (the list shows only what's open).
  */
 
@@ -41,13 +39,6 @@ export interface NeedsYouCounts {
   pending: number;
   /** Photos/tags pending review across live jobs (statsEvidenceV2Pending rollup). */
   evidence: number;
-  /** Flag-gated loops — OMIT (undefined) while the feature is dark: no row, no trace. */
-  itp?: { count: number; href: string };
-  observations?: number;
-  planMismatches?: number;
-  materials?: number;
-  rfisOverdue?: number;
-  snags?: number;
 }
 
 /** Build the queue rows in "what blocks pay, first" order; zero counts drop. */
@@ -99,100 +90,6 @@ export function buildNeedsYouQueue(c: NeedsYouCounts): NeedsYouRow[] {
       cta: "Approve",
       href: "/hours/approvals",
     },
-    ...(c.itp
-      ? [
-          {
-            key: "itp",
-            count: c.itp.count,
-            tone: "wait" as const,
-            title:
-              c.itp.count === 1
-                ? "ITP waiting on sign-off"
-                : "ITPs waiting on sign-off",
-            sub: "Witnessed hold points ready for the office to counter-sign.",
-            cta: "Jobs",
-            href: c.itp.href,
-          },
-        ]
-      : []),
-    ...(c.observations != null
-      ? [
-          {
-            key: "observations",
-            count: c.observations,
-            tone: "wait" as const,
-            title:
-              c.observations === 1
-                ? "Observation to action"
-                : "Observations to action",
-            sub: "Raised from site and flagged for the office to act on.",
-            cta: "Review",
-            href: "/observations",
-          },
-        ]
-      : []),
-    ...(c.planMismatches != null
-      ? [
-          {
-            key: "plan",
-            count: c.planMismatches,
-            tone: "wait" as const,
-            title:
-              c.planMismatches === 1
-                ? "Plan mismatch to resolve"
-                : "Plan mismatches to resolve",
-            sub: "Site says the drawings don’t match — check before work continues.",
-            cta: "Review",
-            href: "/observations",
-          },
-        ]
-      : []),
-    ...(c.materials != null
-      ? [
-          {
-            key: "materials",
-            count: c.materials,
-            tone: "wait" as const,
-            title:
-              c.materials === 1
-                ? "Material request to action"
-                : "Material requests to action",
-            sub: "Crews are waiting on the office before materials can be ordered.",
-            cta: "Review",
-            href: "/material-requests",
-          },
-        ]
-      : []),
-    ...(c.rfisOverdue != null
-      ? [
-          {
-            key: "rfis",
-            count: c.rfisOverdue,
-            tone: "wait" as const,
-            title:
-              c.rfisOverdue === 1
-                ? "RFI overdue for an answer"
-                : "RFIs overdue for an answer",
-            sub: "Past their response date — chase the builder.",
-            cta: "Jobs",
-            href: "/v2/jobs",
-          },
-        ]
-      : []),
-    ...(c.snags != null
-      ? [
-          {
-            key: "snags",
-            count: c.snags,
-            tone: "wait" as const,
-            title:
-              c.snags === 1 ? "Open snag on live jobs" : "Open snags on live jobs",
-            sub: "Defects the crew has flagged — assign or close them out.",
-            cta: "Jobs",
-            href: "/v2/jobs",
-          },
-        ]
-      : []),
     {
       key: "evidence",
       count: c.evidence,

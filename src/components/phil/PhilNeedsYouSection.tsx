@@ -1,9 +1,8 @@
 import { headers } from "next/headers";
 import { SESSION_COOKIE } from "@/lib/auth/session";
-import { SnagListResponseSchema } from "@/domains/snags/schema";
 import { TagsExpiringCalibrationsResponseSchema } from "@/domains/gear/schema";
 import type { ExpiringCalibration } from "@/domains/gear/types";
-import { buildPhilNeedsYou, type JobSnags } from "@/domains/phil/needs-you";
+import { buildPhilNeedsYou } from "@/domains/phil/needs-you";
 import type { TimeEntry } from "@/domains/timesheets/types";
 import { PhilNeedsYouFeed } from "./PhilNeedsYouFeed";
 import { PhilSkeleton } from "./ui/PhilSkeleton";
@@ -13,9 +12,8 @@ import { PhilSkeleton } from "./ui/PhilSkeleton";
  *
  * The My Day hero, week strip and log-hours sheet all render from the page's
  * first data wave (entries + jobs + profile). The "Needs you" feed, however,
- * needs a SECOND wave — snags are job-scoped (GET /api/snags?jobId= per
- * assigned job) so they can only be fetched once the jobs are known, plus the
- * held-gear calibration lapses (GET /api/tags-expiring). Each /api/* call is a
+ * needs a SECOND wave — the held-gear calibration lapses
+ * (GET /api/tags-expiring). Each /api/* call is a
  * serverless + Blob round-trip (~1.3–2.1s warm; #670), so awaiting this second
  * wave before the page returns added a full extra hop to every My Day open.
  *
@@ -29,33 +27,18 @@ import { PhilSkeleton } from "./ui/PhilSkeleton";
  * Honesty (P7): every item is real (buildPhilNeedsYou); the fallback is a plain
  * loading shimmer, never a fabricated row, and an empty result still renders the
  * feed's honest "nothing needs you" state.
- *
- * The snag source is flag-gated (`snags`, server-resolved by the page): while
- * the feature is dark its API 404s, so the fan-out is skipped entirely and the
- * feed is rejected-hours + calibrations only.
  */
 export async function PhilNeedsYouSection({
   cookieValue,
   viewerId,
   entries,
-  jobs,
-  snagsEnabled = false,
 }: {
   cookieValue: string | undefined;
   viewerId: string | null;
   entries: ReadonlyArray<TimeEntry>;
-  jobs: ReadonlyArray<{ id: string; name: string }>;
-  /** `snags` flag, resolved SERVER-side by the page. When false the per-job
-   *  GET /api/snags reads 404 — skip the whole fan-out (no wasted round-trips,
-   *  no error note) and the feed simply carries no snag items. Default FALSE:
-   *  safe-by-dark. Rejected-hours + calibration items are unaffected. */
-  snagsEnabled?: boolean;
 }) {
-  const [jobSnags, calibrations] = await Promise.all([
-    snagsEnabled ? loadAssignedSnags(jobs, cookieValue) : [],
-    loadHeldCalibrations(cookieValue),
-  ]);
-  const items = buildPhilNeedsYou({ viewerId, entries, jobSnags, calibrations });
+  const calibrations = await loadHeldCalibrations(cookieValue);
+  const items = buildPhilNeedsYou({ viewerId, entries, calibrations });
   return <PhilNeedsYouFeed items={items} />;
 }
 
@@ -73,44 +56,6 @@ export function PhilNeedsYouSectionFallback() {
       </div>
     </section>
   );
-}
-
-/**
- * Load snagsV2 for each assigned job and aggregate into the "Needs you" feed
- * input. snagsV2 is job-scoped (GET /api/snags?jobId=), so this fetches per
- * assigned job in parallel and FAILS SOFT per job — a job whose snags can't be
- * read is skipped, never an error that blanks the feed. The pure selector
- * (buildPhilNeedsYou) then keeps only snags assigned to THIS worker that are
- * still open / in progress. Workers have a handful of assigned jobs, so this is
- * a small, bounded fan-out.
- */
-export async function loadAssignedSnags(
-  jobs: ReadonlyArray<{ id: string; name: string }>,
-  cookieValue: string | undefined,
-): Promise<JobSnags[]> {
-  if (jobs.length === 0) return [];
-  const h = await headers();
-  const host = h.get("x-forwarded-host") ?? h.get("host");
-  const proto = h.get("x-forwarded-proto") ?? "http";
-  const base = host ? `${proto}://${host}` : "http://localhost:3000";
-
-  const results = await Promise.all(
-    jobs.map(async (job): Promise<JobSnags | null> => {
-      try {
-        const res = await fetch(`${base}/api/snags?jobId=${encodeURIComponent(job.id)}`, {
-          cache: "no-store",
-          headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
-        });
-        if (!res.ok) return null;
-        const parsed = SnagListResponseSchema.safeParse(await res.json());
-        if (!parsed.success) return null;
-        return { jobId: job.id, jobName: job.name, snags: parsed.data.snags };
-      } catch {
-        return null;
-      }
-    }),
-  );
-  return results.filter((r): r is JobSnags => r !== null);
 }
 
 /**

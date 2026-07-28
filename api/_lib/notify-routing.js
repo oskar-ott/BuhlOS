@@ -30,16 +30,14 @@
 
 'use strict';
 
-// The six documented preference keys. MUST stay 1:1 with
+// The four documented preference keys. MUST stay 1:1 with
 // api/notification-prefs.js `VALID_KEYS` and the `NotificationItem` kind union
 // in src/domains/platform/notification-item.ts — a parity test in
 // notification-item.test.ts pins all three together.
 const PREF_KEYS = [
   'hoursApproved',
-  'snagAssigned',
   'dailyHoursReminder',
   'dailyDigest',
-  'staleSnags',
   'tagReminders',
 ];
 

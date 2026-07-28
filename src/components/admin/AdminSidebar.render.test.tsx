@@ -34,15 +34,10 @@ describe("AdminSidebar (#187 · lean-reset top nav)", () => {
     const html = render("/command-centre");
     for (const label of [
       "Command centre",
-      "From site",
-      "Material requests",
-      "Quotes",
-      "Defects",
-      "ITP templates",
-      "Dayworks",
+      "Jobs",
+      "Hours",
       "Employees",
       "Gear",
-      "Reports",
     ]) {
       expect(html).toContain(label);
     }
@@ -88,43 +83,19 @@ describe("AdminSidebar (#187 · lean-reset top nav)", () => {
     expect(html.match(/bg-brand-navy/g)).toHaveLength(1);
   });
 
-  it("nested job paths keep Jobs active; templates route activates ITP templates", () => {
+  it("nested job paths keep Jobs active", () => {
     expect(activeLabel(render("/v2/jobs/j1/itps"))).toBe("Jobs");
-    expect(activeLabel(render("/itp-templates"))).toBe("ITP templates");
-  });
-
-  it("the Defects register (#414) activates on /defects", () => {
-    const html = render("/command-centre");
-    expect(html.match(/href="\/defects"/g)).toHaveLength(1);
-    expect(activeLabel(render("/defects"))).toBe("Defects");
-    // Filtered deep links keep it active too (URL-driven filters, #216).
-    expect(activeLabel(render("/defects/anything"))).toBe("Defects");
-  });
-
-  it("Reports (#316) renders once and activates on /reports", () => {
-    const html = render("/command-centre");
-    expect(html.match(/href="\/reports"/g)).toHaveLength(1);
-    expect(activeLabel(render("/reports"))).toBe("Reports");
-  });
-
-  it("Quotes (#183) stays active into the builder", () => {
-    const html = render("/command-centre");
-    expect(html.match(/href="\/v2\/quotes"/g)).toHaveLength(1);
-    expect(activeLabel(render("/v2/quotes"))).toBe("Quotes");
-    // Builder deep link keeps the item active; the /v2/jobs prefix must NOT
-    // steal it (longest-prefix rule, distinct prefixes).
-    expect(activeLabel(render("/v2/quotes/qv2_abc123"))).toBe("Quotes");
     expect(activeLabel(render("/v2/jobs/j1"))).toBe("Jobs");
   });
 
   it("#760: hides owner-disabled features", () => {
-    // Owner turned Reports + Gear off.
-    const html = render("/command-centre", ["/reports", "/gear"]);
-    expect(html).not.toContain('href="/reports"');
+    // Owner turned Employees + Gear off.
+    const html = render("/command-centre", ["/employees", "/gear"]);
+    expect(html).not.toContain('href="/employees"');
     expect(html).not.toContain('href="/gear"');
     // The rest of the IA is intact.
     expect(html).toContain('href="/v2/jobs"');
-    expect(html).toContain("Employees");
+    expect(html).toContain("Hours");
     expect(html).toContain("Command centre");
   });
 

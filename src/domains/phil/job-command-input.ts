@@ -3,11 +3,11 @@
  *
  * `buildPhilJobCommandModel` (job-command-model.ts) is a pure decision layer
  * over a `PhilJobCommandInput`. THIS file is the only place that knows about
- * the concrete job/snag/ITP/document shapes: it turns what the Phil job page
+ * the concrete job/document shapes: it turns what the Phil job page
  * actually fetches into that input, marking everything it cannot truthfully
  * derive as `unknown` / `not_configured` rather than guessing.
  *
- * The split is deliberate. When the job, snag, ITP, or document schemas change
+ * The split is deliberate. When the job or document schemas change
  * — or when a new real signal arrives (per-job rejected hours, richer task
  * progress) — only this bridge moves. The decision layer, its ranking, and the
  * UI generated from it stay put. That is the whole point: Phil can evolve
@@ -24,7 +24,7 @@
  * docs/phil-job-command-model.md (the input matrix).
  *
  * Cross-ref:
- *   src/app/phil/jobs/[jobId]/page.tsx — fetches job + evidence + snags + ITPs + plans
+ *   src/app/phil/jobs/[jobId]/page.tsx — fetches job + evidence + tags + contacts
  *   src/domains/jobs/builder.ts — isVisibleToField / moduleEnabled / buildPhilPreview
  *   src/domains/timesheets/resubmit.ts — the rejected-hours resubmit flow (#93)
  */
@@ -35,8 +35,6 @@ import type { TagItem } from "@/domains/tags/schema";
 import { effectiveTasks, visibleAreaGroups } from "@/domains/jobs/format";
 import { readTaskState, type JobTaskState } from "@/domains/jobs/taskState";
 import type { Job, JobStage } from "@/domains/jobs/types";
-import type { SnagItem } from "@/domains/snags/types";
-import type { ITPInstance } from "@/domains/itp/types";
 import type { Document } from "@/domains/documents/types";
 import type { PhilJobCommandInput } from "./job-command-model";
 
@@ -48,21 +46,15 @@ import type { PhilJobCommandInput } from "./job-command-model";
 export interface PhilJobDataForCommand {
   job: Job;
   /** Global feature-flag state (#915, lean reset). The per-job module toggle
-   *  below can't see a globally hidden feature, so with `snags`/`itps` false
-   *  the input derives `not_configured` — no action, no dead anchor. Omitted
-   *  key = feature on (callers predating the lean reset are unchanged). */
+   *  below can't see a globally hidden feature, so a false flag derives
+   *  `not_configured` — no action, no dead anchor. Omitted key = feature on
+   *  (callers predating the lean reset are unchanged). */
   features?: {
-    snags?: boolean;
-    itps?: boolean;
     /** #916 strip: plans/tasks left the Phil job page — false derives
      *  not_configured so no action anchors a section that no longer exists. */
     plans?: boolean;
     tasks?: boolean;
   };
-  /** GET /api/snags?jobId — every snag on the job the worker can see. */
-  snags?: SnagItem[];
-  /** GET /api/job-itps?jobId — attached ITP instances. */
-  itps?: ITPInstance[];
   /** Per-job test & tag entries (jobs/<id>/tags.json), when the page loaded them. */
   tags?: TagItem[];
   /** GET /api/plans?jobId — plan/spec documents. */
@@ -76,13 +68,10 @@ export interface PhilJobDataForCommand {
   /**
    * Set a flag when a list fetch FAILED (as opposed to returning empty), so
    * the signal becomes `unknown` instead of a misleading 0. The page already
-   * distinguishes this for documents (its loader returns `{ documents, error }`);
-   * snags/ITPs fall back to `[]` silently today, so pass these only if the
-   * caller learns of a failure.
+   * distinguishes this for documents (its loader returns `{ documents, error }`)
+   * and for tags.
    */
   loadErrors?: {
-    snags?: boolean;
-    itps?: boolean;
     documents?: boolean;
     tags?: boolean;
   };
@@ -103,25 +92,7 @@ export interface PhilJobDataForCommand {
   rejectedHoursForJob?: number;
 }
 
-/** Open snags = the active states (matches `statsSnagsV2Active`). */
-const OPEN_SNAG_STATUSES: ReadonlySet<string> = new Set([
-  "open",
-  "in_progress",
-  "resolved",
-]);
-
-/** Checks the WORKER still has to record: pending / in-progress. `witnessed`
- *  (awaiting sign-off) and `signed-off` are not the worker's action. */
-const WORKER_ITP_STATUSES: ReadonlySet<string> = new Set(["pending", "in-progress"]);
 const JOB_STAGES: readonly JobStage[] = ["roughIn", "fitOff"];
-
-function countOpenSnags(snags: ReadonlyArray<SnagItem>): number {
-  return snags.filter((s) => OPEN_SNAG_STATUSES.has(s.status)).length;
-}
-
-function countOutstandingItps(itps: ReadonlyArray<ITPInstance>): number {
-  return itps.filter((i) => !i.archived && WORKER_ITP_STATUSES.has(i.status)).length;
-}
 
 function countCurrentDocuments(documents: ReadonlyArray<Document>): number {
   // Missing status defaults to "current" server-side; only "current" is shown.
@@ -190,17 +161,11 @@ export function philJobCommandInputFromJobData(
       ? { kind: "unknown" }
       : { kind: "count", value: countCurrentDocuments(data.documents ?? []) };
 
-  const snags: PhilJobCommandInput["snags"] = data.features?.snags === false || !moduleEnabled(job, "snags")
-    ? { kind: "not_configured" }
-    : errors.snags
-      ? { kind: "unknown" }
-      : { kind: "count", value: countOpenSnags(data.snags ?? []) };
-
-  const itps: PhilJobCommandInput["itps"] = data.features?.itps === false || !moduleEnabled(job, "itps")
-    ? { kind: "not_configured" }
-    : errors.itps
-      ? { kind: "unknown" }
-      : { kind: "count", value: countOutstandingItps(data.itps ?? []) };
+  // Snags + ITPs were deleted with the lean reset: their register, API and
+  // job sections are gone, so the signals are permanently `not_configured` —
+  // no action, no attention row, no anchor to a section that no longer exists.
+  const snags: PhilJobCommandInput["snags"] = { kind: "not_configured" };
+  const itps: PhilJobCommandInput["itps"] = { kind: "not_configured" };
 
   const tags: PhilJobCommandInput["tags"] = !moduleEnabled(job, "tags")
     ? { kind: "not_configured" }

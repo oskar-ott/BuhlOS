@@ -7,7 +7,6 @@ import type { JobStage } from "@/domains/jobs/types";
 import type { TaskState, WorkerTask } from "@/domains/jobs/taskState";
 import type { PhilTaskReadiness } from "@/domains/jobs/phil-task-projection";
 import type { PhilTaskContext } from "@/domains/job-control/task-context";
-import type { ProofReview } from "@/domains/job-control/types";
 import type { Document } from "@/domains/documents/types";
 
 /**
@@ -54,7 +53,7 @@ const BOTH: AreaStageAvailability = { roughIn: true, fitOff: true };
 const RI: AreaStageAvailability = { roughIn: true, fitOff: false };
 const FO: AreaStageAvailability = { roughIn: false, fitOff: true };
 const NONE: AreaStageAvailability = { roughIn: false, fitOff: false };
-const NO_COUNTS: AreaCounts = { snags: 0, itps: 0, photos: 0 };
+const NO_COUNTS: AreaCounts = { photos: 0 };
 
 describe("PhilJobAreaDetail render — header", () => {
   it("always shows the area name; space type when present", () => {
@@ -148,15 +147,11 @@ describe("PhilJobAreaDetail render — quick links (real data only)", () => {
       stages: BOTH,
       stage: "roughIn",
       tasks: [task("t1", "x")],
-      counts: { snags: 2, itps: 1, photos: 5 },
+      counts: { photos: 5 },
     });
     const t = text(html);
     expect(t).toContain("In this area");
-    expect(t).toContain("2 snags");
-    expect(t).toContain("1 ITP");
     expect(t).toContain("5 photos");
-    expect(html).toContain('href="#phil-job-snags"');
-    expect(html).toContain('href="#phil-job-itps"');
     expect(html).toContain('href="#phil-job-capture"');
     // honesty caption — counts are area-specific, list is job-wide
     expect(t).toContain("Counts are for this area");
@@ -172,7 +167,7 @@ describe("PhilJobAreaDetail render — quick links (real data only)", () => {
     });
     const t = text(html);
     expect(t).not.toContain("In this area");
-    expect(html).not.toContain('href="#phil-job-snags"');
+    expect(html).not.toContain('href="#phil-job-capture"');
   });
 
   it("shows quick links even when there is no task plan (counts are independent)", () => {
@@ -181,15 +176,12 @@ describe("PhilJobAreaDetail render — quick links (real data only)", () => {
       stages: NONE,
       stage: "roughIn",
       tasks: [],
-      counts: { snags: 1, itps: 0, photos: 0 },
+      counts: { photos: 1 },
     });
     const t = text(html);
-    expect(t).toContain("1 snag");
+    expect(t).toContain("1 photo");
     expect(t).toContain("No task plan for this area yet");
-    expect(html).toContain('href="#phil-job-snags"');
-    // no fabricated itp/photo links
-    expect(html).not.toContain('href="#phil-job-itps"');
-    expect(html).not.toContain('href="#phil-job-capture"');
+    expect(html).toContain('href="#phil-job-capture"');
   });
 
   it("never renders a documents or materials per-area link", () => {
@@ -198,7 +190,7 @@ describe("PhilJobAreaDetail render — quick links (real data only)", () => {
       stages: BOTH,
       stage: "roughIn",
       tasks: [task("t1", "x")],
-      counts: { snags: 9, itps: 9, photos: 9 },
+      counts: { photos: 9 },
     });
     expect(html).not.toContain("#phil-job-documents");
     expect(html).not.toContain("#phil-job-materials");
@@ -349,19 +341,19 @@ describe("PhilJobAreaDetail render — observation dump", () => {
     const cases: Array<[string, Parameters<typeof render>[0]]> = [
       [
         "both stages + all counts",
-        { areaName: "Main Bar", spaceType: "Wet area", stages: BOTH, stage: "roughIn", tasks: [task("t1", "Pull power"), task("t2", "Rough lighting")], counts: { snags: 2, itps: 1, photos: 5 } },
+        { areaName: "Main Bar", spaceType: "Wet area", stages: BOTH, stage: "roughIn", tasks: [task("t1", "Pull power"), task("t2", "Rough lighting")], counts: { photos: 5 } },
       ],
       [
         "rough-in only, no counts",
         { areaName: "Riser", stages: RI, stage: "roughIn", tasks: [task("t1", "Cable tray")], counts: NO_COUNTS },
       ],
       [
-        "fit-off only, snags only",
-        { areaName: "Foyer", stages: FO, stage: "fitOff", tasks: [task("t1", "Fit downlights")], counts: { snags: 1, itps: 0, photos: 0 } },
+        "fit-off only, one photo",
+        { areaName: "Foyer", stages: FO, stage: "fitOff", tasks: [task("t1", "Fit downlights")], counts: { photos: 1 } },
       ],
       [
         "no plan, photos only",
-        { areaName: "Store room", stages: NONE, stage: "roughIn", tasks: [], counts: { snags: 0, itps: 0, photos: 3 } },
+        { areaName: "Store room", stages: NONE, stage: "roughIn", tasks: [], counts: { photos: 3 } },
       ],
       [
         "no plan, no counts",
@@ -506,84 +498,6 @@ describe("PhilJobAreaDetail render — at-a-glance required-proof line", () => {
     expect(out).not.toContain("captured");
     expect(out).not.toContain("ready for review");
     expect(out).toContain("Pull power");
-  });
-});
-
-describe("PhilJobAreaDetail render — proof review / submit (#503)", () => {
-  const eligibleCtx: PhilTaskContext = {
-    workPackageId: "wp1",
-    scopeNote: null,
-    governingDocs: [],
-    materials: [],
-    requiredEvidence: [{ id: "re_a", label: "Final photo", kind: "photo", met: true }],
-    warnings: [],
-    isEmpty: false,
-  };
-  const tref = { areaId: "area1", stage: "roughIn", taskId: "t1" } as const;
-
-  function renderWithReview(opts: {
-    proofReviews?: ReadonlyArray<ProofReview>;
-    canSubmitForReview?: boolean;
-    withHandler?: boolean;
-  }): string {
-    return renderToString(
-      createElement(PhilJobAreaDetail, {
-        areaName: "Main Bar",
-        areaId: "area1",
-        stages: RI,
-        stage: "roughIn" as JobStage,
-        tasks: [task("t1", "Pull power")],
-        counts: NO_COUNTS,
-        onStageChange: noop,
-        taskContextById: new Map([["t1", eligibleCtx]]),
-        proofReviews: opts.proofReviews,
-        onSubmitForReview: opts.withHandler === false ? undefined : noop,
-        canSubmitForReview: opts.canSubmitForReview,
-      }),
-    );
-  }
-
-  it("offers 'Submit for review' when proof is all captured, submit is enabled, and there is no review", () => {
-    expect(text(renderWithReview({ canSubmitForReview: true }))).toContain("Submit for review");
-  });
-
-  it("hides the submit button when submit is not enabled", () => {
-    expect(text(renderWithReview({ canSubmitForReview: false }))).not.toContain("Submit for review");
-  });
-
-  it("shows 'Submitted for review' and hides the button once submitted", () => {
-    const out = text(
-      renderWithReview({
-        canSubmitForReview: true,
-        proofReviews: [{ id: "pr1", jobId: "j", taskRef: tref, status: "submitted" } as ProofReview],
-      }),
-    );
-    expect(out).toContain("Submitted for review");
-    expect(out).not.toContain("Submit for review");
-  });
-
-  it("shows the sent-back reason + a 'Resubmit for review' button when rejected", () => {
-    const out = text(
-      renderWithReview({
-        canSubmitForReview: true,
-        proofReviews: [
-          { id: "pr1", jobId: "j", taskRef: tref, status: "rejected", reason: "Blurry photo" } as ProofReview,
-        ],
-      }),
-    );
-    expect(out).toContain("Sent back — Blurry photo");
-    expect(out).toContain("Resubmit for review");
-  });
-
-  it("shows 'Approved' and no submit button once approved", () => {
-    const out = text(
-      renderWithReview({
-        canSubmitForReview: true,
-        proofReviews: [{ id: "pr1", jobId: "j", taskRef: tref, status: "approved" } as ProofReview],
-      }),
-    );
-    expect(out).toContain("Approved");
-    expect(out).not.toContain("Submit for review");
   });
 });
 

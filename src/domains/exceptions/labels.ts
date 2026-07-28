@@ -9,13 +9,8 @@ import type { ExceptionActionState, ExceptionSeverity, ExceptionSource } from ".
 
 export const SOURCE_LABEL: Record<ExceptionSource, string> = {
   hours: "Hours",
-  observation: "Observation",
   evidence: "Evidence",
-  snag: "Snags",
-  itp: "ITP",
   job: "Jobs",
-  material: "Materials",
-  rfi: "RFI",
   planMarkup: "Plan markup",
   gear: "Gear",
 };
@@ -24,13 +19,8 @@ export type PillTone = "neutral" | "yellow" | "navy" | "success" | "danger" | "i
 
 export const SOURCE_TONE: Record<ExceptionSource, PillTone> = {
   hours: "info",
-  observation: "warning",
   evidence: "info",
-  snag: "warning",
-  itp: "info",
   job: "navy",
-  material: "warning",
-  rfi: "warning",
   planMarkup: "neutral",
   gear: "neutral",
 };

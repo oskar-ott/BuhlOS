@@ -1,5 +1,4 @@
 import type { ExpiringCalibration } from "@/domains/gear/types";
-import type { SnagItem } from "@/domains/snags/types";
 import type { TimeEntry } from "@/domains/timesheets/types";
 
 /**
@@ -16,9 +15,6 @@ import type { TimeEntry } from "@/domains/timesheets/types";
  *       Action: /phil/my-day?fixDate=<date> — selects that day and auto-opens
  *       the inline fix-and-resubmit sheet (same deep link the "Hours rejected"
  *       push notification uses).
- *   - snag: a snagsV2 issue ASSIGNED TO THIS WORKER (assignedToId) that is
- *       still open / in progress. Source: GET /api/snags?jobId= per assigned
- *       job. Action: the job's Snags section.
  *   - calibration: a test instrument THIS WORKER currently holds whose
  *       calibration is expired or due within 14 days (#305). Source:
  *       GET /api/tags-expiring `calibrations` (already holder-filtered
@@ -31,7 +27,7 @@ import type { TimeEntry } from "@/domains/timesheets/types";
  * batch-submit workflow). When nothing is real, the feed is empty — never a
  * placeholder row.
  */
-export type PhilNeedsYouKind = "rejected-hours" | "snag" | "calibration";
+export type PhilNeedsYouKind = "rejected-hours" | "calibration";
 export type PhilNeedsYouSeverity = "urgent" | "warning" | "normal";
 
 export interface PhilNeedsYouItem {
@@ -46,20 +42,11 @@ export interface PhilNeedsYouItem {
   severity: PhilNeedsYouSeverity;
 }
 
-/** Raw snags for one of the worker's assigned jobs (already job-scoped). */
-export interface JobSnags {
-  jobId: string;
-  jobName: string;
-  snags: ReadonlyArray<SnagItem>;
-}
-
 export interface PhilNeedsYouInput {
-  /** The logged-in worker. Snags are only attributed when this is set. */
+  /** The logged-in worker. Calibrations are only attributed when this is set. */
   viewerId: string | null;
   /** The worker's recent time entries (the page already loads these). */
   entries: ReadonlyArray<TimeEntry>;
-  /** snagsV2 per assigned job. */
-  jobSnags: ReadonlyArray<JobSnags>;
   /**
    * Expiring/expired calibrations on gear the worker HOLDS, from
    * /api/tags-expiring (#305). Optional so existing callers/tests are
@@ -110,32 +97,6 @@ export function buildPhilNeedsYou(input: PhilNeedsYouInput): PhilNeedsYouItem[] 
       actionLabel: "Fix hours",
       severity: "urgent",
     });
-  }
-
-  // E. Snags assigned to ME, still open / in progress — own work hanging.
-  //    Mirrors PhilJobAttention's per-job filter, generalised across jobs. A
-  //    snag assigned to someone else, or already resolved/closed, is never
-  //    surfaced as "yours".
-  if (input.viewerId) {
-    for (const js of input.jobSnags) {
-      for (const s of js.snags) {
-        if (
-          s.assignedToId === input.viewerId &&
-          (s.status === "open" || s.status === "in_progress")
-        ) {
-          items.push({
-            id: `snag:${s.id}`,
-            kind: "snag",
-            title: s.title,
-            detail: js.jobName,
-            meta: s.areaName ?? undefined,
-            href: `/phil/jobs/${encodeURIComponent(js.jobId)}#phil-job-snags`,
-            actionLabel: "Open snag",
-            severity: s.priority === "urgent" || s.priority === "high" ? "warning" : "normal",
-          });
-        }
-      }
-    }
   }
 
   // C. Calibration lapses on gear in MY hands (#305) — an expired

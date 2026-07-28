@@ -71,15 +71,8 @@ export function NotificationPrefRow({
   );
 }
 
-export function NotificationPrefsPanel({
-  hiddenKeys = [],
-}: {
-  /** Pref rows to hide — kinds whose FEATURE is currently hidden (lean reset):
-   *  the server page resolves the feature flags and passes e.g. the snag kinds
-   *  here so the panel never advertises a push type the product can't send. */
-  hiddenKeys?: ReadonlyArray<NotificationPrefKey>;
-} = {}) {
-  const visibleMeta = NOTIFICATION_PREF_META.filter((m) => !hiddenKeys.includes(m.key));
+export function NotificationPrefsPanel() {
+  const visibleMeta = NOTIFICATION_PREF_META;
   const [prefs, setPrefs] = useState<NotificationPrefs>(defaultPrefs);
   const [load, setLoad] = useState<LoadState>("loading");
   // One toggle in flight at a time; per-attempt error chip.

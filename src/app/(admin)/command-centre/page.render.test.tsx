@@ -52,53 +52,13 @@ vi.mock("@/components/admin/AdminShell", () => ({
     createElement("div", { "data-testid": "buhlos-admin-shell" }, children as never),
 }));
 
-// Configurable flag + proof-queue mocks (hoisted so the vi.mock factories can
-// reference them). Default: all flags dark, proof queue empty.
-const h = vi.hoisted(() => ({
-  proofFlagOn: false,
-  proofResult: { ok: true, items: [] as unknown[], scannedJobs: 0, failedJobs: [] as string[] } as
-    | { ok: true; items: unknown[]; scannedJobs: number; failedJobs: string[] }
-    | { ok: false; error: string },
-  // #276 chase — rfi_register flag + the cross-job RFI scan result.
-  rfiFlagOn: false,
-  rfiScanCalls: 0,
-  rfiResult: { rfis: [] as unknown[], scannedJobs: 0, failedJobs: [] as string[] },
-  // Lean reset (2026-07): the flag-gated Command Centre sources (expenses,
-  // itp, snags, observations_inbox, material_requests, reports) default OFF,
-  // mirroring the registry. Tests opt a feature on per-case via this set.
-  flagsOn: new Set<string>(),
-}));
-
 // Only the CORE spine keeps a default-ON kill-switch (jobs/hours/evidence/
-// employees/gear); every lean-reset feature defaults dark. admin_proof_review
-// + rfi_register stay driven by their dedicated per-test knobs.
+// employees/gear).
 const CORE_ON = new Set(["jobs", "hours", "evidence", "employees", "gear"]);
 vi.mock("../../../../api/_lib/feature-flags.js", () => ({
-  isFlagEnabled: async (key: string) =>
-    key === "admin_proof_review"
-      ? h.proofFlagOn
-      : key === "rfi_register"
-        ? h.rfiFlagOn
-        : CORE_ON.has(key) || h.flagsOn.has(key),
+  isFlagEnabled: async (key: string) => CORE_ON.has(key),
   listFlags: () => [],
   isFlagOn: async () => false,
-}));
-
-// The cross-job proof scan reads blobs directly — mock it so the flagged
-// surface can be driven without a blob backend.
-vi.mock("@/server/job-control/proof-queue", () => ({
-  runProofQueue: async () => h.proofResult,
-  blobProofQueueDeps: () => ({}),
-}));
-
-// #276 — the cross-job RFI scan reads blobs directly too; mocked + counted so
-// the tests can also assert "flag off ⇒ the scan never runs" (zero reads).
-vi.mock("@/server/rfi/overdue-rfis", () => ({
-  runRfiScan: async () => {
-    h.rfiScanCalls += 1;
-    return h.rfiResult;
-  },
-  blobRfiScanDeps: () => ({}),
 }));
 
 import CommandCentrePage from "./page";
@@ -168,10 +128,6 @@ interface FetchFixtures {
   rejectedEntries?: JsonBody[];
   pulse?: JsonBody;
   pulseStatus?: number;
-  /** Submitted expense claims (the mobile "to approve" pulse + Approvals strip). */
-  expenses?: JsonBody[];
-  /** Non-200 makes the expenses fetch fail (mobile honest-degradation path). */
-  expensesStatus?: number;
   /** Display name for the mobile greeting (resolved via /api/auth?action=me). */
   meName?: string | null;
   /** Non-200 makes the jobs-with-stats fetch fail (board honest-degradation path). */
@@ -189,8 +145,6 @@ function stubFetch({
   rejectedEntries = [],
   pulse,
   pulseStatus = 200,
-  expenses = [],
-  expensesStatus = 200,
   meName = null,
   jobsStatus = 200,
   jobs = [],
@@ -225,20 +179,13 @@ function stubFetch({
       if (url.includes("/api/auth")) {
         return jsonResponse({ user: meName ? { name: meName, role: "boss" } : null });
       }
-      if (url.includes("/api/expenses")) {
-        if (expensesStatus !== 200) return jsonResponse({ error: "boom" }, expensesStatus);
-        return jsonResponse({ expenses });
-      }
       if (url.includes("/api/jobs")) {
         if (jobsStatus !== 200) return jsonResponse({ error: "boom" }, jobsStatus);
         return jsonResponse({ jobs });
       }
-      if (url.includes("/api/observations")) return jsonResponse({ observations: [] });
-      if (url.includes("/api/material-requests")) return jsonResponse({ requests: [] });
       throw new Error(`unstubbed fetch in test: ${url}`);
   });
   vi.stubGlobal("fetch", fetchMock);
-  // Returned so lean-reset tests can assert a dark source was never fetched.
   return fetchMock;
 }
 
@@ -249,12 +196,6 @@ async function renderPage(): Promise<string> {
 
 beforeEach(() => {
   vi.unstubAllGlobals();
-  h.proofFlagOn = false;
-  h.proofResult = { ok: true, items: [], scannedJobs: 0, failedJobs: [] };
-  h.rfiFlagOn = false;
-  h.rfiScanCalls = 0;
-  h.rfiResult = { rfis: [], scannedJobs: 0, failedJobs: [] };
-  h.flagsOn = new Set();
 });
 
 afterEach(() => {
@@ -317,36 +258,8 @@ describe("/command-centre lean-reset board", () => {
     expect(html).toContain("Jobs API returned 500");
   });
 
-  // ── Proof to sign off (#503, flagged) — unchanged by the §2 board. ──
-  it("surfaces a TOTAL proof-scan failure as an error card, never a false 'queue clear' (#503 P7)", async () => {
-    h.proofFlagOn = true;
-    h.proofResult = { ok: false, error: "Could not load jobs for the proof queue" };
-    stubFetch({ submittedEntries: [], pulse: pulseBody() });
-    const html = await renderPage();
-    expect(html).toContain("Couldn’t load proof to sign off");
-    expect(html).toContain("Could not load jobs for the proof queue");
-    expect(html).not.toContain("with site photos waiting on you");
-  });
-
-  it("flags a PARTIAL proof scan (failedJobs) instead of presenting an undercount as the total", async () => {
-    h.proofFlagOn = true;
-    h.proofResult = { ok: true, items: [], scannedJobs: 3, failedJobs: ["job-2", "job-3"] };
-    stubFetch({ submittedEntries: [], pulse: pulseBody() });
-    const html = await renderPage();
-    expect(html).toContain("Proof to sign off");
-    expect(html).toContain("couldn’t be read");
-  });
-
   // ── Mobile home (md:hidden) — unchanged by the §2 board. ──
-  it("degrades honestly when the expenses fetch fails (flag on) — mobile 'couldn't load every queue', no fabricated 0", async () => {
-    h.flagsOn.add("expenses");
-    stubFetch({ submittedEntries: [], pulse: pulseBody(), expensesStatus: 500 });
-    const html = await renderPage();
-    expect(html).toContain("Couldn’t load every queue");
-    expect(html).toContain("Expenses API returned 500");
-  });
-
-  it("renders the mobile home (md:hidden) with greeting + pulse — no 'to approve' segment while every approvals source is dark", async () => {
+  it("renders the mobile home (md:hidden) with greeting + pulse", async () => {
     stubFetch({
       submittedEntries: [timeEntry("t1")],
       pulse: pulseBody({ submittedTotal: 8, crewOnSite: 2 }),
@@ -357,23 +270,9 @@ describe("/command-centre lean-reset board", () => {
     expect(html).toContain("md:hidden");
     expect(html).toContain("Dana");
     expect(html).toContain("here’s what needs you");
-    // Lean reset: expenses/ITPs/materials are all dark, so the approvals pulse
-    // (whose count is those three queues) leaves no trace — not a "0".
-    expect(html).not.toContain("to approve");
     // The desktop board is present too (wrapped hidden md:block).
     expect(html).toContain("Needs you");
     expect(html).toContain("Right now");
-  });
-
-  it("shows the mobile 'to approve' pulse again when an approvals source (expenses) is live", async () => {
-    h.flagsOn.add("expenses");
-    stubFetch({
-      submittedEntries: [],
-      pulse: pulseBody(),
-      meName: "Dana Boss",
-    });
-    const html = await renderPage();
-    expect(html).toContain("to approve");
   });
 
   // ── Right-now fidelity ─────────────────────────────────────────────────
@@ -411,133 +310,26 @@ describe("/command-centre lean-reset board", () => {
     expect(html).toContain('href="/hours/approvals"');
   });
 
-  it("hides the 'Owner numbers' link while the reports flag is dark (lean reset — /reports 404s)", async () => {
-    stubFetch({ submittedEntries: [], pulse: pulseBody() });
-    const html = await renderPage();
-    expect(html).not.toContain("Owner numbers");
-    expect(html).not.toContain('href="/reports"');
-  });
-
-  it("renders the date subline + the 'Owner numbers' link to /reports when the reports flag is on", async () => {
-    h.flagsOn.add("reports");
-    stubFetch({ submittedEntries: [], pulse: pulseBody() });
-    const html = await renderPage();
-    expect(html).toContain("Owner numbers");
-    expect(html).toContain('href="/reports"');
-  });
-
-  // ── Lean reset (2026-07): dark features leave NO trace on the home ──────
+  // ── The gut pass: deleted loops leave NO trace on the home ─────────────
   function jobWithStats(id: string, stats: JsonBody = {}): JsonBody {
     // statsCrewCount > 0 so the job-no-crew critical doesn't muddy the board.
     return { id, name: `Job ${id}`, status: "active", statsCrewCount: 2, ...stats };
   }
 
-  it("never fetches a dark source — no error chip even when its API would fail (dark ≠ failed)", async () => {
-    // expenses/observations/material-requests flags are dark by default here;
-    // the 500 must be unreachable because the fetch is skipped entirely.
-    const fetchMock = stubFetch({ submittedEntries: [], pulse: pulseBody(), expensesStatus: 500 });
-    const html = await renderPage();
-    expect(html).not.toContain("Couldn’t load every queue");
-    expect(html).not.toContain("Couldn’t load every signal");
-    const urls = fetchMock.mock.calls.map((c) => String(c[0]));
-    expect(urls.some((u) => u.includes("/api/expenses"))).toBe(false);
-    expect(urls.some((u) => u.includes("/api/observations"))).toBe(false);
-    expect(urls.some((u) => u.includes("/api/material-requests"))).toBe(false);
-  });
-
-  it("snag/ITP counts on live job stats leave no tile, card or count while those flags are dark", async () => {
+  it("snag/ITP counts on live job stats leave no tile, card or count", async () => {
     // The jobs fetch stays ON and its stats still carry snag/ITP numbers —
-    // the belt-and-braces gating must stop them surfacing anywhere.
+    // nothing here may surface them.
     stubFetch({
       submittedEntries: [],
       pulse: pulseBody(),
       jobs: [jobWithStats("j1", { statsSnagsV2Active: 3, statsItpsNeedsReview: 2 })],
     });
     const html = await renderPage();
-    // No queue rows for the hidden loops...
+    // No queue rows for the removed loops...
     expect(html).not.toContain("Open snags on live jobs");
     expect(html).not.toContain("ITPs waiting on sign-off");
     expect(html).not.toContain("open snag");
-    // ...and the queue is honestly calm — the hidden work is absent, not "0".
+    // ...and the queue is honestly calm — the removed work is absent, not "0".
     expect(html).toContain("All clear");
-  });
-
-  it("surfaces the snag/ITP queues again when their flags are on (same job stats drive the rows)", async () => {
-    h.flagsOn = new Set(["snags", "itp"]);
-    stubFetch({
-      submittedEntries: [],
-      pulse: pulseBody(),
-      jobs: [jobWithStats("j1", { statsSnagsV2Active: 3, statsItpsNeedsReview: 2 })],
-    });
-    const html = await renderPage();
-    expect(html).toContain('aria-label="Open snags on live jobs: 3"');
-    expect(html).toContain('aria-label="ITPs waiting on sign-off: 2"');
-  });
-
-  // ── RFIs overdue (#276 chase, flagged rfi_register) ─────────────────────
-  function overdueRfi(id: string, daysAgo: number): Record<string, unknown> {
-    const due = new Date(Date.now() - daysAgo * 86_400_000).toISOString().slice(0, 10);
-    return {
-      id,
-      jobId: "j1",
-      jobName: "Marriott St",
-      ref: "RFI-004",
-      subject: "Panel location",
-      question: "Where does the DB go?",
-      askedOf: "builder@example.com",
-      status: "sent",
-      responseDue: due,
-      sentAt: null,
-      answer: "",
-      answeredAt: null,
-      answeredBy: null,
-      closedReason: "",
-      observationId: null,
-      convertedFromObservationId: null,
-      areaId: null,
-      planId: null,
-      raisedById: "u1",
-      raisedByName: "Oskar",
-      createdAt: "2026-06-15T00:00:00.000Z",
-      updatedAt: "2026-06-15T00:00:00.000Z",
-      auditLogIds: [],
-    };
-  }
-
-  it("does NOT run the RFI scan and renders no RFI tile when rfi_register is off (zero extra reads)", async () => {
-    stubFetch({ submittedEntries: [], pulse: pulseBody() });
-    const html = await renderPage();
-    expect(h.rfiScanCalls).toBe(0);
-    expect(html).not.toContain("RFIs overdue");
-  });
-
-  it("surfaces an overdue RFI when the flag is on — a queue row with the real count, routed to jobs", async () => {
-    h.rfiFlagOn = true;
-    h.rfiResult = { rfis: [overdueRfi("rfi_1", 10)], scannedJobs: 1, failedJobs: [] };
-    stubFetch({ submittedEntries: [], pulse: pulseBody() });
-    const html = await renderPage();
-    expect(h.rfiScanCalls).toBe(1);
-    // Queue row (singular) with the real count; no cross-job RFI surface
-    // exists, so the row routes to the jobs list.
-    expect(html).toContain('aria-label="RFI overdue for an answer: 1"');
-    expect(html).toContain('href="/v2/jobs"');
-  });
-
-  it("stays calm with the flag on and nothing overdue — no tile (buildBoard drops zero loops), All clear intact", async () => {
-    h.rfiFlagOn = true;
-    h.rfiResult = { rfis: [], scannedJobs: 3, failedJobs: [] };
-    stubFetch({ submittedEntries: [], pulse: pulseBody() });
-    const html = await renderPage();
-    expect(html).not.toContain("RFIs overdue");
-    expect(html).toContain("All clear");
-  });
-
-  it("discloses a partial RFI scan (failedJobs) via the 'couldn't load every signal' card — no silent undercount", async () => {
-    h.rfiFlagOn = true;
-    h.rfiResult = { rfis: [], scannedJobs: 3, failedJobs: ["j2", "j3"] };
-    stubFetch({ submittedEntries: [], pulse: pulseBody() });
-    const html = await renderPage();
-    expect(html).toContain("Couldn’t load every signal");
-    expect(html).toContain("RFIs couldn’t be read");
   });
 });

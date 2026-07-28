@@ -1,8 +1,6 @@
 import type { Route } from "next";
 import {
   LayoutGrid,
-  Calculator,
-  BarChart3,
   Briefcase,
   Users,
   Bell,
@@ -101,8 +99,8 @@ export function buildGoToCommands(hiddenHrefs?: ReadonlyArray<string> | null): P
 
 /**
  * "Actions" = navigational shortcuts to start something — each one just opens
- * a page where the work is created (a new job form, the quotes surface, the
- * approvals queue, reports, notification prefs). NONE mutate from the palette:
+ * a page where the work is created (a new job form, the approvals queue,
+ * notification prefs). NONE mutate from the palette:
  * "New job" opens the builder, it does not POST a job. Mutating actions and a
  * "New defect" command are deliberately out of scope (#215 body / addendum).
  */
@@ -110,9 +108,7 @@ export function buildActionCommands(hiddenHrefs?: ReadonlyArray<string> | null):
   const isHidden = makeHiddenPredicate(hiddenHrefs);
   return [
     { id: "new-job", label: "New job", href: "/v2/jobs/new" as Route, icon: FilePlus2 },
-    { id: "new-quote", label: "New quote", href: "/v2/quotes" as Route, icon: Calculator },
     { id: "open-approvals", label: "Open approvals", href: "/hours/approvals" as Route, icon: CheckSquare },
-    { id: "open-reports", label: "Open reports", href: "/reports" as Route, icon: BarChart3 },
     {
       id: "notification-prefs",
       label: "Notification preferences",

@@ -53,7 +53,7 @@ describe("prefEnabled — documented defaults (#162)", () => {
   });
 
   it("missing key → true", () => {
-    expect(prefEnabled({ snagAssigned: false }, "hoursApproved")).toBe(true);
+    expect(prefEnabled({ tagReminders: false }, "hoursApproved")).toBe(true);
   });
 
   it("explicit false → false; explicit true → true", () => {
@@ -74,7 +74,7 @@ describe("routeEvent — pref gating", () => {
       user("a", {}), // empty prefs → default true
       user("b", { hoursApproved: false }), // muted
       user("c"), // no prefs object → default true
-      user("d", { snagAssigned: false }), // muted a DIFFERENT type → still gets this one
+      user("d", { tagReminders: false }), // muted a DIFFERENT type → still gets this one
     ];
     const { deliver, skipped } = routeEvent(PUSH_PREF, audience, { emailConfigured: false });
     expect(deliver.map((d) => d.userId)).toEqual(["a", "c", "d"]);
@@ -83,8 +83,8 @@ describe("routeEvent — pref gating", () => {
   });
 
   it("muting is per-user: one muted account never suppresses the rest of the fan-out", () => {
-    const audience = [user("keep1", {}), user("muted", { staleSnags: false }), user("keep2", {})];
-    const def: EventDef = { kind: "staleSnags", prefKey: "staleSnags", channels: ["push"] };
+    const audience = [user("keep1", {}), user("muted", { dailyDigest: false }), user("keep2", {})];
+    const def: EventDef = { kind: "dailyDigest", prefKey: "dailyDigest", channels: ["push"] };
     const { deliver } = routeEvent(def, audience, { emailConfigured: false });
     expect(deliver.map((d) => d.userId)).toEqual(["keep1", "keep2"]);
   });
@@ -135,9 +135,9 @@ describe("routeEvent — channel resolution (email seam, never a fake send)", ()
 });
 
 describe("routing constants are the canonical lists", () => {
-  it("PREF_KEYS is exactly the six documented keys", () => {
+  it("PREF_KEYS is exactly the four documented keys", () => {
     expect([...PREF_KEYS].sort()).toEqual(
-      ["dailyDigest", "dailyHoursReminder", "hoursApproved", "snagAssigned", "staleSnags", "tagReminders"].sort(),
+      ["dailyDigest", "dailyHoursReminder", "hoursApproved", "tagReminders"].sort(),
     );
   });
   it("CHANNELS lists push then the email seam", () => {

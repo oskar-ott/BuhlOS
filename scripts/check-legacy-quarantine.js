@@ -160,7 +160,6 @@ const APPROVED_DESTINATIONS = new Set([
   '/hours/approvals',
   '/employees',
   '/gear',
-  '/material-requests',
 ]);
 // source → required destination. Keep in sync with docs/route-ownership.md §6.
 const REQUIRED_REDIRECTS = {
@@ -190,7 +189,7 @@ const REQUIRED_REDIRECTS = {
   '/admin/jobs': '/v2/jobs',
   '/admin/jobs/:jobId': '/v2/jobs/:jobId',
   '/admin/assets': '/gear',
-  '/admin/materials': '/material-requests',
+  '/admin/materials': '/command-centre',
   '/buhlos/admin': '/command-centre',
 };
 if (!exists('vercel.json')) {

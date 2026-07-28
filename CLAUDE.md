@@ -38,7 +38,7 @@ task**; every list is a **view — a projection over task instances**.
 
 **Hard rules for agents:**
 - The `jobId + areaId + stage + taskId` model is a **labelled compatibility bridge**, not the final architecture. `taskInstanceId` is a **target term only — it exists nowhere in the code.** Do not write docs/code that claim it, per-task proof, or admin proof approval as built.
-- New task-facet work keys off **canonical task identity** (the canonical task index / `task-ref-compat`), never raw area arrays. **Do not deepen area-owned task arrays** unless the change explicitly labels itself a temporary bridge.
+- New task-facet work keys off **canonical task identity** (the canonical task index + `src/domains/jobs/task-ref.ts`), never raw area arrays. **Do not deepen area-owned task arrays** unless the change explicitly labels itself a temporary bridge.
 - This is an **architecture** direction, not a Phil-constitution amendment: Phil's place-first navigation is a view and stays. Behavioural change to the ratified Phil package still goes via governance §3 / P15.
 
 ## Source of truth & the Constitution Gate

@@ -27,8 +27,8 @@ function rec(path: string, type: RecentItem["type"] = "job", title = path): Rece
 
 describe("#760 owner feature-control filtering", () => {
   it("buildGoToCommands drops hidden nav destinations", () => {
-    const hrefs = buildGoToCommands(["/reports", "/v2/jobs"]).map((c) => c.href);
-    expect(hrefs).not.toContain("/reports");
+    const hrefs = buildGoToCommands(["/employees", "/v2/jobs"]).map((c) => c.href);
+    expect(hrefs).not.toContain("/employees");
     expect(hrefs).not.toContain("/v2/jobs");
     expect(hrefs).toContain("/command-centre"); // ungated stays
   });
@@ -39,13 +39,13 @@ describe("#760 owner feature-control filtering", () => {
     const actions = buildActionCommands(["/v2/jobs", "/hours"]).map((c) => c.href);
     expect(actions).not.toContain("/v2/jobs/new");
     expect(actions).not.toContain("/hours/approvals");
-    expect(actions).toContain("/reports"); // ungated action stays
+    expect(actions).toContain("/settings/notifications"); // ungated action stays
   });
 
   it("buildStaticSections threads the hidden set into Go-to + Actions", () => {
-    const flat = flattenSections(buildStaticSections([], ["/reports"])).map((c) => c.href);
-    expect(flat).not.toContain("/reports");
-    expect(flat).not.toContain("/reports"); // also the 'Open reports' action
+    const flat = flattenSections(buildStaticSections([], ["/hours"])).map((c) => c.href);
+    expect(flat).not.toContain("/hours");
+    expect(flat).not.toContain("/hours/approvals"); // also the 'Open approvals' action
   });
 
   it("an empty/undefined hidden set changes nothing", () => {
@@ -66,7 +66,7 @@ describe("buildGoToCommands (NAV-derived + explicit sub-tabs)", () => {
   });
 
   it("carries the main routes as jump commands", () => {
-    for (const href of ["/command-centre", "/v2/jobs", "/hours", "/employees", "/reports"]) {
+    for (const href of ["/command-centre", "/v2/jobs", "/hours", "/employees", "/gear"]) {
       expect(hrefs).toContain(href);
     }
   });
@@ -96,18 +96,14 @@ describe("buildActionCommands (navigational only — no mutations)", () => {
   const actions = buildActionCommands();
   const byId = Object.fromEntries(actions.map((c) => [c.id, c.href]));
 
-  it("exposes exactly the five navigational actions at their routes", () => {
+  it("exposes exactly the three navigational actions at their routes", () => {
     expect(actions.map((c) => c.id)).toEqual([
       "new-job",
-      "new-quote",
       "open-approvals",
-      "open-reports",
       "notification-prefs",
     ]);
     expect(byId["new-job"]).toBe("/v2/jobs/new");
-    expect(byId["new-quote"]).toBe("/v2/quotes");
     expect(byId["open-approvals"]).toBe("/hours/approvals");
-    expect(byId["open-reports"]).toBe("/reports");
     expect(byId["notification-prefs"]).toBe("/settings/notifications");
   });
 

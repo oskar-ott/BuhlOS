@@ -7,12 +7,12 @@ import type { Job } from "@/domains/jobs/types";
  */
 export function singleJobTarget(
   jobsAffected: ReadonlyArray<Job>,
-  section: "evidence" | "snags"
+  section: "evidence"
 ): { href: string; cta: string } {
   if (jobsAffected.length === 1) {
     return {
       href: `/v2/jobs/${encodeURIComponent(jobsAffected[0]!.id)}/${section}`,
-      cta: section === "evidence" ? "Open evidence" : "Open snags",
+      cta: "Open evidence",
     };
   }
   return { href: "/v2/jobs", cta: "Open jobs" };

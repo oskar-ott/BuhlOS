@@ -35,7 +35,7 @@ describe("isSafeActionHref — hardened internal-only guard", () => {
   it("accepts canonical internal paths (including encoded segments and hyphens)", () => {
     expect(isSafeActionHref("/hours/approvals")).toBe(true);
     expect(isSafeActionHref("/v2/jobs/job-1/builder")).toBe(true);
-    expect(isSafeActionHref("/v2/jobs/job%2F1%3Fx/observations")).toBe(true);
+    expect(isSafeActionHref("/v2/jobs/job%2F1%3Fx/evidence")).toBe(true);
   });
 
   it("rejects external, scheme, protocol-relative, backslash, whitespace, control and empty", () => {
@@ -77,9 +77,9 @@ describe("encodeSegment + resolveAction", () => {
   });
 
   it("degrades to `fallback` with a SAFE fallback href, or `unavailable` without one", () => {
-    const safe = resolveAction("jobObservations", {}, { fallbackHref: "/observations" });
-    expect(safe).toMatchObject({ actionState: "fallback", actionHref: "/observations" });
-    const unsafe = resolveAction("jobObservations", {}, { fallbackHref: "https://evil.example" });
+    const safe = resolveAction("jobEvidence", {}, { fallbackHref: "/v2/jobs" });
+    expect(safe).toMatchObject({ actionState: "fallback", actionHref: "/v2/jobs" });
+    const unsafe = resolveAction("jobEvidence", {}, { fallbackHref: "https://evil.example" });
     expect(unsafe.actionState).toBe("unavailable");
     expect(unsafe.actionHref).toBeUndefined();
   });
@@ -124,15 +124,15 @@ describe("withFragment + resolveAction fragments (deep-link anchors)", () => {
 
 describe("withQuery + resolveAction query (deep-link to a focused list item)", () => {
   it("appends an encoded query string and stays safe", () => {
-    expect(withQuery("/material-requests", { focus: "mr_1" })).toBe("/material-requests?focus=mr_1");
-    expect(isSafeActionHref(withQuery("/material-requests", { focus: "mr_1" }))).toBe(true);
+    expect(withQuery("/hours/approvals", { focus: "te_1" })).toBe("/hours/approvals?focus=te_1");
+    expect(isSafeActionHref(withQuery("/hours/approvals", { focus: "te_1" }))).toBe(true);
   });
 
   it("encodes ids containing / ? # and spaces (no path break, no param injection)", () => {
-    expect(withQuery("/material-requests", { focus: "a/b?c#d e" })).toBe(
-      "/material-requests?focus=a%2Fb%3Fc%23d%20e",
+    expect(withQuery("/hours/approvals", { focus: "a/b?c#d e" })).toBe(
+      "/hours/approvals?focus=a%2Fb%3Fc%23d%20e",
     );
-    expect(isSafeActionHref(withQuery("/material-requests", { focus: "a/b?c#d e" }))).toBe(true);
+    expect(isSafeActionHref(withQuery("/hours/approvals", { focus: "a/b?c#d e" }))).toBe(true);
   });
 
   it("drops empty / nullish params", () => {
@@ -140,10 +140,10 @@ describe("withQuery + resolveAction query (deep-link to a focused list item)", (
     expect(withQuery("/x", { a: "1", b: "" })).toBe("/x?a=1");
   });
 
-  it("resolveAction applies a query to the material-requests deep-link", () => {
-    const a = resolveAction("materialRequests", {}, { label: "Open request", query: { focus: "mr#7/8" } });
-    expect(a).toMatchObject({ actionState: "available", actionLabel: "Open request" });
-    expect(a.actionHref).toBe("/material-requests?focus=mr%237%2F8");
+  it("resolveAction applies a query to a registered route's deep-link", () => {
+    const a = resolveAction("hoursApprovals", {}, { label: "Review approvals", query: { focus: "te#7/8" } });
+    expect(a).toMatchObject({ actionState: "available", actionLabel: "Review approvals" });
+    expect(a.actionHref).toBe("/hours/approvals?focus=te%237%2F8");
     expect(isSafeActionHref(a.actionHref)).toBe(true);
   });
 });

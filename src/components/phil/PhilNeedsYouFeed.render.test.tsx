@@ -30,13 +30,13 @@ describe("PhilNeedsYouFeed (render)", () => {
         severity: "urgent",
       },
       {
-        id: "snag:s1",
-        kind: "snag",
-        title: "Pendant foul",
-        detail: "100 Arthur",
-        href: "/phil/jobs/job-1#phil-job-snags",
-        actionLabel: "Open snag",
-        severity: "warning",
+        id: "calibration:a1",
+        kind: "calibration",
+        title: "Fluke 1587 calibration expired",
+        detail: "Don't test with it",
+        href: "/phil/gear",
+        actionLabel: "View gear",
+        severity: "urgent",
       },
     ];
     const html = render(items);
@@ -45,8 +45,8 @@ describe("PhilNeedsYouFeed (render)", () => {
     expect(html).toContain("Wed 22 May hours need a fix");
     expect(html).toContain("Fix hours");
     expect(html).toContain('href="/phil/hours"');
-    expect(html).toContain("Pendant foul");
-    expect(html).toContain("/phil/jobs/job-1#phil-job-snags");
-    expect(html).toContain("Open snag");
+    expect(html).toContain("Fluke 1587 calibration expired");
+    expect(html).toContain('href="/phil/gear"');
+    expect(html).toContain("View gear");
   });
 });

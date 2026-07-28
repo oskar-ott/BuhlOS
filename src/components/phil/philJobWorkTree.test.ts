@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  activeAreaItpCountByArea,
-  activeSnagCountByArea,
   areaQuickLinks,
   areaStageAvailability,
   buildAreaCountMaps,
@@ -11,8 +9,6 @@ import {
   soleStage,
 } from "./philJobWorkTree";
 import type { Job, JobArea } from "@/domains/jobs/types";
-import type { SnagItem } from "@/domains/snags/types";
-import type { ITPInstance } from "@/domains/itp/types";
 import type { EvidenceItem } from "@/domains/evidence/types";
 
 /* ----------------------------------------------------------------------
@@ -20,65 +16,6 @@ import type { EvidenceItem } from "@/domains/evidence/types";
  * -------------------------------------------------------------------- */
 
 const task = (id: string) => ({ id, name: id });
-
-function snag(over: Partial<SnagItem>): SnagItem {
-  return {
-    id: over.id ?? "sn",
-    jobId: "job-1",
-    title: "snag",
-    description: null,
-    summary: null,
-    stage: null,
-    areaId: over.areaId ?? null,
-    areaName: null,
-    taskId: null,
-    taskName: null,
-    evidenceIds: [],
-    status: over.status ?? "open",
-    priority: "normal",
-    source: "phil",
-    createdById: "u1",
-    createdByName: "Sam",
-    createdByRole: "tradie",
-    assignedToId: null,
-    assignedToName: null,
-    acknowledgedAt: null,
-    acknowledgedById: null,
-    acknowledgedByName: null,
-    resolvedAt: null,
-    resolvedById: null,
-    resolvedByName: null,
-    verifiedAt: null,
-    verifiedById: null,
-    verifiedByName: null,
-    closedAt: null,
-    closedById: null,
-    closedByName: null,
-    rejectedAt: over.status === "rejected" ? "2026-05-25T17:00:00.000Z" : null,
-    rejectedById: over.status === "rejected" ? "admin" : null,
-    rejectedByName: over.status === "rejected" ? "Anna" : null,
-    rejectionReason: over.status === "rejected" ? "dupe" : null,
-    auditLogIds: [],
-    createdAt: "2026-05-25T14:30:00.000Z",
-    updatedAt: "2026-05-25T14:30:00.000Z",
-  } as SnagItem;
-}
-
-function itp(over: Partial<ITPInstance>): ITPInstance {
-  return {
-    id: over.id ?? "itp",
-    templateId: "tpl",
-    templateSnapshot: { name: "ITP", points: [] },
-    scope: over.scope ?? "area",
-    scopeId: over.scopeId,
-    status: over.status ?? "pending",
-    results: {},
-    archived: over.archived ?? false,
-    createdAt: "2026-05-26T08:00:00.000Z",
-    createdBy: "anna",
-    updatedAt: "2026-05-26T08:00:00.000Z",
-  } as ITPInstance;
-}
 
 function evidence(over: Partial<EvidenceItem>): EvidenceItem {
   return {
@@ -158,63 +95,6 @@ describe("areaStageAvailability", () => {
 });
 
 /* ----------------------------------------------------------------------
- * Snag counts
- * -------------------------------------------------------------------- */
-
-describe("activeSnagCountByArea", () => {
-  it("groups active snags by areaId", () => {
-    const m = activeSnagCountByArea([
-      snag({ id: "1", areaId: "a", status: "open" }),
-      snag({ id: "2", areaId: "a", status: "in_progress" }),
-      snag({ id: "3", areaId: "b", status: "rejected" }),
-    ]);
-    expect(m.get("a")).toBe(2);
-    expect(m.get("b")).toBe(1);
-  });
-
-  it("counts rejected snags (worker still needs to act)", () => {
-    const m = activeSnagCountByArea([snag({ areaId: "a", status: "rejected" })]);
-    expect(m.get("a")).toBe(1);
-  });
-
-  it("ignores verified/closed snags and area-less snags", () => {
-    const m = activeSnagCountByArea([
-      snag({ id: "1", areaId: "a", status: "verified" }),
-      snag({ id: "2", areaId: "a", status: "closed" }),
-      snag({ id: "3", areaId: null, status: "open" }),
-    ]);
-    expect(m.get("a")).toBeUndefined();
-    expect(m.size).toBe(0);
-  });
-});
-
-/* ----------------------------------------------------------------------
- * ITP counts
- * -------------------------------------------------------------------- */
-
-describe("activeAreaItpCountByArea", () => {
-  it("counts only area-scoped, active, non-archived instances", () => {
-    const m = activeAreaItpCountByArea([
-      itp({ id: "1", scope: "area", scopeId: "a", status: "pending" }),
-      itp({ id: "2", scope: "area", scopeId: "a", status: "in-progress" }),
-      itp({ id: "3", scope: "area", scopeId: "a", status: "signed-off" }), // done
-      itp({ id: "4", scope: "area", scopeId: "a", status: "pending", archived: true }),
-      itp({ id: "5", scope: "job", status: "pending" }), // not area-scoped
-      itp({ id: "6", scope: "level", scopeId: "grp", status: "pending" }),
-    ]);
-    expect(m.get("a")).toBe(2);
-    expect(m.get("grp")).toBeUndefined();
-  });
-
-  it("includes witnessed instances (still worker-visible)", () => {
-    const m = activeAreaItpCountByArea([
-      itp({ scope: "area", scopeId: "a", status: "witnessed" }),
-    ]);
-    expect(m.get("a")).toBe(1);
-  });
-});
-
-/* ----------------------------------------------------------------------
  * Evidence counts
  * -------------------------------------------------------------------- */
 
@@ -239,20 +119,14 @@ describe("evidenceCountByArea", () => {
 describe("countsForArea", () => {
   it("reads a single area's counts out of the prebuilt maps", () => {
     const maps = buildAreaCountMaps({
-      snags: [snag({ areaId: "a", status: "open" })],
-      itps: [itp({ scope: "area", scopeId: "a", status: "pending" })],
       evidence: [evidence({ areaId: "a" }), evidence({ id: "2", areaId: "a" })],
     });
-    expect(countsForArea(maps, "a")).toEqual({ snags: 1, itps: 1, photos: 2 });
+    expect(countsForArea(maps, "a")).toEqual({ photos: 2 });
   });
 
   it("returns all-zero for an area with nothing", () => {
-    const maps = buildAreaCountMaps({ snags: [], itps: [], evidence: [] });
-    expect(countsForArea(maps, "ghost")).toEqual({
-      snags: 0,
-      itps: 0,
-      photos: 0,
-    });
+    const maps = buildAreaCountMaps({ evidence: [] });
+    expect(countsForArea(maps, "ghost")).toEqual({ photos: 0 });
   });
 });
 
@@ -292,34 +166,25 @@ describe("hasAnyStage", () => {
  * -------------------------------------------------------------------- */
 
 describe("areaQuickLinks", () => {
-  it("emits one link per non-zero count, in section order, with anchors", () => {
-    const links = areaQuickLinks({ snags: 2, itps: 1, photos: 5 });
-    expect(links.map((l) => l.key)).toEqual(["snags", "itps", "photos"]);
-    expect(links.map((l) => l.label)).toEqual(["2 snags", "1 ITP", "5 photos"]);
-    expect(links.map((l) => l.anchor)).toEqual([
-      "#phil-job-snags",
-      "#phil-job-itps",
-      "#phil-job-capture",
-    ]);
+  it("emits one link per non-zero count, with its anchor", () => {
+    const links = areaQuickLinks({ photos: 5 });
+    expect(links.map((l) => l.key)).toEqual(["photos"]);
+    expect(links.map((l) => l.label)).toEqual(["5 photos"]);
+    expect(links.map((l) => l.anchor)).toEqual(["#phil-job-capture"]);
   });
 
   it("hides zero counts (no zero-count noise)", () => {
-    expect(areaQuickLinks({ snags: 0, itps: 0, photos: 0 })).toEqual([]);
-    const onlySnags = areaQuickLinks({ snags: 1, itps: 0, photos: 0 });
-    expect(onlySnags).toHaveLength(1);
-    expect(onlySnags[0]!.key).toBe("snags");
+    expect(areaQuickLinks({ photos: 0 })).toEqual([]);
   });
 
   it("singularises labels at count 1", () => {
-    const links = areaQuickLinks({ snags: 1, itps: 1, photos: 1 });
-    expect(links.map((l) => l.label)).toEqual(["1 snag", "1 ITP", "1 photo"]);
+    expect(areaQuickLinks({ photos: 1 }).map((l) => l.label)).toEqual(["1 photo"]);
   });
 
   it("never emits a document or material link (no area linkage exists)", () => {
-    const links = areaQuickLinks({ snags: 9, itps: 9, photos: 9 });
-    const keys = links.map((l) => l.key);
+    const keys = areaQuickLinks({ photos: 9 }).map((l) => l.key);
     expect(keys).not.toContain("documents");
     expect(keys).not.toContain("materials");
-    expect(keys.sort()).toEqual(["itps", "photos", "snags"]);
+    expect(keys).toEqual(["photos"]);
   });
 });

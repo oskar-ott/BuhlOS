@@ -48,12 +48,19 @@ Blob remains for binaries (photos) — that is storage, not a double store.
 
 ## Hidden (archived, not deleted)
 
+> **Superseded 2026-07-27 by [The gut](#the-gut-2026-07-27):** the features
+> below were hidden by this reset and their CODE has since been deleted.
+> This section is kept as the record of what was hidden and why. The flags,
+> the `/owner` re-enable dial and the "archived, not deleted" mechanism
+> described here no longer apply to them — restoring one now means restoring
+> from the `pre-gut-archive` tag.
+
 Mechanism: each feature's flag in `api/_lib/feature-flags.js` was
 reclassified from owner kill-switch (`default: true`) back to a **dark
 launch-gate** (`default: false`) — the sanctioned way to archive a shipped
 feature (see `docs/feature-flags.md`). Code, routes, APIs and data all
-remain; every flag keeps its Owner-Console board presentation, so any feature
-can be re-enabled from `/owner` (Live dial / owner preview) without a deploy.
+remained; every flag kept its Owner-Console board presentation, so any feature
+could be re-enabled from `/owner` (Live dial / owner preview) without a deploy.
 
 Hidden by this reset: **itp** (the heavy office ITP/QA system, incl.
 `/itp-templates` + `/qa`), **observations_inbox**, **material_requests**,
@@ -78,6 +85,63 @@ Capture launcher's observation options, snag items in the Needs-you feed,
 Command-Centre tiles/counts/error-chips for hidden sources, the mobile
 approvals hub's hidden chips, snag results in search, snag quick-actions,
 snag pushes (stale-snag cron, digest line) and their pref rows.
+
+## The gut (2026-07-27)
+
+**Status: done — executes the founder's delete decision.** The reset above
+*hid* the non-core features; this pass **deleted their code from the working
+tree**. The reasoning is the lean-startup one this repo is scoped with: hidden
+code is still code — it anchors every design conversation, every "while we're
+in here", every guard and every test run to a product five loops wider than
+the one being sold. Archiving on a flag deferred that cost; the gut pays it.
+
+**What was deleted.** The 16 lean-reset flags (`itp`, `observations_inbox`,
+`material_requests`, `expenses`, `quotes`, `defects`, `dayworks`, `reports`,
+`snags`, `scope_reconciliation`, `job_control`, `closeout`, `documents`,
+`circuit_schedule`, `diary`, `job_activity`) **and** the never-lit launch
+gates that were never going to be lit (`rfi_register`,
+`certificates_register`, `safety_docs`, `minutes_register`,
+`site_instructions_register`, `variations_register`, `progress_claims`,
+`job_doc_import`, `admin_proof_review`, every `ai_*` surface,
+`job_builder_redesign`, `admin_job_field_view`) — each feature's API
+handler(s), `src/domains` code, routes, components, server modules,
+importers, smoke scripts and tests, and finally the flag itself (registry +
+`FLAG_PRESENTATION` + the `FlagKey` union). The registry is down from 66 flags
+to 30. Root one-off migration scripts and `docs/prototype/` went with them.
+
+**What stayed.** The lean core — jobs, hours (incl. the whole Xero/payroll
+path), evidence, employees, gear, the per-job tag register, `job_photos`,
+`signup_link`, `itp_simple` — plus the plans surfaces (visible-adjacent,
+deliberately untouched this round) and all Supabase data-plane machinery.
+`api/job-profitability.js` and the hub's Profitability + Budget cards stayed
+by the owner's step-5 call.
+
+**Data was NOT deleted.** Only code. Every blob store (including hidden
+features' `data.json` slices) is untouched and still in the backup manifest.
+
+**Restoring.** The pre-gut tree is tagged **`pre-gut-archive`**:
+
+```bash
+git show pre-gut-archive:api/snags.js > api/snags.js        # one file
+git checkout pre-gut-archive -- src/domains/observations     # one feature
+git diff pre-gut-archive..HEAD --stat                        # what went
+```
+
+A restored feature also needs its flag re-added to `api/_lib/feature-flags.js`
+(registry + presentation) and `api/_lib/feature-flags.d.ts`.
+
+**Route contract.** The deleted top-level routes (`/observations`,
+`/material-requests`, `/expenses`, `/defects`, `/reports`, `/qa`,
+`/itp-templates`, `/activity`, `/v2/quotes`, `/v2/dayworks`) now `307` to
+`/command-centre` — the [`route-ownership.md`](../route-ownership.md) §6
+"no modern equivalent yet — single honest entry" pattern, so a bookmark lands
+somewhere real instead of 404ing. `/admin/materials` was re-pointed the same
+way. Deleted per-job sections just 404.
+
+**Leftovers** are tracked on **#923** (the step-5 dead-code sweep): the plans
+surfaces, the stale route prefixes still listed in `src/middleware.ts` (a
+parallel session owns that file), and the zero-consumer endpoints the gut left
+alone because no deleted feature owned them.
 
 ## Operational notes
 
@@ -125,3 +189,6 @@ snag pushes (stale-snag cron, digest line) and their pref rows.
    link-out. Dark until the owner previews and flips.
 7. **Hours data-plane cutover** to Supabase per the directive above
    (in progress in a parallel working session).
+8. ✅ **The gut** (2026-07-27): the hidden features' code deleted from the
+   tree — see [The gut](#the-gut-2026-07-27) above. Restore point:
+   `pre-gut-archive`.

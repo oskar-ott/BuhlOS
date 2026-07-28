@@ -11,7 +11,6 @@ vi.mock("next/navigation", () => ({
 
 import { PhilTabBar } from "./PhilTabBar";
 import { PhilShell } from "./PhilShell";
-import { CaptureLauncherProvider } from "./captureLauncherContext";
 
 /**
  * The phil_sharpened chrome (Wave 1, dark) — and, just as load-bearing, the
@@ -21,11 +20,7 @@ import { CaptureLauncherProvider } from "./captureLauncherContext";
  */
 function renderBar(sharpened?: boolean) {
   return renderToString(
-    createElement(
-      CaptureLauncherProvider,
-      null,
-      createElement(PhilTabBar, sharpened === undefined ? {} : { sharpened }),
-    ),
+    createElement(PhilTabBar, sharpened === undefined ? {} : { sharpened }),
   );
 }
 

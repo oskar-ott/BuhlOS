@@ -23,15 +23,10 @@ import {
   type EvidenceStatusTone,
 } from "@/domains/evidence/format";
 import type { EvidenceItem } from "@/domains/evidence/types";
-import { PHOTO_LABEL_TAXONOMY, visibleLabels } from "@/domains/evidence/labels";
-import type { SnagEvidenceLink } from "@/domains/evidence/defect-suggestions";
 import { resolvePair } from "@/domains/evidence/pairing";
 import { resolveEvidenceTargetParts } from "@/domains/evidence/target-label";
 import type { Job } from "@/domains/jobs/types";
-import type { CreateSnagPayload } from "@/domains/snags/types";
 import { EvidenceContextChips } from "./EvidenceContextChips";
-import { EvidenceDefectSuggestionCard } from "./EvidenceDefectSuggestionCard";
-import { LabelChip, photoLabelDisplay } from "./EvidenceLabelChips";
 import { listAuditForTarget } from "@/domains/audit-log/client";
 import type {
   AuditAction,
@@ -83,28 +78,6 @@ interface Props {
    *  the viewer actually has permission for the relevant transition
    *  (mirrors the server's flag/unflag asymmetry), so it never 403s. */
   onToggleAsBuilt?: () => void;
-  /** #262 — true when the viewer is an admin AND ai_photo_labels is on.
-   *  Label chips DISPLAY whenever the row carries labels (harmless); the
-   *  correction controls (accept / remove / add) only render when this
-   *  is true. Default-safe: absent = display-only. */
-  aiLabelsEnabled?: boolean;
-  /** #262 — apply a human label correction (action=labels). The queue
-   *  owns the mutation + state merge, matching every other drawer action. */
-  onCorrectLabels?: (correction: {
-    add?: string[];
-    accept?: string[];
-    remove?: string[];
-  }) => void;
-  /** #267 — true when the viewer is an admin AND ai_snag_suggestions is
-   *  on. The defect-suggestion panel doesn't render at all otherwise. */
-  snagSuggestionsEnabled?: boolean;
-  /** #267 — the job's snags, for the linked/suggested projection. */
-  snags?: ReadonlyArray<SnagEvidenceLink>;
-  /** #267 — sticky dismissal of the defect suggestion. */
-  onDismissDefectSuggestion?: () => void;
-  /** #267 — raise a snag through the EXISTING snag-create path. Resolves
-   *  to an inline error message, or null on success. */
-  onRaiseSnag?: (payload: CreateSnagPayload) => Promise<string | null>;
 }
 
 type HistoryState =
@@ -140,12 +113,6 @@ export function EvidenceDrawer({
   onOpenUnreview,
   onUnlink,
   onToggleAsBuilt,
-  aiLabelsEnabled = false,
-  onCorrectLabels,
-  snagSuggestionsEnabled = false,
-  snags,
-  onDismissDefectSuggestion,
-  onRaiseSnag,
 }: Props) {
   const [history, setHistory] = useState<HistoryState>({ kind: "idle" });
 
@@ -358,26 +325,6 @@ export function EvidenceDrawer({
 
             <TargetSection item={item} job={job} />
 
-            <LabelsSection
-              item={item}
-              aiLabelsEnabled={aiLabelsEnabled}
-              busy={busy}
-              onCorrect={aiLabelsEnabled ? onCorrectLabels : undefined}
-            />
-
-            {/* #267 — keyed by item.id so the mini-form's prefill resets
-                when the drawer moves to another photo. */}
-            {snagSuggestionsEnabled && onDismissDefectSuggestion && onRaiseSnag ? (
-              <EvidenceDefectSuggestionCard
-                key={item.id}
-                item={item}
-                snags={[...(snags ?? [])]}
-                busy={busy}
-                onDismiss={onDismissDefectSuggestion}
-                onRaiseSnag={onRaiseSnag}
-              />
-            ) : null}
-
             {isRejected && item.rejectionReason ? (
               <div className="rounded-card border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
                 <p className="font-display text-xs uppercase tracking-wider">
@@ -565,111 +512,6 @@ function TargetSection({ item, job }: { item: EvidenceItem; job: Job }) {
           </span>
         </div>
       )}
-    </div>
-  );
-}
-
-/**
- * #262 — photo labels with human correction.
- *
- * The heading names the trust model out loud: AI entries are suggestions
- * until a human confirms them. Chips follow the display contract in
- * src/domains/evidence/labels.ts (solid = confirmed/accepted, dashed +
- * "AI" + confidence = tentative). Correction controls (keep / remove /
- * add) render only when `onCorrect` is passed — i.e. admin viewer with
- * the ai_photo_labels flag on; everyone else gets display-only chips.
- */
-function LabelsSection({
-  item,
-  aiLabelsEnabled,
-  busy,
-  onCorrect,
-}: {
-  item: EvidenceItem;
-  aiLabelsEnabled: boolean;
-  busy: boolean;
-  onCorrect?: (correction: {
-    add?: string[];
-    accept?: string[];
-    remove?: string[];
-  }) => void;
-}) {
-  const labels = visibleLabels(item);
-  const correct = aiLabelsEnabled && onCorrect ? onCorrect : null;
-  // Labels are a photo facet — notes/test results never carry them.
-  if (item.kind !== "photo") return null;
-  if (labels.length === 0 && !correct) return null;
-
-  const remaining = PHOTO_LABEL_TAXONOMY.filter(
-    (l) => !labels.some((v) => v.label === l)
-  );
-
-  const iconButton =
-    "inline-flex h-5 w-5 items-center justify-center rounded-pill hover:bg-surface-subtle disabled:cursor-not-allowed disabled:opacity-60";
-
-  return (
-    <div>
-      <p className="font-display text-xs uppercase tracking-wider text-text-muted">
-        Labels — AI suggestions until you confirm them
-      </p>
-      {labels.length === 0 ? (
-        <p className="mt-1 text-xs text-text-muted">No labels on this photo.</p>
-      ) : (
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          {labels.map((l) => (
-            <LabelChip key={l.label} label={l}>
-              {correct ? (
-                <span className="ml-0.5 inline-flex items-center gap-0.5">
-                  {l.tentative ? (
-                    <button
-                      type="button"
-                      onClick={() => correct({ accept: [l.label] })}
-                      disabled={busy}
-                      aria-label={`Keep label ${photoLabelDisplay(l.label)}`}
-                      title="Keep — confirm this label"
-                      className={cn(iconButton, "text-emerald-700")}
-                    >
-                      <Check aria-hidden="true" className="h-3.5 w-3.5" />
-                    </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={() => correct({ remove: [l.label] })}
-                    disabled={busy}
-                    aria-label={`Remove label ${photoLabelDisplay(l.label)}`}
-                    title="Remove this label"
-                    className={cn(iconButton, "text-text-muted")}
-                  >
-                    <X aria-hidden="true" className="h-3.5 w-3.5" />
-                  </button>
-                </span>
-              ) : null}
-            </LabelChip>
-          ))}
-        </div>
-      )}
-      {correct ? (
-        <label className="mt-2 block">
-          <span className="sr-only">Add label</span>
-          <select
-            value=""
-            onChange={(e) => {
-              if (e.target.value) correct({ add: [e.target.value] });
-            }}
-            disabled={busy || remaining.length === 0}
-            className="block h-9 rounded-card border border-border bg-surface px-2 text-xs focus:border-brand-navy focus:outline-none disabled:opacity-60"
-          >
-            <option value="">
-              {remaining.length === 0 ? "All labels applied" : "Add label…"}
-            </option>
-            {remaining.map((l) => (
-              <option key={l} value={l}>
-                {photoLabelDisplay(l)}
-              </option>
-            ))}
-          </select>
-        </label>
-      ) : null}
     </div>
   );
 }

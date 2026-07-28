@@ -1,7 +1,7 @@
 "use client";
 
 import type { ComponentType, SVGProps } from "react";
-import { AlertOctagon, Camera, ChevronRight, ClipboardCheck } from "lucide-react";
+import { Camera, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/cn";
 import type { AreaCounts, AreaStageAvailability } from "./philJobWorkTree";
 
@@ -28,7 +28,7 @@ interface CountChip {
  *
  * One area rendered as a selectable card, per the Phil Job Interface
  * Bible §09: area name + space type, the stages that have a task plan,
- * and real per-area counts (snags · area ITPs · photos). Tapping the
+ * and real per-area counts (photos). Tapping the
  * card selects the area — identical behaviour to the plain button it
  * replaces — and the stage chooser above still drives which task list
  * shows below.
@@ -58,20 +58,6 @@ export function PhilJobAreaCard({
   if (stages.fitOff) stageChips.push("Fit-off");
 
   const countChips: CountChip[] = [];
-  if (counts.snags > 0) {
-    countChips.push({
-      icon: AlertOctagon,
-      label: counts.snags === 1 ? "1 issue" : `${counts.snags} issues`,
-      accent: "text-state-danger",
-    });
-  }
-  if (counts.itps > 0) {
-    countChips.push({
-      icon: ClipboardCheck,
-      label: counts.itps === 1 ? "1 check" : `${counts.itps} checks`,
-      accent: "text-state-info",
-    });
-  }
   if (counts.photos > 0) {
     countChips.push({
       icon: Camera,
@@ -82,12 +68,6 @@ export function PhilJobAreaCard({
 
   const ariaSummary = [
     stageChips.length ? stageChips.join(" and ") : null,
-    counts.snags > 0
-      ? `${counts.snags} ${counts.snags === 1 ? "issue" : "issues"}`
-      : null,
-    counts.itps > 0
-      ? `${counts.itps} ${counts.itps === 1 ? "check" : "checks"}`
-      : null,
     counts.photos > 0
       ? `${counts.photos} ${counts.photos === 1 ? "photo" : "photos"}`
       : null,

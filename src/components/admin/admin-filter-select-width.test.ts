@@ -26,42 +26,17 @@ const ADMIN_DIR = resolve(dirname(fileURLToPath(import.meta.url)));
 const read = (rel: string): string => readFileSync(join(ADMIN_DIR, rel), "utf8");
 
 // Filter bars whose <select> options come from live job/worker data and so
-// MUST cap the control width. The §6 inbox redesign hoisted the From-site
-// (Observations) + Material-requests filter <select> into the shared
-// `InboxShell` (InboxFilterSelect), so the cap now lives there — those two
-// inboxes import it rather than declaring their own select. `InboxShell.tsx`
-// is therefore in this list as the single source of the capped control; the
-// two adopters are guarded separately below (they must keep using the shell).
+// MUST cap the control width.
 const CAPPED_FILTER_SELECTS = [
   "ExceptionsInbox.tsx",
-  "InboxShell.tsx",
   "HoursFilterBar.tsx",
   "EvidenceFilterBar.tsx",
 ];
 
-// Inboxes that delegate their data-option select to the shared InboxShell. They
-// must NOT reintroduce a bare <select> (which could regress uncapped), so we
-// assert they import the shared, capped InboxFilterSelect instead.
-const SHELL_ADOPTERS = ["ObservationsInbox.tsx", "MaterialRequestsInbox.tsx"];
 
 describe("admin data-option filter selects cap their width (no page-wide overflow)", () => {
   it.each(CAPPED_FILTER_SELECTS)("%s caps its filter <select> with max-w-[11rem]", (file) => {
     expect(read(file)).toContain("max-w-[11rem]");
-  });
-
-  it.each(SHELL_ADOPTERS)("%s delegates its filter bar to the shared (capped) InboxFilterSelect", (file) => {
-    const src = read(file);
-    // The cap guarantee for the live-data filter bar now comes from the shared
-    // InboxFilterSelect; assert the inbox uses it. (Drawer form <select>s with
-    // fixed enum options — urgency/priority — are not data-option filters and
-    // are intentionally out of scope for the width cap.)
-    expect(src, `${file} must import the shared InboxFilterSelect`).toContain("InboxFilterSelect");
-  });
-
-  it("DefectsRegister job filter keeps a max-w cap", () => {
-    // DefectsRegister already shipped with max-w-[220px] (< viewport, so safe);
-    // assert it keeps a cap rather than regressing to an uncapped select.
-    expect(read("DefectsRegister.tsx")).toMatch(/max-w-\[/);
   });
 
   it("none of the capped filter selects use an UNCAPPED fixed min-w floor", () => {

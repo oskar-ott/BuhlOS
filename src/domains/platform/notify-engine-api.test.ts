@@ -1,7 +1,6 @@
 import { createRequire } from "node:module";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Lean reset: snags are dark by default — these tests exercise the enabled behaviour (the stale-snags cron).
 beforeAll(() => {
   process.env.FLAG_SNAGS = "1";
 });
@@ -23,7 +22,7 @@ afterAll(() => {
  *
  * What this pins (issue #162 ACs):
  *   1. migrated call-sites push the same recipients + payload for default prefs
- *      (approve, bulk-approve, snag-quick-raise, snag-notify, stale-snags cron);
+ *      (approve, bulk-approve);
  *   2. a muted key verifiably suppresses that event for that user ONLY;
  *   3. missing prefs default to true (the recipient notices zero change);
  *   4. a push failure never fails the business response;
@@ -41,8 +40,6 @@ const notifyRoutingPath = requireFromHere.resolve("../../../api/_lib/notify-rout
 const notifyPath = requireFromHere.resolve("../../../api/_lib/notify.js");
 const approvePath = requireFromHere.resolve("../../../api/time-entries-approve.js");
 const bulkApprovePath = requireFromHere.resolve("../../../api/time-entries-bulk-approve.js");
-const snagQuickRaisePath = requireFromHere.resolve("../../../api/snag-quick-raise.js");
-const snagNotifyPath = requireFromHere.resolve("../../../api/snag-notify.js");
 const notificationsPath = requireFromHere.resolve("../../../api/notifications.js");
 
 const TODAY = new Date().toISOString().slice(0, 10);
@@ -58,8 +55,6 @@ let pushImpl: (userId: string, payload: Payload) => Promise<{ sent: number; prun
 let auth: { signSession: (payload: Record<string, unknown>) => string };
 let approve: Handler;
 let bulkApprove: Handler;
-let snagQuickRaise: Handler;
-let snagNotify: Handler;
 let notifications: Handler;
 
 function clone<T>(value: T): T {
@@ -180,8 +175,6 @@ beforeEach(() => {
     notifyPath,
     approvePath,
     bulkApprovePath,
-    snagQuickRaisePath,
-    snagNotifyPath,
     notificationsPath,
   ]) {
     delete requireFromHere.cache[modulePath];
@@ -251,8 +244,6 @@ beforeEach(() => {
   auth = requireFromHere(authPath);
   approve = requireFromHere(approvePath);
   bulkApprove = requireFromHere(bulkApprovePath);
-  snagQuickRaise = requireFromHere(snagQuickRaisePath);
-  snagNotify = requireFromHere(snagNotifyPath);
   notifications = requireFromHere(notificationsPath);
 });
 
@@ -292,58 +283,8 @@ describe("migrated call-sites push the same recipients + payload (default prefs)
     expect(pushCalls.find((c) => c.userId === "u_field")!.payload.url).toBe("/phil/my-day");
   });
 
-  it("snag-quick-raise → assignee push on /phil/jobs/<id>#phil-job-snags", async () => {
-    const res = await call(
-      snagQuickRaise,
-      "u_office",
-      "office",
-      { dwelling: "dw-1", desc: "Loose RCD", priority: "High", assignedToUserId: "u_field" },
-      { jobId: "job-x" },
-    );
-    expect(res.statusCode).toBe(201);
-    expect(pushCalls).toHaveLength(1);
-    expect(pushCalls[0]).toMatchObject({
-      userId: "u_field",
-      payload: {
-        title: "⚠ HIGH · Snag assigned to you",
-        url: "/phil/jobs/job-x#phil-job-snags",
-      },
-    });
-    expect(pushCalls[0]!.payload.body).toBe("[Job X] Loose RCD");
-  });
 
-  it("snag-notify (assigned) routes through the engine to the assignee", async () => {
-    const res = await call(snagNotify, "u_office", "office", {
-      userId: "u_field",
-      kind: "assigned",
-      jobId: "job-x",
-      snag: { id: "s1", desc: "Cracked tile", priority: "Medium", jobName: "Job X" },
-    });
-    expect(res.statusCode).toBe(200);
-    expect(pushCalls).toHaveLength(1);
-    expect(pushCalls[0]).toMatchObject({
-      userId: "u_field",
-      payload: { title: "Snag assigned to you", url: "/phil/jobs/job-x#phil-job-snags" },
-    });
-  });
 
-  it("stale-snags cron fans out to admin-tier subscribers with the unchanged payload", async () => {
-    // One open High snag, aged well past its 3-day threshold.
-    const oldIso = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-    blob.set("jobs/job-x/data.json", {
-      snags: [{ id: "s_old", status: "Open", priority: "High", createdAt: oldIso }],
-    });
-    const res = createRes();
-    await notifications(
-      { method: "GET", query: { action: "send-stale-snags" }, headers: {}, body: undefined },
-      res,
-    );
-    expect(res.statusCode).toBe(200);
-    // Only the office admin-tier user has a subscription + is unarchived here.
-    expect(pushCalls.map((c) => c.userId)).toEqual(["u_office"]);
-    expect(pushCalls[0]!.payload).toMatchObject({ title: "Snags need triage", url: "/command-centre" });
-    expect((res.body as { sent: number }).sent).toBe(1);
-  });
 });
 
 // ── 2 + 3. Muting suppresses one user only; missing prefs default true ─
@@ -378,24 +319,6 @@ describe("a muted pref suppresses that event for that user only", () => {
     expect(pushCalls.map((c) => c.userId)).toEqual(["u_field2"]); // only the unmuted push
   });
 
-  it("stale-snags: a muted admin is suppressed while an unmuted admin still receives", async () => {
-    // Add a second admin who muted staleSnags.
-    setUsers([
-      { id: "u_admin2", username: "boss", role: "admin", pushSubscriptions: SUB, notificationPrefs: { staleSnags: false } },
-    ]);
-    const oldIso = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-    blob.set("jobs/job-x/data.json", {
-      snags: [{ id: "s_old", status: "Open", priority: "High", createdAt: oldIso }],
-    });
-    const res = createRes();
-    await notifications(
-      { method: "GET", query: { action: "send-stale-snags" }, headers: {}, body: undefined },
-      res,
-    );
-    expect(res.statusCode).toBe(200);
-    // u_office (default) receives; u_admin2 (muted) does not.
-    expect(pushCalls.map((c) => c.userId)).toEqual(["u_office"]);
-  });
 
   it("missing prefs object defaults to true — the recipient still gets the push", async () => {
     // u_field has NO notificationPrefs at all in the default fixture.
@@ -406,7 +329,7 @@ describe("a muted pref suppresses that event for that user only", () => {
 
   it("muting a DIFFERENT type does not suppress this one", async () => {
     const users = blob.get("users.json") as { users: Array<Record<string, unknown>> };
-    users.users.find((u) => u.id === "u_field")!.notificationPrefs = { snagAssigned: false };
+    users.users.find((u) => u.id === "u_field")!.notificationPrefs = { dailyHoursReminder: false };
     blob.set("users.json", users);
     const res = await call(approve, "u_office", "office", { userId: "u_field", date: TODAY });
     expect(res.statusCode).toBe(200);
@@ -426,20 +349,6 @@ describe("best-effort delivery + prune passthrough", () => {
     expect((res.body as { entry: { status: string } }).entry.status).toBe("approved");
   });
 
-  it("a push that prunes a dead subscription is reflected in the cron's counts", async () => {
-    pushImpl = async () => ({ sent: 0, pruned: 1, skipped: null });
-    const oldIso = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-    blob.set("jobs/job-x/data.json", {
-      snags: [{ id: "s_old", status: "Open", priority: "High", createdAt: oldIso }],
-    });
-    const res = createRes();
-    await notifications(
-      { method: "GET", query: { action: "send-stale-snags" }, headers: {}, body: undefined },
-      res,
-    );
-    expect(res.statusCode).toBe(200);
-    expect(res.body).toMatchObject({ sent: 0, pruned: 1 });
-  });
 
   it("a recipient with no subscriptions is skipped, not an error (approve still 200)", async () => {
     pushImpl = async () => ({ sent: 0, pruned: 0, skipped: "no subscriptions" });

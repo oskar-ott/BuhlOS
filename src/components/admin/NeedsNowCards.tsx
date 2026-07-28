@@ -3,19 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import type { Route } from "next";
-import {
-  AlertOctagon,
-  AlertTriangle,
-  ArrowRight,
-  Camera,
-  Clock,
-  FileCheck2,
-  Inbox,
-  Layers,
-  MessageCircleQuestion,
-  Package,
-  Wrench,
-} from "lucide-react";
+import { AlertTriangle, ArrowRight, Camera, Clock, Layers, Wrench } from "lucide-react";
 import { cn } from "@/lib/cn";
 import type { ExceptionItem, ExceptionSource } from "@/domains/exceptions/types";
 
@@ -26,15 +14,10 @@ import type { ExceptionItem, ExceptionSource } from "@/domains/exceptions/types"
  * item whose action isn't reachable renders muted (never a broken link).
  */
 
-const SOURCE_ICON: Record<ExceptionSource, typeof AlertOctagon> = {
+const SOURCE_ICON: Record<ExceptionSource, typeof AlertTriangle> = {
   hours: Clock,
-  observation: Inbox,
   evidence: Camera,
-  snag: AlertOctagon,
-  itp: FileCheck2,
   job: AlertTriangle,
-  material: Package,
-  rfi: MessageCircleQuestion,
   planMarkup: Layers,
   gear: Wrench,
 };

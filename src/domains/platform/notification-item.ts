@@ -32,10 +32,8 @@
  *  `VALID_KEYS` and `api/_lib/notify-routing.js` `PREF_KEYS`. */
 export const NOTIFICATION_PREF_KEYS = [
   "hoursApproved",
-  "snagAssigned",
   "dailyHoursReminder",
   "dailyDigest",
-  "staleSnags",
   "tagReminders",
 ] as const;
 

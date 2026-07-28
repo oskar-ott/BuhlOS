@@ -1,13 +1,10 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
-import { isFlagEnabled } from "../../../../api/_lib/feature-flags.js";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { LogHoursSheet } from "@/components/phil/LogHoursSheet";
 import { PhilWeekStrip } from "@/components/phil/PhilWeekStrip";
 import { RejectedHoursResubmitSheet } from "@/components/phil/RejectedHoursResubmitSheet";
-import { PhilMyDayTiles } from "@/components/phil/PhilMyDayTiles";
-import { PhilExpenseEntry } from "@/components/phil/PhilExpenseEntry";
 import {
   PhilNeedsYouSection,
   PhilNeedsYouSectionFallback,
@@ -52,13 +49,6 @@ import styles from "@/components/phil/myDay.module.css";
 
 export const dynamic = "force-dynamic";
 
-/** The sharpened section-label style (matches PhilMyDaySharpened's labels) —
- *  passed to the flag-gated quick-actions / reimbursements sections (rendered
- *  only while observations_inbox / expenses are on) so their headers match
- *  the re-skin. Un-sharpened renders keep their built-in default. */
-const SHARPENED_SECTION_LABEL =
-  "mb-2 font-display text-[12px] font-bold uppercase tracking-[0.09em] text-text-muted";
-
 /** "Tue 1 Jul" for the ?fixDate= fixer card — from the entry's REAL date. */
 function formatFixDayLabel(isoDate: string): string {
   const [y, m, d] = isoDate.split("-").map(Number);
@@ -86,12 +76,10 @@ function formatFixDayLabel(isoDate: string): string {
  * The centre Capture shutter stays on the shell (PhilTabBar).
  *
  * Honesty: the "Needs you" feed is backed ONLY by real, worker-attributable
- * sources — rejected hours + held-gear calibrations, plus snagsV2 assigned to
- * this worker while the `snags` flag is on (see buildPhilNeedsYou and
+ * sources — rejected hours + held-gear calibrations (see buildPhilNeedsYou and
  * docs/phil-my-day-needs-you.md). The design's "Submit timesheet" (weekly
  * batch) is NOT shipped (no weekly batch-submit workflow exists — logging a
- * day already submits it); unwired attention types (tasks, evidence, ITP,
- * RFI) are omitted, never faked.
+ * day already submits it); unwired attention types are omitted, never faked.
  *
  * Cross-ref:
  *   docs/rebuild-audit/13-ui-information-architecture.md §Phil/Today
@@ -127,43 +115,28 @@ export default async function MyDayPage({
   // Load the worker's recent entries AND their active assigned jobs in
   // parallel. The jobs feed the LogHoursSheet job-attribution block so a
   // field submission is tied to a real active job instead of jobId: null.
-  // The feature flags ride the same parallel wave (cached flags.json reads,
-  // not per-page blob round-trips): the sharpened-redesign chrome, plus the
-  // lean-reset gates — observations_inbox (quick-capture tiles + the Capture
-  // launcher's observation options), expenses (the receipts section) and
-  // snags (the needs-you feed's per-job snag source). Each dark feature's API
-  // 404s, so its surface is gated off rather than rendered dead. Resolved
-  // server-side; only booleans reach the client (docs/feature-flags.md).
-  const [
-    { todayEntry, recentEntries, fetchError },
-    assignedJobs,
-    profile,
-    sharpenedFlags,
-    observationsEnabled,
-    expensesEnabled,
-    snagsEnabled,
-  ] = await Promise.all([
-    loadEntries(raw, fixDate),
-    loadAssignedJobs(raw),
-    loadWorkerProfile(raw),
-    philSharpenedFlags(session),
-    isFlagEnabled("observations_inbox", session),
-    isFlagEnabled("expenses", session),
-    isFlagEnabled("snags", session),
-  ]);
+  // The sharpened-chrome flags ride the same parallel wave (cached flags.json
+  // reads, not per-page blob round-trips). Resolved server-side; only booleans
+  // reach the client (docs/feature-flags.md).
+  const [{ todayEntry, recentEntries, fetchError }, assignedJobs, profile, sharpenedFlags] =
+    await Promise.all([
+      loadEntries(raw, fixDate),
+      loadAssignedJobs(raw),
+      loadWorkerProfile(raw),
+      philSharpenedFlags(session),
+    ]);
 
   // Hero priority state ("a day was sent back") is driven by REJECTED HOURS,
   // which buildPhilNeedsYou derives purely from the time entries already loaded
-  // above (selector section A). Calibrations (and snags, while that flag is
-  // on) only feed the "Needs you" FEED below the fold, which streams in its own <Suspense> boundary
+  // above (selector section A). Calibrations only feed the "Needs you" FEED
+  // below the fold, which streams in its own <Suspense> boundary
   // (PhilNeedsYouSection) — so the actionable shell paints after ONE data wave
   // instead of two (each /api/* read is a ~1.3–2.1s Blob round-trip; #670).
-  // Passing empty jobSnags here yields a byte-identical hero because the hero
-  // reads only the rejected-hours items.
+  // Omitting the calibrations here yields a byte-identical hero because the
+  // hero reads only the rejected-hours items.
   const heroNeedsYou = buildPhilNeedsYou({
     viewerId: session.userId ?? null,
     entries: recentEntries,
-    jobSnags: [],
   });
 
   // #422: the ONE "what now" answer, from a pure state model. soleJob is set
@@ -238,9 +211,7 @@ export default async function MyDayPage({
         title="My day"
         userId={session.userId ?? ""}
         sharpened
-        rfiRegister={sharpenedFlags.rfiRegister}
         jobRoomsEnabled={sharpenedFlags.jobRooms}
-        observationsEnabled={observationsEnabled}
         accountInitials={initials}
       >
         <div className="flex flex-col gap-3" data-testid="phil-my-day-sharpened">
@@ -286,15 +257,12 @@ export default async function MyDayPage({
 
           {/* Hero "Do this now" + "Needs you" — the existing needs-you model,
               streamed exactly like the current screen's feed (second data
-              wave: held calibrations, plus job-scoped snags only while the
-              snags flag is on). */}
+              wave: held calibrations). */}
           <Suspense fallback={<PhilMyDaySharpenedAttentionFallback />}>
             <PhilMyDaySharpenedAttention
               cookieValue={raw}
               viewerId={session.userId ?? null}
               entries={recentEntries}
-              jobs={jobs}
-              snagsEnabled={snagsEnabled}
             />
           </Suspense>
 
@@ -321,20 +289,6 @@ export default async function MyDayPage({
               </div>
             </PhilNotice>
           ) : null}
-
-          {/* Flag-gated capabilities, headers restyled to the sharpened
-              section label: the quick-capture tiles all launch observation-
-              pipeline captures (POST /api/observations — 404 while
-              observations_inbox is off) and receipts post to /api/expenses
-              (404 while expenses is off), so each renders only while its
-              feature is live. */}
-          {observationsEnabled ? (
-            <PhilMyDayTiles headerClassName={SHARPENED_SECTION_LABEL} />
-          ) : null}
-
-          {expensesEnabled ? (
-            <PhilExpenseEntry headerClassName={SHARPENED_SECTION_LABEL} />
-          ) : null}
         </div>
       </PhilShell>
     );
@@ -345,9 +299,7 @@ export default async function MyDayPage({
       title="My day"
       userId={session.userId ?? ""}
       sharpened={sharpenedFlags.sharpened}
-      rfiRegister={sharpenedFlags.rfiRegister}
       jobRoomsEnabled={sharpenedFlags.jobRooms}
-      observationsEnabled={observationsEnabled}
       accountInitials={initials}
     >
       <div className={styles.surface}>
@@ -410,20 +362,11 @@ export default async function MyDayPage({
           </PhilNotice>
         ) : null}
 
-        {/* Flag-gated: the quick tiles launch observation-pipeline captures
-            (404 while observations_inbox is off); receipts post to
-            /api/expenses (404 while expenses is off). */}
-        {observationsEnabled ? <PhilMyDayTiles /> : null}
-
-        {expensesEnabled ? <PhilExpenseEntry /> : null}
-
         <Suspense fallback={<PhilNeedsYouSectionFallback />}>
           <PhilNeedsYouSection
             cookieValue={raw}
             viewerId={session.userId ?? null}
             entries={recentEntries}
-            jobs={jobs}
-            snagsEnabled={snagsEnabled}
           />
         </Suspense>
       </div>

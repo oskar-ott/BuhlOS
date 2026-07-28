@@ -12,7 +12,7 @@ import type { Document } from "@/domains/documents/types";
 /**
  * Server-render smoke for the Phase 1 Plans surface (PlansClient + PlanViewer).
  * Node env, no browser — mirrors the project's renderToString approach
- * (MaterialRequestsInbox.render.test.tsx). Interactive behaviour (zoom / rotate /
+ * (renderToString, no router). Interactive behaviour (zoom / rotate /
  * page selection) can't be driven by renderToString and rides on the
  * unit-tested coords + scale math instead; this catches SSR crashes, broken
  * composition, the admin↔phil revision gate, the loud superseded guard, and the

@@ -11,7 +11,6 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { PhilTabBar } from "./PhilTabBar";
-import { CaptureLauncherProvider } from "./captureLauncherContext";
 
 /**
  * #146 — the long-press FAB shortcut, driven as a real GESTURE (not just static
@@ -128,7 +127,7 @@ describe("PhilTabBar FAB — long-press gesture (real engine, fake timers)", () 
 
 describe("PhilTabBar FAB — tap-transparency wiring (SSR markup)", () => {
   const html = renderToString(
-    createElement(CaptureLauncherProvider, null, createElement(PhilTabBar, { userId: "u1" })),
+    createElement(PhilTabBar, { userId: "u1" }),
   );
 
   it("still renders the named Capture FAB and the synchronous global camera input", () => {

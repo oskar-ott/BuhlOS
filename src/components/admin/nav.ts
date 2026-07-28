@@ -1,19 +1,4 @@
-import {
-  LayoutGrid,
-  Calculator,
-  ClipboardList,
-  ClipboardCheck,
-  Inbox,
-  BarChart3,
-  Briefcase,
-  Bug,
-  Package,
-  Clock,
-  Wrench,
-  Users,
-  Receipt,
-  Wallet,
-} from "lucide-react";
+import { LayoutGrid, Briefcase, Clock, Wrench, Users } from "lucide-react";
 import type { Route } from "next";
 import type { FlagKey } from "../../../api/_lib/feature-flags";
 
@@ -46,19 +31,11 @@ import type { FlagKey } from "../../../api/_lib/feature-flags";
  * The live-count loops a sidebar item can carry a badge for. Each maps to a
  * cheap, already-shipped summary endpoint (see ./useNavCounts). Deliberately a
  * SUBSET of the office IA: an item only gets a `countKey` when there is a real,
- * cheap source for its number. Loops without one (Command centre criticals, QA
- * exposure, quote pipeline, dayworks) render NO badge rather than a fake zero —
- * the hide-unfinished / honesty rule (CLAUDE.md, brief §0).
+ * cheap source for its number. Loops without one (Command centre criticals)
+ * render NO badge rather than a fake zero — the hide-unfinished / honesty rule
+ * (CLAUDE.md, brief §0).
  */
-export type NavCountKey =
-  | "obs"
-  | "mats"
-  | "exp"
-  | "jobs"
-  | "defects"
-  | "hours"
-  | "people"
-  | "gear";
+export type NavCountKey = "jobs" | "hours" | "people" | "gear";
 
 export interface NavItem {
   label: string;
@@ -71,8 +48,8 @@ export interface NavItem {
    *  Omitted = no badge. */
   countKey?: NavCountKey;
   /** When true, a non-zero count renders as a red attention pip (work waiting
-   *  on the office: defects, hours, observations, expiring gear) rather than a
-   *  muted tally (jobs / people / material requests / expenses). */
+   *  on the office: hours, expiring gear) rather than a muted tally
+   *  (jobs / people). */
   attention?: boolean;
   /**
    * #760 owner feature-control: the kill-switch flag that gates this item. When
@@ -98,36 +75,6 @@ export const NAV_GROUPS: ReadonlyArray<NavGroup> = [
         icon: LayoutGrid,
         activeFor: ["/command-centre"],
       },
-      {
-        // "From site" — the field-to-office inbox (the route + API keep the
-        // /observations name; only the user-facing label reads "From site").
-        label: "From site",
-        href: "/observations" as Route,
-        icon: Inbox,
-        activeFor: ["/observations"],
-        flag: "observations_inbox",
-        countKey: "obs",
-        attention: true,
-      },
-      {
-        label: "Material requests",
-        href: "/material-requests" as Route,
-        icon: Package,
-        activeFor: ["/material-requests"],
-        flag: "material_requests",
-        countKey: "mats",
-      },
-      {
-        // Reimbursements (#536) — field-submitted receipts the office reviews,
-        // approves and marks reimbursed. A field→office queue, so it sits with
-        // the other "Today" inboxes.
-        label: "Expenses",
-        href: "/expenses" as Route,
-        icon: Wallet,
-        activeFor: ["/expenses"],
-        flag: "expenses",
-        countKey: "exp",
-      },
     ],
   },
   {
@@ -140,50 +87,6 @@ export const NAV_GROUPS: ReadonlyArray<NavGroup> = [
         activeFor: ["/v2/jobs"],
         flag: "jobs",
         countKey: "jobs",
-      },
-      {
-        // v2 quote builder foundation (#183) — quotes are where jobs are
-        // born (#120/WS2), so they live in the Jobs group.
-        label: "Quotes",
-        href: "/v2/quotes" as Route,
-        icon: Calculator,
-        activeFor: ["/v2/quotes"],
-        flag: "quotes",
-      },
-      {
-        // Cross-job defects register (#414) — doc 13 reserves this slot.
-        label: "Defects",
-        href: "/defects" as Route,
-        icon: Bug,
-        activeFor: ["/defects"],
-        flag: "defects",
-        countKey: "defects",
-        attention: true,
-      },
-      {
-        label: "ITP templates",
-        href: "/itp-templates" as Route,
-        icon: ClipboardList,
-        activeFor: ["/itp-templates"],
-        flag: "itp",
-      },
-      {
-        // Cross-job QA status dashboard (#290) — ITP exposure across active
-        // jobs, drilling into each job's /v2/jobs/[jobId]/itps surface.
-        label: "QA status",
-        href: "/qa" as Route,
-        icon: ClipboardCheck,
-        activeFor: ["/qa"],
-        flag: "itp",
-      },
-      {
-        // Cross-job daywork register (#370) — day-labour dockets + payment risk
-        // (unsigned-aging), drilling into each job's /v2/jobs/[jobId]/dayworks.
-        label: "Dayworks",
-        href: "/v2/dayworks" as Route,
-        icon: Receipt,
-        activeFor: ["/v2/dayworks"],
-        flag: "dayworks",
       },
     ],
   },
@@ -225,21 +128,6 @@ export const NAV_GROUPS: ReadonlyArray<NavGroup> = [
         icon: Wrench,
         activeFor: ["/gear"],
         flag: "gear",
-      },
-    ],
-  },
-  {
-    heading: "Company",
-    items: [
-      {
-        // #316 — the six numbers the owner checks daily (doc 13 names
-        // this section "Reports"). Numbers + trends live here; queues
-        // stay on /command-centre.
-        label: "Reports",
-        href: "/reports" as Route,
-        icon: BarChart3,
-        activeFor: ["/reports"],
-        flag: "reports",
       },
     ],
   },

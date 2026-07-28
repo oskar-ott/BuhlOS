@@ -1,7 +1,6 @@
 import { createRequire } from "node:module";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Lean reset: snags are dark by default — these tests exercise the enabled behaviour (snag search results).
 beforeAll(() => {
   process.env.FLAG_SNAGS = "1";
 });
@@ -121,11 +120,6 @@ describe("visibility scoping (#188 line-74 tier fix)", () => {
     expect(res.statusCode).toBe(200);
     const jobs = results(res).filter((r) => r.type === "job").map((r) => r.id);
     expect(jobs.sort()).toEqual(["j1", "j2"]); // both jobs — NOT the empty LH branch
-    // ...and snags across BOTH jobs are visible (a separate query that
-    // matches the descriptions, proving the snag walk spans all jobs too).
-    const snagRes = await search("boss", "u_boss", "meter box");
-    const snags = results(snagRes).filter((r) => r.type === "snag").map((r) => r.id);
-    expect(snags.sort()).toEqual(["s1", "s2"]);
   });
 
   it("the literal admin account is unchanged (also full-company)", async () => {
@@ -134,23 +128,13 @@ describe("visibility scoping (#188 line-74 tier fix)", () => {
   });
 
   it("a leading hand is scoped to assigned jobs only", async () => {
-    const res = await search("leadingHand", "u_lh", "meter box");
-    const snags = results(res).filter((r) => r.type === "snag").map((r) => r.id);
-    expect(snags).toEqual(["s1"]); // j1 only — never j2's s2
+    const res = await search("leadingHand", "u_lh", "magill");
     const jobs = results(res).filter((r) => r.type === "job").map((r) => r.id);
-    expect(jobs).toEqual([]); // "meter box" doesn't match a job name; scope still holds
+    expect(jobs).toEqual(["j1"]); // j1 only — never j2, which they aren't on
   });
 });
 
 describe("result shape + gating", () => {
-  it("snag results carry jobId + a job-context sub; deep-link to the job's snags", async () => {
-    const res = await search("boss", "u_boss", "meter box loose");
-    const snag = results(res).find((r) => r.type === "snag")!;
-    expect(snag.jobId).toBe("j1");
-    expect(snag.url).toBe("/v2/jobs/j1/snags");
-    expect(String(snag.sub)).toContain("Magill Road");
-  });
-
   it("user results deep-link to /employees/[id]; clients have no link", async () => {
     (blob.get("users.json") as { users: Array<Record<string, unknown>> }).users.push({
       id: "u_client",

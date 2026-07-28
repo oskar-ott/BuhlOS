@@ -31,7 +31,6 @@ import { isVisibleToField } from "@/domains/jobs/builder";
 import { progressPct as canonicalProgressPct } from "@/domains/jobs/progress";
 import { readEstimatedHours } from "@/domains/analytics/job-estimate";
 import type { Job } from "@/domains/jobs/types";
-import { isFlagEnabled } from "../../../../../api/_lib/feature-flags.js";
 
 export const dynamic = "force-dynamic";
 
@@ -55,21 +54,18 @@ interface PageParams {
  *       Evidence  &mdash; capture summary by status (per-job evidence)
  *       Activity  &mdash; latest audit-log events (scope=job)
  *   - Site context: address / contact / access / parking / safety / induction
- *   - Section nav: Evidence / Snags / Observations / ITP / Documents / Plans /
- *     Material requests (live) + Materials legacy (UC)
+ *   - Section nav: Evidence / Photos / Plans
  *
- * Live counts on the section nav come from /api/jobs?withStats=1
- * (statsEvidenceV2Pending, statsSnagsV2Active, statsItpsActive,
- * statsDocumentsCurrent). The operational-loop cards each load their own
+ * The live evidence count on the section nav comes from /api/jobs?withStats=1
+ * (statsEvidenceV2Pending). The operational-loop cards each load their own
  * per-job slice in parallel (see loadJobInterface) and degrade independently.
  *
- * This page does NOT replace the /v2/jobs/[jobId]/evidence and /snags
- * routes &mdash; it adds a parent hub. JobsList row chips still deep-link
- * past the hub into evidence/snags so power users keep their one-tap path.
+ * This page does NOT replace the /v2/jobs/[jobId]/evidence route &mdash; it
+ * adds a parent hub. JobsList row chips still deep-link past the hub into
+ * evidence so power users keep their one-tap path.
  *
  * Cross-ref:
- *   src/app/v2/jobs/[jobId]/snags/page.tsx &mdash; per-section page precedent
- *   src/app/v2/jobs/[jobId]/evidence/page.tsx &mdash; same
+ *   src/app/v2/jobs/[jobId]/evidence/page.tsx &mdash; per-section page precedent
  *   src/components/phil/PhilJobDetail.tsx &mdash; Phil-side mirror of the
  *       same sections (with UC stubs)
  *   docs/rebuild-audit/35-current-product-state-audit.md §7.2 + §13
@@ -90,43 +86,6 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
     redirect("/v2/login");
   }
   const canBuild = canAccessSurface(session.role, "admin");
-
-  // #219: surface the Safety documents section when the flag is on.
-  const safetyEnabled = await isFlagEnabled("safety_docs", session);
-  // #231: surface the Certificates register section when the flag is on.
-  const certificatesEnabled = await isFlagEnabled("certificates_register", session);
-  // #276: surface the RFI register section when the flag is on.
-  const rfiEnabled = await isFlagEnabled("rfi_register", session);
-  // #217: surface the meeting-minutes register section when the flag is on.
-  const minutesEnabled = await isFlagEnabled("minutes_register", session);
-  // #280: surface the variation-claims register section when the flag is on.
-  // Admin-tier flag — resolves false for an LH viewer (claims are billing).
-  const variationsEnabled = await isFlagEnabled("variations_register", session);
-  // #760: ITPs are a kill-switch feature — hide the ITP/QA nav row when off.
-  const itpEnabled = await isFlagEnabled("itp", session);
-  // #760: resolve the rest of the job sections' kill-switches so the section nav
-  // hides any the owner has turned off. All default ON (live features), so the
-  // hub is unchanged until the owner flips one from /owner. Cached blob reads.
-  const sectionKeys = [
-    "evidence",
-    "job_photos",
-    "snags",
-    "observations_inbox",
-    "scope_reconciliation",
-    "job_control",
-    "closeout",
-    "documents",
-    "circuit_schedule",
-    "material_requests",
-    "diary",
-    "job_activity",
-  ] as const;
-  const sectionResolved = await Promise.all(
-    sectionKeys.map((k) => isFlagEnabled(k, session)),
-  );
-  const killSwitches: Partial<Record<string, boolean>> = Object.fromEntries(
-    sectionKeys.map((k, i) => [k, sectionResolved[i]]),
-  );
 
   const data = await loadJobInterface(raw, jobId);
   const result = data.job;
@@ -239,16 +198,7 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
         />
         <JobTagsSummary job={job} />
         {hasSiteContext(job) ? <SiteContextCard job={job} /> : null}
-        <JobInterfaceSectionNav
-          job={job}
-          safetyEnabled={safetyEnabled}
-          certificatesEnabled={certificatesEnabled}
-          rfiEnabled={rfiEnabled}
-          minutesEnabled={minutesEnabled}
-          variationsEnabled={variationsEnabled}
-          itpEnabled={itpEnabled}
-          killSwitches={killSwitches}
-        />
+        <JobInterfaceSectionNav job={job} />
       </div>
     </AdminShell>
   );

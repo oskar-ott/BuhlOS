@@ -1,9 +1,5 @@
 import { effectiveTasks } from "@/domains/jobs/format";
-import { needsWorkerAttention as snagNeedsAttention } from "@/domains/snags/format";
-import { needsWorkerAttention as itpNeedsAttention } from "@/domains/itp/format";
 import type { Job, JobArea, JobStage } from "@/domains/jobs/types";
-import type { SnagItem } from "@/domains/snags/types";
-import type { ITPInstance } from "@/domains/itp/types";
 import type { EvidenceItem } from "@/domains/evidence/types";
 
 /**
@@ -16,11 +12,6 @@ import type { EvidenceItem } from "@/domains/evidence/types";
  * We only surface counts that are **real and area-linked** in the data
  * the page already loads:
  *
- *   - Snags        — `snag.areaId === area.id`, active states only.
- *   - Area ITPs    — `itp.scope === "area" && itp.scopeId === area.id`,
- *                    non-archived, active states only. Job- / level- /
- *                    switchboard-scoped ITPs are NOT attributed to a
- *                    single area (that would be guessing).
  *   - Photos       — `evidence.areaId === area.id`. The evidence list is
  *                    already viewer-scoped by the server (a tradie sees
  *                    their own captures; admin/LH see all), so this
@@ -37,7 +28,6 @@ import type { EvidenceItem } from "@/domains/evidence/types";
  *
  * Cross-ref:
  *   /tmp/phil-bible/buhlos-phil/project/Phil Job Interface Bible.html §09
- *   src/components/phil/itp-scope.ts — scope='area' → scopeId = area.id
  *   src/domains/jobs/format.ts#effectiveTasks
  */
 
@@ -62,49 +52,11 @@ export function areaStageAvailability(
 }
 
 export interface AreaCounts {
-  /** Active snags raised against this area. */
-  snags: number;
-  /** Active, non-archived ITP instances scoped to this area. */
-  itps: number;
   /** Evidence captures linked to this area (viewer-scoped). */
   photos: number;
 }
 
-const EMPTY_COUNTS: AreaCounts = { snags: 0, itps: 0, photos: 0 };
-
-/**
- * Active snags grouped by `areaId`. Snags with no area (job-level) are
- * excluded — they can't be attributed to a single card.
- */
-export function activeSnagCountByArea(
-  snags: ReadonlyArray<SnagItem>,
-): Map<string, number> {
-  const m = new Map<string, number>();
-  for (const s of snags) {
-    if (!s.areaId) continue;
-    if (!snagNeedsAttention(s.status)) continue;
-    m.set(s.areaId, (m.get(s.areaId) ?? 0) + 1);
-  }
-  return m;
-}
-
-/**
- * Active, non-archived, **area-scoped** ITPs grouped by `scopeId`
- * (which, for `scope === "area"`, is the area id). Other scopes are
- * skipped so we never spread a job- or level-scoped ITP across areas.
- */
-export function activeAreaItpCountByArea(
-  itps: ReadonlyArray<ITPInstance>,
-): Map<string, number> {
-  const m = new Map<string, number>();
-  for (const i of itps) {
-    if (i.archived) continue;
-    if (i.scope !== "area" || !i.scopeId) continue;
-    if (!itpNeedsAttention(i.status)) continue;
-    m.set(i.scopeId, (m.get(i.scopeId) ?? 0) + 1);
-  }
-  return m;
-}
+const EMPTY_COUNTS: AreaCounts = { photos: 0 };
 
 /**
  * Evidence captures grouped by `areaId`. Captures with no area are
@@ -123,23 +75,17 @@ export function evidenceCountByArea(
 
 /**
  * Compose the per-area count maps once, then read each area's counts by
- * id. Keeping the three maps together means PhilJobDetail builds them in
- * a single `useMemo` and the card just does three `Map.get` lookups.
+ * id. Keeping the maps together means PhilJobDetail builds them in a
+ * single `useMemo` and the card just does a `Map.get` lookup.
  */
 export interface AreaCountMaps {
-  snags: Map<string, number>;
-  itps: Map<string, number>;
   photos: Map<string, number>;
 }
 
 export function buildAreaCountMaps(input: {
-  snags: ReadonlyArray<SnagItem>;
-  itps: ReadonlyArray<ITPInstance>;
   evidence: ReadonlyArray<EvidenceItem>;
 }): AreaCountMaps {
   return {
-    snags: activeSnagCountByArea(input.snags),
-    itps: activeAreaItpCountByArea(input.itps),
     photos: evidenceCountByArea(input.evidence),
   };
 }
@@ -149,11 +95,9 @@ export function countsForArea(
   maps: AreaCountMaps,
   areaId: string,
 ): AreaCounts {
-  const snags = maps.snags.get(areaId) ?? 0;
-  const itps = maps.itps.get(areaId) ?? 0;
   const photos = maps.photos.get(areaId) ?? 0;
-  if (snags === 0 && itps === 0 && photos === 0) return EMPTY_COUNTS;
-  return { snags, itps, photos };
+  if (photos === 0) return EMPTY_COUNTS;
+  return { photos };
 }
 
 /**
@@ -179,7 +123,7 @@ export function hasAnyStage(stages: AreaStageAvailability): boolean {
 }
 
 export interface AreaQuickLink {
-  key: "snags" | "itps" | "photos";
+  key: "photos";
   count: number;
   /** Already-pluralised visible label, e.g. "2 snags", "1 ITP". */
   label: string;
@@ -194,28 +138,9 @@ export interface AreaQuickLink {
  * actually > 0. A zero count produces no link, so an area with nothing
  * outstanding shows no quick-link row at all (zero-count noise stays
  * hidden, per the work-tree rules).
- *
- * Order matches the page's vertical section order: snags, then ITPs,
- * then photos/captures.
  */
 export function areaQuickLinks(counts: AreaCounts): AreaQuickLink[] {
   const links: AreaQuickLink[] = [];
-  if (counts.snags > 0) {
-    links.push({
-      key: "snags",
-      count: counts.snags,
-      label: counts.snags === 1 ? "1 snag" : `${counts.snags} snags`,
-      anchor: "#phil-job-snags",
-    });
-  }
-  if (counts.itps > 0) {
-    links.push({
-      key: "itps",
-      count: counts.itps,
-      label: counts.itps === 1 ? "1 ITP" : `${counts.itps} ITPs`,
-      anchor: "#phil-job-itps",
-    });
-  }
   if (counts.photos > 0) {
     links.push({
       key: "photos",

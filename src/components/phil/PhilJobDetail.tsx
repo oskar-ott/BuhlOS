@@ -3,8 +3,7 @@
 import { Suspense, use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PhilOfflineLink } from "./PhilOfflineLink";
 import { PhilSkeleton } from "./ui/PhilSkeleton";
-import { Camera, ClipboardList, Images, Map as MapIcon, Zap } from "lucide-react";
-import { scheduleSummaryLine } from "@/domains/circuit-schedule/format";
+import { Camera, ClipboardList, Images } from "lucide-react";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { PhilActionButton } from "./ui/PhilActionButton";
 import { PhilNotice } from "./ui/PhilNotice";
@@ -22,52 +21,32 @@ import {
   philTaskReadinessByTemplateId,
   workerTasksFromCanonicalIndex,
 } from "@/domains/jobs/phil-task-projection";
-import { taskBlockersFromObservations } from "@/domains/observations/task-blockers";
 import { buildPhilJobCommandModel } from "@/domains/phil/job-command-model";
 import { philJobCommandInputFromJobData } from "@/domains/phil/job-command-input";
 import { philWrite } from "@/domains/phil/write-client";
 import { confirmInduction, type InductionRecord } from "@/domains/jobs/induction";
 import { JobTagsPanel } from "./JobTagsPanel";
 import { buildAreaTaskContext } from "./philTaskContext";
-import { linkAndApply, type ProofActionStatus } from "./jobControlEvidenceLinkClient";
-import {
-  submitProofForReview,
-  type ProofSubmitStatus,
-} from "./jobControlProofReviewClient";
 import { PhilJobContactsCard } from "./PhilJobContactsCard";
 import { PhilJobServicesCard } from "./PhilJobServicesCard";
-import { taskRefKey } from "@/domains/job-control/spine";
 import { canAddServiceLocation } from "@/domains/services-locations/permissions";
 import type { JobContact } from "@/domains/contacts/schema";
 import type { ServiceLocationRecord } from "@/domains/services-locations/types";
 import type { TagItem } from "@/domains/tags/schema";
 import type { Job, JobStage } from "@/domains/jobs/types";
-import type { EvidenceLink, ProofReview, TaskRef, WorkPackage } from "@/domains/job-control/types";
 import type { EvidenceItem } from "@/domains/evidence/types";
-import type { SnagItem } from "@/domains/snags/types";
-import type { ObservationItem } from "@/domains/observations/types";
-import type { ITPInstance } from "@/domains/itp/types";
 import type { Document } from "@/domains/documents/types";
 import { filterSpecsByArea, isCurrent } from "@/domains/documents/format";
 import { CaptureSheet } from "./CaptureSheet";
-import { PhilTestRecordCard, type TestRecordDraft } from "./PhilTestRecordCard";
-import { submitTestRecord } from "./testRecordClient";
-import { ReportSnagSheet } from "./ReportSnagSheet";
-import type { TestRecordRow } from "@/domains/test-records/schema";
 import { TodaysCapturesStrip } from "./TodaysCapturesStrip";
-import { JobSnagsPanel } from "./JobSnagsPanel";
-import { JobItpPanel } from "./JobItpPanel";
 import { JobDocumentsPanel } from "./JobDocumentsPanel";
 import { PhilJobSiteCard } from "./PhilJobSiteCard";
 import { PhilJobCrewCard } from "./PhilJobCrewCard";
 import { PhilJobHero } from "./PhilJobHero";
-import { PhilSafetyHomeSection } from "./PhilSafetyHomeSection";
-import { PhilCertificatesHomeSection } from "./PhilCertificatesHomeSection";
 import { PhilJobCommandPanel } from "./PhilJobCommandPanel";
 import { PhilJobAttentionStrip } from "./PhilJobAttentionStrip";
 import { PhilJobAreaCard } from "./PhilJobAreaCard";
 import { PhilJobAreaDetail } from "./PhilJobAreaDetail";
-import { useCaptureLauncher } from "./captureLauncherContext";
 import { readJobResume, writeJobResume } from "./jobResume";
 import {
   areaStageAvailability,
@@ -76,14 +55,7 @@ import {
   soleStage,
 } from "./philJobWorkTree";
 import { deriveAttention } from "./PhilJobAttention";
-import {
-  blockedCountByArea,
-  blockedTasks,
-  jobWorkCounts,
-  owedProofCountByArea,
-  owedProofItems,
-  type PhilJobRoom,
-} from "./philJobRooms";
+import type { PhilJobRoom } from "./philJobRooms";
 import { usePhilJobRoomsBarRegistration } from "./philJobRoomsBar";
 import { PhilJobRoomsView } from "./PhilJobRoomsView";
 import { PhilJobRoomArea } from "./PhilJobRoomArea";
@@ -93,16 +65,6 @@ interface Props {
   /** Initial evidence list fetched server-side (server filters to own
    *  captures for tradie; admin/LH see all). May be empty on load. */
   initialEvidence?: ReadonlyArray<EvidenceItem>;
-  /** Initial snags list fetched server-side. May be empty. */
-  initialSnags?: ReadonlyArray<SnagItem>;
-  /** Initial observations fetched server-side (#504). Source for real task
-   *  blockers: an open, task-scoped, blocking-type observation marks its task
-   *  `blocked` in the readiness display. Absent/empty ⇒ nothing blocked (honest
-   *  empty, exactly as today). */
-  initialObservations?: ReadonlyArray<ObservationItem>;
-  /** Initial ITP instances list fetched server-side (Phase E1b).
-   *  May be empty on load. */
-  initialItps?: ReadonlyArray<ITPInstance>;
   /** Initial documents (plans + specs) fetched server-side (Phase E2).
    *  May be empty on load. */
   initialDocuments?: ReadonlyArray<Document>;
@@ -138,48 +100,19 @@ interface Props {
    *  selected area's task list showing a skeleton until it lands (never a false
    *  "to do"). Flag-on path only; flag-off passes `initialTaskState` as today. */
   taskStatePromise?: Promise<{ state: JobTaskState; error: string | null }>;
-  /** Current viewer — id + role drive snag transition button gating
-   *  and attention-strip filters (e.g. "snags assigned to me"). */
+  /** Current viewer — id + role drive the crew/capture attribution. */
   viewer?: { id: string; role: string };
-  /** Compiled work packages for this job (L2 read of `job-control.json`),
-   *  loaded server-side. Drives per-task scope context (#368) via
-   *  `buildAreaTaskContext`. Absent/empty ⇒ every task renders exactly as today
-   *  (zero regression — honest empty). */
-  workPackages?: ReadonlyArray<WorkPackage>;
-  /** Compiled evidence links for this job (L2 read). A required-evidence item
-   *  reads `met` ONLY when a real link names it — never a count. Seeds client
-   *  state so a successful proof link flips it to met without a full reload. */
-  evidenceLinks?: ReadonlyArray<EvidenceLink>;
-  /** Task-instance proof reviews for this job (#503). Drives the per-task review
-   *  status + the "Submit for review" affordance. Absent/empty ⇒ no task has been
-   *  submitted (the default). */
-  proofReviews?: ReadonlyArray<ProofReview>;
-  /** Current job-control artifact revision (#469 stale-write precondition).
-   *  Required to capture proof for a requirement; absent ⇒ the capture
-   *  affordance is hidden. */
-  jobControlRevision?: string;
   /** When set (and changing), auto-opens the capture sheet. Driven by
    *  the `?capture=<token>` deep link the global Capture launcher
    *  (PhilTabBar FAB) pushes, so a worker can start a capture from
    *  anywhere in Phil in one tap. A fresh token re-opens on repeat taps. */
   autoCaptureToken?: string | null;
-  /** #219: mount the hidden-until-real Safety home section (flag-gated by the page). */
-  safetyEnabled?: boolean;
-  /** #231: mount the hidden-until-real Certificates home section (flag-gated by the page). */
-  certificatesEnabled?: boolean;
-  /** `itp` flag (lean reset), resolved by the page: mount the ITPs section only
-   *  while the feature is live — its API (api/job-itps.js) 404s when dark. */
-  itpEnabled?: boolean;
   /** `itp_simple` flag (#912): mount the simple ITP builder link-out only when
    *  live — the /phil/jobs/[jobId]/itp-reports route + API 404 while dark. */
   itpSimpleEnabled?: boolean;
-  /** #915: the Photos gallery + Circuit-schedule cards are DATA-driven —
-   *  without these flags they'd link to flag-gated 404 routes. */
+  /** #915: the Photos gallery card is DATA-driven — without the flag it would
+   *  link to a flag-gated 404 route. */
   photosGalleryEnabled?: boolean;
-  circuitScheduleEnabled?: boolean;
-  /** `snags` flag (lean reset), resolved by the page: mount the Snags section
-   *  only while the feature is live — its API (api/snags.js) 404s when dark. */
-  snagsEnabled?: boolean;
   /**
    * phil_job_rooms (dark — the filed #133 experiment): render this job as the
    * FOUR ROOMS takeover (Now · Work · [Capture] · Proof · Site with the in-job
@@ -204,19 +137,14 @@ interface Props {
  *      limitations, plus a hard-blocker notice. Replaces the old flat
  *      section-anchor strip (the panel's actions jump to the same
  *      in-page sections, prioritised, with a primary CTA).
- *   4. <PhilJobAttentionStrip/> — strict, max 3, viewer-scoped real
- *      signals (rejected / assigned-to-me snags, pending ITPs,
- *      induction). Hidden when nothing qualifies. Attention stays here,
+ *   4. <PhilJobAttentionStrip/> — strict, max 3, real signals
+ *      (induction). Hidden when nothing qualifies. Attention stays here,
  *      not in the command panel, so the two never duplicate.
  *   5. "Work to do" (#phil-job-work) — stage chooser + area picker +
  *      effective task list + per-task toggle. The active work, led first.
  *   6. Capture block (#phil-job-capture) — primary CTA + today's
  *      capture strip. ("Capture evidence" — kept verbatim; smoke/e2e
  *      match this button + the CaptureSheet dialog name.)
- *   7. Snags (#phil-job-snags) — JobSnagsPanel; flag-gated (`snags`,
- *      lean reset) — mounted only while the feature is live.
- *   8. ITPs (#phil-job-itps) — JobItpPanel; flag-gated (`itp`, lean reset) —
- *      mounted only while the feature is live.
  *   8b. Simple ITP builder link-out (#phil-job-itp-reports) — flag-gated
  *      (`itp_simple`, #912); a Card link to /itp-reports, no inline panel.
  *   9. Plans (#phil-job-plans) — in-app drawing viewer link.
@@ -240,9 +168,6 @@ interface Props {
 export function PhilJobDetail({
   job,
   initialEvidence,
-  initialSnags,
-  initialObservations,
-  initialItps,
   initialDocuments,
   documentsError,
   initialTags,
@@ -255,26 +180,11 @@ export function PhilJobDetail({
   taskStateError,
   taskStatePromise,
   viewer,
-  workPackages,
-  evidenceLinks: initialEvidenceLinks,
-  proofReviews: initialProofReviews,
-  jobControlRevision,
   autoCaptureToken,
-  safetyEnabled = false,
-  certificatesEnabled = false,
-  itpEnabled = false,
   itpSimpleEnabled = false,
   photosGalleryEnabled = false,
-  circuitScheduleEnabled = false,
-  snagsEnabled = false,
   rooms = false,
 }: Props) {
-  // Opens the global Capture launcher preset to one option (here, the
-  // "Variation / change" worker option) — the SAME flow My Day's quick tiles
-  // use. The launcher (mounted in PhilTabBar, inside PhilShell) resolves THIS
-  // job from the /phil/jobs/<id> path, so a flag from a task lands on the right
-  // job's variation capture. No new variation form, no fabricated #369 fields.
-  const { openQuickCapture } = useCaptureLauncher();
   // #332: induction completion is server truth — the tap is NON-optimistic
   // (state flips only after the API confirms; a failed save shows the error
   // inside the notice, never a phantom "done").
@@ -340,62 +250,6 @@ export function PhilJobDetail({
   const [captureBanner, setCaptureBanner] = useState<
     { tone: "info" | "success" | "danger"; message: string } | null
   >(null);
-  // Compiled evidence links as client state, so a successful proof link flips the
-  // requirement to met without a full reload. Seeded from the server read.
-  const [evidenceLinks, setEvidenceLinks] = useState<ReadonlyArray<EvidenceLink>>(
-    initialEvidenceLinks ?? []
-  );
-  // Task-instance proof reviews as client state (#503), so a submit reflects
-  // immediately without a full reload. Seeded from the server read.
-  const [proofReviews, setProofReviews] = useState<ReadonlyArray<ProofReview>>(
-    initialProofReviews ?? []
-  );
-  // Transient per-task submit feedback, keyed by taskRefKey.
-  const [proofSubmitStatus, setProofSubmitStatus] = useState<Record<string, ProofSubmitStatus>>({});
-  // Current artifact revision (advances on each successful link). The capture
-  // affordance is hidden when this is absent.
-  const [jcRevision, setJcRevision] = useState<string | undefined>(jobControlRevision);
-  // The requirement a pending capture is for (workPackageId + requiredEvidenceId
-  // + taskId); the area/stage come from the current selection. Cleared on
-  // capture/close.
-  const [pendingProofLink, setPendingProofLink] = useState<{
-    workPackageId: string;
-    requiredEvidenceId: string;
-    taskId: string;
-    /** Set when the captured requirement is task-scoped (#502) — scopes the link. */
-    taskRef?: TaskRef;
-  } | null>(null);
-  // Per-requirement (requiredEvidenceId → status) capture/link feedback.
-  const [proofStatus, setProofStatus] = useState<Record<string, ProofActionStatus>>({});
-
-  // #517 — the structured test-record sheet. Opened (instead of the photo/note
-  // CaptureSheet) when the tapped required-proof item is a `test_result`. Carries
-  // the same pending target so the minted evidence is linked through the EXISTING
-  // linkAndApply pathway. `saving` covers the whole save→mint→link round-trip.
-  const [testRecordOpen, setTestRecordOpen] = useState(false);
-  const [testRecordTarget, setTestRecordTarget] = useState<{
-    workPackageId: string;
-    requiredEvidenceId: string;
-    label?: string;
-    taskRef?: TaskRef;
-  } | null>(null);
-  const [testRecordSaving, setTestRecordSaving] = useState(false);
-  const [testRecordError, setTestRecordError] = useState<string | null>(null);
-  // #520: after a successful save whose SERVER-derived record has failed
-  // circuits, the card shows the failed rows + "Report defect" instead of
-  // silently closing. Null on a clean pass (closes exactly as before).
-  const [testRecordSaved, setTestRecordSaved] = useState<{
-    recordId: string;
-    failedRows: TestRecordRow[];
-  } | null>(null);
-  // #520: the defect sheet opened FROM a failed test result — the existing
-  // Report snag sheet, pre-filled with the real readings + the testRecordId.
-  const [testDefectSheet, setTestDefectSheet] = useState<{
-    prefill: { title: string; description: string };
-    testRecordId: string;
-    context: { stage: JobStage | null; areaId: string | null };
-  } | null>(null);
-
   // Worker-visible task state (areaId → stage → taskId → state). Seeded from
   // the server-loaded data blob; only ever advanced by a CONFIRMED
   // /api/task-toggle response (never optimistically), so a failed write never
@@ -544,25 +398,12 @@ export function PhilJobDetail({
     [canonicalTasks, selectedArea, viewedStage],
   );
 
-  // Real task blockers (#504): derived from this job's observations — an open,
-  // task-scoped, blocking-type observation (rfi / variation / material / drawing /
-  // client / explicit blocker) becomes a canonical-keyed `TaskBlocker`. Pure +
-  // honest: a job with no such observation yields none, so nothing is blocked
-  // (exactly as before). Computed once per (observations, job) and fed to the
-  // readiness model below; the #493 display lights up only for genuinely-blocked
-  // tasks, with no further UI change.
-  const jobTaskBlockers = useMemo(
-    () => taskBlockersFromObservations({ observations: initialObservations ?? [], jobId: job.id }),
-    [initialObservations, job.id],
-  );
-
   // Per-task readiness (#482 model) for the viewed area+stage, keyed by task id —
   // the same key the rows + scope-context use. The row shows a "Blocked — reason"
   // line only when a task resolves to `blocked`. Blockers come from real
-  // observations (#504); `deriveTaskReadiness` matches them by canonical task id,
-  // so passing the whole-job list is correct (a blocker can sit on any task). When
-  // a job has no qualifying observation, this is empty and every not-complete task
-  // is `ready` — zero visual change.
+  // `deriveTaskReadiness` matches blockers by canonical task id. With no
+  // blocker source on this screen the list is empty and every not-complete
+  // task is `ready` — zero visual change.
   const taskReadinessById = useMemo(
     () =>
       selectedArea
@@ -570,18 +411,15 @@ export function PhilJobDetail({
             canonicalTasks,
             areaId: selectedArea.id,
             stage: viewedStage,
-            blockers: jobTaskBlockers,
+            blockers: [],
           })
         : undefined,
-    [canonicalTasks, selectedArea, viewedStage, jobTaskBlockers],
+    [canonicalTasks, selectedArea, viewedStage],
   );
 
-  // Per-task scope context (#368) for the viewed area+stage, from the job's
-  // compiled work packages (L2 read of `job-control.json`, wired in via props).
-  // When a job has no compiled artifact, `workPackages` is empty and the adapter
-  // returns an empty map — every task renders exactly as it does today (zero
-  // regression). When real compiled data exists, the existing render lights up
-  // with no further UI change.
+  // Per-task scope context (#368) for the viewed area+stage. With no compiled
+  // artifact on this screen the adapter returns an empty map — every task
+  // renders exactly as it does today (zero regression).
   const taskContextById = useMemo(
     () =>
       selectedArea
@@ -589,11 +427,9 @@ export function PhilJobDetail({
             areaId: selectedArea.id,
             stage: viewedStage,
             taskIds: workerTasks.map((t) => t.id),
-            workPackages,
-            evidenceLinks,
           })
         : undefined,
-    [selectedArea, viewedStage, workerTasks, workPackages, evidenceLinks],
+    [selectedArea, viewedStage, workerTasks],
   );
 
   // Mark a task done / not-done via the dedicated fast-path endpoint. Tiny
@@ -654,9 +490,7 @@ export function PhilJobDetail({
           job,
           // #916 strip: plans + tasks left the page — their quick actions
           // must not anchor to sections that no longer exist.
-          features: { snags: snagsEnabled, itps: itpEnabled, plans: false, tasks: false },
-          snags: initialSnags ? [...initialSnags] : undefined,
-          itps: initialItps ? [...initialItps] : undefined,
+          features: { plans: false, tasks: false },
           documents: initialDocuments ? [...initialDocuments] : undefined,
           tags: initialTags ? [...initialTags] : undefined,
           // Pending (still streaming) OR errored → omit task state so the panel
@@ -668,10 +502,6 @@ export function PhilJobDetail({
       ),
     [
       job,
-      snagsEnabled,
-      itpEnabled,
-      initialSnags,
-      initialItps,
       initialDocuments,
       initialTags,
       tagsError,
@@ -683,20 +513,14 @@ export function PhilJobDetail({
     ],
   );
 
-  // Per-area count maps for the work-tree cards. Built once from the
-  // real data the page already holds — snags + ITPs from the server,
-  // evidence from live state so the photo chip ticks up after a
-  // capture without a refetch. Documents are intentionally absent:
-  // the document schema has no areaId, so a per-area doc count would
+  // Per-area count maps for the work-tree cards. Built once from the real
+  // data the page already holds — evidence from live state so the photo chip
+  // ticks up after a capture without a refetch. Documents are intentionally
+  // absent: the document schema has no areaId, so a per-area doc count would
   // be fabricated.
   const areaCountMaps = useMemo(
-    () =>
-      buildAreaCountMaps({
-        snags: initialSnags ?? [],
-        itps: initialItps ?? [],
-        evidence: evidenceItems,
-      }),
-    [initialSnags, initialItps, evidenceItems],
+    () => buildAreaCountMaps({ evidence: evidenceItems }),
+    [evidenceItems],
   );
 
   // id→name for this job's areas, so a capture's "Target" line can show the
@@ -716,30 +540,10 @@ export function PhilJobDetail({
   const roomAttention = useMemo(
     () =>
       rooms
-        ? deriveAttention({
-            job,
-            snags: initialSnags ?? [],
-            itps: initialItps ?? [],
-            viewerId: viewer?.id ?? null,
-            inductionDone: Boolean(myInduction),
-          })
+        ? deriveAttention({ job, inductionDone: Boolean(myInduction) })
         : { items: [], total: 0 },
-    [rooms, job, initialSnags, initialItps, viewer, myInduction],
+    [rooms, job, myInduction],
   );
-  const roomBlocked = useMemo(
-    () => (rooms ? blockedTasks(canonicalTasks, jobTaskBlockers) : []),
-    [rooms, canonicalTasks, jobTaskBlockers],
-  );
-  const roomOwedProof = useMemo(
-    () => (rooms ? owedProofItems(workPackages ?? [], evidenceLinks) : []),
-    [rooms, workPackages, evidenceLinks],
-  );
-  const roomWorkCounts = useMemo(
-    () => jobWorkCounts(canonicalTasks, roomBlocked),
-    [canonicalTasks, roomBlocked],
-  );
-  const roomBlockedByArea = useMemo(() => blockedCountByArea(roomBlocked), [roomBlocked]);
-  const roomOwedByArea = useMemo(() => owedProofCountByArea(roomOwedProof), [roomOwedProof]);
 
   // Selecting a room (or re-selecting the active one) lands on that room's
   // root — sub-screens pop, and the seq remounts the room content at its top.
@@ -774,39 +578,18 @@ export function PhilJobDetail({
     if (!rooms) return;
     setRoomsBar({
       active: room,
-      badges: {
-        now: roomAttention.total,
-        work: roomWorkCounts.blocked,
-        proof: roomOwedProof.length,
-      },
+      badges: { now: roomAttention.total, work: 0, proof: 0 },
       onSelect: handleSelectRoom,
     });
-  }, [
-    rooms,
-    room,
-    roomAttention.total,
-    roomWorkCounts.blocked,
-    roomOwedProof.length,
-    handleSelectRoom,
-    setRoomsBar,
-  ]);
+  }, [rooms, room, roomAttention.total, handleSelectRoom, setRoomsBar]);
   useEffect(() => () => setRoomsBar(null), [setRoomsBar]);
 
-  // Rooms capture entries — all EXISTING paths, nothing new: Photo = the job
-  // CaptureSheet (same call as the flag-off "Capture evidence" button); Note /
-  // Issue = the global launcher preset to its existing worker options.
+  // Rooms capture entry — the EXISTING path: the job CaptureSheet (same call
+  // as the flag-off "Capture evidence" button).
   const openJobCapture = useCallback(() => {
     setCaptureBanner(null);
     setCaptureOpen(true);
   }, []);
-  const captureNote = useCallback(
-    () => openQuickCapture({ kind: "worker", optionKey: "note" }),
-    [openQuickCapture],
-  );
-  const captureIssue = useCallback(
-    () => openQuickCapture({ kind: "worker", optionKey: "defect" }),
-    [openQuickCapture],
-  );
 
   // The drill-in renders below the whole area list, so on a long list a
   // tap mid-list can leave the detail off-screen with no visible
@@ -840,161 +623,6 @@ export function PhilJobDetail({
     [flatAreas, job],
   );
 
-  // Flag a variation from a task's "stop — flag a variation first" warning
-  // (#368). Reuses the EXISTING variation capture flow: open the global Capture
-  // launcher preset to the "variation" worker option (the same path My Day's
-  // quick tiles drive). The structured #369 estimate fields are gathered by that
-  // form — this handler authors none. The `trigger` (warningId / taskRef) is
-  // accepted for honesty/traceability; the launcher itself scopes the capture to
-  // this job via the route.
-  const handleFlagVariation = useCallback(
-    (_trigger: { warningId: string; taskRef?: TaskRef }) => {
-      openQuickCapture({ kind: "worker", optionKey: "variation" });
-    },
-    [openQuickCapture],
-  );
-
-  // Open the capture flow scoped to a specific required-proof item, routing on
-  // the requirement kind: a `test_result` opens the structured test-record sheet
-  // (#517); everything else opens the existing photo/note CaptureSheet. Both end
-  // by linking the saved proof through the SAME linkAndApply pathway.
-  const handleCaptureProof = useCallback(
-    (target: {
-      workPackageId: string;
-      requiredEvidenceId: string;
-      kind: "photo" | "test_result" | "as_built" | "certificate";
-      taskId: string;
-      taskRef?: TaskRef;
-    }) => {
-      setProofStatus((prev) => {
-        const next = { ...prev };
-        delete next[target.requiredEvidenceId];
-        return next;
-      });
-      if (target.kind === "test_result") {
-        setTestRecordError(null);
-        setTestRecordTarget({
-          workPackageId: target.workPackageId,
-          requiredEvidenceId: target.requiredEvidenceId,
-          ...(target.taskRef ? { taskRef: target.taskRef } : {}),
-        });
-        setTestRecordOpen(true);
-        return;
-      }
-      setPendingProofLink(target);
-      setCaptureOpen(true);
-    },
-    [],
-  );
-
-  // Submit a structured test record: POST it (server re-derives pass/fail and
-  // mints the companion `test_result` evidence), then link the returned evidence
-  // id through the EXISTING linkAndApply — the requirement flips to met ONLY after
-  // that link route confirms (non-optimistic, the same rule photo proof uses).
-  const handleSubmitTestRecord = useCallback(
-    async (draft: TestRecordDraft) => {
-      const target = testRecordTarget;
-      if (!target || !jcRevision) return;
-      setTestRecordSaving(true);
-      setTestRecordError(null);
-
-      const result = await submitTestRecord({
-        jobId: job.id,
-        reportType: draft.reportType,
-        tester: draft.tester,
-        testedAt: draft.testedAt,
-        rows: draft.rows,
-        ...(target.taskRef
-          ? {
-              areaId: target.taskRef.areaId,
-              stage: target.taskRef.stage,
-              taskId: target.taskRef.taskId,
-            }
-          : {}),
-      });
-
-      if (result.kind !== "ok") {
-        setTestRecordSaving(false);
-        setTestRecordError(
-          result.kind === "unauthorized"
-            ? "You're not allowed to save a test on this job."
-            : "message" in result
-              ? result.message
-              : "Couldn't save the test. Try again.",
-        );
-        return;
-      }
-
-      // Link the minted evidence to the requirement — same pathway as photo proof.
-      const req = target.requiredEvidenceId;
-      setProofStatus((prev) => ({ ...prev, [req]: "saving" }));
-      const applied = await linkAndApply({
-        jobId: job.id,
-        workPackageId: target.workPackageId,
-        requiredEvidenceId: req,
-        evidenceId: result.evidenceId, // the REAL minted companion evidence id
-        expectedJobControlRevision: jcRevision,
-        ...(target.taskRef ? { taskRef: target.taskRef } : {}),
-      });
-      setTestRecordSaving(false);
-      if (applied.revision) setJcRevision(applied.revision);
-      if (applied.link) {
-        const link = applied.link;
-        setEvidenceLinks((prev) => [...prev, link]);
-        setProofStatus((prev) => {
-          const next = { ...prev };
-          delete next[req];
-          return next;
-        });
-        // #520: a failed circuit is not a dead end. When the SERVER-derived
-        // record has failed rows, keep the sheet open in its saved-result view
-        // so the worker can raise the defect in one tap. A clean pass (or a
-        // response without a parseable record) closes exactly as before.
-        const failedRows =
-          result.record?.rows.filter((r) => r.status === "fail") ?? [];
-        if (result.record && failedRows.length > 0) {
-          setTestRecordSaved({ recordId: result.record.id, failedRows });
-          setCaptureBanner({ tone: "success", message: "Test recorded." });
-          window.setTimeout(() => setCaptureBanner(null), 1500);
-          return;
-        }
-        setTestRecordOpen(false);
-        setTestRecordTarget(null);
-        setCaptureBanner({ tone: "success", message: "Test recorded." });
-        window.setTimeout(() => setCaptureBanner(null), 1500);
-      } else if (applied.status) {
-        setProofStatus((prev) => ({ ...prev, [req]: applied.status! }));
-        // The numbers are saved; the link failed — keep the sheet open so the
-        // worker can retry without re-entering readings.
-        setTestRecordError("Test saved, but couldn't attach as proof. Try again.");
-      }
-    },
-    [testRecordTarget, jcRevision, job.id],
-  );
-
-  // #520: the worker tapped "Report defect" on the saved-result view — close
-  // the test sheet and open the EXISTING Report snag sheet pre-filled with the
-  // failed readings, scoped to the requirement's area/stage where known, and
-  // stamped with the testRecordId it came from.
-  const handleTestRecordDefect = useCallback(
-    (prefill: { title: string; description: string }) => {
-      const saved = testRecordSaved;
-      if (!saved) return;
-      const taskRef = testRecordTarget?.taskRef;
-      setTestDefectSheet({
-        prefill,
-        testRecordId: saved.recordId,
-        context: taskRef
-          ? { stage: taskRef.stage, areaId: taskRef.areaId }
-          : { stage: null, areaId: null },
-      });
-      setTestRecordOpen(false);
-      setTestRecordTarget(null);
-      setTestRecordSaved(null);
-    },
-    [testRecordSaved, testRecordTarget],
-  );
-
   const handleCaptured = useCallback(
     async (item: EvidenceItem) => {
       setEvidenceItems((prev) => [item, ...prev]);
@@ -1012,42 +640,12 @@ export function PhilJobDetail({
         return;
       }
 
-      // If this capture was for a specific required-proof item, link it now.
-      const pending = pendingProofLink;
-      setPendingProofLink(null);
-      if (!pending || !jcRevision) return;
-
-      const req = pending.requiredEvidenceId;
-      setProofStatus((prev) => ({ ...prev, [req]: "saving" }));
-      const applied = await linkAndApply({
-        jobId: job.id,
-        workPackageId: pending.workPackageId,
-        requiredEvidenceId: req,
-        evidenceId: item.id, // the REAL saved id, never fabricated
-        expectedJobControlRevision: jcRevision,
-        ...(pending.taskRef ? { taskRef: pending.taskRef } : {}),
-      });
-      if (applied.revision) setJcRevision(applied.revision);
-      if (applied.link) {
-        // Met ONLY after the link route confirmed — never optimistic.
-        const link = applied.link;
-        setEvidenceLinks((prev) => [...prev, link]);
-        setProofStatus((prev) => {
-          const next = { ...prev };
-          delete next[req];
-          return next;
-        });
-      } else if (applied.status) {
-        setProofStatus((prev) => ({ ...prev, [req]: applied.status! }));
-      }
     },
-    [pendingProofLink, jcRevision, job.id],
+    [],
   );
 
   const handleCaptureFailed = useCallback((message: string) => {
     setCaptureBanner({ tone: "danger", message });
-    // A failed save never links proof; drop any pending target.
-    setPendingProofLink(null);
     // #230: a failed capture resolves any waiting Services request with null so
     // the card stops "opening camera" and the worker can retry or save text-only.
     const servicesResolver = servicesCaptureResolverRef.current;
@@ -1071,45 +669,9 @@ export function PhilJobDetail({
     return new Promise<EvidenceItem | null>((resolve) => {
       servicesCaptureResolverRef.current = resolve;
       setCaptureBanner(null);
-      setPendingProofLink(null);
       setCaptureOpen(true);
     });
   }, []);
-
-  // Submit a task's captured proof for review (#503). Non-optimistic: the review
-  // is reflected ONLY after the route confirms. Keyed by taskRefKey.
-  const handleSubmitForReview = useCallback(
-    async (taskRef: TaskRef) => {
-      if (!jcRevision) return;
-      const key = taskRefKey(taskRef);
-      setProofSubmitStatus((prev) => ({ ...prev, [key]: "submitting" }));
-      const result = await submitProofForReview({ jobId: job.id, taskRef, expectedJobControlRevision: jcRevision });
-      if (result.kind === "ok") {
-        setProofReviews((prev) => [...prev.filter((r) => taskRefKey(r.taskRef) !== key), result.review]);
-        setJcRevision(result.revision);
-        setProofSubmitStatus((prev) => {
-          const next = { ...prev };
-          delete next[key];
-          return next;
-        });
-      } else if (result.kind === "stale") {
-        if (result.currentRevision) setJcRevision(result.currentRevision);
-        setProofSubmitStatus((prev) => ({ ...prev, [key]: "stale" }));
-      } else {
-        setProofSubmitStatus((prev) => ({ ...prev, [key]: "error" }));
-      }
-    },
-    [jcRevision, job.id],
-  );
-
-  // Circuit schedule (field view). Read straight off the passthrough job
-  // projection — the office writes `job.circuitBoards`. Show the entry only when
-  // a schedule exists (P10: an existing reference slot, not new chrome; honest —
-  // no empty card on jobs without one).
-  const circuitBoards = (
-    job as { circuitBoards?: ReadonlyArray<{ circuits?: ReadonlyArray<{ install?: string }> }> }
-  ).circuitBoards;
-  const hasCircuitSchedule = circuitScheduleEnabled && (circuitBoards?.length ?? 0) > 0;
 
   // Site-induction card state (#332) — shared verbatim by both renders.
   const siteInduction = job.inductionRequired
@@ -1124,20 +686,16 @@ export function PhilJobDetail({
         }
     : null;
 
-  // The modal sheets are IDENTICAL in both modes — same components, same
-  // handlers, same non-optimistic write paths (capture → evidence, structured
-  // test record → proof link, defect → snag). Extracted so the rooms takeover
-  // and the one-scroll page can't drift apart.
+  // The modal sheets are IDENTICAL in both modes — same component, same
+  // handlers, same non-optimistic write path (capture → evidence). Extracted
+  // so the rooms takeover and the one-scroll page can't drift apart.
   const sheets = (
     <>
       <CaptureSheet
         open={captureOpen}
         job={job}
         initialContext={{ stage, areaId: selectedAreaId }}
-        onClose={() => {
-          setCaptureOpen(false);
-          setPendingProofLink(null);
-        }}
+        onClose={() => setCaptureOpen(false)}
         onCaptured={handleCaptured}
         onFailed={handleCaptureFailed}
         onCancel={() => {
@@ -1151,44 +709,6 @@ export function PhilJobDetail({
         }}
       />
 
-      <PhilTestRecordCard
-        open={testRecordOpen}
-        jobName={job.name}
-        requirementLabel={testRecordTarget?.label}
-        saving={testRecordSaving}
-        errorMessage={testRecordError}
-        savedResult={testRecordSaved}
-        onClose={() => {
-          setTestRecordOpen(false);
-          setTestRecordTarget(null);
-          setTestRecordError(null);
-          setTestRecordSaved(null);
-        }}
-        onSubmit={handleSubmitTestRecord}
-        onReportDefect={handleTestRecordDefect}
-      />
-
-      {/* #520: defect raised FROM a failed test result — the existing snag
-          sheet, pre-filled with the real readings + origin testRecordId. */}
-      <ReportSnagSheet
-        open={testDefectSheet !== null}
-        job={job}
-        initialContext={testDefectSheet?.context ?? { stage: null, areaId: null }}
-        recentEvidence={evidenceItems}
-        prefill={testDefectSheet?.prefill ?? null}
-        originRefs={
-          testDefectSheet ? { testRecordId: testDefectSheet.testRecordId } : null
-        }
-        onClose={() => setTestDefectSheet(null)}
-        onCreated={() => {
-          setTestDefectSheet(null);
-          setCaptureBanner({ tone: "success", message: "Defect reported." });
-          window.setTimeout(() => setCaptureBanner(null), 1500);
-        }}
-        onFailed={() => {
-          /* the sheet surfaces its own inline error */
-        }}
-      />
     </>
   );
 
@@ -1214,13 +734,7 @@ export function PhilJobDetail({
 
       <PhilJobCommandPanel model={commandModel} />
 
-      <PhilJobAttentionStrip
-        job={job}
-        snags={initialSnags ?? []}
-        itps={initialItps ?? []}
-        viewerId={viewer?.id ?? null}
-        inductionDone={Boolean(myInduction)}
-      />
+      <PhilJobAttentionStrip job={job} inductionDone={Boolean(myInduction)} />
 
       {/* Lean reset step 5 (#916): the work-to-do machinery (stage groups,
           area picker, task lists, streamed task state) left the page — lean
@@ -1322,15 +836,6 @@ export function PhilJobDetail({
           </Card>
         </section>
       ) : null}
-
-      {/* #219: Safety — SWMS/SDS the worker acknowledges. Hidden-until-real
-          (renders nothing until docs load); mounted only when the safety_docs
-          flag is on. Reference-zone slot beside Plans/Circuit (P10). */}
-      {safetyEnabled ? <PhilSafetyHomeSection jobId={job.id} /> : null}
-
-      {/* #231: Certificates — read-only compliance/commissioning records.
-          Hidden-until-real; mounted only when certificates_register is on. */}
-      {certificatesEnabled ? <PhilCertificatesHomeSection jobId={job.id} /> : null}
 
       {/* Site details — reference info (address / access / parking / safety /
           induction). Demoted to the bottom "reference" zone so the active work

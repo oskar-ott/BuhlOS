@@ -46,6 +46,7 @@ import type { Job, JobStage } from "./types";
  *   src/domains/jobs/progress.ts — the canonical count definition (#198)
  *   src/domains/jobs/taskState.ts — JobTaskState + readTaskState (state source)
  *   src/domains/job-control/compile.ts#deriveWorkPackageId — the id pattern
+ *       (deleted with job-control by the 2026-07-27 gut; the pattern is kept here)
  *   docs/architecture/task-index.md
  */
 

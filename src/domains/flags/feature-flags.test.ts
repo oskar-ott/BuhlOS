@@ -30,13 +30,13 @@ let flags: FlagsModule;
 
 const KEY = "supabase_dual_write"; // global-target registry entry (also PROTECTED)
 const ADMIN_KEY = "admin_flags_readout"; // admin-tier-target registry entry
-const PREVIEW_KEY = "safety_docs"; // global, NON-protected feature flag — owner-preview subject
+const PREVIEW_KEY = "itp_simple"; // global, NON-protected feature flag — owner-preview subject
 const OWNER = { role: "owner" } as const;
 
 beforeEach(() => {
   delete process.env.FLAG_SUPABASE_DUAL_WRITE;
   delete process.env.FLAG_ADMIN_FLAGS_READOUT;
-  delete process.env.FLAG_SAFETY_DOCS;
+  delete process.env.FLAG_ITP_SIMPLE;
   blob = new Map<string, unknown>();
   delete requireFromHere.cache[flagsPath];
   requireFromHere.cache[blobPath] = {
@@ -58,7 +58,7 @@ beforeEach(() => {
 afterEach(() => {
   delete process.env.FLAG_SUPABASE_DUAL_WRITE;
   delete process.env.FLAG_ADMIN_FLAGS_READOUT;
-  delete process.env.FLAG_SAFETY_DOCS;
+  delete process.env.FLAG_ITP_SIMPLE;
 });
 
 describe("resolution order (env > blob override > default)", () => {
@@ -159,10 +159,10 @@ describe("owner preview (#760) — viewer-aware override", () => {
 
   it("env wins over owner preview in BOTH directions (ops kill-switch)", async () => {
     blob.set("flags.json", { flags: {}, ownerPreview: { [PREVIEW_KEY]: true } });
-    process.env.FLAG_SAFETY_DOCS = "0";
+    process.env.FLAG_ITP_SIMPLE = "0";
     expect(await flags.isFlagEnabled(PREVIEW_KEY, OWNER)).toBe(false);
     blob.set("flags.json", { flags: {}, ownerPreview: { [PREVIEW_KEY]: false } });
-    process.env.FLAG_SAFETY_DOCS = "1";
+    process.env.FLAG_ITP_SIMPLE = "1";
     expect(await flags.isFlagEnabled(PREVIEW_KEY, OWNER)).toBe(true);
   });
 
@@ -202,7 +202,7 @@ describe("owner preview (#760) — viewer-aware override", () => {
   it("isProtectedFlag fences the data-plane flags, not feature flags", () => {
     expect(flags.isProtectedFlag("supabase_dual_write")).toBe(true);
     expect(flags.isProtectedFlag("phil_jobs_summary_read")).toBe(true);
-    expect(flags.isProtectedFlag("safety_docs")).toBe(false);
+    expect(flags.isProtectedFlag("itp_simple")).toBe(false);
     expect(flags.isProtectedFlag("admin_flags_readout")).toBe(false);
   });
 });
@@ -237,10 +237,10 @@ describe("board presentation (#760)", () => {
     expect(jobs).toMatchObject({ label: "Jobs", domain: "Jobs", core: true });
     expect(flags.presentationOf("hours")?.core).toBe(true);
     expect(flags.presentationOf("evidence")?.core).toBe(true);
-    // A normal kill-switch is labelled but NOT core.
-    const rfi = flags.presentationOf("rfi_register");
-    expect(rfi?.label).toBe("RFIs");
-    expect(rfi?.core).toBeFalsy();
+    // A non-spine kill-switch is labelled but NOT core.
+    const photos = flags.presentationOf("job_photos");
+    expect(photos?.label).toBe("Photos (Job Bible)");
+    expect(photos?.core).toBeFalsy();
   });
 
   it("returns null for a protected data-plane flag (kept out of the board)", () => {

@@ -9,13 +9,12 @@ vi.mock("next/navigation", () => ({
 
 import { PhilJobRoomArea } from "./PhilJobRoomArea";
 import type { PhilTaskReadiness } from "@/domains/jobs/phil-task-projection";
-import type { OwedProofItem } from "./philJobRooms";
 
 /**
  * SSR smoke for the rooms-flow Area view (phil_job_rooms, dark — #133 §2.4).
  * Pins: phase-pill semantics, REAL task states in prototype voice, the
  * observation-derived blocked banner, honest streaming/empty branches, and
- * the sticky Photo · Note · Issue capture bar.
+ * the sticky Photo capture bar.
  */
 
 type AreaProps = Parameters<typeof PhilJobRoomArea>[0];
@@ -37,11 +36,8 @@ function baseProps(over: Partial<AreaProps> = {}): AreaProps {
     taskStateError: null,
     taskError: null,
     onToggleTask: () => {},
-    owedProof: [],
     onBack: () => {},
     onCapturePhoto: () => {},
-    onCaptureNote: () => {},
-    onCaptureIssue: () => {},
     ...over,
   };
 }
@@ -91,29 +87,6 @@ describe("PhilJobRoomArea", () => {
     expect(html).toContain("Joinery not landed");
   });
 
-  it("shows 'Needs you here' only when proof is really owed in THIS area", () => {
-    const none = render();
-    expect(none).not.toContain("Needs you here");
-    const owed: OwedProofItem[] = [
-      {
-        workPackageId: "wp1",
-        workPackageTitle: "Reception power",
-        requirement: { id: "re1", label: "Photo before it's sheeted", kind: "photo" },
-        areaIds: ["a1"],
-      },
-      {
-        workPackageId: "wp2",
-        workPackageTitle: "Elsewhere",
-        requirement: { id: "re2", label: "Other-area photo", kind: "photo" },
-        areaIds: ["a2"],
-      },
-    ];
-    const html = render({ owedProof: owed });
-    expect(html).toContain("Needs you here");
-    expect(html).toContain("Photo before it&#x27;s sheeted");
-    expect(html).not.toContain("Other-area photo"); // other area's proof stays out
-  });
-
   it("streams honestly: skeleton rows while pending, never a false 'to do'", () => {
     const html = render({ taskStatePending: true });
     expect(html).toContain('aria-label="Loading task progress"');
@@ -128,12 +101,10 @@ describe("PhilJobRoomArea", () => {
     expect(noPlan).toContain("No task plan for this area yet");
   });
 
-  it("renders the sticky Photo · Note · Issue capture bar (≥44px targets)", () => {
+  it("renders the sticky Photo capture bar (≥44px targets)", () => {
     const html = render();
     expect(html).toContain('data-testid="phil-room-area-capture-bar"');
     expect(html).toContain(">Photo<");
-    expect(html).toContain(">Note<");
-    expect(html).toContain(">Issue<");
     expect(html).toContain("min-h-[48px]");
   });
 });
