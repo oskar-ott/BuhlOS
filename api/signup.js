@@ -149,7 +149,7 @@ module.exports = async (req, res) => {
     const role = String(body.role || '').toLowerCase();
     const legalName = String(body.legalName || '').trim();
     const dob = String(body.dob || '').trim();
-    const startDate = body.startDate ? String(body.startDate).trim() : null;
+    const startYear = body.startYear == null || body.startYear === '' ? null : Number(body.startYear);
     const pin = String(body.pin || '');
     const confirmPin = String(body.confirmPin || '');
 
@@ -165,7 +165,9 @@ module.exports = async (req, res) => {
     }
     if (!legalName) return res.status(400).json({ error: 'Your full legal name is needed for payroll.' });
     if (!isPlausibleDob(dob)) return res.status(400).json({ error: 'That date of birth doesn\'t look right.' });
-    if (startDate && !/^\d{4}-\d{2}-\d{2}$/.test(startDate)) return res.status(400).json({ error: 'Start date doesn\'t look right.' });
+    if (startYear != null && (!Number.isInteger(startYear) || startYear < 1970 || startYear > new Date().getFullYear() + 1)) {
+      return res.status(400).json({ error: 'Start year doesn\'t look right.' });
+    }
     if (!/^\d{4}$/.test(pin)) return res.status(400).json({ error: 'PIN must be exactly 4 digits' });
     if (pin !== confirmPin) return res.status(400).json({ error: "Those PINs don't match" });
     if (isCommonPin(pin)) return res.status(400).json({ error: 'Pick a PIN that\'s less easy to guess' });
@@ -213,7 +215,7 @@ module.exports = async (req, res) => {
       apprenticeYear,
       legalName,
       dob,
-      startDate,
+      startYear,
       pinHash,
       submittedAt: nowIso(),
       reviewedAt: null,

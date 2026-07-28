@@ -307,7 +307,7 @@ function RequestCard({
           Xero match ·{" "}
         </span>
         {r.legalName} · born {r.dob}
-        {r.startDate ? ` · starts ${r.startDate}` : ""}
+        {r.startYear ? ` · started ${r.startYear}` : r.startDate ? ` · starts ${r.startDate}` : ""}
       </div>
 
       {r.flags.duplicateEmail || r.flags.duplicateName ? (

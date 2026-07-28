@@ -115,7 +115,10 @@ export const SignupRequestPublicSchema = z.object({
   apprenticeYear: z.number().nullable(),
   legalName: z.string(),
   dob: z.string(),
-  startDate: z.string().nullable(),
+  // Rows submitted before 2026-07-29 carry a full startDate; newer rows carry
+  // just startYear (the office only needs the year for a payroll match).
+  startDate: z.string().nullable().optional(),
+  startYear: z.number().nullable().optional(),
   submittedAt: z.string(),
   flags: z.object({
     duplicateEmail: z.boolean(),

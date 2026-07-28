@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
-import { SignupFlow } from "./SignupFlow";
+import { SignupFlow, SignupHomeScreenStep } from "./SignupFlow";
 import { CrewSignupPanel } from "@/components/admin/CrewSignupPanel";
 
 /**
@@ -45,6 +45,39 @@ describe("SignupFlow (public)", () => {
     );
     expect(html).toContain(needle);
     expect(html).toContain("Already set up? Sign in");
+  });
+});
+
+describe("SignupHomeScreenStep (last screen before sign-in)", () => {
+  it("asks which phone before showing any steps, and still ends at sign-in", () => {
+    const html = renderToString(createElement(SignupHomeScreenStep));
+    expect(html).toContain("Put BuhlOS on your home screen");
+    expect(html).toContain("What phone have you got?");
+    expect(html).toContain("iPhone");
+    expect(html).toContain("Android");
+    // No platform picked yet (SSR) — no instructions, no invented steps.
+    expect(html).not.toContain("Safari");
+    expect(html).not.toContain("Chrome");
+    expect(html).toContain("/v2/login?mode=worker");
+    expect(html).not.toMatch(/\bPhil\b/);
+  });
+
+  it("iPhone gets the Safari share path", () => {
+    const html = renderToString(
+      createElement(SignupHomeScreenStep, { initialPlatform: "ios" }),
+    );
+    expect(html).toContain("Safari");
+    expect(html).toContain("Add to Home Screen");
+    expect(html).not.toContain("Chrome");
+  });
+
+  it("Android gets the Chrome menu path", () => {
+    const html = renderToString(
+      createElement(SignupHomeScreenStep, { initialPlatform: "android" }),
+    );
+    expect(html).toContain("Chrome");
+    expect(html).toContain("Add to Home screen");
+    expect(html).not.toContain("Safari");
   });
 });
 
