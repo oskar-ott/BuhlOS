@@ -9,6 +9,7 @@ import {
   draftSendBlockReason,
   hoursWeekDot,
   hoursWeekLabel,
+  mergeSavedEntries,
   toggleWeek,
   NO_JOB_LABEL,
   UNKNOWN_JOB_LABEL,
@@ -281,5 +282,41 @@ describe("fold/unfold (the collapse interaction, pure)", () => {
     expect(open[LAST_MONDAY]).toBe(false);
     open = toggleWeek(open, MONDAY);
     expect(open[MONDAY]).toBe(false); // this week can fold too
+  });
+});
+
+describe("mergeSavedEntries (optimistic overlay for confirmed saves)", () => {
+  it("adds a just-saved day the lagging server list is missing", () => {
+    const server = [entry({ date: LAST_MONDAY, status: "approved" })];
+    const saved = entry({ date: MONDAY, status: "submitted" });
+    const merged = mergeSavedEntries(server, [saved]);
+    expect(merged.map((e) => e.date)).toEqual([MONDAY, LAST_MONDAY]);
+    expect(merged[0]!.status).toBe("submitted");
+  });
+
+  it("replaces a stale server copy of the same date (saved is same-or-newer)", () => {
+    const stale = entry({ date: MONDAY, status: "draft" });
+    stale.updatedAt = "2026-06-18T01:00:00Z";
+    const saved = entry({ date: MONDAY, status: "submitted", totalHours: 9 });
+    saved.updatedAt = "2026-06-18T02:00:00Z";
+    const merged = mergeSavedEntries([stale], [saved]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]!.status).toBe("submitted");
+    expect(merged[0]!.totalHours).toBe(9);
+  });
+
+  it("keeps a strictly newer server copy (the office decided in between)", () => {
+    const saved = entry({ date: MONDAY, status: "submitted" });
+    saved.updatedAt = "2026-06-18T02:00:00Z";
+    const decided = entry({ date: MONDAY, status: "approved" });
+    decided.updatedAt = "2026-06-18T03:00:00Z";
+    const merged = mergeSavedEntries([decided], [saved]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]!.status).toBe("approved");
+  });
+
+  it("no saves → the server list unchanged (same reference, no churn)", () => {
+    const server = [entry({ date: MONDAY, status: "approved" })];
+    expect(mergeSavedEntries(server, [])).toBe(server);
   });
 });

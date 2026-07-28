@@ -12,9 +12,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  *     (admin tier), not just literal 'admin'/'leadingHand', can log on behalf.
  *
  * Uses the real serverless handler with signed sessions + an in-memory Vercel
- * Blob replacement (same harness as src/domains/jobs/jobs-api.test.ts). Only
- * PATCH/POST paths are exercised, so the @vercel/blob list/put/del calls used
- * by the GET queues are never hit.
+ * Blob replacement (same harness as src/domains/jobs/jobs-api.test.ts). The
+ * @vercel/blob list() used by the GET paths is stubbed EMPTY, which doubles as
+ * the eventual-consistency fixture for the read-your-writes overlay tests.
  */
 const requireFromHere = createRequire(import.meta.url);
 const blobPath = requireFromHere.resolve("../../../api/_lib/blob.js");
@@ -25,6 +25,7 @@ const handlerPath = requireFromHere.resolve("../../../api/time-entries.js");
 // binds readBlob/writeBlob at module load, so it must re-require against the
 // fresh blob mock each test or its writes land in a stale Map.
 const auditLogPath = requireFromHere.resolve("../../../api/_lib/audit-log.js");
+const vercelBlobPath = requireFromHere.resolve("@vercel/blob");
 
 let blob: Map<string, unknown>;
 let auth: { signSession: (payload: Record<string, unknown>) => string };
@@ -167,6 +168,20 @@ beforeEach(() => {
   delete requireFromHere.cache[teLibPath];
   delete requireFromHere.cache[handlerPath];
   delete requireFromHere.cache[auditLogPath];
+  // The GET list path calls @vercel/blob's list() directly. Stub it EMPTY to
+  // model the store's eventual consistency (a just-written day file missing
+  // from the listing) — the read-your-writes overlay must still surface the
+  // entry via readBlob.
+  requireFromHere.cache[vercelBlobPath] = {
+    id: vercelBlobPath,
+    filename: vercelBlobPath,
+    loaded: true,
+    exports: {
+      list: vi.fn(async () => ({ blobs: [] })),
+      put: vi.fn(async () => ({})),
+      del: vi.fn(async () => {}),
+    },
+  } as NodeJS.Module;
   requireFromHere.cache[blobPath] = {
     id: blobPath,
     filename: blobPath,
@@ -632,5 +647,34 @@ describe("#390 — worker submit/resubmit writes the canonical audit journal", (
       (res.body as { entry: { editedWhileSubmittedAt?: string | null } }).entry
         .editedWhileSubmittedAt,
     ).toBeFalsy();
+  });
+});
+
+describe("GET /api/time-entries — read-your-writes overlay (2026-07-28)", () => {
+  // Blob's list() is eventually consistent: a day file written moments ago can
+  // be missing from the listing, so the worker watched a just-logged day
+  // vanish on the next render. The list stub above returns NOTHING — the
+  // seeded TODAY entry must still come back via the readBlob overlay.
+  it("returns a just-written day even when the blob listing hasn't caught up", async () => {
+    const res = await call({
+      method: "GET",
+      userId: "u_field",
+      role: "electrician",
+      query: { fromDate: TODAY, toDate: TODAY },
+    });
+    expect(res.statusCode).toBe(200);
+    const entries = (res.body as { entries: Array<{ id: string; date: string }> }).entries;
+    expect(entries.map((e) => e.id)).toContain("e_field");
+  });
+
+  it("still hides days that genuinely don't exist (no phantom rows)", async () => {
+    const res = await call({
+      method: "GET",
+      userId: "u_field2",
+      role: "tradie",
+      query: { fromDate: TODAY, toDate: TODAY },
+    });
+    expect(res.statusCode).toBe(200);
+    expect((res.body as { entries: unknown[] }).entries).toEqual([]);
   });
 });

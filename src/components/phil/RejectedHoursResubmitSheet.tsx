@@ -45,6 +45,9 @@ interface RejectedHoursResubmitSheetProps {
    *  button. Pass with `onOpenChange` so Cancel can hand control back. */
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  /** Reports the server-confirmed entry after a successful save, so the parent
+   *  can overlay it over a lagging server list (the day updates instantly). */
+  onSaved?: (entry: TimeEntry) => void;
 }
 
 type State =
@@ -99,6 +102,7 @@ export function RejectedHoursResubmitSheet({
   defaultOpen = false,
   open: openProp,
   onOpenChange,
+  onSaved,
 }: RejectedHoursResubmitSheetProps) {
   // The submitted (undecided) variant — same editors, "change & resend" words.
   const editingSubmitted = entry.status === "submitted";
@@ -148,7 +152,10 @@ export function RejectedHoursResubmitSheet({
       idempotencyKey: resubmitKey.keyFor(JSON.stringify(payload)),
     });
     const fb = resubmitFeedback(result);
-    if (fb.kind === "success") resubmitKey.clear();
+    if (fb.kind === "success") {
+      resubmitKey.clear();
+      onSaved?.(fb.entry);
+    }
     setState(
       fb.kind === "success"
         ? { kind: "success", entry: fb.entry }
@@ -190,7 +197,10 @@ export function RejectedHoursResubmitSheet({
       idempotencyKey: resubmitKey.keyFor(JSON.stringify(payload)),
     });
     const fb = resubmitFeedback(result);
-    if (fb.kind === "success") resubmitKey.clear();
+    if (fb.kind === "success") {
+      resubmitKey.clear();
+      onSaved?.(fb.entry);
+    }
     setState(
       fb.kind === "success"
         ? { kind: "success", entry: fb.entry }

@@ -106,6 +106,9 @@ async function createSignupAccount({ request, reqBlob, reviewedBy, req }) {
   const user = {
     id: 'u_' + Date.now().toString(36) + crypto.randomBytes(3).toString('hex'),
     username: emailLc,
+    // Human display name — the app-wide `user.name || user.username` fallback
+    // otherwise greets signup-link workers with their raw email address.
+    name: `${request.preferredName || request.firstName} ${request.lastName}`.trim(),
     role: request.role,
     passwordHash: request.pinHash,
     email: request.email,

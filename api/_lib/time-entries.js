@@ -152,10 +152,45 @@ async function listUserEntries(userId, { fromDate, toDate, status } = {}) {
       return await r.json();
     } catch { return null; }
   }));
-  return entries
-    .filter(Boolean)
+
+  // Read-your-writes overlay (2026-07-28): Blob's list() is eventually
+  // consistent and its CDN lags a fresh put by seconds, so a day logged
+  // moments ago could be missing (or stale) here — the worker watched their
+  // just-submitted hours vanish on the next render. Recent dates are re-read
+  // through readEntry: writeBlob primes that cache with the just-written
+  // document, so a same-instance render is read-after-write consistent, and a
+  // direct-URL read of a brand-new day file dodges the listing lag entirely.
+  // Bounded to a ±few-day window so absent dates cost at most a handful of
+  // parallel narrow lookups.
+  const byDate = new Map();
+  for (const e of entries.filter(Boolean)) byDate.set(e.date, e);
+  const overlay = await Promise.all(recentDatesWithin(fromDate, toDate).map(async d => {
+    try { return await readEntry(userId, d); } catch { return null; }
+  }));
+  for (const e of overlay) {
+    if (!e) continue;
+    const listed = byDate.get(e.date);
+    if (!listed || String(e.updatedAt || '') >= String(listed.updatedAt || '')) byDate.set(e.date, e);
+  }
+
+  return [...byDate.values()]
     .filter(e => !status || e.status === status)
     .sort((a, b) => b.date.localeCompare(a.date));
+}
+
+// Server-clock dates from 3 days back to tomorrow (UTC-vs-Sydney slack on both
+// ends), clipped to the caller's range — the write-freshness window for the
+// read-your-writes overlay above.
+function recentDatesWithin(fromDate, toDate) {
+  const out = [];
+  const day = 24 * 60 * 60 * 1000;
+  for (let offset = -3; offset <= 1; offset++) {
+    const d = new Date(Date.now() + offset * day).toISOString().slice(0, 10);
+    if (fromDate && d < fromDate) continue;
+    if (toDate && d > toDate) continue;
+    out.push(d);
+  }
+  return out;
 }
 
 // Walk every user's time-entries — used by /approvals queue.

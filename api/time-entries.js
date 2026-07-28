@@ -97,7 +97,7 @@ async function handleCreate(req, res, user) {
   // LH can create on behalf of crew that share at least one assigned job.
   // Self-creation is the default.
   let targetUserId  = user.id;
-  let targetUserName = user.username;
+  let targetUserName = user.name || user.username;
   let targetUserRole = user.role;
   let onBehalf = false;
   if (overrideUserId && overrideUserId !== user.id) {
@@ -114,7 +114,7 @@ async function handleCreate(req, res, user) {
       if (!sharesJob) return res.status(403).json({ error: 'forbidden — target is not on a job you run' });
     }
     targetUserId   = target.id;
-    targetUserName = target.username;
+    targetUserName = target.name || target.username;
     targetUserRole = target.role;
     onBehalf = true;
   }
@@ -195,7 +195,7 @@ async function handleCreate(req, res, user) {
     // role of the actor at write time so we can split self-entries from
     // delegated ones in analytics later.
     enteredByUserId: onBehalf ? user.id : targetUserId,
-    enteredByName:   onBehalf ? user.username : targetUserName,
+    enteredByName:   onBehalf ? (user.name || user.username) : targetUserName,
     source:          onBehalf ? user.role : 'self',
   };
 
@@ -382,7 +382,7 @@ async function handlePatch(req, res, user) {
       ? user.id
       : (existing.enteredByUserId || existing.userId),
     enteredByName:   isDelegated
-      ? user.username
+      ? (user.name || user.username)
       : (existing.enteredByName   || existing.userName),
     source: isDelegated
       ? user.role
@@ -391,7 +391,7 @@ async function handlePatch(req, res, user) {
     // review can see "last touched by" without losing the original
     // entered-by attribution.
     updatedBy:       user.id,
-    updatedByName:   user.username,
+    updatedByName:   user.name || user.username,
     allocations: (editable.allocations || existing.allocations).map((a, i) => ({
       jobId: a.jobId || null,
       hours: Number(a.hours),
@@ -537,7 +537,7 @@ async function enrichEntries(entries, viewer) {
     const submitter = userById[e.userId];
     return {
       ...e,
-      userName: e.userName || (submitter && submitter.username) || e.userId,
+      userName: e.userName || (submitter && (submitter.name || submitter.username)) || e.userId,
       userRole: e.userRole || (submitter && submitter.role) || null,
       allocations: (e.allocations || []).map(a => {
         const job = a.jobId ? jobById[a.jobId] : null;

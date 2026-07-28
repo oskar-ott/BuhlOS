@@ -219,6 +219,9 @@ module.exports = async (req, res) => {
     const user = {
       id: newUserId(),
       username: emailLc,
+      // Human display name — the app-wide `user.name || user.username` fallback
+      // otherwise greets invited workers with their raw email address.
+      name: `${employee.displayName || employee.firstName || ''} ${employee.lastName || ''}`.trim() || null,
       role: employee.role,
       passwordHash,
       email: employee.email,

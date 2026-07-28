@@ -129,7 +129,7 @@ function mapLegacyRoleToBible(role) {
 function mapUserToEmployee(u) {
   const role = mapLegacyRoleToBible(u.role);
   if (!role) return null;
-  const name = String(u.username || '').trim();
+  const name = String(u.name || u.username || '').trim();
   const parts = name.split(/\s+/).filter(Boolean);
   const firstName = parts[0] || name || u.id;
   const lastName = parts.slice(1).join(' ');

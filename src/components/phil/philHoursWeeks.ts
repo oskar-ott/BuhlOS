@@ -291,3 +291,28 @@ export function toggleWeek(
 ): Record<string, boolean> {
   return { ...open, [weekStart]: !open[weekStart] };
 }
+
+/**
+ * Optimistic overlay for confirmed saves (2026-07-28). The store's blob
+ * listing can lag a fresh write by seconds, so a router.refresh() straight
+ * after a save can re-render WITHOUT the day the worker just logged — they
+ * watch their submitted hours vanish. Entries the client KNOWS the server
+ * accepted (each carries the server's response body, never a guess) are merged
+ * over the server list until it catches up: a saved entry wins its date unless
+ * the server copy is strictly newer (e.g. the office decided in between).
+ */
+export function mergeSavedEntries(
+  serverEntries: ReadonlyArray<TimeEntry>,
+  savedEntries: ReadonlyArray<TimeEntry>,
+): ReadonlyArray<TimeEntry> {
+  if (savedEntries.length === 0) return serverEntries;
+  const byDate = new Map<string, TimeEntry>();
+  for (const e of serverEntries) byDate.set(e.date, e);
+  for (const saved of savedEntries) {
+    const server = byDate.get(saved.date);
+    if (!server || String(saved.updatedAt ?? "") >= String(server.updatedAt ?? "")) {
+      byDate.set(saved.date, saved);
+    }
+  }
+  return [...byDate.values()].sort((a, b) => b.date.localeCompare(a.date));
+}
