@@ -216,7 +216,7 @@ export function LoginForm({ next, initialMode = "office" }: LoginFormProps) {
           }}
           data-testid="login-worker-switch"
         >
-          On the tools? Sign in with your name &amp; PIN →
+          On the tools? Sign in with your email &amp; PIN →
         </button>
       </div>
     </div>
