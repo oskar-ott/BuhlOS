@@ -55,7 +55,21 @@ module.exports = async (req, res) => {
       return res.status(200).json({ user: owner });
     }
     const data = await readBlob('users.json', { users: [] });
-    const user = (data.users || []).find(u => u.username.toLowerCase() === throttleKey);
+    let user = (data.users || []).find(u => u.username.toLowerCase() === throttleKey);
+    if (!user) {
+      // Email-first worker login (founder decision 2026-07-28). Signup/invite-
+      // created accounts have username = email, but rows created by hand can
+      // carry a NAME username with the email only in the `email` field — typed
+      // email, exact-username miss, PIN never compared (live fault: Alfredo).
+      // Exact username stays first and untouched (legacy crew typing a name
+      // keep working); on a miss ONLY, match the typed value against users'
+      // email, and resolve ONLY an unambiguous single match — zero or several
+      // rows sharing an email fall through to the same generic 401 below,
+      // never guess between accounts. Same PIN compare / disabled gate /
+      // per-typed-key throttle as every login.
+      const byEmail = (data.users || []).filter(u => (u.email || '').toLowerCase() === throttleKey);
+      if (byEmail.length === 1) user = byEmail[0];
+    }
     if (!user) {
       loginThrottle.record(throttleKey); // throttle guessing of unknown usernames too
       return res.status(401).json({ error: 'invalid credentials' });
