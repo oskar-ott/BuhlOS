@@ -3,10 +3,13 @@ import { z } from "zod";
 /**
  * Crew sign-up link — shared pure logic for the public self-signup flow.
  *
- * The server sides live in api/signup.js (public resolve/submit) and
- * api/employees.js (admin link + review actions). `resolveLinkState` here is
- * the TS mirror of resolveLinkState in BOTH those files — keep all three in
- * sync (same rule as the invite-state mirror in service.ts).
+ * The server sides live in api/signup.js (public resolve/submit — instant
+ * access since 2026-07-28: a valid submission creates the account on the
+ * spot) and api/employees.js (admin link controls + the joined-via-link
+ * queue; approve remains for pre-instant leftover pending rows).
+ * `resolveLinkState` here is the TS mirror of resolveLinkState in BOTH those
+ * files — keep all three in sync (same rule as the invite-state mirror in
+ * service.ts).
  */
 
 export const SIGNUP_LINK_STATES = [
@@ -93,7 +96,12 @@ export function isPlausibleDob(iso: string, nowMs: number): boolean {
   return age >= 14 && age <= 100;
 }
 
-/** Admin review queue row (pinHash never leaves the server). */
+/**
+ * Queue row for the admin panel (pinHash never leaves the server). Since
+ * instant access, new submissions arrive already `approved` (reviewedBy is a
+ * server-side sentinel, stripped here with the other review fields) — pending
+ * rows are pre-instant leftovers the admin can still approve or knock back.
+ */
 export const SignupRequestPublicSchema = z.object({
   id: z.string(),
   linkId: z.string(),

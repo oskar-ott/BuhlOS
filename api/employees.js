@@ -35,6 +35,7 @@ const { getCurrentUser, isAdminRole } = require('./_lib/auth');
 const { isFlagEnabled } = require('./_lib/feature-flags');
 const audit = require('./_lib/audit-log');
 const email = require('./_lib/email');
+const { createSignupAccount } = require('./_lib/signup-account');
 
 const EMPLOYEES_KEY = 'employees.json';
 const INVITES_KEY = 'invites.json';
@@ -232,9 +233,12 @@ module.exports = async (req, res) => {
   const action = (req.query && req.query.action) || '';
   const id = (req.query && req.query.id) || (req.body && req.body.id) || '';
 
-  // ── Crew sign-up link (shared link + review queue) ──────────────────────
+  // ── Crew sign-up link (shared link + joined-via-link history) ───────────
   // Whole slice is dark behind `signup_link` (owner-preview aware). The public
-  // resolve/submit side is api/signup.js; approval here is the security gate.
+  // resolve/submit side is api/signup.js; submissions self-approve there
+  // (instant access, 2026-07-28) — the link's expiry/cap/pause/revoke + field-
+  // roles-only + duplicate refusal are the gates. The approve/reject actions
+  // here remain for leftover pending rows from before the change.
   if (action === 'signup' || action.startsWith('signup-')) {
     if (!(await isFlagEnabled('signup_link', me))) return res.status(404).json({ error: 'not found' });
     return handleSignupAction(req, res, me, action);
@@ -542,7 +546,8 @@ async function handleSignupAction(req, res, me, action) {
         }
       : null;
 
-  // GET ?action=signup → link + review queue.
+  // GET ?action=signup → link + queue (any leftover pending rows; approved/
+  // rejected history rides in the link counts).
   if (req.method === 'GET' && action === 'signup') {
     const [usersBlob, empBlob] = await Promise.all([
       readBlob('users.json', { users: [] }),
@@ -567,8 +572,9 @@ async function handleSignupAction(req, res, me, action) {
     const link = {
       id: newId('sl_'),
       // URL-safe code, stored plaintext ON PURPOSE: the admin re-copies the
-      // standing link, and possession only grants a PENDING request — the
-      // approval gate is the boundary. See api/signup.js header.
+      // standing link. Possession grants an account (instant access), so the
+      // expiry/cap/pause/revoke controls right here are the boundary — keep
+      // them tight. See api/signup.js header.
       code: crypto.randomBytes(9).toString('base64url'),
       status: 'active',
       expiresAt: computeExpiresAt(nowIso(), days),
@@ -598,95 +604,19 @@ async function handleSignupAction(req, res, me, action) {
     return res.status(200).json({ link: next === 'revoked' ? null : linkView(current) });
   }
 
-  // POST ?action=signup-approve&id=… → the gate: create employee + login,
-  // send the welcome email. Mirrors api/invites.js accept.
+  // POST ?action=signup-approve&id=… → create employee + login, send the
+  // welcome email. Since instant access (2026-07-28) new submissions self-
+  // approve in api/signup.js; this action remains for leftover pending rows
+  // from before the change. Same single writer: _lib/signup-account.js.
   if (req.method === 'POST' && action === 'signup-approve') {
     const id = (req.query && req.query.id) || (req.body && req.body.id) || '';
     const request = reqBlob.requests.find((r) => r.id === id);
     if (!request) return res.status(404).json({ error: 'sign-up request not found' });
     if (request.status !== 'pending') return res.status(409).json({ error: `already ${request.status}` });
 
-    const empBlob = await readBlob(EMPLOYEES_KEY, { employees: [] });
-    empBlob.employees = empBlob.employees || [];
-    const usersBlob = await readBlob('users.json', { users: [] });
-    usersBlob.users = usersBlob.users || [];
-
-    // Duplicate re-check at approve time (the world may have changed since submit).
-    const emailLc = request.email.toLowerCase();
-    if (usersBlob.users.find((u) => (u.email || '').toLowerCase() === emailLc || (u.username || '').toLowerCase() === emailLc)) {
-      return res.status(409).json({ error: 'An account with this email already exists.' });
-    }
-    if (empBlob.employees.find((e) => (e.email || '').toLowerCase() === emailLc)) {
-      return res.status(409).json({ error: 'An employee with this email already exists.' });
-    }
-
-    const ts = nowIso();
-    const employee = {
-      id: newId('e_'),
-      firstName: request.firstName,
-      lastName: request.lastName,
-      displayName: request.preferredName || null,
-      email: request.email,
-      phone: request.mobile,
-      role: request.role,
-      // role-literal-ok: signup request's requested TRADE ('apprentice' carries a year), not a session tier
-      apprenticeYear: request.role === 'apprentice' ? request.apprenticeYear : null,
-      appAccess: deriveAppAccess(request.role),
-      status: 'active',
-      assignedJobIds: [],
-      assignedGearIds: [],
-      notes: null,
-      // Payroll-match facts for the office's Xero connect step.
-      legalName: request.legalName,
-      dob: request.dob,
-      startDate: request.startDate || null,
-      createdAt: ts,
-      createdBy: me.id,
-      lastActiveAt: null,
-      disabledAt: null,
-      userId: null,
-      source: 'signup-link',
-    };
-
-    // Login from the PIN hash captured at submit (same convention as
-    // api/invites.js accept: username = email, bcrypt hash).
-    const user = {
-      id: 'u_' + Date.now().toString(36) + crypto.randomBytes(3).toString('hex'),
-      username: emailLc,
-      role: request.role,
-      passwordHash: request.pinHash,
-      email: request.email,
-      assignedJobIds: [],
-      createdAt: ts,
-      createdVia: 'signup-link',
-    };
-    usersBlob.users.push(user);
-    employee.userId = user.id;
-    employee.setup = { detailsConfirmed: true, loginCreated: true, introSeen: false, setupCompleteAt: ts };
-    empBlob.employees.push(employee);
-
-    request.status = 'approved';
-    request.reviewedAt = ts;
-    request.reviewedBy = me.id;
-    // The hash has served its purpose — don't keep credentials in the queue.
-    request.pinHash = null;
-
-    await writeBlob('users.json', usersBlob);
-    await writeBlob(EMPLOYEES_KEY, empBlob);
-    await writeBlob(SIGNUP_REQUESTS_KEY, reqBlob);
-
-    // Welcome email (E5) — best-effort; approval stands even if send fails.
-    let welcomeSent = false;
-    if (emailConfigured()) {
-      const result = await email.sendTemplate('welcome', {
-        to: request.email,
-        firstName: request.preferredName || request.firstName,
-        companyName: email.companyName(),
-        loginUrl: `${baseUrl(req)}/v2/login`,
-        adminPhone: process.env.EMAIL_REPLY_PHONE || null,
-      });
-      welcomeSent = Boolean(result && result.ok);
-    }
+    const created = await createSignupAccount({ request, reqBlob, reviewedBy: me.id, req });
+    if (!created.ok) return res.status(created.status).json({ error: created.error });
+    const { employee, welcomeSent } = created;
 
     await writeAudit(me, 'signup.approved', 'signup', request.id,
       `Approved ${request.firstName} ${request.lastName} (${request.role}) from crew link`,

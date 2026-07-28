@@ -579,7 +579,7 @@ const REGISTRY = {
   // features below: the field's simple ITP builder, dark until the owner
   // preview-verifies and flips it.
   signup_link: {
-    description: 'Crew sign-up link — one shareable /onboarding/<code> URL for the group chat; workers self-signup into a review queue, admin approves → account + welcome email. Public side api/signup.js, admin side /employees. Dark.',
+    description: 'Crew sign-up link — one shareable /onboarding/<code> URL for the group chat; workers self-signup and are in straight away (instant account + welcome email; gates: link expiry/cap/pause, field roles only, duplicate refusal). Public side api/signup.js, admin side /employees. Dark.',
     default: false,
     target: 'global',
     expires: '2027-06-30',

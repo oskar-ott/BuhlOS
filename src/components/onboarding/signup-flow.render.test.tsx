@@ -17,14 +17,17 @@ const LINK = {
 };
 
 describe("SignupFlow (public)", () => {
-  it("valid link renders the landing with the approval story", () => {
+  it("valid link renders the landing with the instant-access story", () => {
     const html = renderToString(
       createElement(SignupFlow, { code: "abc", state: "valid", link: LINK }),
     );
     expect(html).toContain("invited to join");
     expect(html).toContain("bühl electrical");
     expect(html).toContain("on BuhlOS.");
-    expect(html).toContain("the office approves you");
+    // Instant access — no approval promise anywhere on the landing.
+    expect(html).toContain("straight in");
+    expect(html).not.toContain("approves you");
+    expect(html).not.toContain("approval");
     expect(html).toContain("Start");
     // Single brand — never the internal name.
     expect(html).not.toMatch(/\bPhil\b/);
