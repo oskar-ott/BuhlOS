@@ -105,10 +105,14 @@ export const EmployeeSchema = z
     userId: z.string().nullable().optional(),
     /**
      * `user` = mapped from an existing users.json login (the current team).
-     * `onboarding` = created through the Add Employee drawer. Lets the UI
-     * distinguish "already on the tools" from "pending invite".
+     * `onboarding` = created through the Add Employee drawer.
+     * `signup-link` = created by approving a crew sign-up request
+     * (api/employees.js signup-approve). Lets the UI distinguish "already on
+     * the tools" from "pending invite". Keep in sync with every server
+     * writer — a value the enum doesn't know rejected the WHOLE register
+     * once (2026-07 prod incident; per-row parsing below is the backstop).
      */
-    source: z.enum(["user", "onboarding"]),
+    source: z.enum(["user", "onboarding", "signup-link"]),
   })
   .passthrough();
 
@@ -185,6 +189,26 @@ export const EmployeeListResponseSchema = z.object({
   /** Whether a real email provider is wired. False → copy-link fallback. */
   emailConfigured: z.boolean(),
 });
+
+/**
+ * Parse register rows ONE AT A TIME: valid rows keep rendering, invalid rows
+ * are counted for an honest on-page notice. Exists because a strict whole-list
+ * parse once blanked the entire register when a single signup-approved row
+ * carried a `source` value the enum didn't know yet (2026-07 prod incident).
+ */
+export function partitionEmployeeRows(rawRows: ReadonlyArray<unknown>): {
+  rows: Array<z.infer<typeof EmployeeRowSchema>>;
+  invalidRows: number;
+} {
+  const rows: Array<z.infer<typeof EmployeeRowSchema>> = [];
+  let invalidRows = 0;
+  for (const raw of rawRows) {
+    const parsed = EmployeeRowSchema.safeParse(raw);
+    if (parsed.success) rows.push(parsed.data);
+    else invalidRows += 1;
+  }
+  return { rows, invalidRows };
+}
 
 export const EmployeeDetailResponseSchema = z.object({
   row: EmployeeRowSchema,

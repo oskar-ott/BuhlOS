@@ -65,6 +65,21 @@ export async function EmployeesScreen({ selectedId }: { selectedId?: string | nu
 
         {summary ? <ResourceStatRow label="People at a glance" tiles={summary.tiles} /> : null}
 
+        {view.invalidRows > 0 ? (
+          <Card className="border-amber-200 bg-amber-50" role="alert">
+            <CardTitle>
+              {view.invalidRows === 1
+                ? "1 record couldn't be displayed"
+                : `${view.invalidRows} records couldn't be displayed`}
+            </CardTitle>
+            <CardDescription className="text-amber-900">
+              The rest of the register is shown below. A stored record has an
+              unexpected shape — it needs a look, but it no longer hides
+              everyone else.
+            </CardDescription>
+          </Card>
+        ) : null}
+
         {view.fetchError ? (
           <Card className="border-amber-200 bg-amber-50" role="alert">
             <CardTitle>Couldn&rsquo;t load employees</CardTitle>

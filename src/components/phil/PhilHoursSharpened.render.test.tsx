@@ -124,7 +124,12 @@ describe("PhilHoursSharpened — week cards", () => {
   });
 
   it("a submitted (undecided) day carries the compact 'Change' pill (2026-07-26 owner-directed, one small button per row)", () => {
-    const html = render([entry({ date: MONDAY, status: "submitted" })]);
+    // Deliberately NOT today: the logging card at the top of this week's block
+    // mounts LogHoursSheet for TODAY, which carries its own submitted-day
+    // affordance. Asserting the day ROW's shape means picking a day the log
+    // card can't be showing, or the test passes/fails by weekday.
+    const notToday = MONDAY === TODAY ? addDays(MONDAY, 1) : MONDAY;
+    const html = render([entry({ date: notToday, status: "submitted" })]);
     expect(html).toContain("Waiting on the office");
     expect(html).toContain("phil-edit-submitted");
     expect(html).toContain(">Change<");

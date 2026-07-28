@@ -10,6 +10,7 @@ import {
   SignupAdminResponseSchema,
   SignupRequestPublicSchema,
 } from "./signup";
+import { EmployeeRowSchema, partitionEmployeeRows } from "./schema";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const requireCjs = createRequire(import.meta.url);
@@ -142,5 +143,49 @@ describe("schemas", () => {
       flags: { duplicateEmail: false, duplicateName: false },
     };
     expect(SignupRequestPublicSchema.safeParse(legacyRow).success).toBe(true);
+  });
+});
+
+describe("signup-approved rows on the employees register (2026-07 prod incident)", () => {
+  // The exact shape api/employees.js#signup-approve writes (source
+  // 'signup-link' + payroll-match passthrough fields). A strict whole-list
+  // parse once rejected this row and blanked the ENTIRE register.
+  const approvedEmployee = {
+    id: "e_sr1",
+    firstName: "Jack",
+    lastName: "Smith",
+    displayName: null,
+    email: "jack@x.com",
+    phone: "0400000000",
+    role: "apprentice",
+    apprenticeYear: 2,
+    appAccess: "phil",
+    status: "active",
+    assignedJobIds: [],
+    assignedGearIds: [],
+    notes: null,
+    legalName: "Jack Henry Smith",
+    dob: "2004-04-03",
+    startDate: null,
+    createdAt: "2026-07-26T08:00:00.000Z",
+    createdBy: "u_admin",
+    lastActiveAt: null,
+    disabledAt: null,
+    userId: "u_new",
+    setup: { detailsConfirmed: true, loginCreated: true, introSeen: false, setupCompleteAt: "2026-07-26T08:00:00.000Z" },
+    source: "signup-link",
+  };
+  const row = (employee: unknown) => ({ employee, invite: null, jobsCount: 0, gearCount: 0 });
+
+  it("a signup-approved employee row parses (source 'signup-link' is a known value)", () => {
+    expect(EmployeeRowSchema.safeParse(row(approvedEmployee)).success).toBe(true);
+  });
+
+  it("one invalid row degrades to a count — it never rejects the valid rows", () => {
+    const bad = row({ ...approvedEmployee, id: "e_bad", source: "some-future-writer" });
+    const { rows, invalidRows } = partitionEmployeeRows([row(approvedEmployee), bad]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.employee.id).toBe("e_sr1");
+    expect(invalidRows).toBe(1);
   });
 });
