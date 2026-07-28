@@ -973,6 +973,45 @@ describe("POST and PUT /api/jobs", () => {
     }
   });
 
+  it("builderName rides create and PUT like any basics field: trimmed, capped, clearable", async () => {
+    const created = await call({
+      method: "POST",
+      userId: "u_admin",
+      role: "admin",
+      body: { name: "SMOKE_TEST_builder_job", status: "draft", builderName: "  Sansara  " },
+    });
+    expect(created.statusCode).toBe(200);
+    expect((created.body as { job: { builderName: string } }).job.builderName).toBe("Sansara");
+
+    const updated = await call({
+      method: "PUT",
+      userId: "u_admin",
+      role: "admin",
+      body: { id: "smoke-test-builder-job", builderName: "DCA" },
+    });
+    expect(updated.statusCode).toBe(200);
+    expect((updated.body as { job: { builderName: string } }).job.builderName).toBe("DCA");
+
+    // null clears (stored as '' — the shared basics null-clears convention).
+    const cleared = await call({
+      method: "PUT",
+      userId: "u_admin",
+      role: "admin",
+      body: { id: "smoke-test-builder-job", builderName: null },
+    });
+    expect(cleared.statusCode).toBe(200);
+    expect((cleared.body as { job: { builderName: string } }).job.builderName).toBe("");
+
+    // Non-string is a hard 400, like every BASIC_TEXT field.
+    const bad = await call({
+      method: "PUT",
+      userId: "u_admin",
+      role: "admin",
+      body: { id: "smoke-test-builder-job", builderName: 42 },
+    });
+    expect(bad.statusCode).toBe(400);
+  });
+
   it("blocks field users from mutating builder data", async () => {
     const res = await call({
       method: "PUT",
