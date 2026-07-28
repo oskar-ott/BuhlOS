@@ -368,7 +368,7 @@ export function PhilMyDayHonestyNote({ className }: { className?: string }) {
       )}
     >
       <p className="text-sm text-text-muted">
-        Materials &amp; job history aren&rsquo;t connected yet — so Phil doesn&rsquo;t show
+        Materials &amp; job history aren&rsquo;t connected yet — so BuhlOS doesn&rsquo;t show
         them.
       </p>
     </div>
