@@ -30,11 +30,14 @@ describe("LoginForm — office mode (frozen smoke hooks)", () => {
   });
 });
 
-describe("LoginForm — worker mode (#421)", () => {
+describe("LoginForm — worker mode (#421, email-first 2026-07-28)", () => {
   const html = renderToString(createElement(LoginForm, { initialMode: "worker" }));
 
-  it("renders a name field, a numeric PIN field and a full 0–9 keypad", () => {
-    expect(html).toContain("worker-name");
+  it("renders an email field, a numeric PIN field and a full 0–9 keypad", () => {
+    expect(html).toContain("worker-name"); // testid frozen — smoke hook
+    expect(html).toContain("Your email");
+    expect(html).not.toContain("Your name");
+    expect(html.toLowerCase()).toContain('type="email"');
     expect(html).toContain("worker-pin");
     expect(html.toLowerCase()).toContain('inputmode="numeric"');
     for (let d = 0; d <= 9; d++) expect(html).toContain(`worker-key-${d}`);

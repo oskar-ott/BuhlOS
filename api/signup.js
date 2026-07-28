@@ -3,34 +3,39 @@
 // The boss doesn't have every worker's email, so instead of one invite per
 // person (api/invites.js, O2/O3) they generate ONE shareable link and drop it
 // in the crew group chat: buhlos.com/onboarding/<code>. Anyone who opens it
-// while the link is live can submit their details + a PIN. Because the link
-// is deliberately shareable, a submission is NOT an account — it lands as a
-// pending request that an admin approves on /employees (the approval gate is
-// the security boundary). Approval creates the employee + login and sends the
-// welcome email; see api/employees.js ?action=signup-approve.
+// while the link is live can submit their details + a PIN.
+//
+// INSTANT ACCESS (founder decision 2026-07-28): link possession = account.
+// A valid submission creates the employee row + users.json login IMMEDIATELY
+// (one writer: api/_lib/signup-account.js, shared with the admin approve
+// action kept for leftover pending rows) — the worker can sign in with their
+// email + PIN straight away. The request row is kept, stamped approved, as
+// the joined-via-link history on /employees.
 //
 // PUBLIC endpoints (no session — the worker has no account yet):
 //   GET  /api/signup?action=resolve&code=…  → { state, link? }  (safe payload)
-//   POST /api/signup?action=submit          → { ok, state: 'pending' }
+//   POST /api/signup?action=submit          → { ok, state: 'approved', canSignIn: true }
 //
 // SECURITY:
 //   · Whole surface is dark behind the `signup_link` flag (404 when off).
 //   · The link code is stored PLAINTEXT in signup-links.json — unlike the
 //     per-worker invite tokenHash — because the admin must be able to re-copy
-//     the standing link, and possession of the code grants nothing but the
-//     right to SUBMIT a pending request. Expiry + pause/revoke + cap + the
-//     admin approval gate bound the blast radius.
+//     the standing link. Possession grants an ACCOUNT now, so the link's own
+//     gates bound the blast radius: expiry + pause/revoke + cap (all admin-
+//     controlled, unchanged), field roles only, duplicate-email refusal.
 //   · The PIN is bcrypt-hashed at submit and only the hash is stored; the
-//     login is created from that hash at approval. PIN is never logged.
+//     login is created from that hash and the queue copy is nulled in the
+//     same write. PIN is never logged.
 //   · Only FIELD roles can be requested from a public link — never admin or
 //     office tiers.
 //   · Duplicate email vs users/employees/pending requests → friendly 409.
 
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
-const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
+const { readBlob, setNoCache } = require('./_lib/blob');
 const { isFlagOn } = require('./_lib/feature-flags');
 const audit = require('./_lib/audit-log');
+const { createSignupAccount, SIGNUP_AUTO_REVIEWER } = require('./_lib/signup-account');
 
 const LINKS_KEY = 'signup-links.json';
 const REQUESTS_KEY = 'signup-requests.json';
@@ -93,11 +98,11 @@ function isPlausibleDob(iso) {
   return age >= 14 && age <= 100;
 }
 
-async function writeAudit(action, targetId, summary, metadata) {
+async function writeAudit(action, targetId, summary, metadata, targetType) {
   try {
     await audit.append({
       action, actorId: 'worker', actorName: 'worker', actorRole: null,
-      targetType: 'signup', targetId, summary, metadata: metadata || undefined,
+      targetType: targetType || 'signup', targetId, summary, metadata: metadata || undefined,
     });
   } catch (e) {
     console.error('signup audit append failed', action, e && e.message);
@@ -216,13 +221,32 @@ module.exports = async (req, res) => {
       rejectReason: null,
     };
     reqBlob.requests.push(request);
-    await writeBlob(REQUESTS_KEY, reqBlob);
+
+    // INSTANT ACCESS: create the account NOW (employee + users.json login),
+    // stamp the request approved with the auto sentinel, null its pinHash and
+    // persist all three stores — the shared writer the admin approve action
+    // also uses. Approved rows keep counting toward the link cap exactly as
+    // before (countTowardCap counts everything not rejected). On a duplicate
+    // race since the pre-checks above, nothing is written — same friendly 409
+    // as the pre-check, and no half-created request lingers in the queue.
+    const created = await createSignupAccount({
+      request, reqBlob, reviewedBy: SIGNUP_AUTO_REVIEWER, req,
+    });
+    if (!created.ok) {
+      return res.status(409).json({ error: 'Looks like you\'re already set up — sign in instead.', reason: 'existing_account' });
+    }
 
     await writeAudit('signup.submitted', request.id,
       `${firstName} ${lastName} signed up via crew link (${role})`,
       { email, role, linkId: link.id });
+    await writeAudit('signup.approved', request.id,
+      `${firstName} ${lastName} auto-approved — instant access via crew link (${role})`,
+      { email, role, linkId: link.id, employeeId: created.employee.id, auto: true, welcomeSent: created.welcomeSent });
+    await writeAudit('employee.activated', created.employee.id,
+      `${firstName} ${lastName} activated (${role})`, { role, auto: true }, 'employee');
 
-    return res.status(200).json({ ok: true, state: 'pending' });
+    // The account is live — tell the client it can sign in NOW.
+    return res.status(200).json({ ok: true, state: 'approved', canSignIn: true });
   }
 
   return res.status(404).json({ error: 'unknown action' });

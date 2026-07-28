@@ -122,3 +122,81 @@ describe("POST /api/auth?action=login — PIN throttle (#514)", () => {
     expect((await login("ghost", "0000")).statusCode).toBe(429);
   });
 });
+
+/**
+ * Email-first worker login (founder decision 2026-07-28). The worker screen
+ * asks for EMAIL; api/auth.js keeps the exact-username match first (legacy
+ * crew typing a name keep working) and, on a miss only, resolves the typed
+ * value against users' `email` field — one unambiguous match, then the SAME
+ * PIN compare + throttle + disabled gates as every login. Live fault this
+ * kills: a row whose username is a name but whose email was what the worker
+ * typed (Alfredo) could never sign in — the PIN was never compared.
+ */
+describe("POST /api/auth?action=login — email fallback on exact-username miss", () => {
+  beforeEach(() => {
+    const users = (blob.get("users.json") as { users: Array<Record<string, unknown>> }).users;
+    users.push(
+      // Legacy crew member: NAME username, no email on the row.
+      { id: "u_bob", username: "bob", role: "electrician", passwordHash: HASH },
+      // Signup/invite-created: username IS the email (exact path serves it).
+      { id: "u_signup", username: "alfredo.reyes@gmail.com", email: "alfredo.reyes@gmail.com", role: "electrician", passwordHash: HASH },
+      // Hand-created: NAME username with the email only in the email field.
+      { id: "u_wendy", username: "wendy", email: "wendy.h@gmail.com", role: "electrician", passwordHash: HASH },
+      // Legacy dirt: two rows sharing one email — must never be guessed between.
+      { id: "u_twin_a", username: "twin.a", email: "shared@gmail.com", role: "electrician", passwordHash: HASH },
+      { id: "u_twin_b", username: "twin.b", email: "shared@gmail.com", role: "apprentice", passwordHash: HASH },
+      // Disabled account reachable via the email fallback.
+      { id: "u_gone", username: "gonzo", email: "gone@gmail.com", role: "electrician", passwordHash: HASH, archived: true },
+    );
+  });
+
+  it("a legacy NAME username still logs in unchanged (label change breaks nobody)", async () => {
+    const r = await login("bob", PIN);
+    expect(r.statusCode).toBe(200);
+    expect((r.body as { user: { id: string } }).user.id).toBe("u_bob");
+  });
+
+  it("a signup-created user (username=email) logs in with the email via the exact path", async () => {
+    const r = await login("Alfredo.Reyes@gmail.com", PIN);
+    expect(r.statusCode).toBe(200);
+    expect((r.body as { user: { id: string; passwordHash?: string } }).user.id).toBe("u_signup");
+    expect((r.body as { user: { passwordHash?: string } }).user.passwordHash).toBeUndefined();
+  });
+
+  it("a NAME-username row with an email field resolves via the email fallback", async () => {
+    const r = await login("Wendy.H@gmail.com", PIN);
+    expect(r.statusCode).toBe(200);
+    expect((r.body as { user: { id: string } }).user.id).toBe("u_wendy");
+    // Her username keeps working too — the exact path is untouched.
+    expect((await login("wendy", PIN)).statusCode).toBe(200);
+  });
+
+  it("two rows sharing an email stay a generic 401 — never guess between them", async () => {
+    const r = await login("shared@gmail.com", PIN);
+    expect(r.statusCode).toBe(401);
+    expect(r.body).toEqual({ error: "invalid credentials" });
+    // Each twin still signs in by their own username.
+    expect((await login("twin.a", PIN)).statusCode).toBe(200);
+    expect((await login("twin.b", PIN)).statusCode).toBe(200);
+  });
+
+  it("an unknown email stays the generic 401", async () => {
+    expect((await login("nobody@gmail.com", PIN)).statusCode).toBe(401);
+  });
+
+  it("a wrong PIN on an email-resolved user is 401 AND counts toward the throttle", async () => {
+    for (let i = 0; i < 5; i += 1) {
+      expect((await login("wendy.h@gmail.com", "0000")).statusCode).toBe(401);
+    }
+    const sixth = await login("wendy.h@gmail.com", "0000");
+    expect(sixth.statusCode).toBe(429); // recorded under the TYPED key
+    // Locked under the typed email — even the correct PIN is refused now.
+    expect((await login("wendy.h@gmail.com", PIN)).statusCode).toBe(429);
+  });
+
+  it("the disabled-user gate applies to an email-resolved account", async () => {
+    const r = await login("gone@gmail.com", PIN);
+    expect(r.statusCode).toBe(403);
+    expect(r.body).toEqual({ error: "Account disabled. Ask your supervisor." });
+  });
+});

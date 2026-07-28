@@ -22,9 +22,10 @@ interface SignupFlowProps {
 
 /**
  * Crew sign-up self-service flow (mobile-first): landing → who you are →
- * payroll match → PIN → review → pending. Mirrors the invite setup flow's
- * shell (one primary CTA per screen, calm copy, honest dead states). The
- * submission only creates a pending request — copy says so plainly.
+ * payroll match → PIN → review → you're in. Mirrors the invite setup flow's
+ * shell (one primary CTA per screen, calm copy, honest dead states). Instant
+ * access (2026-07-28): a valid submission creates the account on the spot —
+ * the done screen sends them straight to sign-in (email + PIN).
  */
 export function SignupFlow({ code, state, link }: SignupFlowProps) {
   if (state !== "valid" || !link) return <DeadState state={state} />;
@@ -271,8 +272,8 @@ function Steps({
           </h1>
           <p className="mt-3 text-[15px] leading-relaxed text-text-muted">
             {createdByName ? `${createdByName} shared this link. ` : ""}BuhlOS is the app the crew
-            uses for hours, jobs and gear. Sign yourself up — takes about two minutes — and the
-            office approves you.
+            uses for hours, jobs and gear. Sign yourself up — takes about two minutes — and
+            you&rsquo;re straight in.
           </p>
           <ul className="mt-5 space-y-2 text-[15px] text-text">
             <li className="flex items-center gap-2">
@@ -280,12 +281,12 @@ function Steps({
               PIN
             </li>
             <li className="flex items-center gap-2">
-              <ShieldCheck className="h-4 w-4 text-brand-navy" aria-hidden /> The office checks
-              it&rsquo;s really you
+              <ShieldCheck className="h-4 w-4 text-brand-navy" aria-hidden /> You&rsquo;re in as
+              soon as you finish
             </li>
             <li className="flex items-center gap-2">
-              <ShieldCheck className="h-4 w-4 text-brand-navy" aria-hidden /> You get an email when
-              you&rsquo;re in
+              <ShieldCheck className="h-4 w-4 text-brand-navy" aria-hidden /> Sign in with your
+              email + your PIN
             </li>
           </ul>
         </div>
@@ -337,7 +338,7 @@ function Steps({
               autoComplete="tel"
             />
           </Field>
-          <Field label="Email" hint="Your welcome email lands here once you're approved.">
+          <Field label="Email" hint="You'll sign in with this — your welcome email lands here too.">
             <input
               className={inputCls}
               inputMode="email"
@@ -445,7 +446,7 @@ function Steps({
         <Progress step={3} />
         <h1 className="font-display text-xl text-text">Pick your PIN</h1>
         <p className="mt-2 text-[15px] leading-relaxed text-text-muted">
-          4 digits. You&rsquo;ll use it with your name every time you open BuhlOS. Pick something
+          4 digits. You&rsquo;ll use it with your email every time you open BuhlOS. Pick something
           you&rsquo;ll remember — but not 1234.
         </p>
         <div className="mt-4 space-y-4">
@@ -514,8 +515,7 @@ function Steps({
           Change something
         </button>
         <p className="mt-4 text-[14px] leading-relaxed text-text-muted">
-          The office checks it&rsquo;s really you, then you&rsquo;re in. You&rsquo;ll get an email
-          and can sign in once approved.
+          Hit finish and you&rsquo;re in — sign in straight after with your email and PIN.
         </p>
         {serverError ? (
           <p className="mt-3 rounded-card border border-amber-200 bg-amber-50 px-3 py-2 text-[14px] text-amber-900" role="alert">
@@ -524,27 +524,32 @@ function Steps({
         ) : null}
         <div className="mt-6" />
         <PrimaryCta busy={busy} onClick={submit}>
-          Send to the office <ArrowRight className="h-5 w-5" aria-hidden />
+          Finish sign-up <ArrowRight className="h-5 w-5" aria-hidden />
         </PrimaryCta>
       </Screen>
     );
   }
 
-  // done
+  // done — the account is live (instant access); point straight at sign-in.
   return (
     <Screen>
       <div className="my-auto text-center">
-        <p className="font-mono text-[12px] uppercase tracking-widest text-text-muted">Sent</p>
+        <p className="font-mono text-[12px] uppercase tracking-widest text-text-muted">
+          You&rsquo;re in
+        </p>
         <h1 className="mt-2 font-display text-2xl text-text">Nice one, {draft.preferredName || draft.firstName}.</h1>
         <p className="mt-3 text-[15px] leading-relaxed text-text-muted">
-          The office has your sign-up. Once they approve it you&rsquo;ll get a welcome email at{" "}
-          <span className="font-semibold text-text">{draft.email}</span> — then sign in with your
-          name and PIN.
-        </p>
-        <p className="mt-4 text-[14px] text-text-muted">
-          Nothing else to do here. See you on site.
+          Your login works right now — your email{" "}
+          <span className="font-semibold text-text">{draft.email}</span> and your 4-digit PIN.
+          Keep an eye out for a welcome email too. See you on site.
         </p>
       </div>
+      <a
+        href="/v2/login?mode=worker"
+        className="mt-auto flex h-14 w-full items-center justify-center gap-2 rounded-card bg-accent-yellow text-base font-semibold text-brand-navy active:opacity-90"
+      >
+        Sign in <ArrowRight className="h-5 w-5" aria-hidden />
+      </a>
     </Screen>
   );
 }

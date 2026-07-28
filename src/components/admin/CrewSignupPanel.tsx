@@ -13,9 +13,11 @@ import {
 
 /**
  * Crew sign-up link panel (/employees, behind the `signup_link` flag): the
- * shareable /onboarding/<code> link + the pending review queue. A signup is
- * NOT an account until approved here — this queue IS the security gate for
- * the deliberately shareable link.
+ * shareable /onboarding/<code> link + who joined through it. Instant access
+ * (2026-07-28): a signup IS an account the moment it's submitted — the link's
+ * own controls here (pause / revoke / expiry / cap) are the security gate.
+ * The approve/knock-back queue below only shows leftover rows from before
+ * instant access went live.
  */
 export function CrewSignupPanel() {
   const [link, setLink] = useState<SignupLinkView | null>(null);
@@ -97,8 +99,9 @@ export function CrewSignupPanel() {
           <div>
             <CardTitle>Crew sign-up link</CardTitle>
             <CardDescription className="mt-1 max-w-xl">
-              One link for the group chat. Anyone who opens it signs themselves up — nothing goes
-              live until you approve them below.
+              One link for the group chat. Anyone who opens it signs themselves up and is in
+              straight away — the counts below are who joined via the link. Pause or revoke it to
+              shut the door.
             </CardDescription>
           </div>
           {link ? <LinkStateChip state={link.state} /> : null}
@@ -131,8 +134,8 @@ export function CrewSignupPanel() {
               {link.state === "valid"
                 ? `Open until ${formatDate(link.expiresAt)}${link.cap ? ` · capped at ${link.cap}` : ""}. `
                 : ""}
-              {link.counts.pending} pending · {link.counts.approved} approved
-              {link.counts.rejected ? ` · ${link.counts.rejected} rejected` : ""}
+              {link.counts.approved} joined{link.counts.pending ? ` · ${link.counts.pending} pending` : ""}
+              {link.counts.rejected ? ` · ${link.counts.rejected} knocked back` : ""}
             </p>
             <div className="flex flex-wrap gap-2">
               {link.status === "active" ? (
@@ -201,8 +204,9 @@ export function CrewSignupPanel() {
         <Card>
           <CardTitle>Waiting on you ({requests.length})</CardTitle>
           <CardDescription className="mt-1">
-            Approve creates their account and sends the welcome email. The legal name + date of
-            birth are there so matching them in Xero payroll is a one-glance job.
+            These signed up before instant access went live. Approve still creates their account
+            and sends the welcome email. The legal name + date of birth are there so matching them
+            in Xero payroll is a one-glance job.
           </CardDescription>
           <ul className="mt-4 space-y-3">
             {requests.map((r) => (

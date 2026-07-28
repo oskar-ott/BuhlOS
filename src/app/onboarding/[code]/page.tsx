@@ -6,7 +6,7 @@ import { SignupFlow } from "@/components/onboarding/SignupFlow";
 
 export const metadata: Metadata = {
   title: "Join the crew · BuhlOS",
-  description: "Sign yourself up — your details, your PIN, and the office approves you.",
+  description: "Sign yourself up — your details, your PIN, and you're straight in.",
 };
 
 export const dynamic = "force-dynamic";
@@ -16,9 +16,10 @@ export const dynamic = "force-dynamic";
  *
  * PUBLIC route (no session — the worker has no account yet), same pattern as
  * /phil/invite/[token]: the code is resolved server-side before render so
- * there's no flicker between valid and dead states. Unlike an invite, this
- * link is deliberately shareable — a submission only creates a PENDING
- * request; the admin approval gate on /employees is the security boundary.
+ * there's no flicker between valid and dead states. This link is deliberately
+ * shareable and a valid submission creates the ACCOUNT on the spot (instant
+ * access, 2026-07-28) — the link's expiry/cap/pause/revoke + field-roles-only
+ * + duplicate refusal are the boundary (see api/signup.js).
  */
 export default async function SignupPage({
   params,

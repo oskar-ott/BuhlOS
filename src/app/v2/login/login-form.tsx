@@ -23,9 +23,11 @@ interface LoginFormProps {
  *     "Work email" strings and the login-username / login-password /
  *     login-submit testids are load-bearing (field-readiness + auth-routing
  *     smoke). Do not touch them.
- *   • WORKER (#421) — name + 4-digit PIN on big glove-friendly keys, no office
- *     dialect ("Work email"/"Password" never appear). Same POST, distinct
- *     worker-* testids so the office smoke is unaffected.
+ *   • WORKER (#421, email-first 2026-07-28) — email + 4-digit PIN on big
+ *     glove-friendly keys, no office dialect ("Work email"/"Password" never
+ *     appear). Same POST, distinct worker-* testids so the office smoke is
+ *     unaffected. Legacy crew who know a NAME username can still type it —
+ *     api/auth.js matches exact username first, then the email field.
  *
  * Intentional deviations from the replica:
  *   • "Forgot your password?" — omitted (no self-service reset backend; a dead
@@ -214,7 +216,7 @@ export function LoginForm({ next, initialMode = "office" }: LoginFormProps) {
           }}
           data-testid="login-worker-switch"
         >
-          On the tools? Sign in with your name &amp; PIN →
+          On the tools? Sign in with your email &amp; PIN →
         </button>
       </div>
     </div>
@@ -222,9 +224,10 @@ export function LoginForm({ next, initialMode = "office" }: LoginFormProps) {
 }
 
 /**
- * #421 — worker sign-in: name + 4-digit PIN on big keys. No "Work email" /
- * "Password" anywhere. Same POST as the office form (name → username, PIN →
- * secret). A wrong PIN clears the keys for an immediate retry.
+ * #421 — worker sign-in, email-first (2026-07-28): email + 4-digit PIN on big
+ * keys. No "Work email" / "Password" anywhere. Same POST as the office form
+ * (typed value → username, PIN → secret); the server also accepts a legacy
+ * NAME username unchanged. A wrong PIN clears the keys for an immediate retry.
  */
 function WorkerSignIn({
   pending,
@@ -272,25 +275,26 @@ function WorkerSignIn({
             <div className={styles.ic}>!</div>
             <div>
               <b>That PIN doesn&apos;t match</b>
-              <p>Try again — your name and 4-digit PIN.</p>
+              <p>Try again — your email and 4-digit PIN.</p>
             </div>
           </div>
         ) : null}
 
         <div className={styles.field}>
           <label className={styles.label} htmlFor="worker-name">
-            <span>Your name</span>
+            <span>Your email</span>
           </label>
           <div className={styles.inputWrap}>
             <input
               id="worker-name"
               data-testid="worker-name"
               className={styles.input}
-              type="text"
-              autoComplete="username"
+              type="email"
+              inputMode="email"
+              autoComplete="email"
               autoCapitalize="none"
               spellCheck={false}
-              placeholder="e.g. jdoust"
+              placeholder="e.g. jdoust@gmail.com"
               value={name}
               onChange={(e) => setName(e.target.value)}
               autoFocus
