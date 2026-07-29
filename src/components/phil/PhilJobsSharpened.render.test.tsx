@@ -97,16 +97,15 @@ describe("PhilJobsSharpened", () => {
       expect(html, status).not.toContain("phil-jobs-on-today");
       expect(html, status).not.toContain("On today");
       expect(html, status).not.toContain("border-l-accent-yellow");
-      // It still renders exactly once, in the register, honestly badged
+      // It still renders exactly once, in the flat list, honestly badged
       // (one row link — its aria-label — not a hero AND a row).
-      expect(html, status).toContain("Your jobs · 1");
       expect(html, status).toContain('data-testid="phil-jobs-all"');
       expect(html.match(/Open Wrapped Up Estate/g), status).toHaveLength(1);
       expect(html, status).toContain(badge);
     }
   });
 
-  it("the hero job never repeats in the register — one job renders ONCE (hero only, no 'Your jobs · 1')", () => {
+  it("the hero job never repeats in the list — one job renders ONCE (hero only)", () => {
     const html = renderToString(
       createElement(PhilJobsSharpened, {
         initialJobs: [mk("a", "Birdwood Estate")],
@@ -116,22 +115,44 @@ describe("PhilJobsSharpened", () => {
     expect(html).toContain('data-testid="phil-jobs-on-today"');
     // Exactly one rendered entry for the job.
     expect(html.match(/Birdwood Estate/g)).toHaveLength(1);
-    // The register (the OTHERS) is empty → the whole section drops.
-    expect(html).not.toContain("Your jobs");
+    // The flat list (the OTHERS) is empty → it drops entirely, and there's
+    // nothing to search either (P10).
     expect(html).not.toContain('data-testid="phil-jobs-all"');
+    expect(html).not.toContain('data-testid="phil-jobs-search"');
   });
 
-  it("renders the counted register with the preserved phil-jobs-all testid", () => {
+  it("renders ONE flat list — no Recent group, no 'Your jobs' heading (owner call 2026-07-30)", () => {
     const html = renderToString(
       createElement(PhilJobsSharpened, {
         initialJobs: [mk("a", "Zebra"), mk("b", "Apple"), mk("c", "Mango")],
       }),
     );
-    expect(html).toContain("Your jobs · 3");
     expect(html).toContain('data-testid="phil-jobs-all"');
     expect(html).toContain("Zebra");
     expect(html).toContain("Apple");
     expect(html).toContain("Mango");
+    // The section headings are gone — one list, no grouping chrome.
+    expect(html).not.toContain("Your jobs");
+    expect(html).not.toContain(">Recent<");
+    expect(html).not.toContain("phil-jobs-recent");
+  });
+
+  it("shows the search box once a worker has 2+ jobs, hides it for one job", () => {
+    const many = renderToString(
+      createElement(PhilJobsSharpened, {
+        initialJobs: [mk("a", "Alpha"), mk("b", "Beta")],
+      }),
+    );
+    expect(many).toContain('data-testid="phil-jobs-search"');
+    expect(many).toContain('aria-label="Search jobs"');
+    // No query typed (SSR) → no clear button, no empty-result note.
+    expect(many).not.toContain("phil-jobs-search-clear");
+    expect(many).not.toContain("phil-jobs-search-empty");
+
+    const one = renderToString(
+      createElement(PhilJobsSharpened, { initialJobs: [mk("a", "Alpha")] }),
+    );
+    expect(one).not.toContain("phil-jobs-search");
   });
 
   it("keeps rows honest: real withStats signals when present, nothing when absent", () => {
@@ -175,15 +196,13 @@ describe("PhilJobsSharpened", () => {
     expect(html).toContain('aria-label="Pin Alpha"');
   });
 
-  it("SSR paint is the stable name-first list — no Recent group, no pins without a user", () => {
+  it("SSR paint is the stable name-first list — no pins without a user", () => {
     const html = renderToString(
       createElement(PhilJobsSharpened, {
         initialJobs: [mk("a", "A"), mk("b", "B"), mk("c", "C"), mk("d", "D")],
       }),
     );
-    // The Recent group is post-mount + prefs-gated, exactly like PhilJobsList.
-    expect(html).not.toContain("phil-jobs-recent");
-    expect(html).not.toContain(">Recent<");
+    // Recency ordering is post-mount + prefs-gated (no fabricated "recent").
     expect(html).not.toContain("phil-job-pin-");
   });
 });
