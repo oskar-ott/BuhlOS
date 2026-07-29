@@ -12,8 +12,10 @@ import {
   ListChecks,
   Map as MapIcon,
   Plus,
+  Search,
   ShieldCheck,
   Star,
+  X,
 } from "lucide-react";
 import { PhilOfflineLink } from "./PhilOfflineLink";
 import { PhilStatusBadge, type PhilStatusTone } from "./ui/PhilStatusBadge";
@@ -28,6 +30,7 @@ import {
   type JobListPrefs,
 } from "./jobListPrefs";
 import { orderJobList } from "./jobListOrder";
+import { filterJobList } from "./jobListFilter";
 import { useLongPress } from "./useLongPress";
 import { PhilShortcutSheet } from "./PhilShortcutSheet";
 import {
@@ -48,10 +51,17 @@ import { PhilNewJobSheet } from "./PhilNewJobSheet";
  * PhilJobsList screen, byte-identical (src/app/phil/jobs/page.tsx branches).
  * A restyled PROJECTION of the same list — behaviour preserved, not rebuilt:
  *
- *   - Recent + pinned ordering (#145, jobListPrefs/orderJobList), the
- *     glove-sized pin control, and the long-press row-actions sheet (#146)
- *     all carry over with their load-bearing testids
- *     (phil-jobs-recent / phil-jobs-all / phil-job-pin-*).
+ *   - ONE flat list (owner-pulled 2026-07-30): the "Recent" shortlist group
+ *     and the "Your jobs · N" heading are gone — fewer slots (P10), same
+ *     recency-first order underneath (#145: pinned first, then most-recently
+ *     opened, never-opened jobs name-first — no fabricated "recent", P7).
+ *     The glove-sized pin control and the long-press row-actions sheet
+ *     (#146) carry over with their load-bearing testids
+ *     (phil-jobs-all / phil-job-pin-*).
+ *   - Search (owner-pulled 2026-07-30): a filter box above the list once a
+ *     worker has 2+ jobs (invisible for the single-job worker, P10). Pure
+ *     token match over name / code / ref / address (jobListFilter) — the
+ *     filtered list keeps the recency order; zero matches says so honestly.
  *   - "+ New job" (Wave 2b): the navy header button opens PhilNewJobSheet —
  *     an in-page full-screen form (no new route) posting the RESTRICTED
  *     field-create body to /api/jobs (name + IV#### code + optional address;
@@ -132,10 +142,7 @@ export function PhilJobsSharpened({ initialJobs, userId = "" }: Props) {
     [userId],
   );
 
-  const { recentGroup, fullList, showRecentGroup } = useMemo(
-    () => orderJobList(initialJobs, prefs),
-    [initialJobs, prefs],
-  );
+  const { fullList } = useMemo(() => orderJobList(initialJobs, prefs), [initialJobs, prefs]);
 
   const pinnedSet = useMemo(() => new Set(prefs.pinned), [prefs.pinned]);
   const canPin = userId.length > 0;
@@ -160,15 +167,15 @@ export function PhilJobsSharpened({ initialJobs, userId = "" }: Props) {
     () => (heroJob ? fullList.filter((j) => j.id !== heroJob.id) : fullList),
     [heroJob, fullList],
   );
-  const recentJobs = useMemo(
-    () => (heroJob ? recentGroup.filter((j) => j.id !== heroJob.id) : recentGroup),
-    [heroJob, recentGroup],
-  );
+
+  // Search — client-only filter over the SAME recency-ordered list. Hidden
+  // for a single-job worker (nothing to search, P10).
+  const [query, setQuery] = useState("");
+  const visibleJobs = useMemo(() => filterJobList(registerJobs, query), [registerJobs, query]);
 
   return (
     <div className="space-y-4" data-testid="phil-jobs-sharpened">
-      {/* Header: title + navy "+ New job" (Wave 2b — prototype §2.2). The job
-          count lives on the "Your jobs · N" register heading below. */}
+      {/* Header: title + navy "+ New job" (Wave 2b — prototype §2.2). */}
       <header className="flex items-center justify-between gap-3">
         <h1 className="font-display text-2xl font-extrabold tracking-[-0.02em] text-text">
           Jobs
@@ -191,47 +198,46 @@ export function PhilJobsSharpened({ initialJobs, userId = "" }: Props) {
         />
       ) : (
         <>
-          {heroJob ? <OnTodayCard job={heroJob} /> : null}
-
-          {showRecentGroup && recentJobs.length > 0 ? (
-            <section aria-labelledby="phil-jobs-recent-heading" className="space-y-1.5">
-              <h2
-                id="phil-jobs-recent-heading"
-                className="px-1 font-display text-[12px] font-bold uppercase tracking-[0.09em] text-text-muted"
-              >
-                Recent
-              </h2>
-              <ul
-                data-testid="phil-jobs-recent"
-                className="divide-y divide-border overflow-hidden rounded-card border border-border bg-surface-raised"
-              >
-                {recentJobs.map((job) => (
-                  <li key={job.id}>
-                    <SharpJobRow
-                      job={job}
-                      pinned={pinnedSet.has(job.id)}
-                      canPin={canPin}
-                      onTogglePin={onTogglePin}
-                    />
-                  </li>
-                ))}
-              </ul>
-            </section>
+          {initialJobs.length > 1 ? (
+            <div className="relative">
+              <Search
+                aria-hidden="true"
+                className="pointer-events-none absolute left-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-text-muted"
+              />
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search jobs"
+                aria-label="Search jobs"
+                data-testid="phil-jobs-search"
+                enterKeyHint="search"
+                autoCorrect="off"
+                className="h-12 w-full rounded-card border border-border bg-surface-raised pl-11 pr-12 text-base text-text outline-none placeholder:text-text-muted focus:border-brand-navy [&::-webkit-search-cancel-button]:hidden"
+              />
+              {query ? (
+                <button
+                  type="button"
+                  onClick={() => setQuery("")}
+                  aria-label="Clear search"
+                  data-testid="phil-jobs-search-clear"
+                  className="absolute right-1 top-1/2 flex min-h-[44px] min-w-[44px] -translate-y-1/2 items-center justify-center rounded-card text-text-muted hover:bg-surface-subtle active:scale-95"
+                >
+                  <X aria-hidden="true" className="h-5 w-5" />
+                </button>
+              ) : null}
+            </div>
           ) : null}
 
+          {heroJob ? <OnTodayCard job={heroJob} /> : null}
+
           {registerJobs.length > 0 ? (
-            <section aria-labelledby="phil-jobs-your-heading" className="space-y-1.5">
-              <h2
-                id="phil-jobs-your-heading"
-                className="px-1 font-display text-[12px] font-bold uppercase tracking-[0.09em] text-text-muted"
-              >
-                {`Your jobs · ${registerJobs.length}`}
-              </h2>
+            visibleJobs.length > 0 ? (
               <ul
                 data-testid="phil-jobs-all"
                 className="divide-y divide-border overflow-hidden rounded-card border border-border bg-surface-raised"
               >
-                {registerJobs.map((job) => (
+                {visibleJobs.map((job) => (
                   <li key={job.id}>
                     <SharpJobRow
                       job={job}
@@ -242,7 +248,15 @@ export function PhilJobsSharpened({ initialJobs, userId = "" }: Props) {
                   </li>
                 ))}
               </ul>
-            </section>
+            ) : (
+              <p
+                data-testid="phil-jobs-search-empty"
+                className="rounded-card border border-dashed border-border bg-surface-subtle px-4 py-3 text-sm text-text-muted"
+              >
+                Nothing matches &ldquo;{query.trim()}&rdquo;. Check the spelling or clear the
+                search.
+              </p>
+            )
           ) : null}
         </>
       )}
