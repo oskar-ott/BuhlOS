@@ -142,9 +142,8 @@ describe("middleware — Phil surfaces are field/LH only", () => {
     expect(isPassThrough(middleware(request("/phil/my-day", { role: "leadinghand" })))).toBe(true);
   });
 
-  it("redirects an admin off /phil/jobs back to the Command Centre", () => {
-    const target = redirectTarget(middleware(request("/phil/jobs", { role: "admin" })));
-    expect(target?.pathname).toBe("/command-centre");
+  it("lets an admin through /phil/jobs (owner decision 2026-08-02: admin staff log tool-day hours)", () => {
+    expect(isPassThrough(middleware(request("/phil/jobs", { role: "admin" })))).toBe(true);
   });
 });
 
@@ -207,9 +206,8 @@ describe("middleware — /owner Owner Console (coarse admin gate; owner-only at 
     expect(target?.pathname).toBe("/client");
   });
 
-  it("sends an owner who lands on a Phil surface back to the Owner Console (landingFor)", () => {
-    const target = redirectTarget(middleware(request("/phil/jobs", { role: "owner" })));
-    expect(target?.pathname).toBe("/owner");
+  it("lets the owner through a Phil surface (admin tier on Phil, owner decision 2026-08-02)", () => {
+    expect(isPassThrough(middleware(request("/phil/jobs", { role: "owner" })))).toBe(true);
   });
 });
 

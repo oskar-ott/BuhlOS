@@ -327,7 +327,10 @@ function canViewDraftJobs(role) { return isAdminRole(role); }
 function canViewArchivedJobs(role) { return isAdminRole(role); }
 
 // Hours — field/LH log their own (or on-behalf); staff approve/reject.
-function canSubmitHours(role) { return isFieldRole(role) || isLeadingHandRole(role); }
+// Admin tier included since 2026-08-02 (owner decision): admin staff log
+// tool-day hours; unmapped workers are withheld from the Xero push, so
+// admin hours never reach payroll unless the office maps them.
+function canSubmitHours(role) { return isFieldRole(role) || isLeadingHandRole(role) || isAdminRole(role); }
 function canApproveHours(role) { return isStaffRole(role); }
 
 // "Expected to log hours" — the missing-hours / payroll-readiness tracking
