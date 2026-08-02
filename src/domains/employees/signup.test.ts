@@ -81,13 +81,13 @@ describe("public-link role guard", () => {
     expect(SIGNUP_ROLES).not.toContain("pm");
     expect(SIGNUP_ROLES).not.toContain("estimator");
   });
-  it("offers only electrician and apprentice — labourer/LH come via invite", () => {
-    expect([...SIGNUP_ROLES]).toEqual(["electrician", "apprentice"]);
+  it("offers electrician, apprentice + subcontractor (2026-08-02) — labourer/LH come via invite", () => {
+    expect([...SIGNUP_ROLES]).toEqual(["electrician", "apprentice", "subcontractor"]);
   });
   it("matches the FIELD_ROLES list in api/signup.js", () => {
     const fs = requireCjs("node:fs") as typeof import("node:fs");
     const src = fs.readFileSync(resolve(REPO, "api/signup.js"), "utf8");
-    expect(src).toContain("const FIELD_ROLES = ['electrician', 'apprentice'];");
+    expect(src).toContain("const FIELD_ROLES = ['electrician', 'apprentice', 'subcontractor'];");
   });
 });
 

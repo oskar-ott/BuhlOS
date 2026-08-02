@@ -40,6 +40,7 @@ export const EMPLOYEE_ROLES = [
   "electrician",
   "apprentice",
   "labourer",
+  "subcontractor",
 ] as const;
 export const EmployeeRoleSchema = z.enum(EMPLOYEE_ROLES);
 

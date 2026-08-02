@@ -207,6 +207,49 @@ describe("validatePayroll", () => {
     });
   });
 
+  describe("subcontractor hours never reach the push (owner decision 2026-08-02)", () => {
+    const subbieRow = (over: Record<string, unknown> = {}) =>
+      row({ workerId: "w9", workerName: "Sam Subbie", workerRole: "subcontractor", ...over });
+
+    it("subbie rows are partitioned out — no unmapped warning, not in the included set", () => {
+      // Sam is deliberately NOT in workerReadiness (never mapped) — that must
+      // not read as an unmapped worker to link.
+      const input = base({ rows: [row(), subbieRow()] });
+      const v = validatePayroll(input);
+      expect(v.ready).toBe(true);
+      expect(codes(v).errors).toEqual([]);
+      expect(codes(v).warnings).toEqual(["subcontractor_hours_excluded"]);
+      const w = v.warnings.find((x: { code: string }) => x.code === "subcontractor_hours_excluded");
+      expect(w.workers).toEqual(["Sam Subbie"]);
+      expect(w.message).toMatch(/never pushed to Xero/);
+
+      const p = partitionPayrollRows({ rows: input.rows, workerReadiness: input.workerReadiness });
+      expect(p.includedRows.map((r: { workerId: string }) => r.workerId)).toEqual(["w1"]);
+      expect(p.outsideWorkers).toEqual([{ workerId: "w9", workerName: "Sam Subbie" }]);
+      expect(p.withheldWorkers).toEqual([]);
+    });
+
+    it("the summary counts only payroll hours — subbie hours stay out", () => {
+      const v = validatePayroll(base({ rows: [row(), subbieRow({ hours: 6, ordinaryHours: 6 })] }));
+      expect(v.summary.totalHours).toBe(8);
+      expect(v.summary.workerCount).toBe(1);
+    });
+
+    it("an only-subbies period blocks with an honest 'nothing to push' message", () => {
+      const v = validatePayroll(base({ rows: [subbieRow()] }));
+      expect(v.ready).toBe(false);
+      expect(codes(v).errors).toEqual(["no_rows"]);
+      expect(v.errors[0].message).toMatch(/job costing/);
+      // And no nag to link the subbie in Xero.
+      expect(codes(v).warnings).not.toContain("unmapped_workers_withheld");
+    });
+
+    it("subbie hours still have to be DECIDED — undecided subbie rows block like anyone's", () => {
+      const v = validatePayroll(base({ rows: [row(), subbieRow({ status: "submitted" })] }));
+      expect(codes(v).errors).toContain("unapproved_entries");
+    });
+  });
+
   it("broken links: employee vanished, no calendar; terminated is a WARNING (final pay)", () => {
     const gone = validatePayroll(base({ employeesById: new Map() }));
     expect(codes(gone).errors).toContain("employee_missing");

@@ -42,14 +42,15 @@ describe("deriveAppAccess", () => {
     electrician: "phil",
     apprentice: "phil",
     labourer: "phil",
+    subcontractor: "phil",
   };
   it("maps every role to the matrix surface", () => {
     for (const role of ROLE_ORDER) {
       expect(deriveAppAccess(role)).toBe(expected[role]);
     }
   });
-  it("covers all eight roles", () => {
-    expect(ROLE_ORDER).toHaveLength(8);
+  it("covers all nine roles (subcontractor joined 2026-08-02)", () => {
+    expect(ROLE_ORDER).toHaveLength(9);
   });
   it("renders a plain-language footer per access bucket", () => {
     expect(appAccessFooter("apprentice")).toMatch(/field app only/);

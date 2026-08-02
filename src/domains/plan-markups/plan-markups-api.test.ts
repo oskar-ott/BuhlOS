@@ -84,7 +84,7 @@ beforeEach(() => {
           { id: "u_field", username: "sparky", role: "electrician", assignedJobIds: ["job-1"] },
           { id: "u_field2", username: "appy", role: "tradie", assignedJobIds: ["job-2"] },
           { id: "u_client", username: "client", role: "client", assignedJobIds: ["job-1"] },
-          { id: "u_unknown", username: "subbie", role: "subcontractor", assignedJobIds: ["job-1"] },
+          { id: "u_unknown", username: "mystery", role: "surveyor", assignedJobIds: ["job-1"] },
         ],
       },
     ],
@@ -183,7 +183,9 @@ describe("field workers cannot write", () => {
 
   it("403s a client, unknown assigned role, and off-job worker's GET", async () => {
     expect((await call({ method: "GET", userId: "u_client", role: "client", query: { jobId: "job-1", planId: "plan-current", page: "0" } })).statusCode).toBe(403);
-    expect((await call({ method: "GET", userId: "u_unknown", role: "subcontractor", query: { jobId: "job-1", planId: "plan-current", page: "0" } })).statusCode).toBe(403);
+    // "surveyor" = a role outside every tier ("subcontractor" became a real
+    // field role 2026-08-02, so it no longer works as the unknown example).
+    expect((await call({ method: "GET", userId: "u_unknown", role: "surveyor", query: { jobId: "job-1", planId: "plan-current", page: "0" } })).statusCode).toBe(403);
     expect((await call({ method: "GET", userId: "u_field2", role: "tradie", query: { jobId: "job-1", planId: "plan-current", page: "0" } })).statusCode).toBe(403);
   });
 });

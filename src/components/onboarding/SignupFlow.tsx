@@ -13,6 +13,7 @@ import {
   SIGNUP_ROLES,
   SIGNUP_ROLE_LABELS,
   SIGNUP_ROLE_NEEDS_YEAR,
+  SIGNUP_ROLE_ON_PAYROLL,
   isPlausibleDob,
   type SignupLinkState,
   type SignupResolveResponse,
@@ -402,13 +403,19 @@ function Steps({
   }
 
   if (step === "payroll") {
+    // Subbies invoice the business directly — same details, honest reason
+    // (identity for the office, not a payroll match).
+    const isSubbie = selectedRole !== null && !SIGNUP_ROLE_ON_PAYROLL[selectedRole];
     return (
       <Screen>
         <Progress step={2} />
-        <h1 className="font-display text-xl text-text">Payroll match</h1>
+        <h1 className="font-display text-xl text-text">
+          {isSubbie ? "Who the office pays" : "Payroll match"}
+        </h1>
         <p className="mt-2 text-[15px] leading-relaxed text-text-muted">
-          The office uses this to match you to payroll — nothing else. Only the office sees it. No
-          tax file number, no bank details — payroll already holds those.
+          {isSubbie
+            ? "You invoice the business directly, so your hours never touch payroll — the office just needs to know exactly who you are. Only the office sees this."
+            : "The office uses this to match you to payroll — nothing else. Only the office sees it. No tax file number, no bank details — payroll already holds those."}
         </p>
         <div className="mt-4 space-y-4">
           <Field label="Full legal name" hint="Exactly as it shows on your payslip.">

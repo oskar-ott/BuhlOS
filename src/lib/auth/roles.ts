@@ -22,6 +22,7 @@ export type Role =
   | "apprentice"
   | "labourer"
   | "electrician"
+  | "subcontractor"
   | "client";
 
 export const ADMIN_ROLES: ReadonlyArray<string> = [
@@ -46,6 +47,12 @@ export const FIELD_ROLES: ReadonlyArray<string> = [
   "apprentice",
   "labourer",
   "electrician",
+  // Subbies (owner decision 2026-08-02): field-tier in every way — field app,
+  // hours against jobs, gear — EXCEPT payroll: they invoice the business
+  // directly, so their approved hours are excluded from the Xero push
+  // (payroll-validation) and they're never expected/nagged for missing days
+  // (isHoursTrackedWorker in api/_lib/auth.js).
+  "subcontractor",
 ];
 
 export const CLIENT_ROLES: ReadonlyArray<string> = ["client"];
@@ -78,6 +85,16 @@ export function isFieldRole(role: unknown): boolean {
 
 export function isClientRole(role: unknown): boolean {
   return CLIENT_ROLES.includes(normaliseRole(role));
+}
+
+/**
+ * Narrowing WITHIN the field tier (like owner within admin): every
+ * subcontractor is a field worker, but payroll and the missing-days
+ * expectation treat them specially — they invoice the business directly.
+ * Mirrors isSubcontractorRole in api/_lib/auth.js (keep both in sync).
+ */
+export function isSubcontractorRole(role: unknown): boolean {
+  return normaliseRole(role) === "subcontractor";
 }
 
 /**

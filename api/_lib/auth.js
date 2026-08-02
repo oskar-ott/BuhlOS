@@ -112,7 +112,10 @@ const LEADING_HAND_ROLES = new Set([
   'leadinghand', 'leading_hand', 'leading-hand', 'lh',
 ]);
 const FIELD_ROLES = new Set([
-  'tradie', 'apprentice', 'labourer', 'electrician',
+  // 'subcontractor' (owner decision 2026-08-02): field-tier everywhere EXCEPT
+  // payroll (invoices directly — rows excluded from the Xero push) and the
+  // missing-days expectation (isHoursTrackedWorker below).
+  'tradie', 'apprentice', 'labourer', 'electrician', 'subcontractor',
 ]);
 
 function normaliseRole(raw) {
@@ -126,6 +129,13 @@ function isLeadingHandRole(role) {
 }
 function isFieldRole(role) {
   return FIELD_ROLES.has(normaliseRole(role));
+}
+// Narrowing WITHIN the field tier (like owner within admin): every
+// subcontractor is a field worker, but payroll + the missing-days
+// expectation treat them specially. Mirrors isSubcontractorRole in
+// src/lib/auth/roles.ts.
+function isSubcontractorRole(role) {
+  return normaliseRole(role) === 'subcontractor';
 }
 
 // "Staff" = anyone on the admin tier OR the leading-hand tier: the people
@@ -353,6 +363,10 @@ function canApproveHours(role) { return isStaffRole(role); }
 // liveness, not only tier.
 function isHoursTrackedWorker(user) {
   if (!user || isDisabledUser(user)) return false;
+  // Subbies help out ad-hoc — no expectation of daily hours, so a quiet week
+  // never flags them as "missing". Their LOGGED hours still flow through
+  // approval and job costing like anyone's.
+  if (isSubcontractorRole(user.role)) return false;
   return isFieldRole(user.role) || isLeadingHandRole(user.role);
 }
 
@@ -393,6 +407,7 @@ module.exports = {
   isAdminRole,
   isLeadingHandRole,
   isFieldRole,
+  isSubcontractorRole,
   isStaffRole,
   roleSatisfies,
   signSession,

@@ -126,6 +126,15 @@ export interface ReviewCandidate {
  */
 const WITHHELD_CODES = /unmapped|withheld|missing_employee|no_employee/;
 
+/**
+ * Finding codes that mean "these hours are never part of a push BY DESIGN"
+ * (subcontractors invoice the business directly — owner decision 2026-08-02).
+ * Unlike withheld workers there is nothing to fix: the finding stays a calm
+ * "Worth knowing" warning, but the named workers must not appear in the
+ * will-send list either.
+ */
+const OUTSIDE_PAYROLL_CODES = /subcontractor/;
+
 export interface ReviewPlan {
   /** Workers whose approved hours the push would carry (withheld ones excluded). */
   rows: PushRow[];
@@ -192,7 +201,14 @@ export function buildReviewPlan(
   // The push list honestly excludes withheld workers — their hours are the
   // ones the engine says will NOT go across. Matching is by name because the
   // engine's findings carry names; an unmatched name still shows in the card.
+  // Outside-payroll workers (subbies) are excluded the same way: their
+  // finding renders as a calm warning, never a row in the will-send list.
   const withheldNames = new Set(withheld.map((w) => w.workerName));
+  for (const w of validation?.warnings ?? []) {
+    if (w.workers?.length && OUTSIDE_PAYROLL_CODES.test(w.code)) {
+      for (const name of w.workers) withheldNames.add(name);
+    }
+  }
   const rows: PushRow[] = candidates
     .filter((c) => !withheldNames.has(c.workerName))
     .map((c) => ({
