@@ -133,6 +133,26 @@ describe("LogHoursSheet — job attribution", () => {
     expect(html).toContain("Find a job by name or address");
   });
 
+  it("renders the multi-job picker as the spinning dial, radios intact (owner-directed 2026-08-02)", () => {
+    const html = render({
+      ...base,
+      assignedJobs: [
+        { id: "j1", name: "Smith St Rewire" },
+        { id: "j2", name: "Depot Switchboard" },
+        { id: "j3", name: "Harbour View Fitout" },
+      ],
+    });
+    // The dial replaces the vertical list — fixed-height wheel, same
+    // radiogroup/radio semantics the field-readiness smoke drives.
+    expect(html).toContain('data-testid="job-dial"');
+    expect(html).toContain('role="radiogroup"');
+    expect(html).toContain('role="radio"');
+    expect(html).toContain("Smith St Rewire");
+    expect(html).toContain("Harbour View Fitout");
+    // Orientation caption so a long list still reads as browsable.
+    expect(html).toContain("spin to browse, tap to pick");
+  });
+
   it("keeps the picker expanded while no job is chosen (a required choice is never hidden)", () => {
     const html = render({
       ...base,

@@ -12,6 +12,7 @@ import { Modal } from "@/components/ui/Modal";
 import { PhilNotice } from "./ui/PhilNotice";
 import { cn } from "@/lib/cn";
 import { SplitDaySheet } from "./SplitDaySheet";
+import { JobDialPicker } from "./JobDialPicker";
 import styles from "./myDay.module.css";
 import { timesheetsClient } from "@/domains/timesheets/client";
 import { useSubmissionKey } from "@/domains/timesheets/useSubmissionKey";
@@ -625,8 +626,9 @@ export function LogHoursSheet({
  *   - multiple jobs          → ONE job preselected (the last-logged default, or
  *                              an explicit launch context), collapsed to a
  *                              single line; "Pick a different job" reopens a
- *                              searchable list. With no usable default the list
- *                              stays open as a required choice ("Pick one").
+ *                              searchable spinning dial (JobDialPicker). With no
+ *                              usable default the dial stays open as a required
+ *                              choice ("Pick one").
  * It never lets the worker proceed with no job when active jobs exist.
  */
 function JobAttribution({
@@ -756,8 +758,9 @@ function JobAttribution({
     );
   }
 
-  // Reopened (or never-picked) list. The search field narrows it — useful as a
-  // worker's assigned-job count grows — and the radios stay the tap target.
+  // Reopened (or never-picked) picker. The search field narrows the dial —
+  // useful as a worker's assigned-job count grows — and taps stay the way a
+  // job is actually chosen.
   const q = query.trim().toLowerCase();
   const filtered = q ? jobs.filter((j) => j.name.toLowerCase().includes(q)) : jobs;
   return (
@@ -789,45 +792,26 @@ function JobAttribution({
         aria-label="Search your jobs"
         className="mt-2 block w-full rounded-card border border-border bg-surface px-3 py-2 text-sm focus:border-brand-navy focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
       />
-      <ul className="mt-2 space-y-2" role="radiogroup" aria-label="Choose the job for these hours">
-        {filtered.map((j) => {
-          const active = j.id === selectedJobId;
-          return (
-            <li key={j.id}>
-              <button
-                type="button"
-                role="radio"
-                aria-checked={active}
-                disabled={disabled}
-                onClick={() => {
-                  onSelect(j.id);
-                  setQuery("");
-                  setPickerOpen(false);
-                }}
-                className={cn(
-                  "flex min-h-[48px] w-full items-center gap-2 rounded-card border px-3 py-2 text-left text-sm font-medium",
-                  "disabled:cursor-not-allowed disabled:opacity-60",
-                  active
-                    ? "border-brand-navy bg-brand-navy text-text-inverse"
-                    : "border-border bg-surface text-text hover:border-border-strong"
-                )}
-              >
-                <span className="min-w-0 flex-1 truncate">{j.name}</span>
-                {active ? (
-                  <span aria-hidden="true" className="text-accent-yellow">
-                    ✓
-                  </span>
-                ) : null}
-              </button>
-            </li>
-          );
-        })}
-        {filtered.length === 0 ? (
-          <li className="px-1 py-2 text-xs text-text-muted">
-            No assigned job matches “{query.trim()}”.
-          </li>
-        ) : null}
-      </ul>
+      {/* The spinning dial (owner-directed 2026-08-02): a fixed 5-row wheel
+          replaces the vertical radio list, so a growing job list no longer
+          grows the page (P10 — the picker's slot has constant height). Same
+          semantics: radiogroup, tap a job to pick it. */}
+      {filtered.length > 0 ? (
+        <JobDialPicker
+          jobs={filtered}
+          selectedJobId={selectedJobId}
+          onSelect={(id) => {
+            onSelect(id);
+            setQuery("");
+            setPickerOpen(false);
+          }}
+          disabled={disabled}
+        />
+      ) : (
+        <p className="px-1 py-2 text-xs text-text-muted">
+          No assigned job matches “{query.trim()}”.
+        </p>
+      )}
       {/* #424: this picker logs a single job. With >1 assigned job the worker
           also has the "Split across jobs" action above, so point them at it
           rather than telling them to log the bigger block (which contradicted
