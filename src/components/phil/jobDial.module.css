@@ -1,0 +1,119 @@
+/*
+ * Job dial — the spinning wheel the multi-job hours picker uses instead of a
+ * vertical list (owner-directed 2026-08-02). A fixed 5-row viewport shows any
+ * number of jobs without growing the page (P10: same slot, constant height).
+ * Scroll-snap does the spinning; JS only paints the barrel curvature.
+ */
+
+.wrap {
+  position: relative;
+  margin-top: 8px;
+}
+
+.viewport {
+  position: relative;
+  height: 240px; /* 5 × 48px rows — matches ITEM_H/VISIBLE_ROWS in JobDialPicker */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-snap-type: y mandatory;
+  scrollbar-width: none;
+  /* Rows dissolve at the drum's horizon instead of clipping hard. */
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 22%,
+    #000 78%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(to bottom, transparent 0, #000 22%, #000 78%, transparent 100%);
+}
+
+.viewport::-webkit-scrollbar {
+  display: none;
+}
+
+/* Top/bottom runway so the first and last job can reach the centre row. */
+.spacer {
+  height: 96px; /* 2 × ITEM_H */
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 48px; /* ITEM_H — glove-sized tap target */
+  scroll-snap-align: center;
+  scroll-snap-stop: always;
+  padding: 0 44px; /* keep long names clear of the side glints */
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text-muted);
+  transition: color 0.12s ease;
+  will-change: transform, opacity;
+}
+
+.item:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.itemName {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The row sitting in the selection band reads as the dial's current value. */
+.itemCentered {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.itemTick {
+  flex: none;
+  color: var(--accent-yellow);
+}
+
+/* Selection band — the fixed centre row the drum spins behind. Sits OUTSIDE
+   the masked viewport so it never fades. */
+.band {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 96px;
+  height: 48px;
+  pointer-events: none;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--brand-navy) 6%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--brand-navy) 22%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--brand-navy) 22%, transparent);
+}
+
+/* Yellow notch on the band's left edge — the brand accent marking "this one". */
+.band::before {
+  content: "";
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  width: 4px;
+  height: 18px;
+  transform: translateY(-50%);
+  border-radius: 2px;
+  background: var(--accent-yellow);
+}
+
+/* Count caption under the wheel — orients the worker in a long list. */
+.count {
+  margin-top: 4px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-muted);
+}
