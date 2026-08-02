@@ -30,13 +30,13 @@ let flags: FlagsModule;
 
 const KEY = "supabase_dual_write"; // global-target registry entry (also PROTECTED)
 const ADMIN_KEY = "admin_flags_readout"; // admin-tier-target registry entry
-const PREVIEW_KEY = "itp_simple"; // global, NON-protected feature flag — owner-preview subject
+const PREVIEW_KEY = "signup_link"; // global, NON-protected feature flag — owner-preview subject
 const OWNER = { role: "owner" } as const;
 
 beforeEach(() => {
   delete process.env.FLAG_SUPABASE_DUAL_WRITE;
   delete process.env.FLAG_ADMIN_FLAGS_READOUT;
-  delete process.env.FLAG_ITP_SIMPLE;
+  delete process.env.FLAG_SIGNUP_LINK;
   blob = new Map<string, unknown>();
   delete requireFromHere.cache[flagsPath];
   requireFromHere.cache[blobPath] = {
@@ -58,7 +58,7 @@ beforeEach(() => {
 afterEach(() => {
   delete process.env.FLAG_SUPABASE_DUAL_WRITE;
   delete process.env.FLAG_ADMIN_FLAGS_READOUT;
-  delete process.env.FLAG_ITP_SIMPLE;
+  delete process.env.FLAG_SIGNUP_LINK;
 });
 
 describe("resolution order (env > blob override > default)", () => {
@@ -159,10 +159,10 @@ describe("owner preview (#760) — viewer-aware override", () => {
 
   it("env wins over owner preview in BOTH directions (ops kill-switch)", async () => {
     blob.set("flags.json", { flags: {}, ownerPreview: { [PREVIEW_KEY]: true } });
-    process.env.FLAG_ITP_SIMPLE = "0";
+    process.env.FLAG_SIGNUP_LINK = "0";
     expect(await flags.isFlagEnabled(PREVIEW_KEY, OWNER)).toBe(false);
     blob.set("flags.json", { flags: {}, ownerPreview: { [PREVIEW_KEY]: false } });
-    process.env.FLAG_ITP_SIMPLE = "1";
+    process.env.FLAG_SIGNUP_LINK = "1";
     expect(await flags.isFlagEnabled(PREVIEW_KEY, OWNER)).toBe(true);
   });
 

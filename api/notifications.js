@@ -35,8 +35,7 @@ const { notify } = require('./_lib/notify');
 // #381: fail-closed cron gate (503 in production when CRON_SECRET unset).
 const { requireCron } = require('./_lib/cron-auth');
 const { readLeave, approvedLeaveByUserDate } = require('./_lib/leave');
-const { expiringTagRows, expiringCalibrationRows, newCrossings } = require('./_lib/tag-compliance');
-const { tagsFromBlob } = require('./_lib/tags-store');
+const { expiringCalibrationRows, newCrossings } = require('./_lib/tag-compliance');
 const { licenceRows, newLicenceCrossings } = require('./_lib/licence-compliance');
 const { listAllAssets } = require('./_lib/assets');
 
@@ -148,18 +147,18 @@ module.exports = async (req, res) => {
   }
 
   // ── send-tag-reminders: daily compliance threshold alerts (#305) ───────
-  // Cron-only fan-out, daily. Computes expiring/expired test tags (across
-  // ALL jobs) and instrument calibrations (asset register) via the SHARED
-  // api/_lib/tag-compliance.js, then pushes only items that NEWLY crossed
-  // an alert threshold (14d → 7d → expired) since the last run. Crossing
-  // state is persisted in tag-reminder-state.json so the same tag never
-  // re-alerts every morning — at most three pushes over its lifetime.
+  // Cron-only fan-out, daily. Computes instrument calibrations (asset
+  // register) via the SHARED api/_lib/tag-compliance.js, then pushes only
+  // items that NEWLY crossed an alert threshold (14d → 7d → expired) since
+  // the last run. Crossing state is persisted in tag-reminder-state.json so
+  // the same item never re-alerts every morning — at most three pushes over
+  // its lifetime. (The per-job test-tag rows this cron also used to alert on
+  // left with the Test & Tag teardown — the job-page rebuild.)
   //
   // Recipients (notificationPrefs.tagReminders opt-out respected):
-  //   - tags:         admins (all jobs) + leading hands (their assigned jobs)
   //   - calibrations: admins + whoever currently HOLDS the instrument
   //
-  // Silent when nothing crossed; state is still pruned so a retested item
+  // Silent when nothing crossed; state is still pruned so a recalibrated item
   // resets its alert lifecycle.
   if (action === 'send-tag-reminders' && req.method === 'GET') {
     if (!requireCron(req, res)) return;
@@ -167,17 +166,6 @@ module.exports = async (req, res) => {
 
     const WITHIN_DAYS = 14;
     const STATE_KEY = 'tag-reminder-state.json';
-
-    const jobsBlob = await readBlob('jobs.json', { jobs: [] });
-    const allJobs = jobsBlob.jobs || [];
-    const tagsByJobId = {};
-    await Promise.all(allJobs.map(async job => {
-      try {
-        const blob = await readBlob('jobs/' + job.id + '/tags.json', { tags: [] });
-        tagsByJobId[job.id] = tagsFromBlob(blob); // tolerate legacy bare-array blobs
-      } catch (e) { tagsByJobId[job.id] = []; }
-    }));
-    const tagRows = expiringTagRows(allJobs, tagsByJobId, { withinDays: WITHIN_DAYS });
 
     const usersData = await readBlob(USERS_KEY, { users: [] });
     const users = usersData.users || [];
@@ -192,7 +180,7 @@ module.exports = async (req, res) => {
 
     const stateBlob = await readBlob(STATE_KEY, { entries: {} });
     const { crossed, nextState } = newCrossings(
-      tagRows.concat(calRows),
+      calRows,
       (stateBlob && stateBlob.entries) || {}
     );
 
@@ -218,12 +206,9 @@ module.exports = async (req, res) => {
       if (!u.pushSubscriptions || !u.pushSubscriptions.length) { skipped++; continue; }
 
       const admin = isAdminRole(u.role);
-      const mine = crossed.filter(r => {
-        if (r.kind === 'tag') {
-          return admin || (isLeadingHandRole(u.role) && (u.assignedJobIds || []).includes(r.jobId));
-        }
-        return admin || r.holderId === u.id;
-      });
+      // Calibration rows only (the per-job tag rows left with the teardown):
+      // admins hear about everything, everyone else about gear they hold.
+      const mine = crossed.filter(r => admin || r.holderId === u.id);
       if (!mine.length) { skipped++; continue; }
 
       const nExpired = mine.filter(r => r.threshold === 'expired').length;
@@ -235,26 +220,14 @@ module.exports = async (req, res) => {
       if (n14) titleBits.push(n14 + ' due in 14d');
       const title = '⚠ Test & Tag — ' + titleBits.join(' · ');
 
-      const names = mine.slice(0, 3).map(r =>
-        r.kind === 'tag'
-          ? ((r.applianceType || r.tagNumber || 'tag') + ' at ' + r.jobName)
-          : (r.assetName + ' calibration')
-      );
+      const names = mine.slice(0, 3).map(r => r.assetName + ' calibration');
       const body = names.join(', ') + (mine.length > 3 ? ' +' + (mine.length - 3) + ' more' : '') +
                    '. Tap to sort the retest.';
 
       // Post-cutover targets only (every legacy URL is a 307 now): admins →
-      // the /gear compliance board; a LH whose crossings sit on one job →
-      // that job's Phil page; a holder alerted about their own instrument →
-      // their Phil gear list; otherwise the Phil home.
-      const tagJobIds = [...new Set(mine.filter(r => r.kind === 'tag').map(r => r.jobId))];
-      const url = admin
-        ? '/gear'
-        : tagJobIds.length === 1
-          ? '/phil/jobs/' + tagJobIds[0]
-          : tagJobIds.length === 0
-            ? '/phil/gear'
-            : '/phil/my-day';
+      // the /gear compliance board; a holder alerted about their own
+      // instrument → their Phil gear list.
+      const url = admin ? '/gear' : '/phil/gear';
 
       const r = await sendPushToUserId(u.id, {
         title, body, url,

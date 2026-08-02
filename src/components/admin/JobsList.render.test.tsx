@@ -188,8 +188,8 @@ describe("JobsList — remembered default (storage mocked)", () => {
 
 describe("JobsList — health indicators + filter/sort (#227)", () => {
   const HEALTH_JOBS: ReadonlyArray<Job> = [
-    job({ id: "h_good", name: "Healthy Job", status: "active", statsEvidenceV2Pending: 0, statsExpiredTags: 0 }),
-    job({ id: "h_risk", name: "Risky Job", status: "active", statsExpiredTags: 2 }),
+    job({ id: "h_good", name: "Healthy Job", status: "active", statsEvidenceV2Pending: 0 }),
+    job({ id: "h_risk", name: "Risky Job", status: "active", statsEvidenceV2Pending: 10 }),
     job({ id: "h_watch", name: "Watchful Job", status: "active", statsEvidenceV2Pending: 1 }),
   ];
 
@@ -217,8 +217,8 @@ describe("JobsList — health indicators + filter/sort (#227)", () => {
 describe("JobsList — §3 portfolio card presentation (admin redesign)", () => {
   it("renders the portfolio summary with a need-attention count from real health", () => {
     const jobs: ReadonlyArray<Job> = [
-      job({ id: "a", name: "Alpha", status: "active", statsExpiredTags: 1 }), // at-risk
-      job({ id: "b", name: "Bravo", status: "active", statsSnagsV2Active: 0, statsEvidenceV2Pending: 0, statsItpsNeedsReview: 0, statsExpiredTags: 0 }), // good
+      job({ id: "a", name: "Alpha", status: "active", statsEvidenceV2Pending: 10 }), // at-risk
+      job({ id: "b", name: "Bravo", status: "active", statsSnagsV2Active: 0, statsEvidenceV2Pending: 0 }), // good
     ];
     const html = render("", jobs);
     expect(html).toContain("2 jobs · 1 needs attention");
@@ -249,7 +249,7 @@ describe("JobsList — §3 portfolio card presentation (admin redesign)", () => 
 
   it("renders the risk meter with the real health level (no fabricated 0–100 score)", () => {
     const jobs: ReadonlyArray<Job> = [
-      job({ id: "a", name: "Alpha", status: "active", statsExpiredTags: 2 }),
+      job({ id: "a", name: "Alpha", status: "active", statsEvidenceV2Pending: 10 }),
     ];
     const html = render("", jobs);
     expect(html).toContain("Risk: At risk");

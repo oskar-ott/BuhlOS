@@ -7,13 +7,11 @@ import type { Job } from "@/domains/jobs/types";
  * `?withStats=1` (computeJobStats in api/jobs.js):
  *   - `statsSnagsV2Active` — snagsV2 in active states (open / in_progress /
  *     resolved-pending-verify), the same set the per-job Snags panel lists.
- *   - `statsItpsActive` — ITP instances in non-terminal, non-archived states,
- *     the same set the per-job ITPs panel lists.
+ *   (The ITP signal left with the ITP teardown — the job-page rebuild.)
  *
  * These are job-WIDE counts (a site-level "what's open here?" glance), not a
- * per-worker to-do list — the job screen's PhilJobAttentionStrip does the
- * scoped, personal attention. The label vocabulary + counts deliberately
- * match PhilJobAreaCard so the list and the job agree.
+ * per-worker to-do list. The label vocabulary deliberately stays field-plain
+ * so the list and the job agree.
  *
  * Honest by construction:
  *   - A signal is emitted only when its count is a real positive integer.
@@ -21,10 +19,10 @@ import type { Job } from "@/domains/jobs/types";
  *     soft-failed server read), every count is 0, so NO chips render and the
  *     row looks exactly as it did before — never a fabricated "all clear" or
  *     a guessed number.
- *   - Neutral nouns ("3 snags", "2 ITPs"), never "yours" / "to do", so an
- *     unscoped job-wide count is never dressed up as a personal task list.
+ *   - Neutral nouns ("3 snags"), never "yours" / "to do", so an unscoped
+ *     job-wide count is never dressed up as a personal task list.
  */
-export type JobOpenWorkKey = "snags" | "itps";
+export type JobOpenWorkKey = "snags";
 
 export interface JobOpenWorkSignal {
   key: JobOpenWorkKey;
@@ -38,7 +36,7 @@ function positiveInteger(value: number | undefined): number {
 }
 
 export function jobOpenWork(
-  job: Pick<Job, "statsSnagsV2Active" | "statsItpsActive">,
+  job: Pick<Job, "statsSnagsV2Active">,
 ): JobOpenWorkSignal[] {
   const out: JobOpenWorkSignal[] = [];
 
@@ -48,15 +46,6 @@ export function jobOpenWork(
       key: "snags",
       count: snags,
       label: snags === 1 ? "1 snag" : `${snags} snags`,
-    });
-  }
-
-  const itps = positiveInteger(job.statsItpsActive);
-  if (itps > 0) {
-    out.push({
-      key: "itps",
-      count: itps,
-      label: itps === 1 ? "1 ITP" : `${itps} ITPs`,
     });
   }
 

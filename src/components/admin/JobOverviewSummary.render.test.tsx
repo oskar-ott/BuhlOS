@@ -38,21 +38,19 @@ describe("JobOverviewSummary", () => {
 
   it("renders a Needs-attention chip per real issue, deep-linking to its tab", () => {
     const html = render(
-      job({ id: "job/1", statsEvidenceV2Pending: 2, statsItpsNeedsReview: 1 }),
+      job({ id: "job/1", statsEvidenceV2Pending: 2 }),
     );
     expect(html).toContain("Needs attention");
     expect(html).toContain("Evidence to review");
-    expect(html).toContain("ITPs to sign off");
     // Deep-links to the per-job tab with an encoded id; no snags chip (count 0).
     expect(html).toContain("/v2/jobs/job%2F1/evidence");
-    expect(html).toContain("/v2/jobs/job%2F1/itps");
     expect(html).not.toContain("Open snags");
     expect(html).not.toContain("All clear");
   });
 
   it("shows an honest All-clear when nothing needs office action", () => {
     const html = render(
-      job({ statsEvidenceV2Pending: 0, statsSnagsV2Active: 0, statsItpsNeedsReview: 0 }),
+      job({ statsEvidenceV2Pending: 0, statsSnagsV2Active: 0 }),
     );
     expect(html).toContain("All clear");
     expect(html).not.toContain("Evidence to review");

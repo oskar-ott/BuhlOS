@@ -114,7 +114,7 @@ Confirmed in code. These are the intended destinations for new navigation.
 | --- | --- | --- |
 | `/phil/my-day` | `src/app/phil/my-day/page.tsx` | Phil **home** ("Today" tab + the hours loop). Replaces the placeholder `/v2/phil`. |
 | `/phil/jobs` | `src/app/phil/jobs/page.tsx` | Assigned jobs list. |
-| `/phil/jobs/[jobId]` | `src/app/phil/jobs/[jobId]/page.tsx` | Job detail (identity, tags, capture, photos, simple-ITP link). |
+| `/phil/jobs/[jobId]` | `src/app/phil/jobs/[jobId]/page.tsx` | **Basic job view** (2026-08 job-page rebuild): hero + dates + site details (incl. #332 induction confirm) only. The bottom rooms bar keeps Work · Proof · Site as labelled coming-soon placeholders. The former work/capture machinery plus the per-job Test & Tag register (`/tags`) and simple ITP builder (`/itp-reports`) were **deleted to be rebuilt** — those sub-routes now 404. |
 | `/phil/jobs/[jobId]/plans` | `.../plans/page.tsx` | Read-only Plan Viewer (Phase 1). Field sees **current revisions only** — superseded/archived never reach the field. Gated on the job's `plans` module flag. |
 | `/phil/jobs/[jobId]/photos` | `.../photos/page.tsx` | Read-only photo gallery (#242, the field "Job Bible"). Browse every photo on the job, date-grouped + filterable. Reuses the gated `/api/evidence` + `/api/photos-catalog` reads — a tradie sees their own evidence; the catalog (snag/ITP/dwelling) is leading-hand+, so a tradie gets an honest "office-side" note, never a silent gap. Linked from the job home only when there's at least one photo (hidden-until-real). Browse-only — capture stays on the job home. |
 | `/phil/hours` | `src/app/phil/hours/page.tsx` | Hours history / fix-and-resubmit. |

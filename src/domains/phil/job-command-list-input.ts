@@ -16,11 +16,11 @@
  *
  * What is real on a list row:
  *   - snags  → `statsSnagsV2Active` (the same active set the row's chips show)
- *   - itps   → `statsItpsActive`
  *   - hours  → `elsewhere` (/phil/my-day), a real cross-surface capability
+ *   (ITPs + tags are permanently `not_configured` — deleted registers.)
  *
  * What stays honestly `unknown` (not on the list summary):
- *   - plans, tasks, tags, rejected hours
+ *   - plans, tasks, rejected hours
  *   - capture/materials availability (module flags aren't on the summary)
  *
  * Because the action builder routes `unknown` capture/materials to limitations
@@ -56,7 +56,7 @@ function statCount(value: number | undefined): number {
 export function philJobCommandInputFromListSignals(
   job: Pick<
     Job,
-    "id" | "name" | "status" | "inductionRequired" | "statsSnagsV2Active" | "statsItpsActive"
+    "id" | "name" | "status" | "inductionRequired" | "statsSnagsV2Active"
   >,
 ): PhilJobCommandInput {
   const status = job.status ?? "active";
@@ -76,12 +76,13 @@ export function philJobCommandInputFromListSignals(
     },
     // Real, opt-in list stats — the same active sets the row chips show.
     snags: { kind: "count", value: statCount(job.statsSnagsV2Active) },
-    itps: { kind: "count", value: statCount(job.statsItpsActive) },
+    // Deleted registers (the job-page rebuild): permanently not_configured.
+    itps: { kind: "not_configured" },
+    tags: { kind: "not_configured" },
     // Hours live on the Day tab — a real capability on another surface.
     hours: { kind: "elsewhere", href: "/phil/my-day" },
     // Everything else the list doesn't fetch: honestly unknown, never a fake 0.
     plans: { kind: "unknown" },
-    tags: { kind: "unknown" },
     tasks: { kind: "unknown" },
     rejectedHours: { kind: "unknown" },
     // Module flags (photos/materials) aren't on the summary — unknown, so the

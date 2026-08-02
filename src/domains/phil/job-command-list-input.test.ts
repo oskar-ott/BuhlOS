@@ -30,24 +30,25 @@ function topActions(j: Job, max = 3): PhilJobCommandAction[] {
 const ids = (actions: PhilJobCommandAction[]): PhilJobActionId[] => actions.map((a) => a.id);
 
 describe("philJobCommandInputFromListSignals — honest list signals", () => {
-  it("uses the real list stats for snags + ITPs (the same active sets the chips show)", () => {
-    const inp = philJobCommandInputFromListSignals(
-      job({ statsSnagsV2Active: 3, statsItpsActive: 2 }),
-    );
+  it("uses the real list stat for snags (the same active set the chips show)", () => {
+    const inp = philJobCommandInputFromListSignals(job({ statsSnagsV2Active: 3 }));
     expect(inp.snags).toEqual({ kind: "count", value: 3 });
-    expect(inp.itps).toEqual({ kind: "count", value: 2 });
   });
 
-  it("treats missing/invalid stats as a genuine 0 (the list summary is authoritative for these)", () => {
+  it("treats a missing/invalid snag stat as a genuine 0 (the list summary is authoritative)", () => {
     const inp = philJobCommandInputFromListSignals(job());
     expect(inp.snags).toEqual({ kind: "count", value: 0 });
-    expect(inp.itps).toEqual({ kind: "count", value: 0 });
+  });
+
+  it("deleted registers (ITPs / tags) are permanently not_configured — never an action", () => {
+    const inp = philJobCommandInputFromListSignals(job());
+    expect(inp.itps).toEqual({ kind: "not_configured" });
+    expect(inp.tags).toEqual({ kind: "not_configured" });
   });
 
   it("marks everything NOT on the list as unknown — never a fabricated 0 (P7)", () => {
     const inp = philJobCommandInputFromListSignals(job());
     expect(inp.plans.kind).toBe("unknown");
-    expect(inp.tags.kind).toBe("unknown");
     expect(inp.tasks.kind).toBe("unknown");
     expect(inp.rejectedHours.kind).toBe("unknown");
     expect(inp.capture.kind).toBe("unknown");
@@ -80,16 +81,14 @@ describe("topActions — built from the ranked model, not literals", () => {
     expect(ids(actions)).not.toContain("continue_tasks");
   });
 
-  it("a check needed (ITPs active) ranks ahead of an ambient action", () => {
-    const actions = topActions(job({ statsItpsActive: 1, statsSnagsV2Active: 1 }));
-    // complete_checks is an attention action → ranks first.
-    expect(actions[0]!.id).toBe("complete_checks");
-    expect(ids(actions)).toContain("report_issue");
+  it("never offers complete_checks — the ITP register is deleted", () => {
+    const actions = topActions(job({ statsSnagsV2Active: 1 }));
+    expect(ids(actions)).not.toContain("complete_checks");
   });
 
   it("the action ordering matches rankPhilJobActions exactly (no bespoke sort)", () => {
     const model = buildPhilJobCommandModel(
-      philJobCommandInputFromListSignals(job({ statsItpsActive: 1, statsSnagsV2Active: 1 })),
+      philJobCommandInputFromListSignals(job({ statsSnagsV2Active: 1 })),
     );
     const all = model.primaryAction ? [model.primaryAction, ...model.actions] : model.actions;
     expect(all).toEqual(rankPhilJobActions(all));

@@ -87,10 +87,16 @@ describe("philJobCommandInputFromJobData — failed loads become unknown, not fa
   it("marks a list as unknown when its fetch failed", () => {
     const inp = philJobCommandInputFromJobData({
       job: job(),
-      loadErrors: { documents: true, tags: true },
+      loadErrors: { documents: true },
     });
     expect(inp.plans.kind).toBe("unknown");
-    expect(inp.tags.kind).toBe("unknown");
+  });
+
+  it("deleted registers (snags / ITPs / tags) are permanently not_configured", () => {
+    const inp = philJobCommandInputFromJobData({ job: job() });
+    expect(inp.snags.kind).toBe("not_configured");
+    expect(inp.itps.kind).toBe("not_configured");
+    expect(inp.tags.kind).toBe("not_configured");
   });
 });
 

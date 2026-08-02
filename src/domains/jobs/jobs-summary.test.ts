@@ -20,11 +20,10 @@ const mod = requireFromHere("../../../api/_lib/jobs-summary.js") as {
     blobUploadedAt: (key: string) => Promise<string | null>;
   }) => Promise<{ records: Array<Record<string, unknown>>; source: string }>;
   countActiveSnagsV2: (dataDoc: unknown) => number;
-  countActiveItps: (itpsDoc: unknown) => number;
   readFieldJobStats: (
     jobIds: string[],
     deps: { readBlob: (key: string, fallback: unknown) => Promise<unknown> }
-  ) => Promise<Record<string, { statsSnagsV2Active: number; statsItpsActive: number }>>;
+  ) => Promise<Record<string, { statsSnagsV2Active: number }>>;
 };
 const {
   SUMMARY_KEY,
@@ -32,7 +31,6 @@ const {
   buildJobsSummary,
   readJobsSummary,
   countActiveSnagsV2,
-  countActiveItps,
   readFieldJobStats,
 } = mod;
 
@@ -168,7 +166,7 @@ describe("readJobsSummary — freshness + fallback", () => {
   });
 });
 
-describe("countActiveSnagsV2 / countActiveItps — the two field stats", () => {
+describe("countActiveSnagsV2 — the field stat", () => {
   it("counts active snagsV2 (open|in_progress|resolved|rejected); excludes verified/closed", () => {
     expect(
       countActiveSnagsV2({
@@ -186,30 +184,13 @@ describe("countActiveSnagsV2 / countActiveItps — the two field stats", () => {
     expect(countActiveSnagsV2(null)).toBe(0);
   });
 
-  it("counts active ITPs (pending|in-progress|witnessed, not archived); excludes completed/archived", () => {
-    expect(
-      countActiveItps({
-        instances: [
-          { status: "pending" },
-          { status: "in-progress" },
-          { status: "witnessed" },
-          { status: "completed" },
-          { status: "witnessed", archived: true },
-        ],
-      })
-    ).toBe(3);
-    expect(countActiveItps({})).toBe(0);
-    expect(countActiveItps(null)).toBe(0);
-  });
 });
 
 describe("readFieldJobStats — lightweight per-job stat reads", () => {
-  it("reads ONLY data.json + itps.json per job and returns the two stats", async () => {
+  it("reads ONLY data.json per job and returns the snag stat (itps.json left with the ITP teardown)", async () => {
     const store = new Map<string, unknown>([
       ["jobs/a/data.json", { snagsV2: [{ status: "open" }, { status: "closed" }] }],
-      ["jobs/a/itps.json", { instances: [{ status: "witnessed" }] }],
       ["jobs/b/data.json", { snagsV2: [] }],
-      ["jobs/b/itps.json", { instances: [{ status: "pending" }, { status: "completed" }] }],
     ]);
     const read = new Set<string>();
     const readBlob = vi.fn(async (key: string, fallback: unknown) => {
@@ -218,25 +199,20 @@ describe("readFieldJobStats — lightweight per-job stat reads", () => {
     });
     const out = await readFieldJobStats(["a", "b"], { readBlob });
     expect(out).toEqual({
-      a: { statsSnagsV2Active: 1, statsItpsActive: 1 },
-      b: { statsSnagsV2Active: 0, statsItpsActive: 1 },
+      a: { statsSnagsV2Active: 1 },
+      b: { statsSnagsV2Active: 0 },
     });
-    // never touches the monolith or any other blob
-    expect([...read].sort()).toEqual([
-      "jobs/a/data.json",
-      "jobs/a/itps.json",
-      "jobs/b/data.json",
-      "jobs/b/itps.json",
-    ]);
+    // never touches the monolith, the deleted itps.json, or any other blob
+    expect([...read].sort()).toEqual(["jobs/a/data.json", "jobs/b/data.json"]);
     expect(read.has("jobs.json")).toBe(false);
   });
 
-  it("fails soft per job: a read error → {0,0}, never throws", async () => {
+  it("fails soft per job: a read error → 0, never throws", async () => {
     const readBlob = vi.fn(async (key: string) => {
       if (key === "jobs/x/data.json") throw new Error("blob down");
-      return { instances: [] };
+      return { snagsV2: [] };
     });
     const out = await readFieldJobStats(["x"], { readBlob });
-    expect(out).toEqual({ x: { statsSnagsV2Active: 0, statsItpsActive: 0 } });
+    expect(out).toEqual({ x: { statsSnagsV2Active: 0 } });
   });
 });

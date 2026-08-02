@@ -12,15 +12,13 @@ describe("deriveJobAttention", () => {
       job({
         statsEvidenceV2Pending: 2,
         statsSnagsV2Active: 1,
-        statsItpsNeedsReview: 3,
       }),
     );
     expect(a.allClear).toBe(false);
-    expect(a.total).toBe(6);
+    expect(a.total).toBe(3);
     expect(a.items.map((i) => [i.key, i.count])).toEqual([
       ["evidence", 2],
       ["snags", 1],
-      ["itps", 3],
     ]);
     // Labels are office-facing and stage the destination tab via `key`.
     expect(a.items.find((i) => i.key === "snags")?.label).toBe("Open snags");
@@ -31,9 +29,8 @@ describe("deriveJobAttention", () => {
       job({
         statsEvidenceV2Pending: 2,
         statsSnagsV2Active: 5,
-        statsItpsNeedsReview: 3,
       }),
-      { snags: false, itps: false },
+      { snags: false },
     );
     expect(a.items.map((i) => i.key)).toEqual(["evidence"]);
     expect(a.total).toBe(2);
@@ -41,7 +38,7 @@ describe("deriveJobAttention", () => {
 
   it("omits zero / missing counts rather than rendering empty chips", () => {
     const a = deriveJobAttention(
-      job({ statsEvidenceV2Pending: 0, statsSnagsV2Active: 4 /* itps missing */ }),
+      job({ statsEvidenceV2Pending: 0, statsSnagsV2Active: 4 }),
     );
     expect(a.items.map((i) => i.key)).toEqual(["snags"]);
     expect(a.total).toBe(4);
@@ -51,9 +48,7 @@ describe("deriveJobAttention", () => {
   it("is All clear when every actionable stat is zero or absent", () => {
     expect(deriveJobAttention(job()).allClear).toBe(true);
     expect(
-      deriveJobAttention(
-        job({ statsEvidenceV2Pending: 0, statsSnagsV2Active: 0, statsItpsNeedsReview: 0 }),
-      ),
+      deriveJobAttention(job({ statsEvidenceV2Pending: 0, statsSnagsV2Active: 0 })),
     ).toEqual({ items: [], allClear: true, total: 0 });
   });
 
@@ -62,16 +57,17 @@ describe("deriveJobAttention", () => {
       job({
         statsEvidenceV2Pending: -3,
         statsSnagsV2Active: Number.NaN as unknown as number,
-        statsItpsNeedsReview: 5,
       }),
     );
-    expect(a.items.map((i) => i.key)).toEqual(["itps"]);
-    expect(a.total).toBe(5);
+    expect(a.allClear).toBe(true);
+    expect(a.items).toHaveLength(0);
   });
 
-  it("does not surface gear-tag expiry (no per-job destination)", () => {
+  it("ignores stray legacy stats a stale caller might still pass", () => {
+    // The ITP / Test & Tag registers were deleted (the job-page rebuild) —
+    // their old stat fields must never resurrect an attention chip.
     const a = deriveJobAttention(
-      job({ statsExpiredTags: 9, statsExpiringTags: 4 } as Partial<Job>),
+      job({ statsItpsNeedsReview: 5, statsExpiredTags: 9 } as unknown as Partial<Job>),
     );
     expect(a.allClear).toBe(true);
     expect(a.items).toHaveLength(0);

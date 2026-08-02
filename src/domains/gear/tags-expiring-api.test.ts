@@ -212,58 +212,16 @@ type TagRow = {
 type CalRow = { assetId: string; holderId: string | null; status: string };
 type Body = { tags: TagRow[]; calibrations: CalRow[]; withinDays: number };
 
-describe("GET /api/tags-expiring — tags (legacy contract)", () => {
-  it("admin sees expired+expiring across ALL jobs, expired-first, legacy keys intact", async () => {
+describe("GET /api/tags-expiring — tags (legacy shape after the Test & Tag teardown)", () => {
+  it("the tags key is ALWAYS an empty array — the per-job registers are gone", async () => {
     const res = await call({ userId: "u_admin", role: "admin" });
     expect(res.statusCode).toBe(200);
-    const body = res.body as Body;
-    expect(body.withinDays).toBe(14);
-    expect(body.tags.map((t) => t.id)).toEqual(["t_exp", "t_soon"]);
-    expect(body.tags[0]).toMatchObject({
-      id: "t_exp",
-      jobId: "j1",
-      jobName: "Riverside",
-      tagNumber: "T-100",
-      applianceType: "Drill",
-      owner: "Sam",
-      result: "pass",
-      daysToExpiry: -2,
-      status: "expired",
-    });
-    expect(body.tags[0]!.expiryISO).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    // ''-defaulted strings on sparse tags (t_soon has no owner/result)
-    expect(body.tags[1]).toMatchObject({ owner: "", result: "", status: "expiring" });
-  });
-
-  it("office (admin TIER, not literal 'admin') also sees all jobs", async () => {
-    const res = await call({ userId: "u_office", role: "office" });
-    expect((res.body as Body).tags.map((t) => t.id)).toEqual(["t_exp", "t_soon"]);
-  });
-
-  it("a field worker sees ONLY their assignedJobIds' tags", async () => {
-    const res = await call({ userId: "u_field", role: "electrician" });
-    expect((res.body as Body).tags.map((t) => t.id)).toEqual(["t_exp"]);
-  });
-
-  it("?jobId= restricts to one job", async () => {
-    const res = await call({ userId: "u_admin", role: "admin", query: { jobId: "j2" } });
-    expect((res.body as Body).tags.map((t) => t.id)).toEqual(["t_soon"]);
+    expect((res.body as { tags: unknown[] }).tags).toEqual([]);
   });
 
   it("clients are 403", async () => {
     const res = await call({ userId: "u_client", role: "client" });
     expect(res.statusCode).toBe(403);
-  });
-
-  it("counts a LEGACY bare-array job's expired tag — invisible before the expiry-path fix", async () => {
-    // jobs/<id>/tags.json as a BARE ARRAY (pre-#397 shape) with an expired tag.
-    blob.set("jobs.json", { jobs: [{ id: "j_legacy", name: "Legacy Site" }] });
-    blob.set("jobs/j_legacy/tags.json", [
-      { id: "t_legacy", tagNumber: "L-1", name: "Temp Board", expiryDate: ddmm(-3) },
-    ]);
-    const res = await call({ userId: "u_admin", role: "admin" });
-    expect(res.statusCode).toBe(200);
-    expect((res.body as Body).tags.map((t) => t.id)).toContain("t_legacy");
   });
 });
 

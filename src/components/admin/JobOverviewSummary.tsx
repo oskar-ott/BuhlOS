@@ -35,7 +35,6 @@ import type { Job } from "@/domains/jobs/types";
 const ATTENTION_ICON: Record<JobAttentionKey, typeof Camera> = {
   evidence: Camera,
   snags: AlertOctagon,
-  itps: ClipboardCheck,
 };
 
 function HealthStat({

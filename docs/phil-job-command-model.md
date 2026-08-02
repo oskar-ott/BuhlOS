@@ -43,6 +43,12 @@ real page data ──▶ philJobCommandInputFromJobData ──▶ PhilJobCommand
 The model derives **only** from real, available data. Anything not derivable
 becomes a `limitation`, never a faked action or count.
 
+> **2026-08 job-page rebuild:** the snag, ITP and Test & Tag registers were
+> deleted (to be rebuilt from scratch), so their inputs are permanently
+> `not_configured` in both bridges — no action, no attention row. Rows below
+> that reference them describe the pre-teardown wiring and stand as the
+> template for the rebuild.
+
 | Input | Source on `main` | Real / stub | Worker relevance | In model as | Risk |
 | --- | --- | --- | --- | --- | --- |
 | Job identity (id, name, status) | `GET /api/jobs?id=` → `JobSchema` | **Real** | High | `jobId` / `jobName`, always preserved | Low |

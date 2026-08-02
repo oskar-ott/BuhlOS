@@ -1,7 +1,6 @@
 {
   "framework": "nextjs",
   "functions": {
-    "api/itp-simple.js": { "maxDuration": 60 },
     "api/backup-snapshot.js": { "maxDuration": 60 },
     "api/internal/sync-checks/hours.js": { "maxDuration": 60 },
     "api/internal/sync-checks/structure.js": { "maxDuration": 60 },

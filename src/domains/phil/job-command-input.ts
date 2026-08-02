@@ -30,8 +30,6 @@
  */
 
 import { buildPhilPreview, isVisibleToField, moduleEnabled } from "@/domains/jobs/builder";
-import { countTagRegister } from "@/domains/tags/expiry";
-import type { TagItem } from "@/domains/tags/schema";
 import { effectiveTasks, visibleAreaGroups } from "@/domains/jobs/format";
 import { readTaskState, type JobTaskState } from "@/domains/jobs/taskState";
 import type { Job, JobStage } from "@/domains/jobs/types";
@@ -55,8 +53,6 @@ export interface PhilJobDataForCommand {
     plans?: boolean;
     tasks?: boolean;
   };
-  /** Per-job test & tag entries (jobs/<id>/tags.json), when the page loaded them. */
-  tags?: TagItem[];
   /** GET /api/plans?jobId — plan/spec documents. */
   documents?: Document[];
   /**
@@ -68,12 +64,10 @@ export interface PhilJobDataForCommand {
   /**
    * Set a flag when a list fetch FAILED (as opposed to returning empty), so
    * the signal becomes `unknown` instead of a misleading 0. The page already
-   * distinguishes this for documents (its loader returns `{ documents, error }`)
-   * and for tags.
+   * distinguishes this for documents (its loader returns `{ documents, error }`).
    */
   loadErrors?: {
     documents?: boolean;
-    tags?: boolean;
   };
   /**
    * This worker's latest induction record on this job (#332), when the page
@@ -139,12 +133,6 @@ function countTrackedAreaTasks(
  * Build the command-model input from a successfully loaded job + its lists.
  * Pure (no fetch, no React) so it can be unit-tested with fixtures.
  */
-/** Entries needing a retest: expired + due within the 14-day window (#305 semantics). */
-function countTagsNeedingRetest(tags: TagItem[]): number {
-  const counts = countTagRegister(tags);
-  return counts.expired + counts.expiring;
-}
-
 export function philJobCommandInputFromJobData(
   data: PhilJobDataForCommand,
 ): PhilJobCommandInput {
@@ -161,17 +149,13 @@ export function philJobCommandInputFromJobData(
       ? { kind: "unknown" }
       : { kind: "count", value: countCurrentDocuments(data.documents ?? []) };
 
-  // Snags + ITPs were deleted with the lean reset: their register, API and
-  // job sections are gone, so the signals are permanently `not_configured` —
-  // no action, no attention row, no anchor to a section that no longer exists.
+  // Snags, ITPs and Test & Tag were deleted (lean reset + the job-page
+  // rebuild): their registers, APIs and job sections are gone, so the signals
+  // are permanently `not_configured` — no action, no attention row, no anchor
+  // to a section that no longer exists.
   const snags: PhilJobCommandInput["snags"] = { kind: "not_configured" };
   const itps: PhilJobCommandInput["itps"] = { kind: "not_configured" };
-
-  const tags: PhilJobCommandInput["tags"] = !moduleEnabled(job, "tags")
-    ? { kind: "not_configured" }
-    : errors.tags
-      ? { kind: "unknown" }
-      : { kind: "count", value: countTagsNeedingRetest(data.tags ?? []) };
+  const tags: PhilJobCommandInput["tags"] = { kind: "not_configured" };
 
   const rejectedHours: PhilJobCommandInput["rejectedHours"] =
     typeof data.rejectedHoursForJob === "number"

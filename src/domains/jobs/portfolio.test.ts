@@ -124,8 +124,10 @@ describe("portfolio — buildJobCard", () => {
   });
 
   it("buildJobCardFromJob derives health from the real stats", () => {
-    // expired gear tags ⇒ at-risk via the existing deriveJobHealth engine.
-    const j = job({ id: "j", name: "J", statsExpiredTags: 1 });
+    // a soft backlog at the documented threshold ⇒ at-risk via the existing
+    // deriveJobHealth engine. (The expired-tags hard signal left with the
+    // Test & Tag teardown.)
+    const j = job({ id: "j", name: "J", statsEvidenceV2Pending: 10 });
     const vm = buildJobCardFromJob(j);
     expect(vm.health.level).toBe(deriveJobHealth(j).level);
     expect(vm.health.level).toBe("at-risk");
