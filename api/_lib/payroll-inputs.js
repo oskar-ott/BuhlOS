@@ -99,6 +99,10 @@ async function collectRows({ status, userId, jobId, fromDate, toDate }) {
         date:      e.date,
         workerName: e.userName || u.username || e.userId,
         workerId:   e.userId,
+        // Role rides on the row so the payroll partition can exclude
+        // outside-payroll workers (subcontractors invoice directly) without
+        // another users.json read.
+        workerRole: u.role || null,
         xeroEmployeeId: u.xeroEmployeeId || '',
         jobName:    j ? j.name : (a.jobId ? '(unknown job)' : 'Internal — no job'),
         jobId:      a.jobId || '',

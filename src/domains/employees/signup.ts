@@ -23,7 +23,10 @@ export const SIGNUP_LINK_STATES = [
 export type SignupLinkState = (typeof SIGNUP_LINK_STATES)[number];
 
 /** Roles a stranger with the group-chat link may request — field tiers only. */
-export const SIGNUP_ROLES = ["electrician", "apprentice"] as const;
+// Subcontractor added 2026-08-02 (owner decision): subbies self-serve onto the
+// same link, log hours against jobs for cost tracking, and invoice directly —
+// their hours are excluded from the Xero payroll push by role.
+export const SIGNUP_ROLES = ["electrician", "apprentice", "subcontractor"] as const;
 export type SignupRole = (typeof SIGNUP_ROLES)[number];
 
 /**
@@ -42,13 +45,28 @@ export type LegacySignupRole = (typeof LEGACY_SIGNUP_ROLES)[number];
 export const SIGNUP_ROLE_NEEDS_YEAR: Record<LegacySignupRole, boolean> = {
   electrician: false,
   apprentice: true,
+  subcontractor: false,
   labourer: false,
   leadinghand: false,
+};
+
+/**
+ * Which signup roles are paid THROUGH Xero payroll. Subbies invoice the
+ * business directly — the signup copy and the payroll pipeline both key off
+ * this map instead of comparing role strings (tier-bug lint rule).
+ */
+export const SIGNUP_ROLE_ON_PAYROLL: Record<LegacySignupRole, boolean> = {
+  electrician: true,
+  apprentice: true,
+  subcontractor: false,
+  labourer: true,
+  leadinghand: true,
 };
 
 export const SIGNUP_ROLE_LABELS: Record<LegacySignupRole, string> = {
   electrician: "Electrician",
   apprentice: "Apprentice",
+  subcontractor: "Subcontractor",
   labourer: "Labourer",
   leadinghand: "Leading hand",
 };

@@ -50,8 +50,21 @@ function round2(n) {
  *
  * @param {{ rows: Array<object>, workerReadiness: Array<{workerId: string, mapped: boolean}>, allowExported?: boolean }} input
  */
+// Roles paid OUTSIDE Xero payroll (owner decision 2026-08-02): subbies invoice
+// the business directly. Their approved hours stay in job costing but are
+// excluded here BEFORE the mapped/unmapped maths — so an unmapped subbie never
+// raises the "link them in Xero" warning and can never block a batch.
+const OUTSIDE_PAYROLL_ROLES = new Set(['subcontractor']);
+
+function isOutsidePayrollRow(r) {
+  return OUTSIDE_PAYROLL_ROLES.has(String(r.workerRole || '').toLowerCase());
+}
+
 function partitionPayrollRows({ rows, workerReadiness, allowExported }) {
-  const approvedRows = (rows || []).filter((r) => r.status === 'approved');
+  const decidedRows = (rows || []).filter((r) => r.status === 'approved');
+  const outsideRows = decidedRows.filter(isOutsidePayrollRow);
+  const outsideWorkers = [...new Map(outsideRows.map((r) => [r.workerId, { workerId: r.workerId, workerName: r.workerName }])).values()];
+  const approvedRows = decidedRows.filter((r) => !isOutsidePayrollRow(r));
   const exportedRows = allowExported ? [] : approvedRows.filter((r) => r.exportId);
   const payableRows = allowExported ? approvedRows : approvedRows.filter((r) => !r.exportId);
 
@@ -79,7 +92,7 @@ function partitionPayrollRows({ rows, workerReadiness, allowExported }) {
   const withheldWorkers = [...withheldByWorker.values()]
     .sort((a, b) => String(a.workerName).localeCompare(String(b.workerName)));
 
-  return { approvedRows, includedRows, withheldRows, withheldWorkers, exportedRows, allUnmapped };
+  return { approvedRows, includedRows, withheldRows, withheldWorkers, exportedRows, allUnmapped, outsideRows, outsideWorkers };
 }
 
 /**
@@ -106,7 +119,7 @@ function validatePayroll(input) {
     workerReadiness: input.workerReadiness,
     allowExported: input.allowExported,
   });
-  const { approvedRows, includedRows, withheldWorkers, exportedRows, allUnmapped } = partition;
+  const { approvedRows, includedRows, withheldWorkers, exportedRows, allUnmapped, outsideRows, outsideWorkers } = partition;
 
   // ── Hours approved: every entry in the period must be decided ─────────────
   const undecided = rows.filter((r) => r.status !== 'approved' && r.status !== 'rejected');
@@ -120,7 +133,25 @@ function validatePayroll(input) {
   }
 
   if (!approvedRows.length) {
-    errors.push(finding('no_rows', 'No approved hours in this period — nothing to batch.'));
+    errors.push(finding(
+      'no_rows',
+      outsideRows.length
+        ? 'Only subcontractor hours in this period — they stay in job costing (subbies invoice directly), so there is nothing to push to Xero.'
+        : 'No approved hours in this period — nothing to batch.',
+    ));
+  }
+
+  // ── Subcontractor hours (owner decision 2026-08-02) ───────────────────────
+  // Tracked against jobs for costing; subbies invoice the business directly,
+  // so these rows are never part of the push. Calm information — no action.
+  if (approvedRows.length && outsideWorkers.length) {
+    const names = outsideWorkers.map((w) => w.workerName).sort();
+    const h = round2(outsideRows.reduce((s, r) => s + (Number(r.hours) || 0), 0));
+    warnings.push(finding(
+      'subcontractor_hours_excluded',
+      `${names.join(', ')} — subcontractor hours (${h}h) stay in job costing and are never pushed to Xero. Nothing to do.`,
+      { workers: names, hours: h }
+    ));
   }
 
   // ── Duplicate source entries (defensive — one entry per worker+date) ──────

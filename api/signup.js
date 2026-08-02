@@ -45,7 +45,9 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // The only roles a stranger with the group-chat link may request. Office
 // tiers are added by an admin in the register, never via public signup.
 // Labourer / leading hand come in via admin invite, not the public link.
-const FIELD_ROLES = ['electrician', 'apprentice'];
+// Subcontractor added 2026-08-02 (owner decision) — invoices directly; hours
+// tracked for job costing, excluded from the Xero push by role.
+const FIELD_ROLES = ['electrician', 'apprentice', 'subcontractor'];
 
 // Mirror of api/invites.js#isCommonPin / employees service — keep in sync.
 const BLOCKED_PINS = new Set(['0000', '1111', '1234', '4321', '1212', '6969', '2580', '0852']);

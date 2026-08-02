@@ -80,6 +80,15 @@ export const ROLE_DEFS: Record<EmployeeRole, RoleDef> = {
     surfaceLabel: "Field only",
     description: "Uses the field app for hours and jobs. Gear typically not assigned.",
   },
+  subcontractor: {
+    id: "subcontractor",
+    title: "Subcontractor",
+    appAccess: "phil",
+    surfaceChip: "phil",
+    surfaceLabel: "Field only · invoices directly",
+    description:
+      "Uses the field app to log hours against jobs for cost tracking. Invoices the business directly — hours are never pushed to Xero payroll.",
+  },
 };
 
 /** Roles in the order the cards appear in the drawer (bible A3). */
@@ -92,6 +101,7 @@ export const ROLE_ORDER: ReadonlyArray<EmployeeRole> = [
   "electrician",
   "apprentice",
   "labourer",
+  "subcontractor",
 ];
 
 /** Type guard for an arbitrary string being one of the eight roles. */
