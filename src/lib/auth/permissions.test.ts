@@ -96,15 +96,22 @@ describe("named capability helpers — tier-aware, deny-by-default", () => {
     for (const role of [...FIELD_TIER, ...DENIED]) expect(canApproveHours(role)).toBe(false);
   });
 
-  it("canSubmitHours / Phil access / assigned-gear = field + LH; not admin or client", () => {
-    for (const role of [...FIELD_TIER, ...LH_TIER]) {
+  it("canSubmitHours / Phil access = field + LH + admin (owner decision 2026-08-02); never client", () => {
+    for (const role of [...FIELD_TIER, ...LH_TIER, ...ADMIN_TIER]) {
       expect(canSubmitHours(role)).toBe(true);
       expect(canAccessPhil(role)).toBe(true);
+    }
+    for (const role of DENIED) {
+      expect(canSubmitHours(role)).toBe(false);
+      expect(canAccessPhil(role)).toBe(false);
+    }
+  });
+
+  it("assigned-gear stays field + LH; not admin or client", () => {
+    for (const role of [...FIELD_TIER, ...LH_TIER]) {
       expect(canViewAssignedGear(role)).toBe(true);
     }
     for (const role of [...ADMIN_TIER, ...DENIED]) {
-      expect(canSubmitHours(role)).toBe(false);
-      expect(canAccessPhil(role)).toBe(false);
       expect(canViewAssignedGear(role)).toBe(false);
     }
   });

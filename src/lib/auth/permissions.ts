@@ -22,7 +22,9 @@ export function canAccessSurface(role: unknown, surface: Surface): boolean {
     case "admin":
       return isAdminRole(role);
     case "phil":
-      return isFieldRole(role) || isLeadingHandRole(role);
+      // Admin tier included since 2026-08-02 (owner decision): admin staff
+      // log their own tool-day hours in the field app's hours flow.
+      return isFieldRole(role) || isLeadingHandRole(role) || isAdminRole(role);
     case "lh":
       return isLeadingHandRole(role) || isAdminRole(role);
     case "client":
@@ -74,7 +76,7 @@ export function canAccessBuhlOS(role: unknown): boolean {
   return isAdminRole(role);
 }
 export function canAccessPhil(role: unknown): boolean {
-  return isFieldRole(role) || isLeadingHandRole(role);
+  return canAccessSurface(role, "phil");
 }
 
 // Jobs — draft/archived are office-only (admin tier); publish is a status
@@ -91,7 +93,11 @@ export function canPublishJobs(role: unknown): boolean {
 
 // Hours
 export function canSubmitHours(role: unknown): boolean {
-  return isFieldRole(role) || isLeadingHandRole(role);
+  // Admin tier included since 2026-08-02 (owner decision): admin staff log
+  // hours against jobs when they spend a day on the tools. Their pay is
+  // handled outside Xero — an unmapped worker's approved rows are WITHHELD
+  // from the payroll push (payroll-validation.js), never a blocker.
+  return isFieldRole(role) || isLeadingHandRole(role) || isAdminRole(role);
 }
 export function canApproveHours(role: unknown): boolean {
   return isStaffRole(role);
