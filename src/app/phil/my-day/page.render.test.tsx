@@ -7,8 +7,10 @@ import { BUSINESS_TIMEZONE, localDateString } from "@/domains/timesheets/service
  *
  * The page is an async server component — await it for JSX, renderToString
  * the result (command-centre page.render.test.tsx precedent), with
- * next/headers + next/navigation mocked, fetch stubbed per-URL, and the
- * sharpened flag resolver forced on.
+ * next/headers + next/navigation mocked, the in-process data loaders
+ * (api/_lib/phil-page-data.js — the page stopped self-fetching its own HTTP
+ * API, 2026-08-03) stubbed with the same shapes, and the sharpened flag
+ * resolver forced on.
  *
  * What this file pins (the usability-fix contract):
  *   - ONE hours affordance: the quick grid's "Log hours now" tile — the old
@@ -65,6 +67,25 @@ vi.mock("@/components/phil/PhilMyDaySharpenedAttention", () => ({
   PhilMyDaySharpenedAttentionFallback: () => null,
 }));
 
+// The page's data now arrives via the in-process loaders, not HTTP self-
+// fetches — stub them with the SAME response shapes the handlers serve.
+// `inProcess` is a mutable holder so individual tests can swap the data
+// (the old per-test fetch re-stub, without the fetch).
+const inProcess = vi.hoisted(() => ({
+  user: { role: "electrician", name: "Sam Payne" } as unknown,
+  entries: [] as unknown[],
+  jobs: [] as unknown[],
+}));
+vi.mock("../../../../api/_lib/phil-page-data.js", () => ({
+  loadCurrentUserInProcess: async () => inProcess.user,
+  loadWorkerEntriesInProcess: async () => ({
+    ok: true,
+    status: 200,
+    entries: inProcess.entries,
+  }),
+  loadFieldJobsInProcess: async () => ({ ok: true, jobs: inProcess.jobs }),
+}));
+
 // "Today" must match the PAGE's clock — Sydney (BUSINESS_TIMEZONE), not UTC.
 // The UTC version was a #812-family time bomb: every Sydney morning before
 // 10:00 AEST the UTC date is still yesterday, the mocked "today" entry lands
@@ -112,34 +133,17 @@ function entriesBody() {
 }
 
 beforeEach(() => {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      const body = url.includes("/api/time-entries")
-        ? entriesBody()
-        : url.includes("/api/jobs")
-          ? {
-              jobs: [
-                {
-                  id: "job-1",
-                  name: "Birdwood Estate",
-                  status: "active",
-                  ref: null,
-                  siteAddress: "12 Birdwood Rd",
-                },
-              ],
-            }
-          : url.includes("/api/auth")
-            ? { user: { role: "electrician", name: "Sam Payne" } }
-            : {};
-      return {
-        ok: true,
-        status: 200,
-        json: async () => body,
-      } as unknown as Response;
-    }),
-  );
+  inProcess.user = { role: "electrician", name: "Sam Payne" };
+  inProcess.entries = entriesBody().entries;
+  inProcess.jobs = [
+    {
+      id: "job-1",
+      name: "Birdwood Estate",
+      status: "active",
+      ref: null,
+      siteAddress: "12 Birdwood Rd",
+    },
+  ];
 });
 
 afterEach(() => {
@@ -183,20 +187,8 @@ describe("sharpened /phil/my-day — one hours affordance", () => {
   });
 
   it("drops the banner once today has a real entry — its claim would be false", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
-        const body = url.includes("/api/time-entries")
-          ? { entries: [entry({ id: "te-today", date: TODAY, status: "submitted" })] }
-          : url.includes("/api/jobs")
-            ? { jobs: [] }
-            : url.includes("/api/auth")
-              ? { user: { role: "electrician", name: "Sam Payne" } }
-              : {};
-        return { ok: true, status: 200, json: async () => body } as unknown as Response;
-      }),
-    );
+    inProcess.entries = [entry({ id: "te-today", date: TODAY, status: "submitted" })];
+    inProcess.jobs = [];
     const html = await renderPage();
     expect(html).not.toContain("phil-my-day-log-hours-banner");
     expect(html).not.toContain("Today not logged");
