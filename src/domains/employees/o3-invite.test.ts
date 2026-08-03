@@ -16,6 +16,29 @@ import { PhilInviteLanding } from "@/components/phil/PhilInviteLanding";
 import type { ResolvedInvite } from "./types";
 
 /* ----------------------------------------------------------------------- */
+/* Accept landing — office tiers land on the OFFICE, never stranded in Phil */
+/* ----------------------------------------------------------------------- */
+
+import { createRequire } from "node:module";
+const requireCjs = createRequire(import.meta.url);
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { landingFor: acceptLandingFor } = requireCjs("../../../api/invites.js") as {
+  landingFor: (appAccess: string) => string;
+};
+
+describe("accept landing per app access", () => {
+  it("field lands in Phil; 'both' (admin) lands on the office home", () => {
+    expect(acceptLandingFor("phil")).toBe("/phil/my-day");
+    // Regression (2026-08-03): 'both' used to land on /phil/my-day and rely
+    // on the middleware bouncing admins to the office — but admins can enter
+    // Phil since #978, so an accepting admin was stranded looking like a
+    // worker. Their primary surface is the office.
+    expect(acceptLandingFor("both")).toBe("/command-centre");
+    expect(acceptLandingFor("buhlos")).toBe("/v2/login");
+  });
+});
+
+/* ----------------------------------------------------------------------- */
 /* Invite state resolution (bible P1 / P8–P10)                             */
 /* ----------------------------------------------------------------------- */
 

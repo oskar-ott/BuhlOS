@@ -79,9 +79,14 @@ function resolveState(invite, employee, nowMs) {
   }
 }
 
-// Where the worker lands after accept. Field/LH → Phil; office tiers → login.
+// Where the worker lands after accept. Field/LH → Phil; 'both' (admin) →
+// the office home: it used to fall through to Phil and rely on the
+// middleware bouncing admins out, but admins can enter Phil since #978 —
+// an accepting admin was stranded in the field app looking like a worker.
+// The office is their primary surface; Phil stays a URL away.
 function landingFor(appAccess) {
-  if (appAccess === 'phil' || appAccess === 'both') return '/phil/my-day';
+  if (appAccess === 'phil') return '/phil/my-day';
+  if (appAccess === 'both') return '/command-centre';
   return '/v2/login';
 }
 
@@ -264,3 +269,6 @@ module.exports = async (req, res) => {
 
   return res.status(404).json({ error: 'unknown action' });
 };
+
+// Exported for the o3 invite unit tests (accept-landing per app access).
+module.exports.landingFor = landingFor;
