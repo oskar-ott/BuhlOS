@@ -1,6 +1,10 @@
 import { redirect } from "next/navigation";
-import { cookies, headers } from "next/headers";
+import { cookies } from "next/headers";
 import { isFlagEnabled } from "../../../../api/_lib/feature-flags.js";
+import {
+  loadWorkerEntriesInProcess,
+  loadFieldJobsInProcess,
+} from "../../../../api/_lib/phil-page-data.js";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -245,20 +249,16 @@ async function loadHistory(cookieValue: string | undefined): Promise<{
   entries: ReadonlyArray<TimeEntry>;
   fetchError: string | null;
 }> {
-  const h = await headers();
-  const host = h.get("x-forwarded-host") ?? h.get("host");
-  const proto = h.get("x-forwarded-proto") ?? "http";
-  const base = host ? `${proto}://${host}` : "http://localhost:3000";
+  // In-process read (2026-08-03): this used to HTTP-fetch our own
+  // /api/time-entries, which invoked a second serverless function whose cold
+  // start stacked onto this page's — the occasional many-second load. Same
+  // auth + read path (api/_lib), same lenient parse of the result.
   try {
-    const res = await fetch(`${base}/api/time-entries`, {
-      cache: "no-store",
-      headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
-    });
+    const res = await loadWorkerEntriesInProcess(cookieValue);
     if (!res.ok) {
       return { entries: [], fetchError: `API returned ${res.status}` };
     }
-    const body = await res.json();
-    const parsed = parseTimeEntryListLenient(body);
+    const parsed = parseTimeEntryListLenient({ entries: res.entries });
     if (!parsed.ok) {
       return { entries: [], fetchError: "Unexpected response shape" };
     }
@@ -289,19 +289,12 @@ async function loadAssignedJobs(cookieValue: string | undefined): Promise<{
   jobs: ReadonlyArray<AssignableJob & { ref: string | null }>;
   error: boolean;
 }> {
-  const h = await headers();
-  const host = h.get("x-forwarded-host") ?? h.get("host");
-  const proto = h.get("x-forwarded-proto") ?? "http";
-  const base = host ? `${proto}://${host}` : "http://localhost:3000";
-
   try {
-    const res = await fetch(`${base}/api/jobs`, {
-      cache: "no-store",
-      headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
-    });
+    // In-process read (2026-08-03) — same role-scoped job set the HTTP
+    // /api/jobs list served, without invoking a second serverless function.
+    const res = await loadFieldJobsInProcess(cookieValue);
     if (!res.ok) return { jobs: [], error: true };
-    const body = await res.json();
-    const parsed = JobListResponseSchema.safeParse(body);
+    const parsed = JobListResponseSchema.safeParse({ jobs: res.jobs });
     if (!parsed.success) return { jobs: [], error: true };
     const jobs = parsed.data.jobs
       .filter((j) => isVisibleToField(j))

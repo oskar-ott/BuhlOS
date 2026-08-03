@@ -1,6 +1,11 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
-import { cookies, headers } from "next/headers";
+import { cookies } from "next/headers";
+import {
+  loadCurrentUserInProcess,
+  loadWorkerEntriesInProcess,
+  loadFieldJobsInProcess,
+} from "../../../../api/_lib/phil-page-data.js";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { LogHoursSheet } from "@/components/phil/LogHoursSheet";
 import { PhilWeekStrip } from "@/components/phil/PhilWeekStrip";
@@ -14,7 +19,7 @@ import { RefreshButton } from "@/components/ui/RefreshButton";
 import {
   SESSION_COOKIE,
   decodeSessionCookie,
-  verifyViaApi,
+  parseSessionUser,
   type SessionPayload,
 } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
@@ -385,11 +390,14 @@ async function loadWorkerProfile(
   cookieValue: string | undefined
 ): Promise<SessionPayload | null> {
   if (!cookieValue) return null;
-  const h = await headers();
-  const host = h.get("x-forwarded-host") ?? h.get("host");
-  const proto = h.get("x-forwarded-proto") ?? "http";
-  const base = host ? `${proto}://${host}` : "http://localhost:3000";
-  return verifyViaApi(`${SESSION_COOKIE}=${cookieValue}`, base);
+  // In-process read (2026-08-03): same authoritative getCurrentUser the
+  // /api/auth?action=me hop ran, without invoking a second serverless
+  // function; parseSessionUser applies the same shape gate to the result.
+  try {
+    return parseSessionUser(await loadCurrentUserInProcess(cookieValue));
+  } catch {
+    return null; // fail-soft, same as verifyViaApi — the greeting degrades
+  }
 }
 
 async function loadEntries(
@@ -400,11 +408,6 @@ async function loadEntries(
   recentEntries: ReadonlyArray<TimeEntry>;
   fetchError: string | null;
 }> {
-  const h = await headers();
-  const host = h.get("x-forwarded-host") ?? h.get("host");
-  const proto = h.get("x-forwarded-proto") ?? "http";
-  const base = host ? `${proto}://${host}` : "http://localhost:3000";
-
   // Server-side "today" must use the business timezone so a Vercel UTC server
   // doesn't compute yesterday's date for a Sydney worker. The browser-local
   // date is still used inside the LogHoursSheet client form (it initialises
@@ -422,13 +425,10 @@ async function loadEntries(
   const toDate = fixDate && fixDate > today ? fixDate : today;
 
   try {
-    const res = await fetch(
-      `${base}/api/time-entries?fromDate=${encodeURIComponent(fromDate)}&toDate=${encodeURIComponent(toDate)}`,
-      {
-        cache: "no-store",
-        headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
-      }
-    );
+    // In-process read (2026-08-03): this used to HTTP-fetch our own
+    // /api/time-entries — a second serverless invocation whose cold start
+    // stacked onto this page's. Same auth + read path, same lenient parse.
+    const res = await loadWorkerEntriesInProcess(cookieValue, { fromDate, toDate });
     if (!res.ok) {
       return {
         todayEntry: null,
@@ -436,8 +436,7 @@ async function loadEntries(
         fetchError: `API returned ${res.status}`,
       };
     }
-    const body = await res.json();
-    const parsed = parseTimeEntryListLenient(body);
+    const parsed = parseTimeEntryListLenient({ entries: res.entries });
     if (!parsed.ok) {
       return {
         todayEntry: null,
@@ -489,19 +488,12 @@ async function loadAssignedJobs(cookieValue: string | undefined): Promise<{
   }>;
   error: boolean;
 }> {
-  const h = await headers();
-  const host = h.get("x-forwarded-host") ?? h.get("host");
-  const proto = h.get("x-forwarded-proto") ?? "http";
-  const base = host ? `${proto}://${host}` : "http://localhost:3000";
-
   try {
-    const res = await fetch(`${base}/api/jobs`, {
-      cache: "no-store",
-      headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
-    });
+    // In-process read (2026-08-03) — same role-scoped job set the HTTP
+    // /api/jobs list served, without invoking a second serverless function.
+    const res = await loadFieldJobsInProcess(cookieValue);
     if (!res.ok) return { jobs: [], error: true };
-    const body = await res.json();
-    const parsed = JobListResponseSchema.safeParse(body);
+    const parsed = JobListResponseSchema.safeParse({ jobs: res.jobs });
     if (!parsed.success) return { jobs: [], error: true };
     const jobs = parsed.data.jobs
       .filter((j) => isVisibleToField(j))
