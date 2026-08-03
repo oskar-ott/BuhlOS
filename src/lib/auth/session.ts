@@ -58,6 +58,18 @@ export function decodeSessionCookie(value: string | undefined): SessionPayload |
  * Authoritative session check via the legacy /api/auth?action=me endpoint.
  * Used when the server actually needs to trust the cookie (e.g. mutations).
  */
+/**
+ * Shape-gate a user object resolved IN-PROCESS (api/_lib/auth.js
+ * getCurrentUser via api/_lib/phil-page-data.js) into the same payload
+ * verifyViaApi returns — so a page can swap the HTTP `/api/auth?action=me`
+ * hop for the in-process read without changing what it trusts or renders.
+ * Pure zod; safe to live here even though middleware also imports this file.
+ */
+export function parseSessionUser(user: unknown): SessionPayload | null {
+  const parsed = MeResponseSchema.safeParse({ user });
+  return parsed.success && parsed.data.user ? parsed.data.user : null;
+}
+
 const MeResponseSchema = z.object({
   user: z
     .object({
