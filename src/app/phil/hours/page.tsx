@@ -120,6 +120,7 @@ export default async function PhilHoursPage({
               todayISO={todayISO}
               assignedJobs={assignedJobs.jobs}
               jobsError={assignedJobs.error}
+              viewerId={session.userId ?? null}
             />
           )}
         </div>

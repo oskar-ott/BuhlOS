@@ -678,3 +678,55 @@ describe("GET /api/time-entries — read-your-writes overlay (2026-07-28)", () =
     expect((res.body as { entries: unknown[] }).entries).toEqual([]);
   });
 });
+
+describe("listUserEntries — the PG rung gets the read-your-writes overlay too (2026-08-06)", () => {
+  // The #152 read-cutover used to return PG results WITHOUT the overlay. The
+  // PG mirror is best-effort, so a mirror miss on the just-logged day made
+  // that day vanish from a PG-served list exactly like the listing lag did.
+  type EntryLike = { id: string; date: string; status: string; updatedAt: string };
+  type ListUserEntries = (
+    userId: string,
+    opts: { fromDate?: string; toDate?: string; status?: string },
+    deps: { listPg: () => Promise<{ pg: boolean; entries?: EntryLike[] }> }
+  ) => Promise<EntryLike[]>;
+  const lib = () => requireFromHere(teLibPath) as { listUserEntries: ListUserEntries };
+
+  it("overlays the just-written Blob day over a PG list that missed it", async () => {
+    const got = await lib().listUserEntries(
+      "u_field",
+      { fromDate: TODAY, toDate: TODAY },
+      { listPg: async () => ({ pg: true, entries: [] }) }
+    );
+    expect(got.map((e) => e.id)).toEqual(["e_field"]);
+  });
+
+  it("keeps a strictly newer PG copy over the overlay's Blob read", async () => {
+    const pgCopy = {
+      id: "e_pg_newer",
+      userId: "u_field",
+      date: TODAY,
+      totalHours: 8,
+      ordinaryHours: 8,
+      overtimeHours: 0,
+      status: "approved",
+      allocations: [{ jobId: "job-x", hours: 8 }],
+      createdAt: `${TODAY}T07:00:00.000Z`,
+      updatedAt: `${TODAY}T09:00:00.000Z`, // newer than the seeded Blob day (T08)
+    };
+    const got = await lib().listUserEntries(
+      "u_field",
+      { fromDate: TODAY, toDate: TODAY },
+      { listPg: async () => ({ pg: true, entries: [pgCopy] }) }
+    );
+    expect(got.map((e) => e.id)).toEqual(["e_pg_newer"]);
+  });
+
+  it("still applies the caller's status filter to overlaid days", async () => {
+    const got = await lib().listUserEntries(
+      "u_field",
+      { fromDate: TODAY, toDate: TODAY, status: "approved" },
+      { listPg: async () => ({ pg: true, entries: [] }) }
+    );
+    expect(got).toEqual([]); // the seeded Blob day is 'submitted'
+  });
+});

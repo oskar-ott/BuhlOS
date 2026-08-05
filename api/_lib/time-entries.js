@@ -121,13 +121,49 @@ async function deleteEntry(userId, date) {
 }
 
 // List one user's entries (newest first), optionally filtered by date range / status.
-async function listUserEntries(userId, { fromDate, toDate, status } = {}) {
+// `deps.listPg` is injectable for tests (the PG rung is env+flag gated in prod).
+async function listUserEntries(userId, { fromDate, toDate, status } = {}, deps = {}) {
   // #152 read-cutover (rung 3): serve from Postgres when supabase_read_hours is
   // on (+ env). Best-effort — {pg:false} on disabled/error falls through to Blob
   // (the source of truth). readEntry stays Blob (write path).
-  const pg = await listUserEntriesFromPgIfEnabled(userId, { fromDate, toDate, status });
-  if (pg.pg) return pg.entries;
+  const listPg = deps.listPg || listUserEntriesFromPgIfEnabled;
+  const pg = await listPg(userId, { fromDate, toDate, status });
+  // 2026-08-06: the PG rung gets the SAME read-your-writes overlay as the Blob
+  // listing below (it used to return here without one). The PG mirror is
+  // best-effort — a mirror miss on the just-logged day made that day vanish
+  // from a PG-served list exactly like the listing lag did. Blob is the source
+  // of truth for the freshest write, so recent day-files are re-read directly
+  // and merged by updatedAt either way.
+  const base = pg.pg ? pg.entries : await listUserEntriesFromBlob(userId, { fromDate, toDate });
 
+  const byDate = new Map();
+  for (const e of base) {
+    if (e) byDate.set(e.date, e);
+  }
+  // Read-your-writes overlay (2026-07-28): recent dates are re-read through
+  // readEntry — the direct-URL read dodges the listing lag, and writeBlob
+  // primes that cache so a same-instance render is read-after-write
+  // consistent. Bounded to a ±few-day window so absent dates cost at most a
+  // handful of parallel narrow lookups.
+  const overlay = await Promise.all(recentDatesWithin(fromDate, toDate).map(async d => {
+    try { return await readEntry(userId, d); } catch { return null; }
+  }));
+  for (const e of overlay) {
+    if (!e) continue;
+    const listed = byDate.get(e.date);
+    if (!listed || String(e.updatedAt || '') >= String(listed.updatedAt || '')) byDate.set(e.date, e);
+  }
+
+  return [...byDate.values()]
+    .filter(e => !status || e.status === status)
+    .sort((a, b) => b.date.localeCompare(a.date));
+}
+
+// The Blob branch of listUserEntries: list the user's day-files and fetch each.
+// Blob's list() is eventually consistent — the caller overlays recent dates on
+// top (see above), which also means a transient list() failure degrades to
+// "recent days only" instead of a hard empty list.
+async function listUserEntriesFromBlob(userId, { fromDate, toDate } = {}) {
   const prefix = ENTRY_PREFIX(userId);
   const token = process.env.BLOB_READ_WRITE_TOKEN;
   let blobs;
@@ -145,37 +181,13 @@ async function listUserEntries(userId, { fromDate, toDate, status } = {}) {
     if (toDate && d > toDate) return false;
     return true;
   });
-  const entries = await Promise.all(filtered.map(async b => {
+  return await Promise.all(filtered.map(async b => {
     try {
       const r = await fetch(b.url + '?t=' + Date.now(), { cache: 'no-store' });
       if (!r.ok) return null;
       return await r.json();
     } catch { return null; }
   }));
-
-  // Read-your-writes overlay (2026-07-28): Blob's list() is eventually
-  // consistent and its CDN lags a fresh put by seconds, so a day logged
-  // moments ago could be missing (or stale) here — the worker watched their
-  // just-submitted hours vanish on the next render. Recent dates are re-read
-  // through readEntry: writeBlob primes that cache with the just-written
-  // document, so a same-instance render is read-after-write consistent, and a
-  // direct-URL read of a brand-new day file dodges the listing lag entirely.
-  // Bounded to a ±few-day window so absent dates cost at most a handful of
-  // parallel narrow lookups.
-  const byDate = new Map();
-  for (const e of entries.filter(Boolean)) byDate.set(e.date, e);
-  const overlay = await Promise.all(recentDatesWithin(fromDate, toDate).map(async d => {
-    try { return await readEntry(userId, d); } catch { return null; }
-  }));
-  for (const e of overlay) {
-    if (!e) continue;
-    const listed = byDate.get(e.date);
-    if (!listed || String(e.updatedAt || '') >= String(listed.updatedAt || '')) byDate.set(e.date, e);
-  }
-
-  return [...byDate.values()]
-    .filter(e => !status || e.status === status)
-    .sort((a, b) => b.date.localeCompare(a.date));
 }
 
 // Server-clock dates from 3 days back to tomorrow (UTC-vs-Sydney slack on both
