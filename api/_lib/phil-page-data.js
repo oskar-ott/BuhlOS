@@ -11,7 +11,8 @@
 //
 // Parity contract (deliberate mirrors of the handler branches):
 //   entries — api/time-entries.js handleGet self path: auth → listUserEntries
-//     (PG rung or Blob list+overlay) → entryView projection.
+//     (PG rung or Blob list; recent-day read-your-writes overlay on BOTH,
+//     2026-08-06) → entryView projection.
 //   jobs — api/jobs.js list branch: field/LH read the jobs-summary projection
 //     (minus draft/archived/complete), any other role falls back to the full
 //     jobs.json read; a summary failure ALSO falls back to the full read.

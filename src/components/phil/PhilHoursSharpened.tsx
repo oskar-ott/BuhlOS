@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/cn";
@@ -10,6 +10,10 @@ import { PhilNotice } from "./ui/PhilNotice";
 import { LogHoursSheet } from "./LogHoursSheet";
 import { RejectedHoursResubmitSheet } from "./RejectedHoursResubmitSheet";
 import { timesheetsClient } from "@/domains/timesheets/client";
+import {
+  readSavedEntries,
+  recordSavedEntry,
+} from "@/domains/timesheets/saved-entries-journal";
 import { formatHoursLabel } from "@/domains/timesheets/format";
 import { STATUS_WORDS } from "@/domains/timesheets/status-words";
 import { canResubmitInPhil } from "@/domains/timesheets/resubmit";
@@ -78,6 +82,10 @@ interface Props {
   assignedJobs: ReadonlyArray<HoursJobRef>;
   /** True when the assigned-jobs fetch failed (blocks writes, shown honestly). */
   jobsError: boolean;
+  /** The signed-in worker's id (session.userId) — scopes the persistent
+   *  saved-entries journal so a shared phone never merges another worker's
+   *  day. Null/absent → the journal is not read (in-memory overlay only). */
+  viewerId?: string | null;
 }
 
 type SendState =
@@ -127,7 +135,7 @@ function JobRefChip({ refCode }: { refCode: string }) {
   );
 }
 
-export function PhilHoursSharpened({ entries, todayISO, assignedJobs, jobsError }: Props) {
+export function PhilHoursSharpened({ entries, todayISO, assignedJobs, jobsError, viewerId }: Props) {
   const router = useRouter();
 
   // Optimistic overlay (2026-07-28): the store's listing can lag a fresh
@@ -135,8 +143,23 @@ export function PhilHoursSharpened({ entries, todayISO, assignedJobs, jobsError 
   // worker just logged. Every confirmed save (log / change / fix / send-week)
   // reports its server-returned entry here and is merged over the server list
   // until it catches up — the day flips instantly and never vanishes.
+  // 2026-08-06: each confirmed save is ALSO journalled to localStorage
+  // (saved-entries-journal), because since the pages read entries in-process
+  // (2026-08-03) the lag outlives this component — a reload or a hop to
+  // My Day re-renders from the still-stale store. The journal re-seeds this
+  // overlay after mount so the day survives navigation too.
   const [savedEntries, setSavedEntries] = useState<ReadonlyArray<TimeEntry>>([]);
+  useEffect(() => {
+    const journalled = readSavedEntries(viewerId);
+    if (journalled.length === 0) return;
+    setSavedEntries((prev) => {
+      const have = new Set(prev.map((e) => e.date));
+      const add = journalled.filter((e) => !have.has(e.date));
+      return add.length > 0 ? [...prev, ...add] : prev;
+    });
+  }, [viewerId]);
   function recordSaved(entry: TimeEntry) {
+    recordSavedEntry(entry);
     setSavedEntries((prev) => [...prev.filter((e) => e.date !== entry.date), entry]);
   }
   const mergedEntries = useMemo(

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Route } from "next";
 import {
   ArrowRight,
@@ -16,6 +16,28 @@ import { cn } from "@/lib/cn";
 import type { PhilNeedsYouItem } from "@/domains/phil/needs-you";
 import { STANDARD_DAY_HOURS } from "@/domains/timesheets/service";
 import { formatHoursLabel } from "@/domains/timesheets/format";
+import { hasSavedEntryForDate } from "@/domains/timesheets/saved-entries-journal";
+
+/**
+ * True once the client-side journal holds a SERVER-CONFIRMED entry for `date`
+ * (saved-entries-journal — each record is a successful save's response body).
+ * The store the page read from can lag a fresh write by seconds, so right
+ * after logging on the Hours tab the server still says "today not logged";
+ * the journal knows better. SSR and first paint return false — the server's
+ * view stands until the effect runs (no hydration mismatch, no fake UI: the
+ * correction is itself server-confirmed data, P7).
+ */
+function useJournalConfirmedDay(
+  date: string | null | undefined,
+  viewerId: string | null | undefined,
+): boolean {
+  const [confirmed, setConfirmed] = useState(false);
+  useEffect(() => {
+    if (!date || !viewerId) return;
+    if (hasSavedEntryForDate(viewerId, date)) setConfirmed(true);
+  }, [date, viewerId]);
+  return confirmed;
+}
 
 /**
  * Phil My Day — sharpened re-skin (phil_sharpened, dark; Wave 2a of the
@@ -104,8 +126,23 @@ export function PhilMyDaySharpenedHeader({
  * todayEntry === null), so its "Today not logged" line is always true (P7).
  * The standard-day figure is the real STANDARD_DAY_HOURS the one-tap
  * Standard-day submit uses — "7h 36m standard", never a hand-written copy.
+ *
+ * 2026-08-06: the page's todayEntry can be stale for a few seconds after a
+ * save (the store lags a fresh write) — when the client journal holds a
+ * server-confirmed entry for today, "Today not logged" would be the lie, so
+ * the banner removes itself.
  */
-export function PhilMyDayLogHoursBanner() {
+export function PhilMyDayLogHoursBanner({
+  todayISO,
+  viewerId,
+}: {
+  /** Sydney-local today (the page's todayISO) — the journal lookup date. */
+  todayISO?: string | null;
+  /** session.userId — scopes the journal on a shared phone. */
+  viewerId?: string | null;
+} = {}) {
+  const journalLogged = useJournalConfirmedDay(todayISO, viewerId);
+  if (journalLogged) return null;
   return (
     <PhilOfflineLink
       href={"/phil/hours" as Route}
@@ -307,6 +344,8 @@ export function PhilMyDayOnJobCard({
 export function PhilMyDayQuickGrid({
   hoursDue,
   callJobId,
+  todayISO,
+  viewerId,
 }: {
   /** True only when today genuinely has no time entry (the page's real
    *  todayEntry === null) — drives the amber "Due" chip. */
@@ -314,7 +353,13 @@ export function PhilMyDayQuickGrid({
   /** The sole job's id, or null. "Who to call" needs a job context (the
    *  contacts live on the job) — with none the tile is omitted, not faked. */
   callJobId: string | null;
+  /** Journal gate (see PhilMyDayLogHoursBanner): a server-confirmed save the
+   *  store hasn't served back yet clears the "Due" chip client-side. */
+  todayISO?: string | null;
+  viewerId?: string | null;
 }) {
+  const journalLogged = useJournalConfirmedDay(todayISO, viewerId);
+  const due = hoursDue && !journalLogged;
   const tileClass =
     "flex min-h-[84px] flex-col gap-1.5 rounded-card border border-border bg-surface-raised p-3 text-left shadow-card transition-colors active:bg-surface-subtle";
 
@@ -329,11 +374,11 @@ export function PhilMyDayQuickGrid({
             <span className="inline-flex h-9 w-9 items-center justify-center rounded-[10px] bg-accent-yellow text-accent-ink">
               <Clock className="h-[18px] w-[18px]" aria-hidden="true" />
             </span>
-            {hoursDue ? <PhilStatusBadge label="Due" tone="warning" /> : null}
+            {due ? <PhilStatusBadge label="Due" tone="warning" /> : null}
           </span>
           <span className="text-sm font-semibold leading-tight text-text">Log hours now</span>
           <span className="text-xs leading-tight text-text-muted">
-            {hoursDue ? "Today's not logged yet" : "Today's hours"}
+            {due ? "Today's not logged yet" : "Today's hours"}
           </span>
         </PhilOfflineLink>
 

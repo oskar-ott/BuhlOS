@@ -226,8 +226,16 @@ export default async function MyDayPage({
               under the header, pointing at the Hours tab (the one logging
               home). Only while today is genuinely unlogged: once an entry
               exists, "Today not logged" would be a lie, so the banner leaves
-              and the quick tile below carries the quiet non-due state. */}
-          {todayEntry === null ? <PhilMyDayLogHoursBanner /> : null}
+              and the quick tile below carries the quiet non-due state.
+              todayISO/viewerId feed the client-side saved-entries journal
+              gate — a just-saved day the store hasn't served back yet also
+              clears the banner (2026-08-06). */}
+          {todayEntry === null ? (
+            <PhilMyDayLogHoursBanner
+              todayISO={todayISO}
+              viewerId={session.userId ?? null}
+            />
+          ) : null}
 
           {showFixCard ? (
             <section
@@ -279,7 +287,12 @@ export default async function MyDayPage({
               there): the quick grid's "Log hours now" tile is THE hours
               affordance here. The old week strip + day-logger are gone from
               this screen — one logging home, not three competing forms. */}
-          <PhilMyDayQuickGrid hoursDue={todayEntry === null} callJobId={soleJobId} />
+          <PhilMyDayQuickGrid
+            hoursDue={todayEntry === null}
+            callJobId={soleJobId}
+            todayISO={todayISO}
+            viewerId={session.userId ?? null}
+          />
 
           <PhilMyDayHonestyNote />
 
