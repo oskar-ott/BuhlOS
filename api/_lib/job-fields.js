@@ -20,14 +20,16 @@ function slugify(s) {
 // Coerces input to booleans, drops unknown keys, fills missing keys true.
 const MODULE_KEYS = [
   'areas', 'snags', 'photos', 'hours', 'materials',
-  'tags',  'temps', 'plans', 'contacts',
+  'temps', 'plans', 'contacts',
   // Modular concepts to come — opt-in by default false so they don't
   // appear in the UI until the job actively enables them.
-  'switchboards', 'circuits', 'itps', 'levels',
+  // ('tags' + 'itps' were removed with the Test & Tag / ITP teardown — the
+  //  job-page rebuild; stored values on old jobs are dropped on next write.)
+  'switchboards', 'circuits', 'levels',
 ];
 const MODULE_DEFAULTS_TRUE = new Set([
   'areas', 'snags', 'photos', 'hours', 'materials',
-  'tags',  'temps', 'plans', 'contacts',
+  'temps', 'plans', 'contacts',
 ]);
 function sanitizeModules(input) {
   const out = {};

@@ -250,9 +250,6 @@ describe("GET /api/jobs?id=…&withStats=1 — single-job hub stats truthfulness
       evidence: [{ id: "e1", status: "submitted" }],
       snagsV2: [{ id: "s1", status: "open" }],
     });
-    blob.set("jobs/job-active/itps.json", {
-      instances: [{ id: "i1", status: "witnessed" }],
-    });
     // Deliver-card counts (Job Builder redesign follow-up): material requests
     // in the ONE global blob (still-in-motion statuses count; delivered/
     // cancelled + other jobs' requests don't) and the per-job RFI register
@@ -289,8 +286,6 @@ describe("GET /api/jobs?id=…&withStats=1 — single-job hub stats truthfulness
     expect(job.statsAreaCount).toBe(1); // the archived area is stripped from the projection
     expect(job.statsEvidenceV2Pending).toBe(1);
     expect(job.statsSnagsV2Active).toBe(1);
-    expect(job.statsItpsActive).toBe(1);
-    expect(job.statsItpsNeedsReview).toBe(1);
     expect(job.statsMaterialRequestsOpen).toBe(2); // requested + ordered; not delivered/cancelled/other-job
     expect(job.statsRfisOpen).toBe(2); // open + sent; not answered/closed
   });
@@ -1569,19 +1564,10 @@ describe("GET /api/jobs jobs-summary read path (perf, flag-gated)", () => {
     expect(active.areaGroups).toBeDefined();
   });
 
-  it("WITHSTATS: ?withStats=1 uses the SUMMARY path (no areaGroups) with correct snag/ITP stats", async () => {
-    // 2 active snags (open + in_progress; closed excluded), 2 active ITPs
-    // (witnessed + pending; completed excluded; archived excluded).
+  it("WITHSTATS: ?withStats=1 uses the SUMMARY path (no areaGroups) with the correct snag stat", async () => {
+    // 2 active snags (open + in_progress; closed excluded).
     blob.set("jobs/job-active/data.json", {
       snagsV2: [{ status: "open" }, { status: "in_progress" }, { status: "closed" }],
-    });
-    blob.set("jobs/job-active/itps.json", {
-      instances: [
-        { status: "witnessed" },
-        { status: "pending" },
-        { status: "completed" },
-        { status: "in-progress", archived: true },
-      ],
     });
     process.env.FLAG_PHIL_JOBS_SUMMARY_READ = "true";
     const res = await call({
@@ -1593,30 +1579,26 @@ describe("GET /api/jobs jobs-summary read path (perf, flag-gated)", () => {
     const active = rows(res).find((j) => j.id === "job-active")!;
     expect(active).not.toHaveProperty("areaGroups"); // summary path, not the full read
     expect(active.statsSnagsV2Active).toBe(2);
-    expect(active.statsItpsActive).toBe(2);
+    // the deleted ITP stat is gone from every path
+    expect(active).not.toHaveProperty("statsItpsActive");
     // task/area stats (need areaGroups) are NOT served on this path
     expect(active).not.toHaveProperty("statsTasksTotal");
     // and still no money on the cheap path
     expect(active).not.toHaveProperty("contractValue");
   });
 
-  it("WITHSTATS PARITY: summary stats == full-read stats for the two field stats", async () => {
+  it("WITHSTATS PARITY: summary stats == full-read stats for the field stat", async () => {
     blob.set("jobs/job-active/data.json", {
       snagsV2: [{ status: "open" }, { status: "rejected" }, { status: "verified" }],
     });
-    blob.set("jobs/job-active/itps.json", { instances: [{ status: "witnessed" }] });
     delete process.env.FLAG_PHIL_JOBS_SUMMARY_READ;
     const full = await call({ method: "GET", userId: "u_field", role: "electrician", query: { withStats: "1" } });
     process.env.FLAG_PHIL_JOBS_SUMMARY_READ = "true";
     const summary = await call({ method: "GET", userId: "u_field", role: "electrician", query: { withStats: "1" } });
     const f = rows(full).find((j) => j.id === "job-active")!;
     const s = rows(summary).find((j) => j.id === "job-active")!;
-    expect({ snags: s.statsSnagsV2Active, itps: s.statsItpsActive }).toEqual({
-      snags: f.statsSnagsV2Active,
-      itps: f.statsItpsActive,
-    });
+    expect({ snags: s.statsSnagsV2Active }).toEqual({ snags: f.statsSnagsV2Active });
     expect(s.statsSnagsV2Active).toBe(2); // open + rejected (verified excluded)
-    expect(s.statsItpsActive).toBe(1);
   });
 
   it("WITHSTATS FALLBACK: a summary read failure falls back to the full read (no 500, areaGroups present)", async () => {
@@ -1741,7 +1723,6 @@ describe("GET /api/jobs?id=… job-detail projection (perf, flag-gated)", () => 
 
   it("WITHSTATS: ?id=…&withStats=1 stays on the full read (admin-hub knob, not projection-served)", async () => {
     blob.set("jobs/job-active/data.json", { snagsV2: [{ status: "open" }] });
-    blob.set("jobs/job-active/itps.json", { instances: [{ status: "witnessed" }] });
     blob.set(DETAIL_KEY, {
       builtFromUploadedAt: "T1",
       record: { id: "job-active", name: "FROM-PROJECTION", status: "active", areaGroups: [] },
@@ -1785,9 +1766,6 @@ describe("GET /api/jobs?withStats=1&statsOnly=1 — admin Command Centre fast st
       snagsV2: [{ status: "open" }, { status: "closed" }], // 1 active
       evidence: [{ status: "submitted" }, { status: "approved" }], // 1 pending
     });
-    blob.set("jobs/job-active/itps.json", {
-      instances: [{ status: "witnessed" }, { status: "completed" }], // 1 needs-review
-    });
   });
   afterEach(() => {
     delete process.env.FLAG_PHIL_JOBS_SUMMARY_READ;
@@ -1804,12 +1782,10 @@ describe("GET /api/jobs?withStats=1&statsOnly=1 — admin Command Centre fast st
       crew: j.statsCrewCount,
       evidence: j.statsEvidenceV2Pending,
       snags: j.statsSnagsV2Active,
-      itpsReview: j.statsItpsNeedsReview,
     });
     expect(pick(lite)).toEqual(pick(full)); // same per-job counts, no monolith
     expect(lite.statsSnagsV2Active).toBe(1);
     expect(lite.statsEvidenceV2Pending).toBe(1);
-    expect(lite.statsItpsNeedsReview).toBe(1);
   });
 
   it("STRIPS the areaGroups-derived task stats (never a fabricated task count)", async () => {
@@ -1827,7 +1803,7 @@ describe("GET /api/jobs?withStats=1&statsOnly=1 — admin Command Centre fast st
     expect(res.statusCode).toBe(200);
     const active = rows(res).find((j) => j.id === "job-active");
     expect(active).toBeDefined();
-    expect(active).toHaveProperty("statsItpsNeedsReview");
+    expect(active).toHaveProperty("statsSnagsV2Active");
   });
 
   it("401: statsOnly leaks nothing when unauthenticated", async () => {

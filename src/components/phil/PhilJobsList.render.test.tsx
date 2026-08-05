@@ -33,15 +33,13 @@ describe("PhilJobsList", () => {
     const withStats = {
       ...job,
       statsSnagsV2Active: 3,
-      statsItpsActive: 2,
     } as unknown as Job;
     const html = renderToString(
       createElement(PhilJobsList, { initialJobs: [withStats] }),
     );
     expect(html).toContain("3 snags");
-    expect(html).toContain("2 ITPs");
     // also folded into the row's accessible name (announced once, not twice)
-    expect(html).toContain("3 snags, 2 ITPs");
+    expect(html).toContain("3 snags");
   });
 
   it("renders no 'open work' chips when stats are absent (graceful, no fake)", () => {

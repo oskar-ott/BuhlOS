@@ -374,20 +374,14 @@ const REGISTRY = {
     default: true, killSwitch: true, target: 'global', expires: '2027-06-30',
   },
 
-  // NEW builds mandated BY the lean reset (steps 5–6): the crew sign-up link
-  // and the field's simple ITP builder, dark until the owner preview-verifies
-  // and flips them.
+  // NEW build mandated BY the lean reset (step 5): the crew sign-up link,
+  // dark until the owner preview-verifies and flips it. (Step 6's itp_simple
+  // flag was deleted with the ITP-builder teardown — the job-page rebuild.)
   signup_link: {
     description: 'Crew sign-up link — one shareable /onboarding/<code> URL for the group chat; workers self-signup and are in straight away (instant account + welcome email; gates: link expiry/cap/pause, field roles only, duplicate refusal). Public side api/signup.js, admin side /employees. Dark.',
     default: false,
     target: 'global',
     expires: '2027-06-30',
-  },
-  itp_simple: {
-    description: 'Simple mobile ITP builder — job-scoped areas + photos rendered to a plain PDF in Phil (#912, lean-reset step 6). Metadata Supabase-first, binaries in Blob. Dark.',
-    default: false,
-    target: 'global',
-    expires: '2026-12-31',
   },
 
   // job_photos left the hidden list by owner decision (#916 call 2,
@@ -409,7 +403,6 @@ const REGISTRY = {
 // point at /v2/jobs — open any job and the section is visible while previewing.
 const FLAG_PRESENTATION = {
   signup_link: { label: 'Crew sign-up link', domain: 'Company', surface: 'Shared', previewHref: '/employees' },
-  itp_simple: { label: 'Simple ITP builder (Phil)', domain: 'QA & compliance', surface: 'Phil', previewHref: '/phil/jobs' },
   admin_flags_readout: { label: 'Flags readout card', domain: 'Platform', surface: 'BuhlOS', previewHref: '/command-centre' },
   servicem8_sync: { label: 'ServiceM8 job sync', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/command-centre' },
   phil_sharpened: { label: 'Phil sharpened redesign', domain: 'Phil', surface: 'Phil', previewHref: '/phil/my-day' },

@@ -6,6 +6,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * blob injection). Pins: default-until-overridden, re-validation on read
  * (out-of-range / wrong-type → default, dark-safe), unknown-key throw, and the
  * strict write-time validation used by api/owner-settings.js.
+ *
+ * The live registry is EMPTY (the job-page rebuild deleted itp_simple's
+ * knobs, the last registered feature), so these tests register a FIXTURE
+ * feature group via the exported SETTINGS_REGISTRY to exercise the seam.
  */
 
 const requireFromHere = createRequire(import.meta.url);
@@ -14,6 +18,7 @@ const settingsPath = requireFromHere.resolve("../../../api/_lib/feature-settings
 
 type Value = number | string | boolean;
 type SettingsModule = {
+  SETTINGS_REGISTRY: Record<string, Record<string, unknown>>;
   getSetting: (f: string, k: string) => Promise<Value>;
   getSettings: (f: string) => Promise<Record<string, Value>>;
   validateWrite: (f: string, k: string, v: unknown) => { ok: boolean; value?: Value; error?: string };
@@ -23,7 +28,7 @@ type SettingsModule = {
 let blob: Map<string, unknown>;
 let settings: SettingsModule;
 
-const FK = "itp_simple";
+const FK = "test_feature"; // fixture group registered in beforeEach
 const K = "maxUploadMb"; // number, default 8, range 1–25
 
 beforeEach(() => {
@@ -43,6 +48,17 @@ beforeEach(() => {
     },
   } as NodeJS.Module;
   settings = requireFromHere(settingsPath);
+  // Register the fixture group (the live registry is empty — see header).
+  settings.SETTINGS_REGISTRY[FK] = {
+    maxUploadMb: {
+      type: "number", label: "Max photo size (MB)", description: "fixture",
+      default: 8, min: 1, max: 25, step: 1, unit: "MB",
+    },
+    maxPdfPhotos: {
+      type: "number", label: "Max photos per PDF", description: "fixture",
+      default: 120, min: 10, max: 400, step: 10, unit: "photos",
+    },
+  };
 });
 
 describe("resolver (default until overridden, dark-safe)", () => {
@@ -76,8 +92,8 @@ describe("resolver (default until overridden, dark-safe)", () => {
   });
 
   it("getSettings resolves the whole feature group in one read", async () => {
-    blob.set("feature-settings.json", { settings: { itp_simple: { maxPdfPhotos: 200 } } });
-    expect(await settings.getSettings("itp_simple")).toEqual({ maxUploadMb: 8, maxPdfPhotos: 200 });
+    blob.set("feature-settings.json", { settings: { [FK]: { maxPdfPhotos: 200 } } });
+    expect(await settings.getSettings(FK)).toEqual({ maxUploadMb: 8, maxPdfPhotos: 200 });
   });
 
   it("every registry default is itself a valid value (resolves to the default)", async () => {

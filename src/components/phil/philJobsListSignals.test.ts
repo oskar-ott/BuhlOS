@@ -7,28 +7,20 @@ function job(over: Partial<Job> = {}): Job {
 }
 
 describe("jobOpenWork", () => {
-  it("emits snag + ITP signals from real stats, pluralised", () => {
-    expect(
-      jobOpenWork(job({ statsSnagsV2Active: 3, statsItpsActive: 2 })),
-    ).toEqual([
+  it("emits the snag signal from real stats, pluralised", () => {
+    expect(jobOpenWork(job({ statsSnagsV2Active: 3 }))).toEqual([
       { key: "snags", count: 3, label: "3 snags" },
-      { key: "itps", count: 2, label: "2 ITPs" },
     ]);
   });
 
-  it("uses singular labels for a count of one", () => {
-    expect(
-      jobOpenWork(job({ statsSnagsV2Active: 1, statsItpsActive: 1 })),
-    ).toEqual([
+  it("uses a singular label for a count of one", () => {
+    expect(jobOpenWork(job({ statsSnagsV2Active: 1 }))).toEqual([
       { key: "snags", count: 1, label: "1 snag" },
-      { key: "itps", count: 1, label: "1 ITP" },
     ]);
   });
 
-  it("omits a signal whose count is zero", () => {
-    expect(
-      jobOpenWork(job({ statsSnagsV2Active: 0, statsItpsActive: 4 })),
-    ).toEqual([{ key: "itps", count: 4, label: "4 ITPs" }]);
+  it("omits the signal when its count is zero", () => {
+    expect(jobOpenWork(job({ statsSnagsV2Active: 0 }))).toEqual([]);
   });
 
   it("returns nothing when stats are absent — never fabricates a count", () => {
@@ -36,25 +28,27 @@ describe("jobOpenWork", () => {
   });
 
   it("ignores invalid counts defensively", () => {
+    expect(jobOpenWork(job({ statsSnagsV2Active: 1.5 }))).toEqual([]);
+    expect(jobOpenWork(job({ statsSnagsV2Active: -1 }))).toEqual([]);
     expect(
-      jobOpenWork(
-        job({
-          statsSnagsV2Active: 1.5,
-          statsItpsActive: Number.POSITIVE_INFINITY,
-        }),
-      ),
+      jobOpenWork(job({ statsSnagsV2Active: Number.POSITIVE_INFINITY })),
     ).toEqual([]);
-    expect(jobOpenWork(job({ statsSnagsV2Active: -1, statsItpsActive: NaN }))).toEqual([]);
+  });
+
+  it("ignores the deleted ITP stat a stale caller might still pass", () => {
+    // The ITP register left with the job-page rebuild — its old stat field
+    // must never resurrect a chip.
+    expect(
+      jobOpenWork(job({ statsItpsActive: 4 } as unknown as Partial<Job>)),
+    ).toEqual([]);
   });
 });
 
 describe("jobOpenWorkSummary", () => {
   it("joins the labels for the screen-reader summary", () => {
-    expect(
-      jobOpenWorkSummary(
-        jobOpenWork(job({ statsSnagsV2Active: 2, statsItpsActive: 1 })),
-      ),
-    ).toBe("2 snags, 1 ITP");
+    expect(jobOpenWorkSummary(jobOpenWork(job({ statsSnagsV2Active: 2 })))).toBe(
+      "2 snags",
+    );
   });
 
   it("is null when there are no signals", () => {

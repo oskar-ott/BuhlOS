@@ -103,12 +103,6 @@ function currentPhilSections(job: Job, preview: ReturnType<typeof buildPhilPrevi
       enabled: features.snags !== false && moduleEnabled(job, "snags"),
     },
     {
-      key: "checks",
-      label: "Checks / ITPs",
-      detail: "record job checks where configured",
-      enabled: features.itps !== false && moduleEnabled(job, "itps"),
-    },
-    {
       key: "files",
       label: "Plans & documents",
       detail: "current drawings, specs and site files",
@@ -127,7 +121,6 @@ function currentPhilSections(job: Job, preview: ReturnType<typeof buildPhilPrevi
 
 interface FieldViewFeatures {
   snags?: boolean;
-  itps?: boolean;
   materials?: boolean;
   history?: boolean;
 }

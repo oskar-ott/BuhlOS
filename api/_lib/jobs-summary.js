@@ -112,12 +112,13 @@ async function readJobsSummary(deps = realDeps()) {
   return { records, source: 'rebuilt' };
 }
 
-// ---- Field LIST stats (the two the Phil jobs list actually renders) ----
-// These are the SHARED source of truth for statsSnagsV2Active / statsItpsActive,
-// used by BOTH the full-read enrichJobsWithStats (api/jobs.js) and the summary
-// withStats path below, so the two can never diverge. They derive purely from
-// the per-job blobs (data.json snagsV2[] + itps.json instances[]) — NOT from
-// areaGroups — so they're computable on the summary path without the monolith.
+// ---- Field LIST stats (the one the Phil jobs list actually renders) ----
+// SHARED source of truth for statsSnagsV2Active, used by BOTH the full-read
+// enrichJobsWithStats (api/jobs.js) and the summary withStats path below, so
+// the two can never diverge. Derives purely from the per-job data.json
+// snagsV2[] — NOT from areaGroups — so it's computable on the summary path
+// without the monolith. (statsItpsActive left with the ITP teardown — the
+// job-page rebuild; nothing writes itps.json instances anymore.)
 
 /** Active snagsV2 = open | in_progress | resolved | rejected (mirrors
  *  needsWorkerAttention in src/domains/snags/format.ts; verified/closed excluded). */
@@ -131,24 +132,12 @@ function countActiveSnagsV2(dataDoc) {
   return n;
 }
 
-/** Active ITP instances = pending | in-progress | witnessed, and not archived. */
-function countActiveItps(itpsDoc) {
-  const arr = Array.isArray(itpsDoc && itpsDoc.instances) ? itpsDoc.instances : [];
-  let n = 0;
-  for (const inst of arr) {
-    if (!inst || inst.archived) continue;
-    const st = inst.status;
-    if (st === 'pending' || st === 'in-progress' || st === 'witnessed') n++;
-  }
-  return n;
-}
-
 /**
- * Compute the two field-list stats for the given job ids by reading ONLY the two
- * per-job blobs they derive from (data.json + itps.json), in parallel, fail-soft
- * per job (a read error → {0,0}, matching enrichJobsWithStats's catch). Returns a
- * map jobId → { statsSnagsV2Active, statsItpsActive }. No areaGroups, no monolith,
- * no money — just the snag/ITP counts the /phil/jobs chips need. Deps injectable.
+ * Compute the field-list stat for the given job ids by reading ONLY the per-job
+ * data.json it derives from, in parallel, fail-soft per job (a read error → 0,
+ * matching enrichJobsWithStats's catch). Returns a map
+ * jobId → { statsSnagsV2Active }. No areaGroups, no monolith, no money — just
+ * the snag count the /phil/jobs chips need. Deps injectable.
  */
 async function readFieldJobStats(jobIds, deps = realDeps()) {
   const { readBlob } = deps;
@@ -157,16 +146,10 @@ async function readFieldJobStats(jobIds, deps = realDeps()) {
   await Promise.all(
     ids.map(async (id) => {
       try {
-        const [dataDoc, itpsDoc] = await Promise.all([
-          readBlob(`jobs/${id}/data.json`, { snagsV2: [] }),
-          readBlob(`jobs/${id}/itps.json`, { instances: [] }),
-        ]);
-        out[id] = {
-          statsSnagsV2Active: countActiveSnagsV2(dataDoc),
-          statsItpsActive: countActiveItps(itpsDoc),
-        };
+        const dataDoc = await readBlob(`jobs/${id}/data.json`, { snagsV2: [] });
+        out[id] = { statsSnagsV2Active: countActiveSnagsV2(dataDoc) };
       } catch {
-        out[id] = { statsSnagsV2Active: 0, statsItpsActive: 0 };
+        out[id] = { statsSnagsV2Active: 0 };
       }
     }),
   );
@@ -179,6 +162,5 @@ module.exports = {
   buildJobsSummary,
   readJobsSummary,
   countActiveSnagsV2,
-  countActiveItps,
   readFieldJobStats,
 };

@@ -87,7 +87,7 @@ function auditEntriesThisMonth(): Array<Record<string, unknown>> {
   return doc?.entries ?? [];
 }
 
-const OK = { featureKey: "itp_simple", key: "maxUploadMb", value: 20 };
+const OK = { featureKey: "test_feature", key: "maxUploadMb", value: 20 };
 
 beforeEach(() => {
   process.env.SESSION_SECRET = "test-session-secret-long-enough";
@@ -136,6 +136,18 @@ beforeEach(() => {
   delete requireFromHere.cache[handlerPath];
   auth = requireFromHere(authPath);
   handler = requireFromHere(handlerPath);
+  // The live registry is EMPTY (the job-page rebuild deleted itp_simple's
+  // knobs, the last registered feature) — register a FIXTURE knob on the
+  // handler's own feature-settings instance so the write seam stays tested.
+  const settingsMod = requireFromHere(settingsPath) as {
+    SETTINGS_REGISTRY: Record<string, Record<string, unknown>>;
+  };
+  settingsMod.SETTINGS_REGISTRY.test_feature = {
+    maxUploadMb: {
+      type: "number", label: "Max photo size (MB)", description: "fixture",
+      default: 8, min: 1, max: 25, step: 1, unit: "MB",
+    },
+  };
 });
 
 afterEach(() => {
@@ -168,14 +180,14 @@ describe("PUT /api/owner-settings — validation + write", () => {
   });
 
   it("400s an out-of-range value with a message", async () => {
-    const res = await call({ body: { featureKey: "itp_simple", key: "maxUploadMb", value: 9999 } });
+    const res = await call({ body: { featureKey: "test_feature", key: "maxUploadMb", value: 9999 } });
     expect(res.statusCode).toBe(400);
     expect((res.body as { code: string }).code).toBe("invalid_value");
     expect((res.body as { error: string }).error).toMatch(/between 1 and 25/);
   });
 
   it("400s a wrong-type value", async () => {
-    const res = await call({ body: { featureKey: "itp_simple", key: "maxUploadMb", value: "big" } });
+    const res = await call({ body: { featureKey: "test_feature", key: "maxUploadMb", value: "big" } });
     expect(res.statusCode).toBe(400);
   });
 
@@ -184,7 +196,7 @@ describe("PUT /api/owner-settings — validation + write", () => {
     expect(res.statusCode).toBe(200);
     const body = res.body as { resolved: number; rev: number };
     expect(body.resolved).toBe(20);
-    expect(settingsDoc().settings?.itp_simple?.maxUploadMb).toBe(20);
+    expect(settingsDoc().settings?.test_feature?.maxUploadMb).toBe(20);
     expect(Number.isFinite(body.rev)).toBe(true);
   });
 
@@ -193,7 +205,7 @@ describe("PUT /api/owner-settings — validation + write", () => {
     const res = await call({ body: { ...OK, expectedRev: 0 } });
     expect(res.statusCode).toBe(409);
     expect((res.body as { code: string }).code).toBe("stale_write");
-    expect(settingsDoc().settings?.itp_simple).toBeUndefined();
+    expect(settingsDoc().settings?.test_feature).toBeUndefined();
   });
 
   it("emits a feature_config.changed audit entry with from/to", async () => {
@@ -201,7 +213,7 @@ describe("PUT /api/owner-settings — validation + write", () => {
     const entry = auditEntriesThisMonth().find((e) => e.action === "feature_config.changed");
     expect(entry).toBeTruthy();
     expect(entry?.targetType).toBe("feature_config");
-    expect(entry?.targetId).toBe("itp_simple.maxUploadMb");
+    expect(entry?.targetId).toBe("test_feature.maxUploadMb");
     expect((entry?.metadata as { to?: number })?.to).toBe(20);
   });
 });

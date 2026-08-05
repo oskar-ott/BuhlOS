@@ -58,7 +58,6 @@ describe("JobBuilderClient", () => {
     expect(html).toContain("Plans &amp; docs");
     expect(html).toContain("Materials");
     expect(html).toContain("Gear");
-    expect(html).toContain("ITPs / QA");
     expect(html).toContain("Risks &amp; RFIs");
     expect(html).toContain("Field preview");
     expect(html).toContain("Publish");

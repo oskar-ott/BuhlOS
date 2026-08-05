@@ -1,12 +1,11 @@
 const { readBlob, writeBlob, deleteBlob, setNoCache } = require('./_lib/blob');
-const { tagsFromBlob } = require('./_lib/tags-store');
 const { requireAuth, getCurrentUser, canManageJob, isLeadingHandRole, canViewDraftJobs, canViewArchivedJobs, isFieldRole, isClientRole, isAdminRole, isOwnerRole } = require('./_lib/auth');
 const { redactJobForViewer } = require('./_lib/job-redaction');
 const { readAdminJobsWithPgOverlay, readPhilJobsWithPgOverlay } = require('./_lib/job-read-projection');
 const { recordJobsRead } = require('./_lib/job-read-diagnostics');
 const { mirrorJobToPg } = require('./_lib/jobs-mirror');
 const { isFlagOnSync, isFlagEnabled } = require('./_lib/feature-flags');
-const { readJobsSummary, readFieldJobStats, countActiveSnagsV2, countActiveItps } = require('./_lib/jobs-summary');
+const { readJobsSummary, readFieldJobStats, countActiveSnagsV2 } = require('./_lib/jobs-summary');
 const { readJobDetailProjection } = require('./_lib/job-detail-projection');
 const { readAdminJobDetailFromPg, persistAdminExtras } = require('./_lib/job-detail-pg');
 const { recordAdminJobDetailRead } = require('./_lib/admin-job-detail-read-diagnostics');
@@ -139,29 +138,11 @@ async function enrichJobsWithStats(jobs, crewCountByJob) {
       }
     }
   } catch { /* stats absent beats a 500 — the cards just show no number */ }
-  // Tag-expiry totals come from per-job tags.json. Parse dd/mm/yyyy and
-  // count expired (already past) + soon (≤14 days).
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const todayMs = today.getTime();
-  const cutoffMs = todayMs + 14 * 24 * 60 * 60 * 1000;
-  const parseDDMM = s => {
-    if (!s) return NaN;
-    const m = String(s).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-    if (m) return new Date(+m[3], +m[2] - 1, +m[1]).getTime();
-    const m2 = String(s).trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (m2) return new Date(+m2[1], +m2[2] - 1, +m2[3]).getTime();
-    return NaN;
-  };
 
   return Promise.all(jobs.map(async j => {
     try {
-      const [d, tagsBlob, itpsBlob, plansBlob, rfisBlob] = await Promise.all([
+      const [d, plansBlob, rfisBlob] = await Promise.all([
         readBlob(`jobs/${j.id}/data.json`, { dwellings: {}, snags: [] }),
-        readBlob(`jobs/${j.id}/tags.json`, { tags: [] }).catch(() => ({ tags: [] })),
-        // E1a: per-job ITP instances live on a separate blob, not on
-        // data.json — see api/job-itps.js. Missing blob (no ITPs ever
-        // attached) falls back to { instances: [] }.
-        readBlob(`jobs/${j.id}/itps.json`, { instances: [] }).catch(() => ({ instances: [] })),
         // E2: per-job plan/spec index lives on its own blob — see
         // api/plans.js. Missing blob (no plans uploaded yet) falls back to
         // { plans: [] } so statsDocumentsCurrent reads as 0 not a reject.
@@ -172,13 +153,6 @@ async function enrichJobsWithStats(jobs, crewCountByJob) {
         readBlob(`jobs/${j.id}/rfis.json`, { rfis: [] }).catch(() => ({ rfis: [] })),
       ]);
       const stats = computeJobStats(j, d);
-      let expiredTags = 0, expiringTags = 0;
-      for (const t of tagsFromBlob(tagsBlob)) {
-        const ms = parseDDMM(t.expiryDate);
-        if (!Number.isFinite(ms)) continue;
-        if (ms < todayMs) expiredTags++;
-        else if (ms <= cutoffMs) expiringTags++;
-      }
       // V2 namespace counts for the rebuild admin jobs index. computeJobStats
       // counts the legacy snags[] array; the rebuild surfaces consume the
       // parallel evidence[] + snagsV2[] arrays on the same data.json. Both
@@ -189,18 +163,10 @@ async function enrichJobsWithStats(jobs, crewCountByJob) {
         const s = e && e.status;
         if (s === 'submitted' || s === 'pending_upload') evidencePendingV2++;
       }
-      // statsSnagsV2Active / statsItpsActive via the SHARED counters (single
-      // source of truth with the summary withStats path — api/_lib/jobs-summary.js
-      // countActiveSnagsV2 / countActiveItps) so the two read paths can't diverge.
+      // statsSnagsV2Active via the SHARED counter (single source of truth with
+      // the summary withStats path — api/_lib/jobs-summary.js countActiveSnagsV2)
+      // so the two read paths can't diverge.
       const snagsActiveV2 = countActiveSnagsV2(d);
-      const itpsActive = countActiveItps(itpsBlob);
-      // statsItpsNeedsReview = the witnessed subset (Command Centre "ITPs needing
-      // sign-off" queue) — admin-only, not a field stat, so it stays here.
-      const itpsArr = Array.isArray(itpsBlob && itpsBlob.instances) ? itpsBlob.instances : [];
-      let itpsNeedsReview = 0;
-      for (const inst of itpsArr) {
-        if (inst && !inst.archived && inst.status === 'witnessed') itpsNeedsReview++;
-      }
       // E2: current (non-superseded, non-archived) plan/spec rows. Legacy rows
       // without a `status` default to 'current' (matches api/plans.js).
       const plansArr = Array.isArray(plansBlob && plansBlob.plans) ? plansBlob.plans : [];
@@ -224,12 +190,8 @@ async function enrichJobsWithStats(jobs, crewCountByJob) {
         statsOpenSnags:         stats.openSnags,
         statsCrewCount:         crewCountByJob[j.id] || 0,
         statsAreaCount:         stats.areaCount,
-        statsExpiredTags:       expiredTags,
-        statsExpiringTags:      expiringTags,
         statsEvidenceV2Pending: evidencePendingV2,
         statsSnagsV2Active:     snagsActiveV2,
-        statsItpsActive:        itpsActive,
-        statsItpsNeedsReview:   itpsNeedsReview,
         statsDocumentsCurrent:  documentsCurrent,
         statsMaterialRequestsOpen: openMaterialsByJob[j.id] || 0,
         statsRfisOpen:          rfisOpen,
@@ -240,10 +202,7 @@ async function enrichJobsWithStats(jobs, crewCountByJob) {
         statsPct: null, statsTasksTotal: 0, statsTasksComplete: 0, statsOpenSnags: 0,
         statsCrewCount: crewCountByJob[j.id] || 0,
         statsAreaCount: 0,
-        statsExpiredTags: 0, statsExpiringTags: 0,
         statsEvidenceV2Pending: 0, statsSnagsV2Active: 0,
-        statsItpsActive: 0,
-        statsItpsNeedsReview: 0,
         statsDocumentsCurrent: 0,
         statsMaterialRequestsOpen: 0,
         statsRfisOpen: 0,
@@ -414,16 +373,15 @@ module.exports = async (req, res) => {
             j.status !== 'archived' &&
             j.status !== 'complete' // #349: closed-out jobs are field-invisible
         );
-        // ?withStats=1: attach ONLY the two stats /phil/jobs renders
-        // (statsSnagsV2Active, statsItpsActive), computed from the per-job
-        // data.json + itps.json (the SAME shared counters the full path uses) —
-        // no areaGroups, no monolith. Task/area stats are deliberately omitted
-        // (the field list never reads them; see philJobsListSignals).
+        // ?withStats=1: attach ONLY the stat /phil/jobs renders
+        // (statsSnagsV2Active), computed from the per-job data.json (the SAME
+        // shared counter the full path uses) — no areaGroups, no monolith.
+        // Task/area stats are deliberately omitted (the field list never
+        // reads them; see philJobsListSignals).
         if (req.query && req.query.withStats === '1') {
           const statsByJob = await readFieldJobStats(visible.map((j) => j.id));
           visible = visible.map((j) => Object.assign({}, j, statsByJob[j.id] || {
             statsSnagsV2Active: 0,
-            statsItpsActive: 0,
           }));
         }
         // Same redaction boundary as the full path (typeName already resolved in
@@ -569,7 +527,7 @@ module.exports = async (req, res) => {
 
   // Perf (admin Command Centre LCP): /api/jobs?withStats=1&statsOnly=1 serves the
   // ADMIN jobs list with ONLY the per-job COUNT stats the Command Centre aggregates
-  // (crew / evidence-pending / snags-active / ITPs-needs-review) — it never reads
+  // (crew / evidence-pending / snags-active) — it never reads
   // the areaGroups-derived task counts (statsTasksTotal/Pct/areaCount). So it builds
   // from the small jobs-summary base + the SAME enrichJobsWithStats per-job reads,
   // SKIPPING the ~8s jobs.json monolith (measured prod: jobs?withStats=1 ~8s vs the
