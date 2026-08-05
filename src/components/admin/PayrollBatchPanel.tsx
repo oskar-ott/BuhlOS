@@ -269,8 +269,8 @@ export function PayrollBatchPanel({
                     </p>
                     <p className="text-xs text-text-muted">
                       {b.item_count} items · {n(b.total_hours)}h · created{" "}
-                      {new Date(b.created_at).toLocaleString()} by {b.created_by_name ?? "admin"}
-                      {b.locked_at ? ` · locked ${new Date(b.locked_at).toLocaleString()} by ${b.locked_by_name ?? "admin"}` : ""}
+                      {new Date(b.created_at).toLocaleString("en-AU", { dateStyle: "medium", timeStyle: "short" })} by {b.created_by_name ?? "admin"}
+                      {b.locked_at ? ` · locked ${new Date(b.locked_at).toLocaleString("en-AU", { dateStyle: "medium", timeStyle: "short" })} by ${b.locked_by_name ?? "admin"}` : ""}
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -380,7 +380,7 @@ export function PayrollBatchPanel({
           <ul className="mt-1 space-y-0.5 text-xs text-text-muted" data-testid="payroll-batch-events">
             {detail.events.map((e, idx) => (
               <li key={idx}>
-                {new Date(e.created_at).toLocaleString()} — {e.event}
+                {new Date(e.created_at).toLocaleString("en-AU", { dateStyle: "medium", timeStyle: "short" })} — {e.event}
                 {e.actor_name ? ` by ${e.actor_name}` : ""}
               </li>
             ))}

@@ -209,7 +209,7 @@ export function XeroEarningsMappingPanel() {
                       ) : null}
                     </p>
                     <p className="text-xs text-text-muted">
-                      mapped {new Date(row.mapping.linkedAt).toLocaleDateString()} by {row.mapping.linkedByName ?? "admin"}
+                      mapped {new Date(row.mapping.linkedAt).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })} by {row.mapping.linkedByName ?? "admin"}
                     </p>
                     <button className={`${BTN_DANGER} mt-1`} disabled={busy === row.workType} onClick={() => void unmap(row.workType)}>
                       Unmap

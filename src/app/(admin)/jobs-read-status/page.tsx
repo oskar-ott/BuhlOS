@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 function fmtWhen(iso: string | null): string {
   if (!iso) return "—";
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString("en-AU", { dateStyle: "medium", timeStyle: "short" });
 }
 
 function Row({ label, value }: { label: string; value: ReactNode }) {

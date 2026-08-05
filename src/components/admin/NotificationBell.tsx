@@ -131,7 +131,7 @@ export function NotificationBell({
                         {item.title}
                       </p>
                       <p className="text-xs text-text-muted">
-                        {new Date(item.occurredAt).toLocaleString()}
+                        {new Date(item.occurredAt).toLocaleString("en-AU", { dateStyle: "medium", timeStyle: "short" })}
                       </p>
                     </div>
                   </div>
