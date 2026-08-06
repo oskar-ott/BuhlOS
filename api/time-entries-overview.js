@@ -60,13 +60,33 @@ module.exports = async (req, res) => {
   }
 
   // ── Reference data (single fetch each) ─────────────────────────────
-  const [usersBlob, jobsBlob] = await Promise.all([
+  const [usersBlob, jobsBlob, empBlob] = await Promise.all([
     readBlob('users.json', { users: [] }),
     readBlob('jobs.json',  { jobs: [] }),
+    readBlob('employees.json', { employees: [] }),
   ]);
   const users = usersBlob.users || [];
   const jobs  = jobsBlob.jobs   || [];
   const userById = {}; users.forEach(u => { userById[u.id] = u; });
+
+  // Friendly worker labels. Invite/signup accounts are filed under their EMAIL
+  // (users.username = email), which is what the raw username fallback surfaces
+  // on the hours boards. The employees register knows the human — prefer its
+  // first name (adding the surname only when two workers share a first name).
+  // Legacy crew with name usernames have no register row and fall through
+  // unchanged.
+  const nameByUserId = {};
+  {
+    const rows = (empBlob.employees || []).filter(e => e && e.userId && e.firstName);
+    const firstCount = {};
+    for (const e of rows) firstCount[e.firstName] = (firstCount[e.firstName] || 0) + 1;
+    for (const e of rows) {
+      nameByUserId[e.userId] = e.displayName
+        || (firstCount[e.firstName] > 1 && e.lastName ? `${e.firstName} ${e.lastName}` : e.firstName);
+    }
+  }
+  const labelFor = (uid, stored) =>
+    nameByUserId[uid] || stored || (userById[uid] && userById[uid].username) || uid;
   const jobById  = {}; jobs.forEach(j => { jobById[j.id]   = j; });
 
   const viewerJobs = new Set(viewer.assignedJobIds || []);
@@ -157,7 +177,7 @@ module.exports = async (req, res) => {
   const enriched = entries.map(e => {
     const u = userById[e.userId];
     return Object.assign({}, e, {
-      userName: e.userName || (u && u.username) || e.userId,
+      userName: labelFor(e.userId, e.userName),
       userRole: e.userRole || (u && u.role)     || null,
       allocations: (e.allocations || []).map(a => ({
         ...a,
@@ -200,7 +220,7 @@ module.exports = async (req, res) => {
     })).sort((a, b) => b.hours - a.hours),
     byUser: Object.keys(byUser).map(uid => ({
       userId: uid,
-      userName: (userById[uid] && userById[uid].username) || uid,
+      userName: labelFor(uid, null),
       role: (userById[uid] && userById[uid].role) || null,
       hours: round2(byUser[uid]),
     })).sort((a, b) => b.hours - a.hours),
@@ -272,9 +292,9 @@ module.exports = async (req, res) => {
         if (entryByUserDate[u.id + '|' + iso]) continue;
         const leaveType = leaveByUserDate[u.id + '|' + iso];
         if (leaveType) {
-          leave.push({ date: iso, userId: u.id, userName: u.username, type: leaveType });
+          leave.push({ date: iso, userId: u.id, userName: labelFor(u.id, null), type: leaveType });
         } else {
-          missing.push({ date: iso, userId: u.id, userName: u.username, role: u.role });
+          missing.push({ date: iso, userId: u.id, userName: labelFor(u.id, null), role: u.role });
         }
       }
     }
