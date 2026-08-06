@@ -60,6 +60,10 @@ const BASIC_TEXT = {
   parkingNotes:      { max: 240 },
   siteContactName:   { max: 120 },
   safetyNotes:       { max: 1000 },
+  /** The builder (head contractor) the job is for. Free text — the create
+   *  form autocompletes from names already used on other jobs, but any
+   *  value is valid. Optional, like every basics field. */
+  builderName:       { max: 120 },
 };
 function validateJobBasics(body) {
   const patch = {};

@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Route } from "next";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
-import { createJob } from "@/domains/jobs/client";
+import { createJob, listJobs } from "@/domains/jobs/client";
 import { buildCreatePayload } from "@/domains/jobs/builder";
 import { validateJobBasics } from "@/domains/jobs/validate";
 import { cn } from "@/lib/cn";
@@ -19,10 +19,12 @@ import { cn } from "@/lib/cn";
  * Builder. On success we route straight into the Builder for that job so
  * the admin keeps building without a detour.
  *
- * Name is the one required field (mirrors the server). Ref + site address
- * are optional conveniences so the draft is recognisable in the jobs list.
- * Job type + client are deliberately NOT here — they need lookup tables and
- * are managed where those tables live; the Builder round-trips them.
+ * Name is the one required field (mirrors the server). Ref + site address +
+ * builder are optional conveniences so the draft is recognisable in the jobs
+ * list. Builder is free text with datalist autocomplete from names on
+ * existing jobs — NOT a lookup table. Job type + client account are
+ * deliberately NOT here — they need lookup tables and are managed where
+ * those tables live; the Builder round-trips them.
  *
  * Cross-ref:
  *   src/domains/jobs/builder.ts buildCreatePayload — status:'draft'
@@ -34,9 +36,33 @@ export function NewJobForm() {
   const [name, setName] = useState("");
   const [ref, setRef] = useState("");
   const [siteAddress, setSiteAddress] = useState("");
+  const [builderName, setBuilderName] = useState("");
+  const [builderSuggestions, setBuilderSuggestions] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showErrors, setShowErrors] = useState(false);
+
+  // Builder autocomplete: suggest names already used on other jobs so the
+  // same builder is always spelled the same way ("Sansara", not "Sansara
+  // Homes"). Best-effort — a failed load just means no suggestions; the
+  // field stays free text either way.
+  useEffect(() => {
+    let cancelled = false;
+    listJobs().then((res) => {
+      if (cancelled || !res.ok) return;
+      const seen = new Map<string, string>();
+      for (const job of res.data.jobs) {
+        const n = (job.builderName ?? "").trim();
+        if (n && !seen.has(n.toLowerCase())) seen.set(n.toLowerCase(), n);
+      }
+      setBuilderSuggestions(
+        [...seen.values()].sort((a, b) => a.localeCompare(b))
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const fieldErrors = validateJobBasics({ name }, { requireName: true });
   const canSubmit = Object.keys(fieldErrors).length === 0 && !submitting;
@@ -51,6 +77,7 @@ export function NewJobForm() {
         name,
         ref: ref.trim() || undefined,
         siteAddress: siteAddress.trim() || undefined,
+        builderName: builderName.trim() || undefined,
       })
     );
     if (!res.ok) {
@@ -109,6 +136,24 @@ export function NewJobForm() {
             onChange={(e) => setSiteAddress(e.target.value)}
             placeholder="e.g. 12 Magill Rd, Stepney SA 5069"
           />
+        </Field>
+        <Field
+          label="Builder"
+          help="Optional — start typing to pick a builder you've used before, or enter a new one."
+        >
+          <input
+            data-testid="job-builder-name"
+            list="builder-name-suggestions"
+            className={inputClass}
+            value={builderName}
+            onChange={(e) => setBuilderName(e.target.value)}
+            placeholder="e.g. Sansara"
+          />
+          <datalist id="builder-name-suggestions">
+            {builderSuggestions.map((n) => (
+              <option key={n} value={n} />
+            ))}
+          </datalist>
         </Field>
       </div>
 

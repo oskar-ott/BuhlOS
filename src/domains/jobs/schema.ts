@@ -153,6 +153,12 @@ export const JobSchema = z
     typeName: z.string().nullable().optional(),
     serviceM8JobId: z.string().nullable().optional(),
 
+    /** The builder (head contractor) the job is for. Free text; the create
+     *  form autocompletes from names on existing jobs. Distinct from
+     *  clientUserId (a portal account link) and clientReference (the
+     *  commercial PO/contract label, admin-only). */
+    builderName: z.string().nullable().optional(),
+
     // Site context — surfaced on the Phil job detail block per doc 27 §8.5.
     siteAddress: z.string().nullable().optional(),
     siteContactName: z.string().nullable().optional(),
@@ -367,6 +373,7 @@ const JobWritableFieldsSchema = z.object({
   ref: z.string().nullable().optional(),
   type: z.string().nullable().optional(),
   clientUserId: z.string().nullable().optional(),
+  builderName: z.string().nullable().optional(),
 
   siteAddress: z.string().nullable().optional(),
   siteContactName: z.string().nullable().optional(),
