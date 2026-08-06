@@ -340,7 +340,7 @@ export function buildWeeklyHoursCloseout(input: WeeklyCloseoutInput): WeeklyHour
       } else if (status === "missing") {
         missingCount += 1;
         blockers.push(`${weekday} missing`);
-        needsLookReasons.push(`No entry for ${weekday} — was she on site?`);
+        needsLookReasons.push(`No entry for ${weekday} — were they on site?`);
       }
 
       // §5 overtime flag — a long day the boss should eyeball. Read straight off

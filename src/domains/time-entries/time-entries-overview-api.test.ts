@@ -496,3 +496,51 @@ describe("office-tier viewer scoping (#123)", () => {
     expect(body.jobs.activeJobs).toBe(2);
   });
 });
+
+describe("friendly worker labels (employees register beats email usernames)", () => {
+  // Invite/signup accounts are filed under their email (users.username =
+  // email); the register's firstName is the human label the boards show.
+  it("missing rows + entries + byUser resolve the register name over the email", async () => {
+    blob.set("employees.json", {
+      employees: [
+        { id: "e_dyl", userId: "u_elec", firstName: "Dylan", lastName: "Smith", displayName: null },
+      ],
+    });
+    seedEntry("u_elec", PAST_WEEKDAY);
+    const res = await overview("u_admin", "admin", {
+      fromDate: PAST_WEEKDAY,
+      toDate: PAST_WEEKDAY,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.body as {
+      entries: Array<{ userId: string; userName: string }>;
+      missing: Array<{ userId: string; userName: string }>;
+      totals: { byUser: Array<{ userId: string; userName: string }> };
+    };
+    const entry = body.entries.find((e) => e.userId === "u_elec");
+    expect(entry?.userName).toBe("Dylan");
+    const byUser = body.totals.byUser.find((r) => r.userId === "u_elec");
+    expect(byUser?.userName).toBe("Dylan");
+    // A worker with no register row keeps the stored/username label unchanged.
+    const other = body.missing.find((m) => m.userId === "u_appr");
+    expect(other?.userName).toBeTruthy();
+  });
+
+  it("two workers sharing a first name get the surname; unique names stay first-name-only", async () => {
+    blob.set("employees.json", {
+      employees: [
+        { id: "e_1", userId: "u_elec", firstName: "Dylan", lastName: "Smith", displayName: null },
+        { id: "e_2", userId: "u_appr", firstName: "Dylan", lastName: "Jones", displayName: null },
+        { id: "e_3", userId: "u_lab", firstName: "Louis", lastName: "Webb", displayName: null },
+      ],
+    });
+    const res = await overview("u_admin", "admin", {
+      fromDate: PAST_WEEKDAY,
+      toDate: PAST_WEEKDAY,
+    });
+    const missing = (res.body as { missing: Array<{ userId: string; userName: string }> }).missing;
+    expect(missing.find((m) => m.userId === "u_elec")?.userName).toBe("Dylan Smith");
+    expect(missing.find((m) => m.userId === "u_appr")?.userName).toBe("Dylan Jones");
+    expect(missing.find((m) => m.userId === "u_lab")?.userName).toBe("Louis");
+  });
+});
