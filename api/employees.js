@@ -262,10 +262,22 @@ module.exports = async (req, res) => {
       return res.status(200).json({ row, emailConfigured: emailConfigured() });
     }
 
+    // One person, ONE row (owner-reported 2026-08-06: a signup-link worker
+    // appeared twice — once as their users.json login, once as their
+    // employees.json HR record). An onboarding row linked by userId ABSORBS
+    // its users.json twin: the onboarding row wins (it carries phone, legal
+    // name, apprentice year, start date), overlaid with the login row's live
+    // facts (assignedJobIds is the Phil-visibility truth; archived wins).
+    const linkedUserIds = new Set(
+      (empBlob.employees || []).map((e) => e.userId).filter(Boolean)
+    );
     const fromUsers = (usersBlob.users || [])
+      .filter((u) => !linkedUserIds.has(u.id))
       .map(mapUserToEmployee)
       .filter(Boolean);
-    const fromOnboarding = (empBlob.employees || []);
+    const fromOnboarding = (empBlob.employees || []).map((e) =>
+      overlayLinkedUser(e, usersBlob)
+    );
     const rows = [...fromUsers, ...fromOnboarding].map((e) => {
       const invite = latestInviteFor(invBlob, e.id);
       if (invite) applyLazyExpiry(invite, now); // display-only; not persisted
@@ -457,16 +469,29 @@ module.exports = async (req, res) => {
 
   // ── POST ?action=disable — soft-disable (reversible) ─────────────────────
   if (req.method === 'POST' && action === 'disable') {
-    // Onboarding employee?
+    // Onboarding employee? Since the roster shows ONE merged row per person,
+    // disabling it must kill BOTH halves: the HR row AND the linked login —
+    // otherwise the worker could still sign in behind a "disabled" roster row.
     const employee = empBlob.employees.find((e) => e.id === id);
     if (employee) {
+      if (employee.userId === me.id) return res.status(400).json({ error: 'cannot disable yourself' });
       employee.status = 'disabled';
       employee.disabledAt = nowIso();
       await writeBlob(EMPLOYEES_KEY, empBlob);
+      const usersBlob = await readBlob('users.json', { users: [] });
+      if (employee.userId) {
+        const linked = (usersBlob.users || []).find((x) => x.id === employee.userId);
+        if (linked && !linked.archived) {
+          linked.archived = true;
+          linked.archivedAt = nowIso();
+          linked.archivedBy = me.id;
+          await writeBlob('users.json', usersBlob);
+        }
+      }
       await writeAudit(me, 'employee.disabled', 'employee', employee.id,
         `Disabled employee ${employee.firstName} ${employee.lastName}`);
       return res.status(200).json({
-        row: buildRow(employee, latestInviteFor(invBlob, employee.id)),
+        row: buildRow(overlayLinkedUser(employee, usersBlob), latestInviteFor(invBlob, employee.id)),
         emailConfigured: emailConfigured(),
       });
     }
@@ -478,10 +503,20 @@ module.exports = async (req, res) => {
     u.archived = true;
     u.archivedAt = nowIso();
     u.archivedBy = me.id;
+    // Mirror to a linked onboarding row so the merged roster row (which reads
+    // status from the HR side) never shows active for an archived login.
+    const linkedEmployee = empBlob.employees.find((e) => e.userId === u.id);
+    if (linkedEmployee && linkedEmployee.status !== 'disabled') {
+      linkedEmployee.status = 'disabled';
+      linkedEmployee.disabledAt = nowIso();
+      await writeBlob(EMPLOYEES_KEY, empBlob);
+    }
     await writeBlob('users.json', usersBlob);
     await writeAudit(me, 'employee.disabled', 'employee', u.id, `Disabled user ${u.username}`);
-    const mapped = mapUserToEmployee(u);
-    return res.status(200).json({ row: buildRow(mapped, null), emailConfigured: emailConfigured() });
+    const row = linkedEmployee
+      ? buildRow(overlayLinkedUser(linkedEmployee, usersBlob), latestInviteFor(invBlob, linkedEmployee.id))
+      : buildRow(mapUserToEmployee(u), null);
+    return res.status(200).json({ row, emailConfigured: emailConfigured() });
   }
 
   return res.status(405).json({ error: 'method not allowed' });
@@ -650,11 +685,37 @@ async function handleSignupAction(req, res, me, action) {
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
+/**
+ * Overlay a linked users.json login's LIVE facts onto an onboarding employee
+ * row (the merged single row for one person): assignedJobIds is the
+ * Phil-visibility source of truth and lives on the user; a soft-archived
+ * login reads as disabled whatever the HR row says. Unlinked rows pass
+ * through untouched.
+ */
+function overlayLinkedUser(employee, usersBlob) {
+  if (!employee.userId) return employee;
+  const u = (usersBlob.users || []).find((x) => x.id === employee.userId);
+  if (!u) return employee;
+  return {
+    ...employee,
+    assignedJobIds: Array.isArray(u.assignedJobIds) ? u.assignedJobIds : [],
+    status: u.archived ? 'disabled' : employee.status,
+  };
+}
+
 function resolveRow(id, usersBlob, empBlob, invBlob) {
   const onboarding = (empBlob.employees || []).find((e) => e.id === id);
-  if (onboarding) return buildRow(onboarding, latestInviteFor(invBlob, id));
+  if (onboarding) {
+    return buildRow(overlayLinkedUser(onboarding, usersBlob), latestInviteFor(invBlob, id));
+  }
   const u = (usersBlob.users || []).find((x) => x.id === id);
   if (u) {
+    // A login with a linked onboarding row resolves to the MERGED row (same
+    // single row the list shows), so old deep links to the user id still land.
+    const linked = (empBlob.employees || []).find((e) => e.userId === u.id);
+    if (linked) {
+      return buildRow(overlayLinkedUser(linked, usersBlob), latestInviteFor(invBlob, linked.id));
+    }
     const mapped = mapUserToEmployee(u);
     if (mapped) return buildRow(mapped, null);
   }
