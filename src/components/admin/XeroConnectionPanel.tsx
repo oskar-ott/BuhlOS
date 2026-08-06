@@ -53,7 +53,7 @@ function errorCopy(code: string): string {
 function fmtTime(iso: string | null | undefined): string {
   if (!iso) return "never";
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? "unknown" : d.toLocaleString();
+  return Number.isNaN(d.getTime()) ? "unknown" : d.toLocaleString("en-AU", { dateStyle: "medium", timeStyle: "short" });
 }
 
 const BTN = "rounded-card border border-border px-3 py-2 text-sm font-medium text-text hover:border-brand-navy disabled:opacity-50";

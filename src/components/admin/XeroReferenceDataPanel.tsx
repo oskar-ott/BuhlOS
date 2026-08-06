@@ -59,7 +59,7 @@ const KIND_LABELS: Record<string, string> = {
 function fmtTime(iso: string | null | undefined): string {
   if (!iso) return "never";
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? "unknown" : d.toLocaleString();
+  return Number.isNaN(d.getTime()) ? "unknown" : d.toLocaleString("en-AU", { dateStyle: "medium", timeStyle: "short" });
 }
 
 const BTN_PRIMARY =

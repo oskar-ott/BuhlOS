@@ -244,7 +244,7 @@ export function XeroWorkerMappingPanel() {
                         {w.mapping.employeeInactive ? <span className={CHIP_WARN}>inactive in Xero</span> : null}
                       </p>
                       <p className="text-xs text-text-muted">
-                        linked {new Date(w.mapping.linkedAt).toLocaleDateString()} by {w.mapping.linkedByName ?? "admin"}
+                        linked {new Date(w.mapping.linkedAt).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })} by {w.mapping.linkedByName ?? "admin"}
                       </p>
                       <button
                         className={`${BTN_DANGER} mt-1`}

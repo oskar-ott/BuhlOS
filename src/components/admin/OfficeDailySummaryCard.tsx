@@ -144,7 +144,7 @@ export function OfficeDailySummaryCard({ date, summary }: Props) {
               : summary.phrasing === "deterministic"
                 ? `Deterministic wording${summary.fallbackReason ? ` — AI phrasing unavailable: ${summary.fallbackReason}` : ""}.`
                 : "Nothing to phrase."}{" "}
-            Generated {new Date(summary.generatedAt).toLocaleString()}.
+            Generated {new Date(summary.generatedAt).toLocaleString("en-AU", { dateStyle: "medium", timeStyle: "short" })}.
           </p>
 
           {summary.coverage ? (

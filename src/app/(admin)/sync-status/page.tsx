@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 
 function fmtWhen(iso: string): string {
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString("en-AU", { dateStyle: "medium", timeStyle: "short" });
 }
 
 export default async function SyncStatusPage() {

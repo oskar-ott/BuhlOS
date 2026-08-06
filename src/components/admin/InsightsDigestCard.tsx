@@ -127,7 +127,7 @@ export function InsightsDigestCard({ weekStart, digest }: Props) {
             {digest.phrasing === "ai"
               ? `Worded by AI (${digest.model}) from the findings — validated so every number traces back.`
               : `Deterministic wording${digest.fallbackReason ? ` — AI phrasing unavailable: ${digest.fallbackReason}` : ""}.`}{" "}
-            Generated {new Date(digest.generatedAt).toLocaleString()}.
+            Generated {new Date(digest.generatedAt).toLocaleString("en-AU", { dateStyle: "medium", timeStyle: "short" })}.
           </p>
         </>
       )}
