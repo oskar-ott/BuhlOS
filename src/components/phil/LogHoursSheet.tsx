@@ -544,7 +544,7 @@ export function LogHoursSheet({
       <Modal open={customOpen} onClose={() => setCustomOpen(false)} title="Custom or overtime hours">
         <div className="space-y-4">
           <p className="text-sm text-text-muted">
-            Pick a quick amount (overtime included) or type the exact decimal.
+            Pick a quick amount (overtime included) or set the exact hours and minutes.
           </p>
           <div className="grid grid-cols-4 gap-2">
             {CUSTOM_HOURS_OPTIONS.map((hours) => (
@@ -564,34 +564,75 @@ export function LogHoursSheet({
               </button>
             ))}
           </div>
-          <label className="block text-sm">
-            <span className="mb-1 block font-medium text-text">Exact hours</span>
-            <input
-              type="number"
-              min={0}
-              max={MAX_HOURS_PER_DAY}
-              step="0.25"
-              value={customHours}
-              onChange={(e) => setCustomHours(Number(e.target.value))}
-              aria-invalid={customHoursInvalid}
-              aria-describedby={customHoursInvalid ? "custom-hours-error" : undefined}
-              className={cn(
-                "h-12 w-full rounded-card border bg-surface px-3 text-base focus:outline-none",
-                customHoursInvalid
-                  ? "border-state-danger focus:border-state-danger"
-                  : "border-border focus:border-brand-navy"
-              )}
-            />
+          {/* Hours + minutes, NEVER a decimal box (owner-directed, 2026-08-07):
+              a worker typed "8.36" meaning 8h 36m and the decimal field read it
+              as 8.36h = 8h 22m — the entry silently "changed" on submit. Site
+              dialect is durations ("7h 36m") everywhere; the input now matches.
+              customHours stays the single decimal source of truth underneath
+              (chips, validation, payload unchanged). */}
+          <fieldset className="block text-sm">
+            <legend className="mb-1 block font-medium text-text">Exact time worked</legend>
+            <div className="flex items-center gap-2">
+              <label className="flex flex-1 items-center gap-2">
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  max={MAX_HOURS_PER_DAY}
+                  step={1}
+                  value={Math.floor(customHours)}
+                  onChange={(e) => {
+                    const h = Math.max(0, Math.floor(Number(e.target.value) || 0));
+                    const m = Math.round((customHours % 1) * 60);
+                    setCustomHours(h + m / 60);
+                  }}
+                  aria-label="Hours"
+                  aria-invalid={customHoursInvalid}
+                  aria-describedby={customHoursInvalid ? "custom-hours-error" : undefined}
+                  className={cn(
+                    "h-12 w-full rounded-card border bg-surface px-3 text-base focus:outline-none",
+                    customHoursInvalid
+                      ? "border-state-danger focus:border-state-danger"
+                      : "border-border focus:border-brand-navy"
+                  )}
+                />
+                <span className="shrink-0 text-text-muted">h</span>
+              </label>
+              <label className="flex flex-1 items-center gap-2">
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  max={59}
+                  step={1}
+                  value={Math.round((customHours % 1) * 60)}
+                  onChange={(e) => {
+                    const m = Math.min(59, Math.max(0, Math.floor(Number(e.target.value) || 0)));
+                    const h = Math.floor(customHours);
+                    setCustomHours(h + m / 60);
+                  }}
+                  aria-label="Minutes"
+                  aria-invalid={customHoursInvalid}
+                  className={cn(
+                    "h-12 w-full rounded-card border bg-surface px-3 text-base focus:outline-none",
+                    customHoursInvalid
+                      ? "border-state-danger focus:border-state-danger"
+                      : "border-border focus:border-brand-navy"
+                  )}
+                />
+                <span className="shrink-0 text-text-muted">m</span>
+              </label>
+            </div>
             {customHoursInvalid ? (
               <span
                 id="custom-hours-error"
                 role="alert"
                 className="mt-1 block text-xs font-medium text-state-danger"
               >
-                Hours must be between 0 and {MAX_HOURS_PER_DAY}.
+                Time must be between 0 and {MAX_HOURS_PER_DAY} hours.
               </span>
             ) : null}
-          </label>
+          </fieldset>
           <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
             <Button variant="ghost" onClick={() => setCustomOpen(false)}>
               Cancel
