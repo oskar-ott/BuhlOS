@@ -209,6 +209,11 @@ const VALID_ACTIONS = new Set([
   // 2026-07-26 owner-directed: a content edit of a still-submitted (undecided)
   // entry — the worker (or staff) changed a sent day before the office decided.
   'hours.edited_while_submitted',
+  // Owner-directed: "fix it and approve" — the office corrected a submitted
+  // day's hours/allocations AND approved it in one atomic action
+  // (api/time-entries-amend-approve.js). metadata carries fromTotalHours →
+  // totalHours plus the required reason, so pay can never move silently.
+  'hours.amended_approved',
   // #370: daywork register (api/dayworks.js). daywork.created on POST;
   // daywork.signed on the supervisor sign; daywork.transitioned on the
   // signed → invoiced change (metadata.from/to carry the direction);

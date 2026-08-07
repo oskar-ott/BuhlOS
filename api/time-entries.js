@@ -15,6 +15,7 @@ const { requireAuth, isStaffRole, isAdminRole, isLeadingHandRole, isFieldRole, c
 const {
   newId,
   validateEntryShape,
+  inactiveJobAllocationError,
   readEntry,
   writeEntry,
   deleteEntry,
@@ -454,29 +455,17 @@ async function handlePatch(req, res, user) {
 
 /**
  * Shared field-attribution gate (create + self-edit paths). Returns an error
- * message when any non-null allocation jobId is not an ACTIVE job in the
- * worker's assignedJobIds, else null. Null jobIds pass (legacy/overhead
- * entries) — blocking new nulls stays a UI rule for now.
+ * message when any non-null allocation jobId is not an ACTIVE job, else null.
+ * Null jobIds pass (legacy/overhead entries) — blocking new nulls stays a UI
+ * rule on create, and an explicit check on the self-edit path above.
+ *
+ * All-jobs access: a field worker may log against ANY active job (assignment no
+ * longer scopes), so `user` is not consulted — the rule is purely "the job must
+ * exist and be active". The rule itself lives in api/_lib/time-entries.js so the
+ * office amend path enforces the SAME one (never a second copy).
  */
-async function fieldAllocationGateError(user, allocations) {
-  const allocJobIds = [...new Set(
-    (allocations || []).map((a) => a.jobId).filter(Boolean)
-  )];
-  if (!allocJobIds.length) return null;
-  const jobsBlob = await readBlob('jobs.json', { jobs: [] });
-  const jobById = {};
-  (jobsBlob.jobs || []).forEach((j) => { jobById[j.id] = j; });
-  // All-jobs access: a field worker may log against ANY active job (assignment
-  // no longer scopes) — the job must still exist and be active, never draft or
-  // archived.
-  for (const jid of allocJobIds) {
-    const job = jobById[jid];
-    const activeForField = job && job.status !== 'archived' && job.status !== 'draft';
-    if (!job || !activeForField) {
-      return 'forbidden — hours can only be logged against an active job';
-    }
-  }
-  return null;
+async function fieldAllocationGateError(_user, allocations) {
+  return await inactiveJobAllocationError(allocations);
 }
 
 function editableEntryPatch(body) {
