@@ -183,3 +183,19 @@ describe("PhilHoursSharpened — honest footer", () => {
     expect(html).not.toContain("lunch out"); // not a domain fact — omitted
   });
 });
+
+describe("today's unlogged row (owner-directed, 2026-08-07)", () => {
+  it("today carries the same Log pill as any other unlogged day — never a dead end", () => {
+    // Log every past weekday this week so TODAY is the only missed row.
+    const past: TimeEntry[] = [];
+    for (let d = MONDAY; d < TODAY; d = addDays(d, 1)) {
+      past.push(entry({ date: d, status: "approved" }));
+    }
+    const html = render(past);
+    const pills = html.match(/>Log</g) ?? [];
+    expect(pills.length).toBeGreaterThanOrEqual(1);
+    // The row keeps its label and loses the old button-less special copy.
+    expect(html).toContain("Not logged");
+    expect(html).not.toContain("assign it to a job below");
+  });
+});

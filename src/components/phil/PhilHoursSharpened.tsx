@@ -611,11 +611,14 @@ function MissedRow({
     <div className="flex min-h-[44px] items-center justify-between gap-3">
       <div className="min-w-0">
         <p className="text-sm font-semibold text-text">{hoursDayLabel(date, todayISO)}</p>
-        <p className="mt-0.5 text-[13px] text-text-muted">
-          {isToday ? "Not logged yet — assign it to a job below" : "Not logged"}
-        </p>
+        <p className="mt-0.5 text-[13px] text-text-muted">Not logged</p>
       </div>
-      {!isToday && canLog ? (
+      {/* Today carries the SAME Log pill as any other unlogged day (owner-
+          directed, 2026-08-07): once the log card below is seeded to a
+          DIFFERENT day, today's row was the one place with no way back —
+          the worker had to re-pick today in the date input. The pill just
+          re-seeds the one mounted sheet to this date, same as every row. */}
+      {canLog ? (
         <button
           type="button"
           onClick={() => onLogDay(date)}
