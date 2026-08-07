@@ -19,6 +19,7 @@ import {
 import {
   STANDARD_DAY_HOURS,
   STANDARD_DAY_MINUTES,
+  STANDARD_DAY_OT_ADD_ONS,
   MAX_HOURS_PER_DAY,
   MAX_BACKDATE_DAYS,
   BUSINESS_TIMEZONE,
@@ -32,6 +33,7 @@ import {
   weekEndOf,
   addDays,
   buildStandardDayPayload,
+  buildStandardDayWithOtPayload,
   buildCustomHoursPayload,
   isWithinBackdateWindow,
   parseFixDate,
@@ -39,7 +41,9 @@ import {
   splitHoursMinutes,
   hoursFromHm,
   lastLoggedJobFor,
+  standardDayPlusOt,
   summariseMissing,
+  toggleOtAddOn,
 } from "./service";
 import {
   amendmentLine,
@@ -49,7 +53,9 @@ import {
   formatDateLabel,
   formatShortDateLabel,
   logActionTitle,
+  otChipLabel,
   otSplitLabel,
+  standardDayOtEcho,
 } from "./format";
 
 describe("timesheets service constants", () => {
@@ -274,6 +280,103 @@ describe("buildCustomHoursPayload()", () => {
   it("validates against the create schema for valid hours", () => {
     const payload = buildCustomHoursPayload({ date: "2026-05-04", jobId: "j", totalHours: 6 });
     expect(CreateTimeEntryPayloadSchema.safeParse(payload).success).toBe(true);
+  });
+});
+
+/**
+ * Overtime as a TAP on the standard day (owner-directed 2026-08-07). The
+ * sheet's chips wire EXACTLY these helpers (the repo's node-env pattern —
+ * drive the same engine the component uses; the SSR markup is pinned in
+ * LogHoursSheet.render.test.tsx), so this suite IS the tap → echo → payload
+ * behaviour of the feature.
+ */
+describe("standard day + OT add-on chips", () => {
+  it("offers the four owner-approved add-ons: +30m, +1h, +1½h, +2h", () => {
+    expect([...STANDARD_DAY_OT_ADD_ONS]).toEqual([0.5, 1, 1.5, 2]);
+    expect(STANDARD_DAY_OT_ADD_ONS.map(otChipLabel)).toEqual(["+30m", "+1h", "+1½h", "+2h"]);
+  });
+
+  it("toggleOtAddOn: a tap selects, a re-tap CLEARS, tapping another switches (single-select)", () => {
+    expect(toggleOtAddOn(null, 1)).toBe(1);
+    expect(toggleOtAddOn(1, 1)).toBeNull(); // the active chip clears on re-tap
+    expect(toggleOtAddOn(1, 2)).toBe(2); // switching never stacks add-ons
+    expect(toggleOtAddOn(2, 0.5)).toBe(0.5);
+  });
+
+  it("standardDayPlusOt derives clean decimal totals — the maths does itself", () => {
+    expect(standardDayPlusOt(0.5)).toBe(8.1);
+    expect(standardDayPlusOt(1)).toBe(8.6);
+    expect(standardDayPlusOt(1.5)).toBe(9.1);
+    expect(standardDayPlusOt(2)).toBe(9.6);
+  });
+
+  it("toggling a chip updates the submit echo to the derived truth", () => {
+    // Tap "+1h" on the plain standard day…
+    const tapped = toggleOtAddOn(null, 1);
+    expect(tapped).toBe(1);
+    // …and the submit bar reads the owner-approved echo, exactly.
+    const echo = standardDayOtEcho(standardDayPlusOt(tapped!), tapped!);
+    expect(echo).toBe("Submit 8h 36m — standard + 1h OT");
+    expect(echo).toContain("8h 36m — standard + 1h OT");
+    // Re-tap clears → the sheet falls back to the untouched
+    // "Standard day · 7h 36m" line (no echo is rendered for null).
+    expect(toggleOtAddOn(tapped, 1)).toBeNull();
+  });
+
+  it("echoes every add-on in duration words, never decimals", () => {
+    expect(standardDayOtEcho(standardDayPlusOt(0.5), 0.5)).toBe(
+      "Submit 8h 6m — standard + 30m OT",
+    );
+    expect(standardDayOtEcho(standardDayPlusOt(1.5), 1.5)).toBe(
+      "Submit 9h 6m — standard + 1h 30m OT",
+    );
+    expect(standardDayOtEcho(standardDayPlusOt(2), 2)).toBe(
+      "Submit 9h 36m — standard + 2h OT",
+    );
+  });
+
+  it("with a chip: rides the EXISTING custom-hours builder — totalHours 8.6 decimal, unchanged contract", () => {
+    const payload = buildStandardDayWithOtPayload({
+      date: "2026-08-06",
+      jobId: "j1",
+      otAddOn: 1,
+      notes: null,
+    });
+    // The exact decimal the store speaks — 7.6 + 1, no worker arithmetic.
+    expect(payload.totalHours).toBe(8.6);
+    // Byte-for-byte the same shape buildCustomHoursPayload has always sent:
+    // no new field, the OT split stays the server's call (autoSplitOT mirror).
+    expect(payload).toEqual(
+      buildCustomHoursPayload({ date: "2026-08-06", jobId: "j1", totalHours: 8.6, notes: null }),
+    );
+    expect(payload.ordinaryHours).toBe(8);
+    expect(payload.overtimeHours).toBe(0.6);
+    expect(payload.allocations).toEqual([{ jobId: "j1", hours: 8.6, notes: null }]);
+    expect(CreateTimeEntryPayloadSchema.safeParse(payload).success).toBe(true);
+  });
+
+  it("REGRESSION PIN: no chip = the EXACT payload the standard day has always sent", () => {
+    const args = { date: "2026-08-06", jobId: "j1", notes: null };
+    expect(buildStandardDayWithOtPayload({ ...args, otAddOn: null })).toEqual(
+      buildStandardDayPayload(args),
+    );
+    // …including the null-job admin path.
+    expect(
+      buildStandardDayWithOtPayload({ date: "2026-08-06", jobId: null, otAddOn: null }),
+    ).toEqual(buildStandardDayPayload({ date: "2026-08-06", jobId: null }));
+  });
+
+  it("every chip total stays inside the day cap and validates against the create schema", () => {
+    for (const addOn of STANDARD_DAY_OT_ADD_ONS) {
+      const payload = buildStandardDayWithOtPayload({
+        date: "2026-08-06",
+        jobId: "j1",
+        otAddOn: addOn,
+        notes: null,
+      });
+      expect(payload.totalHours).toBeLessThanOrEqual(MAX_HOURS_PER_DAY);
+      expect(CreateTimeEntryPayloadSchema.safeParse(payload).success).toBe(true);
+    }
   });
 });
 

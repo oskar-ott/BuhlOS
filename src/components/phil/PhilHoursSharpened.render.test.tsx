@@ -146,6 +146,10 @@ describe("PhilHoursSharpened — week cards", () => {
     const html = render([]);
     expect(html).toContain("Log your day");
     expect(html).toContain("Standard day");
+    // The OT add-on chips ride the SAME shared sheet here (owner-directed
+    // 2026-08-07) — one logging implementation, both renders get it.
+    expect(html).toContain("+1½h");
+    expect(html).toContain('aria-label="Add overtime to the standard day"');
     // Multi-job worker → the sheet's real job picker (attribution guard).
     expect(html).toContain("Pick one");
   });

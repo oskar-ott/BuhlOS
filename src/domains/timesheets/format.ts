@@ -73,6 +73,36 @@ export function formatHoursLabel(decimalHours: number): string {
 }
 
 /**
+ * Chip label for a standard-day OT add-on (owner-directed 2026-08-07) —
+ * duration shorthand sized for a one-thumb chip: 0.5 → "+30m", 1 → "+1h",
+ * 1.5 → "+1½h", 2 → "+2h". The ½ glyph keeps the ninety-minute chip as
+ * narrow as its neighbours; any other value falls back to the plain
+ * `+Xh Ym` dialect (never a decimal — that's the incident this exists for).
+ */
+export function otChipLabel(addOnHours: number): string {
+  const totalMinutes = Math.round(addOnHours * 60);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes - hours * 60;
+  if (hours === 0) return `+${minutes}m`;
+  if (minutes === 30) return `+${hours}½h`;
+  if (minutes === 0) return `+${hours}h`;
+  return `+${hours}h ${minutes}m`;
+}
+
+/**
+ * The submit-bar echo while an OT chip rides the standard day — the derived
+ * truth the worker checks by eye instead of computing in their head:
+ * "Submit 8h 36m — standard + 1h OT". Wording is the owner-approved copy
+ * verbatim ("OT" here is the site's own shorthand — workers say it, and the
+ * uppercase sub-line has no room for "overtime"). The caller passes the
+ * derived total (standardDayPlusOt) plus the add-on so this stays a pure
+ * formatter with no service import.
+ */
+export function standardDayOtEcho(totalHours: number, addOnHours: number): string {
+  return `Submit ${formatHoursLabel(totalHours)} — standard + ${formatHoursLabel(addOnHours)} OT`;
+}
+
+/**
  * The honest "the office changed your hours" line for ONE day.
  *
  * When the office uses "fix it and approve" (api/time-entries-amend-approve.js)

@@ -383,3 +383,61 @@ describe("LogHoursSheet — deep-linked date", () => {
     expect(html).toContain('value="2026-06-01"');
   });
 });
+
+describe("LogHoursSheet — OT add-on chips on the standard day (owner-directed 2026-08-07)", () => {
+  // The tap → echo → payload chain is pure logic driven directly in
+  // src/domains/timesheets/timesheets.test.ts ("standard day + OT add-on
+  // chips") — the repo's node-env pattern (see PhilTabBar.interaction.test.tsx):
+  // the SAME helpers the chips wire (toggleOtAddOn / standardDayPlusOt /
+  // standardDayOtEcho / buildStandardDayWithOtPayload) are exercised through
+  // their real reducer, and THIS suite pins the SSR wiring around them.
+  const soleJob = { ...base, assignedJobs: [{ id: "j1", name: "Smith St Rewire" }] };
+
+  it("renders the four chips riding INSIDE the standard-day block, none active", () => {
+    const html = render(soleJob);
+    for (const label of ["+30m", "+1h", "+1½h", "+2h"]) {
+      expect(html).toContain(label);
+    }
+    expect(html).toContain('aria-label="Add overtime to the standard day"');
+    // Single-select toggles, none pressed until tapped…
+    expect(html).toContain('aria-pressed="false"');
+    expect(html).not.toContain('aria-pressed="true"');
+    // …with a 44px+ touch target per chip.
+    expect(html).toContain("min-h-[44px]");
+  });
+
+  it("no chip = the untouched standard day: same sub-label, same smoke-clicked aria-label, no echo", () => {
+    const html = render(soleJob);
+    expect(html).toContain("Standard day · 7h 36m");
+    expect(html).toContain('aria-label="Submit Standard day, 7 hours 36 minutes"');
+    // The echo only exists once a chip is active (client state, not SSR) —
+    // the plain path renders no derived-total wording at all.
+    expect(html).not.toContain("— standard +");
+  });
+
+  it("chips sit WITH the standard-day action — under it, above the custom/split fallbacks (P10: no new section)", () => {
+    const html = render({
+      ...base,
+      assignedJobs: [
+        { id: "j1", name: "Smith St Rewire" },
+        { id: "j2", name: "Depot Switchboard" },
+      ],
+      initialJobId: "j1",
+    });
+    const chipAt = html.indexOf("+1½h");
+    expect(chipAt).toBeGreaterThan(html.indexOf("Standard day"));
+    expect(chipAt).toBeLessThan(html.indexOf("Custom / overtime hours"));
+    expect(html.indexOf("Split across jobs")).toBeGreaterThan(chipAt);
+  });
+
+  it("a locked (submitted/approved) selected day renders no chips — the log actions are replaced wholesale", () => {
+    const html = render({
+      assignedJobs: [{ id: "j1", name: "Smith St Rewire" }],
+      recentEntries: [],
+      initialTodayEntry: entryWithStatus("submitted"),
+      initialDate: "2026-06-11",
+    });
+    expect(html).not.toContain("+1½h");
+    expect(html).not.toContain("Add overtime to the standard day");
+  });
+});

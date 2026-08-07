@@ -267,6 +267,67 @@ export function buildCustomHoursPayload(input: {
 }
 
 /**
+ * The overtime add-ons a worker can tap ONTO the standard day (owner-directed
+ * 2026-08-07). Workers think "normal day + 1 hour OT", never totals — a
+ * worker recently typed the total ("8.36" meaning 8h 36m) and the pay was
+ * wrong. Each value is DECIMAL HOURS added to STANDARD_DAY_HOURS; the sheet
+ * renders them as single-select chips (+30m / +1h / +1½h / +2h) and echoes
+ * the derived total, so nobody does arithmetic.
+ */
+export const STANDARD_DAY_OT_ADD_ONS = [0.5, 1, 1.5, 2] as const;
+
+/**
+ * Tap semantics for the OT chips: tapping the active chip clears it (back to
+ * the plain standard day); tapping another switches. Single-select, pure.
+ */
+export function toggleOtAddOn(current: number | null, tapped: number): number | null {
+  return current === tapped ? null : tapped;
+}
+
+/**
+ * STANDARD_DAY_HOURS plus an OT add-on, rounded to the store's 2dp
+ * (7.6 + 1 → 8.6). The ONE derivation the echo label and the payload share,
+ * so what the worker reads is what the server receives.
+ */
+export function standardDayPlusOt(addOnHours: number): number {
+  return Math.round((STANDARD_DAY_HOURS + addOnHours) * 100) / 100;
+}
+
+/**
+ * The ONE payload the standard-day action submits, with or without an OT
+ * add-on. No add-on → the EXACT buildStandardDayPayload shape the button has
+ * always sent (regression-pinned in timesheets.test.ts). An add-on → the
+ * EXISTING custom-hours builder with the derived total — same endpoint, same
+ * fields, no new server contract; the ordinary/overtime split stays the
+ * server's call (autoSplitOT mirrors it).
+ */
+export function buildStandardDayWithOtPayload(input: {
+  date: string;
+  jobId: string | null;
+  /** Decimal hours on top of the standard day, or null for the plain day. */
+  otAddOn: number | null;
+  notes?: string | null;
+}): {
+  date: string;
+  totalHours: number;
+  ordinaryHours: number;
+  overtimeHours: number;
+  allocations: Array<{ jobId: string | null; hours: number; notes: null }>;
+  status: "submitted";
+  notes: string | null;
+} {
+  if (input.otAddOn === null) {
+    return buildStandardDayPayload({ date: input.date, jobId: input.jobId, notes: input.notes });
+  }
+  return buildCustomHoursPayload({
+    date: input.date,
+    totalHours: standardDayPlusOt(input.otAddOn),
+    jobId: input.jobId,
+    notes: input.notes,
+  });
+}
+
+/**
  * Build a CreateTimeEntryPayload that SPLITS the day across 2+ jobs (#128).
  * One entry, multiple allocations summing to the total — the model and the
  * server have always supported this; this is the Phil-side builder. OT is
