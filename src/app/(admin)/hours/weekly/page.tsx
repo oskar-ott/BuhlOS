@@ -156,6 +156,7 @@ export default async function HoursWeeklyCloseoutPage({
             isCurrentWeek,
           }}
           canUndo={isAdminRole(session.role)}
+          canAmend={isAdminRole(session.role)}
           fetchError={fetchError}
           xeroGate={xeroGate}
         />

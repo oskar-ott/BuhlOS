@@ -1,4 +1,4 @@
-import type { MissingLog, TimeEntry } from "./types";
+import type { MissingLog, TimeEntry, TimeEntryAllocation } from "./types";
 import { addDays, weekEndOf } from "./service";
 
 /**
@@ -55,6 +55,12 @@ export interface WeeklyHoursDay {
   /** "Smith St Rewire", "2 jobs" for a split day, "No job" for a null
    *  allocation, or null when there is no entry. */
   jobLabel: string | null;
+  /** The day's REAL allocations, straight off the entry (null when there is no
+   *  entry). Carried so the phone's day review can offer the office's "fix the
+   *  hours and approve" on a split day without a second fetch — the editor
+   *  needs each job's own time, not just the label. Display/edit input only;
+   *  every roll-up above stays totalHours-based. */
+  allocations: TimeEntryAllocation[] | null;
   hours: number | null;
   /** #130: STORED ordinary/overtime portions of `hours`, or null when the day
    *  has no entry. Read straight from the entry — never re-derived. Carried as
@@ -371,6 +377,7 @@ export function buildWeeklyHoursCloseout(input: WeeklyCloseoutInput): WeeklyHour
         status,
         entryId: entry?.id ?? null,
         jobLabel: entry ? jobLabelFor(entry) : null,
+        allocations: entry ? [...(entry.allocations ?? [])] : null,
         hours: entry ? (entry.totalHours ?? null) : null,
         // #130: carry the STORED ordinary/OT portions through the projection
         // (they were dropped before). Roll-up math below is unchanged

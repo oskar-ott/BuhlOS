@@ -43,7 +43,12 @@ function entry(
  *  "2.5 OT" / "Waiting on Rhys" assert as the user reads them. */
 const strip = (html: string) => html.replace(/<!-- -->/g, "");
 
-function render(entries: TimeEntry[], missing: MissingLog[] = [], canUndo = true) {
+function render(
+  entries: TimeEntry[],
+  missing: MissingLog[] = [],
+  canUndo = true,
+  canAmend = false,
+) {
   const closeout = buildWeeklyHoursCloseout({
     entries,
     missing,
@@ -56,6 +61,7 @@ function render(entries: TimeEntry[], missing: MissingLog[] = [], canUndo = true
         closeout,
         weekNav: WEEK_NAV,
         canUndo,
+        canAmend,
         fetchError: null,
       }),
     ),
@@ -213,6 +219,26 @@ describe("WeeklyHoursApprovalMobile (render)", () => {
   it("keeps the desktop copy while the write flag is dark", () => {
     const html = renderWithGate({ isAdmin: true, connectionFlag: true, exportFlag: false });
     expect(html).toContain("BuhlOS on desktop");
+  });
+
+  it("keeps 'fix the hours' inside the day review, off the always-visible cards (P10)", () => {
+    // The correction belongs next to the day it corrects, not on the week card
+    // — the boss's list stays a list. The sheet is client-only, so what SSR can
+    // honestly pin is that the capability costs the card no budget. Its rules
+    // are tested in weekly-approval-mobile.test.ts (canAmendDay /
+    // amendDayAllocations) and the editor itself in
+    // HoursApprovalsQueue.render.test.tsx.
+    const html = render(
+      [entry({ userId: "u1", date: "2024-05-20", userName: "Rhys Kelly", status: "submitted" })],
+      [],
+      true,
+      true,
+    );
+    expect(html).not.toContain("wha-amend-open-");
+    expect(html).not.toContain("amend-editor");
+    // The card's real actions are untouched.
+    expect(html).toContain("Approve");
+    expect(html).toContain("Query");
   });
 
   it("is honestly empty when the week has no entries and no missing days", () => {

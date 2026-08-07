@@ -103,6 +103,29 @@ describe("buildWeeklyHoursCloseout — totals and counts", () => {
     expect(c.summary.rejectedDays).toBe(1);
   });
 
+  it("carries each day's REAL allocations through the projection (the phone's fix editor reads them)", () => {
+    const c = build([
+      entry({
+        userId: "u1",
+        date: "2024-05-20",
+        status: "submitted",
+        totalHours: 8,
+        allocations: [
+          { jobId: "j1", jobName: "100 Arthur", hours: 5 },
+          { jobId: "j2", jobName: "Depot", hours: 3 },
+        ],
+      } as Partial<TimeEntry> & { userId: string; date: string }),
+    ]);
+    const days = c.workers[0]!.days;
+    const mon = days.find((d) => d.date === "2024-05-20")!;
+    expect(mon.allocations?.map((a) => [a.jobId, a.hours])).toEqual([
+      ["j1", 5],
+      ["j2", 3],
+    ]);
+    // A day with no entry has nothing to carry — null, never an empty promise.
+    expect(days.find((d) => d.date === "2024-05-21")!.allocations).toBeNull();
+  });
+
   it("slices approved hours per job from allocations (split days attribute correctly)", () => {
     const c = build([
       entry({
@@ -630,6 +653,7 @@ describe("submittedWeekSelection (#124 — the Approve-week payload)", () => {
       overtimeHours: 0,
       entryId: `e${i}`,
       jobLabel: null,
+      allocations: null,
       note: null,
       rejectedReason: null,
       exportId: null,

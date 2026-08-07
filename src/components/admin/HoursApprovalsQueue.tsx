@@ -9,6 +9,11 @@ import { Pill } from "@/components/ui/Pill";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { RefreshButton } from "@/components/ui/RefreshButton";
 import { relativeWhen } from "@/domains/jobs/format";
+import {
+  AmendHoursEditor,
+  type AmendAllocationInput,
+  type AmendPayload,
+} from "@/components/admin/AmendHoursEditor";
 import { timesheetsClient } from "@/domains/timesheets/client";
 import {
   formatDateLabel,
@@ -25,12 +30,20 @@ interface HoursApprovalsQueueProps {
   fetchError: string | null;
   /** Reopen (the undo path) is admin-tier only — LHs never see the button. */
   canUndo?: boolean;
+  /**
+   * "Fix the hours and approve" is admin-tier only (owner-directed): a leading
+   * hand can approve or send back, but changing what someone gets paid is the
+   * office's call. The server enforces the same rule — this only decides
+   * whether an LH is shown a button that would 403.
+   */
+  canAmend?: boolean;
 }
 
 type ActionState =
   | { kind: "idle" }
   | { kind: "approving"; entryKey: string }
   | { kind: "rejecting"; entryKey: string }
+  | { kind: "amending"; entryKey: string }
   | { kind: "success"; entryKey: string; label: string }
   | { kind: "error"; message: string };
 
@@ -52,12 +65,19 @@ function entryKey(entry: Pick<TimeEntry, "userId" | "date">): string {
  * 292479990. /gear works because it's only one route segment deep;
  * /hours/approvals is two and hits the bug. See PR #6.
  */
-export function HoursApprovalsQueue({ initialEntries, fetchError, canUndo = false }: HoursApprovalsQueueProps) {
+export function HoursApprovalsQueue({
+  initialEntries,
+  fetchError,
+  canUndo = false,
+  canAmend = false,
+}: HoursApprovalsQueueProps) {
   const router = useRouter();
   const [entries, setEntries] = useState<ReadonlyArray<TimeEntry>>(initialEntries);
   const [action, setAction] = useState<ActionState>({ kind: "idle" });
   const [rejectTarget, setRejectTarget] = useState<TimeEntry | null>(null);
   const [rejectReason, setRejectReason] = useState("");
+  /** Entry key whose inline "fix the hours" editor is open (one at a time). */
+  const [amendKey, setAmendKey] = useState<string | null>(null);
   const [bulk, setBulk] = useState<BulkOutcome | null>(null);
   const [bulkBusyWorker, setBulkBusyWorker] = useState<string | null>(null);
   const [undoBusy, setUndoBusy] = useState(false);
@@ -159,6 +179,46 @@ export function HoursApprovalsQueue({ initialEntries, fetchError, canUndo = fals
     });
   }
 
+  /**
+   * "Fix the hours and approve" — the correction and the approval are ONE
+   * server action, so the queue treats it exactly like an approve: the row
+   * leaves the list on success, nothing is ever shown as half-done.
+   */
+  async function amendAndApprove(
+    entry: TimeEntry,
+    payload: { totalHours: number; allocations: Array<{ jobId: string | null; hours: number }>; reason: string },
+  ) {
+    const key = entryKey(entry);
+    setAction({ kind: "amending", entryKey: key });
+    const result = await timesheetsClient.amendAndApproveEntry({
+      userId: entry.userId,
+      date: entry.date,
+      reason: payload.reason,
+      totalHours: payload.totalHours,
+      allocations: payload.allocations,
+    });
+    if (result.ok) {
+      setAmendKey(null);
+      setEntries((current) => current.filter((e) => entryKey(e) !== key));
+      setAction({
+        kind: "success",
+        entryKey: key,
+        label: `Fixed and approved — ${formatHoursLabel(entry.totalHours)} → ${formatHoursLabel(result.data.entry.totalHours)} for ${entry.userName ?? entry.userId} on ${formatDateLabel(entry.date)}. They'll see the change on their phone.`,
+      });
+      startTransition(() => router.refresh());
+      return;
+    }
+    setAction({
+      kind: "error",
+      message:
+        result.error.status === 403
+          ? "Only the office can change someone's hours."
+          : result.error.status === 409
+            ? "These hours moved while you were fixing them — refresh and look again."
+            : result.error.message || "Couldn't save the fix. Try again.",
+    });
+  }
+
   function openReject(entry: TimeEntry) {
     setRejectTarget(entry);
     setRejectReason("");
@@ -253,9 +313,13 @@ export function HoursApprovalsQueue({ initialEntries, fetchError, canUndo = fals
                 group={group}
                 action={action}
                 bulkBusy={bulkBusyWorker === group.userId}
+                canAmend={canAmend}
+                amendKey={amendKey}
                 onApprove={approve}
                 onApproveAll={approveAll}
                 onReject={openReject}
+                onOpenAmend={setAmendKey}
+                onAmend={amendAndApprove}
               />
             </li>
           ))}
@@ -398,16 +462,24 @@ function WorkerGroup({
   group,
   action,
   bulkBusy,
+  canAmend,
+  amendKey,
   onApprove,
   onApproveAll,
   onReject,
+  onOpenAmend,
+  onAmend,
 }: {
   group: WorkerGroupShape;
   action: ActionState;
   bulkBusy: boolean;
+  canAmend: boolean;
+  amendKey: string | null;
   onApprove: (entry: TimeEntry) => void;
   onApproveAll: (group: WorkerGroupShape) => void;
   onReject: (entry: TimeEntry) => void;
+  onOpenAmend: (key: string | null) => void;
+  onAmend: (entry: TimeEntry, payload: AmendPayload) => void;
 }): ReactNode {
   return (
     <Card className="space-y-3">
@@ -438,7 +510,16 @@ function WorkerGroup({
           .sort((a, b) => a.date.localeCompare(b.date))
           .map((entry) => (
             <li key={entry.id} className="py-3">
-              <EntryRow entry={entry} action={action} onApprove={onApprove} onReject={onReject} />
+              <EntryRow
+                entry={entry}
+                action={action}
+                canAmend={canAmend}
+                amendOpen={amendKey === entryKey(entry)}
+                onApprove={onApprove}
+                onReject={onReject}
+                onOpenAmend={onOpenAmend}
+                onAmend={onAmend}
+              />
             </li>
           ))}
       </ul>
@@ -449,18 +530,27 @@ function WorkerGroup({
 function EntryRow({
   entry,
   action,
+  canAmend,
+  amendOpen,
   onApprove,
   onReject,
+  onOpenAmend,
+  onAmend,
 }: {
   entry: TimeEntry;
   action: ActionState;
+  canAmend: boolean;
+  amendOpen: boolean;
   onApprove: (entry: TimeEntry) => void;
   onReject: (entry: TimeEntry) => void;
+  onOpenAmend: (key: string | null) => void;
+  onAmend: (entry: TimeEntry, payload: AmendPayload) => void;
 }): ReactNode {
   const key = entryKey(entry);
   const approving = action.kind === "approving" && action.entryKey === key;
   const rejecting = action.kind === "rejecting" && action.entryKey === key;
-  const busy = approving || rejecting;
+  const amending = action.kind === "amending" && action.entryKey === key;
+  const busy = approving || rejecting || amending;
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_auto]">
       <div className="space-y-2">
@@ -486,6 +576,19 @@ function EntryRow({
             ? ` · entered by ${entry.enteredByName}`
             : ""}
         </p>
+        {/* The correction sits inside the row it corrects — the numbers being
+            changed stay on screen while they're changed. */}
+        {canAmend && amendOpen ? (
+          <AmendHoursEditor
+            dateLabel={formatDateLabel(entry.date)}
+            workerName={entry.userName ?? entry.userId}
+            currentTotalHours={entry.totalHours}
+            allocations={amendAllocationsFor(entry)}
+            saving={amending}
+            onCancel={() => onOpenAmend(null)}
+            onSave={(payload) => onAmend(entry, payload)}
+          />
+        ) : null}
       </div>
       <div className="flex flex-col gap-2 sm:items-end">
         <Button
@@ -496,6 +599,18 @@ function EntryRow({
         >
           {approving ? "Approving…" : "Approve"}
         </Button>
+        {canAmend && !amendOpen ? (
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => onOpenAmend(key)}
+            disabled={busy}
+            data-testid={`amend-open-${key}`}
+            aria-label={`Fix the hours for ${entry.userName ?? entry.userId} on ${formatDateLabel(entry.date)}`}
+          >
+            Fix the hours
+          </Button>
+        ) : null}
         <Button
           variant="danger"
           size="sm"
@@ -508,6 +623,15 @@ function EntryRow({
       </div>
     </div>
   );
+}
+
+/** The editor's per-allocation input rows — real job names only, never a guess. */
+function amendAllocationsFor(entry: TimeEntry): AmendAllocationInput[] {
+  return (entry.allocations ?? []).map((a) => ({
+    jobId: a.jobId ?? null,
+    label: a.jobName ?? a.jobId ?? "No job assigned",
+    hours: Number(a.hours) || 0,
+  }));
 }
 
 function AllocationLine({ entry }: { entry: TimeEntry }): ReactNode {

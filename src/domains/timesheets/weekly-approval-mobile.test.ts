@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import type { MissingLog, TimeEntry } from "./types";
 import { buildWeeklyHoursCloseout } from "./weekly-closeout";
 import {
+  amendDayAllocations,
   buildQueryReason,
+  canAmendDay,
   mobileBand,
   mobileSummary,
   partitionMobileWorkers,
@@ -232,5 +234,73 @@ describe("buildQueryReason", () => {
   it("'Other' with no note is null (keeps the send button disabled)", () => {
     expect(buildQueryReason("Other")).toBeNull();
     expect(buildQueryReason("Other", "   ")).toBeNull();
+  });
+});
+
+/**
+ * "Fix the hours and approve" on the phone (owner-directed). The RULES live
+ * here — the sheet is client-only, so the projection is where they can be
+ * pinned honestly.
+ */
+describe("canAmendDay — what the office may fix in the day review", () => {
+  function dayOf(status: TimeEntry["status"], date = "2024-05-20") {
+    const c = build([entry({ userId: "u1", date, status, totalHours: 8.37 })]);
+    return c.workers[0]!.days.find((d) => d.date === date)!;
+  }
+
+  it("offers the fix only on a day still waiting on a decision", () => {
+    expect(canAmendDay(dayOf("submitted"), true)).toBe(true);
+    // Approved is reopened, not silently rewritten; rejected/draft are the
+    // worker's to fix. Same rule the server enforces (409 otherwise).
+    expect(canAmendDay(dayOf("approved"), true)).toBe(false);
+    expect(canAmendDay(dayOf("rejected"), true)).toBe(false);
+    expect(canAmendDay(dayOf("draft"), true)).toBe(false);
+  });
+
+  it("never offers it to a leading hand — changing pay is the office's call", () => {
+    expect(canAmendDay(dayOf("submitted"), false)).toBe(false);
+  });
+
+  it("never offers it on a day with nothing logged", () => {
+    const c = build([], [missing("u1", "2024-05-22")]);
+    const wed = c.workers[0]!.days.find((d) => d.date === "2024-05-22")!;
+    expect(wed.status).toBe("missing");
+    expect(canAmendDay(wed, true)).toBe(false);
+  });
+});
+
+describe("amendDayAllocations — each job's own time, never an invented split", () => {
+  it("carries the day's REAL allocations, named", () => {
+    const c = build([
+      entry({
+        userId: "u1",
+        date: "2024-05-20",
+        status: "submitted",
+        totalHours: 8,
+        allocations: [
+          { jobId: "j1", jobName: "UTS Building 11", hours: 5 },
+          { jobId: "j2", jobName: "Depot", hours: 3 },
+        ],
+      } as Partial<TimeEntry> & { userId: string; date: string }),
+    ]);
+    const mon = c.workers[0]!.days.find((d) => d.date === "2024-05-20")!;
+    expect(amendDayAllocations(mon)).toEqual([
+      { jobId: "j1", label: "UTS Building 11", hours: 5 },
+      { jobId: "j2", label: "Depot", hours: 3 },
+    ]);
+  });
+
+  it("an unattributed day is ONE no-job row — exactly what the entry is", () => {
+    const c = build([
+      entry({
+        userId: "u1",
+        date: "2024-05-20",
+        status: "submitted",
+        totalHours: 7.6,
+        allocations: [{ jobId: null, hours: 7.6 }],
+      } as Partial<TimeEntry> & { userId: string; date: string }),
+    ]);
+    const mon = c.workers[0]!.days.find((d) => d.date === "2024-05-20")!;
+    expect(amendDayAllocations(mon)).toEqual([{ jobId: null, label: "No job", hours: 7.6 }]);
   });
 });

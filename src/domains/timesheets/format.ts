@@ -73,6 +73,49 @@ export function formatHoursLabel(decimalHours: number): string {
 }
 
 /**
+ * The honest "the office changed your hours" line for ONE day.
+ *
+ * When the office uses "fix it and approve" (api/time-entries-amend-approve.js)
+ * the entry carries `amendedFrom` — the before picture — alongside the new
+ * numbers. This presenter is the SINGLE source of that line's wording, so the
+ * worker's screen and the office's queue can never drift apart about what a
+ * change says.
+ *
+ * Returns null when nothing was amended, so an untouched day renders exactly as
+ * it does today (P10 — the line only costs budget when there is something real
+ * to say).
+ *
+ * Wording is site language (P11): "Adjusted by the office", never "amended
+ * by administrator". The before → after arrow uses the duration dialect
+ * ("8h 22m → 8h 36m") — never decimals, which is the mis-read that started
+ * this whole feature.
+ */
+export interface AmendmentParts {
+  totalHours: number;
+  amendedFrom?: { totalHours: number } | null;
+  amendedReason?: string | null;
+}
+
+export function amendmentLine(entry: AmendmentParts): string | null {
+  const from = Number(entry.amendedFrom?.totalHours);
+  const to = Number(entry.totalHours);
+  // HONESTY GUARD (P7): no amendment recorded, or the stored before-total is
+  // unusable — say nothing rather than invent a change.
+  if (!Number.isFinite(from) || !Number.isFinite(to)) return null;
+  const reason = entry.amendedReason?.trim();
+  // The totals can legitimately match when only the job split moved; claiming
+  // "8h → 8h" would read as a bug, so the line states the settled time and
+  // lets the reason carry the what.
+  const change =
+    Math.abs(from - to) > 0.005
+      ? `${formatHoursLabel(from)} → ${formatHoursLabel(to)}`
+      : formatHoursLabel(to);
+  return reason
+    ? `Adjusted by the office — ${change}: ${reason}`
+    : `Adjusted by the office — ${change}`;
+}
+
+/**
  * Human label for a status, used on Pill / StatusBadge components.
  */
 export function statusLabel(status: TimeEntryStatus): string {

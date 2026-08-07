@@ -1,5 +1,6 @@
 import { httpGet, httpPatch, httpPost, type HttpResult } from "@/lib/http";
 import {
+  AmendApproveTimeEntryPayloadSchema,
   ApproveTimeEntryPayloadSchema,
   CreateTimeEntryPayloadSchema,
   PatchTimeEntryPayloadSchema,
@@ -19,6 +20,7 @@ import {
 } from "./schema";
 import { payrollPreviewUrl } from "./payroll-export";
 import type {
+  AmendApproveTimeEntryPayload,
   ApproveTimeEntryPayload,
   CreateTimeEntryPayload,
   PatchTimeEntryPayload,
@@ -281,6 +283,33 @@ export function rejectEntry(
 }
 
 /**
+ * POST /api/time-entries-amend-approve — fix a submitted entry's hours AND
+ * approve it in one server action. Admin tier only (403 otherwise), reason
+ * required, and only an entry still waiting on a decision can be fixed (409).
+ * The corrected hours + the approval land in a single guarded write, so there
+ * is no half-amended state.
+ */
+export function amendAndApproveEntry(
+  payload: AmendApproveTimeEntryPayload
+): Promise<HttpResult<TimeEntryMutationResponse>> {
+  const parsed = AmendApproveTimeEntryPayloadSchema.safeParse(payload);
+  if (!parsed.success) {
+    return Promise.resolve({
+      ok: false,
+      error: {
+        status: 0,
+        body: parsed.error.format(),
+        message: parsed.error.issues.map((i) => i.message).join("; "),
+      },
+    });
+  }
+  return httpPost<TimeEntryMutationResponse>("/api/time-entries-amend-approve", parsed.data, {
+    schema: TimeEntryMutationResponseSchema,
+    init: { cache: "no-store", credentials: "same-origin" },
+  });
+}
+
+/**
  * POST /api/time-entries-bulk-approve — approve up to 50 submitted entries in
  * one call. Per-entry results: a failure on one never blocks the rest. Same
  * approver permissions as single approve (admin tier; LH scoped to their
@@ -339,6 +368,7 @@ export const timesheetsClient = {
   submitNewEntry,
   editOwnEntry,
   approveEntry,
+  amendAndApproveEntry,
   bulkApproveEntries,
   reopenEntry,
   rejectEntry,

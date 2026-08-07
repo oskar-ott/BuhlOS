@@ -8,6 +8,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { HoursApprovalsQueue } from "./HoursApprovalsQueue";
+import { AmendHoursEditor } from "./AmendHoursEditor";
 import type { TimeEntry } from "@/domains/timesheets/types";
 
 /**
@@ -118,6 +119,108 @@ describe("Approve all (#124)", () => {
       })
     );
     expect(html).toContain("Approve all (2)");
+  });
+});
+
+/**
+ * "Fix the hours and approve" — the owner-directed correction at approval time.
+ * SSR pins WHO gets the affordance and what the editor asks for; the mutation
+ * itself is covered end-to-end in
+ * src/domains/time-entries/time-entries-amend-approve-api.test.ts.
+ */
+describe("amend at approval time — 'Fix the hours'", () => {
+  const SUBMITTED = entry("fix", "Sparky", [
+    { jobId: "job-1", jobName: "Smith St Rewire", hours: 8.37, notes: null },
+  ], { totalHours: 8.37, ordinaryHours: 8, overtimeHours: 0.37 });
+
+  it("offers the office a 'Fix the hours' affordance on each entry", () => {
+    const html = render({ initialEntries: [SUBMITTED], fetchError: null, canAmend: true });
+    expect(html).toContain("Fix the hours");
+    expect(html).toContain('aria-label="Fix the hours for Sparky on');
+  });
+
+  it("never shows it to a leading hand — changing pay is the office's call", () => {
+    const html = render({ initialEntries: [SUBMITTED], fetchError: null });
+    expect(html).not.toContain("Fix the hours");
+    // Approve / Reject are untouched for them.
+    expect(html).toContain("Approve");
+    expect(html).toContain("Reject");
+  });
+
+  it("keeps Approve and Reject alongside it — the fix is an addition, not a swap", () => {
+    const html = render({ initialEntries: [SUBMITTED], fetchError: null, canAmend: true });
+    expect(html).toContain(">Approve<");
+    expect(html).toContain(">Reject<");
+  });
+});
+
+describe("the amend editor (hours + minutes, never decimals)", () => {
+  const ENTRY = entry("ed", "Sparky", [
+    { jobId: "job-1", jobName: "Smith St Rewire", hours: 5, notes: null },
+    { jobId: "job-2", jobName: "Depot", hours: 3, notes: null },
+  ]);
+
+  function editorHtml(props: Partial<Parameters<typeof AmendHoursEditor>[0]> = {}) {
+    return renderToString(
+      createElement(AmendHoursEditor, {
+        dateLabel: "Tue 5 Jun",
+        workerName: "Sparky",
+        currentTotalHours: 8,
+        allocations: [{ jobId: "job-1", label: "Smith St Rewire", hours: 8.37 }],
+        saving: false,
+        onCancel: () => {},
+        onSave: () => {},
+        ...props,
+      }),
+    );
+  }
+
+  it("edits time as HOURS + MINUTES — the decimal box that caused the incident is gone", () => {
+    const html = editorHtml();
+    expect(html).toContain('aria-label="Hours"');
+    expect(html).toContain('aria-label="Minutes"');
+    // 8.37h is 8h 22m — the pair the office actually types.
+    expect(html).toContain('value="8"');
+    expect(html).toContain('value="22"');
+    expect(html).not.toContain('value="8.37"');
+  });
+
+  it("gives a SPLIT day one h+m pair per job, named", () => {
+    const html = editorHtml({
+      currentTotalHours: 8,
+      allocations: [
+        { jobId: "job-1", label: "Smith St Rewire", hours: 5 },
+        { jobId: "job-2", label: "Depot", hours: 3 },
+      ],
+    });
+    expect(html).toContain('aria-label="Hours on Smith St Rewire"');
+    expect(html).toContain('aria-label="Minutes on Depot"');
+    // Total is derived from the parts, shown as the honest before → after.
+    expect(html).toContain("Was 8h · now 8h");
+  });
+
+  it("requires a reason and says the worker will see it", () => {
+    const html = editorHtml();
+    expect(html).toContain("Why (required)");
+    expect(html).toContain('aria-required="true"');
+    expect(html).toContain("Sparky sees this change and the reason on their phone.");
+  });
+
+  it("saves with one button that does both — 'Save &amp; approve', disabled until a reason exists", () => {
+    const html = editorHtml();
+    expect(html).toContain("Save &amp; approve");
+    expect(html).toContain('data-testid="amend-save"');
+    // No reason typed yet on first render → the save is blocked.
+    expect(html).toMatch(/data-testid="amend-save"[^>]*disabled|disabled[^>]*data-testid="amend-save"/);
+  });
+
+  it("renders inside the row it corrects (the numbers stay on screen)", () => {
+    // The queue only mounts the editor once the affordance is tapped (client
+    // state), so SSR shows the closed row — the editor's own markup is proven
+    // above. This pins that the closed row is unchanged.
+    const html = render({ initialEntries: [ENTRY], fetchError: null, canAmend: true });
+    expect(html).not.toContain('data-testid="amend-editor"');
+    expect(html).toContain('data-testid="amend-open-');
   });
 });
 
