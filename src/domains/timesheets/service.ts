@@ -61,6 +61,31 @@ export function autoSplitOT(totalHours: number): { ordinary: number; overtime: n
 }
 
 /**
+ * Decimal hours → the hours + minutes a duration input edits.
+ *
+ * Site dialect is durations, never decimals: a worker typed "8.36" meaning
+ * 8h 36m and the decimal field read it as 8h 22m, which is the bug this whole
+ * amend capability exists to fix. Every hours input is an h field and an m
+ * field; these two helpers are the only conversion between that pair and the
+ * decimal the store speaks, so no screen re-invents the rounding.
+ *
+ * Minutes round to the nearest whole minute and carry into the hour (7.999h →
+ * 8h 0m), so the pair is always a legal clock reading.
+ */
+export function splitHoursMinutes(decimalHours: number): { hours: number; minutes: number } {
+  if (!Number.isFinite(decimalHours) || decimalHours <= 0) return { hours: 0, minutes: 0 };
+  const totalMinutes = Math.round(decimalHours * 60);
+  return { hours: Math.floor(totalMinutes / 60), minutes: totalMinutes % 60 };
+}
+
+/** Hours + minutes → decimal hours, rounded to the store's 2dp. */
+export function hoursFromHm(hours: number, minutes: number): number {
+  const h = Number.isFinite(hours) ? Math.max(0, Math.floor(hours)) : 0;
+  const m = Number.isFinite(minutes) ? Math.max(0, Math.floor(minutes)) : 0;
+  return Math.round((h * 60 + m) * (100 / 60)) / 100;
+}
+
+/**
  * True if the allocations array sums to the total (within rounding tolerance).
  * Used as a final sanity check before submit.
  */

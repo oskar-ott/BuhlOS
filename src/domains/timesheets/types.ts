@@ -7,6 +7,7 @@ import type {
   PatchTimeEntryPayloadSchema,
   ApproveTimeEntryPayloadSchema,
   RejectTimeEntryPayloadSchema,
+  AmendApproveTimeEntryPayloadSchema,
   TimeEntryListResponseSchema,
   TimeEntryMutationResponseSchema,
   TimeEntryOverviewResponseSchema,
@@ -58,6 +59,8 @@ export type PatchTimeEntryPayload = z.infer<typeof PatchTimeEntryPayloadSchema>;
 export type ApproveTimeEntryPayload = z.infer<typeof ApproveTimeEntryPayloadSchema>;
 
 export type RejectTimeEntryPayload = z.infer<typeof RejectTimeEntryPayloadSchema>;
+
+export type AmendApproveTimeEntryPayload = z.infer<typeof AmendApproveTimeEntryPayloadSchema>;
 
 export type TimeEntryListResponse = z.infer<typeof TimeEntryListResponseSchema>;
 

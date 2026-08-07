@@ -14,7 +14,7 @@ import {
   readSavedEntries,
   recordSavedEntry,
 } from "@/domains/timesheets/saved-entries-journal";
-import { formatHoursLabel } from "@/domains/timesheets/format";
+import { amendmentLine, formatHoursLabel } from "@/domains/timesheets/format";
 import { STATUS_WORDS } from "@/domains/timesheets/status-words";
 import { canResubmitInPhil } from "@/domains/timesheets/resubmit";
 import {
@@ -519,6 +519,10 @@ function EntryRow({
   // the row while it's open.
   const changeable = entry.status === "submitted" && canResubmitInPhil(entry);
   const [changeOpen, setChangeOpen] = useState(false);
+  // The office fixed this day's hours at approval time. ONE line, in the row
+  // that already exists (P10 — no new section), saying the real before → after
+  // and why. A pay change the worker can't see would be the dishonest option.
+  const adjusted = amendmentLine(entry);
   return (
     <div className="space-y-2">
       <div className="flex items-start justify-between gap-3">
@@ -539,6 +543,14 @@ function EntryRow({
                 </p>
               );
             })}
+            {adjusted ? (
+              <p
+                data-testid="phil-hours-adjusted"
+                className="text-[13px] text-text-muted"
+              >
+                {adjusted}
+              </p>
+            ) : null}
           </div>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">

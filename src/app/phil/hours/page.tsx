@@ -25,6 +25,7 @@ import { JobListResponseSchema } from "@/domains/jobs/schema";
 import { isVisibleToField } from "@/domains/jobs/builder";
 import { philInitials, philSharpenedFlags } from "@/lib/phil/sharpened";
 import {
+  amendmentLine,
   formatDateLabel,
   formatHoursLabel,
   formatTimestamp,
@@ -205,6 +206,16 @@ function EntryCard({
           {statusLabel(entry.status)}
         </StatusChip>
       </div>
+
+      {/* The office fixed these hours at approval time — one honest line with
+          the real before → after and why. The sharpened screen carries the same
+          line from the same presenter; a pay change is never invisible on
+          EITHER version of this page. */}
+      {amendmentLine(entry) ? (
+        <p data-testid="phil-hours-adjusted" className="text-sm text-text-muted">
+          {amendmentLine(entry)}
+        </p>
+      ) : null}
 
       {entry.notes ? (
         <p className="text-sm text-text-muted">

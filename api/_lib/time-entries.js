@@ -51,7 +51,14 @@ function calcTotalHours(startTime, endTime, breakMinutes) {
 const MAX_TOTAL_HOURS_PER_DAY = 16;
 
 // Returns array of error messages; empty array means valid.
-function validateEntryShape(body) {
+//
+// `options.skipDateWindow` drops ONLY the backdating window checks (the last
+// block below). It exists for the office amend path (time-entries-amend-approve):
+// an entry that already exists at its date is not being LOGGED again — the date
+// is untouched — so "cannot log more than 14 days in the past" would block a
+// legitimate correction of an old timesheet instead of protecting anything.
+// Every payroll-relevant rule (totals, OT split, allocation sum) still applies.
+function validateEntryShape(body, options = {}) {
   const errors = [];
   if (!body.date || !/^\d{4}-\d{2}-\d{2}$/.test(body.date)) errors.push('date required (YYYY-MM-DD)');
   if (typeof body.totalHours !== 'number' || body.totalHours <= 0) errors.push('totalHours must be > 0');
@@ -78,7 +85,7 @@ function validateEntryShape(body) {
   if (body.status && !VALID_STATUSES.includes(body.status)) errors.push('invalid status');
 
   // Backdating limits: tradies log up to 14 days back, no future dates.
-  if (body.date && /^\d{4}-\d{2}-\d{2}$/.test(body.date)) {
+  if (!options.skipDateWindow && body.date && /^\d{4}-\d{2}-\d{2}$/.test(body.date)) {
     const entryDate = new Date(body.date + 'T00:00:00');
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const diffDays = (today - entryDate) / (1000 * 60 * 60 * 24);
@@ -87,6 +94,35 @@ function validateEntryShape(body) {
   }
 
   return errors;
+}
+
+/**
+ * Job-attribution check shared by every write path that must not point hours at
+ * a job that isn't real and active. Returns an error message when any non-null
+ * allocation jobId is missing from jobs.json or sits in a non-active state
+ * (draft / archived), else null.
+ *
+ * A null jobId PASSES here (legacy + overhead entries predate attribution) —
+ * callers that must forbid a null job say so themselves, as the field self-edit
+ * path in api/time-entries.js does.
+ *
+ * One implementation, two callers: api/time-entries.js's field create/edit gate
+ * and api/time-entries-amend-approve.js. Never a second copy of the rule.
+ */
+async function inactiveJobAllocationError(allocations) {
+  const allocJobIds = [...new Set(
+    (allocations || []).map((a) => a && a.jobId).filter(Boolean)
+  )];
+  if (!allocJobIds.length) return null;
+  const jobsBlob = await readBlob('jobs.json', { jobs: [] });
+  const jobById = {};
+  (jobsBlob.jobs || []).forEach((j) => { jobById[j.id] = j; });
+  for (const jid of allocJobIds) {
+    const job = jobById[jid];
+    const active = job && job.status !== 'archived' && job.status !== 'draft';
+    if (!active) return 'forbidden — hours can only be logged against an active job';
+  }
+  return null;
 }
 
 // Read one entry by user+date. Returns null if missing.
@@ -338,6 +374,7 @@ module.exports = {
   autoSplitOT,
   calcTotalHours,
   validateEntryShape,
+  inactiveJobAllocationError,
   readEntry,
   writeEntry,
   deleteEntry,

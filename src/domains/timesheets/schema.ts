@@ -73,6 +73,30 @@ export const TimeEntrySchema = z
     rejectedReason: z.string().nullable().optional(),
     rejectedAt: z.string().nullable().optional(),
     rejectedBy: z.string().nullable().optional(),
+    /**
+     * Owner-directed "fix it and approve" (api/time-entries-amend-approve.js):
+     * the office corrected this day's hours at approval time. Every field is
+     * OPTIONAL and additive — an entry written before this existed parses
+     * unchanged and simply carries no amendment.
+     *
+     * `amendedFrom` is the BEFORE picture, kept so the worker's screen can show
+     * the real "8h 22m → 8h 36m" rather than only the new number. Pay never
+     * moves invisibly.
+     */
+    amendedBy: z.string().nullable().optional(),
+    amendedByName: z.string().nullable().optional(),
+    amendedAt: z.string().nullable().optional(),
+    amendedReason: z.string().nullable().optional(),
+    amendedFrom: z
+      .object({
+        totalHours: z.number(),
+        ordinaryHours: z.number().optional(),
+        overtimeHours: z.number().optional(),
+        allocations: z.array(TimeEntryAllocationSchema).optional(),
+      })
+      .passthrough()
+      .nullable()
+      .optional(),
     allocations: z.array(TimeEntryAllocationSchema).min(1),
     createdAt: z.string(),
     updatedAt: z.string(),
@@ -149,6 +173,59 @@ export const RejectTimeEntryPayloadSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD"),
   reason: z.string().min(1, "Rejection reason is required").max(500, "Rejection reason too long"),
 });
+
+/**
+ * "Fix the hours and approve" (POST /api/time-entries-amend-approve).
+ *
+ * The corrected day plus WHY, in one call. `allocations` is the full
+ * replacement set and is required for a day split across jobs; a
+ * single-allocation day may send `totalHours` alone. Same numeric rules the
+ * worker's own submission gets — the server re-validates all of it.
+ */
+export const AmendApproveTimeEntryPayloadSchema = z
+  .object({
+    userId: z.string().min(1, "userId required"),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD"),
+    reason: z
+      .string()
+      .min(1, "Say what you changed — the worker sees this")
+      .max(500, "Reason too long"),
+    totalHours: z
+      .number()
+      .positive("Total hours must be greater than zero")
+      .max(16, "Total hours cannot exceed 16")
+      .optional(),
+    allocations: z
+      .array(
+        z.object({
+          jobId: z.string().nullable(),
+          hours: z.number().positive("Allocation hours must be greater than zero"),
+          notes: z.string().max(500, "Notes too long").nullable().optional(),
+        })
+      )
+      .min(1, "At least one job allocation is required")
+      .optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.totalHours === undefined && data.allocations === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Set the new time",
+        path: ["totalHours"],
+      });
+      return;
+    }
+    if (data.totalHours !== undefined && data.allocations !== undefined) {
+      const sum = data.allocations.reduce((s, a) => s + a.hours, 0);
+      if (Math.abs(sum - data.totalHours) > HOURS_TOLERANCE) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Allocation hours must sum to total hours",
+          path: ["allocations"],
+        });
+      }
+    }
+  });
 
 export const TimeEntryListResponseSchema = z.object({
   entries: z.array(TimeEntrySchema),

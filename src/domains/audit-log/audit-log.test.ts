@@ -180,6 +180,8 @@ describe("AuditLogEntrySchema", () => {
       "feature_config.changed",
       "feature_flag.toggled",
       // #390: hours / time-entry events (approvals pass + worker submits).
+      // Owner-directed "fix it and approve" sorts first ('am' < 'ap').
+      "hours.amended_approved",
       "hours.approved",
       "hours.bulk_approved",
       "hours.bulk_rejected",

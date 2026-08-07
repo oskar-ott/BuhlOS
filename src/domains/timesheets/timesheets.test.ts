@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  AmendApproveTimeEntryPayloadSchema,
   ApproveTimeEntryPayloadSchema,
   CreateTimeEntryPayloadSchema,
   RejectTimeEntryPayloadSchema,
   TimeEntryListResponseSchema,
   TimeEntryMutationResponseSchema,
+  TimeEntrySchema,
   TIME_ENTRY_STATUSES,
 } from "./schema";
 import {
@@ -34,10 +36,13 @@ import {
   isWithinBackdateWindow,
   parseFixDate,
   primaryJobId,
+  splitHoursMinutes,
+  hoursFromHm,
   lastLoggedJobFor,
   summariseMissing,
 } from "./service";
 import {
+  amendmentLine,
   formatHoursLabel,
   statusLabel,
   statusTone,
@@ -830,5 +835,169 @@ describe("parseFixDate (?fixDate= deep-link param)", () => {
     expect(parseFixDate("2026-06-01/extra")).toBeNull();
     // Next.js can hand back an array for repeated params — never a date.
     expect(parseFixDate(["2026-06-01", "2026-06-02"])).toBeNull();
+  });
+});
+
+/**
+ * Owner-directed "fix it and approve" (api/time-entries-amend-approve.js) —
+ * the client-side half: the duration conversion the h+m inputs run on, the
+ * payload contract, the worker-facing line, and the additive entry fields.
+ */
+describe("splitHoursMinutes() / hoursFromHm() — the duration dialect", () => {
+  it("splits decimal hours into the pair a duration input edits", () => {
+    expect(splitHoursMinutes(7.6)).toEqual({ hours: 7, minutes: 36 });
+    expect(splitHoursMinutes(8.37)).toEqual({ hours: 8, minutes: 22 });
+    expect(splitHoursMinutes(8)).toEqual({ hours: 8, minutes: 0 });
+    expect(splitHoursMinutes(0.5)).toEqual({ hours: 0, minutes: 30 });
+  });
+
+  it("rounds a whisker under the hour UP into the hour, never 7h 60m", () => {
+    expect(splitHoursMinutes(7.999)).toEqual({ hours: 8, minutes: 0 });
+  });
+
+  it("treats nothing / rubbish as zero rather than throwing", () => {
+    expect(splitHoursMinutes(0)).toEqual({ hours: 0, minutes: 0 });
+    expect(splitHoursMinutes(-3)).toEqual({ hours: 0, minutes: 0 });
+    expect(splitHoursMinutes(Number.NaN)).toEqual({ hours: 0, minutes: 0 });
+  });
+
+  it("converts the pair back to the decimal the store speaks", () => {
+    expect(hoursFromHm(8, 36)).toBe(8.6);
+    expect(hoursFromHm(7, 36)).toBe(7.6);
+    expect(hoursFromHm(8, 0)).toBe(8);
+  });
+
+  it("round-trips the incident's numbers — 8h 22m in, 8h 22m out", () => {
+    const { hours, minutes } = splitHoursMinutes(8.37);
+    expect(formatHoursLabel(hoursFromHm(hours, minutes))).toBe("8h 22m");
+    expect(formatHoursLabel(hoursFromHm(8, 36))).toBe("8h 36m");
+  });
+});
+
+describe("amendmentLine() — what the worker is told", () => {
+  it("states the real before → after and the office's reason", () => {
+    expect(
+      amendmentLine({
+        totalHours: 8.6,
+        amendedFrom: { totalHours: 8.37 },
+        amendedReason: "Typo — you meant 8h 36m",
+      }),
+    ).toBe("Adjusted by the office — 8h 22m → 8h 36m: Typo — you meant 8h 36m");
+  });
+
+  it("says nothing at all on a day the office never touched (P10)", () => {
+    expect(amendmentLine({ totalHours: 7.6 })).toBeNull();
+    expect(amendmentLine({ totalHours: 7.6, amendedFrom: null })).toBeNull();
+  });
+
+  it("HONESTY GUARD (P7): an unusable before-total invents no change", () => {
+    expect(
+      amendmentLine({
+        totalHours: 7.6,
+        amendedFrom: { totalHours: Number.NaN },
+        amendedReason: "x",
+      }),
+    ).toBeNull();
+  });
+
+  it("never renders '8h → 8h' when only the job split moved", () => {
+    const line = amendmentLine({
+      totalHours: 8,
+      amendedFrom: { totalHours: 8 },
+      amendedReason: "Three of those hours were the Depot",
+    })!;
+    expect(line).toBe("Adjusted by the office — 8h: Three of those hours were the Depot");
+    expect(line).not.toContain("→");
+  });
+
+  it("uses worker words, never office jargon (P11)", () => {
+    const line = amendmentLine({ totalHours: 8.6, amendedFrom: { totalHours: 8.37 } })!;
+    expect(line).toContain("Adjusted by the office");
+    expect(line).not.toMatch(/amend|administrator|approver/i);
+  });
+});
+
+describe("AmendApproveTimeEntryPayloadSchema", () => {
+  const base = { userId: "u1", date: "2026-06-05", reason: "Typo — you meant 8h 36m" };
+
+  it("accepts a single-job day sending just the corrected total", () => {
+    expect(AmendApproveTimeEntryPayloadSchema.safeParse({ ...base, totalHours: 8.6 }).success).toBe(true);
+  });
+
+  it("accepts a split day sending each job's hours", () => {
+    const parsed = AmendApproveTimeEntryPayloadSchema.safeParse({
+      ...base,
+      totalHours: 9,
+      allocations: [
+        { jobId: "j1", hours: 6 },
+        { jobId: "j2", hours: 3 },
+      ],
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it("rejects allocations that don't sum to the stated total", () => {
+    const parsed = AmendApproveTimeEntryPayloadSchema.safeParse({
+      ...base,
+      totalHours: 9,
+      allocations: [{ jobId: "j1", hours: 6 }],
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it("requires a reason and some new time", () => {
+    expect(AmendApproveTimeEntryPayloadSchema.safeParse({ ...base, reason: "", totalHours: 8 }).success).toBe(false);
+    expect(AmendApproveTimeEntryPayloadSchema.safeParse(base).success).toBe(false);
+  });
+
+  it("holds the same day cap the worker's own submission has", () => {
+    expect(AmendApproveTimeEntryPayloadSchema.safeParse({ ...base, totalHours: 17 }).success).toBe(false);
+    expect(AmendApproveTimeEntryPayloadSchema.safeParse({ ...base, totalHours: 0 }).success).toBe(false);
+  });
+});
+
+describe("TimeEntrySchema — the amendment fields are additive", () => {
+  const legacy = {
+    id: "te1",
+    userId: "u1",
+    date: "2026-06-05",
+    totalHours: 7.6,
+    ordinaryHours: 7.6,
+    overtimeHours: 0,
+    status: "approved",
+    allocations: [{ jobId: "j1", hours: 7.6 }],
+    createdAt: "2026-06-05T07:00:00Z",
+    updatedAt: "2026-06-05T08:00:00Z",
+  };
+
+  it("an entry written before this feature parses unchanged", () => {
+    const parsed = TimeEntrySchema.safeParse(legacy);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(parsed.data.amendedFrom).toBeUndefined();
+  });
+
+  it("an amended entry keeps its before picture through the parse", () => {
+    const parsed = TimeEntrySchema.safeParse({
+      ...legacy,
+      totalHours: 8.6,
+      ordinaryHours: 8,
+      overtimeHours: 0.6,
+      allocations: [{ jobId: "j1", hours: 8.6 }],
+      amendedBy: "u_admin",
+      amendedByName: "Oskar",
+      amendedAt: "2026-06-06T02:00:00Z",
+      amendedReason: "Typo — you meant 8h 36m",
+      amendedFrom: {
+        totalHours: 8.37,
+        ordinaryHours: 8,
+        overtimeHours: 0.37,
+        allocations: [{ jobId: "j1", hours: 8.37 }],
+      },
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.amendedFrom?.totalHours).toBe(8.37);
+      expect(amendmentLine(parsed.data)).toContain("8h 22m → 8h 36m");
+    }
   });
 });
