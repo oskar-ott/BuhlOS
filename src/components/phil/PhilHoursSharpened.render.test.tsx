@@ -151,6 +151,43 @@ describe("PhilHoursSharpened — week cards", () => {
   });
 });
 
+/**
+ * The office fixed a day's hours at approval time (owner-directed "fix it and
+ * approve"). A pay change the worker can't see would be the dishonest option —
+ * the day carries ONE line with the real before → after and the reason.
+ */
+describe("PhilHoursSharpened — an adjusted day says so", () => {
+  const AMENDED = {
+    ...entry({ date: MONDAY, status: "approved", totalHours: 8.6 }),
+    amendedBy: "u_admin",
+    amendedAt: "2026-06-01T09:00:00Z",
+    amendedReason: "Typo — you meant 8h 36m",
+    amendedFrom: { totalHours: 8.37, allocations: [{ jobId: "j1", hours: 8.37 }] },
+  } as unknown as TimeEntry;
+
+  it("shows the real before → after and the office's reason, in duration words", () => {
+    const html = render([AMENDED]);
+    expect(html).toContain("phil-hours-adjusted");
+    expect(html).toContain("Adjusted by the office");
+    expect(html).toContain("8h 22m → 8h 36m");
+    expect(html).toContain("Typo — you meant 8h 36m");
+    // Never the decimal that caused the incident in the first place.
+    expect(html).not.toContain("8.37");
+  });
+
+  it("costs an untouched day nothing — no line, no new section (P10)", () => {
+    const html = render([entry({ date: MONDAY, status: "approved" })]);
+    expect(html).not.toContain("phil-hours-adjusted");
+    expect(html).not.toContain("Adjusted by the office");
+  });
+
+  it("still names the real status alongside it — the day is approved, and adjusted", () => {
+    const html = render([AMENDED]);
+    expect(html).toContain("Approved");
+    expect(html).toContain("Adjusted by the office");
+  });
+});
+
 describe("PhilHoursSharpened — send week (draft flush)", () => {
   it("shows the send button ONLY when a real draft exists", () => {
     const withDraft = render([entry({ date: MONDAY, status: "draft" })]);
