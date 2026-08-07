@@ -104,7 +104,11 @@
    disabled gating and the "Submit Standard day" aria-label are unchanged. */
 .logAction {
   width: 100%;
-  height: 56px;
+  /* min-height, not height: with an OT chip active the sub-line carries the
+     derived echo ("Submit 9h 6m — standard + 1h 30m OT"), which can wrap on a
+     narrow phone — the bar grows to hug it instead of clipping. The default
+     content still renders at exactly 56px. */
+  min-height: 56px;
   border: 0;
   border-radius: 13px;
   background: var(--accent-yellow);
