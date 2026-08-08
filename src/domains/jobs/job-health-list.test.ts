@@ -41,7 +41,7 @@ describe("sortByHealth — stable, trouble first", () => {
   it("orders at-risk → watch → good → unknown, preserving input order within a level", () => {
     const items = [
       withHealth("good1", { statsEvidenceV2Pending: 0 }), // good
-      withHealth("risk1", { statsExpiredTags: 2 }), // at-risk (hard)
+      withHealth("risk1", { statsEvidenceV2Pending: 10 }), // at-risk (soft backlog at threshold)
       withHealth("watch1", { statsEvidenceV2Pending: 1 }), // watch
       withHealth("unknown1", {}), // no signals → unknown
       withHealth("good2", { statsEvidenceV2Pending: 0 }), // good
@@ -59,7 +59,7 @@ describe("sortByHealth — stable, trouble first", () => {
 describe("healthCounts — for the filter pills", () => {
   it("tallies each level", () => {
     const items = [
-      withHealth("a", { statsExpiredTags: 1 }),
+      withHealth("a", { statsEvidenceV2Pending: 10 }),
       withHealth("b", { statsEvidenceV2Pending: 1 }),
       withHealth("c", { statsEvidenceV2Pending: 0 }),
       withHealth("d", {}),

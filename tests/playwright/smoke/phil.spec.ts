@@ -117,31 +117,16 @@ test.describe("Phil field smoke", () => {
       test.skip(true, "QA field account has no assigned active job (local run).");
     }
     await expect(page.getByTestId("phil-shell")).toBeVisible();
-    await expect(page.getByRole("button", { name: /Capture evidence/i })).toBeVisible();
     await expect(page.getByText(/Save changes|Publish to field/i)).toHaveCount(0);
 
-    // The on-page Capture CTA opens the evidence sheet wired to THIS job's
-    // context (the sheet is constructed from the job — header job name, stage +
-    // area pickers). Opening it proves the capture panel surfaces the real
-    // photo affordance, not a placeholder. NON-MUTATING: we open and close the
-    // sheet without picking a photo or submitting, so nothing is uploaded or
-    // written. Real persistence is covered by evidence.test.ts (mocked Blob).
-    await page.getByRole("button", { name: /Capture evidence/i }).click();
-    const sheet = page.getByRole("dialog", { name: /Capture evidence/i });
-    await expect(sheet).toBeVisible();
-    await expect(sheet.getByText("Take a photo")).toBeVisible();
-    await page.keyboard.press("Escape");
-    await expect(sheet).toBeHidden();
-
-    // Test & tag register entry point (#388) — the section card links to the
-    // per-job register sub-route. NON-MUTATING: we follow the link and assert
-    // the register page renders (a GET of jobs/<id>/tags.json); nothing is
-    // added, OCR'd or uploaded.
-    const tagsEntry = page.getByTestId("open-tag-register");
-    await tagsEntry.scrollIntoViewIfNeeded();
-    await expect(tagsEntry).toBeVisible();
-    await tagsEntry.click();
-    await expect(page.getByText("Test & tag register", { exact: true })).toBeVisible();
-    await expect(page.getByTestId("tag-register-add")).toBeVisible();
+    // The basic job view (2026-08 job-page rebuild): the job screen is just
+    // the facts — hero (name + status pill) and, when the job has site
+    // context, the Site details reference card. The former work/capture/
+    // tags/ITP sections must leave NO trace beyond the labelled coming-soon
+    // room placeholders. (Site details isn't asserted — the seeded fixture
+    // may carry no site fields, and the card honestly hides itself then.)
+    await expect(page.getByRole("heading", { level: 2 })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Capture evidence/i })).toHaveCount(0);
+    await expect(page.getByTestId("open-tag-register")).toHaveCount(0);
   });
 });

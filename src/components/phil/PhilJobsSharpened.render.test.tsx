@@ -159,13 +159,12 @@ describe("PhilJobsSharpened", () => {
     const withStats = renderToString(
       createElement(PhilJobsSharpened, {
         initialJobs: [
-          mk("a", "Alpha", { statsSnagsV2Active: 2, statsItpsActive: 1 } as Partial<Job>),
+          mk("a", "Alpha", { statsSnagsV2Active: 2 } as Partial<Job>),
           mk("b", "Beta"),
         ],
       }),
     );
     expect(withStats).toContain("2 snags");
-    expect(withStats).toContain("1 ITP");
 
     const noStats = renderToString(
       createElement(PhilJobsSharpened, { initialJobs: [mk("a", "Alpha"), mk("b", "Beta")] }),

@@ -52,14 +52,13 @@ describe("moduleEnabled", () => {
     expect(moduleEnabled(job, "photos")).toBe(true);
     expect(moduleEnabled(job, "snags")).toBe(true);
     expect(moduleEnabled(job, "areas")).toBe(true);
-    expect(moduleEnabled(job, "itps")).toBe(false);
     expect(moduleEnabled(job, "switchboards")).toBe(false);
   });
 
   it("honours an explicit flag either way", () => {
-    const job = makeJob({ id: "j", name: "J", modules: { photos: false, itps: true } });
+    const job = makeJob({ id: "j", name: "J", modules: { photos: false, switchboards: true } });
     expect(moduleEnabled(job, "photos")).toBe(false);
-    expect(moduleEnabled(job, "itps")).toBe(true);
+    expect(moduleEnabled(job, "switchboards")).toBe(true);
   });
 });
 
@@ -432,14 +431,15 @@ describe("buildPhilPreview", () => {
     expect(unit2.roughInTasks).toEqual(["Job rough"]);
   });
 
-  it("reflects module flags in the section list", () => {
-    const job = makeJob({ id: "j", name: "J", modules: { snags: false, itps: true } });
+  it("reflects module flags in the section list (no deleted-register sections)", () => {
+    const job = makeJob({ id: "j", name: "J", modules: { snags: false } });
     const preview = buildPhilPreview(job);
     const byKey = Object.fromEntries(preview.sections.map((s) => [s.key, s.enabled]));
     expect(byKey.photos).toBe(true);
     expect(byKey.snags).toBe(false);
-    expect(byKey.itps).toBe(true);
     expect(byKey.plans).toBe(true);
+    // The ITP section left with the ITP teardown — the job-page rebuild.
+    expect(byKey).not.toHaveProperty("itps");
   });
 
   it("explains the empty case instead of faking content", () => {

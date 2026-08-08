@@ -56,7 +56,6 @@ const MODULE_DEFAULT_TRUE: ReadonlyArray<keyof JobModules> = [
   "photos",
   "hours",
   "materials",
-  "tags",
   "temps",
   "plans",
   "contacts",
@@ -563,7 +562,6 @@ export function buildPhilPreview(job: Job): PhilPreview {
   const sections: PhilPreviewSection[] = [
     { key: "photos", label: "Capture photos / evidence", enabled: moduleEnabled(job, "photos") },
     { key: "snags", label: "Raise snags", enabled: moduleEnabled(job, "snags") },
-    { key: "itps", label: "Record ITPs", enabled: moduleEnabled(job, "itps") },
     { key: "plans", label: "View plans & documents", enabled: moduleEnabled(job, "plans") },
   ];
 

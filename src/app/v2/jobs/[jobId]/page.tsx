@@ -16,7 +16,6 @@ import {
 import { JobLabourSummary } from "@/components/admin/JobLabourSummary";
 import { JobProfitabilitySummary } from "@/components/admin/JobProfitabilitySummary";
 import { JobBudgetVarianceCard } from "@/components/admin/JobBudgetVarianceCard";
-import { JobTagsSummary } from "@/components/admin/JobTagsSummary";
 import { JobEvidenceSummary } from "@/components/admin/JobEvidenceSummary";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
@@ -196,7 +195,6 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
           jobId={job.id}
           fetchError={data.evidence.error}
         />
-        <JobTagsSummary job={job} />
         {hasSiteContext(job) ? <SiteContextCard job={job} /> : null}
         <JobInterfaceSectionNav job={job} />
       </div>

@@ -40,13 +40,11 @@ export const JobModulesSchema = z
     photos: z.boolean().optional(),
     hours: z.boolean().optional(),
     materials: z.boolean().optional(),
-    tags: z.boolean().optional(),
     temps: z.boolean().optional(),
     plans: z.boolean().optional(),
     contacts: z.boolean().optional(),
     switchboards: z.boolean().optional(),
     circuits: z.boolean().optional(),
-    itps: z.boolean().optional(),
     levels: z.boolean().optional(),
   })
   .passthrough();
@@ -210,22 +208,12 @@ export const JobSchema = z
     statsOpenSnags: z.number().optional(),
     statsCrewCount: z.number().optional(),
     statsAreaCount: z.number().optional(),
-    statsExpiredTags: z.number().optional(),
-    statsExpiringTags: z.number().optional(),
     /** Phase D6: count of rebuild evidence rows still in submitted /
      *  pending_upload state (i.e. waiting for admin review). */
     statsEvidenceV2Pending: z.number().optional(),
     /** Phase D6: count of rebuild snags (snagsV2) in active states —
      *  open / in_progress / resolved. */
     statsSnagsV2Active: z.number().optional(),
-    /** Phase E1a: count of ITP instances in active (non-terminal,
-     *  non-archived) states — pending / in-progress / witnessed.
-     *  Drives the "ITPs N" chip on /v2/jobs (admin jobs index). */
-    statsItpsActive: z.number().optional(),
-    /** Post-E1 hardening: subset of statsItpsActive that are in the
-     *  `witnessed` state — i.e. ready for admin sign-off. Drives the
-     *  Command Centre "ITPs needing sign-off" queue card. */
-    statsItpsNeedsReview: z.number().optional(),
     /** Phase E2: count of plan/spec rows in `current` status (and
      *  legacy rows without a status field, which default to current).
      *  Drives the "Documents N" chip on /v2/jobs and the section nav

@@ -5,7 +5,8 @@ import { describe, expect, it } from "vitest";
  * Pure-function tests for api/_lib/tag-compliance.js (#305) — the SINGLE
  * computation behind GET /api/tags-expiring, the daily reminder cron and the
  * admin /gear compliance board. Everything here runs with a FIXED `now` so
- * window math is deterministic.
+ * window math is deterministic. (The per-job tag-row scan and its tests left
+ * with the Test & Tag teardown — the job-page rebuild; calibrations remain.)
  *
  * The dedupe contract (newCrossings) is the heart of "no spam by design":
  *   - first sighting inside a band → alert
@@ -18,11 +19,6 @@ const requireFromHere = createRequire(import.meta.url);
 const lib = requireFromHere("../../../api/_lib/tag-compliance.js") as {
   parseDdmmyyyy: (s: string) => number;
   toIsoDay: (ms: number) => string;
-  expiringTagRows: (
-    jobs: unknown[],
-    tagsByJobId: Record<string, unknown[]>,
-    opts?: { withinDays?: number; now?: Date },
-  ) => Array<Record<string, unknown> & { key: string; daysToExpiry: number; status: string }>;
   expiringCalibrationRows: (
     assets: unknown[],
     opts?: { withinDays?: number; now?: Date; nameById?: Record<string, string> },
@@ -41,10 +37,6 @@ const lib = requireFromHere("../../../api/_lib/tag-compliance.js") as {
 // Fixed clock: Friday 2026-06-12 (local midnight maths inside the lib).
 const NOW = new Date(2026, 5, 12, 10, 30);
 
-function tag(id: string, expiryDate: string, extra: Record<string, unknown> = {}) {
-  return { id, tagNumber: `T-${id}`, applianceType: "Drill", owner: "Sam", result: "pass", expiryDate, ...extra };
-}
-
 describe("parseDdmmyyyy", () => {
   it("parses dd/mm/yyyy as local midnight", () => {
     expect(lib.parseDdmmyyyy("12/06/2026")).toBe(new Date(2026, 5, 12).getTime());
@@ -56,71 +48,6 @@ describe("parseDdmmyyyy", () => {
     expect(Number.isNaN(lib.parseDdmmyyyy(""))).toBe(true);
     expect(Number.isNaN(lib.parseDdmmyyyy("soon"))).toBe(true);
     expect(Number.isNaN(lib.parseDdmmyyyy("12-06-2026"))).toBe(true);
-  });
-});
-
-describe("expiringTagRows", () => {
-  const jobs = [
-    { id: "j1", name: "Riverside Apartments" },
-    { id: "j2", name: "Depot Fitout" },
-  ];
-
-  it("keeps expired + in-window tags, drops far-future and unparseable", () => {
-    const rows = lib.expiringTagRows(
-      jobs,
-      {
-        j1: [tag("t_exp", "10/06/2026"), tag("t_soon", "20/06/2026"), tag("t_far", "01/12/2026")],
-        j2: [tag("t_bad", "not-a-date")],
-      },
-      { withinDays: 14, now: NOW },
-    );
-    expect(rows.map((r) => r.id)).toEqual(["t_exp", "t_soon"]);
-    expect(rows[0]).toMatchObject({
-      kind: "tag",
-      key: "tag:j1:t_exp",
-      jobId: "j1",
-      jobName: "Riverside Apartments",
-      status: "expired",
-      daysToExpiry: -2,
-      expiryISO: "2026-06-10",
-    });
-    expect(rows[1]).toMatchObject({ status: "expiring", daysToExpiry: 8 });
-  });
-
-  it("sorts expired-first (oldest first), then earliest upcoming", () => {
-    const rows = lib.expiringTagRows(
-      jobs,
-      {
-        j1: [tag("a", "20/06/2026"), tag("b", "01/06/2026")],
-        j2: [tag("c", "11/06/2026"), tag("d", "13/06/2026")],
-      },
-      { withinDays: 14, now: NOW },
-    );
-    expect(rows.map((r) => r.id)).toEqual(["b", "c", "d", "a"]);
-  });
-
-  it("keeps the legacy response fields — raw id, ''-defaulted strings, result", () => {
-    const rows = lib.expiringTagRows(
-      [{ id: "j1", name: "Riverside" }],
-      { j1: [{ id: "t1", expiryDate: "10/06/2026" }] },
-      { withinDays: 14, now: NOW },
-    );
-    expect(rows[0]).toMatchObject({
-      id: "t1",
-      tagNumber: "",
-      applianceType: "",
-      owner: "",
-      result: "",
-    });
-  });
-
-  it("a tag expiring exactly today counts as expiring (daysToExpiry 0), not expired", () => {
-    const rows = lib.expiringTagRows(
-      [{ id: "j1", name: "J" }],
-      { j1: [tag("t0", "12/06/2026")] },
-      { withinDays: 14, now: NOW },
-    );
-    expect(rows[0]).toMatchObject({ daysToExpiry: 0, status: "expiring" });
   });
 });
 

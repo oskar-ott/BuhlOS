@@ -107,7 +107,7 @@ import { cn } from "@/lib/cn";
  *   api/jobs.js — PUT (update) + the draft GET gate
  */
 
-type DeliverKey = "plans" | "materials" | "gear" | "itps" | "risks";
+type DeliverKey = "plans" | "materials" | "gear" | "risks";
 
 type TabKey =
   | "overview"
@@ -129,7 +129,6 @@ const TABS: ReadonlyArray<{ key: TabKey; label: string }> = [
   { key: "plans", label: "Plans & docs" },
   { key: "materials", label: "Materials" },
   { key: "gear", label: "Gear" },
-  { key: "itps", label: "ITPs / QA" },
   { key: "risks", label: "Risks & RFIs" },
   { key: "preview", label: "Field preview" },
   { key: "publish", label: "Publish" },
@@ -170,18 +169,12 @@ const MODULE_TOGGLES: ReadonlyArray<{ key: keyof JobModules; label: string; help
     help: "Field can raise defects for the office to action.",
   },
   {
-    key: "itps",
-    label: "ITP / QA records",
-    help: "Field records inspection & test points for sign-off.",
-  },
-  {
     key: "plans",
     label: "Plans & documents",
     help: "Field can view plans/specs attached to the job.",
   },
   { key: "materials", label: "Materials list", help: "Field can see the job materials list." },
   { key: "hours", label: "Log hours", help: "Field can log hours against this job." },
-  { key: "tags", label: "Test tags", help: "Field can record test-and-tag entries." },
   { key: "temps", label: "Temperature logs", help: "Field can record temperature readings." },
   { key: "contacts", label: "Site contacts", help: "Show site contact details to the field." },
 ];
@@ -192,13 +185,11 @@ const ALL_MODULE_KEYS: ReadonlyArray<keyof JobModules> = [
   "photos",
   "hours",
   "materials",
-  "tags",
   "temps",
   "plans",
   "contacts",
   "switchboards",
   "circuits",
-  "itps",
   "levels",
 ];
 
@@ -228,7 +219,7 @@ const SECTION_TESTID: Partial<Record<TabKey, string>> = {
 
 const COCKPIT_GROUPS: ReadonlyArray<{ heading: string; keys: ReadonlyArray<TabKey> }> = [
   { heading: "Build", keys: ["overview", "basics", "scope", "structure", "modules"] },
-  { heading: "Deliver", keys: ["plans", "materials", "gear", "itps", "risks"] },
+  { heading: "Deliver", keys: ["plans", "materials", "gear", "risks"] },
   { heading: "Ship", keys: ["preview", "publish"] },
   { heading: "More", keys: ["more"] },
 ];
@@ -260,12 +251,6 @@ const DELIVER_LINKS: Record<
     desc: "The test-and-tag register: who holds what and tag currency. Assign gear to this job's crew there.",
     path: () => `/gear`,
     external: true,
-  },
-  itps: {
-    label: "ITPs / QA",
-    desc: "Inspection & test points and hold points recorded against this job.",
-    path: (id) => `/v2/jobs/${id}/itps`,
-    module: "itps",
   },
   risks: {
     label: "Risks & RFIs",
@@ -812,7 +797,6 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
       case "plans":
       case "materials":
       case "gear":
-      case "itps":
       case "risks":
         return renderDeliverLink(tab);
       case "structure":

@@ -29,7 +29,7 @@ describe("JobFieldViewCard (What the field sees)", () => {
       job({
         ...STRUCTURED,
         statsCrewCount: 3,
-        modules: { photos: true, snags: true, itps: true, plans: true },
+        modules: { photos: true, snags: true, plans: true },
         siteAddress: "12 Birdwood Rd",
       } as Partial<Job>),
     );
@@ -45,7 +45,6 @@ describe("JobFieldViewCard (What the field sees)", () => {
     expect(html).toContain("Work to do");
     expect(html).toContain("Capture evidence");
     expect(html).toContain("Issues / snags");
-    expect(html).toContain("Checks / ITPs");
     expect(html).toContain("Plans &amp; documents");
     expect(html).toContain("Site details");
     expect(html).toContain("Materials and job history are still shown in the field app as not connected yet");

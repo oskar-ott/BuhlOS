@@ -38,30 +38,10 @@ const SETTINGS_KEY = 'feature-settings.json';
 /** @type {Record<string, Record<string, SettingDef>>} */
 const SETTINGS_REGISTRY = {
   // Each default MUST equal the feature's current hardcoded constant.
-  // The 2026-07-27 gut deleted every previously-registered feature; what
-  // remains is the lean core's knobs.
-  itp_simple: {
-    maxUploadMb: {
-      type: 'number',
-      label: 'Max photo size (MB)',
-      description: 'Largest single photo a worker can attach to a simple ITP report.',
-      default: 8,
-      min: 1,
-      max: 25,
-      step: 1,
-      unit: 'MB',
-    },
-    maxPdfPhotos: {
-      type: 'number',
-      label: 'Max photos per PDF',
-      description: 'Serverless memory/time guard — split the report past this many photos.',
-      default: 120,
-      min: 10,
-      max: 400,
-      step: 10,
-      unit: 'photos',
-    },
-  },
+  // The 2026-07-27 gut deleted every previously-registered feature, and the
+  // job-page rebuild deleted the last one (itp_simple's upload knobs) —
+  // the registry is EMPTY until a lean-core feature registers a real knob.
+  // The seam (owner console settings card + get/set below) stays.
 };
 
 function definitionOf(featureKey, key) {

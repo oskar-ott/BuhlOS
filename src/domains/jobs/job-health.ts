@@ -30,7 +30,7 @@ export type JobHealthLevel = "good" | "watch" | "at-risk" | "unknown";
 
 /** Reason key. For soft reasons this doubles as the per-job tab segment
  *  (/v2/jobs/<id>/<key>); `tags` is cross-job (its destination is /gear). */
-export type JobHealthReasonKey = "evidence" | "tags";
+export type JobHealthReasonKey = "evidence";
 
 export interface JobHealthReason {
   key: JobHealthReasonKey;
@@ -55,10 +55,7 @@ export interface JobHealth {
  */
 export const AT_RISK_SOFT_TOTAL = 10;
 
-type HealthStats = Pick<
-  Job,
-  "statsEvidenceV2Pending" | "statsSnagsV2Active" | "statsItpsNeedsReview" | "statsExpiredTags"
->;
+type HealthStats = Pick<Job, "statsEvidenceV2Pending" | "statsSnagsV2Active">;
 
 function isPresent(v: number | null | undefined): boolean {
   return typeof v === "number" && Number.isFinite(v);
@@ -73,14 +70,12 @@ function positive(v: number | null | undefined): number {
  * `unknown` (not a fabricated "good").
  */
 export function deriveJobHealth(job: HealthStats): JobHealth {
+  // (The expired-tags hard signal + ITP review signal left with the
+  // Test & Tag / ITP teardown — the job-page rebuild.)
   const anySignalLoaded =
-    isPresent(job.statsExpiredTags) ||
-    isPresent(job.statsEvidenceV2Pending) ||
-    isPresent(job.statsSnagsV2Active) ||
-    isPresent(job.statsItpsNeedsReview);
+    isPresent(job.statsEvidenceV2Pending) || isPresent(job.statsSnagsV2Active);
 
   const candidates: JobHealthReason[] = [
-    { key: "tags", label: "Expired gear tags", count: positive(job.statsExpiredTags), severity: "hard" },
     { key: "evidence", label: "Evidence to review", count: positive(job.statsEvidenceV2Pending), severity: "soft" },
   ];
   const reasons = candidates.filter((c) => c.count > 0); // already HARD-first by order

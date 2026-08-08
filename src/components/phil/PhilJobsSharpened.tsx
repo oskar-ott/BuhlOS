@@ -107,7 +107,7 @@ const EMPTY_PREFS: JobListPrefs = { recents: [], pinned: [] };
 function topJobActions(
   job: Pick<
     Job,
-    "id" | "name" | "status" | "inductionRequired" | "statsSnagsV2Active" | "statsItpsActive"
+    "id" | "name" | "status" | "inductionRequired" | "statsSnagsV2Active"
   >,
   max = 3,
 ): PhilJobCommandAction[] {

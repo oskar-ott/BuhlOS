@@ -12,7 +12,7 @@ describe("deriveJobHealth", () => {
   it("good when every loaded stat is zero", () => {
     const h = deriveJobHealth({
       statsEvidenceV2Pending: 0,
-      statsExpiredTags: 0,
+      statsSnagsV2Active: 0,
     });
     expect(h.level).toBe("good");
     expect(h.total).toBe(0);
@@ -26,12 +26,6 @@ describe("deriveJobHealth", () => {
     expect(h.reasons.map((r) => r.key)).toEqual(["evidence"]); // soft, in order
   });
 
-  it("at-risk on ANY expired gear tag (hard compliance breach), hard reason first", () => {
-    const h = deriveJobHealth({ statsExpiredTags: 1, statsEvidenceV2Pending: 1 });
-    expect(h.level).toBe("at-risk");
-    expect(h.reasons[0]).toMatchObject({ key: "tags", severity: "hard", count: 1 });
-  });
-
   it("at-risk when the soft backlog reaches the documented threshold", () => {
     const atThreshold = deriveJobHealth({ statsEvidenceV2Pending: AT_RISK_SOFT_TOTAL });
     expect(atThreshold.level).toBe("at-risk");
@@ -41,7 +35,7 @@ describe("deriveJobHealth", () => {
 
   it("ignores missing/negative/non-finite stats; only real positives count", () => {
     const h: JobHealth = deriveJobHealth({
-      statsExpiredTags: -3,
+      statsSnagsV2Active: -3,
       statsEvidenceV2Pending: 4,
     });
     expect(h.reasons.map((r) => r.key)).toEqual(["evidence"]);

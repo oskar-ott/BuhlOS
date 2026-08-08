@@ -57,7 +57,6 @@ const JOBS_CHIP_TONE: Record<ReturnType<typeof statusTone>, StatusTone> = {
 // the per-job area cards (PhilJobAreaCard) so the list and the job agree.
 const OPEN_WORK_ICON: Record<JobOpenWorkKey, typeof AlertOctagon> = {
   snags: AlertOctagon,
-  itps: ClipboardCheck,
 };
 
 // Icons for the long-press row-actions sheet (#146) — same vocabulary as the
@@ -84,7 +83,7 @@ const EMPTY_PREFS: JobListPrefs = { recents: [], pinned: [] };
 function topJobActions(
   job: Pick<
     Job,
-    "id" | "name" | "status" | "inductionRequired" | "statsSnagsV2Active" | "statsItpsActive"
+    "id" | "name" | "status" | "inductionRequired" | "statsSnagsV2Active"
   >,
   max = 3,
 ): PhilJobCommandAction[] {

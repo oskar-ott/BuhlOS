@@ -25,7 +25,7 @@ import type { Job } from "./types";
  *     this mirrors at the single-job level (does not replace it)
  */
 
-export type JobAttentionKey = "evidence" | "snags" | "itps";
+export type JobAttentionKey = "evidence" | "snags";
 
 export interface JobAttentionItem {
   /** Also the per-job tab segment: /v2/jobs/<id>/<key>. */
@@ -58,20 +58,17 @@ function positive(value: number | null | undefined): number {
  *  a 404 route. Omitted = enabled (evidence is lean-core and always on). */
 export interface JobAttentionFeatures {
   snags?: boolean;
-  itps?: boolean;
 }
 
 export function deriveJobAttention(
-  job: Pick<
-    Job,
-    "statsEvidenceV2Pending" | "statsSnagsV2Active" | "statsItpsNeedsReview"
-  >,
+  job: Pick<Job, "statsEvidenceV2Pending" | "statsSnagsV2Active">,
   features: JobAttentionFeatures = {},
 ): JobAttention {
+  // (The "ITPs to sign off" row left with the ITP teardown — the job-page
+  // rebuild; nothing can witness or resolve an ITP instance anymore.)
   const candidates: JobAttentionItem[] = [
     { key: "evidence", label: "Evidence to review", count: positive(job.statsEvidenceV2Pending) },
     { key: "snags", label: "Open snags", count: features.snags === false ? 0 : positive(job.statsSnagsV2Active) },
-    { key: "itps", label: "ITPs to sign off", count: features.itps === false ? 0 : positive(job.statsItpsNeedsReview) },
   ];
   const items = candidates.filter((c) => c.count > 0);
   const total = items.reduce((sum, i) => sum + i.count, 0);

@@ -35,46 +35,9 @@ function midnight(now) {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/**
- * Expiring/expired TAG rows across jobs. `tagsByJobId` = { jobId → tags[] }.
- * Row: { kind:'tag', key, id, jobId, jobName, tagNumber, applianceType,
- *        owner, result, expiryDate, expiryISO, daysToExpiry, status }
- * `id` is the raw tag id (legacy response contract); `key` is globally
- * unique across jobs (tag ids are only unique within one job's register).
- * status: 'expired' | 'expiring' — rows outside the window are dropped.
- */
-function expiringTagRows(jobs, tagsByJobId, opts = {}) {
-  const withinDays = Math.max(1, Math.min(365, Number(opts.withinDays) || 14));
-  const todayMs = midnight(opts.now || new Date());
-  const cutoffMs = todayMs + withinDays * DAY_MS;
-  const rows = [];
-  for (const job of jobs || []) {
-    if (!job) continue;
-    const tags = tagsByJobId[job.id] || [];
-    for (const t of tags) {
-      if (!t) continue;
-      const ms = parseDdmmyyyy(t.expiryDate);
-      if (!Number.isFinite(ms) || ms > cutoffMs) continue;
-      const daysToExpiry = Math.round((ms - todayMs) / DAY_MS);
-      rows.push({
-        kind: 'tag',
-        key: 'tag:' + job.id + ':' + (t.id || t.tagNumber || 'unknown'),
-        id: t.id || null,
-        jobId: job.id,
-        jobName: job.name || job.id,
-        tagNumber: t.tagNumber || '',
-        applianceType: t.applianceType || '',
-        owner: t.owner || '',
-        result: t.result || '',
-        expiryDate: t.expiryDate || '',
-        expiryISO: toIsoDay(ms),
-        daysToExpiry,
-        status: daysToExpiry < 0 ? 'expired' : 'expiring',
-      });
-    }
-  }
-  return sortExpiredFirst(rows);
-}
+// (expiringTagRows — the per-job Test & Tag register scan — was deleted with
+// the job-page rebuild teardown. This module now serves the asset-register
+// calibration loop only; the shared threshold engine below is unchanged.)
 
 /**
  * Expiring/expired instrument CALIBRATION rows from the asset register
@@ -156,7 +119,6 @@ function newCrossings(rows, state, now) {
 module.exports = {
   parseDdmmyyyy,
   toIsoDay,
-  expiringTagRows,
   expiringCalibrationRows,
   thresholdFor,
   newCrossings,

@@ -67,13 +67,6 @@ async function runCron(): Promise<Res> {
   return res;
 }
 
-/** dd/mm/yyyy `days` from today (local) — the tag register's stored format. */
-function ddmm(days: number): string {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() + days);
-  return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
-}
 /** ISO YYYY-MM-DD `days` from today (local) — the asset register's format. */
 function iso(days: number): string {
   const d = new Date();
@@ -117,13 +110,8 @@ beforeEach(() => {
       { id: "j2", name: "Depot" },
     ],
   });
-  // j1: one tag already expired. j2: one tag inside the 14d window.
-  blob.set("jobs/j1/tags.json", {
-    tags: [{ id: "t_exp", tagNumber: "T-100", applianceType: "Drill", expiryDate: ddmm(-2) }],
-  });
-  blob.set("jobs/j2/tags.json", {
-    tags: [{ id: "t_soon", tagNumber: "T-200", applianceType: "Saw", expiryDate: ddmm(10) }],
-  });
+  // (Per-job tags.json registers were deleted with the Test & Tag teardown —
+  // the cron alerts on asset-register calibrations only.)
   // Calibrated instrument held by the field worker, due inside 7d.
   blob.set("assets/a_mine.json", {
     id: "a_mine",
@@ -203,25 +191,15 @@ describe("send-tag-reminders — daily threshold alerts (#305)", () => {
     const res1 = await runCron();
     expect(res1.statusCode).toBe(200);
     const body1 = res1.body as { ok: boolean; crossed: number; sent: number };
-    // 3 first-sighting crossings: t_exp (expired), t_soon (t14), a_mine (t7)
-    expect(body1.crossed).toBe(3);
+    // 1 first-sighting crossing: a_mine (t7). The per-job tag rows are gone.
+    expect(body1.crossed).toBe(1);
 
-    // admin: everything (2 tags + 1 calibration) in ONE digest push
+    // admin: the calibration digest push
     expect(pushedTo("u_admin")).toHaveLength(1);
     const adminPush = pushedTo("u_admin")[0]!.payload;
-    expect(adminPush.title).toContain("1 expired");
     expect(adminPush.title).toContain("1 due in 7d");
-    expect(adminPush.title).toContain("1 due in 14d");
     expect(adminPush.url).toBe("/gear");
     expect(adminPush.tag).toBe("buhl-tag-alerts");
-
-    // LH on j1: only j1's expired tag, deep-linked to that job's Phil page
-    // (post-cutover target — the legacy /jobs/:id#tags URL is a 307 now)
-    expect(pushedTo("u_lh")).toHaveLength(1);
-    const lhPush = pushedTo("u_lh")[0]!.payload;
-    expect(lhPush.title).toContain("1 expired");
-    expect(lhPush.title).not.toContain("due in 14d");
-    expect(lhPush.url).toBe("/phil/jobs/j1");
 
     // field-tier HOLDER: their instrument's calibration, pointed at Phil gear
     expect(pushedTo("u_field")).toHaveLength(1);
@@ -230,18 +208,19 @@ describe("send-tag-reminders — daily threshold alerts (#305)", () => {
     expect(holderPush.body).toContain("Fluke 1587 calibration");
     expect(holderPush.url).toBe("/phil/gear");
 
-    // opted-out admin-tier user, uninvolved tradie, client: nothing
+    // LH (no held gear), opted-out admin-tier user, uninvolved tradie,
+    // client: nothing
+    expect(pushedTo("u_lh")).toHaveLength(0);
     expect(pushedTo("u_office")).toHaveLength(0);
     expect(pushedTo("u_field2")).toHaveLength(0);
     expect(pushedTo("u_client")).toHaveLength(0);
 
-    // dedupe state persisted with one entry per crossed item
+    // dedupe state persisted with one entry for the crossed item
     const state = blob.get("tag-reminder-state.json") as {
       entries: Record<string, { threshold: string }>;
     };
-    expect(state.entries["tag:j1:t_exp"]!.threshold).toBe("expired");
-    expect(state.entries["tag:j2:t_soon"]!.threshold).toBe("t14");
     expect(state.entries["cal:a_mine"]!.threshold).toBe("t7");
+    expect(Object.keys(state.entries)).toEqual(["cal:a_mine"]);
 
     // run 2, same data → no new crossings, no pushes
     pushCalls = [];
@@ -252,28 +231,27 @@ describe("send-tag-reminders — daily threshold alerts (#305)", () => {
     expect(pushCalls).toHaveLength(0);
   });
 
-  it("a tag moving into a DEEPER band re-alerts exactly once", async () => {
+  it("a calibration moving into a DEEPER band re-alerts exactly once", async () => {
     await runCron();
     pushCalls = [];
-    // t_soon drifts from the 14d band into the 7d band (e.g. days pass / retest date edited)
-    blob.set("jobs/j2/tags.json", {
-      tags: [{ id: "t_soon", tagNumber: "T-200", applianceType: "Saw", expiryDate: ddmm(6) }],
+    // a_mine drifts from the 7d band to expired (e.g. days pass)
+    blob.set("assets/a_mine.json", {
+      id: "a_mine",
+      name: "Fluke 1587",
+      type: "tool",
+      currentHolderId: "u_field",
+      calibrationDue: iso(-1),
     });
     const res = await runCron();
     expect((res.body as { crossed: number }).crossed).toBe(1);
-    // admins only — the LH isn't on j2, the holder's calibration didn't move
     expect(pushedTo("u_admin")).toHaveLength(1);
-    expect(pushedTo("u_admin")[0]!.payload.title).toContain("1 due in 7d");
-    expect(pushedTo("u_lh")).toHaveLength(0);
-    expect(pushedTo("u_field")).toHaveLength(0);
+    expect(pushedTo("u_admin")[0]!.payload.title).toContain("1 expired");
+    expect(pushedTo("u_field")).toHaveLength(1);
   });
 
-  it("a retested item leaves the window: state pruned, next lapse re-alerts", async () => {
+  it("a recalibrated item leaves the window: state pruned, next lapse re-alerts", async () => {
     await runCron();
-    // tag retested → expiry a year out; instrument recalibrated
-    blob.set("jobs/j1/tags.json", {
-      tags: [{ id: "t_exp", tagNumber: "T-100", applianceType: "Drill", expiryDate: ddmm(365) }],
-    });
+    // instrument recalibrated → due 200 days out
     blob.set("assets/a_mine.json", {
       id: "a_mine",
       name: "Fluke 1587",
@@ -287,10 +265,8 @@ describe("send-tag-reminders — daily threshold alerts (#305)", () => {
     const state = blob.get("tag-reminder-state.json") as {
       entries: Record<string, unknown>;
     };
-    expect(state.entries["tag:j1:t_exp"]).toBeUndefined();
     expect(state.entries["cal:a_mine"]).toBeUndefined();
-    // only t_soon (still in window, unchanged band) remains tracked
-    expect(Object.keys(state.entries)).toEqual(["tag:j2:t_soon"]);
+    expect(Object.keys(state.entries)).toEqual([]);
   });
 
   it("requires the cron secret when CRON_SECRET is set", async () => {
