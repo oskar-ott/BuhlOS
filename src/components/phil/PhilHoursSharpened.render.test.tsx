@@ -227,12 +227,17 @@ describe("PhilHoursSharpened — honest footer", () => {
 
 describe("today's unlogged row (owner-directed, 2026-08-07)", () => {
   it("today carries the same Log pill as any other unlogged day — never a dead end", () => {
-    // Log every past weekday this week so TODAY is the only missed row.
+    // An unworked weekend is never owed, so a real Sat/Sun "today" renders no
+    // unlogged row at all. Pin "today" to the Friday of the same real week —
+    // still inside isWithinBackdateWindow's real-clock 14-day window.
+    const dow = new Date(TODAY + "T00:00:00").getDay();
+    const weekdayToday = dow === 6 ? addDays(TODAY, -1) : dow === 0 ? addDays(TODAY, -2) : TODAY;
+    // Log every past weekday this week so "today" is the only missed row.
     const past: TimeEntry[] = [];
-    for (let d = MONDAY; d < TODAY; d = addDays(d, 1)) {
+    for (let d = MONDAY; d < weekdayToday; d = addDays(d, 1)) {
       past.push(entry({ date: d, status: "approved" }));
     }
-    const html = render(past);
+    const html = render(past, { todayISO: weekdayToday });
     const pills = html.match(/>Log</g) ?? [];
     expect(pills.length).toBeGreaterThanOrEqual(1);
     // The row keeps its label and loses the old button-less special copy.
