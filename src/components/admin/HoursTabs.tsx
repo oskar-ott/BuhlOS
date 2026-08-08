@@ -9,28 +9,26 @@ import { cn } from "@/lib/cn";
 interface HoursTab {
   label: string;
   href: Route;
-  /** /hours is the section root — exact match only, so the Day tab never
-   *  stays lit on the deeper routes; the others match by prefix. */
-  exact?: boolean;
 }
 
 /**
- * Lean-reset redesign: three visible tabs — Today · This week · Pay period.
- * The Approvals ROUTE stays fully live (deep links, the Today page's
+ * Weekly-first (owner directive 2026-08-08): the crew logs hours weekly, so
+ * the section leads with This week — /hours itself now redirects there and
+ * the day view moved to /hours/today. Tab order mirrors the operating
+ * rhythm: the week you're closing out, the drill-in day view, the pay
+ * period. The Approvals ROUTE stays fully live (deep links, the day view's
  * "Review N pending" CTA and the mobile tab bar all still land on
- * /hours/approvals) — it just no longer occupies a tab slot; the day-by-day
- * queue is a drill-in from Today rather than a sibling surface.
+ * /hours/approvals) — it just doesn't occupy a tab slot.
  */
 const TABS: ReadonlyArray<HoursTab> = [
-  { label: "Today", href: "/hours", exact: true },
   // `as Route` — typedRoutes' generated map is from the previous build
   // (same pattern as AdminSidebar's newer entries); validated by `next build`.
   { label: "This week", href: "/hours/weekly" as Route },
+  { label: "Today", href: "/hours/today" as Route },
   { label: "Pay period", href: "/hours/period" as Route },
 ];
 
 function isActiveTab(pathname: string, tab: HoursTab): boolean {
-  if (tab.exact) return pathname === tab.href;
   return pathname === tab.href || pathname.startsWith(`${tab.href}/`);
 }
 

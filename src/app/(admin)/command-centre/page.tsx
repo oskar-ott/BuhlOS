@@ -20,10 +20,13 @@ import {
   TodayPulseResponseSchema,
 } from "@/domains/timesheets/schema";
 import { summariseTodayStrip } from "@/domains/timesheets/today-strip";
+import { formatHoursLabel } from "@/domains/timesheets/format";
 import {
   BUSINESS_TIMEZONE,
+  addDays,
   localDateString,
   summariseMissing,
+  weekStartOf,
 } from "@/domains/timesheets/service";
 import { JobListResponseSchema } from "@/domains/jobs/schema";
 import type {
@@ -86,6 +89,7 @@ export default async function CommandCentrePage() {
     hoursPending,
     hoursRejected,
     hoursMissing,
+    weekTotals,
     jobs,
     todayPulse,
     rosterTotal,
@@ -200,17 +204,23 @@ export default async function CommandCentrePage() {
   const needsYou = buildNeedsYouQueue({
     rejected: rejectedHoursCount,
     missingDays: missingSummary.total,
+    // The chase link lands the weekly board on the week the count covers —
+    // the last complete Mon–Sun week (same window loadSnapshot queried).
+    missingWeekStart: addDays(weekStartOf(localDateString(new Date(), BUSINESS_TIMEZONE)), -7),
     noCrewJobs,
     pending: hoursPending.length,
     evidence: evidencePending,
   });
+  // Weekly-first (owner directive 2026-08-08): the strip counts the CURRENT
+  // Mon–Sun week, not today — the crew logs weekly, so today-figures read 0
+  // four days out of five and train the office to ignore the strip.
   const rightNow = buildRightNow({
-    crewOnSite: todayStrip ? todayStrip.crewCount : null,
+    crewLoggedThisWeek: weekTotals ? weekTotals.workers : null,
     // Field-staff roster (leading hands + tradies) from /api/admin-stats; null
     // when that fetch failed → a plain count, no fabricated denominator (P7).
     rosterTotal,
-    loggedHoursLabel: todayStrip ? todayStrip.loggedHoursLabel : null,
-    jobsLiveToday: todayPulse ? todayPulse.jobs.jobsWithActivityToday : null,
+    weekHoursLabel: weekTotals ? formatHoursLabel(weekTotals.hours) : null,
+    jobsThisWeek: weekTotals ? weekTotals.jobs : null,
   });
   // Row accents (design: red/amber/neutral left border + tinted count numeral).
   const toneAccent: Record<NeedsYouTone, string> = {
@@ -235,6 +245,8 @@ export default async function CommandCentrePage() {
           todayStrip={todayStrip}
           todayPulseError={todayPulseError}
           jobsWithActivityToday={todayPulse ? todayPulse.jobs.jobsWithActivityToday : null}
+          weekWorkersLogged={weekTotals ? weekTotals.workers : null}
+          weekHoursLabel={weekTotals ? formatHoursLabel(weekTotals.hours) : null}
           pendingHours={hoursPending.length}
           exceptions={exceptions}
           anySourceError={anySourceError}
@@ -352,12 +364,13 @@ export default async function CommandCentrePage() {
           )}
         </section>
 
-        {/* "Right now" (design): the live pulse as three big-number tiles
-            divided by hairlines — same real signals the old pulse tiles showed;
-            unloaded signals read "—", never a fake 0. */}
-        <section aria-label="Right now">
+        {/* "This week" (weekly-first, owner directive 2026-08-08): the strip
+            counts the current Mon–Sun week — workers logged, hours, jobs —
+            because the crew logs weekly and today-numbers read 0 most days.
+            Unloaded signals read "—", never a fake 0. */}
+        <section aria-label="This week">
           <h2 className="font-display text-[13px] font-semibold uppercase tracking-wider text-text-muted">
-            Right now
+            This week
           </h2>
           <div className="mt-3.5 flex flex-wrap items-stretch gap-y-4">
             {rightNow.map((tile, i) => (
@@ -539,6 +552,8 @@ async function loadSnapshot(
   hoursPending: ReadonlyArray<TimeEntry>;
   hoursRejected: ReadonlyArray<TimeEntry>;
   hoursMissing: ReadonlyArray<MissingLog>;
+  /** CURRENT Mon–Sun week rollup for the "This week" strip; null = failed. */
+  weekTotals: OverviewWeekTotals | null;
   jobs: ReadonlyArray<Job>;
   todayPulse: TodayPulseResponse | null;
   /** Field-staff roster (leading hands + tradies) for the on-the-clock ring; null when admin-stats didn't load → plain count. */
@@ -548,6 +563,7 @@ async function loadSnapshot(
   hoursError: string | null;
   hoursRejectedError: string | null;
   hoursMissingError: string | null;
+  weekTotalsError: string | null;
   jobsError: string | null;
   todayPulseError: string | null;
 }> {
@@ -559,19 +575,21 @@ async function loadSnapshot(
     ? { cookie: `${SESSION_COOKIE}=${cookieValue}` }
     : undefined;
 
-  // Missing-hours window: a rolling 7-day look-back ending *yesterday* in the
-  // business timezone. We stop at yesterday so today's not-yet-logged hours
-  // don't register as "missing" all morning; the server further restricts to
-  // weekdays and past days.
-  const DAY_MS = 86_400_000;
-  const now = Date.now();
-  const missingFrom = localDateString(new Date(now - 7 * DAY_MS), BUSINESS_TIMEZONE);
-  const missingTo = localDateString(new Date(now - DAY_MS), BUSINESS_TIMEZONE);
+  // Missing-hours window: the last COMPLETE Mon–Sun week. The crew logs
+  // hours weekly — often the whole week at its end (owner directive
+  // 2026-08-08) — so the current week's un-logged days are expected, not a
+  // chase; the card only counts days from the week that has already closed.
+  // The server further restricts to weekdays, past days and the go-live floor.
+  const todayISO = localDateString(new Date(), BUSINESS_TIMEZONE);
+  const thisMonday = weekStartOf(todayISO);
+  const missingFrom = addDays(thisMonday, -7);
+  const missingTo = addDays(thisMonday, -1);
 
   const [
     hoursResult,
     hoursRejectedResult,
     hoursMissingResult,
+    weekOverviewResult,
     jobsResult,
     todayPulseResult,
     rosterTotal,
@@ -580,6 +598,9 @@ async function loadSnapshot(
     loadHoursByStatus(base, headersInit, "submitted"),
     loadHoursByStatus(base, headersInit, "rejected"),
     loadHoursOverview(base, headersInit, missingFrom, missingTo),
+    // The CURRENT Mon–Sun week's rollup — the "This week" strip's three real
+    // numbers (workers logged / hours / jobs). Same endpoint, current window.
+    loadHoursOverview(base, headersInit, thisMonday, todayISO),
     loadJobsWithStats(base, headersInit),
     loadTodayPulse(base, headersInit),
     loadRosterTotal(base, headersInit),
@@ -595,6 +616,7 @@ async function loadSnapshot(
     hoursPending: hoursResult.entries,
     hoursRejected: hoursRejectedResult.entries,
     hoursMissing: hoursMissingResult.missing,
+    weekTotals: weekOverviewResult.totals,
     jobs: jobsResult.jobs,
     todayPulse: todayPulseResult.pulse,
     rosterTotal,
@@ -602,6 +624,7 @@ async function loadSnapshot(
     hoursError: hoursResult.error,
     hoursRejectedError: hoursRejectedResult.error,
     hoursMissingError: hoursMissingResult.error,
+    weekTotalsError: weekOverviewResult.error,
     jobsError: jobsResult.error,
     todayPulseError: todayPulseResult.error,
   };
@@ -678,29 +701,51 @@ async function loadRosterTotal(
   }
 }
 
+/** Distinct-worker / total-hours / distinct-job rollup for a range — the
+ *  "This week" strip's three real numbers. null = the fetch failed. */
+interface OverviewWeekTotals {
+  workers: number;
+  hours: number;
+  jobs: number;
+}
+
 async function loadHoursOverview(
   base: string,
   headersInit: { cookie: string } | undefined,
   fromDate: string,
   toDate: string
-): Promise<{ missing: ReadonlyArray<MissingLog>; error: string | null }> {
+): Promise<{
+  missing: ReadonlyArray<MissingLog>;
+  totals: OverviewWeekTotals | null;
+  error: string | null;
+}> {
   try {
     const res = await fetch(
       `${base}/api/time-entries-overview?fromDate=${fromDate}&toDate=${toDate}`,
       { cache: "no-store", headers: headersInit }
     );
     if (!res.ok) {
-      return { missing: [], error: `Hours overview API returned ${res.status}` };
+      return { missing: [], totals: null, error: `Hours overview API returned ${res.status}` };
     }
     const body = await res.json();
     const parsed = TimeEntryOverviewResponseSchema.safeParse(body);
     if (!parsed.success) {
-      return { missing: [], error: "Unexpected hours overview response shape" };
+      return { missing: [], totals: null, error: "Unexpected hours overview response shape" };
     }
-    return { missing: parsed.data.missing, error: null };
+    return {
+      missing: parsed.data.missing,
+      totals: {
+        workers: parsed.data.totals.byUser.length,
+        hours: parsed.data.totals.totalHours,
+        // Real jobs only — the null-job "Internal" bucket isn't a job on site.
+        jobs: parsed.data.totals.byJob.filter((j) => j.jobId != null).length,
+      },
+      error: null,
+    };
   } catch (err) {
     return {
       missing: [],
+      totals: null,
       error: err instanceof Error ? err.message : "Hours overview network error",
     };
   }

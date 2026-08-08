@@ -118,6 +118,8 @@ const STRIP_TONE: Record<WeeklyDayStatus, StripTone> = {
   rejected: "rejected",
   draft: "draft",
   missing: "missing",
+  // Mid-week un-logged day (weekly logging rhythm) — calm, not a red cell.
+  pending: "empty",
   leave: "leave",
   holiday: "holiday",
   future: "empty",
@@ -127,7 +129,14 @@ const STRIP_TONE: Record<WeeklyDayStatus, StripTone> = {
 /** A worker is "flagged for a look" when something is outstanding that is not
  *  simply waiting on an approver — i.e. the office can't just rubber-stamp it. */
 export function isFlaggedWeek(worker: WeeklyWorkerHours): boolean {
-  return worker.rejectedCount > 0 || worker.draftCount > 0 || worker.missingCount > 0;
+  // pendingCount: an un-ended week with un-logged days is never "clean" —
+  // the calm mid-week tone must not let a half-logged week get swept/locked.
+  return (
+    worker.rejectedCount > 0 ||
+    worker.draftCount > 0 ||
+    worker.missingCount > 0 ||
+    worker.pendingCount > 0
+  );
 }
 
 /** A "clean" week: ready to approve in one tap — at least one submitted day and
@@ -180,6 +189,7 @@ const STATUS_WORD: Record<WeeklyDayStatus, string> = {
   rejected: "Rejected",
   draft: "Draft — not submitted",
   missing: "Missing",
+  pending: "Not logged yet",
   leave: "On leave",
   holiday: "Public holiday",
   future: "Upcoming",

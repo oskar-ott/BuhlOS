@@ -135,14 +135,27 @@ export function PhilMyDaySharpenedHeader({
 export function PhilMyDayLogHoursBanner({
   todayISO,
   viewerId,
+  weekLogged,
+  weekExpected,
 }: {
   /** Sydney-local today (the page's todayISO) — the journal lookup date. */
   todayISO?: string | null;
   /** session.userId — scopes the journal on a shared phone. */
   viewerId?: string | null;
-} = {}) {
+  /** Week progress (weekLoggedProgress, server-computed): days REALLY logged
+   *  this Mon–Sun week vs weekdays elapsed. Weekly-first (owner directive
+   *  2026-08-08): the crew logs the week, often at its end, so the subline
+   *  talks about the week — never a daily "today not logged" nag. Both
+   *  present → week subline; either absent → the standard-day fallback. */
+  weekLogged?: number | null;
+  weekExpected?: number | null;
+}) {
   const journalLogged = useJournalConfirmedDay(todayISO, viewerId);
   if (journalLogged) return null;
+  const subline =
+    weekLogged != null && weekExpected != null
+      ? `${weekLogged} of ${weekExpected} day${weekExpected === 1 ? "" : "s"} logged this week`
+      : `Today not logged · ${formatHoursLabel(STANDARD_DAY_HOURS)} standard`;
   return (
     <PhilOfflineLink
       href={"/phil/hours" as Route}
@@ -160,7 +173,7 @@ export function PhilMyDayLogHoursBanner({
           Log hours now
         </span>
         <span className="mt-0.5 block truncate text-[13px] font-medium text-accent-ink/75">
-          {`Today not logged · ${formatHoursLabel(STANDARD_DAY_HOURS)} standard`}
+          {subline}
         </span>
       </span>
       <ArrowRight aria-hidden="true" className="h-5 w-5 shrink-0 text-accent-ink" />

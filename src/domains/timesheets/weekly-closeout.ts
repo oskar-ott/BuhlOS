@@ -34,6 +34,11 @@ export type WeeklyDayStatus =
   | "rejected"
   | "draft"
   | "missing"
+  /** A past weekday with no entry in a week that HASN'T ended yet. The crew
+   *  logs hours weekly — often the whole week at its end (owner directive
+   *  2026-08-08) — so mid-week an un-logged Monday is expected, not a
+   *  blocker. It becomes "missing" only once the Mon–Sun week is over. */
+  | "pending"
   | "leave"
   | "holiday"
   | "future"
@@ -98,6 +103,10 @@ export interface WeeklyWorkerHours {
   rejectedCount: number;
   draftCount: number;
   missingCount: number;
+  /** Un-logged past weekdays in a week that hasn't ended (see "pending" on
+   *  WeeklyDayStatus) — expected under weekly logging, so never a blocker
+   *  here; pay-run still refuses to call such a week clean. */
+  pendingCount: number;
   /** Human-readable blocking lines, e.g. "Wed missing", "Fri rejected". */
   blockers: string[];
   /** §5 mockup "needs a look" lines — site-language reasons the office should
@@ -211,6 +220,10 @@ function jobLabelFor(entry: TimeEntry): string | null {
 export function buildWeeklyHoursCloseout(input: WeeklyCloseoutInput): WeeklyHoursCloseout {
   const { weekStart, todayISO } = input;
   const weekEnd = weekEndOf(weekStart);
+  // The chase starts when the Mon–Sun week is over (owner directive
+  // 2026-08-08): until then an un-logged past weekday is "pending", not
+  // "missing" — the crew logs weekly, often the whole week at its end.
+  const weekEnded = weekEnd < todayISO;
 
   // Defensive range filter — callers fetch exactly the week, but the model
   // must stay correct if handed a wider range.
@@ -254,6 +267,7 @@ export function buildWeeklyHoursCloseout(input: WeeklyCloseoutInput): WeeklyHour
     let rejectedCount = 0;
     let draftCount = 0;
     let missingCount = 0;
+    let pendingCount = 0;
     const blockers: string[] = [];
     const needsLookReasons: string[] = [];
     // §5 job-split chips: logged hours per job across the week, allocation-level
@@ -284,7 +298,7 @@ export function buildWeeklyHoursCloseout(input: WeeklyCloseoutInput): WeeklyHour
         // #333: approved leave — not an expectation, never "missing".
         status = "leave";
       } else if (missingSet.has(`${workerId}|${date}`)) {
-        status = "missing";
+        status = weekEnded ? "missing" : "pending";
       } else if (isWeekend) {
         // A weekend with no entry is not required for payroll — whether already
         // past or still to come. (Phil now lets a worker LOG a weekend if they
@@ -347,6 +361,10 @@ export function buildWeeklyHoursCloseout(input: WeeklyCloseoutInput): WeeklyHour
         missingCount += 1;
         blockers.push(`${weekday} missing`);
         needsLookReasons.push(`No entry for ${weekday} — were they on site?`);
+      } else if (status === "pending") {
+        // Expected under weekly logging — counted so pay-run can refuse to
+        // sweep an unfinished week, but never a blocker or a "needs a look".
+        pendingCount += 1;
       }
 
       // §5 overtime flag — a long day the boss should eyeball. Read straight off
@@ -430,6 +448,7 @@ export function buildWeeklyHoursCloseout(input: WeeklyCloseoutInput): WeeklyHour
       rejectedCount,
       draftCount,
       missingCount,
+      pendingCount,
       blockers,
       needsLookReasons,
       days,
@@ -519,6 +538,8 @@ export function weeklyDayStatusLabel(status: WeeklyDayStatus): string {
       return "Draft — not submitted";
     case "missing":
       return "Missing";
+    case "pending":
+      return "Not logged yet";
     case "leave":
       return "On leave";
     case "holiday":

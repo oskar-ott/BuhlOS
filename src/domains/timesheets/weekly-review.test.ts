@@ -43,12 +43,16 @@ function missing(userId: string, date: string, userName = "Josh Mason"): Missing
   return { userId, date, userName, role: "Leading hand" } as MissingLog;
 }
 
-function build(entries: TimeEntry[], missingLogs: MissingLog[] = []) {
+function build(
+  entries: TimeEntry[],
+  missingLogs: MissingLog[] = [],
+  opts: { todayISO?: string } = {},
+) {
   return buildWeeklyHoursCloseout({
     entries,
     missing: missingLogs,
     weekStart: WEEK_START,
-    todayISO: TODAY,
+    todayISO: opts.todayISO ?? TODAY,
   });
 }
 
@@ -63,6 +67,7 @@ describe("weeklyReviewQueue", () => {
         entry({ userId: "u2", date: WEEK_START, status: "submitted" }), // needs review
       ],
       [missing("u3", "2024-05-21")], // missing-hours — still in the walk
+      { todayISO: "2024-05-27" }, // ended week — the chase is real
     );
     expect(weeklyReviewQueue(c)).toEqual(["u2", "u3", "u1"]);
   });
@@ -133,16 +138,28 @@ describe("reviewDayRows", () => {
   });
 
   it("notes unlogged days honestly — Missing / Not on / Not yet — never a 0", () => {
+    // Ended week: the server-flagged gap is a real "Missing".
     const c = build(
       [entry({ userId: "u1", date: "2024-05-20" })],
       [missing("u1", "2024-05-21", "Ari Boland")],
+      { todayISO: "2024-05-27" },
     );
     const rows = reviewDayRows(workerById(c, "u1"));
     const byDay = Object.fromEntries(rows.map((r) => [r.day.weekday, r.note]));
     expect(byDay["Mon"]).toBeNull(); // logged — the row shows the real jobs
     expect(byDay["Tue"]).toBe("Missing"); // server-flagged
     expect(byDay["Wed"]).toBe("Not on"); // past weekday the server doesn't track
-    expect(byDay["Fri"]).toBe("Not on"); // today (not yet future)
+    expect(byDay["Fri"]).toBe("Not on"); // past weekday the server doesn't track
+  });
+
+  it("mid-week a server-flagged gap reads 'Not logged yet' — the crew logs weekly", () => {
+    const c = build(
+      [entry({ userId: "u1", date: "2024-05-20" })],
+      [missing("u1", "2024-05-21", "Ari Boland")],
+    ); // TODAY = Fri 24th — the Mon–Sun week hasn't ended
+    const rows = reviewDayRows(workerById(c, "u1"));
+    const byDay = Object.fromEntries(rows.map((r) => [r.day.weekday, r.note]));
+    expect(byDay["Tue"]).toBe("Not logged yet");
   });
 
   it("labels a future weekday 'Not yet'", () => {

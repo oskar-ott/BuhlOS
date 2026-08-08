@@ -57,13 +57,30 @@ describe("PhilMyDaySharpenedHeader", () => {
 
 describe("PhilMyDayLogHoursBanner", () => {
   it("is a link to the Hours tab with the real standard-day figure — never a submit", () => {
-    const html = renderToString(createElement(PhilMyDayLogHoursBanner));
+    const html = renderToString(createElement(PhilMyDayLogHoursBanner, {}));
     expect(html).toContain('href="/phil/hours"');
     expect(html).toContain("Log hours now");
     // The subline's figure is the REAL STANDARD_DAY_HOURS (7.6h), not copy.
     expect(html).toContain("Today not logged · 7h 36m standard");
     // A link, not a form control — tapping it logs nothing.
     expect(html).not.toContain("<button");
+  });
+
+  it("talks about the WEEK when the page supplies real progress (weekly-first, 2026-08-08)", () => {
+    const html = renderToString(
+      createElement(PhilMyDayLogHoursBanner, { weekLogged: 2, weekExpected: 4 }),
+    );
+    expect(html).toContain("Log hours now");
+    expect(html).toContain("2 of 4 days logged this week");
+    // The daily nag is gone from the week-progress form.
+    expect(html).not.toContain("Today not logged");
+  });
+
+  it("singular day when the week expects exactly one so far", () => {
+    const html = renderToString(
+      createElement(PhilMyDayLogHoursBanner, { weekLogged: 0, weekExpected: 1 }),
+    );
+    expect(html).toContain("0 of 1 day logged this week");
   });
 });
 

@@ -44,6 +44,11 @@ interface MobileTodayProps {
    *  pulse failed. NOT the business-wide active-job count (P7: it must relate to
    *  the same "on the clock today" signal as crewCount). */
   jobsWithActivityToday: number | null;
+  /** Weekly-first (owner directive 2026-08-08): the pulse row counts the
+   *  CURRENT Mon–Sun week — the crew logs weekly, so today-numbers read 0
+   *  most days. null = the week overview failed to load ("—", never fake). */
+  weekWorkersLogged: number | null;
+  weekHoursLabel: string | null;
   /** Hours submitted and awaiting approval (the weekly payroll closeout). */
   pendingHours: number;
   /** The ranked exception list (already built + age-decorated by the page). */
@@ -77,6 +82,8 @@ export function MobileToday(props: MobileTodayProps) {
     todayStrip,
     todayPulseError,
     jobsWithActivityToday,
+    weekWorkersLogged,
+    weekHoursLabel,
     pendingHours,
     exceptions,
     anySourceError,
@@ -97,14 +104,20 @@ export function MobileToday(props: MobileTodayProps) {
         <p className="mt-1 text-sm text-text-muted">{dateLabel} · here&rsquo;s what needs you</p>
       </header>
 
-      {/* Pulse — one calm navy row, two tappable segments */}
+      {/* Pulse — one calm navy row, two tappable segments. Weekly-first
+          (owner directive 2026-08-08): the crew logs the week, often at its
+          end, so the row counts THIS Mon–Sun week — never a today-zero. */}
       <div className="flex items-stretch overflow-hidden rounded-card bg-brand-navy shadow-card">
-        <PulseSegment href="/hours" value={todayStrip ? String(todayStrip.crewCount) : "—"} label="on the clock" />
-        <PulseSegment href="/hours" value={todayStrip ? todayStrip.loggedHoursLabel : "—"} label="logged today" />
+        <PulseSegment
+          href="/hours"
+          value={weekWorkersLogged == null ? "—" : String(weekWorkersLogged)}
+          label="logged this week"
+        />
+        <PulseSegment href="/hours" value={weekHoursLabel ?? "—"} label="hours this week" />
       </div>
-      {todayPulseError ? (
+      {weekWorkersLogged == null || weekHoursLabel == null ? (
         <p className="-mt-3 px-1 text-xs text-text-muted">
-          Live pulse couldn&rsquo;t load — counts may be incomplete.
+          Week pulse couldn&rsquo;t load — counts may be incomplete.
         </p>
       ) : null}
 

@@ -75,6 +75,7 @@ const SHELL_RENDER = {
 // chrome). They are STILL subject to the cross-shell prohibition by location.
 // Keep this list tight and reasoned — it is the only escape hatch from Check B.
 const SHELL_EXEMPT = new Map([
+  ['src/app/(admin)/hours/page.tsx', 'pure redirect to /hours/weekly (weekly-first, 2026-08-08) — renders no surface'],
   ['src/app/v2/login/page.tsx', 'bespoke sign-in surface — route-ownership §4 (shell: none)'],
   ['src/app/phil/invite/[token]/page.tsx', 'public worker invite, own chrome — route-ownership §5'],
   ['src/app/phil/onboarding/page.tsx', 'full-screen onboarding tour with its own layout'],
