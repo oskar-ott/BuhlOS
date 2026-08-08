@@ -287,9 +287,11 @@ describe("invite expiry", () => {
 /* ----------------------------------------------------------------------- */
 
 describe("name helpers", () => {
-  it("computes display name with nickname override", () => {
+  it("always shows the full name — the nickname never replaces it", () => {
     expect(displayNameFor({ firstName: "Liam", lastName: "Marriott", displayName: null })).toBe("Liam Marriott");
-    expect(displayNameFor({ firstName: "Liam", lastName: "Marriott", displayName: "Lemo" })).toBe("Lemo");
+    expect(displayNameFor({ firstName: "Liam", lastName: "Marriott", displayName: "Lemo" })).toBe("Liam Marriott");
+    // Fallback only when a row carries no first/last at all.
+    expect(displayNameFor({ firstName: "", lastName: "", displayName: "Lemo" })).toBe("Lemo");
   });
   it("computes initials", () => {
     expect(initialsFor({ firstName: "Liam", lastName: "Marriott", displayName: null })).toBe("LM");
