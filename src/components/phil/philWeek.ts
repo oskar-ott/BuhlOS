@@ -77,6 +77,40 @@ export interface PhilWeek {
 
 const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
 
+/**
+ * Week progress for the My Day banner (weekly-first, owner directive
+ * 2026-08-08): how many days of the current Mon–Sun week the worker has
+ * REALLY logged, against the weekdays elapsed so far. The crew logs weekly —
+ * often the whole week at its end — so the banner talks about the week, not
+ * a daily "today not logged" nag.
+ *
+ *   logged   — distinct entry dates inside [Monday, today] (a worked weekend
+ *              day counts; nothing outside the week ever does).
+ *   expected — weekdays (Mon–Fri) elapsed up to today, min 1; a weekend
+ *              "today" expects the full 5. Never fewer than `logged`, so the
+ *              label can't read "6 of 5".
+ *
+ * Pure; P7-honest — both numbers derive only from real entries + the clock.
+ */
+export function weekLoggedProgress(
+  entries: ReadonlyArray<Pick<TimeEntry, "date">>,
+  todayISO: string,
+): { logged: number; expected: number } {
+  const weekStart = weekStartOf(todayISO);
+  const dates = new Set<string>();
+  for (const e of entries) {
+    if (e.date >= weekStart && e.date <= todayISO) dates.add(e.date);
+  }
+  let expected = 0;
+  for (let i = 0; i < 7; i++) {
+    const date = addDays(weekStart, i);
+    if (date > todayISO) break;
+    if (i < 5) expected += 1; // Mon–Fri only
+  }
+  expected = Math.max(1, expected, dates.size);
+  return { logged: dates.size, expected };
+}
+
 /** ISO-8601 week number for a YYYY-MM-DD date (Monday-anchored, Thursday rule). */
 export function isoWeekNumber(dateISO: string): number {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateISO)) return 0;

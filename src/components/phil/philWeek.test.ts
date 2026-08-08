@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildPhilWeek, isoWeekNumber, isWeekSquaredAway } from "./philWeek";
+import {
+  buildPhilWeek,
+  isoWeekNumber,
+  isWeekSquaredAway,
+  weekLoggedProgress,
+} from "./philWeek";
 
 // A pinned week: Monday 2024-05-20 … Sunday 2024-05-26, with today = Friday
 // 2024-05-24. This is ISO week 21 (Monday of week 21 of 2024 is 2024-05-20).
@@ -201,5 +206,44 @@ describe("buildPhilWeek — week navigation (weekAnchorISO)", () => {
     // today/upcoming because the whole week is behind today.
     expect(w.counts.missed).toBe(5);
     expect(w.days.every((d) => d.state !== "today" && d.state !== "upcoming")).toBe(true);
+  });
+});
+
+describe("weekLoggedProgress (weekly-first banner, owner directive 2026-08-08)", () => {
+  // TODAY = Fri 2024-05-24; the current week is Mon 20th … Sun 26th.
+  it("counts distinct real entry dates in the current Mon–Sun week vs weekdays elapsed", () => {
+    const p = weekLoggedProgress(
+      [{ date: "2024-05-20" }, { date: "2024-05-21" }, { date: "2024-05-13" }],
+      TODAY,
+    );
+    expect(p).toEqual({ logged: 2, expected: 5 }); // last week's entry never counts
+  });
+
+  it("expects only the weekdays elapsed so far — Tuesday expects 2", () => {
+    const p = weekLoggedProgress([{ date: "2024-05-20" }], "2024-05-21");
+    expect(p).toEqual({ logged: 1, expected: 2 });
+  });
+
+  it("a weekend today expects the full 5, and a worked Saturday counts as logged", () => {
+    const p = weekLoggedProgress(
+      [{ date: "2024-05-20" }, { date: "2024-05-25" }],
+      "2024-05-25", // Saturday
+    );
+    expect(p).toEqual({ logged: 2, expected: 5 });
+  });
+
+  it("never reads 'more than expected': expected floors at the logged count", () => {
+    const p = weekLoggedProgress(
+      [{ date: "2024-05-20" }, { date: "2024-05-25" }, { date: "2024-05-26" }],
+      "2024-05-26", // a 5-weekday week + both weekend days worked… still ≥
+    );
+    expect(p.expected).toBeGreaterThanOrEqual(p.logged);
+  });
+
+  it("duplicate entries on one date count once; empty Monday is 0 of 1", () => {
+    expect(
+      weekLoggedProgress([{ date: "2024-05-20" }, { date: "2024-05-20" }], "2024-05-21"),
+    ).toEqual({ logged: 1, expected: 2 });
+    expect(weekLoggedProgress([], "2024-05-20")).toEqual({ logged: 0, expected: 1 });
   });
 });

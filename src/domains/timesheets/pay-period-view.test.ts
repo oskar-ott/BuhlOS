@@ -29,7 +29,7 @@ function closeout(
       submittedCount: 0,
       rejectedCount: 0,
       draftCount: 0,
-      missingCount: 0,
+      missingCount: 0, pendingCount: 0,
       blockers: [],
       needsLookReasons: [],
       days: [],

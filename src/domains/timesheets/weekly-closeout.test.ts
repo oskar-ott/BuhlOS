@@ -265,8 +265,8 @@ describe("buildWeeklyHoursCloseout — §5 logged hours, labour $ and job split"
 });
 
 describe("buildWeeklyHoursCloseout — §5 needs-a-look reasons (real signals)", () => {
-  it("a missing day raises a site-language reason", () => {
-    const c = build([], [missing("u1", "2024-05-22")]);
+  it("a missing day raises a site-language reason (once the week has ended)", () => {
+    const c = build([], [missing("u1", "2024-05-22")], { todayISO: "2024-05-27" });
     expect(c.workers[0]!.needsLookReasons.some((r) => r.includes("No entry for Wed"))).toBe(true);
   });
 
@@ -351,10 +351,11 @@ describe("buildWeeklyHoursCloseout — readiness rules", () => {
     expect(draft.summary.draftDays).toBe(1);
   });
 
-  it("not ready while server-flagged missing days remain", () => {
+  it("not ready while server-flagged missing days remain (ended week)", () => {
     const c = build(
       [entry({ userId: "u1", date: "2024-05-20" })],
       [missing("u1", "2024-05-22")],
+      { todayISO: "2024-05-27" },
     );
     expect(c.workers[0]!.readiness).toBe("missing-hours");
     expect(c.workers[0]!.missingCount).toBe(1);
@@ -363,7 +364,7 @@ describe("buildWeeklyHoursCloseout — readiness rules", () => {
   });
 
   it("a worker with ONLY missing days still appears (chase list), with zero approved", () => {
-    const c = build([], [missing("u9", "2024-05-20", "Sam New")]);
+    const c = build([], [missing("u9", "2024-05-20", "Sam New")], { todayISO: "2024-05-27" });
     expect(c.workers).toHaveLength(1);
     expect(c.workers[0]!).toMatchObject({
       workerId: "u9",
@@ -383,6 +384,7 @@ describe("buildWeeklyHoursCloseout — readiness rules", () => {
         { userId: "u_elec", date: "2024-05-21", userName: "Erin Sparks", role: "electrician" } as MissingLog,
         { userId: "u_appr", date: "2024-05-21", userName: "Alex First", role: "apprentice" } as MissingLog,
       ],
+      { todayISO: "2024-05-27" },
     );
     const elec = c.workers.find((w) => w.workerId === "u_elec")!;
     expect(elec).toMatchObject({ readiness: "missing-hours", workerRole: "electrician" });
@@ -664,7 +666,7 @@ describe("submittedWeekSelection (#124 — the Approve-week payload)", () => {
       workerId: "u1", workerName: "U", workerRole: null,
       readiness: "needs-review" as const,
       approvedHours: 0, approvedCount: 0, submittedCount: 7,
-      rejectedCount: 0, draftCount: 0, missingCount: 0,
+      rejectedCount: 0, draftCount: 0, missingCount: 0, pendingCount: 0,
       blockers: [], needsLookReasons: [], days,
       loggedHours: 0, jobBreakdown: [], costRateCents: null, labourCents: null,
     };
@@ -754,5 +756,47 @@ describe("buildWeeklyHoursCloseout — public holidays (#137)", () => {
     expect(mon.status).toBe("holiday");
     expect(mon.holidayName).toBe("Easter Monday");
     expect(c.workers[0]!.missingCount).toBe(0);
+  });
+});
+
+describe("buildWeeklyHoursCloseout — mid-week pending (weekly logging, owner directive 2026-08-08)", () => {
+  // TODAY = Fri 2024-05-24: the Mon–Sun week (20th–26th) has NOT ended.
+  it("an un-logged past weekday in the CURRENT week is 'pending', never 'missing'", () => {
+    const c = build(
+      [entry({ userId: "u1", date: "2024-05-20" })],
+      [missing("u1", "2024-05-22")],
+    );
+    const wed = c.workers[0]!.days.find((d) => d.date === "2024-05-22")!;
+    expect(wed.status).toBe("pending");
+    expect(c.workers[0]!.missingCount).toBe(0);
+    expect(c.workers[0]!.pendingCount).toBe(1);
+    expect(c.summary.missingDays).toBe(0);
+  });
+
+  it("pending raises no blocker and no needs-a-look — the crew logs weekly", () => {
+    const c = build(
+      [entry({ userId: "u1", date: "2024-05-20" })],
+      [missing("u1", "2024-05-22")],
+    );
+    expect(c.workers[0]!.blockers).toEqual([]);
+    expect(c.workers[0]!.needsLookReasons).toEqual([]);
+    expect(c.workers[0]!.readiness).not.toBe("missing-hours");
+  });
+
+  it("the same gap becomes a real 'missing' once the Mon–Sun week has ended", () => {
+    const c = build(
+      [entry({ userId: "u1", date: "2024-05-20" })],
+      [missing("u1", "2024-05-22")],
+      { todayISO: "2024-05-27" }, // the following Monday
+    );
+    const wed = c.workers[0]!.days.find((d) => d.date === "2024-05-22")!;
+    expect(wed.status).toBe("missing");
+    expect(c.workers[0]!.missingCount).toBe(1);
+    expect(c.workers[0]!.pendingCount).toBe(0);
+    expect(c.workers[0]!.blockers).toContain("Wed missing");
+  });
+
+  it("labels: a pending day reads 'Not logged yet'", () => {
+    expect(weeklyDayStatusLabel("pending")).toBe("Not logged yet");
   });
 });

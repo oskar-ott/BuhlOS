@@ -128,6 +128,10 @@ interface FetchFixtures {
   rejectedEntries?: JsonBody[];
   pulse?: JsonBody;
   pulseStatus?: number;
+  /** Non-200 fails BOTH overview fetches (missing window + this-week strip). */
+  overviewStatus?: number;
+  /** totals for the this-week overview (defaults to the empty rollup). */
+  overviewTotals?: JsonBody;
   /** Display name for the mobile greeting (resolved via /api/auth?action=me). */
   meName?: string | null;
   /** Non-200 makes the jobs-with-stats fetch fail (board honest-degradation path). */
@@ -145,6 +149,8 @@ function stubFetch({
   rejectedEntries = [],
   pulse,
   pulseStatus = 200,
+  overviewStatus = 200,
+  overviewTotals,
   meName = null,
   jobsStatus = 200,
   jobs = [],
@@ -166,7 +172,10 @@ function stubFetch({
         return jsonResponse(pulse ?? pulseBody());
       }
       if (url.includes("/api/time-entries-overview")) {
-        return jsonResponse(EMPTY_OVERVIEW);
+        if (overviewStatus !== 200) return jsonResponse({ error: "boom" }, overviewStatus);
+        return jsonResponse(
+          overviewTotals ? { ...EMPTY_OVERVIEW, totals: overviewTotals } : EMPTY_OVERVIEW,
+        );
       }
       if (url.includes("/api/time-entries")) {
         const isSubmitted = url.includes("status=submitted");
@@ -225,9 +234,13 @@ describe("/command-centre lean-reset board", () => {
     expect(html).toContain("Approve");
     // Zero loops render NO row (the queue shows only what's open).
     expect(html).not.toContain("Photos and tags to review");
-    // Right-now strip tiles.
-    expect(html).toContain("Right now");
-    for (const label of ["on the clock", "logged today", "jobs live today"]) {
+    // This-week strip tiles (weekly-first, owner directive 2026-08-08).
+    expect(html).toContain("This week");
+    for (const label of [
+      "workers logged this week",
+      "hours this week",
+      "jobs worked this week",
+    ]) {
       expect(html).toContain(label);
     }
   });
@@ -242,12 +255,12 @@ describe("/command-centre lean-reset board", () => {
     expect(html).not.toContain('aria-label="Rejected');
   });
 
-  it("degrades the strip honestly when today-pulse fails — '—', not a fabricated 0, page still renders", async () => {
-    stubFetch({ submittedEntries: [], pulseStatus: 503 });
+  it("degrades the strip honestly when the week overview fails — '—', not a fabricated 0, page still renders", async () => {
+    stubFetch({ submittedEntries: [], overviewStatus: 503 });
     const html = await renderPage();
-    expect(html).toContain("Right now");
-    expect(html).toContain("on the clock");
-    // A failed pulse → null signals render as an em-dash, never a fake number.
+    expect(html).toContain("This week");
+    expect(html).toContain("workers logged this week");
+    // A failed overview → null signals render as an em-dash, never a fake number.
     expect(html).toContain("—");
   });
 
@@ -272,32 +285,43 @@ describe("/command-centre lean-reset board", () => {
     expect(html).toContain("here’s what needs you");
     // The desktop board is present too (wrapped hidden md:block).
     expect(html).toContain("Needs you");
-    expect(html).toContain("Right now");
+    expect(html).toContain("This week");
   });
 
-  // ── Right-now fidelity ─────────────────────────────────────────────────
-  it("shows the on-the-clock roster ratio (4/21-style suffix) when admin-stats supplies a roster", async () => {
+  // ── This-week strip fidelity ────────────────────────────────────────────
+  it("shows the workers-logged roster ratio (4/21-style suffix) when admin-stats supplies a roster", async () => {
     stubFetch({
       submittedEntries: [],
-      pulse: pulseBody({ crewOnSite: 14 }),
+      overviewTotals: {
+        totalHours: 152,
+        byJob: [{ jobId: "j1", jobName: "100 Arthur", hours: 152 }],
+        byUser: Array.from({ length: 4 }, (_, i) => ({
+          userId: `u${i}`,
+          userName: `Worker ${i}`,
+          role: "tradie",
+          hours: 38,
+        })),
+        byDate: [],
+        byStatus: { draft: 0, submitted: 4, approved: 0, rejected: 0 },
+      },
       byRole: { admin: 3, leadingHand: 6, tradie: 15, client: 4 }, // roster = 21
     });
     const html = await renderPage();
     // Big-number tile with the honest crew/roster ratio.
     expect(html).toContain("/21");
-    expect(html).toContain("on the clock");
+    expect(html).toContain("workers logged this week");
+    expect(html).toContain("152h");
   });
 
   it("degrades the ratio to a plain number when admin-stats fails (no fabricated roster)", async () => {
     stubFetch({
       submittedEntries: [],
-      pulse: pulseBody({ crewOnSite: 14 }),
       adminStatsStatus: 503,
     });
     const html = await renderPage();
     // No denominator — just the count.
     expect(html).not.toContain("/21");
-    expect(html).toContain("on the clock");
+    expect(html).toContain("workers logged this week");
   });
 
   it("pluralises the pending queue row and keeps its approval routing at high counts", async () => {

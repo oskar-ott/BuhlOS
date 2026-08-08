@@ -230,10 +230,11 @@ describe("toStripCell / workerStrip", () => {
     expect(tue.hoursLabel).toBeNull();
   });
 
-  it("missing day renders the em-dash glyph and a 'missing' tone", () => {
+  it("missing day renders the em-dash glyph and a 'missing' tone (ended week)", () => {
     const c = build(
       [entry({ userId: "u1", date: WEEK_START, status: "approved" })],
       [missing("u1", "2024-05-22")],
+      { todayISO: "2024-05-27" },
     );
     const wed = workerStrip(workerById(c, "u1")).find((cell) => cell.date === "2024-05-22")!;
     expect(wed.tone).toBe("missing");

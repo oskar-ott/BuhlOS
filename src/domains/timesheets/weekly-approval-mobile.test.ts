@@ -71,9 +71,9 @@ describe("mobileBand", () => {
     expect(mobileBand(workerById(c, "u1"))).toBe("waiting");
   });
 
-  it("a server-flagged missing week is waiting", () => {
+  it("a server-flagged missing week is waiting (ended week)", () => {
     // A worker who logged nothing but has a flagged missing weekday.
-    const c = build([], [missing("u9", "2024-05-21")]);
+    const c = build([], [missing("u9", "2024-05-21")], { todayISO: "2024-05-27" });
     expect(mobileBand(workerById(c, "u9"))).toBe("waiting");
   });
 
@@ -262,7 +262,7 @@ describe("canAmendDay — what the office may fix in the day review", () => {
   });
 
   it("never offers it on a day with nothing logged", () => {
-    const c = build([], [missing("u1", "2024-05-22")]);
+    const c = build([], [missing("u1", "2024-05-22")], { todayISO: "2024-05-27" });
     const wed = c.workers[0]!.days.find((d) => d.date === "2024-05-22")!;
     expect(wed.status).toBe("missing");
     expect(canAmendDay(wed, true)).toBe(false);

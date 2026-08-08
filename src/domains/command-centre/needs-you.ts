@@ -31,8 +31,15 @@ export interface NeedsYouRow {
 export interface NeedsYouCounts {
   /** Rejected days the worker hasn't re-submitted (/api/time-entries rejected). */
   rejected: number;
-  /** Past weekday worker-days never logged (overview missing rollup). */
+  /** Weekday worker-days never logged in the last COMPLETE Mon–Sun week
+   *  (overview missing rollup — the crew logs weekly, so the current week's
+   *  gaps are expected and never counted here; owner directive 2026-08-08). */
   missingDays: number;
+  /** Monday of the week `missingDays` was computed over — the chase link
+   *  lands the weekly board on THAT week, not the current one. Optional so
+   *  existing callers/tests keep working; without it the link falls back to
+   *  the board's default (current) week. */
+  missingWeekStart?: string;
   /** Active jobs with no field crew assigned (jobs stats). */
   noCrewJobs: number;
   /** Submitted days awaiting approver action. */
@@ -61,10 +68,14 @@ export function buildNeedsYouQueue(c: NeedsYouCounts): NeedsYouRow[] {
       count: c.missingDays,
       tone: "block",
       title:
-        c.missingDays === 1 ? "Past day never logged" : "Past days never logged",
-      sub: "Workers owe hours from earlier this week — chase them before the period closes.",
+        c.missingDays === 1
+          ? "Day never logged last week"
+          : "Days never logged last week",
+      sub: "The week's closed and these hours never came in — chase them before payroll runs.",
       cta: "Hours",
-      href: "/hours",
+      href: c.missingWeekStart
+        ? `/hours/weekly?week=${c.missingWeekStart}`
+        : "/hours/weekly",
     },
     {
       key: "no-crew",
@@ -159,36 +170,39 @@ export interface RightNowTile {
 }
 
 export interface RightNowSignals {
-  /** Distinct crew with hours logged today (today-pulse). null = not loaded. */
-  crewOnSite: number | null;
+  /** Distinct crew with hours logged THIS Mon–Sun week (overview byUser).
+   *  null = not loaded. The crew logs weekly — often the whole week at its
+   *  end (owner directive 2026-08-08) — so the strip counts the week, never
+   *  a today figure that reads 0 four days out of five. */
+  crewLoggedThisWeek: number | null;
   /** Field-staff roster denominator (admin-stats). null = no honest denominator. */
   rosterTotal: number | null;
-  /** Pre-formatted logged-hours label ("18h 20m"). null = not loaded. */
-  loggedHoursLabel: string | null;
-  /** Jobs with activity today (today-pulse). null = not loaded. */
-  jobsLiveToday: number | null;
+  /** Pre-formatted hours-this-week label ("38h 30m"). null = not loaded. */
+  weekHoursLabel: string | null;
+  /** Distinct jobs with logged hours this week (overview byJob). null = not loaded. */
+  jobsThisWeek: number | null;
 }
 
-/** The "Right now" strip: three big-number tiles, "—" for unloaded signals. */
+/** The "This week" strip: three big-number tiles, "—" for unloaded signals. */
 export function buildRightNow(s: RightNowSignals): RightNowTile[] {
   return [
     {
-      key: "clock",
-      value: s.crewOnSite == null ? "—" : String(s.crewOnSite),
-      ...(s.crewOnSite != null && s.rosterTotal != null && s.rosterTotal > 0
+      key: "crew-week",
+      value: s.crewLoggedThisWeek == null ? "—" : String(s.crewLoggedThisWeek),
+      ...(s.crewLoggedThisWeek != null && s.rosterTotal != null && s.rosterTotal > 0
         ? { suffix: `/${s.rosterTotal}` }
         : {}),
-      label: "on the clock",
+      label: "workers logged this week",
     },
     {
-      key: "logged",
-      value: s.loggedHoursLabel ?? "—",
-      label: "logged today",
+      key: "logged-week",
+      value: s.weekHoursLabel ?? "—",
+      label: "hours this week",
     },
     {
-      key: "jobs",
-      value: s.jobsLiveToday == null ? "—" : String(s.jobsLiveToday),
-      label: "jobs live today",
+      key: "jobs-week",
+      value: s.jobsThisWeek == null ? "—" : String(s.jobsThisWeek),
+      label: "jobs worked this week",
     },
   ];
 }

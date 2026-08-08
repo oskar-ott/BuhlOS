@@ -179,11 +179,14 @@ describe("sharpened /phil/my-day — one hours affordance", () => {
     expect(html).not.toContain("phil-my-day-fix-card");
   });
 
-  it("renders the yellow Log-hours banner while today is unlogged", async () => {
-    // The default mock has no entry dated today.
+  it("renders the yellow Log-hours banner with real WEEK progress while today is unlogged", async () => {
+    // The default mock has no entry dated today. Weekly-first (owner
+    // directive 2026-08-08): the subline counts the week's real entries
+    // against the weekdays elapsed, never a daily "today not logged" nag.
     const html = await renderPage();
     expect(html).toContain('data-testid="phil-my-day-log-hours-banner"');
-    expect(html).toContain("Today not logged · 7h 36m standard");
+    expect(html).toMatch(/\d+ of \d+ days? logged this week/);
+    expect(html).not.toContain("Today not logged ·");
   });
 
   it("drops the banner once today has a real entry — its claim would be false", async () => {

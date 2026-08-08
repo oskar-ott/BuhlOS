@@ -354,6 +354,9 @@ function unloggedDayNote(day: WeeklyHoursDay): string {
   switch (day.status) {
     case "missing":
       return "Missing";
+    // Mid-week un-logged day (weekly logging rhythm) — expected, not a chase.
+    case "pending":
+      return "Not logged yet";
     case "future":
       return "Not yet";
     case "leave":

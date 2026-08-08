@@ -46,6 +46,7 @@ import {
   PhilMyDayQuickGrid,
   PhilMyDaySharpenedHeader,
 } from "@/components/phil/PhilMyDaySharpened";
+import { weekLoggedProgress } from "@/components/phil/philWeek";
 import {
   PhilMyDaySharpenedAttention,
   PhilMyDaySharpenedAttentionFallback,
@@ -196,6 +197,10 @@ export default async function MyDayPage({
     const sharpSubline = onSiteSince
       ? `${dateLabel} · on site since ${onSiteSince}`
       : dateLabel;
+    // Week progress for the banner subline (weekly-first, owner directive
+    // 2026-08-08) — real entries in the current Mon–Sun week vs weekdays
+    // elapsed; the 7-day entries window always covers Monday→today.
+    const weekProgress = weekLoggedProgress(recentEntries, todayISO);
     // ?fixDate= deep link (push notifications, needs-you rows — both point at
     // REJECTED days): the Hours tab (W2c) is the logging home now, so this
     // screen no longer mounts the week strip / day-logger — but the one-tap
@@ -225,15 +230,19 @@ export default async function MyDayPage({
           {/* The design's primary hours action — the yellow banner directly
               under the header, pointing at the Hours tab (the one logging
               home). Only while today is genuinely unlogged: once an entry
-              exists, "Today not logged" would be a lie, so the banner leaves
-              and the quick tile below carries the quiet non-due state.
-              todayISO/viewerId feed the client-side saved-entries journal
-              gate — a just-saved day the store hasn't served back yet also
-              clears the banner (2026-08-06). */}
+              exists the banner leaves and the quick tile below carries the
+              quiet non-due state. Weekly-first (owner directive 2026-08-08):
+              the subline is real week progress ("2 of 4 days logged this
+              week") — the crew logs weekly, so no daily nag. todayISO/
+              viewerId feed the client-side saved-entries journal gate — a
+              just-saved day the store hasn't served back yet also clears
+              the banner (2026-08-06). */}
           {todayEntry === null ? (
             <PhilMyDayLogHoursBanner
               todayISO={todayISO}
               viewerId={session.userId ?? null}
+              weekLogged={weekProgress.logged}
+              weekExpected={weekProgress.expected}
             />
           ) : null}
 

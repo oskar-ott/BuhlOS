@@ -90,7 +90,7 @@ describe("buildNeedsYouQueue", () => {
     });
     expect(rows.map((r) => [r.key, r.cta, r.href])).toEqual([
       ["rejected", "Approve", "/hours/approvals"],
-      ["missing", "Hours", "/hours"],
+      ["missing", "Hours", "/hours/weekly"],
       ["no-crew", "Jobs", "/v2/jobs"],
       ["pending", "Approve", "/hours/approvals"],
       ["evidence", "Jobs", "/v2/jobs"],
@@ -111,37 +111,41 @@ describe("buildNeedsYouQueue", () => {
   });
 });
 
-describe("buildRightNow", () => {
-  it("renders the three tiles with a roster suffix when a denominator exists", () => {
+describe("buildRightNow (weekly-first, owner directive 2026-08-08)", () => {
+  it("renders the three WEEK tiles with a roster suffix when a denominator exists", () => {
     const tiles = buildRightNow({
-      crewOnSite: 4,
+      crewLoggedThisWeek: 4,
       rosterTotal: 5,
-      loggedHoursLabel: "18h 20m",
-      jobsLiveToday: 4,
+      weekHoursLabel: "148h 30m",
+      jobsThisWeek: 4,
     });
     expect(tiles).toEqual([
-      { key: "clock", value: "4", suffix: "/5", label: "on the clock" },
-      { key: "logged", value: "18h 20m", label: "logged today" },
-      { key: "jobs", value: "4", label: "jobs live today" },
+      { key: "crew-week", value: "4", suffix: "/5", label: "workers logged this week" },
+      { key: "logged-week", value: "148h 30m", label: "hours this week" },
+      { key: "jobs-week", value: "4", label: "jobs worked this week" },
     ]);
   });
 
   it("renders '—' for unloaded signals and omits an unproven roster suffix", () => {
     const tiles = buildRightNow({
-      crewOnSite: null,
+      crewLoggedThisWeek: null,
       rosterTotal: 5,
-      loggedHoursLabel: null,
-      jobsLiveToday: null,
+      weekHoursLabel: null,
+      jobsThisWeek: null,
     });
     expect(tiles.map((t) => t.value)).toEqual(["—", "—", "—"]);
     expect(tiles[0]?.suffix).toBeUndefined();
     // Crew loaded but roster didn't → plain count, no fabricated denominator.
     const noRoster = buildRightNow({
-      crewOnSite: 3,
+      crewLoggedThisWeek: 3,
       rosterTotal: null,
-      loggedHoursLabel: "6h",
-      jobsLiveToday: 2,
+      weekHoursLabel: "36h",
+      jobsThisWeek: 2,
     });
-    expect(noRoster[0]).toEqual({ key: "clock", value: "3", label: "on the clock" });
+    expect(noRoster[0]).toEqual({
+      key: "crew-week",
+      value: "3",
+      label: "workers logged this week",
+    });
   });
 });

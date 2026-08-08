@@ -95,7 +95,8 @@ Confirmed in code. These are the intended destinations for new navigation.
 | Route | Source | Notes |
 | --- | --- | --- |
 | `/command-centre` | `src/app/(admin)/command-centre/page.tsx` | BuhlOS admin **home**. Queue-shaped attention view + live-surface strip. |
-| `/hours` | `src/app/(admin)/hours/page.tsx` | Hours view. |
+| `/hours` | `src/app/(admin)/hours/page.tsx` | Section root — 307-redirects to `/hours/weekly` (weekly-first, owner directive 2026-08-08; forwards `?week=`). |
+| `/hours/today` | `src/app/(admin)/hours/today/page.tsx` | Day view + this-week rollup (the pre-2026-08 `/hours` page, moved intact). |
 | `/hours/approvals` | `src/app/(admin)/hours/approvals/page.tsx` | Approvals queue. |
 | `/hours/weekly` | `src/app/(admin)/hours/weekly/page.tsx` | Weekly closeout / payroll readiness (PR #113). |
 | `/hours/period` | `src/app/(admin)/hours/period/page.tsx` | Pay-period roll-up — read-only Xero-ready approved-hours preview (#131/#895; admin-tier; `/api/time-entries-export` is preview/download only, no commit) + the flag-gated payroll-batch review panel (#893/#894 — validate → create → lock immutable batches; dark unless `xero_connection` is on). Locked batches export as DRAFT Xero timesheets via `/api/xero/payroll-export` (#249), gated by `xero_payroll_export` (default off); the batch-CSV download works without it. |

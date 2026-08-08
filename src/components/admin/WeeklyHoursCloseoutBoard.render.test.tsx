@@ -13,7 +13,7 @@ import type { MissingLog, TimeEntry } from "@/domains/timesheets/types";
 
 // Pinned week: Monday 2024-05-20 … Sunday 2024-05-26; today = Friday 2024-05-24.
 const WEEK_START = "2024-05-20";
-const TODAY = "2024-05-24";
+const TODAY = "2024-05-27"; // the following Monday — the viewed week has ENDED (missing days are real)
 
 function entry(p: Partial<TimeEntry> & { userId: string; date: string; userName: string }): TimeEntry {
   return {
