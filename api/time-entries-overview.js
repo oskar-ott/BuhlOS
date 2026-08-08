@@ -33,6 +33,7 @@ const { readBlob, setNoCache } = require('./_lib/blob');
 const { readLeave, approvedLeaveByUserDate } = require('./_lib/leave');
 const { publicHolidaysInRange } = require('./_lib/public-holidays');
 const { requireAuth, isStaffRole, isAdminRole, isHoursTrackedWorker } = require('./_lib/auth');
+const { HOURS_GO_LIVE } = require('./_lib/hours-epoch');
 
 module.exports = async (req, res) => {
   setNoCache(res);
@@ -269,7 +270,13 @@ module.exports = async (req, res) => {
   const holidays = publicHolidaysInRange(fromDate, toDate);
   const holidaySet = new Set(holidays.map(h => h.date));
 
+  // Go-live floor: the company started logging real hours on HOURS_GO_LIVE
+  // (2026-08-03). A range reaching further back (the Jul-29→Aug-4 pay period,
+  // an old week the office paged to) must not demand hours from before the
+  // app existed in the field — no missing, no leave rows before the epoch.
+  const goLive0 = new Date(HOURS_GO_LIVE + 'T00:00:00');
   const cursor = new Date(fromDate + 'T00:00:00');
+  if (cursor < goLive0) cursor.setTime(goLive0.getTime());
   const end    = new Date(toDate   + 'T00:00:00');
   while (cursor <= end && cursor <= today0) {
     const dow = cursor.getDay();

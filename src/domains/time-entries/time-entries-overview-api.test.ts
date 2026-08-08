@@ -351,6 +351,54 @@ describe("missing-hours crew coverage (#114)", () => {
 });
 
 /**
+ * Go-live floor — the company logged its first real hours on 2026-08-03
+ * (HOURS_GO_LIVE, api/_lib/hours-epoch.js). Days before that predate the app
+ * in the field: the boards must never chase them as missing, whatever range
+ * the office pages back to. Fixed past dates are safe to pin — they only
+ * recede further into the past.
+ */
+describe("go-live floor (2026-08-03)", () => {
+  it("a range entirely before go-live yields no missing and no leave rows", async () => {
+    const res = await overview("u_admin", "admin", {
+      fromDate: "2026-07-20",
+      toDate: "2026-07-31",
+    });
+    expect(res.statusCode).toBe(200);
+    expect(missingIds(res)).toEqual([]);
+    expect((res.body as { leave: unknown[] }).leave).toEqual([]);
+  });
+
+  it("a range straddling go-live floors at it: nothing missing before Mon 2026-08-03", async () => {
+    // The Jul-29→Aug-4 pay period — the exact range that was demanding
+    // pre-launch hours. Mon 3rd + Tue 4th are real past weekdays by the time
+    // this test can run, so the crew IS missing there; 29–31 Jul + 1–2 Aug
+    // must contribute nothing.
+    const res = await overview("u_admin", "admin", {
+      fromDate: "2026-07-29",
+      toDate: "2026-08-04",
+    });
+    expect(res.statusCode).toBe(200);
+    const missingDates = ((res.body as { missing: Array<{ date: string }> }).missing ?? [])
+      .map((m) => m.date);
+    expect(missingDates.length).toBeGreaterThan(0);
+    for (const d of missingDates) {
+      expect(d >= "2026-08-03").toBe(true);
+    }
+  });
+
+  it("an entry dated before go-live still lists in entries[] — the floor gates asking, not showing", async () => {
+    seedEntry("u_elec", "2026-07-30");
+    const res = await overview("u_admin", "admin", {
+      fromDate: "2026-07-28",
+      toDate: "2026-07-31",
+    });
+    const entries = (res.body as { entries: Array<{ date: string }> }).entries;
+    expect(entries.map((e) => e.date)).toContain("2026-07-30");
+    expect(missingIds(res)).toEqual([]);
+  });
+});
+
+/**
  * #333 — approved leave exempts a day from missing-hours and surfaces in the
  * response's leave[] so the boards can show "On leave (sick)" instead of a
  * false "missing" chase.
