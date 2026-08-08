@@ -35,13 +35,18 @@ export const RESEND_WINDOW_MS = 60 * 60 * 1000;
  * Display
  * ------------------------------------------------------------------------- */
 
-/** Full name, honouring an explicit displayName/nickname override. */
+/**
+ * Register name: always the real first + last name. The nickname
+ * ("what you go by", stored as displayName) is greeting-only — Phil's
+ * My Day hello — and never replaces the full name in the office register.
+ * Falls back to the nickname only when a row has no first/last at all.
+ */
 export function displayNameFor(
   e: Pick<Employee, "firstName" | "lastName" | "displayName">
 ): string {
-  const override = (e.displayName ?? "").trim();
-  if (override) return override;
-  return `${e.firstName} ${e.lastName}`.trim();
+  const full = `${e.firstName} ${e.lastName}`.trim();
+  if (full) return full;
+  return (e.displayName ?? "").trim();
 }
 
 /** Two-letter avatar initials. */
