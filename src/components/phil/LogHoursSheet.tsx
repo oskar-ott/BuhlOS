@@ -18,19 +18,24 @@ import { timesheetsClient } from "@/domains/timesheets/client";
 import { useSubmissionKey } from "@/domains/timesheets/useSubmissionKey";
 import {
   STANDARD_DAY_HOURS,
+  STANDARD_DAY_OT_ADD_ONS,
   buildCustomHoursPayload,
   buildSplitDayPayload,
-  buildStandardDayPayload,
+  buildStandardDayWithOtPayload,
   localDateString,
   MAX_HOURS_PER_DAY,
   MAX_BACKDATE_DAYS,
   isWithinBackdateWindow,
+  standardDayPlusOt,
+  toggleOtAddOn,
 } from "@/domains/timesheets/service";
 import {
   formatDateLabel,
   formatHoursLabel,
   formatShortDateLabel,
   logActionTitle,
+  otChipLabel,
+  standardDayOtEcho,
   statusLabel,
   statusTone,
 } from "@/domains/timesheets/format";
@@ -121,7 +126,10 @@ type SubmitState =
  * The capture surface a tradie sees on /phil/my-day. Field-first per
  * docs/rebuild-audit/13-ui-information-architecture.md §Phil/Today:
  *
- *   - One huge button: Standard day · 7h 36m
+ *   - One huge button: Standard day · 7h 36m — with the OT add-on chips
+ *     (+30m / +1h / +1½h / +2h) riding under it (owner-directed 2026-08-07):
+ *     overtime is a TAP on the standard day and the button echoes the derived
+ *     total, so nobody does the arithmetic that caused the "8.36" pay error
  *   - Date defaults to today; can be backed off by up to 14 days
  *   - Custom hours fallback opens a sheet with chips for common values
  *   - Notes optional, single-line
@@ -150,6 +158,12 @@ export function LogHoursSheet({
   const [notes, setNotes] = useState<string>("");
   const [customOpen, setCustomOpen] = useState(false);
   const [customHours, setCustomHours] = useState<number>(STANDARD_DAY_HOURS);
+  // Overtime add-on riding the standard day (owner-directed 2026-08-07):
+  // null = the plain standard day (byte-identical path to before), a value =
+  // decimal hours ON TOP of STANDARD_DAY_HOURS. Workers think "normal day +
+  // 1 hour OT", never totals — a worker typed a total ("8.36" meaning 8h 36m)
+  // and the pay was wrong. One tap; the submit bar does the arithmetic.
+  const [otAddOn, setOtAddOn] = useState<number | null>(null);
   const [splitOpen, setSplitOpen] = useState(false);
   // "More options" now holds only the optional note (the day picker moved up
   // under the calendar; custom-overtime + split sit directly under the
@@ -236,9 +250,14 @@ export function LogHoursSheet({
       return;
     }
     setState({ kind: "submitting" });
-    const payload = buildStandardDayPayload({
+    // No chip → the EXACT payload the standard day has always sent
+    // (regression-pinned in timesheets.test.ts); a chip → the EXISTING
+    // custom-hours builder with the derived total (7.6 + 1 → 8.6). Same
+    // endpoint, same fields — the OT split stays server-side (autoSplitOT).
+    const payload = buildStandardDayWithOtPayload({
       date,
       jobId: selectedJobId,
+      otAddOn,
       notes: notes || null,
     });
     const result = await timesheetsClient.submitNewEntry(payload, {
@@ -325,6 +344,9 @@ export function LogHoursSheet({
       onSaved?.(result.data.entry);
       setState({ kind: "success", entry: result.data.entry, mode });
       setNotes("");
+      // The OT chip is a per-submission choice — the next day logged starts
+      // from the plain standard day again, never inheriting overtime.
+      setOtAddOn(null);
       // Re-fetch the server data so the "This week" strip + hero reflect the new
       // entry immediately — the logged day turns green without a manual reload.
       // refresh() re-renders the server components but preserves this client
@@ -363,6 +385,10 @@ export function LogHoursSheet({
   const statusEntry = entryForSelectedDate;
   // Custom-hours validity, surfaced inline in the sheet (not only on submit).
   const customHoursInvalid = customHours <= 0 || customHours > MAX_HOURS_PER_DAY;
+  // The derived standard-day total the submit bar echoes and submits — the
+  // SAME derivation the payload uses (standardDayPlusOt), so what the worker
+  // reads is what the server receives. Plain STANDARD_DAY_HOURS with no chip.
+  const standardDayTotal = otAddOn === null ? STANDARD_DAY_HOURS : standardDayPlusOt(otAddOn);
 
   return (
     <div className="space-y-3">
@@ -448,37 +474,84 @@ export function LogHoursSheet({
 
             {/* The design's compact yellow "Log today's hours" action (md-act.log)
                 in place of a screen-filling navy block. Same submit handler, same
-                disabled gating, same "Submit Standard day" aria-label the smoke
-                clicks — purely visual. The title flips to "Log hours for this day"
-                when the selected date isn't today (week-strip taps / ?fixDate=
-                deep links preselect past days), so it never claims "today" while
-                writing a backdated entry. */}
-            <button
-              type="button"
-              onClick={submitStandardDay}
-              disabled={submitting || !dateInWindow || !jobReady}
-              aria-label="Submit Standard day, 7 hours 36 minutes"
-              className={styles.logAction}
-            >
-              <span className={styles.logActionIcon} aria-hidden="true">
-                <Clock className="h-[18px] w-[18px]" />
-              </span>
-              <span className={styles.logActionText}>
-                <span className={styles.logActionTitle}>
-                  {submitting ? "Logging…" : logActionTitle(date, localDateString())}
+                disabled gating. With no OT chip the aria-label is the exact
+                "Submit Standard day" string the smoke clicks; with a chip it
+                keeps that prefix (the smoke's /Submit Standard day/i still
+                matches) and names the derived truth. The title flips to "Log
+                hours for this day" when the selected date isn't today
+                (week-strip taps / ?fixDate= deep links preselect past days), so
+                it never claims "today" while writing a backdated entry. */}
+            <div>
+              <button
+                type="button"
+                onClick={submitStandardDay}
+                disabled={submitting || !dateInWindow || !jobReady}
+                aria-label={
+                  otAddOn === null
+                    ? "Submit Standard day, 7 hours 36 minutes"
+                    : `Submit Standard day plus ${formatHoursLabel(otAddOn)} overtime, ${formatHoursLabel(standardDayTotal)} total`
+                }
+                className={styles.logAction}
+              >
+                <span className={styles.logActionIcon} aria-hidden="true">
+                  <Clock className="h-[18px] w-[18px]" />
                 </span>
-                {/* Kept short: this sub-label is UPPERCASE + wide letter-spacing, so
-                    the old "<date> · standard day 7h 36m" overflowed the fixed-height
-                    button. The day is already named in the title above and the exact
-                    date sits in the Day picker right below, so the date is dropped. */}
-                <span className={styles.logActionSub}>
-                  Standard day · {formatHoursLabel(STANDARD_DAY_HOURS)}
+                <span className={styles.logActionText}>
+                  <span className={styles.logActionTitle}>
+                    {submitting ? "Logging…" : logActionTitle(date, localDateString())}
+                  </span>
+                  {/* Kept short: this sub-label is UPPERCASE + wide letter-spacing, so
+                      the old "<date> · standard day 7h 36m" overflowed the fixed-height
+                      button. The day is already named in the title above and the exact
+                      date sits in the Day picker right below, so the date is dropped.
+                      With an OT chip active it echoes the derived truth instead —
+                      "Submit 8h 36m — standard + 1h OT" — the worker checks the total
+                      by eye, never computes it (.logAction is min-height so the longer
+                      echo can wrap without clipping). */}
+                  <span className={styles.logActionSub}>
+                    {otAddOn === null
+                      ? `Standard day · ${formatHoursLabel(STANDARD_DAY_HOURS)}`
+                      : standardDayOtEcho(standardDayTotal, otAddOn)}
+                  </span>
                 </span>
-              </span>
-              <span className={styles.logActionArrow} aria-hidden="true">
-                →
-              </span>
-            </button>
+                <span className={styles.logActionArrow} aria-hidden="true">
+                  →
+                </span>
+              </button>
+
+              {/* Overtime as a TAP on the standard day (owner-directed
+                  2026-08-07): one compact chip row riding INSIDE the
+                  standard-day block — no new section (P10). Single-select;
+                  tapping the active chip clears it; no chip = the plain
+                  standard day, byte-identical to before. The derived total is
+                  echoed on the bar above, so "normal day + 1 hour OT" never
+                  becomes worker arithmetic (the "8.36" pay error). Same
+                  disabled gating as the action it rides. */}
+              <div
+                role="group"
+                aria-label="Add overtime to the standard day"
+                className="mt-2 grid grid-cols-4 gap-2"
+              >
+                {STANDARD_DAY_OT_ADD_ONS.map((addOn) => (
+                  <button
+                    key={addOn}
+                    type="button"
+                    onClick={() => setOtAddOn((current) => toggleOtAddOn(current, addOn))}
+                    disabled={submitting || !dateInWindow || !jobReady}
+                    aria-pressed={otAddOn === addOn}
+                    className={cn(
+                      "min-h-[44px] rounded-card border px-1 text-sm font-semibold",
+                      "disabled:cursor-not-allowed disabled:opacity-60",
+                      otAddOn === addOn
+                        ? "border-brand-navy bg-brand-navy text-text-inverse"
+                        : "border-border bg-surface-raised text-text hover:border-border-strong"
+                    )}
+                  >
+                    {otChipLabel(addOn)}
+                  </button>
+                ))}
+              </div>
+            </div>
 
             {/* The two secondary log actions now sit DIRECTLY under the standard-day
                 action (owner reposition): custom/overtime + split are no longer
@@ -544,7 +617,7 @@ export function LogHoursSheet({
       <Modal open={customOpen} onClose={() => setCustomOpen(false)} title="Custom or overtime hours">
         <div className="space-y-4">
           <p className="text-sm text-text-muted">
-            Pick a quick amount (overtime included) or type the exact decimal.
+            Pick a quick amount (overtime included) or set the exact hours and minutes.
           </p>
           <div className="grid grid-cols-4 gap-2">
             {CUSTOM_HOURS_OPTIONS.map((hours) => (
@@ -564,34 +637,75 @@ export function LogHoursSheet({
               </button>
             ))}
           </div>
-          <label className="block text-sm">
-            <span className="mb-1 block font-medium text-text">Exact hours</span>
-            <input
-              type="number"
-              min={0}
-              max={MAX_HOURS_PER_DAY}
-              step="0.25"
-              value={customHours}
-              onChange={(e) => setCustomHours(Number(e.target.value))}
-              aria-invalid={customHoursInvalid}
-              aria-describedby={customHoursInvalid ? "custom-hours-error" : undefined}
-              className={cn(
-                "h-12 w-full rounded-card border bg-surface px-3 text-base focus:outline-none",
-                customHoursInvalid
-                  ? "border-state-danger focus:border-state-danger"
-                  : "border-border focus:border-brand-navy"
-              )}
-            />
+          {/* Hours + minutes, NEVER a decimal box (owner-directed, 2026-08-07):
+              a worker typed "8.36" meaning 8h 36m and the decimal field read it
+              as 8.36h = 8h 22m — the entry silently "changed" on submit. Site
+              dialect is durations ("7h 36m") everywhere; the input now matches.
+              customHours stays the single decimal source of truth underneath
+              (chips, validation, payload unchanged). */}
+          <fieldset className="block text-sm">
+            <legend className="mb-1 block font-medium text-text">Exact time worked</legend>
+            <div className="flex items-center gap-2">
+              <label className="flex flex-1 items-center gap-2">
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  max={MAX_HOURS_PER_DAY}
+                  step={1}
+                  value={Math.floor(customHours)}
+                  onChange={(e) => {
+                    const h = Math.max(0, Math.floor(Number(e.target.value) || 0));
+                    const m = Math.round((customHours % 1) * 60);
+                    setCustomHours(h + m / 60);
+                  }}
+                  aria-label="Hours"
+                  aria-invalid={customHoursInvalid}
+                  aria-describedby={customHoursInvalid ? "custom-hours-error" : undefined}
+                  className={cn(
+                    "h-12 w-full rounded-card border bg-surface px-3 text-base focus:outline-none",
+                    customHoursInvalid
+                      ? "border-state-danger focus:border-state-danger"
+                      : "border-border focus:border-brand-navy"
+                  )}
+                />
+                <span className="shrink-0 text-text-muted">h</span>
+              </label>
+              <label className="flex flex-1 items-center gap-2">
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  max={59}
+                  step={1}
+                  value={Math.round((customHours % 1) * 60)}
+                  onChange={(e) => {
+                    const m = Math.min(59, Math.max(0, Math.floor(Number(e.target.value) || 0)));
+                    const h = Math.floor(customHours);
+                    setCustomHours(h + m / 60);
+                  }}
+                  aria-label="Minutes"
+                  aria-invalid={customHoursInvalid}
+                  className={cn(
+                    "h-12 w-full rounded-card border bg-surface px-3 text-base focus:outline-none",
+                    customHoursInvalid
+                      ? "border-state-danger focus:border-state-danger"
+                      : "border-border focus:border-brand-navy"
+                  )}
+                />
+                <span className="shrink-0 text-text-muted">m</span>
+              </label>
+            </div>
             {customHoursInvalid ? (
               <span
                 id="custom-hours-error"
                 role="alert"
                 className="mt-1 block text-xs font-medium text-state-danger"
               >
-                Hours must be between 0 and {MAX_HOURS_PER_DAY}.
+                Time must be between 0 and {MAX_HOURS_PER_DAY} hours.
               </span>
             ) : null}
-          </label>
+          </fieldset>
           <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
             <Button variant="ghost" onClick={() => setCustomOpen(false)}>
               Cancel

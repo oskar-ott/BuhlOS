@@ -14,7 +14,7 @@ import {
   readSavedEntries,
   recordSavedEntry,
 } from "@/domains/timesheets/saved-entries-journal";
-import { formatHoursLabel } from "@/domains/timesheets/format";
+import { amendmentLine, formatHoursLabel } from "@/domains/timesheets/format";
 import { STATUS_WORDS } from "@/domains/timesheets/status-words";
 import { canResubmitInPhil } from "@/domains/timesheets/resubmit";
 import {
@@ -519,6 +519,10 @@ function EntryRow({
   // the row while it's open.
   const changeable = entry.status === "submitted" && canResubmitInPhil(entry);
   const [changeOpen, setChangeOpen] = useState(false);
+  // The office fixed this day's hours at approval time. ONE line, in the row
+  // that already exists (P10 — no new section), saying the real before → after
+  // and why. A pay change the worker can't see would be the dishonest option.
+  const adjusted = amendmentLine(entry);
   return (
     <div className="space-y-2">
       <div className="flex items-start justify-between gap-3">
@@ -539,6 +543,14 @@ function EntryRow({
                 </p>
               );
             })}
+            {adjusted ? (
+              <p
+                data-testid="phil-hours-adjusted"
+                className="text-[13px] text-text-muted"
+              >
+                {adjusted}
+              </p>
+            ) : null}
           </div>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
@@ -611,11 +623,14 @@ function MissedRow({
     <div className="flex min-h-[44px] items-center justify-between gap-3">
       <div className="min-w-0">
         <p className="text-sm font-semibold text-text">{hoursDayLabel(date, todayISO)}</p>
-        <p className="mt-0.5 text-[13px] text-text-muted">
-          {isToday ? "Not logged yet — assign it to a job below" : "Not logged"}
-        </p>
+        <p className="mt-0.5 text-[13px] text-text-muted">Not logged</p>
       </div>
-      {!isToday && canLog ? (
+      {/* Today carries the SAME Log pill as any other unlogged day (owner-
+          directed, 2026-08-07): once the log card below is seeded to a
+          DIFFERENT day, today's row was the one place with no way back —
+          the worker had to re-pick today in the date input. The pill just
+          re-seeds the one mounted sheet to this date, same as every row. */}
+      {canLog ? (
         <button
           type="button"
           onClick={() => onLogDay(date)}

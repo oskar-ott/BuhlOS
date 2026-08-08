@@ -99,11 +99,30 @@ describe("buildHoursAuditEntry (#390)", () => {
       "hours.submitted",
       "hours.resubmitted",
       "hours.edited_while_submitted", // 2026-07-26 owner-directed
+      "hours.amended_approved", // owner-directed "fix it and approve"
     ]) {
       const p = buildHoursAuditEntry({ action, actor: ACTOR, entry: ENTRY });
       expect(AUDIT_ACTIONS).toContain(p.action);
       expect(AUDIT_TARGET_TYPES).toContain(p.targetType);
     }
+  });
+
+  it("merges extra decision facts into metadata, still inside the privacy line", () => {
+    // The office amend needs the BEFORE total in the journal, or the row says
+    // "it changed" without saying what changed.
+    const p = buildHoursAuditEntry({
+      action: "hours.amended_approved",
+      actor: ACTOR,
+      entry: ENTRY,
+      reason: "Typo — you meant 8h 36m",
+      extraMetadata: { fromTotalHours: 8.37 },
+    });
+    expect(p.metadata).toMatchObject({
+      totalHours: 8.5,
+      fromTotalHours: 8.37,
+      reason: "Typo — you meant 8h 36m",
+    });
+    expect(JSON.stringify(p)).not.toMatch(/amount|payRate|dollar|\$/i);
   });
 
   it("renders every underscore in a multi-underscore action's summary as spaces", () => {

@@ -64,7 +64,12 @@ export default async function HoursApprovalsPage() {
           </CardDescription>
         </Card>
 
-        <HoursApprovalsQueue initialEntries={entries} fetchError={fetchError} canUndo={isAdminRole(session.role)} />
+        <HoursApprovalsQueue
+          initialEntries={entries}
+          fetchError={fetchError}
+          canUndo={isAdminRole(session.role)}
+          canAmend={isAdminRole(session.role)}
+        />
       </div>
     </AdminShell>
   );

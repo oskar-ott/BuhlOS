@@ -61,6 +61,31 @@ export function autoSplitOT(totalHours: number): { ordinary: number; overtime: n
 }
 
 /**
+ * Decimal hours → the hours + minutes a duration input edits.
+ *
+ * Site dialect is durations, never decimals: a worker typed "8.36" meaning
+ * 8h 36m and the decimal field read it as 8h 22m, which is the bug this whole
+ * amend capability exists to fix. Every hours input is an h field and an m
+ * field; these two helpers are the only conversion between that pair and the
+ * decimal the store speaks, so no screen re-invents the rounding.
+ *
+ * Minutes round to the nearest whole minute and carry into the hour (7.999h →
+ * 8h 0m), so the pair is always a legal clock reading.
+ */
+export function splitHoursMinutes(decimalHours: number): { hours: number; minutes: number } {
+  if (!Number.isFinite(decimalHours) || decimalHours <= 0) return { hours: 0, minutes: 0 };
+  const totalMinutes = Math.round(decimalHours * 60);
+  return { hours: Math.floor(totalMinutes / 60), minutes: totalMinutes % 60 };
+}
+
+/** Hours + minutes → decimal hours, rounded to the store's 2dp. */
+export function hoursFromHm(hours: number, minutes: number): number {
+  const h = Number.isFinite(hours) ? Math.max(0, Math.floor(hours)) : 0;
+  const m = Number.isFinite(minutes) ? Math.max(0, Math.floor(minutes)) : 0;
+  return Math.round((h * 60 + m) * (100 / 60)) / 100;
+}
+
+/**
  * True if the allocations array sums to the total (within rounding tolerance).
  * Used as a final sanity check before submit.
  */
@@ -239,6 +264,67 @@ export function buildCustomHoursPayload(input: {
     status: "submitted",
     notes: input.notes ?? null,
   };
+}
+
+/**
+ * The overtime add-ons a worker can tap ONTO the standard day (owner-directed
+ * 2026-08-07). Workers think "normal day + 1 hour OT", never totals — a
+ * worker recently typed the total ("8.36" meaning 8h 36m) and the pay was
+ * wrong. Each value is DECIMAL HOURS added to STANDARD_DAY_HOURS; the sheet
+ * renders them as single-select chips (+30m / +1h / +1½h / +2h) and echoes
+ * the derived total, so nobody does arithmetic.
+ */
+export const STANDARD_DAY_OT_ADD_ONS = [0.5, 1, 1.5, 2] as const;
+
+/**
+ * Tap semantics for the OT chips: tapping the active chip clears it (back to
+ * the plain standard day); tapping another switches. Single-select, pure.
+ */
+export function toggleOtAddOn(current: number | null, tapped: number): number | null {
+  return current === tapped ? null : tapped;
+}
+
+/**
+ * STANDARD_DAY_HOURS plus an OT add-on, rounded to the store's 2dp
+ * (7.6 + 1 → 8.6). The ONE derivation the echo label and the payload share,
+ * so what the worker reads is what the server receives.
+ */
+export function standardDayPlusOt(addOnHours: number): number {
+  return Math.round((STANDARD_DAY_HOURS + addOnHours) * 100) / 100;
+}
+
+/**
+ * The ONE payload the standard-day action submits, with or without an OT
+ * add-on. No add-on → the EXACT buildStandardDayPayload shape the button has
+ * always sent (regression-pinned in timesheets.test.ts). An add-on → the
+ * EXISTING custom-hours builder with the derived total — same endpoint, same
+ * fields, no new server contract; the ordinary/overtime split stays the
+ * server's call (autoSplitOT mirrors it).
+ */
+export function buildStandardDayWithOtPayload(input: {
+  date: string;
+  jobId: string | null;
+  /** Decimal hours on top of the standard day, or null for the plain day. */
+  otAddOn: number | null;
+  notes?: string | null;
+}): {
+  date: string;
+  totalHours: number;
+  ordinaryHours: number;
+  overtimeHours: number;
+  allocations: Array<{ jobId: string | null; hours: number; notes: null }>;
+  status: "submitted";
+  notes: string | null;
+} {
+  if (input.otAddOn === null) {
+    return buildStandardDayPayload({ date: input.date, jobId: input.jobId, notes: input.notes });
+  }
+  return buildCustomHoursPayload({
+    date: input.date,
+    totalHours: standardDayPlusOt(input.otAddOn),
+    jobId: input.jobId,
+    notes: input.notes,
+  });
 }
 
 /**

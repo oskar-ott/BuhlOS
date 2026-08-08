@@ -306,6 +306,50 @@ export function reviewDayRows(worker: WeeklyWorkerHours): ReviewDayRow[] {
     .map((day) => ({ day, note: day.entryId ? null : unloggedDayNote(day) }));
 }
 
+/**
+ * Can the office fix THIS day's hours and approve it in one action?
+ *
+ * Only a day still waiting on a decision, with real logged hours behind it. An
+ * approved day is reopened, not silently rewritten; a rejected or draft day is
+ * the worker's to fix; an unlogged day has nothing to correct. The server says
+ * exactly the same thing (409 on anything but `submitted`) — this only keeps a
+ * dead button off the screen.
+ *
+ * `canAmend` is the viewer's tier (admin only, owner-directed): a leading hand
+ * keeps approve / query.
+ */
+export function canAmendDay(day: WeeklyHoursDay, canAmend: boolean): boolean {
+  return canAmend && day.status === "submitted" && day.hours != null;
+}
+
+export interface AmendDayAllocation {
+  jobId: string | null;
+  /** A real job name where one is known — never a guessed label. */
+  label: string;
+  hours: number;
+}
+
+/**
+ * The correction editor's input rows for ONE day — each job with its OWN time,
+ * so a split day can be fixed job by job rather than by a total the office
+ * would have to spread by hand.
+ *
+ * When the day carries no allocations (legacy / unattributed entry) the whole
+ * day is a single no-job row — which is exactly what that entry is. Never an
+ * invented split.
+ */
+export function amendDayAllocations(day: WeeklyHoursDay): AmendDayAllocation[] {
+  const allocations = day.allocations ?? [];
+  if (allocations.length === 0) {
+    return [{ jobId: null, label: day.jobLabel ?? "No job", hours: day.hours ?? 0 }];
+  }
+  return allocations.map((a) => ({
+    jobId: a.jobId ?? null,
+    label: a.jobName ?? a.jobId ?? "No job",
+    hours: Number(a.hours) || 0,
+  }));
+}
+
 function unloggedDayNote(day: WeeklyHoursDay): string {
   switch (day.status) {
     case "missing":

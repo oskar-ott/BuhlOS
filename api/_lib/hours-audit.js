@@ -21,10 +21,16 @@ function jobIdsOf(entry) {
 
 /**
  * Build the audit-log payload for a SINGLE time-entry decision.
+ *
+ * `extraMetadata` merges extra FACTS about the decision into metadata (e.g. the
+ * office amend's `fromTotalHours`). It stays inside the privacy line above —
+ * hours and identity only, never a rate or an amount.
+ *
  * @param {{ action: string, actor: {id:string, username?:string, role?:string},
- *           entry: object, reason?: string|null }} input
+ *           entry: object, reason?: string|null,
+ *           extraMetadata?: Record<string, unknown> }} input
  */
-function buildHoursAuditEntry({ action, actor, entry, reason }) {
+function buildHoursAuditEntry({ action, actor, entry, reason, extraMetadata }) {
   const jobIds = jobIdsOf(entry);
   const totalHours = Number(entry && entry.totalHours) || 0;
   const userName = (entry && entry.userName) || null;
@@ -49,6 +55,7 @@ function buildHoursAuditEntry({ action, actor, entry, reason }) {
       totalHours,
       jobIds,
       ...(reason ? { reason: String(reason).slice(0, 240) } : {}),
+      ...(extraMetadata && typeof extraMetadata === 'object' ? extraMetadata : {}),
     },
   };
 }

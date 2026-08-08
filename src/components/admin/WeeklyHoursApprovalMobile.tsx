@@ -39,12 +39,15 @@ import {
   submittedHoursOf,
   workerLongDayCount,
   workerOrdOtSplit,
+  amendDayAllocations,
+  canAmendDay,
   type MobileQueryReason,
 } from "@/domains/timesheets/weekly-review";
 import {
   WeeklyCloseoutXeroFinale,
   type XeroFinaleGate,
 } from "@/components/admin/WeeklyCloseoutXeroFinale";
+import { AmendHoursEditor, type AmendPayload } from "@/components/admin/AmendHoursEditor";
 import type { ReviewCandidate } from "@/domains/timesheets/xero-closeout";
 
 /**
@@ -86,6 +89,13 @@ interface WeeklyHoursApprovalMobileProps {
   weekNav: WeekNav;
   /** True when the viewer can undo (reopen is admin tier). */
   canUndo: boolean;
+  /**
+   * True when the viewer may FIX a day's hours and approve it in one action
+   * (admin tier — owner-directed). A leading hand keeps approve / query only;
+   * the server enforces the same rule, so this just avoids showing a button
+   * that would 403.
+   */
+  canAmend?: boolean;
   fetchError: string | null;
   /**
    * Server-resolved role + Xero flags. When this allows it, finishing the
@@ -122,6 +132,7 @@ export function WeeklyHoursApprovalMobile({
   closeout,
   weekNav,
   canUndo,
+  canAmend = false,
   fetchError,
   xeroGate,
   className,
@@ -302,6 +313,51 @@ export function WeeklyHoursApprovalMobile({
     [canUndo, toast, scheduleRefresh, scheduleUndoExpiry, setBusy],
   );
 
+  /**
+   * "Fix the hours and approve" for ONE day inside the review sheet.
+   *
+   * Deliberately NOT optimistic and NOT a week-level resolution: a corrected
+   * day is approved, the worker's other days are not, so the overlay (which
+   * means "this whole week is settled") stays untouched and the refresh below
+   * re-renders the week with that one day approved. Honest either way (P7).
+   */
+  const amendDay = useCallback(
+    async (
+      worker: WeeklyWorkerHours,
+      day: WeeklyHoursDay,
+      payload: AmendPayload,
+    ): Promise<boolean> => {
+      if (busyRef.current.has(worker.workerId)) return false;
+      setBusy(worker.workerId, true);
+      const res = await timesheetsClient.amendAndApproveEntry({
+        userId: worker.workerId,
+        date: day.date,
+        reason: payload.reason,
+        totalHours: payload.totalHours,
+        allocations: payload.allocations,
+      });
+      setBusy(worker.workerId, false);
+      if (!res.ok) {
+        toast(
+          res.error.status === 403
+            ? "Only the office can change someone's hours"
+            : res.error.status === 409
+              ? "That day moved while you were fixing it — refresh"
+              : "Couldn't save the fix — try again",
+          "warn",
+        );
+        scheduleRefresh();
+        return false;
+      }
+      toast(
+        `Fixed ${day.weekday} · ${formatHoursLabel(day.hours ?? 0)} → ${formatHoursLabel(res.data.entry.totalHours)}`,
+      );
+      scheduleRefresh();
+      return true;
+    },
+    [toast, scheduleRefresh, setBusy],
+  );
+
   const undoWorker = useCallback(
     async (worker: WeeklyWorkerHours) => {
       const entry = overlay[worker.workerId];
@@ -476,6 +532,8 @@ export function WeeklyHoursApprovalMobile({
           onApprove={approveWorker}
           onQuery={queryWorker}
           onUndo={undoWorker}
+          onAmendDay={amendDay}
+          canAmend={canAmend}
           onClose={closeSheet}
           weekStart={closeout.weekStart}
           weekEnd={closeout.weekEnd}
@@ -1033,10 +1091,12 @@ function ReviewSheet({
   workerById,
   overlay,
   canUndo,
+  canAmend,
   busyIds,
   onApprove,
   onQuery,
   onUndo,
+  onAmendDay,
   onClose,
   weekStart,
   weekEnd,
@@ -1051,10 +1111,16 @@ function ReviewSheet({
   workerById: Map<string, WeeklyWorkerHours>;
   overlay: Overlay;
   canUndo: boolean;
+  canAmend: boolean;
   busyIds: string[];
   onApprove: (worker: WeeklyWorkerHours) => void;
   onQuery: (worker: WeeklyWorkerHours, reason: MobileQueryReason, note: string) => void;
   onUndo: (worker: WeeklyWorkerHours) => void;
+  onAmendDay: (
+    worker: WeeklyWorkerHours,
+    day: WeeklyHoursDay,
+    payload: AmendPayload,
+  ) => Promise<boolean>;
   onClose: () => void;
   weekStart: string;
   weekEnd: string;
@@ -1197,7 +1263,13 @@ function ReviewSheet({
               {mode === "query" ? (
                 <QueryPanel worker={worker} reason={reason} note={note} onReason={setReason} onNote={setNote} />
               ) : (
-                <ReviewBody worker={worker} alreadyApproved={alreadyResolved === "approved"} />
+                <ReviewBody
+                  worker={worker}
+                  alreadyApproved={alreadyResolved === "approved"}
+                  canAmend={canAmend}
+                  busy={busyIds.includes(worker.workerId)}
+                  onAmendDay={onAmendDay}
+                />
               )}
             </div>
 
@@ -1259,7 +1331,26 @@ function ReviewSheet({
   );
 }
 
-function ReviewBody({ worker, alreadyApproved }: { worker: WeeklyWorkerHours; alreadyApproved: boolean }) {
+function ReviewBody({
+  worker,
+  alreadyApproved,
+  canAmend,
+  busy,
+  onAmendDay,
+}: {
+  worker: WeeklyWorkerHours;
+  alreadyApproved: boolean;
+  canAmend: boolean;
+  busy: boolean;
+  onAmendDay: (
+    worker: WeeklyWorkerHours,
+    day: WeeklyHoursDay,
+    payload: AmendPayload,
+  ) => Promise<boolean>;
+}) {
+  // Which day's inline "fix the hours" editor is open — one at a time, so the
+  // sheet never turns into a form.
+  const [amendDate, setAmendDate] = useState<string | null>(null);
   const split = workerOrdOtSplit(worker);
   const longDays = workerLongDayCount(worker);
   // Meaningful days only — drop empty weekends (mirrors the desktop board).
@@ -1295,7 +1386,18 @@ function ReviewBody({ worker, alreadyApproved }: { worker: WeeklyWorkerHours; al
         </div>
         <div className="rounded-card border border-border">
           {dayRows.map((day) => (
-            <DaySheetRow key={day.date} day={day} />
+            <DaySheetRow
+              key={day.date}
+              day={day}
+              worker={worker}
+              // Only a day still waiting on a decision can be fixed here — the
+              // server says the same (409 on anything else).
+              canAmend={canAmendDay(day, canAmend)}
+              amendOpen={amendDate === day.date}
+              busy={busy}
+              onOpenAmend={setAmendDate}
+              onAmendDay={onAmendDay}
+            />
           ))}
         </div>
       </div>
@@ -1350,7 +1452,27 @@ function SplitBlock({ label, value, hot }: { label: string; value: number; hot?:
   );
 }
 
-function DaySheetRow({ day }: { day: WeeklyHoursDay }) {
+function DaySheetRow({
+  day,
+  worker,
+  canAmend,
+  amendOpen,
+  busy,
+  onOpenAmend,
+  onAmendDay,
+}: {
+  day: WeeklyHoursDay;
+  worker: WeeklyWorkerHours;
+  canAmend: boolean;
+  amendOpen: boolean;
+  busy: boolean;
+  onOpenAmend: (date: string | null) => void;
+  onAmendDay: (
+    worker: WeeklyWorkerHours,
+    day: WeeklyHoursDay,
+    payload: AmendPayload,
+  ) => Promise<boolean>;
+}) {
   const num = new Date(day.date + "T00:00:00Z").toLocaleDateString("en-AU", {
     day: "numeric",
     timeZone: "UTC",
@@ -1359,53 +1481,87 @@ function DaySheetRow({ day }: { day: WeeklyHoursDay }) {
   const long = day.hours != null && day.hours > 10;
   const tone = DAY_PILL_TONE[day.status];
   return (
-    <div className="flex items-center gap-3 border-t border-border px-3 py-2.5 first:border-t-0">
-      <div className="w-10 shrink-0">
-        <div className="font-display text-[13px] font-bold text-text">{day.weekday}</div>
-        <div className="font-mono text-[10px] text-text-muted">{num}</div>
-      </div>
-      <div className="min-w-0 flex-1">
-        {logged ? (
-          <>
-            <div className="truncate font-display text-[13px] font-medium text-text">
-              {day.jobLabel ?? "No job"}
-              {tone ? (
-                <Pill tone={tone} className="ml-1.5 align-middle">
-                  {weeklyDayStatusLabel(day.status)}
-                </Pill>
-              ) : null}
+    <div className="border-t border-border first:border-t-0">
+      <div className="flex items-center gap-3 px-3 py-2.5">
+        <div className="w-10 shrink-0">
+          <div className="font-display text-[13px] font-bold text-text">{day.weekday}</div>
+          <div className="font-mono text-[10px] text-text-muted">{num}</div>
+        </div>
+        <div className="min-w-0 flex-1">
+          {logged ? (
+            <>
+              <div className="truncate font-display text-[13px] font-medium text-text">
+                {day.jobLabel ?? "No job"}
+                {tone ? (
+                  <Pill tone={tone} className="ml-1.5 align-middle">
+                    {weeklyDayStatusLabel(day.status)}
+                  </Pill>
+                ) : null}
+              </div>
+              {day.note ? <div className="truncate text-xs text-text-muted">{day.note}</div> : null}
+            </>
+          ) : (
+            <div className="text-[13px] text-text-muted">
+              {day.status === "missing"
+                ? "Missing"
+                : day.status === "leave"
+                  ? `On leave${day.leaveType ? ` · ${day.leaveType}` : ""}`
+                  : day.status === "holiday"
+                    ? day.holidayName ?? "Public holiday"
+                    : "Not on"}
             </div>
-            {day.note ? <div className="truncate text-xs text-text-muted">{day.note}</div> : null}
-          </>
-        ) : (
-          <div className="text-[13px] text-text-muted">
-            {day.status === "missing"
-              ? "Missing"
-              : day.status === "leave"
-                ? `On leave${day.leaveType ? ` · ${day.leaveType}` : ""}`
-                : day.status === "holiday"
-                  ? day.holidayName ?? "Public holiday"
-                  : "Not on"}
-          </div>
-        )}
+          )}
+        </div>
+        {/* One compact affordance in the row's action slot — the office's
+            "that's a typo" motion, right next to the number that's wrong. */}
+        {canAmend && !amendOpen ? (
+          <button
+            type="button"
+            onClick={() => onOpenAmend(day.date)}
+            disabled={busy}
+            data-testid={`wha-amend-open-${day.date}`}
+            aria-label={`Fix the hours for ${day.weekday}`}
+            className="shrink-0 rounded-pill border border-border px-3 py-1.5 font-display text-[12px] font-semibold text-text-muted disabled:opacity-50"
+          >
+            Fix
+          </button>
+        ) : null}
+        <div className="shrink-0 text-right">
+          {logged ? (
+            <>
+              <span className="font-display text-[15px] font-bold tabular-nums text-text">{day.hours}</span>
+              {long ? (
+                <span className="block font-mono text-[9px] font-semibold uppercase tracking-wide text-amber-700">
+                  long day
+                </span>
+              ) : null}
+            </>
+          ) : (
+            <span className="text-text-muted">—</span>
+          )}
+        </div>
       </div>
-      <div className="shrink-0 text-right">
-        {logged ? (
-          <>
-            <span className="font-display text-[15px] font-bold tabular-nums text-text">{day.hours}</span>
-            {long ? (
-              <span className="block font-mono text-[9px] font-semibold uppercase tracking-wide text-amber-700">
-                long day
-              </span>
-            ) : null}
-          </>
-        ) : (
-          <span className="text-text-muted">—</span>
-        )}
-      </div>
+      {canAmend && amendOpen ? (
+        <div className="px-3 pb-3">
+          <AmendHoursEditor
+            dateLabel={`${day.weekday} ${num}`}
+            workerName={worker.workerName}
+            currentTotalHours={day.hours ?? 0}
+            allocations={amendDayAllocations(day)}
+            saving={busy}
+            onCancel={() => onOpenAmend(null)}
+            onSave={(payload) => {
+              void onAmendDay(worker, day, payload).then((ok) => {
+                if (ok) onOpenAmend(null);
+              });
+            }}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }
+
 
 function QueryPanel({
   worker,

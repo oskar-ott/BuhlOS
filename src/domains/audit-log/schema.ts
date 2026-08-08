@@ -190,6 +190,10 @@ export const AUDIT_ACTIONS = [
   // entry — a sent day changed before the office decided. Kept in sync with
   // api/_lib/audit-log.js.
   "hours.edited_while_submitted",
+  // Owner-directed "fix it and approve": the office corrected a submitted day's
+  // hours and approved it in ONE action (api/time-entries-amend-approve.js).
+  // Kept in sync with api/_lib/audit-log.js.
+  "hours.amended_approved",
   // #370: daywork register (api/dayworks.js). daywork.created on POST;
   // daywork.signed on the supervisor sign; daywork.transitioned on the
   // signed → invoiced change (metadata.from/to); daywork.amended when a
