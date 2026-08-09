@@ -117,3 +117,50 @@
   font-size: 11px;
   color: var(--text-muted);
 }
+
+/*
+ * Short lists shrink the drum to their real row count (owner-directed
+ * 2026-08-10 — a Monday day-dial has ONE option and a 240px drum around it
+ * was dead screen). data-rows on .wrap picks the variant; the invariants are
+ *   viewport = rows × 48px, spacer = (rows − 1) × 24px, band top = spacer,
+ * which keep row i centred at scrollTop = i × 48 exactly like the full drum.
+ * One row is no wheel at all: no runway, no fade — just the selection band.
+ */
+.wrap[data-rows="1"] .viewport {
+  height: 48px;
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+.wrap[data-rows="1"] .spacer {
+  height: 0;
+}
+.wrap[data-rows="1"] .band {
+  top: 0;
+}
+.wrap[data-rows="2"] .viewport {
+  height: 96px;
+}
+.wrap[data-rows="2"] .spacer {
+  height: 24px;
+}
+.wrap[data-rows="2"] .band {
+  top: 24px;
+}
+.wrap[data-rows="3"] .viewport {
+  height: 144px;
+}
+.wrap[data-rows="3"] .spacer {
+  height: 48px;
+}
+.wrap[data-rows="3"] .band {
+  top: 48px;
+}
+.wrap[data-rows="4"] .viewport {
+  height: 192px;
+}
+.wrap[data-rows="4"] .spacer {
+  height: 72px;
+}
+.wrap[data-rows="4"] .band {
+  top: 72px;
+}

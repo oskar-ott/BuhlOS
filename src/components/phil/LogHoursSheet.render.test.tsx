@@ -9,6 +9,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { LogHoursSheet } from "./LogHoursSheet";
+import { localDateString, logDayDialOptions } from "@/domains/timesheets/service";
 
 /**
  * SSR smoke for the LogHoursSheet job-attribution block. renderToString gives
@@ -387,6 +388,16 @@ describe("LogHoursSheet — the day dial (owner-directed 2026-08-09)", () => {
     expect(html).not.toContain('type="date"');
     // Today is the preselected row.
     expect(html).toContain('aria-checked="true"');
+  });
+
+  it("the drum sizes itself to its real row count — a Monday's single option is no wheel at all", () => {
+    // Day-agnostic (the #990 lesson: never let a weekday decide a test):
+    // compute today's REAL option count with the same pure builder the sheet
+    // uses, and pin that the dial declares exactly that row count (capped at
+    // the classic 5-row drum) for the CSS height variants.
+    const html = render({ ...base, assignedJobs: [{ id: "j1", name: "Smith St Rewire" }] });
+    const rows = Math.min(logDayDialOptions(localDateString()).length, 5);
+    expect(html).toContain(`data-rows="${rows}"`);
   });
 
   it("an older seeded day (a past week's Log pill) renders as an extra DATED row, preselected", () => {
