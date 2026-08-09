@@ -40,6 +40,7 @@ import {
   splitHoursMinutes,
   hoursFromHm,
   lastLoggedJobFor,
+  logDayDialOptions,
   standardDayPlusOt,
   summariseMissing,
 } from "./service";
@@ -92,6 +93,46 @@ describe("formatHoursLabel()", () => {
     expect(formatHoursLabel(0)).toBe("0h");
     expect(formatHoursLabel(-1)).toBe("0h");
     expect(formatHoursLabel(NaN)).toBe("0h");
+  });
+});
+
+/**
+ * The log sheet's day dial (owner-directed 2026-08-09): THIS week only, by
+ * day NAME, today on top — never a free calendar. The sheet passes these
+ * options straight to the shared DialPicker.
+ */
+describe("logDayDialOptions()", () => {
+  it("offers Monday through today, newest first, today labelled 'Today'", () => {
+    // 2026-08-05 is a Wednesday.
+    expect(logDayDialOptions("2026-08-05")).toEqual([
+      { date: "2026-08-05", label: "Today" },
+      { date: "2026-08-04", label: "Tuesday" },
+      { date: "2026-08-03", label: "Monday" },
+    ]);
+  });
+
+  it("a Monday offers only Today; a Sunday offers the whole week including the weekend", () => {
+    expect(logDayDialOptions("2026-08-03")).toEqual([{ date: "2026-08-03", label: "Today" }]);
+    const sunday = logDayDialOptions("2026-08-09");
+    expect(sunday).toHaveLength(7);
+    expect(sunday[0]).toEqual({ date: "2026-08-09", label: "Today" });
+    expect(sunday[1]).toEqual({ date: "2026-08-08", label: "Saturday" });
+    expect(sunday[6]).toEqual({ date: "2026-08-03", label: "Monday" });
+  });
+
+  it("an older week's seeded day (a Log pill) is prepended WITH its short date — a bare weekday would lie", () => {
+    const opts = logDayDialOptions("2026-08-05", "2026-07-28");
+    expect(opts[0]).toEqual({ date: "2026-07-28", label: "Tue 28 Jul" });
+    expect(opts).toHaveLength(4);
+  });
+
+  it("an in-week seed is never duplicated; garbage input yields no options", () => {
+    const opts = logDayDialOptions("2026-08-05", "2026-08-04");
+    expect(opts).toHaveLength(3);
+    expect(opts.filter((o) => o.date === "2026-08-04")).toHaveLength(1);
+    expect(logDayDialOptions("not-a-date")).toEqual([]);
+    // A malformed seed is ignored, never rendered.
+    expect(logDayDialOptions("2026-08-05", "05/08/2026")).toHaveLength(3);
   });
 });
 

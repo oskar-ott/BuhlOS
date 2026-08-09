@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Calendar, ChevronRight, ChevronsUpDown, Clock, MapPin, Split, Timer } from "lucide-react";
+import { ChevronRight, ChevronsUpDown, Clock, MapPin, Split, Timer } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { RefreshButton } from "@/components/ui/RefreshButton";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
@@ -13,6 +13,7 @@ import { PhilNotice } from "./ui/PhilNotice";
 import { cn } from "@/lib/cn";
 import { SplitDaySheet } from "./SplitDaySheet";
 import { JobDialPicker } from "./JobDialPicker";
+import { DayDialPicker } from "./DayDialPicker";
 import styles from "./myDay.module.css";
 import { timesheetsClient } from "@/domains/timesheets/client";
 import { useSubmissionKey } from "@/domains/timesheets/useSubmissionKey";
@@ -23,6 +24,7 @@ import {
   buildSplitDayPayload,
   buildStandardDayPayload,
   localDateString,
+  logDayDialOptions,
   MAX_HOURS_PER_DAY,
   MAX_BACKDATE_DAYS,
   isWithinBackdateWindow,
@@ -156,6 +158,13 @@ export function LogHoursSheet({
   const submissionKey = useSubmissionKey();
   const [todayEntry, setTodayEntry] = useState<TimeEntry | null>(initialTodayEntry);
   const [date, setDate] = useState<string>(() => initialDate ?? localDateString());
+  // This week's days for the dial (today first) — plus the seeded day when an
+  // older week's "Log" pill launched the sheet. Recomputed only on re-seed
+  // (the sheet is keyed by logDate in the parent, so a new pill remounts us).
+  const dayOptions = useMemo(
+    () => logDayDialOptions(localDateString(), initialDate),
+    [initialDate],
+  );
   const [notes, setNotes] = useState<string>("");
   const [customOpen, setCustomOpen] = useState(false);
   // The custom sheet's single decimal source of truth. The OT preset chips
@@ -382,6 +391,11 @@ export function LogHoursSheet({
   const statusEntry = entryForSelectedDate;
   // Custom-hours validity, surfaced inline in the sheet (not only on submit).
   const customHoursInvalid = customHours <= 0 || customHours > MAX_HOURS_PER_DAY;
+  // The overtime portion the "Exact overtime worked" inputs edit — DERIVED
+  // from the one decimal source of truth (customHours), never a second state
+  // that could drift. 2dp keeps 7.6 + 1h 30m an exact 9.1.
+  const roundHours = (n: number) => Math.round(n * 100) / 100;
+  const otPortion = Math.max(0, roundHours(customHours - STANDARD_DAY_HOURS));
 
   return (
     <div className="space-y-3">
@@ -413,25 +427,19 @@ export function LogHoursSheet({
       {/* No card wrapper — the design's actions sit as standalone bars on the
           page surface, not inside a bordered form box. */}
       <div className="space-y-3">
-        {/* Day picker — moved directly under the week-strip calendar (owner
-            reposition): the day you're logging sits WITH the calendar above it,
-            not buried in More options. Always in the DOM so the ?fixDate= deep
-            link still seeds it. */}
+        {/* Day picker — THIS week's days by name on the same dial the job
+            picker uses (owner-directed 2026-08-09), replacing the free
+            calendar input: a worker can't mis-pick a date the dial doesn't
+            offer. Today sits on top; an older week's "Log" pill seeds its
+            exact day as an extra dated row (logDayDialOptions). */}
         <div>
-          <label className={styles.dayPick}>
-            <span className={styles.dayPickCal} aria-hidden="true">
-              <Calendar className="h-[15px] w-[15px]" />
-            </span>
-            <span className={styles.dayPickLabel}>Day</span>
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              disabled={submitting}
-              aria-label="Day to log"
-              className={styles.dayPickInput}
-            />
-          </label>
+          <p className="font-display text-xs uppercase tracking-widest text-text-muted">Day</p>
+          <DayDialPicker
+            options={dayOptions}
+            selectedDate={date}
+            onSelect={setDate}
+            disabled={submitting}
+          />
           {!dateInWindow ? (
             <p className={styles.dayPickWarn}>
               Pick a date in the last {MAX_BACKDATE_DAYS} days.
@@ -567,7 +575,7 @@ export function LogHoursSheet({
         <div className="space-y-4">
           <p className="text-sm text-text-muted">
             {/* One string, not adjacent JSX text (SSR comment markers split copy). */}
-            {`Did overtime? Tap it — the total fills in for you. Standard day is ${formatHoursLabel(STANDARD_DAY_HOURS)}.`}
+            {`Did overtime? Tap a preset or set the exact overtime — the day total is worked out for you. Standard day is ${formatHoursLabel(STANDARD_DAY_HOURS)}.`}
           </p>
           {/* OT presets, NOT raw totals (owner-directed 2026-08-09): a worker
               who worked an extra hour thinks "9 hours" — but the day is
@@ -614,15 +622,92 @@ export function LogHoursSheet({
               );
             })}
           </div>
-          {/* Hours + minutes, NEVER a decimal box (owner-directed, 2026-08-07):
-              a worker typed "8.36" meaning 8h 36m and the decimal field read it
-              as 8.36h = 8h 22m — the entry silently "changed" on submit. Site
-              dialect is durations ("7h 36m") everywhere; the input now matches.
-              customHours stays the single decimal source of truth underneath
-              (chips, validation, payload unchanged). */}
+          {/* Exact OVERTIME, not exact total (owner-directed 2026-08-09):
+              with a total-denominated field a worker logging 1h OT could type
+              "1h 0m" and log a one-hour day — the same self-computed-number
+              trap as everywhere else. These inputs speak the worker's frame
+              ("how much overtime?"); the day total is DERIVED (standard day +
+              OT, same as the presets) and echoed below, so what they read is
+              what the server receives. Hours + minutes, NEVER a decimal box
+              (the "8.36" incident, 2026-08-07). customHours stays the single
+              decimal source of truth underneath. */}
           <fieldset className="block text-sm">
-            <legend className="mb-1 block font-medium text-text">Exact time worked</legend>
+            <legend className="mb-1 block font-medium text-text">Exact overtime worked</legend>
             <div className="flex items-center gap-2">
+              <label className="flex flex-1 items-center gap-2">
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  max={16}
+                  step={1}
+                  value={Math.floor(otPortion)}
+                  onChange={(e) => {
+                    const h = Math.max(0, Math.floor(Number(e.target.value) || 0));
+                    const m = Math.round((otPortion % 1) * 60);
+                    setCustomHours(roundHours(STANDARD_DAY_HOURS + h + m / 60));
+                  }}
+                  aria-label="Overtime hours"
+                  aria-invalid={customHoursInvalid}
+                  aria-describedby={customHoursInvalid ? "custom-hours-error" : undefined}
+                  className={cn(
+                    "h-12 w-full rounded-card border bg-surface px-3 text-base focus:outline-none",
+                    customHoursInvalid
+                      ? "border-state-danger focus:border-state-danger"
+                      : "border-border focus:border-brand-navy"
+                  )}
+                />
+                <span className="shrink-0 text-text-muted">h</span>
+              </label>
+              <label className="flex flex-1 items-center gap-2">
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  max={59}
+                  step={1}
+                  value={Math.round((otPortion % 1) * 60)}
+                  onChange={(e) => {
+                    const m = Math.min(59, Math.max(0, Math.floor(Number(e.target.value) || 0)));
+                    const h = Math.floor(otPortion);
+                    setCustomHours(roundHours(STANDARD_DAY_HOURS + h + m / 60));
+                  }}
+                  aria-label="Overtime minutes"
+                  aria-invalid={customHoursInvalid}
+                  className={cn(
+                    "h-12 w-full rounded-card border bg-surface px-3 text-base focus:outline-none",
+                    customHoursInvalid
+                      ? "border-state-danger focus:border-state-danger"
+                      : "border-border focus:border-brand-navy"
+                  )}
+                />
+                <span className="shrink-0 text-text-muted">m</span>
+              </label>
+            </div>
+            {/* The derived truth, always visible — the worker checks the day
+                total by eye, never computes it. One string (SSR markers). */}
+            <p className="mt-1 text-sm text-text [font-variant-numeric:tabular-nums]">
+              {`= ${formatHoursLabel(customHours)} total (standard day + overtime)`}
+            </p>
+            {customHoursInvalid ? (
+              <span
+                id="custom-hours-error"
+                role="alert"
+                className="mt-1 block text-xs font-medium text-state-danger"
+              >
+                The day must be between 0 and {MAX_HOURS_PER_DAY} hours in total.
+              </span>
+            ) : null}
+          </fieldset>
+
+          {/* The short-day escape hatch: a half day is a TOTAL, not overtime,
+              so it keeps a clearly-labelled exact-time entry — tucked behind a
+              disclosure so the overtime lead stays clean (P10). */}
+          <details className="text-sm">
+            <summary className="cursor-pointer font-medium text-text-muted">
+              Worked less than a standard day?
+            </summary>
+            <div className="mt-2 flex items-center gap-2">
               <label className="flex flex-1 items-center gap-2">
                 <input
                   type="number"
@@ -634,11 +719,10 @@ export function LogHoursSheet({
                   onChange={(e) => {
                     const h = Math.max(0, Math.floor(Number(e.target.value) || 0));
                     const m = Math.round((customHours % 1) * 60);
-                    setCustomHours(h + m / 60);
+                    setCustomHours(roundHours(h + m / 60));
                   }}
                   aria-label="Hours"
                   aria-invalid={customHoursInvalid}
-                  aria-describedby={customHoursInvalid ? "custom-hours-error" : undefined}
                   className={cn(
                     "h-12 w-full rounded-card border bg-surface px-3 text-base focus:outline-none",
                     customHoursInvalid
@@ -659,7 +743,7 @@ export function LogHoursSheet({
                   onChange={(e) => {
                     const m = Math.min(59, Math.max(0, Math.floor(Number(e.target.value) || 0)));
                     const h = Math.floor(customHours);
-                    setCustomHours(h + m / 60);
+                    setCustomHours(roundHours(h + m / 60));
                   }}
                   aria-label="Minutes"
                   aria-invalid={customHoursInvalid}
@@ -673,16 +757,10 @@ export function LogHoursSheet({
                 <span className="shrink-0 text-text-muted">m</span>
               </label>
             </div>
-            {customHoursInvalid ? (
-              <span
-                id="custom-hours-error"
-                role="alert"
-                className="mt-1 block text-xs font-medium text-state-danger"
-              >
-                Time must be between 0 and {MAX_HOURS_PER_DAY} hours.
-              </span>
-            ) : null}
-          </fieldset>
+            <p className="mt-1 text-xs text-text-muted">
+              This sets the exact time worked for the whole day.
+            </p>
+          </details>
           <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
             <Button variant="ghost" onClick={() => setCustomOpen(false)}>
               Cancel

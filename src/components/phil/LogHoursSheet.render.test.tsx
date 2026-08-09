@@ -90,9 +90,10 @@ describe("LogHoursSheet — job attribution", () => {
     // Collapsed: only the chosen job shows, plus a way to switch…
     expect(html).toContain("Depot Switchboard");
     expect(html).toContain("Select a different job");
-    // …the full radiogroup, the search field and the other job are tucked away
-    // until the picker is reopened.
-    expect(html).not.toContain('role="radiogroup"');
+    // …the full job radiogroup, the search field and the other job are tucked
+    // away until the picker is reopened. (Scoped to the JOB dial's aria-label
+    // — the day dial above is legitimately a radiogroup too, 2026-08-09.)
+    expect(html).not.toContain('aria-label="Choose the job for these hours"');
     expect(html).not.toContain("Search your jobs");
     expect(html).not.toContain("Smith St Rewire");
   });
@@ -110,8 +111,9 @@ describe("LogHoursSheet — job attribution", () => {
     // The last-logged job is preselected → no outstanding "Pick one"…
     expect(html).not.toContain("Pick one");
     expect(html).toContain("Depot Switchboard");
-    // …shown collapsed (list hidden) with a self-explaining, real-dated sub-line.
-    expect(html).not.toContain('role="radiogroup"');
+    // …shown collapsed (job list hidden — the day dial's radiogroup above is
+    // expected) with a self-explaining, real-dated sub-line.
+    expect(html).not.toContain('aria-label="Choose the job for these hours"');
     expect(html).toContain("Your last job");
     expect(html).toContain("19 Jun"); // the real entry date, year-less short form…
     expect(html).not.toContain("19 Jun 2026"); // …not the full ISO/yearful label
@@ -335,16 +337,15 @@ describe("LogHoursSheet — status is scoped to the SELECTED date (regression, 2
 });
 
 describe("LogHoursSheet — log control layout (owner reposition)", () => {
-  it("puts the day picker up under the calendar, above the standard-day action", () => {
+  it("puts the day dial up top, above the standard-day action", () => {
     const html = render({
       ...base,
       assignedJobs: [{ id: "j1", name: "Smith St Rewire" }],
-      initialDate: "2026-06-01",
     });
-    const dateAt = html.indexOf('value="2026-06-01"');
-    expect(dateAt).toBeGreaterThanOrEqual(0);
-    // the day picker now renders before the yellow Standard-day action
-    expect(dateAt).toBeLessThan(html.indexOf("Standard day"));
+    const dialAt = html.indexOf('data-testid="day-dial"');
+    expect(dialAt).toBeGreaterThanOrEqual(0);
+    // the day dial renders before the yellow Standard-day action
+    expect(dialAt).toBeLessThan(html.indexOf("Standard day"));
   });
 
   it("places custom/overtime + split DIRECTLY under the action, not behind 'More options'", () => {
@@ -373,14 +374,34 @@ describe("LogHoursSheet — log control layout (owner reposition)", () => {
   });
 });
 
-describe("LogHoursSheet — deep-linked date", () => {
-  it("preselects the validated initialDate so the fix lands on the right day", () => {
+describe("LogHoursSheet — the day dial (owner-directed 2026-08-09)", () => {
+  // The options themselves (this week only, day names, seeded extra day) are
+  // pure logic pinned in timesheets.test.ts ("logDayDialOptions()"); this
+  // suite pins the SSR wiring: the shared dial replaces the calendar input.
+  it("renders the week's days on the shared dial — no free calendar input", () => {
+    const html = render({ ...base, assignedJobs: [{ id: "j1", name: "Smith St Rewire" }] });
+    expect(html).toContain('data-testid="day-dial"');
+    expect(html).toContain('aria-label="Choose the day to log"');
+    expect(html).toContain(">Today<");
+    // The open calendar is gone — a worker can only pick a day the dial says.
+    expect(html).not.toContain('type="date"');
+    // Today is the preselected row.
+    expect(html).toContain('aria-checked="true"');
+  });
+
+  it("an older seeded day (a past week's Log pill) renders as an extra DATED row, preselected", () => {
+    // A date guaranteed outside this week but inside the 14-day window.
+    const seeded = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    // Same part-by-part composition the builder uses ("Tue 28 Jul").
+    const d = new Date(seeded + "T00:00:00Z");
+    const label = `${d.toLocaleDateString("en-AU", { weekday: "short", timeZone: "UTC" })} ${d.getUTCDate()} ${d.toLocaleDateString("en-AU", { month: "short", timeZone: "UTC" })}`;
     const html = render({
       ...base,
       assignedJobs: [{ id: "j1", name: "Smith St Rewire" }],
-      initialDate: "2026-06-01",
+      initialDate: seeded,
     });
-    expect(html).toContain('value="2026-06-01"');
+    expect(html).toContain(`>${label}<`);
+    expect(html).toContain('aria-checked="true"');
   });
 });
 
