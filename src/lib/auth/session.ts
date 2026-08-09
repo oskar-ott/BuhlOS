@@ -23,6 +23,9 @@ const SessionPayloadSchema = z.object({
   email: z.string().optional(),
   role: z.string().optional(),
   name: z.string().optional(),
+  /** "What you go by" nickname — greeting-only (owner-directed 2026-08-09);
+   *  `name` is the real full name everywhere else. */
+  preferredName: z.string().nullable().optional(),
   username: z.string().optional(),
   exp: z.number().optional(),
 });
@@ -76,6 +79,9 @@ const MeResponseSchema = z.object({
       email: z.string().optional(),
       role: z.string().optional(),
       name: z.string().optional(),
+      // Greeting-only nickname (owner-directed 2026-08-09) — `name` carries
+      // the real full name for every other surface.
+      preferredName: z.string().nullable().optional(),
       // users.json usernames double as display names across the app (the
       // hours pipeline stamps them onto entries; the employees bridge splits
       // them into first/last) — surfaced here so greetings can use them too.

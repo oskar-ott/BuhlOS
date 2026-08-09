@@ -197,6 +197,10 @@ describe("POST /api/signup?action=submit — instant access", () => {
     expect(u).toBeTruthy();
     expect(u!.createdVia).toBe("signup-link");
     expect(u!.email).toBe("alfredo.reyes@gmail.com");
+    // Owner-directed 2026-08-09: login `name` is the REAL full name (hours,
+    // approvals, payroll all read it); the nickname rides as preferredName.
+    expect(u!.name).toBe("Alfredo Reyes");
+    expect(u!.preferredName).toBeNull();
     expect(bcrypt.compareSync("8053", u!.passwordHash as string)).toBe(true);
 
     const e = employees().find((x) => x.email === "alfredo.reyes@gmail.com");
@@ -222,6 +226,14 @@ describe("POST /api/signup?action=submit — instant access", () => {
     expect(actions).toContain("signup.submitted");
     expect(actions).toContain("signup.approved");
     expect(actions).toContain("employee.activated");
+  });
+
+  it("a nickname never replaces the full name on the login — it rides as preferredName", async () => {
+    const res = await submit({ preferredName: "Alfie" });
+    expect(res.statusCode).toBe(200);
+    const u = users().find((x) => x.username === "alfredo.reyes@gmail.com");
+    expect(u!.name).toBe("Alfredo Reyes"); // hours/approvals/payroll read this
+    expect(u!.preferredName).toBe("Alfie"); // the greeting alone prefers this
   });
 
   it("start year: a plausible year lands on the employee row; a rubbish one refuses", async () => {

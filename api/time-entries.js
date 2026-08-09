@@ -526,7 +526,11 @@ async function enrichEntries(entries, viewer) {
     const submitter = userById[e.userId];
     return {
       ...e,
-      userName: e.userName || (submitter && (submitter.name || submitter.username)) || e.userId,
+      // LIVE name first (owner-directed 2026-08-09): the per-entry stamp is
+      // frozen at write time — after a rename (e.g. nickname → full name) old
+      // entries would keep showing the stale name. The stamp survives only as
+      // the fallback for a deleted login.
+      userName: (submitter && (submitter.name || submitter.username)) || e.userName || e.userId,
       userRole: e.userRole || (submitter && submitter.role) || null,
       allocations: (e.allocations || []).map(a => {
         const job = a.jobId ? jobById[a.jobId] : null;

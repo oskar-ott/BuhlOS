@@ -157,8 +157,15 @@ export default async function MyDayPage({
   // soft: no profile → impersonal "Arvo" and no avatar, never a placeholder.
   // The job they're on is shown only when there's exactly one assigned job —
   // there is no active-job signal, so we never guess.
+  // The greeting is the ONE place the "what you go by" nickname wins
+  // (owner-directed 2026-08-09): every other surface (hours, approvals,
+  // payroll prep, the register) shows the real full name.
   const displayName =
-    profile?.name?.trim() || profile?.username?.trim() || session.name?.trim() || null;
+    profile?.preferredName?.trim() ||
+    profile?.name?.trim() ||
+    profile?.username?.trim() ||
+    session.name?.trim() ||
+    null;
   const dateLabel = new Date().toLocaleDateString("en-AU", {
     weekday: "short",
     day: "numeric",
