@@ -47,14 +47,36 @@ export const MAX_BACKDATE_DAYS = 14;
 export const BUSINESS_TIMEZONE = "Australia/Sydney" as const;
 
 /**
+ * Saturday/Sunday, read straight off the calendar-date string (UTC arithmetic
+ * — the input carries no time component, so this is timezone-independent).
+ */
+export function isWeekendDate(date: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
+  const day = new Date(date + "T00:00:00Z").getUTCDay();
+  return day === 0 || day === 6;
+}
+
+/**
  * Auto-split a total into ordinary (the standard day, 7.6h) and overtime
  * (the excess). Owner-directed 2026-08-09: the boundary moved from 8h to the
  * STANDARD DAY so "standard + 1h OT" is stored and paid as exactly that —
  * with the old 8h boundary the same day split 8h ordinary + 36m OT and the
  * app's "+1h OT" disagreed with the payslip. Matches `autoSplitOT` in
  * api/_lib/time-entries.js exactly so client + server agree.
+ *
+ * Owner-directed 2026-08-10: hours beyond 38/week are overtime — and because
+ * the app week is Mon–Sun with weekday ordinary capped at the standard day
+ * (5 × 7.6h = 38h), the whole weekly rule reduces to: WEEKEND HOURS ARE
+ * ALWAYS OVERTIME. Pass the entry date so Sat/Sun days book as all-OT; a
+ * dateless call keeps the plain weekday split (legacy callers).
  */
-export function autoSplitOT(totalHours: number): { ordinary: number; overtime: number } {
+export function autoSplitOT(
+  totalHours: number,
+  date?: string
+): { ordinary: number; overtime: number } {
+  if (date && isWeekendDate(date)) {
+    return { ordinary: 0, overtime: Math.round(totalHours * 100) / 100 };
+  }
   const ordinary = Math.min(totalHours, STANDARD_DAY_HOURS);
   const overtime = Math.max(0, totalHours - STANDARD_DAY_HOURS);
   return {
@@ -220,7 +242,7 @@ export function buildStandardDayPayload(input: {
   status: "submitted";
   notes: string | null;
 } {
-  const { ordinary, overtime } = autoSplitOT(STANDARD_DAY_HOURS);
+  const { ordinary, overtime } = autoSplitOT(STANDARD_DAY_HOURS, input.date);
   return {
     date: input.date,
     totalHours: STANDARD_DAY_HOURS,
@@ -257,7 +279,7 @@ export function buildCustomHoursPayload(input: {
   status: "submitted";
   notes: string | null;
 } {
-  const { ordinary, overtime } = autoSplitOT(input.totalHours);
+  const { ordinary, overtime } = autoSplitOT(input.totalHours, input.date);
   return {
     date: input.date,
     totalHours: input.totalHours,
@@ -312,7 +334,7 @@ export function buildSplitDayPayload(input: {
   status: "submitted";
   notes: string | null;
 } {
-  const { ordinary, overtime } = autoSplitOT(input.totalHours);
+  const { ordinary, overtime } = autoSplitOT(input.totalHours, input.date);
   return {
     date: input.date,
     totalHours: input.totalHours,
@@ -333,10 +355,7 @@ export function buildSplitDayPayload(input: {
  * total minus the hours already entered on the earlier rows, rounded to 0.1
  * and never negative. (#128 — "the maths does itself".)
  */
-export function splitDayRemainder(
-  totalHours: number,
-  filledHours: ReadonlyArray<number>
-): number {
+export function splitDayRemainder(totalHours: number, filledHours: ReadonlyArray<number>): number {
   const used = filledHours.reduce((s, h) => s + (Number.isFinite(h) ? h : 0), 0);
   const remainder = Math.round((totalHours - used) * 10) / 10;
   return remainder > 0 ? remainder : 0;
@@ -368,10 +387,7 @@ export interface LogDayDialOption {
  * already window-guarded (isWithinBackdateWindow), so the dial never has to
  * re-police the 14-day rule.
  */
-export function logDayDialOptions(
-  todayISO: string,
-  seedDate?: string | null,
-): LogDayDialOption[] {
+export function logDayDialOptions(todayISO: string, seedDate?: string | null): LogDayDialOption[] {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(todayISO)) return [];
   const monday = weekStartOf(todayISO);
   const options: LogDayDialOption[] = [];

@@ -26,7 +26,22 @@ const activityPath = requireFromHere.resolve("../../../api/_lib/activity.js");
 const auditLogPath = requireFromHere.resolve("../../../api/_lib/audit-log.js");
 const amendPath = requireFromHere.resolve("../../../api/time-entries-amend-approve.js");
 
-const TODAY = new Date().toISOString().slice(0, 10);
+// A date guaranteed to pass the entry's backdating window (today, no future) —
+// pinned to the most recent WEEKDAY (Mon-Fri): Sat/Sun entries coerce to
+// all-overtime since the 2026-08-10 weekend rule, and these split contracts
+// describe ordinary days. Weekend behaviour has its own pins below.
+const TODAY = (() => {
+  const d = new Date();
+  while (d.getUTCDay() === 0 || d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+})();
+// The most recent Saturday on or before today — inside the 14-day backdate
+// window on any run date, never in the future.
+const LAST_SATURDAY = (() => {
+  const d = new Date();
+  while (d.getUTCDay() !== 6) d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+})();
 const ENTRY_PATH = (userId: string) => `users/${userId}/time-entries/${TODAY}.json`;
 
 type Res = ReturnType<typeof createRes>;
@@ -265,6 +280,30 @@ describe("amend + approve — the happy path (the live incident)", () => {
     expect(e.ordinaryHours).toBe(7.6);
     expect(e.overtimeHours).toBe(1); // 8.6 - 7.6, recomputed at the standard-day boundary
     expect(e.ordinaryHours + e.overtimeHours).toBeCloseTo(e.totalHours, 5);
+  });
+
+  it("an amended WEEKEND day re-splits to all overtime (2026-08-10 rule)", async () => {
+    // Saturday entry mis-stored as ordinary; the office corrects the total —
+    // the recomputed split must book every hour as OT.
+    blob.set(`users/u_field/time-entries/${LAST_SATURDAY}.json`, {
+      ...entry(),
+      date: LAST_SATURDAY,
+      totalHours: 4,
+      ordinaryHours: 4,
+      overtimeHours: 0,
+      allocations: [{ jobId: "job-x", hours: 4, notes: null, sortOrder: 0 }],
+    });
+    const res = await call("u_admin", "admin", {
+      userId: "u_field",
+      date: LAST_SATURDAY,
+      totalHours: 5,
+      reason: "Forgot the last hour",
+    });
+    expect(res.statusCode).toBe(200);
+    const e = blob.get(`users/u_field/time-entries/${LAST_SATURDAY}.json`) as StoredEntry;
+    expect(e.totalHours).toBe(5);
+    expect(e.ordinaryHours).toBe(0);
+    expect(e.overtimeHours).toBe(5);
   });
 
   it("a manual OT override does not survive the amend — the split is derived again", async () => {

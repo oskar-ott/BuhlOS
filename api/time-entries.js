@@ -15,6 +15,7 @@ const { requireAuth, isStaffRole, isAdminRole, isLeadingHandRole, isFieldRole, c
 const {
   newId,
   validateEntryShape,
+  enforceWeekendSplit,
   inactiveJobAllocationError,
   readEntry,
   writeEntry,
@@ -162,7 +163,10 @@ async function handleCreate(req, res, user) {
   }
 
   const now = new Date().toISOString();
-  const entry = {
+  // enforceWeekendSplit: Sat/Sun books as ALL overtime regardless of the
+  // client-sent split (owner-directed 2026-08-10 — hours past the 38h week
+  // are OT, and weekend days are past it by construction).
+  const entry = enforceWeekendSplit({
     id: newId(),
     userId: targetUserId,
     userName: targetUserName,
@@ -198,7 +202,7 @@ async function handleCreate(req, res, user) {
     enteredByUserId: onBehalf ? user.id : targetUserId,
     enteredByName:   onBehalf ? (user.name || user.username) : targetUserName,
     source:          onBehalf ? user.role : 'self',
-  };
+  });
 
   // Record the key on the entry IN THE SAME write so a retry resolves to this
   // exact result. recordIdempotent runs BEFORE writeEntry (the entry IS the
@@ -357,7 +361,9 @@ async function handlePatch(req, res, user) {
   // sent". (No office UI is built for it here; the stamp is the seam.)
   const editedWhileSubmitted = !transitioningToSubmitted && existing.status === 'submitted';
 
-  const updated = {
+  // enforceWeekendSplit: same weekend all-OT coercion as create — an edit
+  // can change totals, and the stored split must stay pay-correct.
+  const updated = enforceWeekendSplit({
     ...existing,
     ...editable,
     // Preserve immutable fields
@@ -399,7 +405,7 @@ async function handlePatch(req, res, user) {
       notes: a.notes || null,
       sortOrder: i,
     })),
-  };
+  });
 
   // Record the key on the entry IN THE SAME write (before writeEntry) so a
   // retry resolves to this exact result. The snapshot is ring-free, so the

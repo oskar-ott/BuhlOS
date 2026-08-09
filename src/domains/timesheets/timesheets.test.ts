@@ -24,6 +24,7 @@ import {
   MAX_BACKDATE_DAYS,
   BUSINESS_TIMEZONE,
   autoSplitOT,
+  isWeekendDate,
   allocationsSumValid,
   canSubmit,
   canEdit,
@@ -149,6 +150,45 @@ describe("autoSplitOT()", () => {
     // Short days are all ordinary — the boundary only splits the excess.
     expect(autoSplitOT(4)).toEqual({ ordinary: 4, overtime: 0 });
   });
+
+  it("weekend days are ALL overtime — owner-directed 2026-08-10 (>38h/week rule; 5 weekdays × 7.6h = 38h)", () => {
+    // 2026-08-08 is a Saturday, 2026-08-09 a Sunday — the Jonathan Borg case:
+    // 4h on Saturday must book as 4h OT, not 4h ordinary.
+    expect(autoSplitOT(4, "2026-08-08")).toEqual({ ordinary: 0, overtime: 4 });
+    expect(autoSplitOT(7.6, "2026-08-09")).toEqual({ ordinary: 0, overtime: 7.6 });
+    expect(autoSplitOT(10, "2026-08-08")).toEqual({ ordinary: 0, overtime: 10 });
+    // Weekdays keep the standard-day split, date present or not.
+    expect(autoSplitOT(8.6, "2026-08-07")).toEqual({ ordinary: 7.6, overtime: 1 });
+    expect(autoSplitOT(8.6, "2026-08-10")).toEqual({ ordinary: 7.6, overtime: 1 });
+  });
+});
+
+describe("isWeekendDate()", () => {
+  it("flags Sat/Sun off the calendar date, timezone-free; garbage is not a weekend", () => {
+    expect(isWeekendDate("2026-08-08")).toBe(true); // Sat
+    expect(isWeekendDate("2026-08-09")).toBe(true); // Sun
+    expect(isWeekendDate("2026-08-10")).toBe(false); // Mon
+    expect(isWeekendDate("2026-08-07")).toBe(false); // Fri
+    expect(isWeekendDate("not-a-date")).toBe(false);
+  });
+});
+
+describe("payload builders on a weekend date (owner-directed 2026-08-10)", () => {
+  it("a Saturday standard day books 7h 36m ALL overtime", () => {
+    const payload = buildStandardDayPayload({ date: "2026-08-08", jobId: "job-iv" });
+    expect(payload.totalHours).toBe(7.6);
+    expect(payload.ordinaryHours).toBe(0);
+    expect(payload.overtimeHours).toBe(7.6);
+  });
+
+  it("Saturday custom hours book all overtime; a weekday is untouched", () => {
+    const sat = buildCustomHoursPayload({ date: "2026-08-08", jobId: "j", totalHours: 4 });
+    expect(sat.ordinaryHours).toBe(0);
+    expect(sat.overtimeHours).toBe(4);
+    const fri = buildCustomHoursPayload({ date: "2026-08-07", jobId: "j", totalHours: 4 });
+    expect(fri.ordinaryHours).toBe(4);
+    expect(fri.overtimeHours).toBe(0);
+  });
 });
 
 describe("otSplitLabel() — the single split-display source (#130)", () => {
@@ -160,7 +200,7 @@ describe("otSplitLabel() — the single split-display source (#130)", () => {
 
   it("renders the office split above the threshold (8.01h / 10h / 16h)", () => {
     expect(otSplitLabel({ ordinaryHours: 8, overtimeHours: 0.01, totalHours: 8.01 })).toBe(
-      "8h + 1m OT",
+      "8h + 1m OT"
     );
     expect(otSplitLabel({ ordinaryHours: 8, overtimeHours: 2, totalHours: 10 })).toBe("8h + 2h OT");
     expect(otSplitLabel({ ordinaryHours: 8, overtimeHours: 8, totalHours: 16 })).toBe("8h + 8h OT");
@@ -168,8 +208,15 @@ describe("otSplitLabel() — the single split-display source (#130)", () => {
 
   it("uses worker words for the Phil audience — 'overtime', never 'OT' (P11)", () => {
     expect(
-      otSplitLabel({ ordinaryHours: 8, overtimeHours: 2, totalHours: 10 }, { audience: "worker" }),
+      otSplitLabel({ ordinaryHours: 8, overtimeHours: 2, totalHours: 10 }, { audience: "worker" })
     ).toBe("8h + 2h overtime");
+  });
+
+  it("an all-OT day (weekend rule) reads as plain overtime, never '0h + …'", () => {
+    expect(otSplitLabel({ ordinaryHours: 0, overtimeHours: 4, totalHours: 4 })).toBe("4h OT");
+    expect(
+      otSplitLabel({ ordinaryHours: 0, overtimeHours: 4, totalHours: 4 }, { audience: "worker" })
+    ).toBe("4h overtime");
   });
 
   it("HONESTY GUARD (P7): a stored split that doesn't reconcile returns null", () => {
@@ -177,14 +224,12 @@ describe("otSplitLabel() — the single split-display source (#130)", () => {
     expect(otSplitLabel({ ordinaryHours: 8, overtimeHours: 2, totalHours: 12 })).toBeNull();
     // Tiny rounding drift (≤ 0.01) is tolerated, not treated as garbage.
     expect(otSplitLabel({ ordinaryHours: 8, overtimeHours: 2.005, totalHours: 10 })).toBe(
-      "8h + 2h OT",
+      "8h + 2h OT"
     );
   });
 
   it("returns null for non-finite stored fields rather than throwing", () => {
-    expect(
-      otSplitLabel({ ordinaryHours: NaN, overtimeHours: 2, totalHours: 10 }),
-    ).toBeNull();
+    expect(otSplitLabel({ ordinaryHours: NaN, overtimeHours: 2, totalHours: 10 })).toBeNull();
   });
 });
 
@@ -384,7 +429,7 @@ describe("custom-sheet OT presets", () => {
     expect(buildStandardDayPayload(args).totalHours).toBe(STANDARD_DAY_HOURS);
     // …including the null-job admin path.
     expect(buildStandardDayPayload({ date: "2026-08-06", jobId: null }).totalHours).toBe(
-      STANDARD_DAY_HOURS,
+      STANDARD_DAY_HOURS
     );
   });
 
@@ -1006,7 +1051,7 @@ describe("amendmentLine() — what the worker is told", () => {
         totalHours: 8.6,
         amendedFrom: { totalHours: 8.37 },
         amendedReason: "Typo — you meant 8h 36m",
-      }),
+      })
     ).toBe("Adjusted by the office — 8h 22m → 8h 36m: Typo — you meant 8h 36m");
   });
 
@@ -1021,7 +1066,7 @@ describe("amendmentLine() — what the worker is told", () => {
         totalHours: 7.6,
         amendedFrom: { totalHours: Number.NaN },
         amendedReason: "x",
-      }),
+      })
     ).toBeNull();
   });
 
@@ -1046,7 +1091,9 @@ describe("AmendApproveTimeEntryPayloadSchema", () => {
   const base = { userId: "u1", date: "2026-06-05", reason: "Typo — you meant 8h 36m" };
 
   it("accepts a single-job day sending just the corrected total", () => {
-    expect(AmendApproveTimeEntryPayloadSchema.safeParse({ ...base, totalHours: 8.6 }).success).toBe(true);
+    expect(AmendApproveTimeEntryPayloadSchema.safeParse({ ...base, totalHours: 8.6 }).success).toBe(
+      true
+    );
   });
 
   it("accepts a split day sending each job's hours", () => {
@@ -1071,13 +1118,19 @@ describe("AmendApproveTimeEntryPayloadSchema", () => {
   });
 
   it("requires a reason and some new time", () => {
-    expect(AmendApproveTimeEntryPayloadSchema.safeParse({ ...base, reason: "", totalHours: 8 }).success).toBe(false);
+    expect(
+      AmendApproveTimeEntryPayloadSchema.safeParse({ ...base, reason: "", totalHours: 8 }).success
+    ).toBe(false);
     expect(AmendApproveTimeEntryPayloadSchema.safeParse(base).success).toBe(false);
   });
 
   it("holds the same day cap the worker's own submission has", () => {
-    expect(AmendApproveTimeEntryPayloadSchema.safeParse({ ...base, totalHours: 17 }).success).toBe(false);
-    expect(AmendApproveTimeEntryPayloadSchema.safeParse({ ...base, totalHours: 0 }).success).toBe(false);
+    expect(AmendApproveTimeEntryPayloadSchema.safeParse({ ...base, totalHours: 17 }).success).toBe(
+      false
+    );
+    expect(AmendApproveTimeEntryPayloadSchema.safeParse({ ...base, totalHours: 0 }).success).toBe(
+      false
+    );
   });
 });
 
