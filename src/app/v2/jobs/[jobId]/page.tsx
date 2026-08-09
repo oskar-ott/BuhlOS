@@ -1,7 +1,18 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
-import { Eye, KeyRound, Lock, MapPin, PencilRuler, Phone, ShieldAlert, Squircle, User } from "lucide-react";
+import {
+  Eye,
+  KeyRound,
+  Lock,
+  MapPin,
+  PencilRuler,
+  Phone,
+  ShieldAlert,
+  Squircle,
+  User,
+} from "lucide-react";
 import type { Route } from "next";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { DuplicateJobButton } from "@/components/admin/DuplicateJobButton";
@@ -18,7 +29,6 @@ import {
   parseEvidenceResult,
   parseHoursResult,
   parseJobResult,
-  type JobInterfaceData,
 } from "@/domains/jobs/job-interface-data";
 import { hasSiteContext } from "@/domains/jobs/format";
 import { isVisibleToField } from "@/domains/jobs/builder";
@@ -49,8 +59,13 @@ interface PageParams {
  *   - Tag register (only when flagged) and Site context
  *
  * The health band's reasons come from /api/jobs?withStats=1 (the same stats
- * the list derives health from). The operational cards each load their own
- * per-job slice in parallel (see loadJobInterface) and degrade independently.
+ * the list derives health from). Only that job fetch blocks the first paint:
+ * the Labour and Evidence cards are Suspense-streamed async sections doing
+ * their own fetch (the hours read recomputes from a full users/ scan and the
+ * blob reads run 1&ndash;2s, so blocking on them made the whole page feel
+ * broken &mdash; 2026-08-09 audit follow-up). Each still degrades to its own
+ * error state via the unit-tested parsers; the Money card was already a
+ * client fetch with a skeleton.
  *
  * This page does NOT replace the /v2/jobs/[jobId]/evidence route &mdash; it
  * adds a parent hub. JobsList row chips still deep-link past the hub into
@@ -78,8 +93,8 @@ export default async function AdminJobInterfacePage({ params }: PageParams) {
   }
   const canBuild = canAccessSurface(session.role, "admin");
 
-  const data = await loadJobInterface(raw, jobId);
-  const result = data.job;
+  const base = await requestBase();
+  const result = await loadJob(base, raw, jobId);
 
   if (result.kind === "not_found" || result.kind === "forbidden") {
     return (
@@ -122,7 +137,10 @@ export default async function AdminJobInterfacePage({ params }: PageParams) {
         }
       >
         <div className="mx-auto max-w-3xl space-y-4">
-          <Card className="border-state-warning-subtle-border bg-state-warning-subtle-bg" role="alert">
+          <Card
+            className="border-state-warning-subtle-border bg-state-warning-subtle-bg"
+            role="alert"
+          >
             <CardTitle>Couldn&rsquo;t load this job</CardTitle>
             <CardDescription className="text-state-warning-subtle-text">
               {result.message}. Try again in a moment.
@@ -172,27 +190,21 @@ export default async function AdminJobInterfacePage({ params }: PageParams) {
             and the two-row Sections nav folded into the Evidence card. */}
         <JobHealthBand job={job} canEdit={canBuild} progressPct={progressPct} />
         <JobBuildCard job={job} canBuild={canBuild} />
-        <JobLabourSummary
-          entries={data.hours.entries}
-          jobId={job.id}
-          fetchError={data.hours.error}
-          estimatedHours={readEstimatedHours(job)}
-          progressPct={progressPct}
-        />
+        {/* Suspense-streamed: the per-job hours walk is the slowest read on
+            the page; the shell paints first and this card fills in. */}
+        <Suspense fallback={<SectionSkeleton title="Labour" />}>
+          <LabourSection base={base} cookieValue={raw} job={job} progressPct={progressPct} />
+        </Suspense>
         {/* One money card, one fetch: profitability + budget variance are two
             views of the same endpoint. Client-fetched so the expensive
             approved-hours walk never blocks the hub render; admin-tier only
             (hidden for an LH/non-admin viewer). */}
         <JobMoneyCard jobId={job.id} />
-        <JobEvidenceSummary
-          evidence={data.evidence.evidence}
-          jobId={job.id}
-          fetchError={data.evidence.error}
-        />
+        <Suspense fallback={<SectionSkeleton title="Evidence" />}>
+          <EvidenceSection base={base} cookieValue={raw} jobId={job.id} />
+        </Suspense>
         <JobTagsSummary job={job} />
-        {hasSiteContext(job) ? (
-          <SiteContextCard job={job} canBuild={canBuild} />
-        ) : null}
+        {hasSiteContext(job) ? <SiteContextCard job={job} canBuild={canBuild} /> : null}
       </div>
     </AdminShell>
   );
@@ -210,13 +222,13 @@ function JobBuildCard({ job, canBuild }: { job: Job; canBuild: boolean }) {
           <CardDescription className="mt-1">
             {fieldVisible ? (
               <span className="inline-flex items-center gap-1 text-emerald-700">
-                <Eye aria-hidden="true" className="h-3.5 w-3.5" /> Published — visible
-                to assigned field workers.
+                <Eye aria-hidden="true" className="h-3.5 w-3.5" /> Published — visible to assigned
+                field workers.
               </span>
             ) : (
               <span className="inline-flex items-center gap-1">
-                <Lock aria-hidden="true" className="h-3.5 w-3.5" /> Office-only — not
-                yet published to the field.
+                <Lock aria-hidden="true" className="h-3.5 w-3.5" /> Office-only — not yet published
+                to the field.
               </span>
             )}
           </CardDescription>
@@ -258,7 +270,7 @@ function SiteContextCard({ job, canBuild }: { job: Job; canBuild: boolean }) {
             {job.siteAddress}
           </SiteField>
         ) : null}
-        {(job.siteContactName?.trim() || job.siteContactPhone?.trim()) ? (
+        {job.siteContactName?.trim() || job.siteContactPhone?.trim() ? (
           <SiteField icon={<User className="h-4 w-4" />} label="Contact">
             <span className="block">{job.siteContactName?.trim() || "—"}</span>
             {job.siteContactPhone?.trim() ? (
@@ -318,61 +330,102 @@ function SiteField({
       </span>
       <div className="min-w-0 flex-1">
         <dt className="text-xs text-text-muted">{label}</dt>
-        <dd className="mt-0.5 whitespace-pre-line break-words text-text">
-          {children}
-        </dd>
+        <dd className="mt-0.5 whitespace-pre-line break-words text-text">{children}</dd>
       </div>
     </div>
   );
 }
 
 /**
- * Load the job + its operational-loop data in one parallel pass.
- *
- * The job fetch (withStats=1, so the existing Status/Field/Section cards keep
- * their real counts) gates the page's not_found/forbidden/error states. The
- * three operational fetches are best-effort and independent — modelled on the
- * history page's Promise.allSettled pattern — so a slow or failed hours /
- * evidence / activity read degrades to that one card's error state rather than
- * blanking the whole hub. All reads are GETs forwarding the session cookie;
- * nothing here mutates. Response parsing (and its rejected/!ok/malformed
- * branches) lives in — and is unit-tested via — src/domains/jobs/job-interface-data.ts.
+ * Streaming load (2026-08-09 audit follow-up). Only the JOB fetch blocks the
+ * page — it gates not_found/forbidden/error and feeds the band/build/site
+ * cards. The hours and evidence reads (the slow ones: recompute-on-read over
+ * a full users/ scan, 1–2s blob reads) each live in their own async section
+ * below, Suspense-streamed so the shell paints first. All reads are GETs
+ * forwarding the session cookie; nothing here mutates. Response parsing (and
+ * its rejected/!ok/malformed branches) lives in — and is unit-tested via —
+ * src/domains/jobs/job-interface-data.ts; the parsers take a settled result,
+ * so each loader wraps its single fetch in Promise.allSettled.
  */
-async function loadJobInterface(
-  cookieValue: string | undefined,
-  jobId: string
-): Promise<JobInterfaceData> {
+async function requestBase(): Promise<string> {
   const h = await headers();
   const host = h.get("x-forwarded-host") ?? h.get("host");
   const proto = h.get("x-forwarded-proto") ?? "http";
-  const base = host ? `${proto}://${host}` : "http://localhost:3000";
-  const enc = encodeURIComponent(jobId);
-  const init = {
+  return host ? `${proto}://${host}` : "http://localhost:3000";
+}
+
+function authInit(cookieValue: string | undefined) {
+  return {
     cache: "no-store" as const,
     headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
   };
-
-  // Lean reset step 5 (#916): the activity card left the hub, so the
-  // audit-log fetch is gone with it; the slot stays typed as empty.
-  const [jobRes, hoursRes, evidenceRes] = await Promise.allSettled([
-    // withStats=1 so the section nav + Status/Field cards can show evidence +
-    // snag + ITP + document counts on the loaded Job.
-    fetch(`${base}/api/jobs?id=${enc}&withStats=1`, init),
-    // Per-job hours (#134): this job's submitted + approved entries (recompute-
-    // on-read). The Labour card buckets them into approved vs pending. Same
-    // entry shape as the approver queue, so the hours parser is unchanged.
-    fetch(`${base}/api/job-hours?jobId=${enc}`, init),
-    fetch(`${base}/api/evidence?jobId=${enc}`, init),
-  ]);
-
-  return {
-    job: await parseJobResult(jobRes),
-    hours: await parseHoursResult(hoursRes),
-    evidence: await parseEvidenceResult(evidenceRes),
-    activity: { entries: [], error: null },
-  };
 }
 
+async function loadJob(base: string, cookieValue: string | undefined, jobId: string) {
+  // withStats=1 so the band + tags card can show health / evidence / crew
+  // counts on the loaded Job.
+  const [jobRes] = await Promise.allSettled([
+    fetch(`${base}/api/jobs?id=${encodeURIComponent(jobId)}&withStats=1`, authInit(cookieValue)),
+  ]);
+  return parseJobResult(jobRes);
+}
 
+/** Per-job hours (#134): submitted + approved entries, bucketed by the Labour
+ *  card into approved vs pending. Same entry shape as the approver queue. */
+async function LabourSection({
+  base,
+  cookieValue,
+  job,
+  progressPct,
+}: {
+  base: string;
+  cookieValue: string | undefined;
+  job: Job;
+  progressPct: number | null;
+}) {
+  const [hoursRes] = await Promise.allSettled([
+    fetch(`${base}/api/job-hours?jobId=${encodeURIComponent(job.id)}`, authInit(cookieValue)),
+  ]);
+  const hours = await parseHoursResult(hoursRes);
+  return (
+    <JobLabourSummary
+      entries={hours.entries}
+      jobId={job.id}
+      fetchError={hours.error}
+      estimatedHours={readEstimatedHours(job)}
+      progressPct={progressPct}
+    />
+  );
+}
 
+async function EvidenceSection({
+  base,
+  cookieValue,
+  jobId,
+}: {
+  base: string;
+  cookieValue: string | undefined;
+  jobId: string;
+}) {
+  const [evidenceRes] = await Promise.allSettled([
+    fetch(`${base}/api/evidence?jobId=${encodeURIComponent(jobId)}`, authInit(cookieValue)),
+  ]);
+  const evidence = await parseEvidenceResult(evidenceRes);
+  return (
+    <JobEvidenceSummary evidence={evidence.evidence} jobId={jobId} fetchError={evidence.error} />
+  );
+}
 
+/** Streaming fallback — same Card chrome as the section it stands in for, so
+ *  the fill-in doesn't shift the layout. */
+function SectionSkeleton({ title }: { title: string }) {
+  return (
+    <Card>
+      <CardTitle>{title}</CardTitle>
+      <div className="mt-3 space-y-2.5" data-testid="section-skeleton" aria-hidden="true">
+        <div className="h-14 animate-pulse rounded-card bg-surface-subtle" />
+        <div className="h-4 w-1/2 animate-pulse rounded-card bg-surface-subtle" />
+      </div>
+    </Card>
+  );
+}

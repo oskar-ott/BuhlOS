@@ -3,7 +3,7 @@ import { ArrowRight, Camera, Images } from "lucide-react";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
 import { relativeWhen } from "@/domains/jobs/format";
-import { summariseJobEvidence } from "@/domains/jobs/job-evidence";
+import { latestJobPhotos, summariseJobEvidence } from "@/domains/jobs/job-evidence";
 import type { EvidenceItem } from "@/domains/evidence/types";
 
 /**
@@ -41,6 +41,7 @@ export function JobEvidenceSummary({
   fetchError: string | null;
 }) {
   const summary = summariseJobEvidence(evidence, jobId);
+  const thumbs = latestJobPhotos(evidence, jobId, 6);
   const evidenceHref = `/v2/jobs/${encodeURIComponent(jobId)}/evidence` as Route;
   const photosHref = `/v2/jobs/${encodeURIComponent(jobId)}/photos` as Route;
   const latestWhen = summary.latest ? relativeWhen(summary.latest.capturedAt) : null;
@@ -102,16 +103,38 @@ export function JobEvidenceSummary({
           className="mt-3 rounded-card border border-state-warning-subtle-border bg-state-warning-subtle-bg px-3 py-2 text-sm text-state-warning-subtle-text"
           role="alert"
         >
-          Couldn&rsquo;t load evidence for this job ({fetchError}). Open the
-          evidence tab to retry.
+          Couldn&rsquo;t load evidence for this job ({fetchError}). Open the evidence tab to retry.
         </p>
       ) : !summary.hasAny ? (
         <p className="mt-3 rounded-card border border-dashed border-border bg-surface-subtle px-3 py-4 text-sm text-text-muted">
-          No evidence captured for this job yet. Photos and notes captured on
-          site will appear here for review.
+          No evidence captured for this job yet. Photos and notes captured on site will appear here
+          for review.
         </p>
       ) : (
         <>
+          {/* Latest-photos strip (2026-08-09 audit follow-up): the card used to
+              describe photos without showing any. Real thumbnails only —
+              latestJobPhotos skips notes and URL-less rows — each opening the
+              full Photos wall. */}
+          {thumbs.length > 0 ? (
+            <a
+              href={photosHref}
+              className="mt-3 flex gap-1.5 overflow-hidden rounded-card focus:outline-none focus:ring-2 focus:ring-brand-navy"
+              aria-label={`Open the photo wall — ${summary.photos} photo${summary.photos === 1 ? "" : "s"} on this job`}
+            >
+              {thumbs.map((t) => (
+                // eslint-disable-next-line @next/next/no-img-element -- Blob-hosted capture, same raw-img pattern as PhotosGallery
+                <img
+                  key={t.id}
+                  src={t.url}
+                  alt={`Capture by ${t.capturedByName}`}
+                  loading="lazy"
+                  className="h-16 w-16 shrink-0 rounded-card border border-border object-cover"
+                />
+              ))}
+            </a>
+          ) : null}
+
           <ul className="mt-3 flex flex-wrap gap-2">
             {summary.pendingReview > 0 ? (
               <li>
@@ -154,7 +177,6 @@ export function JobEvidenceSummary({
           ) : null}
         </>
       )}
-
     </Card>
   );
 }

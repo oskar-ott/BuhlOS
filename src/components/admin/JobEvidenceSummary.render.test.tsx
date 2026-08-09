@@ -114,3 +114,28 @@ describe("JobEvidenceSummary", () => {
     expect(html).not.toContain("worker");
   });
 });
+
+describe("JobEvidenceSummary — photo thumbnail strip", () => {
+  it("renders real thumbnails linking to the photo wall", () => {
+    const html = render({
+      evidence: [
+        ev({ id: "a", thumbnailUrl: "https://blob/t-a.jpg" } as Partial<EvidenceItem>),
+        ev({ id: "b" }),
+      ],
+      jobId: "job-1",
+      fetchError: null,
+    });
+    expect(html).toContain("https://blob/t-a.jpg");
+    expect(html).toContain("https://blob/p1.jpg");
+    expect(html).toContain("/v2/jobs/job-1/photos");
+  });
+
+  it("shows no strip when the job has only notes — nothing is faked", () => {
+    const html = render({
+      evidence: [ev({ id: "n", kind: "note", note: "done", photoId: null, photoUrl: null })],
+      jobId: "job-1",
+      fetchError: null,
+    });
+    expect(html).not.toContain("<img");
+  });
+});
