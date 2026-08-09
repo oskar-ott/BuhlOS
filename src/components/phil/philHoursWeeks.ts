@@ -71,6 +71,11 @@ export interface HoursWeek {
   entries: TimeEntry[];
   /** Sum of totalHours across the week's entries. */
   totalHours: number;
+  /** Sum of the STORED overtimeHours across the week's entries (the pay
+   *  truth — never re-derived client-side). 0 for an all-standard week, so
+   *  the header renders byte-identical to before (P10: the breakdown line
+   *  only exists when there is real overtime to show). */
+  overtimeHours: number;
   jobBreakdown: HoursJobBreakdownRow[];
   /** Draft entries that CAN be sent (attribution-safe), oldest first. */
   sendableDrafts: TimeEntry[];
@@ -234,6 +239,10 @@ export function buildHoursWeeks(
       entries: weekEntries,
       totalHours:
         Math.round(weekEntries.reduce((s, e) => s + (e.totalHours ?? 0), 0) * 100) / 100,
+      overtimeHours:
+        Math.round(
+          weekEntries.reduce((s, e) => s + Math.max(0, e.overtimeHours ?? 0), 0) * 100,
+        ) / 100,
       jobBreakdown: buildJobBreakdown(weekEntries, assignedJobs),
       sendableDrafts,
       blockedDrafts,

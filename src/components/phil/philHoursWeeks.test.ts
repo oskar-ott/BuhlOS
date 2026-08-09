@@ -41,8 +41,10 @@ function entry(over: Partial<TimeEntry> & Pick<TimeEntry, "date" | "status">): T
     userId: "u1",
     date: over.date,
     totalHours,
-    ordinaryHours: over.ordinaryHours ?? Math.min(totalHours, 8),
-    overtimeHours: over.overtimeHours ?? Math.max(0, totalHours - 8),
+    // Default split mirrors the server's autoSplitOT (OT after the standard
+    // day, 7.6h — owner-directed 2026-08-09).
+    ordinaryHours: over.ordinaryHours ?? Math.min(totalHours, 7.6),
+    overtimeHours: over.overtimeHours ?? Math.max(0, Math.round((totalHours - 7.6) * 100) / 100),
     status: over.status,
     allocations: over.allocations ?? [{ jobId: "j1", hours: totalHours }],
     createdAt: "2026-06-01T00:00:00Z",
@@ -79,6 +81,10 @@ describe("buildHoursWeeks", () => {
     expect(weeks.map((w) => w.weekStart)).toEqual([MONDAY, LAST_MONDAY]);
     expect(weeks[0]!.totalHours).toBe(15.6);
     expect(weeks[1]!.totalHours).toBe(7.6);
+    // The week's stored-OT sum rides alongside the total (owner-directed
+    // 2026-08-09): the 8h day carries 0.4h stored OT, the standard days none.
+    expect(weeks[0]!.overtimeHours).toBe(0.4);
+    expect(weeks[1]!.overtimeHours).toBe(0);
     expect(hiddenWeekCount).toBe(0);
   });
 

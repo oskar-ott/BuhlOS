@@ -147,8 +147,9 @@ describe("buildSplitResubmitPayload", () => {
       { jobId: "job-b", hours: 4, notes: null },
     ]);
     // OT split on the TOTAL (day property), allocations sum to total.
-    expect(payload.ordinaryHours).toBe(8);
-    expect(payload.overtimeHours).toBe(2);
+    // Boundary = the standard day (7.6h), owner-directed 2026-08-09.
+    expect(payload.ordinaryHours).toBe(7.6);
+    expect(payload.overtimeHours).toBe(2.4);
     expect(payload.allocations.reduce((s, a) => s + a.hours, 0)).toBeCloseTo(payload.totalHours, 5);
   });
 });
@@ -221,10 +222,10 @@ describe("buildResubmitPayload", () => {
     expect(payload.allocations[0]!.jobId).not.toBeNull();
     expect(payload.allocations.reduce((s, a) => s + a.hours, 0)).toBeCloseTo(payload.totalHours, 5);
   });
-  it("splits ordinary/overtime at 8h like the server", () => {
+  it("splits ordinary/overtime at the standard day (7.6h) like the server", () => {
     const payload = buildResubmitPayload(te(), { totalHours: 10, jobId: "job-a", notes: null });
-    expect(payload.ordinaryHours).toBe(8);
-    expect(payload.overtimeHours).toBe(2);
+    expect(payload.ordinaryHours).toBe(7.6);
+    expect(payload.overtimeHours).toBe(2.4);
     expect(payload.ordinaryHours + payload.overtimeHours).toBeCloseTo(payload.totalHours, 5);
   });
 });

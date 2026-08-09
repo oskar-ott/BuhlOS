@@ -262,18 +262,19 @@ describe("amend + approve — the happy path (the live incident)", () => {
     const res = await call("u_admin", "admin", FIX);
     expect(res.statusCode).toBe(200);
     const e = stored();
-    expect(e.ordinaryHours).toBe(8);
-    expect(e.overtimeHours).toBe(0.6); // 8.6 - 8, recomputed
+    expect(e.ordinaryHours).toBe(7.6);
+    expect(e.overtimeHours).toBe(1); // 8.6 - 7.6, recomputed at the standard-day boundary
     expect(e.ordinaryHours + e.overtimeHours).toBeCloseTo(e.totalHours, 5);
   });
 
   it("a manual OT override does not survive the amend — the split is derived again", async () => {
     setEntry({ otOverridden: true, ordinaryHours: 8.37, overtimeHours: 0 });
     await call("u_admin", "admin", { ...FIX, totalHours: 10 });
+    // Split re-derived at the standard-day boundary (7.6h, owner 2026-08-09).
     const e = stored();
     expect(e.otOverridden).toBe(false);
-    expect(e.ordinaryHours).toBe(8);
-    expect(e.overtimeHours).toBe(2);
+    expect(e.ordinaryHours).toBe(7.6);
+    expect(e.overtimeHours).toBe(2.4);
   });
 
   it("rewrites every allocation of a SPLIT day and derives the total", async () => {
@@ -300,7 +301,8 @@ describe("amend + approve — the happy path (the live incident)", () => {
     expect(e.totalHours).toBe(9);
     expect(e.allocations.map((a) => a.hours)).toEqual([6, 3]);
     expect(e.allocations.map((a) => a.sortOrder)).toEqual([0, 1]);
-    expect(e.overtimeHours).toBe(1);
+    // 9h total → 1.4h OT past the standard day (7.6h boundary, owner 2026-08-09).
+    expect(e.overtimeHours).toBe(1.4);
   });
 
   it("returns the corrected entry and never leaks the idempotency ring", async () => {

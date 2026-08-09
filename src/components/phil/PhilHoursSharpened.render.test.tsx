@@ -40,8 +40,11 @@ function entry(over: Partial<TimeEntry> & Pick<TimeEntry, "date" | "status">): T
     userId: "u1",
     date: over.date,
     totalHours,
-    ordinaryHours: over.ordinaryHours ?? Math.min(totalHours, 8),
-    overtimeHours: over.overtimeHours ?? Math.max(0, totalHours - 8),
+    // Default split mirrors the server's autoSplitOT (OT after the standard
+    // day, 7.6h — owner-directed 2026-08-09); pass explicit values to model
+    // legacy entries stored under the old 8h boundary.
+    ordinaryHours: over.ordinaryHours ?? Math.min(totalHours, 7.6),
+    overtimeHours: over.overtimeHours ?? Math.max(0, Math.round((totalHours - 7.6) * 100) / 100),
     status: over.status,
     allocations: over.allocations ?? [{ jobId: "j1", hours: totalHours }],
     createdAt: "2026-06-01T00:00:00Z",
@@ -245,5 +248,61 @@ describe("today's unlogged row (owner-directed, 2026-08-07)", () => {
     // The row keeps its label and loses the old button-less special copy.
     expect(html).toContain("Not logged");
     expect(html).not.toContain("assign it to a job below");
+  });
+});
+
+/**
+ * Owner-directed 2026-08-09: an overtime day shows its STORED split next to
+ * the total — "7h 36m + 1h OT" — so the worker can see the OT they tapped
+ * landed exactly and will be paid; the week total keeps its number and gains
+ * an "incl. Xh OT" line. Both read the stored pay fields (otSplitLabel /
+ * summed overtimeHours), never a client-side re-derivation.
+ */
+describe("PhilHoursSharpened — OT breakdown (total kept, split shown)", () => {
+  it("an OT day keeps its total AND shows the stored split under it", () => {
+    const html = render([entry({ date: MONDAY, status: "submitted", totalHours: 8.6 })]);
+    // The headline total is untouched…
+    expect(html).toContain("8h 36m");
+    // …and the split line names the standard day + the OT, exactly as tapped.
+    expect(html).toContain('data-testid="phil-hours-ot-split"');
+    expect(html).toContain("7h 36m + 1h OT");
+  });
+
+  it("a standard day renders NO split line — zero noise when there is no OT", () => {
+    const html = render([entry({ date: MONDAY, status: "submitted" })]);
+    expect(html).not.toContain("phil-hours-ot-split");
+    expect(html).not.toContain("+ 0h OT");
+  });
+
+  it("a legacy stored split that doesn't reconcile is never invented into a line (P7 guard)", () => {
+    const html = render([
+      entry({
+        date: MONDAY,
+        status: "approved",
+        totalHours: 8.6,
+        // Garbage/legacy: ordinary + overtime ≠ total → otSplitLabel refuses.
+        ordinaryHours: 8.6,
+        overtimeHours: 0.6,
+      }),
+    ]);
+    expect(html).not.toContain("phil-hours-ot-split");
+  });
+
+  it("the week header keeps the total and adds 'incl. Xh OT' from the stored week sum", () => {
+    const html = render([
+      entry({ date: MONDAY, status: "submitted", totalHours: 8.6 }),
+      entry({ date: addDays(MONDAY, 1), status: "submitted" }),
+    ]);
+    // Total stays the headline number (8.6 + 7.6 = 16.2 → 16h 12m)…
+    expect(html).toContain("16h 12m");
+    // …with the week's real OT named under it.
+    expect(html).toContain(`data-testid="phil-hours-week-ot-${MONDAY}"`);
+    expect(html).toContain("incl. 1h OT");
+  });
+
+  it("an all-standard week renders NO week OT line", () => {
+    const html = render([entry({ date: MONDAY, status: "approved" })]);
+    expect(html).not.toContain("phil-hours-week-ot-");
+    expect(html).not.toContain("incl.");
   });
 });

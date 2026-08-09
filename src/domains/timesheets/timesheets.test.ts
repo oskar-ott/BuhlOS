@@ -96,11 +96,17 @@ describe("formatHoursLabel()", () => {
 });
 
 describe("autoSplitOT()", () => {
-  it("matches the legacy server's split", () => {
+  it("overtime starts after the STANDARD DAY (7.6h) — owner-directed 2026-08-09, was 8h", () => {
     expect(autoSplitOT(7.6)).toEqual({ ordinary: 7.6, overtime: 0 });
-    expect(autoSplitOT(8)).toEqual({ ordinary: 8, overtime: 0 });
-    expect(autoSplitOT(10)).toEqual({ ordinary: 8, overtime: 2 });
-    expect(autoSplitOT(8.25)).toEqual({ ordinary: 8, overtime: 0.25 });
+    // "Standard day + 1h OT" (8.6) stores as EXACTLY that — with the old 8h
+    // boundary it stored 8 + 0.6 and the app's "+1h OT" disagreed with the
+    // payslip. This is the line that pins the fix.
+    expect(autoSplitOT(8.6)).toEqual({ ordinary: 7.6, overtime: 1 });
+    expect(autoSplitOT(8)).toEqual({ ordinary: 7.6, overtime: 0.4 });
+    expect(autoSplitOT(10)).toEqual({ ordinary: 7.6, overtime: 2.4 });
+    expect(autoSplitOT(8.25)).toEqual({ ordinary: 7.6, overtime: 0.65 });
+    // Short days are all ordinary — the boundary only splits the excess.
+    expect(autoSplitOT(4)).toEqual({ ordinary: 4, overtime: 0 });
   });
 });
 
@@ -266,11 +272,11 @@ describe("buildStandardDayPayload()", () => {
 });
 
 describe("buildCustomHoursPayload()", () => {
-  it("auto-splits overtime above 8 hours", () => {
+  it("auto-splits overtime above the standard day (7.6h)", () => {
     const payload = buildCustomHoursPayload({ date: "2026-05-04", jobId: "j", totalHours: 10 });
     expect(payload.totalHours).toBe(10);
-    expect(payload.ordinaryHours).toBe(8);
-    expect(payload.overtimeHours).toBe(2);
+    expect(payload.ordinaryHours).toBe(7.6);
+    expect(payload.overtimeHours).toBe(2.4);
     expect(payload.allocations[0]?.hours).toBe(10);
   });
 
@@ -323,10 +329,11 @@ describe("custom-sheet OT presets", () => {
       totalHours: standardDayPlusOt(1),
       notes: null,
     });
-    // The exact decimal the store speaks — 7.6 + 1, no worker arithmetic.
+    // The exact decimal the store speaks — 7.6 + 1, no worker arithmetic —
+    // and the stored split IS the tapped framing (OT boundary = standard day).
     expect(payload.totalHours).toBe(8.6);
-    expect(payload.ordinaryHours).toBe(8);
-    expect(payload.overtimeHours).toBe(0.6);
+    expect(payload.ordinaryHours).toBe(7.6);
+    expect(payload.overtimeHours).toBe(1);
     expect(payload.allocations).toEqual([{ jobId: "j1", hours: 8.6, notes: null }]);
     expect(CreateTimeEntryPayloadSchema.safeParse(payload).success).toBe(true);
   });
