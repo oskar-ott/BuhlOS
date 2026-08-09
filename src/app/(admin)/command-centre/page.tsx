@@ -201,12 +201,13 @@ export default async function CommandCentrePage() {
   const noCrewJobs = exceptions.filter(
     (e) => e.source === "job" && e.severity === "critical",
   ).length;
+  const thisMonday = weekStartOf(localDateString(new Date(), BUSINESS_TIMEZONE));
   const needsYou = buildNeedsYouQueue({
     rejected: rejectedHoursCount,
     missingDays: missingSummary.total,
     // The chase link lands the weekly board on the week the count covers —
     // the last complete Mon–Sun week (same window loadSnapshot queried).
-    missingWeekStart: addDays(weekStartOf(localDateString(new Date(), BUSINESS_TIMEZONE)), -7),
+    missingWeekStart: addDays(thisMonday, -7),
     noCrewJobs,
     pending: hoursPending.length,
     evidence: evidencePending,
@@ -247,6 +248,7 @@ export default async function CommandCentrePage() {
           jobsWithActivityToday={todayPulse ? todayPulse.jobs.jobsWithActivityToday : null}
           weekWorkersLogged={weekTotals ? weekTotals.workers : null}
           weekHoursLabel={weekTotals ? formatHoursLabel(weekTotals.hours) : null}
+          currentWeekStart={thisMonday}
           pendingHours={hoursPending.length}
           exceptions={exceptions}
           anySourceError={anySourceError}

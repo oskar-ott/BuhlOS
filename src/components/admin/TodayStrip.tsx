@@ -64,18 +64,20 @@ export function TodayStrip({ model, pulseError, pendingApprovals }: TodayStripPr
           </p>
         ) : model ? (
           <>
+            {/* Today-scoped stats deep-link to the day view — /hours itself
+                now lands on the weekly board (weekly-first directive). */}
             <StripStat
               value={String(model.crewCount)}
               label={model.crewLabel}
               hint="logged hours today"
-              href={"/hours" as Route}
+              href={"/hours/today" as Route}
               ariaLabel={`${model.crewCount} on the clock — logged hours today`}
             />
             <StripStat
               value={model.loggedHoursLabel}
               label="logged today"
               hint={model.loggedHoursHint}
-              href={"/hours" as Route}
+              href={"/hours/today" as Route}
               ariaLabel={`${model.loggedHoursLabel} logged today (${model.loggedHoursHint})`}
             />
           </>

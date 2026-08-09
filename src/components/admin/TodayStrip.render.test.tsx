@@ -63,8 +63,9 @@ describe("TodayStrip (#185)", () => {
     expect(html).toContain("on the clock");
     expect(html).toContain("logged hours today");
     expect(html).toContain("22h 48m");
-    // Deep links: /hours for the day view, /hours/approvals for the queue.
-    expect(html).toContain('href="/hours"');
+    // Deep links: /hours/today for the day view (/hours lands on the weekly
+    // board since the weekly-first directive), /hours/approvals for the queue.
+    expect(html).toContain('href="/hours/today"');
     expect(html).toContain('href="/hours/approvals"');
     // The pending figure is the loadSnapshot value, labelled for all dates.
     expect(html).toContain("Pending approval: 4");

@@ -15,6 +15,7 @@ import { RefreshButton } from "@/components/ui/RefreshButton";
 import { pctWidthClass } from "@/components/admin/pct-width";
 import { timesheetsClient } from "@/domains/timesheets/client";
 import { requestLeave, clearLeave } from "@/domains/timesheets/client";
+import { addDays } from "@/domains/timesheets/service";
 import { formatDateLabel, formatHoursLabel, otSplitLabel } from "@/domains/timesheets/format";
 import {
   submittedWeekSelection,
@@ -161,6 +162,18 @@ export function WeeklyHoursCloseoutBoard({
   const [, startTransition] = useTransition();
 
   const weekLabel = `${formatDateLabel(closeout.weekStart)} – ${formatDateLabel(closeout.weekEnd)}`;
+  // Orientation chip: the bare URL deliberately opens the LAST complete week
+  // (the closeout runs after a week ends), so say where the viewed week sits
+  // relative to today instead of making the operator parse the dates.
+  const weekRelation = !weekNav
+    ? null
+    : weekNav.isCurrentWeek
+      ? "In progress"
+      : closeout.weekStart === addDays(weekNav.currentWeek, -7)
+        ? "Last week"
+        : closeout.weekStart > weekNav.currentWeek
+          ? "Upcoming"
+          : null;
 
   // Distinct strip tones present in the run — drives the legend (we only show
   // legend entries for states that actually appear, never a key for a tone the
@@ -447,7 +460,14 @@ export function WeeklyHoursCloseoutBoard({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <CardTitle>Week of</CardTitle>
-            <CardDescription className="mt-1">{weekLabel}</CardDescription>
+            <CardDescription className="mt-1">
+              {weekLabel}
+              {weekRelation ? (
+                <Pill tone="neutral" className="ml-2 align-middle">
+                  {weekRelation}
+                </Pill>
+              ) : null}
+            </CardDescription>
           </div>
           <div className="flex items-center gap-2">
             {weekNav ? (

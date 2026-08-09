@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
@@ -127,18 +126,11 @@ export default async function HoursWeeklyCloseoutPage({
     costRatesByWorker,
   });
 
+  // No breadcrumb: /hours redirects here, so the old "← Hours overview" link
+  // was a self-link to a page that no longer exists. HoursTabs is the section
+  // navigation.
   return (
-    <AdminShell
-      title="Hours · this week"
-      breadcrumb={
-        <Link
-          href="/hours"
-          className="underline decoration-accent-yellow decoration-2 underline-offset-2"
-        >
-          ← Hours overview
-        </Link>
-      }
-    >
+    <AdminShell title="Hours · this week">
       {/* Section tabs (#415) — navigation chrome only, above all content. */}
       <HoursTabs />
 

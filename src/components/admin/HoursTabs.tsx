@@ -124,9 +124,9 @@ export function HoursTabs() {
             className="pointer-events-none absolute inset-y-0 right-0 z-10 w-8 bg-gradient-to-l from-surface-subtle to-transparent md:hidden"
           />
         ) : null}
-        {/* Scrollable on phones: the 4 labels (incl. "Weekly closeout",
-            "Pay period") overflow ≤375px, so the strip scrolls horizontally
-            rather than clipping tabs off-screen. Desktop shows no scrollbar. */}
+        {/* Scrollable on phones: the tab labels can overflow very narrow
+            screens, so the strip scrolls horizontally rather than clipping
+            tabs off-screen. Desktop shows no scrollbar. */}
         <ul
           ref={scrollRef}
           data-testid="hours-tabs-scroll"

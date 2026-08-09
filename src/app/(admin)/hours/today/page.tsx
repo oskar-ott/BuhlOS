@@ -150,7 +150,7 @@ export default async function HoursOverviewPage({
   ]);
 
   return (
-    <AdminShell title="Hours">
+    <AdminShell title="Hours · today">
       {/* Section tabs (#415 → lean-reset: Today · This week · Pay period). */}
       <HoursTabs />
       <div className="mx-auto max-w-4xl space-y-4">
@@ -160,9 +160,9 @@ export default async function HoursOverviewPage({
             Today · {todayHeading(today)}
           </h2>
           <p className="max-w-[72ch] text-sm text-text-muted">
-            Who&rsquo;s on the clock and what the crew has logged this week.
-            Sign off submitted days on This week, then close the week out for
-            payroll.
+            Who&rsquo;s on the clock and whether today&rsquo;s hours are
+            accounted for. Sign off submitted days on This week, then roll the
+            period up for payroll.
           </p>
         </div>
 
@@ -185,6 +185,58 @@ export default async function HoursOverviewPage({
 
         {/* ── End-of-day closeout (today) ───────────────────────────── */}
         <TodayCloseout pulse={pulse} today={today} />
+
+        {/* ── Leave (admin only): approve requests + record on behalf.
+               Approved days are exempt from missing-hours detection, so this
+               sits above the rollup section where "missing" is reported. */}
+        {isAdmin ? (
+          <LeaveApprovalsCard
+            initialRequests={leave}
+            fetchError={leaveError}
+            workers={workers}
+          />
+        ) : null}
+
+        {/* ── The week's log — everything below is scoped to the viewed
+               Mon–Sun week, so the nav that changes it heads the section
+               instead of hiding inside the rollup card. */}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+          <div>
+            <h2 className="font-display text-base font-semibold text-text">
+              {isCurrentWeek ? "This week's log" : "Week log"}
+            </h2>
+            <p className="text-sm text-text-muted">
+              {formatDateLabel(weekStart)} – {formatDateLabel(weekEnd)}
+            </p>
+          </div>
+          <div className="flex items-center gap-1">
+            {/* Week links carry the active filter params (#216) so paging
+                through weeks never drops the narrowed view. */}
+            <WeekNavLink
+              week={prevWeek}
+              extraQuery={filterQuery}
+              label="Previous week"
+              icon={<ArrowLeft aria-hidden="true" className="h-4 w-4" />}
+            />
+            {!isCurrentWeek ? (
+              <Link
+                href={{
+                  pathname: "/hours/today",
+                  query: { week: thisWeekStart, ...filterQuery },
+                }}
+                className="rounded-card border border-border px-3 py-2 text-xs font-medium text-text hover:border-brand-navy"
+              >
+                This week
+              </Link>
+            ) : null}
+            <WeekNavLink
+              week={nextWeek}
+              extraQuery={filterQuery}
+              label="Next week"
+              icon={<ArrowRight aria-hidden="true" className="h-4 w-4" />}
+            />
+          </div>
+        </div>
 
         {/* ── Recent activity — the queue entries for the viewed week,
                newest first (the design's activity card). */}
@@ -214,88 +266,9 @@ export default async function HoursOverviewPage({
           />
         ) : null}
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          <QueueCard
-            label="Pending approval"
-            count={pending.length}
-            tone="info"
-            href="/hours/approvals"
-            description="Worker entries waiting for an admin or leading-hand decision."
-          />
-          <QueueCard
-            label="Approved (this view)"
-            count={approved.length}
-            tone="success"
-            description="Already-approved entries returned by the approver queue."
-          />
-          <QueueCard
-            label="Rejected (this view)"
-            count={rejected.length}
-            tone="danger"
-            description="Workers see the reason in the field app and can edit + resubmit."
-          />
-        </div>
-
-        {/* ── This week (the payroll ritual) — the design's pointer. ── */}
-        <Card className="border-l-4 border-l-accent-yellow">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <CardTitle>This week</CardTitle>
-              <CardDescription className="mt-1">
-                Sign off submitted days worker by worker, then close the week
-                out for payroll.
-              </CardDescription>
-            </div>
-            <Link
-              // `as Route` — typedRoutes' generated map is from the previous
-              // build and can't see the route this PR adds (same pattern as
-              // AdminSidebar's newer entries). Validated for real by `next build`.
-              href={"/hours/weekly" as Route}
-              className="inline-flex items-center rounded-card bg-brand-navy px-5 py-3 text-sm font-medium text-text-inverse hover:bg-accent-ink"
-            >
-              Open This week →
-            </Link>
-          </div>
-        </Card>
-
         {/* ── Week rollup (named to not collide with the This-week tab). ── */}
         <Card>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <CardTitle>{isCurrentWeek ? "This week's rollup" : "Week rollup"}</CardTitle>
-              <CardDescription className="mt-1">
-                {formatDateLabel(weekStart)} – {formatDateLabel(weekEnd)}
-              </CardDescription>
-            </div>
-            <div className="flex items-center gap-1">
-              {/* Week links carry the active filter params (#216) so paging
-                  through weeks never drops the narrowed view. */}
-              <WeekNavLink
-                week={prevWeek}
-                extraQuery={filterQuery}
-                label="Previous week"
-                icon={<ArrowLeft aria-hidden="true" className="h-4 w-4" />}
-              />
-              {!isCurrentWeek ? (
-                <Link
-                  href={{
-                    pathname: "/hours/today",
-                    query: { week: thisWeekStart, ...filterQuery },
-                  }}
-                  className="rounded-card border border-border px-3 py-2 text-xs font-medium text-text hover:border-brand-navy"
-                >
-                  This week
-                </Link>
-              ) : null}
-              <WeekNavLink
-                week={nextWeek}
-                extraQuery={filterQuery}
-                label="Next week"
-                icon={<ArrowRight aria-hidden="true" className="h-4 w-4" />}
-              />
-            </div>
-          </div>
-
+          <CardTitle>Week rollup</CardTitle>
           {overview ? (
             <WeekRollup overview={overview} missing={missing!} />
           ) : (
@@ -305,17 +278,6 @@ export default async function HoursOverviewPage({
           )}
         </Card>
 
-        {/* ── Leave (admin only): approve requests + record on behalf.
-               Approved days are exempt from missing-hours detection, so this
-               sits right under the rollup where "missing" is reported. */}
-        {isAdmin ? (
-          <LeaveApprovalsCard
-            initialRequests={leave}
-            fetchError={leaveError}
-            workers={workers}
-          />
-        ) : null}
-
         {/* ── Payroll export preview (admin only) ───────────────────── */}
         {isAdmin ? (
           <PayrollExportCard
@@ -324,23 +286,6 @@ export default async function HoursOverviewPage({
             weekEnd={weekEnd}
           />
         ) : null}
-
-        {/* ── Approval queue CTA ────────────────────────────────────── */}
-        <Card>
-          <CardTitle>Review the queue</CardTitle>
-          <CardDescription className="mt-1">
-            Approve or reject submitted entries one at a time. Leading hands see
-            only entries on jobs they run.
-          </CardDescription>
-          <div className="mt-4">
-            <Link
-              href="/hours/approvals"
-              className="inline-flex items-center rounded-card bg-brand-navy px-5 py-3 text-sm font-medium text-text-inverse hover:bg-accent-ink"
-            >
-              Open approval queue →
-            </Link>
-          </div>
-        </Card>
       </div>
     </AdminShell>
   );
@@ -363,7 +308,9 @@ function todayHeading(isoDate: string): string {
  * approver queues. HONESTY: a missing pulse renders "—", never a 0. "Logged
  * today" sums the pulse's submitted + approved hour totals — drafts are
  * counted (draftCount) but the pulse carries no draft hours, so they are
- * deliberately not guessed into the figure.
+ * deliberately not guessed into the figure. The queue-backed tiles link
+ * straight to the approvals queue — they replaced the old queue-card grid,
+ * so they carry its deep link.
  */
 function DayStatTiles({
   pulse,
@@ -377,44 +324,64 @@ function DayStatTiles({
   const h = pulse?.hours ?? null;
   const loggedToday = h ? formatHoursLabel(h.submittedTotal + h.approvedTotal) : "—";
 
-  const tiles: Array<{ label: string; value: string; tone: "neutral" | "warning" | "danger" }> = [
+  const tiles: Array<{
+    label: string;
+    value: string;
+    tone: "neutral" | "warning" | "danger";
+    href?: Route;
+  }> = [
     { label: "On the clock", value: h ? String(h.crewOnSite) : "—", tone: "neutral" },
     { label: "Logged today", value: loggedToday, tone: "neutral" },
     {
       label: "Awaiting approval",
       value: String(pendingCount),
       tone: pendingCount > 0 ? "warning" : "neutral",
+      href: "/hours/approvals" as Route,
     },
-    { label: "Rejected days", value: String(rejectedCount), tone: "danger" },
+    {
+      label: "Rejected days",
+      value: String(rejectedCount),
+      // Red only when there is genuinely something rejected — a permanent
+      // red zero read as a standing alarm.
+      tone: rejectedCount > 0 ? "danger" : "neutral",
+    },
   ];
 
   return (
     <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-      {tiles.map((t) => (
-        <div
-          key={t.label}
-          className={cn(
-            "rounded-card border p-4",
-            t.tone === "warning" && "border-amber-200 bg-amber-50",
-            t.tone === "danger" && "border-rose-200 bg-rose-50",
-            t.tone === "neutral" && "border-border bg-surface-raised shadow-card",
-          )}
-        >
-          <p className="font-mono text-[11px] uppercase tracking-[.12em] text-text-muted">
-            {t.label}
-          </p>
-          <p
+      {tiles.map((t) => {
+        const tile = (
+          <div
             className={cn(
-              "mt-1 font-display text-2xl font-semibold tabular-nums",
-              t.tone === "warning" && "text-amber-700",
-              t.tone === "danger" && "text-rose-700",
-              t.tone === "neutral" && "text-text",
+              "h-full rounded-card border p-4",
+              t.tone === "warning" && "border-amber-200 bg-amber-50",
+              t.tone === "danger" && "border-rose-200 bg-rose-50",
+              t.tone === "neutral" && "border-border bg-surface-raised shadow-card",
             )}
           >
-            {t.value}
-          </p>
-        </div>
-      ))}
+            <p className="font-mono text-[11px] uppercase tracking-[.12em] text-text-muted">
+              {t.label}
+            </p>
+            <p
+              className={cn(
+                "mt-1 font-display text-2xl font-semibold tabular-nums",
+                t.tone === "warning" && "text-amber-700",
+                t.tone === "danger" && "text-rose-700",
+                t.tone === "neutral" && "text-text",
+              )}
+            >
+              {t.value}
+            </p>
+          </div>
+        );
+        return t.href ? (
+          <Link key={t.label} href={t.href} className="block focus:outline-none">
+            {tile}
+          </Link>
+        ) : (
+          <div key={t.label}>{tile}</div>
+        );
+      })}
     </div>
   );
 }
@@ -448,12 +415,12 @@ function RecentActivityCard({
     <Card>
       <CardTitle>Recent activity</CardTitle>
       <CardDescription className="mt-1">
-        Every entry the crew has logged {isCurrentWeek ? "this week" : "in this week"}, newest
+        Every entry the crew logged {isCurrentWeek ? "this week" : "that week"}, newest
         first.
       </CardDescription>
       {entries.length === 0 ? (
         <p className="mt-3 rounded-card bg-surface-subtle px-3 py-2 text-sm text-text-muted">
-          Nothing logged {isCurrentWeek ? "this week" : "in this week"} yet.
+          Nothing logged {isCurrentWeek ? "this week yet" : "that week"}.
         </p>
       ) : (
         <ul className="mt-3 divide-y divide-border rounded-card border border-border">
@@ -964,61 +931,31 @@ function PayrollExportCard({
               </Pill>
             </div>
             <p className="text-xs text-text-muted">
-              Preview only — no entries have been marked exported. The committed
-              payroll run (which stamps these entries as exported, locks them
-              from edits and logs a content hash) isn&rsquo;t built on this
-              surface yet; until it lands, payroll works from this preview.
+              Preview only — nothing here is marked exported. The real payroll
+              run (batch, lock, Xero) lives on the{" "}
+              <Link
+                href={"/hours/period" as Route}
+                className="underline decoration-accent-yellow decoration-2 underline-offset-2"
+              >
+                Pay period tab
+              </Link>
+              .
             </p>
           </div>
         ) : (
           <p className="mt-3 text-sm text-text-muted">
             No approved hours to export for this week yet. Approve submitted
-            entries in the queue first, then come back here.
+            days on This week first, then come back here.
           </p>
         )
       ) : (
         <p className="mt-3 text-sm text-text-muted">
           Export preview unavailable right now. Check the connection and
-          reload; the committed payroll run isn&rsquo;t built on this surface
-          yet.
+          reload. The real payroll run lives on the Pay period tab.
         </p>
       )}
     </Card>
   );
-}
-
-function QueueCard({
-  label,
-  count,
-  tone,
-  description,
-  href,
-}: {
-  label: string;
-  count: number;
-  tone: "info" | "success" | "danger";
-  description: string;
-  href?: string;
-}) {
-  const inner = (
-    <Card className="h-full">
-      <div className="flex items-center justify-between gap-3">
-        <span className="font-display text-xs uppercase tracking-widest text-text-muted">
-          {label}
-        </span>
-        <Pill tone={tone}>{count}</Pill>
-      </div>
-      <CardDescription className="mt-3">{description}</CardDescription>
-    </Card>
-  );
-  if (href === "/hours/approvals") {
-    return (
-      <Link href={href} className="block focus:outline-none">
-        {inner}
-      </Link>
-    );
-  }
-  return inner;
 }
 
 interface LoadResult {

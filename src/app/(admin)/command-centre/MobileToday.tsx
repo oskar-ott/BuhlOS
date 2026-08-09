@@ -49,6 +49,10 @@ interface MobileTodayProps {
    *  most days. null = the week overview failed to load ("—", never fake). */
   weekWorkersLogged: number | null;
   weekHoursLabel: string | null;
+  /** Monday (YYYY-MM-DD) of the CURRENT Sydney week — the week the pulse row
+   *  counts. Carried on the pulse links so they land the weekly board on THAT
+   *  week (the board's bare URL defaults to the last complete week). */
+  currentWeekStart: string;
   /** Hours submitted and awaiting approval (the weekly payroll closeout). */
   pendingHours: number;
   /** The ranked exception list (already built + age-decorated by the page). */
@@ -106,14 +110,20 @@ export function MobileToday(props: MobileTodayProps) {
 
       {/* Pulse — one calm navy row, two tappable segments. Weekly-first
           (owner directive 2026-08-08): the crew logs the week, often at its
-          end, so the row counts THIS Mon–Sun week — never a today-zero. */}
+          end, so the row counts THIS Mon–Sun week — never a today-zero. The
+          links carry ?week= so the board opens on the week these numbers
+          describe, not its bare-URL default (the last complete week). */}
       <div className="flex items-stretch overflow-hidden rounded-card bg-brand-navy shadow-card">
         <PulseSegment
-          href="/hours"
+          href={`/hours/weekly?week=${props.currentWeekStart}` as Route}
           value={weekWorkersLogged == null ? "—" : String(weekWorkersLogged)}
           label="logged this week"
         />
-        <PulseSegment href="/hours" value={weekHoursLabel ?? "—"} label="hours this week" />
+        <PulseSegment
+          href={`/hours/weekly?week=${props.currentWeekStart}` as Route}
+          value={weekHoursLabel ?? "—"}
+          label="hours this week"
+        />
       </div>
       {weekWorkersLogged == null || weekHoursLabel == null ? (
         <p className="-mt-3 px-1 text-xs text-text-muted">
@@ -224,13 +234,15 @@ export function MobileToday(props: MobileTodayProps) {
         </section>
       ) : null}
 
-      {/* On the clock now (no facepile — today-pulse is a count, not a roster) */}
+      {/* On the clock now (no facepile — today-pulse is a count, not a roster).
+          A today-scoped signal, so it deep-links to the day view — /hours
+          itself now lands on the weekly board. */}
       {todayStrip && todayStrip.crewCount > 0 ? (
         <section>
-          <SectionLabel link="See hours" href="/hours">
+          <SectionLabel link="See hours" href={"/hours/today" as Route}>
             On the clock now
           </SectionLabel>
-          <Link href="/hours" className="mt-2 block">
+          <Link href={"/hours/today" as Route} className="mt-2 block">
             <Card className="flex items-center gap-3 p-4 hover:bg-surface-subtle">
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-card bg-surface-subtle text-text-muted">
                 <Users aria-hidden="true" className="h-5 w-5" />
