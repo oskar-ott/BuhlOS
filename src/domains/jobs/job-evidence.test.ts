@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { summariseJobEvidence } from "./job-evidence";
+import { latestJobPhotos, summariseJobEvidence } from "./job-evidence";
 import type { EvidenceItem } from "@/domains/evidence/types";
 
 function ev(over: Partial<EvidenceItem> = {}): EvidenceItem {
@@ -130,5 +130,33 @@ describe("summariseJobEvidence", () => {
     );
     // Only explicit true counts; absent + false do not (never inferred).
     expect(s.asBuilt).toBe(2);
+  });
+});
+
+describe("latestJobPhotos", () => {
+  it("returns newest-first photo thumbs, skipping notes, URL-less rows and other jobs", () => {
+    const items = [
+      ev({ id: "old", capturedAt: "2026-08-01T09:00:00Z" }),
+      ev({ id: "new", capturedAt: "2026-08-08T09:00:00Z", thumbnailUrl: "https://blob/t-new.jpg" } as Partial<EvidenceItem>),
+      ev({ id: "note", kind: "note", note: "x", photoId: null, photoUrl: null }),
+      ev({ id: "nourl", photoUrl: null } as Partial<EvidenceItem>),
+      ev({ id: "otherjob", jobId: "job-2" }),
+    ];
+    const thumbs = latestJobPhotos(items, "job-1", 6);
+    expect(thumbs.map((t) => t.id)).toEqual(["new", "old"]);
+    // thumbnailUrl preferred when present, photoUrl otherwise.
+    expect(thumbs[0]!.url).toBe("https://blob/t-new.jpg");
+    expect(thumbs[1]!.url).toBe("https://blob/p1.jpg");
+  });
+
+  it("caps at the limit and returns [] for empty input or limit 0", () => {
+    const items = [
+      ev({ id: "a", capturedAt: "2026-08-03T09:00:00Z" }),
+      ev({ id: "b", capturedAt: "2026-08-02T09:00:00Z" }),
+      ev({ id: "c", capturedAt: "2026-08-01T09:00:00Z" }),
+    ];
+    expect(latestJobPhotos(items, "job-1", 2).map((t) => t.id)).toEqual(["a", "b"]);
+    expect(latestJobPhotos([], "job-1", 6)).toEqual([]);
+    expect(latestJobPhotos(items, "job-1", 0)).toEqual([]);
   });
 });

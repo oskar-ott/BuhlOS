@@ -80,7 +80,7 @@ function isMissingContext(item: EvidenceItem): boolean {
  */
 export function summariseJobEvidence(
   evidence: ReadonlyArray<EvidenceItem>,
-  jobId: string,
+  jobId: string
 ): JobEvidenceSummary {
   const summary: JobEvidenceSummary = {
     jobId,
@@ -134,10 +134,7 @@ export function summariseJobEvidence(
       // uploading / pending_sync are client-only and never persisted.
     }
 
-    if (
-      item.capturedAt &&
-      (!summary.latest || item.capturedAt > summary.latest.capturedAt)
-    ) {
+    if (item.capturedAt && (!summary.latest || item.capturedAt > summary.latest.capturedAt)) {
       summary.latest = {
         capturedByName: item.capturedByName || "Unknown",
         capturedAt: item.capturedAt,
@@ -147,4 +144,46 @@ export function summariseJobEvidence(
 
   summary.workerCount = workers.size;
   return summary;
+}
+
+/** One thumbnail-strip entry on the hub's Evidence card. */
+export interface JobPhotoThumb {
+  id: string;
+  /** thumbnailUrl when the upload produced one, else the full photoUrl. */
+  url: string;
+  capturedByName: string;
+  capturedAt: string | null;
+}
+
+/**
+ * The newest photo captures on this job that actually have an image to show —
+ * for the hub Evidence card's thumbnail strip (2026-08-09 audit follow-up:
+ * the card described photos without showing any). Pure projection: kind=photo
+ * with a real URL only (a note or a URL-less row is skipped, never faked as a
+ * grey box), same defensive jobId filter as summariseJobEvidence, newest
+ * first, capped at `limit`.
+ */
+export function latestJobPhotos(
+  evidence: ReadonlyArray<EvidenceItem>,
+  jobId: string,
+  limit: number
+): JobPhotoThumb[] {
+  if (!Array.isArray(evidence) || evidence.length === 0 || limit <= 0) return [];
+  return evidence
+    .filter(
+      (item): item is EvidenceItem & { photoUrl: string } =>
+        !!item &&
+        item.jobId === jobId &&
+        item.kind === "photo" &&
+        typeof (item.thumbnailUrl || item.photoUrl) === "string" &&
+        !!(item.thumbnailUrl || item.photoUrl)
+    )
+    .sort((a, b) => (b.capturedAt ?? "").localeCompare(a.capturedAt ?? ""))
+    .slice(0, limit)
+    .map((item) => ({
+      id: item.id,
+      url: item.thumbnailUrl || item.photoUrl,
+      capturedByName: item.capturedByName || "Unknown",
+      capturedAt: item.capturedAt ?? null,
+    }));
 }
