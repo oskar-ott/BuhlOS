@@ -15,13 +15,15 @@
 // a partial mirror degrades to Blob instead of feeding the client a shape it
 // rejects. It does NOT make PG authoritative — see the completeness gap below.
 //
-// KNOWN GAP — this read has NO COMPLETENESS gate. An entry MISSING from PG
-// entirely (mirror timeout, 'tenant/user not mirrored', a write while the
-// dual-write flag was off) is indistinguishable from a day that was never
-// logged, and an empty PG result is trusted as "no entries". The gate below
-// catches CORRUPT rows, not ABSENT ones. Closing that needs a real parity check
-// against Blob (count//rev per window) — until then, treat this read as a perf
-// overlay whose safety rests on the dual-write actually having run.
+// KNOWN GAP — this read has only a PARTIAL completeness gate. A worker with no
+// user_profiles row falls back to Blob (the 2026-08-09 guard below — before it,
+// every crew-link signup was served a confidently EMPTY week). But for a MAPPED
+// worker, an entry MISSING from PG (mirror timeout, a write while the
+// dual-write flag was off) is still indistinguishable from a day never logged.
+// The faithfulness gate catches CORRUPT rows, not ABSENT ones. Closing that
+// needs a real parity check against Blob (count/rev per window) — until then,
+// treat this read as a perf overlay whose safety rests on the dual-write
+// actually having run.
 //
 // FLIP PREREQUISITES (do NOT enable supabase_read_hours in an env until ALL hold):
 //   1. parity IN SYNC for that env (scripts/importers/hours-parity.js) — note it
@@ -185,6 +187,20 @@ async function listUserEntriesFromPgIfEnabled(userId, opts = {}, deps = {}) {
     const sql = db({ mode: 'read' });
     const tn = await sql`select id from public.tenants where slug = 'buhl'`;
     if (!tn.length) return { pg: false, reason: 'no tenant' };
+    // COMPLETENESS GUARD (2026-08-09, prod incident): PG can only vouch for a
+    // worker it KNOWS. user_profiles holds the June import; crew-link signups
+    // were never imported, so their entries are never mirrored — and this rung
+    // trusted the resulting empty list as "no entries", serving every such
+    // worker a blank week while Blob held the days (the third recurrence of
+    // the vanishing-day bug; #971/#983 patched freshness, not this). A worker
+    // with no live profile row falls back to Blob, the source of truth. An
+    // empty result is trusted ONLY for a mapped worker.
+    const mapped = await sql`
+      select id from public.user_profiles
+      where tenant_id = ${tn[0].id} and legacy_user_id = ${userId} and deleted_at is null
+      limit 1
+    `;
+    if (!mapped.length) return { pg: false, reason: 'unmapped user' };
     const entries = await queryUserEntries(sql, tn[0].id, userId, opts);
     // ONE unfaithful entry fails the WHOLE call over to Blob rather than dropping
     // just that entry: Blob is the source of truth and holds every entry, so the
