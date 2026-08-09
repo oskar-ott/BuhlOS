@@ -235,14 +235,20 @@ export function MobileToday(props: MobileTodayProps) {
       ) : null}
 
       {/* On the clock now (no facepile — today-pulse is a count, not a roster).
-          A today-scoped signal, so it deep-links to the day view — /hours
-          itself now lands on the weekly board. */}
+          The day view is gone (owner directive 2026-08-09) — today's activity
+          lives inside the current week, so link the board on THAT week. */}
       {todayStrip && todayStrip.crewCount > 0 ? (
         <section>
-          <SectionLabel link="See hours" href={"/hours/today" as Route}>
+          <SectionLabel
+            link="See hours"
+            href={`/hours/weekly?week=${props.currentWeekStart}` as Route}
+          >
             On the clock now
           </SectionLabel>
-          <Link href={"/hours/today" as Route} className="mt-2 block">
+          <Link
+            href={`/hours/weekly?week=${props.currentWeekStart}` as Route}
+            className="mt-2 block"
+          >
             <Card className="flex items-center gap-3 p-4 hover:bg-surface-subtle">
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-card bg-surface-subtle text-text-muted">
                 <Users aria-hidden="true" className="h-5 w-5" />

@@ -6,9 +6,14 @@ import { HoursTabs } from "@/components/admin/HoursTabs";
 import { WeeklyHoursCloseoutBoard } from "@/components/admin/WeeklyHoursCloseoutBoard";
 import { WeeklyHoursApprovalMobile } from "@/components/admin/WeeklyHoursApprovalMobile";
 import { WeeklyPayrollExportPanel } from "@/components/admin/WeeklyPayrollExportPanel";
+import { LeaveApprovalsCard } from "@/components/admin/LeaveApprovalsCard";
 import { notPayrollReadyWorkers } from "@/domains/timesheets/payroll-export";
-import { PayrollRunsResponseSchema } from "@/domains/timesheets/schema";
-import type { PayrollRun } from "@/domains/timesheets/types";
+import {
+  LeaveListResponseSchema,
+  PayrollRunsResponseSchema,
+} from "@/domains/timesheets/schema";
+import { UsersListResponseSchema } from "@/domains/users/schema";
+import type { LeaveRequest, PayrollRun } from "@/domains/timesheets/types";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { isAdminRole } from "@/lib/auth/roles";
@@ -95,9 +100,19 @@ export default async function HoursWeeklyCloseoutPage({
   const nextWeek = addDays(weekStart, 7);
   const isCurrentWeek = weekStart === weekStartOf(todayISO);
 
-  const [{ overview, fetchError }, runsResult] = await Promise.all([
+  const isAdmin = isAdminRole(session.role);
+
+  // Leave approvals moved here from the removed day view (owner directive
+  // 2026-08-09): approving leave is what clears a "missing day" on this very
+  // board, so the queue lives beside it. Admin-only widgets — both endpoints
+  // are GET reads and 403 non-admins anyway.
+  const [{ overview, fetchError }, runsResult, leaveResult, workersResult] = await Promise.all([
     loadWeek(raw, weekStart, weekEnd),
     loadRuns(raw),
+    isAdmin ? loadLeave(raw) : Promise.resolve({ requests: [] as LeaveRequest[], error: null }),
+    isAdmin
+      ? loadWorkers(raw)
+      : Promise.resolve({ workers: [] as Array<{ id: string; username: string }> }),
   ]);
 
   // Worker universe of the week (anyone with an entry or a server-flagged
@@ -138,7 +153,7 @@ export default async function HoursWeeklyCloseoutPage({
           flow (summary readout, "Review each" stepper, per-person cards). It
           fires the SAME approve / reject / reopen endpoints the desktop board
           below uses — no second status-transition path. */}
-      <div className="mx-auto w-full max-w-xl lg:hidden">
+      <div className="mx-auto w-full max-w-xl space-y-4 lg:hidden">
         <WeeklyHoursApprovalMobile
           closeout={closeout}
           weekNav={{
@@ -152,6 +167,15 @@ export default async function HoursWeeklyCloseoutPage({
           fetchError={fetchError}
           xeroGate={xeroGate}
         />
+        {/* Leave queue (rehomed from the removed day view) — approving leave
+            clears missing days on the cards above. */}
+        {isAdmin ? (
+          <LeaveApprovalsCard
+            initialRequests={leaveResult.requests}
+            fetchError={leaveResult.error}
+            workers={workersResult.workers}
+          />
+        ) : null}
       </div>
 
       {/* Desktop (lg+): the This-week board (lean-reset redesign) — the
@@ -171,6 +195,16 @@ export default async function HoursWeeklyCloseoutPage({
           }}
         />
 
+        {/* Leave queue (rehomed from the removed day view) — approving leave
+            is what clears a "missing day" on the board above. */}
+        {isAdmin ? (
+          <LeaveApprovalsCard
+            initialRequests={leaveResult.requests}
+            fetchError={leaveResult.error}
+            workers={workersResult.workers}
+          />
+        ) : null}
+
         {/* Committed payroll export (#126) — admin tier only; the endpoint
             itself is admin-gated, so the panel never renders for LH. */}
         {isAdminRole(session.role) ? (
@@ -186,6 +220,60 @@ export default async function HoursWeeklyCloseoutPage({
       </div>
     </AdminShell>
   );
+}
+
+/** Leave queue for the rehomed approvals card — GET /api/leave, fail-soft
+ *  to an error string shown on the card (never a page failure). */
+async function loadLeave(
+  cookieValue: string | undefined
+): Promise<{ requests: LeaveRequest[]; error: string | null }> {
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  const base = host ? `${proto}://${host}` : "http://localhost:3000";
+  try {
+    const res = await fetch(`${base}/api/leave`, {
+      cache: "no-store",
+      headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
+    });
+    if (!res.ok) return { requests: [], error: `Leave queue: API ${res.status}` };
+    const parsed = LeaveListResponseSchema.safeParse(await res.json());
+    if (!parsed.success) return { requests: [], error: "Leave queue: bad shape" };
+    return { requests: [...parsed.data.requests], error: null };
+  } catch (err) {
+    return {
+      requests: [],
+      error: `Leave queue: ${err instanceof Error ? err.message : "network error"}`,
+    };
+  }
+}
+
+/**
+ * Worker directory for the record-on-behalf picker (GET, listTradies returns
+ * exactly the leave-trackable population). Fail-soft: an empty picker just
+ * means record-on-behalf waits for a reload — approvals still work.
+ */
+async function loadWorkers(
+  cookieValue: string | undefined
+): Promise<{ workers: Array<{ id: string; username: string }> }> {
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  const base = host ? `${proto}://${host}` : "http://localhost:3000";
+  try {
+    const res = await fetch(`${base}/api/users?action=listTradies`, {
+      cache: "no-store",
+      headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
+    });
+    if (!res.ok) return { workers: [] };
+    const parsed = UsersListResponseSchema.safeParse(await res.json());
+    if (!parsed.success) return { workers: [] };
+    return {
+      workers: parsed.data.users.map((u) => ({ id: u.id, username: u.username })),
+    };
+  } catch {
+    return { workers: [] };
+  }
 }
 
 /** The committed-run log for the panel — fail-soft to an error string. */
