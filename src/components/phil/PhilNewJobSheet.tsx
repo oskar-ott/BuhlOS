@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, ChevronLeft, Link2, Loader2, MapPin, SquarePen, Wand2 } from "lucide-react";
+import { AddressAutocompleteInput } from "@/components/ui/AddressAutocompleteInput";
 import { PhilNotice } from "./ui/PhilNotice";
 import { philWrite } from "@/domains/phil/write-client";
 import { cn } from "@/lib/cn";
@@ -362,16 +363,16 @@ export function PhilNewJobSheet({
             >
               Site address
             </label>
-            <div className="flex h-[54px] items-center gap-2.5 rounded-card border border-border bg-surface-raised px-4 focus-within:border-brand-navy">
+            <div className="relative flex h-[54px] items-center gap-2.5 rounded-card border border-border bg-surface-raised px-4 focus-within:border-brand-navy">
               <MapPin aria-hidden="true" className="h-5 w-5 shrink-0 text-text-muted" />
-              <input
+              <AddressAutocompleteInput
                 id="phil-new-job-address"
-                type="text"
                 value={siteAddress}
-                onChange={(e) => setSiteAddress(e.target.value)}
+                onChange={setSiteAddress}
                 placeholder="Where is it?"
                 maxLength={240}
-                className="min-w-0 flex-1 bg-transparent text-base text-text outline-none"
+                wrapperClassName="static min-w-0 flex-1"
+                className="w-full bg-transparent text-base text-text outline-none"
               />
             </div>
           </div>
