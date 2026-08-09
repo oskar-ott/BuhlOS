@@ -30,6 +30,8 @@ const bcrypt = require('bcryptjs');
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { setSessionCookie } = require('./_lib/auth');
 const audit = require('./_lib/audit-log');
+const { mirrorSignupUser } = require('./_lib/user-mirror');
+const { recordMirrorDrift } = require('./_lib/mirror-drift');
 
 const EMPLOYEES_KEY = 'employees.json';
 const INVITES_KEY = 'invites.json';
@@ -236,6 +238,11 @@ module.exports = async (req, res) => {
     };
     usersBlob.users.push(user);
     await writeBlob('users.json', usersBlob);
+
+    // Mirror the new login into public.user_profiles (same reason as the
+    // signup-link path — see api/_lib/user-mirror.js). Best-effort.
+    const userMirror = await mirrorSignupUser(user, { phone: employee.phone });
+    await recordMirrorDrift({ domain: 'users', result: userMirror, key: `users.json#${user.id}` });
 
     // Activate the employee + complete setup.
     const ts = nowIso();

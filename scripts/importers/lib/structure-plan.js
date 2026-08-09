@@ -23,6 +23,7 @@
 const VALID_USER_ROLES = [
   'admin', 'boss', 'owner', 'manager', 'office', 'pm', 'estimator',
   'leadinghand', 'tradie', 'apprentice', 'labourer', 'electrician', 'client',
+  'subcontractor', // signup role since #979; CHECK widened 2026-08-09 (user_profiles_role_add_subcontractor)
 ];
 const VALID_JOB_STATUSES = ['draft', 'active', 'on_hold', 'complete', 'archived'];
 const VALID_TASK_STATES = ['not_started', 'in_progress', 'complete'];
