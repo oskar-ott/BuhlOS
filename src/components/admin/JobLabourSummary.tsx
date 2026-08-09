@@ -81,20 +81,20 @@ export function JobLabourSummary({
         <CardTitle>Labour</CardTitle>
       </div>
       <CardDescription className="mt-1">
-        Approved and submitted hours on this job, recomputed on read. Rejected
-        and weekly totals live in Hours approvals.
+        Approved and submitted hours on this job. Rejected entries and weekly
+        totals live in Hours approvals.
       </CardDescription>
 
       {fetchError ? (
         <p
-          className="mt-3 rounded-card border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+          className="mt-3 rounded-card border border-state-warning-subtle-border bg-state-warning-subtle-bg px-3 py-2 text-sm text-state-warning-subtle-text"
           role="alert"
         >
           Couldn&rsquo;t load hours for this job ({fetchError}). Open Hours
           approvals for the live queue.
         </p>
       ) : !summary.hasAny ? (
-        <p className="mt-3 inline-flex items-center gap-1.5 text-sm text-emerald-700">
+        <p className="mt-3 inline-flex items-center gap-1.5 text-sm text-state-success-subtle-text">
           <CheckCircle2 aria-hidden="true" className="h-4 w-4" />
           No labour recorded on this job yet.
         </p>
@@ -145,7 +145,7 @@ export function JobLabourSummary({
 
           {workers.length > 0 ? (
             <div className="mt-3">
-              <p className="font-display text-[11px] uppercase tracking-wider text-text-muted">
+              <p className="font-display text-xs uppercase tracking-wider text-text-muted">
                 By worker
               </p>
               <ul className="mt-1 flex flex-wrap gap-2">
@@ -176,8 +176,8 @@ export function JobLabourSummary({
           <p
             className={`mt-3 flex items-start gap-1.5 rounded-card border px-3 py-2 text-sm ${
               overrun.tone === "critical"
-                ? "border-red-200 bg-red-50 text-red-900"
-                : "border-amber-200 bg-amber-50 text-amber-900"
+                ? "border-state-danger-subtle-border bg-state-danger-subtle-bg text-state-danger-subtle-text"
+                : "border-state-warning-subtle-border bg-state-warning-subtle-bg text-state-warning-subtle-text"
             }`}
             role="alert"
           >

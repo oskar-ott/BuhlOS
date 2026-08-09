@@ -62,7 +62,10 @@ export function statusTone(status: JobStatus | undefined): JobStatusTone {
     case "draft":
       return "neutral";
     default:
-      return "success";
+      // No status at all = the legacy "Active" fallback (label matches).
+      // An out-of-enum string reads neutral, never a fake "all good" green
+      // (2026-08-09 job-hub audit).
+      return status == null ? "success" : "neutral";
   }
 }
 

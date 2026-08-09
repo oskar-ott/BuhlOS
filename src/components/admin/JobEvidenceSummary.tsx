@@ -1,5 +1,5 @@
 import type { Route } from "next";
-import { ArrowRight, Camera } from "lucide-react";
+import { ArrowRight, Camera, Images } from "lucide-react";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
 import { relativeWhen } from "@/domains/jobs/format";
@@ -27,8 +27,8 @@ import type { EvidenceItem } from "@/domains/evidence/types";
  * Cross-ref:
  *   src/domains/jobs/job-evidence.ts — the pure derivation (unit-tested)
  *   src/app/v2/jobs/[jobId]/evidence/page.tsx — the full review queue
- *   src/components/admin/JobOverviewSummary.tsx — the sibling "needs attention"
- *     card (shows the pending-review COUNT; this card shows the capture ledger)
+ *   src/components/admin/JobHealthBand.tsx — the hub's rolled-up health read
+ *     (shows the pending-review COUNT as a reason chip; this card is the ledger)
  */
 
 export function JobEvidenceSummary({
@@ -42,6 +42,7 @@ export function JobEvidenceSummary({
 }) {
   const summary = summariseJobEvidence(evidence, jobId);
   const evidenceHref = `/v2/jobs/${encodeURIComponent(jobId)}/evidence` as Route;
+  const photosHref = `/v2/jobs/${encodeURIComponent(jobId)}/photos` as Route;
   const latestWhen = summary.latest ? relativeWhen(summary.latest.capturedAt) : null;
 
   // Provenance — "did this come from the field?" — read off the real `source`
@@ -75,18 +76,30 @@ export function JobEvidenceSummary({
             Photo and note captures from the field on this job.
           </CardDescription>
         </div>
-        <a
-          href={evidenceHref}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-card border border-border bg-surface px-3.5 py-2 text-sm font-semibold text-text transition-colors hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-brand-navy"
-        >
-          Review
-          <ArrowRight aria-hidden="true" className="h-3.5 w-3.5" />
-        </a>
+        <div className="flex shrink-0 items-center gap-2">
+          {/* The two-row "Sections" nav card folded in here (2026-08-09 job-hub
+              audit, finding C14): Evidence review + the read-only photo wall
+              are this card's two destinations — no separate nav card. */}
+          <a
+            href={photosHref}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-card border border-border bg-surface px-3.5 py-2 text-sm font-semibold text-text transition-colors hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-brand-navy"
+          >
+            <Images aria-hidden="true" className="h-4 w-4 text-text-muted" />
+            Photos
+          </a>
+          <a
+            href={evidenceHref}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-card border border-border bg-surface px-3.5 py-2 text-sm font-semibold text-text transition-colors hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-brand-navy"
+          >
+            Review
+            <ArrowRight aria-hidden="true" className="h-3.5 w-3.5" />
+          </a>
+        </div>
       </div>
 
       {fetchError ? (
         <p
-          className="mt-3 rounded-card border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+          className="mt-3 rounded-card border border-state-warning-subtle-border bg-state-warning-subtle-bg px-3 py-2 text-sm text-state-warning-subtle-text"
           role="alert"
         >
           Couldn&rsquo;t load evidence for this job ({fetchError}). Open the

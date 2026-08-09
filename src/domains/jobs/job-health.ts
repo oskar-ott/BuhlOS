@@ -23,7 +23,7 @@ import type { Job } from "./types";
  *
  * Cross-ref:
  *   src/domains/jobs/attention.ts — the backlog list this classifies
- *   src/components/admin/JobsList.tsx / JobOverviewSummary.tsx — future consumers
+ *   src/components/admin/JobsList.tsx / JobHealthBand.tsx — the consumers
  */
 
 export type JobHealthLevel = "good" | "watch" | "at-risk" | "unknown";
