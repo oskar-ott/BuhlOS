@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { PhilStatusBadge } from "./ui/PhilStatusBadge";
 import { PhilSyncBanner } from "./ui/PhilSyncBanner";
@@ -644,30 +644,38 @@ function MissedRow({
   todayISO: string;
   onLogDay: (date: string) => void;
 }) {
-  const isToday = date === todayISO;
-  // Backdating past the server's window can't succeed — no dead-end button.
+  // Backdating past the server's window can't succeed — no dead-end tap.
   const canLog = isWithinBackdateWindow(date);
-  return (
-    <div className="flex min-h-[44px] items-center justify-between gap-3">
-      <div className="min-w-0">
-        <p className="text-sm font-semibold text-text">{hoursDayLabel(date, todayISO)}</p>
-        <p className="mt-0.5 text-[13px] text-text-muted">Not logged</p>
+  if (!canLog) {
+    return (
+      <div className="flex min-h-[44px] items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-text">{hoursDayLabel(date, todayISO)}</p>
+          <p className="mt-0.5 text-[13px] text-text-muted">Not logged</p>
+        </div>
       </div>
-      {/* Today carries the SAME Log pill as any other unlogged day (owner-
-          directed, 2026-08-07): once the log card below is seeded to a
-          DIFFERENT day, today's row was the one place with no way back —
-          the worker had to re-pick today in the date input. The pill just
-          re-seeds the one mounted sheet to this date, same as every row. */}
-      {canLog ? (
-        <button
-          type="button"
-          onClick={() => onLogDay(date)}
-          className="shrink-0 rounded-pill border border-border px-4 py-2 text-sm font-medium text-text hover:border-brand-navy"
-        >
-          Log
-        </button>
-      ) : null}
-    </div>
+    );
+  }
+  // The WHOLE row is the tap target (owner-directed 2026-08-10 — the old
+  // separate "Log" pill was one more thing on the row for the same single
+  // action). Tapping seeds the one mounted log sheet to this date, exactly
+  // as the pill did; the chevron keeps the row reading as tappable.
+  return (
+    <button
+      type="button"
+      onClick={() => onLogDay(date)}
+      data-testid={`phil-hours-log-day-${date}`}
+      aria-label={`Log hours for ${hoursDayLabel(date, todayISO)}`}
+      className="flex min-h-[44px] w-full items-center justify-between gap-3 text-left hover:bg-surface-subtle"
+    >
+      <span className="min-w-0">
+        <span className="block text-sm font-semibold text-text">
+          {hoursDayLabel(date, todayISO)}
+        </span>
+        <span className="mt-0.5 block text-[13px] text-text-muted">Not logged</span>
+      </span>
+      <ChevronRight aria-hidden="true" className="h-5 w-5 shrink-0 text-text-muted" />
+    </button>
   );
 }
 
