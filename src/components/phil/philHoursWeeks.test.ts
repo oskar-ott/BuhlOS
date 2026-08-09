@@ -55,16 +55,31 @@ function entry(over: Partial<TimeEntry> & Pick<TimeEntry, "date" | "status">): T
 }
 
 describe("buildHoursWeeks", () => {
-  it("always includes the current week (even with no entries) and only real past weeks", () => {
+  it("always includes the current AND previous week (even with no entries); older weeks stay entry-only", () => {
+    // 2026-08-10 field incident: with no last-week card there were no
+    // missed-row "Log" pills, and the this-week day dial offered no other
+    // path — the worker could neither see nor backfill the week even though
+    // every day was still inside the 14-day backdate window.
     const { weeks } = buildHoursWeeks([], {
       todayISO: TODAY,
       assignedJobs: JOBS,
       jobsError: false,
     });
-    expect(weeks).toHaveLength(1);
+    expect(weeks).toHaveLength(2);
     expect(weeks[0]!.weekStart).toBe(MONDAY);
     expect(weeks[0]!.isCurrent).toBe(true);
     expect(weeks[0]!.totalHours).toBe(0);
+    // The empty previous week renders honestly: no entries, no hours, a
+    // neutral dot — its card exists purely so the "Not logged" day rows
+    // (and their window-guarded Log pills) have somewhere to live.
+    expect(weeks[1]!.weekStart).toBe(LAST_MONDAY);
+    expect(weeks[1]!.isCurrent).toBe(false);
+    expect(weeks[1]!.entries).toEqual([]);
+    expect(weeks[1]!.totalHours).toBe(0);
+    expect(weeks[1]!.dot).toBe("neutral");
+    // Two weeks back stays absent without entries — those days age out of
+    // the backdate window; empty cards would bury the real history.
+    expect(weeks.some((w) => w.weekStart === addDays(MONDAY, -14))).toBe(false);
   });
 
   it("groups entries into their true weeks, newest first, and sums real hours", () => {

@@ -90,6 +90,21 @@ describe("PhilHoursSharpened — week cards", () => {
     expect(html).not.toContain("Payneham Rd Bakery"); // lives only in the folded body
   });
 
+  it("an entries-empty worker still gets a folded Last-week card (the path back to unlogged days)", () => {
+    // 2026-08-10 field incident: a worker who logged nothing last week had no
+    // last-week card, hence no missed-row Log pills — and the this-week day
+    // dial offered no other route, so the week was unviewable AND unloggable
+    // from Phil despite being inside the 14-day backdate window.
+    const html = render([]);
+    expect(html).toContain(`phil-hours-week-toggle-${MONDAY}`);
+    expect(html).toContain(`phil-hours-week-toggle-${LAST_MONDAY}`);
+    expect(html).toContain("Last week");
+    // Folded by default like every past week; opening it is the worker's tap.
+    expect(html).toMatch(
+      new RegExp(`aria-expanded="false"[^>]*aria-controls="phil-hours-week-body-${LAST_MONDAY}"`),
+    );
+  });
+
   it("a split day lists each real allocation with its hours", () => {
     const html = render([
       entry({
