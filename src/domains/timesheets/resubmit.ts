@@ -75,7 +75,7 @@ export function isSplitResubmit(entry: Pick<TimeEntry, "allocations">): boolean 
  */
 export function splitResubmitInitialRows(
   entry: Pick<TimeEntry, "totalHours" | "allocations">,
-  assignedJobs: ReadonlyArray<AssignableJob>,
+  assignedJobs: ReadonlyArray<AssignableJob>
 ): { total: number; rows: Array<{ jobId: string | null; hours: number }> } {
   const rows = (entry.allocations ?? []).map((a) => ({
     jobId: a.jobId && assignedJobs.some((j) => j.id === a.jobId) ? a.jobId : null,
@@ -98,7 +98,7 @@ export function splitResubmitInitialRows(
  */
 export function splitChangeInitialRows(
   entry: Pick<TimeEntry, "totalHours" | "allocations">,
-  assignedJobs: ReadonlyArray<AssignableJob>,
+  assignedJobs: ReadonlyArray<AssignableJob>
 ): { total: number; rows: Array<{ jobId: string | null; hours: number }> } {
   const current = primaryJobId(entry);
   const jobId = current && assignedJobs.some((j) => j.id === current) ? current : null;
@@ -121,7 +121,7 @@ export function splitChangeInitialRows(
  */
 export function resubmitInitialJobId(
   entry: Pick<TimeEntry, "allocations">,
-  assignedJobs: ReadonlyArray<AssignableJob>,
+  assignedJobs: ReadonlyArray<AssignableJob>
 ): string | null {
   const original = primaryJobId(entry);
   if (original && assignedJobs.some((j) => j.id === original)) return original;
@@ -165,9 +165,9 @@ export function resolveResubmitJob(input: {
  */
 export function buildResubmitPayload(
   entry: Pick<TimeEntry, "date">,
-  input: { totalHours: number; jobId: string; notes: string | null },
+  input: { totalHours: number; jobId: string; notes: string | null }
 ): PatchTimeEntryPayload {
-  const { ordinary, overtime } = autoSplitOT(input.totalHours);
+  const { ordinary, overtime } = autoSplitOT(input.totalHours, entry.date);
   return {
     date: entry.date,
     totalHours: input.totalHours,
@@ -196,9 +196,9 @@ export function buildSplitResubmitPayload(
     totalHours: number;
     allocations: ReadonlyArray<{ jobId: string; hours: number }>;
     notes: string | null;
-  },
+  }
 ): PatchTimeEntryPayload {
-  const { ordinary, overtime } = autoSplitOT(input.totalHours);
+  const { ordinary, overtime } = autoSplitOT(input.totalHours, entry.date);
   return {
     date: entry.date,
     totalHours: input.totalHours,
@@ -218,9 +218,7 @@ export type ResubmitFeedback =
  * Map the typed HttpResult of `editOwnEntry` to a worker-facing banner. Pure so
  * the success/failure copy is unit-testable without a DOM or a live request.
  */
-export function resubmitFeedback(
-  result: HttpResult<TimeEntryMutationResponse>,
-): ResubmitFeedback {
+export function resubmitFeedback(result: HttpResult<TimeEntryMutationResponse>): ResubmitFeedback {
   if (result.ok) return { kind: "success", entry: result.data.entry };
   const status = result.error.status || 0;
   if (status === 401) {

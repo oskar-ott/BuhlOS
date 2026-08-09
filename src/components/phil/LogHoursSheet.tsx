@@ -27,6 +27,7 @@ import {
   logDayDialOptions,
   MAX_HOURS_PER_DAY,
   MAX_BACKDATE_DAYS,
+  isWeekendDate,
   isWithinBackdateWindow,
   standardDayPlusOt,
 } from "@/domains/timesheets/service";
@@ -163,7 +164,7 @@ export function LogHoursSheet({
   // (the sheet is keyed by logDate in the parent, so a new pill remounts us).
   const dayOptions = useMemo(
     () => logDayDialOptions(localDateString(), initialDate),
-    [initialDate],
+    [initialDate]
   );
   const [notes, setNotes] = useState<string>("");
   const [customOpen, setCustomOpen] = useState(false);
@@ -211,7 +212,10 @@ export function LogHoursSheet({
       return { message: "Couldn't load your jobs. Pull to refresh and try again.", status: 0 };
     }
     if (!hasJobs) {
-      return { message: "No active assigned job. Ask the office to assign you to a job.", status: 0 };
+      return {
+        message: "No active assigned job. Ask the office to assign you to a job.",
+        status: 0,
+      };
     }
     if (!selectedJob) {
       return { message: "Pick which job these hours are for.", status: 0 };
@@ -441,9 +445,7 @@ export function LogHoursSheet({
             disabled={submitting}
           />
           {!dateInWindow ? (
-            <p className={styles.dayPickWarn}>
-              Pick a date in the last {MAX_BACKDATE_DAYS} days.
-            </p>
+            <p className={styles.dayPickWarn}>Pick a date in the last {MAX_BACKDATE_DAYS} days.</p>
           ) : null}
         </div>
 
@@ -472,6 +474,15 @@ export function LogHoursSheet({
               jobsError={jobsError}
               disabled={submitting}
             />
+
+            {/* Weekend rule (owner-directed 2026-08-10): Sat/Sun hours book as
+                all overtime — one muted fact line (P10: no new control, no
+                alarm tone; the pay split below shows the same truth). */}
+            {isWeekendDate(date) ? (
+              <p className="text-sm text-text-muted">
+                {`Weekend day — all hours count as overtime.`}
+              </p>
+            ) : null}
 
             {/* The design's compact yellow "Log today's hours" action (md-act.log)
                 in place of a screen-filling navy block. Same submit handler, same
@@ -524,7 +535,10 @@ export function LogHoursSheet({
                 <Timer className="h-[17px] w-[17px]" />
               </span>
               <span className={styles.subActionLabel}>Custom / overtime hours</span>
-              <ChevronRight className={cn(styles.subActionChev, "h-[17px] w-[17px]")} aria-hidden="true" />
+              <ChevronRight
+                className={cn(styles.subActionChev, "h-[17px] w-[17px]")}
+                aria-hidden="true"
+              />
             </button>
 
             {assignedJobs.length > 1 ? (
@@ -539,7 +553,10 @@ export function LogHoursSheet({
                   <Split className="h-[17px] w-[17px]" />
                 </span>
                 <span className={styles.subActionLabel}>Split across jobs</span>
-                <ChevronRight className={cn(styles.subActionChev, "h-[17px] w-[17px]")} aria-hidden="true" />
+                <ChevronRight
+                  className={cn(styles.subActionChev, "h-[17px] w-[17px]")}
+                  aria-hidden="true"
+                />
               </button>
             ) : null}
 
@@ -571,7 +588,11 @@ export function LogHoursSheet({
 
       <FeedbackBanner state={state} />
 
-      <Modal open={customOpen} onClose={() => setCustomOpen(false)} title="Custom or overtime hours">
+      <Modal
+        open={customOpen}
+        onClose={() => setCustomOpen(false)}
+        title="Custom or overtime hours"
+      >
         <div className="space-y-4">
           <p className="text-sm text-text-muted">
             {/* One string, not adjacent JSX text (SSR comment markers split copy). */}

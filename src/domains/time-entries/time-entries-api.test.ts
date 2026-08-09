@@ -31,8 +31,22 @@ let blob: Map<string, unknown>;
 let auth: { signSession: (payload: Record<string, unknown>) => string };
 let handler: (req: Record<string, unknown>, res: ReturnType<typeof createRes>) => Promise<unknown>;
 
-// A date guaranteed to pass the entry's backdating window (today, no future).
-const TODAY = new Date().toISOString().slice(0, 10);
+// A date guaranteed to pass the entry's backdating window (today, no future) —
+// pinned to the most recent WEEKDAY (Mon-Fri): Sat/Sun entries coerce to
+// all-overtime since the 2026-08-10 weekend rule, and these split contracts
+// describe ordinary days. Weekend behaviour has its own pins below.
+const TODAY = (() => {
+  const d = new Date();
+  while (d.getUTCDay() === 0 || d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+})();
+// The most recent Saturday on or before today — inside the 14-day backdate
+// window on any run date, never in the future.
+const LAST_SATURDAY = (() => {
+  const d = new Date();
+  while (d.getUTCDay() !== 6) d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+})();
 
 function clone<T>(value: T): T {
   return value === undefined ? value : JSON.parse(JSON.stringify(value));
@@ -514,6 +528,30 @@ describe("#130 — server stores the ordinary/overtime split as sent (accept-as-
     expect(entry.ordinaryHours).toBe(10);
     expect(entry.overtimeHours).toBe(0);
     blob.delete(`users/u_field2/time-entries/${TODAY}.json`);
+  });
+
+  it("EXCEPT weekends: a Sat/Sun entry is coerced to ALL overtime regardless of the sent split (2026-08-10 rule)", async () => {
+    // The Jonathan Borg case: 4h on a Saturday sent as ordinary must store as
+    // 4h overtime — pay classification is server-authoritative on weekends.
+    const res = await call({
+      method: "POST",
+      userId: "u_field2",
+      role: "tradie",
+      body: validEntry({
+        date: LAST_SATURDAY,
+        totalHours: 4,
+        ordinaryHours: 4,
+        overtimeHours: 0,
+        allocations: [{ jobId: "job-x", hours: 4 }],
+        status: "submitted",
+      }),
+    });
+    expect(res.statusCode).toBe(201);
+    const entry = (res.body as { entry: { ordinaryHours: number; overtimeHours: number; totalHours: number } }).entry;
+    expect(entry.totalHours).toBe(4);
+    expect(entry.ordinaryHours).toBe(0);
+    expect(entry.overtimeHours).toBe(4);
+    blob.delete(`users/u_field2/time-entries/${LAST_SATURDAY}.json`);
   });
 });
 

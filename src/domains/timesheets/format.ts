@@ -34,7 +34,7 @@ export interface OtSplitParts {
 
 export function otSplitLabel(
   entry: OtSplitParts,
-  opts?: { audience?: "office" | "worker" },
+  opts?: { audience?: "office" | "worker" }
 ): string | null {
   const ordinary = Number(entry.ordinaryHours);
   const overtime = Number(entry.overtimeHours);
@@ -48,6 +48,9 @@ export function otSplitLabel(
   // legacy/garbage — never show an invented split, just fall back to the total.
   if (Math.abs(ordinary + overtime - total) > 0.01) return null;
   const suffix = opts?.audience === "worker" ? "overtime" : "OT";
+  // All-OT day (weekend rule, 2026-08-10): "0h + 4h OT" reads like a glitch —
+  // say what it is instead.
+  if (ordinary <= 0) return `${formatHoursLabel(overtime)} ${suffix}`;
   return `${formatHoursLabel(ordinary)} + ${formatHoursLabel(overtime)} ${suffix}`;
 }
 

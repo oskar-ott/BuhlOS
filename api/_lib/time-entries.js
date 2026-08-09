@@ -34,12 +34,39 @@ function ymOf(date) {
 // Mirrors src/domains/timesheets/service.ts autoSplitOT EXACTLY.
 const STANDARD_DAY_HOURS = 7.6;
 
-function autoSplitOT(totalHours) {
+// Sat/Sun off the calendar-date string — UTC arithmetic, timezone-free.
+// Mirrors src/domains/timesheets/service.ts isWeekendDate EXACTLY.
+function isWeekendDate(date) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) return false;
+  const day = new Date(date + 'T00:00:00Z').getUTCDay();
+  return day === 0 || day === 6;
+}
+
+// Owner-directed 2026-08-10: hours beyond 38/week are overtime. The app week
+// is Mon–Sun and weekday ordinary caps at the standard day (5 × 7.6h = 38h),
+// so the whole weekly rule reduces to: weekend hours are ALWAYS overtime.
+function autoSplitOT(totalHours, date) {
+  if (date && isWeekendDate(date)) {
+    return { ordinary: 0, overtime: Math.round(totalHours * 100) / 100 };
+  }
   const ordinary = Math.min(totalHours, STANDARD_DAY_HOURS);
   const overtime = Math.max(0, totalHours - STANDARD_DAY_HOURS);
   return {
     ordinary: Math.round(ordinary * 100) / 100,
     overtime: Math.round(overtime * 100) / 100,
+  };
+}
+
+// Server-authoritative weekend coercion: whatever split the client sent, a
+// Sat/Sun entry books as ALL overtime (the client mirrors this, but the wire
+// is not trusted for pay classification). Weekday entries pass through.
+function enforceWeekendSplit(entry) {
+  if (!entry || !isWeekendDate(entry.date)) return entry;
+  const total = Number(entry.totalHours) || 0;
+  return {
+    ...entry,
+    ordinaryHours: 0,
+    overtimeHours: Math.round(total * 100) / 100,
   };
 }
 
@@ -380,6 +407,8 @@ module.exports = {
   newId,
   ymOf,
   autoSplitOT,
+  isWeekendDate,
+  enforceWeekendSplit,
   calcTotalHours,
   validateEntryShape,
   inactiveJobAllocationError,

@@ -119,8 +119,9 @@ module.exports = async (req, res) => {
     ? Math.round(Number(totalHours) * 100) / 100
     : Math.round(allocationSum * 100) / 100;
   // OT is re-derived from the corrected total — an amended day must never keep
-  // a split that belonged to the old number.
-  const split = autoSplitOT(nextTotal);
+  // a split that belonged to the old number. Date-aware: a weekend day books
+  // as all overtime (owner-directed 2026-08-10).
+  const split = autoSplitOT(nextTotal, entry.date);
 
   const candidate = {
     ...entry,
