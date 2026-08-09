@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ScopeOfWorkSection } from "./ScopeOfWorkSection";
+import { AddressAutocompleteInput } from "@/components/ui/AddressAutocompleteInput";
 import { ClientContractSection } from "./ClientContractSection";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
@@ -1016,10 +1017,10 @@ export function JobBuilderClient({ job: initialJob }: { job: Job }) {
             />
           </Field>
           <Field label="Site address" className="sm:col-span-2">
-            <input
+            <AddressAutocompleteInput
               className={inputClass}
               value={form.siteAddress}
-              onChange={(e) => set("siteAddress", e.target.value)}
+              onChange={(next) => set("siteAddress", next)}
               placeholder="12 Magill Rd, Stepney SA 5069"
             />
           </Field>

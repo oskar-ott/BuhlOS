@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Route } from "next";
 import Link from "next/link";
+import { AddressAutocompleteInput } from "@/components/ui/AddressAutocompleteInput";
 import { Button } from "@/components/ui/Button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { createJob } from "@/domains/jobs/client";
@@ -102,11 +103,15 @@ export function NewJobForm() {
             placeholder="e.g. BW-1042"
           />
         </Field>
-        <Field label="Site address" help="Optional — you can set this later.">
-          <input
+        <Field
+          label="Site address"
+          help="Optional — start typing and pick the address, or set it later."
+        >
+          <AddressAutocompleteInput
+            data-testid="job-site-address"
             className={inputClass}
             value={siteAddress}
-            onChange={(e) => setSiteAddress(e.target.value)}
+            onChange={setSiteAddress}
             placeholder="e.g. 12 Magill Rd, Stepney SA 5069"
           />
         </Field>
