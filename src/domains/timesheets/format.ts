@@ -90,19 +90,6 @@ export function otChipLabel(addOnHours: number): string {
 }
 
 /**
- * The submit-bar echo while an OT chip rides the standard day — the derived
- * truth the worker checks by eye instead of computing in their head:
- * "Submit 8h 36m — standard + 1h OT". Wording is the owner-approved copy
- * verbatim ("OT" here is the site's own shorthand — workers say it, and the
- * uppercase sub-line has no room for "overtime"). The caller passes the
- * derived total (standardDayPlusOt) plus the add-on so this stays a pure
- * formatter with no service import.
- */
-export function standardDayOtEcho(totalHours: number, addOnHours: number): string {
-  return `Submit ${formatHoursLabel(totalHours)} — standard + ${formatHoursLabel(addOnHours)} OT`;
-}
-
-/**
  * The honest "the office changed your hours" line for ONE day.
  *
  * When the office uses "fix it and approve" (api/time-entries-amend-approve.js)

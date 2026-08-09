@@ -190,3 +190,51 @@ describe("RejectedHoursResubmitSheet — submitted (undecided) variant", () => {
     expect(none).toContain("No active assigned job");
   });
 });
+
+/**
+ * Owner-directed 2026-08-09: the fix flow's quick picks are the standard day
+ * + the OT presets — the same anti-wrong-total treatment as the log sheet's
+ * custom sheet. The old whole-hour grid (up to 9h/10h) and the decimal
+ * "Exact hours" box were both live paths to the "extra hour = 9 hours" /
+ * "8.36" pay errors; neither may come back.
+ */
+describe("RejectedHoursResubmitSheet — standard-day + OT presets, h+m entry", () => {
+  it("renders the standard-day chip and the four OT presets with their derived totals", () => {
+    const html = render({ entry: te(), assignedJobs: ONE_JOB, defaultOpen: true });
+    expect(html).toContain("Standard day · 7h 36m");
+    for (const label of ["+30m OT", "+1h OT", "+1½h OT", "+2h OT"]) {
+      expect(html).toContain(label);
+    }
+    // Every preset SHOWS its derived total — the worker checks by eye,
+    // never computes.
+    for (const total of ["8h 6m", "8h 36m", "9h 6m", "9h 36m"]) {
+      expect(html).toContain(`= ${total} total`);
+    }
+    // The entry's 7.6 preselects the standard-day chip.
+    expect(html).toContain('aria-pressed="true"');
+  });
+
+  it("hours are entered as h + m — the decimal box and the raw whole-hour chips are gone", () => {
+    const html = render({ entry: te(), assignedJobs: ONE_JOB, defaultOpen: true });
+    expect(html).toContain('aria-label="Hours"');
+    expect(html).toContain('aria-label="Minutes"');
+    expect(html).not.toContain('step="0.25"');
+    expect(html).not.toContain("Exact hours");
+    // No bare-total quick picks that read like a day length ("9h", "10h").
+    expect(html).not.toContain(">9h<");
+    expect(html).not.toContain(">10h<");
+  });
+
+  it("an OT-total entry (8.6) preselects its preset and fills 8h 36m into the inputs", () => {
+    const html = render({
+      entry: te({ totalHours: 8.6, allocations: [{ jobId: "job-a", hours: 8.6, notes: null }] }),
+      assignedJobs: ONE_JOB,
+      defaultOpen: true,
+    });
+    // The +1h OT preset is the active one…
+    expect(html).toContain('aria-pressed="true"');
+    // …and the h/m inputs carry the split, not a decimal.
+    expect(html).toContain('value="8"');
+    expect(html).toContain('value="36"');
+  });
+});

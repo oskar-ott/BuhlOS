@@ -9,8 +9,13 @@ import { PhilNotice } from "./ui/PhilNotice";
 import { cn } from "@/lib/cn";
 import { timesheetsClient } from "@/domains/timesheets/client";
 import { useSubmissionKey } from "@/domains/timesheets/useSubmissionKey";
-import { MAX_HOURS_PER_DAY } from "@/domains/timesheets/service";
-import { formatHoursLabel } from "@/domains/timesheets/format";
+import {
+  MAX_HOURS_PER_DAY,
+  STANDARD_DAY_HOURS,
+  STANDARD_DAY_OT_ADD_ONS,
+  standardDayPlusOt,
+} from "@/domains/timesheets/service";
+import { formatHoursLabel, otChipLabel } from "@/domains/timesheets/format";
 import {
   buildResubmitPayload,
   buildSplitResubmitPayload,
@@ -26,7 +31,13 @@ import {
 import { SplitDaySheet } from "./SplitDaySheet";
 import type { TimeEntry } from "@/domains/timesheets/types";
 
-const HOURS_OPTIONS = [4, 5, 6, 7, 7.6, 8, 9, 10] as const;
+// The quick picks here are the standard day + the OT presets, mirroring the
+// log sheet's custom sheet (owner-directed 2026-08-09). The old whole-hour
+// grid (4h…10h) invited the wrong-total trap on the FIX path too: a worker
+// correcting a day that ran an hour over reads "9" and taps 9h — but the day
+// is standard 7h 36m + 1h OT = 8h 36m. Anything else is typed exactly as
+// hours + minutes (never a decimal box — "8.36" meaning 8h 36m is the
+// incident this whole flow exists to prevent).
 
 interface RejectedHoursResubmitSheetProps {
   /** The rejected OR submitted entry to fix (canResubmitInPhil).
@@ -355,36 +366,94 @@ export function RejectedHoursResubmitSheet({
         <legend className="font-display text-xs uppercase tracking-widest text-text-muted">
           Hours for this job
         </legend>
-        <div className="grid grid-cols-4 gap-2">
-          {HOURS_OPTIONS.map((h) => (
-            <button
-              key={h}
-              type="button"
-              onClick={() => setTotalHours(h)}
-              aria-pressed={totalHours === h}
-              className={cn(
-                "min-h-[44px] rounded-card border px-2 py-2 text-sm font-medium",
-                totalHours === h
-                  ? "border-brand-navy bg-brand-navy text-text-inverse"
-                  : "border-border bg-surface text-text hover:border-border-strong",
-              )}
-            >
-              {formatHoursLabel(h)}
-            </button>
-          ))}
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => setTotalHours(STANDARD_DAY_HOURS)}
+            aria-pressed={totalHours === STANDARD_DAY_HOURS}
+            className={cn(
+              "col-span-2 min-h-[44px] rounded-card border px-2 py-2 text-sm font-medium",
+              totalHours === STANDARD_DAY_HOURS
+                ? "border-brand-navy bg-brand-navy text-text-inverse"
+                : "border-border bg-surface text-text hover:border-border-strong",
+            )}
+          >
+            {`Standard day · ${formatHoursLabel(STANDARD_DAY_HOURS)}`}
+          </button>
+          {STANDARD_DAY_OT_ADD_ONS.map((addOn) => {
+            const total = standardDayPlusOt(addOn);
+            const active = totalHours === total;
+            return (
+              <button
+                key={addOn}
+                type="button"
+                onClick={() => setTotalHours(total)}
+                aria-pressed={active}
+                aria-label={`Standard day plus ${formatHoursLabel(addOn)} overtime — ${formatHoursLabel(total)} total`}
+                className={cn(
+                  "min-h-[52px] rounded-card border px-2 py-2 text-left",
+                  active
+                    ? "border-brand-navy bg-brand-navy text-text-inverse"
+                    : "border-border bg-surface text-text hover:border-border-strong",
+                )}
+              >
+                {/* One string per line, not adjacent JSX text — SSR comment
+                    markers would split the copy (repo-wide gotcha). */}
+                <span className="block text-sm font-semibold">{`${otChipLabel(addOn)} OT`}</span>
+                <span
+                  className={cn(
+                    "block text-xs [font-variant-numeric:tabular-nums]",
+                    active ? "text-text-inverse" : "text-text-muted",
+                  )}
+                >
+                  {`= ${formatHoursLabel(total)} total`}
+                </span>
+              </button>
+            );
+          })}
         </div>
-        <label className="block text-sm">
-          <span className="mb-1 block font-medium text-text">Exact hours</span>
-          <input
-            type="number"
-            min={0}
-            max={MAX_HOURS_PER_DAY}
-            step="0.25"
-            value={totalHours}
-            onChange={(e) => setTotalHours(Number(e.target.value))}
-            className="h-12 w-full rounded-card border border-border bg-surface px-3 text-base focus:border-brand-navy focus:outline-none"
-          />
-        </label>
+        {/* Hours + minutes, NEVER a decimal box — same rule as the log
+            sheet's custom entry (#986): a decimal field read "8.36" as
+            8.36h = 8h 22m and the entry silently changed on submit.
+            totalHours stays the single decimal source of truth underneath. */}
+        <div className="flex items-center gap-2">
+          <label className="flex flex-1 items-center gap-2 text-sm">
+            <input
+              type="number"
+              inputMode="numeric"
+              min={0}
+              max={MAX_HOURS_PER_DAY}
+              step={1}
+              value={Math.floor(totalHours)}
+              onChange={(e) => {
+                const h = Math.max(0, Math.floor(Number(e.target.value) || 0));
+                const m = Math.round((totalHours % 1) * 60);
+                setTotalHours(h + m / 60);
+              }}
+              aria-label="Hours"
+              className="h-12 w-full rounded-card border border-border bg-surface px-3 text-base focus:border-brand-navy focus:outline-none"
+            />
+            <span className="shrink-0 text-text-muted">h</span>
+          </label>
+          <label className="flex flex-1 items-center gap-2 text-sm">
+            <input
+              type="number"
+              inputMode="numeric"
+              min={0}
+              max={59}
+              step={1}
+              value={Math.round((totalHours % 1) * 60)}
+              onChange={(e) => {
+                const m = Math.min(59, Math.max(0, Math.floor(Number(e.target.value) || 0)));
+                const h = Math.floor(totalHours);
+                setTotalHours(h + m / 60);
+              }}
+              aria-label="Minutes"
+              className="h-12 w-full rounded-card border border-border bg-surface px-3 text-base focus:border-brand-navy focus:outline-none"
+            />
+            <span className="shrink-0 text-text-muted">m</span>
+          </label>
+        </div>
       </fieldset>
 
       {assignedJobs.length > 1 ? (

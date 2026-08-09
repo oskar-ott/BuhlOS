@@ -384,60 +384,51 @@ describe("LogHoursSheet — deep-linked date", () => {
   });
 });
 
-describe("LogHoursSheet — OT add-on chips on the standard day (owner-directed 2026-08-07)", () => {
-  // The tap → echo → payload chain is pure logic driven directly in
-  // src/domains/timesheets/timesheets.test.ts ("standard day + OT add-on
-  // chips") — the repo's node-env pattern (see PhilTabBar.interaction.test.tsx):
-  // the SAME helpers the chips wire (toggleOtAddOn / standardDayPlusOt /
-  // standardDayOtEcho / buildStandardDayWithOtPayload) are exercised through
-  // their real reducer, and THIS suite pins the SSR wiring around them.
+describe("LogHoursSheet — two log options, OT lives in the custom sheet (owner-directed 2026-08-09)", () => {
+  // The tap → fill → payload chain is pure logic driven directly in
+  // src/domains/timesheets/timesheets.test.ts ("custom-sheet OT presets") —
+  // the repo's node-env pattern (see PhilTabBar.interaction.test.tsx): the
+  // SAME helpers the presets wire (standardDayPlusOt / buildCustomHoursPayload)
+  // are exercised through their real derivation. The presets themselves render
+  // inside the Modal, which is client-state (closed = null) and so never in
+  // this SSR markup — THIS suite pins what the log surface shows instead: the
+  // standard-day action carries NO chips and no other quick amounts exist.
   const soleJob = { ...base, assignedJobs: [{ id: "j1", name: "Smith St Rewire" }] };
 
-  it("renders the four chips riding INSIDE the standard-day block, none active", () => {
+  it("the standard-day block carries NO OT chips — overtime moved into the custom sheet", () => {
     const html = render(soleJob);
+    expect(html).not.toContain("Add overtime to the standard day");
     for (const label of ["+30m", "+1h", "+1½h", "+2h"]) {
-      expect(html).toContain(label);
+      expect(html).not.toContain(label);
     }
-    expect(html).toContain('aria-label="Add overtime to the standard day"');
-    // Single-select toggles, none pressed until tapped…
-    expect(html).toContain('aria-pressed="false"');
-    expect(html).not.toContain('aria-pressed="true"');
-    // …with a 44px+ touch target per chip.
-    expect(html).toContain("min-h-[44px]");
   });
 
-  it("no chip = the untouched standard day: same sub-label, same smoke-clicked aria-label, no echo", () => {
+  it("the standard day is untouched: same sub-label, same smoke-clicked aria-label, no echo", () => {
     const html = render(soleJob);
     expect(html).toContain("Standard day · 7h 36m");
     expect(html).toContain('aria-label="Submit Standard day, 7 hours 36 minutes"');
-    // The echo only exists once a chip is active (client state, not SSR) —
-    // the plain path renders no derived-total wording at all.
+    // The old chip-driven derived-total echo is gone with the chips.
     expect(html).not.toContain("— standard +");
   });
 
-  it("chips sit WITH the standard-day action — under it, above the custom/split fallbacks (P10: no new section)", () => {
-    const html = render({
-      ...base,
-      assignedJobs: [
-        { id: "j1", name: "Smith St Rewire" },
-        { id: "j2", name: "Depot Switchboard" },
-      ],
-      initialJobId: "j1",
-    });
-    const chipAt = html.indexOf("+1½h");
-    expect(chipAt).toBeGreaterThan(html.indexOf("Standard day"));
-    expect(chipAt).toBeLessThan(html.indexOf("Custom / overtime hours"));
-    expect(html.indexOf("Split across jobs")).toBeGreaterThan(chipAt);
+  it("exactly two log options in order: the standard day, then the custom/overtime sheet (split only with 2+ jobs)", () => {
+    const html = render(soleJob);
+    const standardAt = html.indexOf("Standard day");
+    const customAt = html.indexOf("Custom / overtime hours");
+    expect(standardAt).toBeGreaterThan(-1);
+    expect(customAt).toBeGreaterThan(standardAt);
+    // One job → no split action; the surface is the two options, nothing else.
+    expect(html).not.toContain("Split across jobs");
   });
 
-  it("a locked (submitted/approved) selected day renders no chips — the log actions are replaced wholesale", () => {
+  it("a locked (submitted/approved) selected day renders no log actions at all", () => {
     const html = render({
       assignedJobs: [{ id: "j1", name: "Smith St Rewire" }],
       recentEntries: [],
       initialTodayEntry: entryWithStatus("submitted"),
       initialDate: "2026-06-11",
     });
-    expect(html).not.toContain("+1½h");
+    expect(html).not.toContain("Custom / overtime hours");
     expect(html).not.toContain("Add overtime to the standard day");
   });
 });
