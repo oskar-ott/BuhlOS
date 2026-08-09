@@ -7,15 +7,9 @@ import { AdminShell } from "@/components/admin/AdminShell";
 import { DuplicateJobButton } from "@/components/admin/DuplicateJobButton";
 import { RecentItemTracker } from "@/components/admin/RecentItemTracker";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
-import { Pill } from "@/components/ui/Pill";
-import { JobInterfaceSectionNav } from "@/components/admin/JobInterfaceSectionNav";
-import {
-  JobInductionsResponseSchema,
-  type CrewInductionStatus,
-} from "@/domains/jobs/induction";
+import { JobHealthBand } from "@/components/admin/JobHealthBand";
 import { JobLabourSummary } from "@/components/admin/JobLabourSummary";
-import { JobProfitabilitySummary } from "@/components/admin/JobProfitabilitySummary";
-import { JobBudgetVarianceCard } from "@/components/admin/JobBudgetVarianceCard";
+import { JobMoneyCard } from "@/components/admin/JobMoneyCard";
 import { JobTagsSummary } from "@/components/admin/JobTagsSummary";
 import { JobEvidenceSummary } from "@/components/admin/JobEvidenceSummary";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
@@ -26,7 +20,7 @@ import {
   parseJobResult,
   type JobInterfaceData,
 } from "@/domains/jobs/job-interface-data";
-import { hasSiteContext, statusLabel, statusTone } from "@/domains/jobs/format";
+import { hasSiteContext } from "@/domains/jobs/format";
 import { isVisibleToField } from "@/domains/jobs/builder";
 import { progressPct as canonicalProgressPct } from "@/domains/jobs/progress";
 import { readEstimatedHours } from "@/domains/analytics/job-estimate";
@@ -36,7 +30,6 @@ export const dynamic = "force-dynamic";
 
 interface PageParams {
   params: Promise<{ jobId: string }>;
-  searchParams: Promise<{ view?: string }>;
 }
 
 /**
@@ -47,17 +40,16 @@ interface PageParams {
  * every section in one place and tap into the live ones.
  *
  * Sections rendered here (top to bottom):
- *   - Overview header: job name, ref, type, status pill, archived badge
- *   - Status summary (PR #87) + "What the field sees" (PR #88)
- *   - Operational loop (read-only, real data):
- *       Labour    &mdash; hours awaiting approval on this job (time-entries)
- *       Evidence  &mdash; capture summary by status (per-job evidence)
- *       Activity  &mdash; latest audit-log events (scope=job)
- *   - Site context: address / contact / access / parking / safety / induction
- *   - Section nav: Evidence / Photos / Plans
+ *   - Health band: IV code / ref / type / address, status control, the same
+ *     At-risk/Watch/On-track read the jobs list shows, crew + task progress
+ *   - Build &amp; publish
+ *   - Labour &mdash; hours awaiting approval on this job (time-entries)
+ *   - Money &mdash; contract / labour / materials / margin + budget variance
+ *   - Evidence &mdash; capture summary by status, with the Photos link
+ *   - Tag register (only when flagged) and Site context
  *
- * The live evidence count on the section nav comes from /api/jobs?withStats=1
- * (statsEvidenceV2Pending). The operational-loop cards each load their own
+ * The health band's reasons come from /api/jobs?withStats=1 (the same stats
+ * the list derives health from). The operational cards each load their own
  * per-job slice in parallel (see loadJobInterface) and degrade independently.
  *
  * This page does NOT replace the /v2/jobs/[jobId]/evidence route &mdash; it
@@ -70,9 +62,8 @@ interface PageParams {
  *       same sections (with UC stubs)
  *   docs/rebuild-audit/35-current-product-state-audit.md §7.2 + §13
  */
-export default async function AdminJobInterfacePage({ params, searchParams }: PageParams) {
+export default async function AdminJobInterfacePage({ params }: PageParams) {
   const { jobId } = await params;
-  const { view } = await searchParams;
 
   const cookieStore = await cookies();
   const raw = cookieStore.get(SESSION_COOKIE)?.value;
@@ -131,9 +122,9 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
         }
       >
         <div className="mx-auto max-w-3xl space-y-4">
-          <Card className="border-amber-200 bg-amber-50" role="alert">
+          <Card className="border-state-warning-subtle-border bg-state-warning-subtle-bg" role="alert">
             <CardTitle>Couldn&rsquo;t load this job</CardTitle>
-            <CardDescription className="text-amber-900">
+            <CardDescription className="text-state-warning-subtle-text">
               {result.message}. Try again in a moment.
             </CardDescription>
           </Card>
@@ -144,6 +135,14 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
 
   const job = result.job;
 
+  // Canonical pooled task progress, shared by the health band and the Labour
+  // card's overrun classifier. Lean jobs with no structure honestly read null.
+  const progressPct =
+    typeof job.statsTasksTotal === "number" && typeof job.statsTasksComplete === "number"
+      ? canonicalProgressPct({ total: job.statsTasksTotal, complete: job.statsTasksComplete })
+      : typeof job.statsPct === "number"
+        ? Math.round(job.statsPct)
+        : null;
 
   return (
     <AdminShell
@@ -167,66 +166,35 @@ export default async function AdminJobInterfacePage({ params, searchParams }: Pa
             Status card, scope of work, scope-recon chip, client & contract,
             "what the field sees", AI summary, BOQ/claims/closeout/DLP cards,
             recent activity, readiness + induction, services, field-view
-            toggle. Kept by owner call: Build & publish (everyone can create),
-            Profitability + Budget. */}
-        <JobHeaderCard job={job} />
+            toggle. 2026-08-09 job-hub audit pass: the ref strip grew into the
+            health band (same At-risk/Watch read as the jobs list + status
+            control), the two money cards merged into JobMoneyCard (one fetch),
+            and the two-row Sections nav folded into the Evidence card. */}
+        <JobHealthBand job={job} canEdit={canBuild} progressPct={progressPct} />
         <JobBuildCard job={job} canBuild={canBuild} />
         <JobLabourSummary
           entries={data.hours.entries}
           jobId={job.id}
           fetchError={data.hours.error}
           estimatedHours={readEstimatedHours(job)}
-          progressPct={
-            typeof job.statsTasksTotal === "number" && typeof job.statsTasksComplete === "number"
-              ? canonicalProgressPct({ total: job.statsTasksTotal, complete: job.statsTasksComplete })
-              : typeof job.statsPct === "number"
-                ? Math.round(job.statsPct)
-                : null
-          }
+          progressPct={progressPct}
         />
-        {/* #327: per-job profitability (cost-rate based). Client-fetched so the
-            expensive approved-hours walk never blocks the hub render; admin-tier
-            only (hidden for an LH/non-admin viewer). */}
-        <JobProfitabilitySummary jobId={job.id} />
-        {/* #341: budget vs actual (labour/materials/total) — $-vs-budget view,
-            complements the Labour card's pending-approval framing. */}
-        <JobBudgetVarianceCard jobId={job.id} />
+        {/* One money card, one fetch: profitability + budget variance are two
+            views of the same endpoint. Client-fetched so the expensive
+            approved-hours walk never blocks the hub render; admin-tier only
+            (hidden for an LH/non-admin viewer). */}
+        <JobMoneyCard jobId={job.id} />
         <JobEvidenceSummary
           evidence={data.evidence.evidence}
           jobId={job.id}
           fetchError={data.evidence.error}
         />
         <JobTagsSummary job={job} />
-        {hasSiteContext(job) ? <SiteContextCard job={job} /> : null}
-        <JobInterfaceSectionNav job={job} />
+        {hasSiteContext(job) ? (
+          <SiteContextCard job={job} canBuild={canBuild} />
+        ) : null}
       </div>
     </AdminShell>
-  );
-}
-
-/**
- * Ref strip (lean-reset replica 379-381). The job NAME is the shell head
- * (AdminShell title), so this card carries only the "Ref · type · address"
- * identity line + the status pill. The builder entry point lives on the
- * Build & publish card directly below — no duplicate action here.
- */
-function JobHeaderCard({ job }: { job: Job }) {
-  const subline = [job.ref && `Ref ${job.ref}`, job.typeName, job.siteAddress]
-    .filter(Boolean)
-    .join(" · ");
-  return (
-    <Card>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        {/* Fall back to the name so the strip never renders as a bare pill on a
-            job with no ref/type/address yet. */}
-        <p className="min-w-0 break-words text-sm text-text-muted">
-          {subline || job.name}
-        </p>
-        <div className="shrink-0">
-          <Pill tone={statusTone(job.status)}>{statusLabel(job.status)}</Pill>
-        </div>
-      </div>
-    </Card>
   );
 }
 
@@ -270,10 +238,20 @@ function JobBuildCard({ job, canBuild }: { job: Job; canBuild: boolean }) {
   );
 }
 
-function SiteContextCard({ job }: { job: Job }) {
+function SiteContextCard({ job, canBuild }: { job: Job; canBuild: boolean }) {
   return (
     <Card>
-      <CardTitle>Site</CardTitle>
+      <div className="flex items-center justify-between gap-3">
+        <CardTitle>Site</CardTitle>
+        {canBuild ? (
+          <a
+            href={`/v2/jobs/${encodeURIComponent(job.id)}/builder?tab=basics` as Route}
+            className="text-sm font-medium text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-4 focus:outline-none focus:ring-2 focus:ring-brand-navy"
+          >
+            Edit
+          </a>
+        ) : null}
+      </div>
       <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
         {job.siteAddress ? (
           <SiteField icon={<MapPin className="h-4 w-4" />} label="Address">
@@ -313,7 +291,7 @@ function SiteContextCard({ job }: { job: Job }) {
         ) : null}
       </dl>
       {job.inductionRequired ? (
-        <div className="mt-3 rounded-card border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+        <div className="mt-3 rounded-card border border-state-warning-subtle-border bg-state-warning-subtle-bg p-3 text-sm text-state-warning-subtle-text">
           <p className="font-display font-semibold">Site induction required</p>
           <p className="mt-0.5 text-xs">
             Confirm with the leading hand before sending the crew on site.
@@ -339,9 +317,7 @@ function SiteField({
         {icon}
       </span>
       <div className="min-w-0 flex-1">
-        <dt className="font-mono text-[10px] uppercase tracking-wider text-text-muted">
-          {label}
-        </dt>
+        <dt className="text-xs text-text-muted">{label}</dt>
         <dd className="mt-0.5 whitespace-pre-line break-words text-text">
           {children}
         </dd>

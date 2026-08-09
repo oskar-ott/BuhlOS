@@ -13,6 +13,7 @@ export const dynamic = "force-dynamic";
 
 interface PageParams {
   params: Promise<{ jobId: string }>;
+  searchParams: Promise<{ tab?: string }>;
 }
 
 /**
@@ -36,8 +37,11 @@ interface PageParams {
  *   src/app/v2/jobs/new/page.tsx — create flow that routes in here
  *   src/domains/jobs/client.ts getJobForEdit — same includeArchived read
  */
-export default async function JobBuilderPage({ params }: PageParams) {
+export default async function JobBuilderPage({ params, searchParams }: PageParams) {
   const { jobId } = await params;
+  // `?tab=` deep link from hub prompts (e.g. Site card "Edit" → basics).
+  // Validated client-side; unknown values fall back to the default tab.
+  const { tab } = await searchParams;
 
   const cookieStore = await cookies();
   const raw = cookieStore.get(SESSION_COOKIE)?.value;
@@ -83,7 +87,7 @@ export default async function JobBuilderPage({ params }: PageParams) {
 
   return (
     <BuilderShell jobId={jobId} title={result.job.name}>
-      <JobBuilderClient job={result.job} />
+      <JobBuilderClient job={result.job} initialTab={tab} />
     </BuilderShell>
   );
 }

@@ -20,7 +20,7 @@ import type { Job } from "./types";
  * "All clear" is only shown when the real counts are genuinely all zero.
  *
  * Cross-ref:
- *   src/components/admin/JobOverviewSummary.tsx — the consumer
+ *   src/components/admin/JobHealthBand.tsx — the hub-side health read
  *   src/app/(admin)/command-centre/page.tsx — the cross-job attention surface
  *     this mirrors at the single-job level (does not replace it)
  */

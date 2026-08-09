@@ -275,11 +275,24 @@ const DELIVER_LINKS: Record<
   },
 };
 
-export function JobBuilderClient({ job: initialJob }: { job: Job }) {
+/** `?tab=` deep-link validation — hub prompts land on the exact section
+ *  ("Add contract value" → basics) instead of the default. Unknown values
+ *  fall back to basics rather than erroring. */
+function isTabKey(v: string | undefined): v is TabKey {
+  return v != null && (TABS.some((t) => t.key === v) || v === "more");
+}
+
+export function JobBuilderClient({
+  job: initialJob,
+  initialTab,
+}: {
+  job: Job;
+  initialTab?: string;
+}) {
   const router = useRouter();
   const [savedJob, setSavedJob] = useState<Job>(initialJob);
   const [form, setForm] = useState<JobBuilderForm>(() => jobToForm(initialJob));
-  const [tab, setTab] = useState<TabKey>("basics");
+  const [tab, setTab] = useState<TabKey>(isTabKey(initialTab) ? initialTab : "basics");
   // Unsaved-changes guard: a section with its own Save (basics contract / scope)
   // reports its dirty state up via onDirtyChange; leaving while dirty opens a
   // confirm instead of silently unmounting the section and losing the edits.
