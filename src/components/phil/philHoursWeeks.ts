@@ -215,6 +215,18 @@ export function buildHoursWeeks(
     else byWeek.set(monday, [entry]);
   }
   if (!byWeek.has(currentMonday)) byWeek.set(currentMonday, []);
+  // The PREVIOUS week is always present too, even when empty (2026-08-10
+  // field evidence: a worker who logged nothing last week had no card — and
+  // with the day dial scoped to THIS week, the missed-row "Log" pills on a
+  // week card were the only path back to those days, so they could neither
+  // see nor backfill the week). Every previous-week day is at most 13 days
+  // back, always inside the server's 14-day backdate window, so the card's
+  // "Not logged" rows never offer a dead pill. Honest by construction (P7):
+  // the days truly happened and are truly unlogged. Weeks further back stay
+  // entry-only — their days age out of the window and a wall of empty cards
+  // would bury the real history (P10).
+  const previousMonday = addDays(currentMonday, -7);
+  if (!byWeek.has(previousMonday)) byWeek.set(previousMonday, []);
 
   const mondays = [...byWeek.keys()].sort((a, b) => (a < b ? 1 : a > b ? -1 : 0));
   const hiddenWeekCount = Math.max(0, mondays.length - maxWeeks);
