@@ -346,6 +346,62 @@ export function splitDayRemainder(
  * True if the supplied date string is within the legacy backdate window
  * (14 days back, no future dates). Used by the date picker.
  */
+/** One option on the log sheet's day dial. */
+export interface LogDayDialOption {
+  /** YYYY-MM-DD this option logs. */
+  date: string;
+  /** Site words: "Today", else the weekday name ("Monday"). An out-of-week
+   *  seeded day (a "Log" pill on an older week's row) carries its short date
+   *  ("Mon 28 Jul") — a bare weekday would lie about WHICH Monday. */
+  label: string;
+}
+
+/**
+ * The days the log sheet's day dial offers (owner-directed 2026-08-09): THIS
+ * week only, Monday through today, newest first (today lands on top of the
+ * drum). Never a free calendar — a worker picking from an open date field
+ * could log weeks away by mistake; the dial can only say days that exist.
+ *
+ * `seedDate` is the one escape hatch: a "Log" pill on an OLDER week's missed
+ * row seeds the sheet with that exact date, so when it falls outside this
+ * week it is prepended as an option with its short date. The pills are
+ * already window-guarded (isWithinBackdateWindow), so the dial never has to
+ * re-police the 14-day rule.
+ */
+export function logDayDialOptions(
+  todayISO: string,
+  seedDate?: string | null,
+): LogDayDialOption[] {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(todayISO)) return [];
+  const monday = weekStartOf(todayISO);
+  const options: LogDayDialOption[] = [];
+  for (let d = todayISO; d >= monday; d = addDays(d, -1)) {
+    options.push({
+      date: d,
+      label:
+        d === todayISO
+          ? "Today"
+          : new Date(d + "T00:00:00Z").toLocaleDateString("en-AU", {
+              weekday: "long",
+              timeZone: "UTC",
+            }),
+    });
+  }
+  if (
+    seedDate &&
+    /^\d{4}-\d{2}-\d{2}$/.test(seedDate) &&
+    !options.some((o) => o.date === seedDate)
+  ) {
+    // Composed part-by-part ("Tue 28 Jul") — the combined en-AU formatter
+    // inserts a comma and expands the month, which doesn't fit a dial row.
+    const d = new Date(seedDate + "T00:00:00Z");
+    const wd = d.toLocaleDateString("en-AU", { weekday: "short", timeZone: "UTC" });
+    const mon = d.toLocaleDateString("en-AU", { month: "short", timeZone: "UTC" });
+    options.unshift({ date: seedDate, label: `${wd} ${d.getUTCDate()} ${mon}` });
+  }
+  return options;
+}
+
 export function isWithinBackdateWindow(date: string, today: Date = new Date()): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
   const entryDate = new Date(date + "T00:00:00");
