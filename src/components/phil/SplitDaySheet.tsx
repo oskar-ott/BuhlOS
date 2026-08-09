@@ -4,7 +4,12 @@ import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { formatHoursLabel } from "@/domains/timesheets/format";
-import { splitDayRemainder, STANDARD_DAY_HOURS } from "@/domains/timesheets/service";
+import {
+  hoursFromHm,
+  splitDayRemainder,
+  splitHoursMinutes,
+  STANDARD_DAY_HOURS,
+} from "@/domains/timesheets/service";
 import { useSheetHistory } from "./useSheetHistory";
 
 /**
@@ -142,19 +147,52 @@ export function SplitDaySheet({
   return (
     <Modal open={open} onClose={close} title={title}>
       <div className="space-y-4" data-testid="split-day-sheet">
-        <label className="block text-sm">
-          <span className="mb-1 block font-medium text-text">Total hours for the day</span>
-          <input
-            type="number"
-            min={0}
-            max={MAX_TOTAL}
-            step="0.1"
-            value={total}
-            onChange={(e) => setTotal(Number(e.target.value))}
-            className={`h-12 w-full ${inputClass}`}
-            data-testid="split-total"
-          />
-        </label>
+        {/* Hours + minutes, NEVER a decimal box — the same rule as every
+            other hours input (#986 "8.36" incident; this sheet was the last
+            decimal holdout, owner-directed 2026-08-10). hoursFromHm /
+            splitHoursMinutes are THE pair↔decimal conversion (service.ts),
+            so `total` stays the one decimal source of truth. */}
+        <fieldset className="block text-sm">
+          <legend className="mb-1 block font-medium text-text">Total time for the day</legend>
+          <div className="flex items-center gap-2">
+            <label className="flex flex-1 items-center gap-2">
+              <input
+                type="number"
+                inputMode="numeric"
+                min={0}
+                max={MAX_TOTAL}
+                step={1}
+                value={splitHoursMinutes(total).hours}
+                onChange={(e) =>
+                  setTotal(hoursFromHm(Number(e.target.value), splitHoursMinutes(total).minutes))
+                }
+                aria-label="Total hours"
+                className={`h-12 w-full ${inputClass}`}
+                data-testid="split-total"
+              />
+              <span className="shrink-0 text-text-muted">h</span>
+            </label>
+            <label className="flex flex-1 items-center gap-2">
+              <input
+                type="number"
+                inputMode="numeric"
+                min={0}
+                max={59}
+                step={1}
+                value={splitHoursMinutes(total).minutes}
+                onChange={(e) =>
+                  setTotal(
+                    hoursFromHm(splitHoursMinutes(total).hours, Math.min(59, Number(e.target.value))),
+                  )
+                }
+                aria-label="Total minutes"
+                className={`h-12 w-full ${inputClass}`}
+                data-testid="split-total-m"
+              />
+              <span className="shrink-0 text-text-muted">m</span>
+            </label>
+          </div>
+        </fieldset>
 
         <ul className="space-y-2">
           {rows.map((row, idx) => {
@@ -162,7 +200,7 @@ export function SplitDaySheet({
             const err = showErrors ? rowError(idx) : null;
             return (
               <li key={idx} className="rounded-card border border-border p-2">
-                <div className="grid grid-cols-[1fr_84px_auto] items-center gap-2">
+                <div className="grid grid-cols-[1fr_auto_auto] items-center gap-2">
                   <select
                     value={row.jobId ?? ""}
                     onChange={(e) => setRow(idx, { jobId: e.target.value || null })}
@@ -186,17 +224,50 @@ export function SplitDaySheet({
                       {formatHoursLabel(remainder)}
                     </span>
                   ) : (
-                    <input
-                      type="number"
-                      min={0}
-                      max={MAX_TOTAL}
-                      step="0.1"
-                      value={row.hours}
-                      onChange={(e) => setRow(idx, { hours: Number(e.target.value) })}
-                      aria-label={`Hours for row ${idx + 1}`}
-                      data-testid={`split-hours-${idx}`}
-                      className={`${inputClass} w-full text-right tabular-nums`}
-                    />
+                    // h + m, never a decimal (owner-directed 2026-08-10 —
+                    // the last "type 4.36 meaning 4h 36m" trap in the app).
+                    <span className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        min={0}
+                        max={MAX_TOTAL}
+                        step={1}
+                        value={splitHoursMinutes(row.hours).hours}
+                        onChange={(e) =>
+                          setRow(idx, {
+                            hours: hoursFromHm(
+                              Number(e.target.value),
+                              splitHoursMinutes(row.hours).minutes,
+                            ),
+                          })
+                        }
+                        aria-label={`Hours for row ${idx + 1}`}
+                        data-testid={`split-hours-${idx}`}
+                        className={`${inputClass} w-14 text-right tabular-nums`}
+                      />
+                      <span className="text-xs text-text-muted">h</span>
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        min={0}
+                        max={59}
+                        step={1}
+                        value={splitHoursMinutes(row.hours).minutes}
+                        onChange={(e) =>
+                          setRow(idx, {
+                            hours: hoursFromHm(
+                              splitHoursMinutes(row.hours).hours,
+                              Math.min(59, Number(e.target.value)),
+                            ),
+                          })
+                        }
+                        aria-label={`Minutes for row ${idx + 1}`}
+                        data-testid={`split-minutes-${idx}`}
+                        className={`${inputClass} w-14 text-right tabular-nums`}
+                      />
+                      <span className="text-xs text-text-muted">m</span>
+                    </span>
                   )}
                   {rows.length > 2 && !isLast ? (
                     <button
