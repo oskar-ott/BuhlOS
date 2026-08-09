@@ -29,7 +29,7 @@ async function resolveHiddenNavHrefs(viewer: SessionPayload | null): Promise<str
       FLAGGED_ITEMS.map(async ({ href, flag }) => ({
         href,
         on: await isFlagEnabled(flag, viewer),
-      })),
+      }))
     );
     return checks.filter((c) => !c.on).map((c) => c.href);
   } catch {
@@ -45,7 +45,10 @@ async function resolveHiddenNavHrefs(viewer: SessionPayload | null): Promise<str
 function viewerInitials(viewer: SessionPayload | null): string | null {
   const source = viewer?.name || viewer?.username || viewer?.email?.split("@")[0];
   if (!source) return null;
-  const words = source.trim().split(/[\s._-]+/).filter(Boolean);
+  const words = source
+    .trim()
+    .split(/[\s._-]+/)
+    .filter(Boolean);
   if (words.length === 0) return null;
   const initials = words
     .slice(0, 2)
@@ -88,7 +91,11 @@ export async function AdminShell({ children, title, breadcrumb }: AdminShellProp
       <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-surface px-4 sm:px-5">
         {/* The bühl wordmark leads the office shell — ink on the white bar. */}
         {/* eslint-disable-next-line @next/next/no-img-element -- static brand asset in /public, not a remote/optimised image */}
-        <img src="/brand/buhl-logo-ink.png" alt="bühl electrical" className="h-10 w-auto shrink-0" />
+        <img
+          src="/brand/buhl-logo-ink.png"
+          alt="bühl electrical"
+          className="h-10 w-auto shrink-0"
+        />
         {/* Horizontal nav pills (desktop). Named AdminSidebar for continuity —
             shell guards and the render suite key off the component name. */}
         <AdminSidebar hiddenHrefs={hiddenHrefs} />
@@ -101,14 +108,19 @@ export async function AdminShell({ children, title, breadcrumb }: AdminShellProp
             lets this flex child shrink below content so its own overflow-y
             engages. */}
         <main className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
-          {/* Page head per the replica: display title, breadcrumb beside it. */}
-          <div className="mb-5 flex min-w-0 items-end gap-3">
-            <h1 className="min-w-0 truncate font-display text-2xl tracking-tight text-text">
-              {title}
-            </h1>
-            {breadcrumb ? (
-              <div className="shrink-0 pb-0.5 text-xs text-text-muted">{breadcrumb}</div>
-            ) : null}
+          {/* Page head per the replica: display title, breadcrumb beside it,
+              and the login screen's yellow rule beneath — the one brand
+              signature carried into every office page (2026-08-09 polish). */}
+          <div className="mb-5 min-w-0">
+            <div className="flex min-w-0 items-end gap-3">
+              <h1 className="min-w-0 truncate font-display text-2xl tracking-tight text-text">
+                {title}
+              </h1>
+              {breadcrumb ? (
+                <div className="shrink-0 pb-0.5 text-xs text-text-muted">{breadcrumb}</div>
+              ) : null}
+            </div>
+            <div aria-hidden="true" className="mt-2 h-1 w-12 rounded-full bg-accent-yellow" />
           </div>
           {children}
         </main>

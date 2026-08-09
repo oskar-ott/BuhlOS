@@ -2,10 +2,7 @@ import type { Route } from "next";
 import { AlertTriangle, ArrowRight, CheckCircle2, Clock, Info } from "lucide-react";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { formatDateLabel, formatHoursLabel } from "@/domains/timesheets/format";
-import {
-  groupJobHoursByWorker,
-  summariseJobHours,
-} from "@/domains/jobs/job-hours";
+import { groupJobHoursByWorker, summariseJobHours } from "@/domains/jobs/job-hours";
 import { classifyTimeOverrun, timeOverrunView } from "@/domains/analytics/time-overrun";
 import type { TimeEntry } from "@/domains/timesheets/types";
 
@@ -71,7 +68,7 @@ export function JobLabourSummary({
       estimatedHours,
       hoursConsumed: summary.approvedHours + summary.pendingHours,
       progressPct,
-    }),
+    })
   );
 
   return (
@@ -81,8 +78,8 @@ export function JobLabourSummary({
         <CardTitle>Labour</CardTitle>
       </div>
       <CardDescription className="mt-1">
-        Approved and submitted hours on this job. Rejected entries and weekly
-        totals live in Hours approvals.
+        Approved and submitted hours on this job. Rejected entries and weekly totals live in Hours
+        approvals.
       </CardDescription>
 
       {fetchError ? (
@@ -90,8 +87,8 @@ export function JobLabourSummary({
           className="mt-3 rounded-card border border-state-warning-subtle-border bg-state-warning-subtle-bg px-3 py-2 text-sm text-state-warning-subtle-text"
           role="alert"
         >
-          Couldn&rsquo;t load hours for this job ({fetchError}). Open Hours
-          approvals for the live queue.
+          Couldn&rsquo;t load hours for this job ({fetchError}). Open Hours approvals for the live
+          queue.
         </p>
       ) : !summary.hasAny ? (
         <p className="mt-3 inline-flex items-center gap-1.5 text-sm text-state-success-subtle-text">
@@ -145,7 +142,7 @@ export function JobLabourSummary({
 
           {workers.length > 0 ? (
             <div className="mt-3">
-              <p className="font-display text-xs uppercase tracking-wider text-text-muted">
+              <p className="font-mono text-xs uppercase tracking-wider text-text-muted">
                 By worker
               </p>
               <ul className="mt-1 flex flex-wrap gap-2">
@@ -154,9 +151,7 @@ export function JobLabourSummary({
                     key={w.userId}
                     className="inline-flex items-center gap-1.5 rounded-card border border-border bg-surface px-2.5 py-1 text-xs"
                   >
-                    <span className="font-display font-semibold text-text">
-                      {w.userName}
-                    </span>
+                    <span className="font-display font-semibold text-text">{w.userName}</span>
                     <span className="text-text-muted">{formatHoursLabel(w.hours)}</span>
                   </li>
                 ))}

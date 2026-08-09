@@ -229,10 +229,7 @@ export function JobsList({ jobs, canBuild = false, newJobHref, cardExtrasPromise
 
   // Filter on the LIVE keystroke value (not the debounced URL mirror) so the
   // list narrows instantly while typing.
-  const filtered = useMemo(
-    () => filterJobs(jobs, { status, query }),
-    [jobs, status, query]
-  );
+  const filtered = useMemo(() => filterJobs(jobs, { status, query }), [jobs, status, query]);
 
   // #227: derive each row's health from its already-loaded stats (no I/O), then
   // triage the portfolio "needs me first".
@@ -262,9 +259,7 @@ export function JobsList({ jobs, canBuild = false, newJobHref, cardExtrasPromise
   // Statuses with zero jobs stay hidden (this page excludes archived rows
   // server-side) UNLESS the URL deep-links to one, in which case the pill
   // renders so the active filter is visible and clearable.
-  const statusOptions = JOB_STATUS_OPTIONS.filter(
-    (s) => (counts.get(s) ?? 0) > 0 || status === s
-  );
+  const statusOptions = JOB_STATUS_OPTIONS.filter((s) => (counts.get(s) ?? 0) > 0 || status === s);
 
   const filtersActive = status !== null || query.trim() !== "" || health !== null;
 
@@ -306,20 +301,20 @@ export function JobsList({ jobs, canBuild = false, newJobHref, cardExtrasPromise
           {portfolio.totalContract ? (
             <div className="text-right">
               <div className="flex items-baseline justify-end gap-1.5">
-                <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-text-muted">
+                <span className="font-mono text-xs uppercase tracking-[0.12em] text-text-muted">
                   Total contract
                 </span>
                 <span className="font-display text-base font-bold text-text">
                   {portfolio.totalContract.value}
                 </span>
-                <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-text-muted">
+                <span className="font-mono text-xs uppercase tracking-[0.12em] text-text-muted">
                   Admin only
                 </span>
               </div>
               {/* Honesty: the sum only covers jobs that actually carry a value —
                   keep the priced-subset context so a part-priced portfolio never
                   implies a whole-portfolio total. */}
-              <div className="font-mono text-[10px] text-text-muted">
+              <div className="font-mono text-xs text-text-muted">
                 {portfolio.totalContract.hint}
               </div>
             </div>
@@ -394,7 +389,11 @@ export function JobsList({ jobs, canBuild = false, newJobHref, cardExtrasPromise
 
         {/* #227: health filter — triage the portfolio by risk. Only levels with
             jobs in the current status/search view render a pill. */}
-        <div role="group" aria-label="Filter jobs by health" className="flex flex-wrap items-center gap-1.5">
+        <div
+          role="group"
+          aria-label="Filter jobs by health"
+          className="flex flex-wrap items-center gap-1.5"
+        >
           {HEALTH_LEVELS.filter((lvl) => healthTally[lvl] > 0 || health === lvl).map((lvl) => (
             <FilterPill
               key={lvl}
@@ -546,9 +545,7 @@ function JobCard({
           <p className="truncate font-display text-base font-semibold text-text hover:underline">
             {job.name}
           </p>
-          {subline ? (
-            <p className="mt-0.5 truncate text-xs text-text-muted">{subline}</p>
-          ) : null}
+          {subline ? <p className="mt-0.5 truncate text-xs text-text-muted">{subline}</p> : null}
           {address ? (
             <p className="mt-0.5 flex items-center gap-1 truncate text-xs text-text-muted">
               <MapPin aria-hidden="true" className="h-3 w-3 shrink-0" />
@@ -610,7 +607,7 @@ function JobCard({
             ) : null}
           </>
         ) : (
-          <span className="text-[11px] uppercase tracking-wider text-text-muted">All clear</span>
+          <span className="text-xs uppercase tracking-wider text-text-muted">All clear</span>
         )}
         {canBuild ? (
           <ActionChip
@@ -625,7 +622,7 @@ function JobCard({
       {/* Foot: the real risk read as a meter + the last-activity caption. */}
       <div className="mt-auto flex items-center justify-between gap-3 pt-3">
         <div className="flex min-w-0 flex-1 items-center gap-2">
-          <span className="font-mono text-[9px] uppercase tracking-[0.15em] text-text-muted">
+          <span className="font-mono text-xs uppercase tracking-[0.15em] text-text-muted">
             Risk
           </span>
           <span
@@ -637,7 +634,7 @@ function JobCard({
           </span>
         </div>
         {caption ? (
-          <span className="whitespace-nowrap text-[11px] uppercase tracking-wider text-text-muted">
+          <span className="whitespace-nowrap text-xs uppercase tracking-wider text-text-muted">
             {caption}
           </span>
         ) : null}
@@ -649,15 +646,13 @@ function JobCard({
 /** Resolve the card meta with the streamed value folded in (statsOnly list).
  *  Value prefers the object's own figure, then the streamed one; "—" otherwise. */
 function cardMetaWithStream(job: Job, extra?: CardExtra): JobCardMeta {
-  const hasOwnValue =
-    typeof job.contractValue === "number" && Number.isFinite(job.contractValue);
+  const hasOwnValue = typeof job.contractValue === "number" && Number.isFinite(job.contractValue);
   const value = hasOwnValue
     ? (job.contractValue as number)
     : extra?.contractValue !== undefined
       ? extra.contractValue
       : undefined;
-  const hasCrew =
-    typeof job.statsCrewCount === "number" && Number.isFinite(job.statsCrewCount);
+  const hasCrew = typeof job.statsCrewCount === "number" && Number.isFinite(job.statsCrewCount);
   return {
     value: value !== undefined ? formatContractValue(value) : "—",
     valueKnown: value !== undefined,
@@ -690,7 +685,7 @@ function MetaCell({
           <span className="ml-1 font-mono text-[10px] font-normal text-text-muted">{hint}</span>
         ) : null}
       </div>
-      <div className="font-mono text-[9px] uppercase tracking-wider text-text-muted">{label}</div>
+      <div className="font-mono text-xs uppercase tracking-wider text-text-muted">{label}</div>
     </div>
   );
 }
@@ -731,9 +726,7 @@ function ActionChip({ href, icon, label, count, ariaLabel }: ActionChipProps) {
 }
 
 function Card({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="rounded-card border border-border bg-surface-raised">{children}</div>
-  );
+  return <div className="rounded-card border border-border bg-surface-raised">{children}</div>;
 }
 
 /** Resolves the streamed card-extras map and lifts it into JobsList state exactly
