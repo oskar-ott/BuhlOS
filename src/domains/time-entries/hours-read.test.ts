@@ -200,10 +200,16 @@ describe("listUserEntriesFromPgIfEnabled — faithfulness gate", () => {
     approved_by_legacy: null, rejected_by_legacy: null, created_by_legacy: null, created_by_name: null,
     allocations: [] as unknown[],
   };
-  // sql tag answering the tenant lookup, then the entries query.
-  const dbServing = (rows: unknown[]) => () => {
+  // sql tag answering the tenant lookup, the mapped-user guard (2026-08-09),
+  // then the entries query.
+  const dbServing = (rows: unknown[], { mapped = true }: { mapped?: boolean } = {}) => () => {
     let call = 0;
-    return () => Promise.resolve(call++ === 0 ? [{ id: "t1" }] : rows);
+    return () => {
+      call += 1;
+      if (call === 1) return Promise.resolve([{ id: "t1" }]);
+      if (call === 2) return Promise.resolve(mapped ? [{ id: "p1" }] : []);
+      return Promise.resolve(rows);
+    };
   };
 
   it("does NOT serve an entry whose allocations were stripped — falls back to Blob", async () => {
@@ -237,9 +243,44 @@ describe("listUserEntriesFromPgIfEnabled — faithfulness gate", () => {
     ]);
   });
 
-  it("still trusts a genuinely empty PG result (no entries in the window)", async () => {
+  it("trusts a genuinely empty PG result ONLY for a mapped worker", async () => {
     process.env.SUPABASE_DB_URL = "postgres://fake";
     const r = await listUserEntriesFromPgIfEnabled("u1", {}, { isFlagOn: async () => true, getDb: dbServing([]) });
     expect(r).toEqual({ pg: true, entries: [] });
+  });
+});
+
+/**
+ * The completeness guard (2026-08-09 prod incident). user_profiles held only
+ * the June import; every crew-link signup was absent, their entries were never
+ * mirrored, and this rung trusted the resulting empty list — serving those
+ * workers a blank week while Blob held the days. An unknown worker must fall
+ * back to Blob, never be served PG-empty as truth.
+ */
+describe("listUserEntriesFromPgIfEnabled — unmapped-worker guard", () => {
+  const dbUnmapped = (rows: unknown[]) => () => {
+    let call = 0;
+    return () => {
+      call += 1;
+      if (call === 1) return Promise.resolve([{ id: "t1" }]);
+      if (call === 2) return Promise.resolve([]); // no user_profiles row
+      return Promise.resolve(rows);
+    };
+  };
+
+  it("a worker PG doesn't know falls back to Blob — even though PG would answer empty", async () => {
+    process.env.SUPABASE_DB_URL = "postgres://fake";
+    const r = await listUserEntriesFromPgIfEnabled(
+      "u_crewlink_signup", {}, { isFlagOn: async () => true, getDb: dbUnmapped([]) }
+    );
+    expect(r).toEqual({ pg: false, reason: "unmapped user" });
+  });
+
+  it("a worker PG doesn't know falls back even when stray rows exist for them", async () => {
+    process.env.SUPABASE_DB_URL = "postgres://fake";
+    const r = await listUserEntriesFromPgIfEnabled(
+      "u_crewlink_signup", {}, { isFlagOn: async () => true, getDb: dbUnmapped([{ legacy_id: "e1" }]) }
+    );
+    expect(r).toEqual({ pg: false, reason: "unmapped user" });
   });
 });
