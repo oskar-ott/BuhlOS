@@ -47,13 +47,16 @@ export const MAX_BACKDATE_DAYS = 14;
 export const BUSINESS_TIMEZONE = "Australia/Sydney" as const;
 
 /**
- * Auto-split a total into ordinary (first 8) and overtime (excess).
- * Matches `autoSplitOT` in api/_lib/time-entries.js exactly so client +
- * server agree.
+ * Auto-split a total into ordinary (the standard day, 7.6h) and overtime
+ * (the excess). Owner-directed 2026-08-09: the boundary moved from 8h to the
+ * STANDARD DAY so "standard + 1h OT" is stored and paid as exactly that —
+ * with the old 8h boundary the same day split 8h ordinary + 36m OT and the
+ * app's "+1h OT" disagreed with the payslip. Matches `autoSplitOT` in
+ * api/_lib/time-entries.js exactly so client + server agree.
  */
 export function autoSplitOT(totalHours: number): { ordinary: number; overtime: number } {
-  const ordinary = Math.min(totalHours, 8);
-  const overtime = Math.max(0, totalHours - 8);
+  const ordinary = Math.min(totalHours, STANDARD_DAY_HOURS);
+  const overtime = Math.max(0, totalHours - STANDARD_DAY_HOURS);
   return {
     ordinary: Math.round(ordinary * 100) / 100,
     overtime: Math.round(overtime * 100) / 100,

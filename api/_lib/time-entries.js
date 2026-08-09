@@ -26,9 +26,17 @@ function ymOf(date) {
   return date.slice(0, 7); // "2026-05-04" -> "2026-05"
 }
 
+// Overtime starts after the STANDARD DAY (7.6h = 7h 36m), not after 8h —
+// owner-directed 2026-08-09. The field flow logs overtime as "standard day
+// + 1h OT"; with the old 8h boundary that day was stored and paid as
+// 8h ordinary + 36m OT, so the app's "+1h OT" and the payslip disagreed.
+// One boundary, everywhere: what the worker taps is what pay classifies.
+// Mirrors src/domains/timesheets/service.ts autoSplitOT EXACTLY.
+const STANDARD_DAY_HOURS = 7.6;
+
 function autoSplitOT(totalHours) {
-  const ordinary = Math.min(totalHours, 8);
-  const overtime = Math.max(0, totalHours - 8);
+  const ordinary = Math.min(totalHours, STANDARD_DAY_HOURS);
+  const overtime = Math.max(0, totalHours - STANDARD_DAY_HOURS);
   return {
     ordinary: Math.round(ordinary * 100) / 100,
     overtime: Math.round(overtime * 100) / 100,

@@ -14,7 +14,7 @@ import {
   readSavedEntries,
   recordSavedEntry,
 } from "@/domains/timesheets/saved-entries-journal";
-import { amendmentLine, formatHoursLabel } from "@/domains/timesheets/format";
+import { amendmentLine, formatHoursLabel, otSplitLabel } from "@/domains/timesheets/format";
 import { STATUS_WORDS } from "@/domains/timesheets/status-words";
 import { canResubmitInPhil } from "@/domains/timesheets/resubmit";
 import {
@@ -361,8 +361,22 @@ function WeekCard({
             {weekRange(week)} · wk {week.weekNumber}
           </span>
         </span>
-        <span className="shrink-0 font-display text-[15px] font-bold text-text [font-variant-numeric:tabular-nums]">
-          {formatHoursLabel(week.totalHours)}
+        <span className="flex shrink-0 flex-col items-end">
+          <span className="font-display text-[15px] font-bold text-text [font-variant-numeric:tabular-nums]">
+            {formatHoursLabel(week.totalHours)}
+          </span>
+          {/* The total stays the headline; when the week holds real (stored)
+              overtime, ONE quiet line names it — the worker checks the OT
+              they logged made it in without opening a single day (owner-
+              directed 2026-08-09). */}
+          {week.overtimeHours > 0 ? (
+            <span
+              data-testid={`phil-hours-week-ot-${week.weekStart}`}
+              className="text-[12px] text-text-muted [font-variant-numeric:tabular-nums]"
+            >
+              {`incl. ${formatHoursLabel(week.overtimeHours)} OT`}
+            </span>
+          ) : null}
         </span>
         <ChevronDown
           aria-hidden="true"
@@ -523,6 +537,12 @@ function EntryRow({
   // that already exists (P10 — no new section), saying the real before → after
   // and why. A pay change the worker can't see would be the dishonest option.
   const adjusted = amendmentLine(entry);
+  // The STORED ordinary/overtime split, shown only when the day really holds
+  // overtime (owner-directed 2026-08-09): "7h 36m + 1h OT" under the day, so
+  // the worker sees the OT they tapped landed exactly — the same stored
+  // fields pay reads, never a client-side re-derivation (otSplitLabel's
+  // honesty guard drops legacy splits that don't reconcile).
+  const otSplit = otSplitLabel(entry);
   return (
     <div className="space-y-2">
       <div className="flex items-start justify-between gap-3">
@@ -543,6 +563,14 @@ function EntryRow({
                 </p>
               );
             })}
+            {otSplit ? (
+              <p
+                data-testid="phil-hours-ot-split"
+                className="text-[13px] text-text-muted [font-variant-numeric:tabular-nums]"
+              >
+                {otSplit}
+              </p>
+            ) : null}
             {adjusted ? (
               <p
                 data-testid="phil-hours-adjusted"
