@@ -207,7 +207,9 @@ describe("sharpened /phil/my-day — the ?fixDate= deep-link contract", () => {
     // The SAME tested resubmit flow, auto-opened: its submit action renders.
     expect(html).toContain("Submit correction");
     // Still no day-logger — the fixer is focused, not a third hours form.
-    expect(html).not.toContain("Standard day");
+    // (The fix sheet's own "Standard day · 7h 36m" preset chip is expected;
+    // what must NOT render is the log sheet's submit action.)
+    expect(html).not.toContain("Submit Standard day");
   });
 
   it("a non-rejected day's link renders NO fix card (nothing to fix — honest absence)", async () => {
