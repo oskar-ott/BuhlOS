@@ -96,7 +96,7 @@ export function JobMoneyCard({ jobId }: { jobId: string }) {
           <div className="mt-4 overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-xs text-text-muted">
+                <tr className="text-left font-mono text-xs uppercase tracking-wider text-text-muted">
                   <th className="pb-1 pr-2 font-normal">Against estimate</th>
                   <th className="pb-1 pr-2 text-right font-normal">Actual</th>
                   <th className="pb-1 pr-2 text-right font-normal">Estimate</th>
@@ -187,7 +187,10 @@ function ContractFigure({
   if (editing) {
     return (
       <div className="col-span-2 sm:col-span-1">
-        <label htmlFor="contract-value-input" className="text-xs text-text-muted">
+        <label
+          htmlFor="contract-value-input"
+          className="font-mono text-xs uppercase tracking-wider text-text-muted"
+        >
           Contract ($ ex GST)
         </label>
         <div className="mt-0.5 flex items-center gap-1.5">
@@ -222,7 +225,7 @@ function ContractFigure({
 
   return (
     <div>
-      <dt className="text-xs text-text-muted">Contract</dt>
+      <dt className="font-mono text-xs uppercase tracking-wider text-text-muted">Contract</dt>
       <dd className="mt-0.5 flex items-center gap-1.5">
         <span className={`text-base font-semibold ${has ? "text-text" : "text-text-muted"}`}>
           {formatMoneyCents(data.contractValueCents)}
@@ -253,7 +256,7 @@ function Figure({
 }) {
   return (
     <div>
-      <dt className="text-xs text-text-muted">{label}</dt>
+      <dt className="font-mono text-xs uppercase tracking-wider text-text-muted">{label}</dt>
       <dd
         className={`mt-0.5 text-base font-semibold ${
           tone === "bad" ? "text-state-danger" : muted ? "text-text-muted" : "text-text"
