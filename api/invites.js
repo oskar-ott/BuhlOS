@@ -228,7 +228,10 @@ module.exports = async (req, res) => {
       username: emailLc,
       // Human display name — the app-wide `user.name || user.username` fallback
       // otherwise greets invited workers with their raw email address.
-      name: `${employee.displayName || employee.firstName || ''} ${employee.lastName || ''}`.trim() || null,
+      // Owner-directed 2026-08-09: `name` = REAL full name everywhere; the
+      // nickname (employee displayName) rides as `preferredName`, greeting-only.
+      name: `${employee.firstName || ''} ${employee.lastName || ''}`.trim() || null,
+      preferredName: employee.displayName || null,
       role: employee.role,
       passwordHash,
       email: employee.email,

@@ -112,7 +112,11 @@ async function createSignupAccount({ request, reqBlob, reviewedBy, req }) {
     username: emailLc,
     // Human display name — the app-wide `user.name || user.username` fallback
     // otherwise greets signup-link workers with their raw email address.
-    name: `${request.preferredName || request.firstName} ${request.lastName}`.trim(),
+    // Owner-directed 2026-08-09: `name` is the REAL full name everywhere
+    // (hours, approvals, payroll prep); the "what you go by" nickname rides
+    // separately as `preferredName` and is used ONLY by the greeting.
+    name: `${request.firstName} ${request.lastName}`.trim(),
+    preferredName: request.preferredName || null,
     role: request.role,
     passwordHash: request.pinHash,
     email: request.email,

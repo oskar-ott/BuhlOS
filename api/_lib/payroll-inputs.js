@@ -97,7 +97,9 @@ async function collectRows({ status, userId, jobId, fromDate, toDate }) {
         weekStart: weekMondayOf(e.date),
         weekEnd:   weekSundayOf(e.date),
         date:      e.date,
-        workerName: e.userName || u.username || e.userId,
+        // LIVE name first (owner-directed 2026-08-09): the stamp is frozen at
+        // write time and goes stale on rename; the user record is the truth.
+        workerName: u.name || e.userName || u.username || e.userId,
         workerId:   e.userId,
         // Role rides on the row so the payroll partition can exclude
         // outside-payroll workers (subcontractors invoice directly) without
