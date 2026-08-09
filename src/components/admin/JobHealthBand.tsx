@@ -3,6 +3,7 @@ import type { Route } from "next";
 import { HardHat, ListChecks, MapPin } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
+import { JobCrewNames } from "@/components/admin/JobCrewNames";
 import { JobStatusControl } from "@/components/admin/JobStatusControl";
 import { deriveJobHealth, type JobHealthLevel } from "@/domains/jobs/job-health";
 import { healthLabel } from "@/domains/jobs/job-health-list";
@@ -108,6 +109,11 @@ export function JobHealthBand({
           </div>
         </dl>
       </div>
+
+      {/* Assigned crew by NAME — client-fetched off the admin register, so it
+          appears after paint and renders nothing for non-admin viewers or on
+          error (the count above stays the honest fallback). */}
+      <JobCrewNames jobId={job.id} />
     </Card>
   );
 }
