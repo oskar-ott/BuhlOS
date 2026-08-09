@@ -87,8 +87,14 @@ export function DialPicker({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, paint]);
 
+  // The drum sizes itself to its REAL row count (owner-directed 2026-08-10):
+  // a Monday day-dial has one option, and a full 5-row drum around one row is
+  // dead screen (P10). data-rows drives pure-CSS height/spacer/band variants;
+  // 1 row renders as just the selection band, 5+ keeps the classic drum.
+  const rows = Math.min(items.length, 5);
+
   return (
-    <div className={styles.wrap} data-testid={testId}>
+    <div className={styles.wrap} data-rows={rows} data-testid={testId}>
       <div
         ref={viewportRef}
         onScroll={onScroll}

@@ -230,8 +230,8 @@ describe("PhilHoursSharpened — honest footer", () => {
   });
 });
 
-describe("today's unlogged row (owner-directed, 2026-08-07)", () => {
-  it("today carries the same Log pill as any other unlogged day — never a dead end", () => {
+describe("today's unlogged row (owner-directed, 2026-08-07; whole-row tap 2026-08-10)", () => {
+  it("today's whole row is the log tap-target, same as any other unlogged day — never a dead end", () => {
     // An unworked weekend is never owed, so a real Sat/Sun "today" renders no
     // unlogged row at all. Pin "today" to the Friday of the same real week —
     // still inside isWithinBackdateWindow's real-clock 14-day window.
@@ -243,8 +243,11 @@ describe("today's unlogged row (owner-directed, 2026-08-07)", () => {
       past.push(entry({ date: d, status: "approved" }));
     }
     const html = render(past, { todayISO: weekdayToday });
-    const pills = html.match(/>Log</g) ?? [];
-    expect(pills.length).toBeGreaterThanOrEqual(1);
+    // The row itself is the button (2026-08-10 — the separate Log pill is
+    // gone): today's date carries the whole-row tap target.
+    expect(html).toContain(`data-testid="phil-hours-log-day-${weekdayToday}"`);
+    expect(html).toContain(`aria-label="Log hours for`);
+    expect(html).not.toContain(">Log<"); // the old pill may not come back
     // The row keeps its label and loses the old button-less special copy.
     expect(html).toContain("Not logged");
     expect(html).not.toContain("assign it to a job below");
