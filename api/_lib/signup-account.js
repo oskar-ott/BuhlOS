@@ -22,6 +22,8 @@
 const crypto = require('crypto');
 const { readBlob, writeBlob } = require('./blob');
 const email = require('./email');
+const { mirrorSignupUser } = require('./user-mirror');
+const { recordMirrorDrift } = require('./mirror-drift');
 
 const EMPLOYEES_KEY = 'employees.json';
 const SIGNUP_REQUESTS_KEY = 'signup-requests.json';
@@ -132,6 +134,13 @@ async function createSignupAccount({ request, reqBlob, reviewedBy, req }) {
   await writeBlob('users.json', usersBlob);
   await writeBlob(EMPLOYEES_KEY, empBlob);
   await writeBlob(SIGNUP_REQUESTS_KEY, reqBlob);
+
+  // Mirror the new login into public.user_profiles (2026-08-09 incident: a
+  // worker PG doesn't know is invisible to the hours mirror AND the read
+  // cutover — see api/_lib/user-mirror.js). Best-effort: a PG failure never
+  // breaks the account; a real error surfaces on the owner console.
+  const mirror = await mirrorSignupUser(user, { phone: request.mobile });
+  await recordMirrorDrift({ domain: 'users', result: mirror, key: `users.json#${user.id}` });
 
   // Welcome email (E5) — best-effort; the account stands even if send fails.
   let welcomeSent = false;
