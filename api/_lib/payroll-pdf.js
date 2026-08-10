@@ -40,6 +40,35 @@ function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+/**
+ * Australian date order everywhere on the sheet — day before month
+ * (owner-corrected 2026-08-10; the first cut printed raw ISO). Anything that
+ * isn't a YYYY-MM-DD passes through untouched rather than being mangled.
+ */
+function parseISO(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || ''));
+  if (!m) return null;
+  return { y: m[1], mo: Number(m[2]), d: Number(m[3]) };
+}
+
+/** "9 Aug 2026" — headers and the generated-at line. */
+function longDate(iso) {
+  const p = parseISO(iso);
+  if (!p) return String(iso || '');
+  return `${p.d} ${MONTHS[p.mo - 1]} ${p.y}`;
+}
+
+/** "Mon 03/08/2026" — the day-breakdown rows: sortable by eye, unambiguous. */
+function dayDate(iso) {
+  const p = parseISO(iso);
+  if (!p) return String(iso || '');
+  const dow = DAYS[new Date(`${iso}T00:00:00Z`).getUTCDay()];
+  return `${dow} ${String(p.d).padStart(2, '0')}/${String(p.mo).padStart(2, '0')}/${p.y}`;
+}
+
 /** "7.6" not "7.60"; "—" for nothing, never a misleading bare 0 in the OT column. */
 function hours(n, opts) {
   const v = round2(n);
@@ -128,7 +157,7 @@ async function composePayrollPdf(input) {
   const includeDetail = opts.includeDetail !== false;
 
   const doc = await PDFDocument.create();
-  doc.setTitle(`BuhlOS hours ${fromDate} to ${toDate}`);
+  doc.setTitle(`BuhlOS hours ${longDate(fromDate)} to ${longDate(toDate)}`);
   doc.setProducer(GENERATOR_VERSION);
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
@@ -187,11 +216,11 @@ async function composePayrollPdf(input) {
   y -= 40;
   page.drawRectangle({ x: MARGIN, y: y + 6, width: 34, height: 3, color: YELLOW });
   y -= 12;
-  text(`Pay period ${fromDate} to ${toDate}`, MARGIN, 12);
+  text(`Pay period ${longDate(fromDate)} to ${longDate(toDate)}`, MARGIN, 12);
   y -= 17;
   const meta = [
     opts.statusLabel ? `${safeText(opts.statusLabel)} hours only` : null,
-    opts.generatedAtLabel ? `Generated ${safeText(opts.generatedAtLabel)}` : null,
+    opts.generatedAtLabel ? `Generated ${longDate(opts.generatedAtLabel)}` : null,
   ].filter(Boolean).join('  |  ');
   if (meta) {
     text(meta, MARGIN, 9, { color: GREY });
@@ -290,7 +319,8 @@ async function composePayrollPdf(input) {
   // ── Per-worker day breakdown ────────────────────────────────────────
   if (!includeDetail) return doc.save();
 
-  const dColDate = MARGIN + 70;
+  // Wide enough for "Mon 03/08/2026" at 9pt before the job column starts.
+  const dColDate = MARGIN + 95;
   const dColOrd = MARGIN + 330;
   const dColOt = MARGIN + 400;
   const dColTot = A4.width - MARGIN;
@@ -314,7 +344,7 @@ async function composePayrollPdf(input) {
         rule();
         y -= 12;
       }
-      text(e.date, MARGIN, 9);
+      text(dayDate(e.date), MARGIN, 9);
       // Job is optional on an allocation — an internal/unallocated day says so
       // rather than rendering an empty cell.
       const jobLabel = e.jobName || 'No job on this entry';
@@ -335,4 +365,4 @@ async function composePayrollPdf(input) {
   return doc.save();
 }
 
-module.exports = { composePayrollPdf, rollupRows, GENERATOR_VERSION };
+module.exports = { composePayrollPdf, rollupRows, longDate, dayDate, GENERATOR_VERSION };
