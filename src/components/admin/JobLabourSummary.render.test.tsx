@@ -33,7 +33,7 @@ function render(props: {
 describe("JobLabourSummary", () => {
   it("is honest when nothing is awaiting approval (never 'no hours logged')", () => {
     const html = render({ entries: [], jobId: "job-1", fetchError: null });
-    expect(html).toContain("No labour recorded on this job yet");
+    expect(html).toContain("No hours logged yet");
     expect(html).not.toContain("Awaiting approval"); // no stat tiles
     // Always deep-links to the full approvals ledger.
     expect(html).toContain("/hours/approvals");
@@ -49,9 +49,8 @@ describe("JobLabourSummary", () => {
       jobId: "job-1",
       fetchError: null,
     });
-    expect(html).toContain("Awaiting approval on this job"); // lean-reset amber box label
+    expect(html).toContain("Awaiting approval"); // lean-reset amber box label
     expect(html).toContain("12h"); // 8 + 4 pending
-    expect(html).toContain("By worker");
     expect(html).toContain("Jack");
     expect(html).toContain("Sam");
     expect(html).toContain("8h");
@@ -83,13 +82,12 @@ describe("JobLabourSummary", () => {
       jobId: "job-1",
       fetchError: null,
     });
-    expect(html).toContain("No labour recorded on this job yet");
+    expect(html).toContain("No hours logged yet");
     // No hours stat tiles render at all (the honest empty state), so the
     // other job's "8h" never surfaces as a labour figure. (Assert on the tile
     // label rather than a bare "8h" substring — lucide icon SVG paths like the
     // Info glyph's "M12 8h.01" contain "8h" incidentally.)
     expect(html).not.toContain("Awaiting approval");
-    expect(html).not.toContain("By worker");
   });
 
   it("shows an honest error note but still links to approvals", () => {

@@ -13,6 +13,10 @@ interface AdminShellProps {
   children: ReactNode;
   title: string;
   breadcrumb?: ReactNode;
+  /** Job Detail Variants design: pages whose content leads with its own hero
+   *  (the job hub) skip the shell's page-head block — the hero carries the
+   *  page's h1 instead, so the title never renders twice. */
+  hideHead?: boolean;
 }
 
 /**
@@ -79,14 +83,20 @@ function viewerInitials(viewer: SessionPayload | null): string | null {
  * client child (same pattern as AdminSidebar) so this stays a server
  * component. It renders nothing until ⌘K / Ctrl+K opens it.
  */
-export async function AdminShell({ children, title, breadcrumb }: AdminShellProps) {
+export async function AdminShell({ children, title, breadcrumb, hideHead }: AdminShellProps) {
   const viewer = await getCurrentUser().catch(() => null);
   const hiddenHrefs = await resolveHiddenNavHrefs(viewer);
   const initials = viewerInitials(viewer);
   return (
     <div
       data-testid="buhlos-admin-shell"
-      className="flex h-screen flex-col overflow-hidden bg-surface-subtle"
+      // Office warm theme (Job Detail Variants design) — retunes the shared
+      // tokens to the login screen's cream/ink inside this scope only; Phil
+      // keeps the root values. See tokens.css [data-theme="office"].
+      data-theme="office"
+      // text-text re-anchors inherited text INSIDE the theme scope — without
+      // it, unclassed text falls through to body's root-value ink.
+      className="flex h-screen flex-col overflow-hidden bg-surface-subtle text-text"
     >
       <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-surface px-4 sm:px-5">
         {/* The bühl wordmark leads the office shell — ink on the white bar. */}
@@ -110,18 +120,21 @@ export async function AdminShell({ children, title, breadcrumb }: AdminShellProp
         <main className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
           {/* Page head per the replica: display title, breadcrumb beside it,
               and the login screen's yellow rule beneath — the one brand
-              signature carried into every office page (2026-08-09 polish). */}
-          <div className="mb-5 min-w-0">
-            <div className="flex min-w-0 items-end gap-3">
-              <h1 className="min-w-0 truncate font-display text-2xl tracking-tight text-text">
-                {title}
-              </h1>
-              {breadcrumb ? (
-                <div className="shrink-0 pb-0.5 text-xs text-text-muted">{breadcrumb}</div>
-              ) : null}
+              signature carried into every office page (2026-08-09 polish).
+              Hero-led pages (hideHead) render their own h1 in the content. */}
+          {hideHead ? null : (
+            <div className="mb-5 min-w-0">
+              <div className="flex min-w-0 items-end gap-3">
+                <h1 className="min-w-0 truncate font-display text-2xl font-bold tracking-tight text-text">
+                  {title}
+                </h1>
+                {breadcrumb ? (
+                  <div className="shrink-0 pb-0.5 text-xs text-text-muted">{breadcrumb}</div>
+                ) : null}
+              </div>
+              <div aria-hidden="true" className="mt-2 h-1 w-12 bg-accent-yellow" />
             </div>
-            <div aria-hidden="true" className="mt-2 h-1 w-12 rounded-full bg-accent-yellow" />
-          </div>
+          )}
           {children}
         </main>
         {/* Mobile-only bottom tab bar (md:hidden) — the calm office nav below

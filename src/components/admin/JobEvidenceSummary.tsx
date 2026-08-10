@@ -1,6 +1,6 @@
 import type { Route } from "next";
-import { ArrowRight, Camera, Images } from "lucide-react";
-import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
+import { ArrowRight, Images } from "lucide-react";
+import { Card, CardKicker } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
 import { relativeWhen } from "@/domains/jobs/format";
 import { latestJobPhotos, summariseJobEvidence } from "@/domains/jobs/job-evidence";
@@ -63,36 +63,36 @@ export function JobEvidenceSummary({
   }
   const kindClause = kindParts.join(", ");
 
+  // Overflow tile (2a "+15"): when the wall holds more photos than the strip
+  // shows, the last cell becomes the honest remainder count.
+  const visibleThumbs = summary.photos > thumbs.length ? thumbs.slice(0, -1) : thumbs;
+  const overflowCount = summary.photos - visibleThumbs.length;
+
   return (
     <Card>
-      {/* Lean-reset replica 396-399: title block left, the "Review →" ghost
-          button right — the one deep link into the full review queue. */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <Camera aria-hidden="true" className="h-5 w-5 text-text-muted" />
-            <CardTitle>Evidence</CardTitle>
-          </div>
-          <CardDescription className="mt-1">
-            Photo and note captures from the field on this job.
-          </CardDescription>
-        </div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <CardKicker>Evidence</CardKicker>
         <div className="flex shrink-0 items-center gap-2">
           {/* The two-row "Sections" nav card folded in here (2026-08-09 job-hub
               audit, finding C14): Evidence review + the read-only photo wall
-              are this card's two destinations — no separate nav card. */}
+              are this card's two destinations — no separate nav card. The
+              Review button goes navy-hot only while something actually waits. */}
           <a
             href={photosHref}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-card border border-border bg-surface px-3.5 py-2 text-sm font-semibold text-text transition-colors hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-brand-navy"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-[4px] border border-border bg-surface px-3 py-1.5 text-sm font-semibold text-text transition-colors hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-brand-navy"
           >
             <Images aria-hidden="true" className="h-4 w-4 text-text-muted" />
             Photos
           </a>
           <a
             href={evidenceHref}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-card border border-border bg-surface px-3.5 py-2 text-sm font-semibold text-text transition-colors hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-brand-navy"
+            className={
+              summary.pendingReview > 0
+                ? "inline-flex shrink-0 items-center gap-1.5 rounded-[4px] bg-brand-navy px-3 py-1.5 text-sm font-semibold text-text-inverse transition-colors hover:bg-accent-ink focus:outline-none focus:ring-2 focus:ring-brand-navy"
+                : "inline-flex shrink-0 items-center gap-1.5 rounded-[4px] border border-border bg-surface px-3 py-1.5 text-sm font-semibold text-text transition-colors hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-brand-navy"
+            }
           >
-            Review
+            {summary.pendingReview > 0 ? `Review ${summary.pendingReview}` : "Review"}
             <ArrowRight aria-hidden="true" className="h-3.5 w-3.5" />
           </a>
         </div>
@@ -106,32 +106,41 @@ export function JobEvidenceSummary({
           Couldn&rsquo;t load evidence for this job ({fetchError}). Open the evidence tab to retry.
         </p>
       ) : !summary.hasAny ? (
-        <p className="mt-3 rounded-card border border-dashed border-border bg-surface-subtle px-3 py-4 text-sm text-text-muted">
-          No evidence captured for this job yet. Photos and notes captured on site will appear here
-          for review.
-        </p>
+        // 2d — absence is designed: what will land here, and from where.
+        <div className="mt-4 rounded-[4px] border border-border bg-surface-subtle px-5 py-6">
+          <p className="text-sm font-semibold text-text">No site photos yet</p>
+          <p className="mt-1 text-sm text-text-muted">
+            The first captures land here the moment the crew uploads from site — you&rsquo;ll
+            review them in one place.
+          </p>
+        </div>
       ) : (
         <>
           {/* Latest-photos strip (2026-08-09 audit follow-up): the card used to
               describe photos without showing any. Real thumbnails only —
               latestJobPhotos skips notes and URL-less rows — each opening the
               full Photos wall. */}
-          {thumbs.length > 0 ? (
+          {visibleThumbs.length > 0 ? (
             <a
               href={photosHref}
-              className="mt-3 flex gap-1.5 overflow-hidden rounded-card focus:outline-none focus:ring-2 focus:ring-brand-navy"
+              className="mt-4 grid grid-cols-4 gap-1.5 rounded-[4px] focus:outline-none focus:ring-2 focus:ring-brand-navy sm:grid-cols-6"
               aria-label={`Open the photo wall — ${summary.photos} photo${summary.photos === 1 ? "" : "s"} on this job`}
             >
-              {thumbs.map((t) => (
+              {visibleThumbs.map((t) => (
                 // eslint-disable-next-line @next/next/no-img-element -- Blob-hosted capture, same raw-img pattern as PhotosGallery
                 <img
                   key={t.id}
                   src={t.url}
                   alt={`Capture by ${t.capturedByName}`}
                   loading="lazy"
-                  className="h-16 w-16 shrink-0 rounded-card border border-border object-cover"
+                  className="aspect-square w-full rounded-[4px] border border-border object-cover"
                 />
               ))}
+              {overflowCount > 0 ? (
+                <span className="flex aspect-square items-center justify-center rounded-[4px] border border-border bg-surface-subtle font-mono text-xs font-semibold text-text-muted">
+                  +{overflowCount}
+                </span>
+              ) : null}
             </a>
           ) : null}
 

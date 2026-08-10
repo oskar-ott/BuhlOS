@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Pencil } from "lucide-react";
-import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
+import type { Route } from "next";
+import { Card, CardKicker } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
+import { cn } from "@/lib/cn";
 import { updateJob } from "@/domains/jobs/client";
 import {
   formatMoneyCents,
@@ -58,79 +59,154 @@ export function JobMoneyCard({ jobId }: { jobId: string }) {
   if (state === "hidden") return null;
 
   const materialNone = data?.completeness.material === "none";
+  // 2d "Absence is designed": zero labour cost means no costed hours yet — an
+  // em-dash + a sentence about what will appear, never a fake "$0" figure.
+  const labourNone = data != null && (data.labourCostCents == null || data.labourCostCents === 0);
+  // No estimate anywhere → one designed sentence instead of an all-dash table.
+  const noEstimates =
+    data != null &&
+    data.variance.labour.budgetCents == null &&
+    data.variance.material.budgetCents == null &&
+    data.variance.total.budgetCents == null;
+
+  // Money-strip cell borders: 2×2 on the phone, one divided row from sm up.
+  const CELLS = [
+    "border-b border-r border-border sm:border-b-0 sm:border-r-0",
+    "border-b border-border sm:border-b-0 sm:border-l",
+    "border-r border-border sm:border-r-0 sm:border-l",
+    "border-border sm:border-l",
+  ];
 
   return (
-    <Card role="region" aria-label="Money">
-      <div className="flex items-center justify-between gap-2">
-        <CardTitle>Money</CardTitle>
-        <span className="text-xs text-text-muted">All figures ex GST</span>
+    <Card role="region" aria-label="Money" className="p-0">
+      <div className="flex flex-wrap items-baseline justify-between gap-3 px-4 pt-4 sm:px-6 sm:pt-5">
+        <CardKicker>Money</CardKicker>
+        <p className="text-xs text-text-muted">
+          All figures ex GST · labour at internal cost rates, office-only
+        </p>
       </div>
-      <CardDescription className="mt-1">
-        Labour is costed at internal cost rates, office-only.
-      </CardDescription>
 
       {state === "loading" || !data ? (
-        <div className="mt-4 space-y-2.5" data-testid="money-skeleton" aria-hidden="true">
-          <div className="h-9 w-3/4 animate-pulse rounded-card bg-surface-subtle" />
-          <div className="h-4 w-1/2 animate-pulse rounded-card bg-surface-subtle" />
-          <div className="h-16 animate-pulse rounded-card bg-surface-subtle" />
+        // 2c: shimmer at the EXACT final heights so nothing jumps when data lands.
+        <div data-testid="money-skeleton" aria-hidden="true">
+          <div className="mt-4 grid grid-cols-2 border-t border-border sm:grid-cols-4">
+            {["w-28", "w-24", "w-24", "w-20"].map((w, i) => (
+              <div key={w + i} className={cn("px-4 py-3 sm:px-6 sm:py-4", CELLS[i])}>
+                <p className="font-mono text-xs font-medium uppercase tracking-[0.14em] text-text-muted">
+                  {["Contract", "Labour", "Materials", "Margin"][i]}
+                </p>
+                <div className={cn("sk mt-1 h-[26px]", w)} />
+              </div>
+            ))}
+          </div>
+          <div className="border-t border-border px-4 py-4 sm:px-6">
+            <div className="flex justify-between">
+              <div className="sk h-3.5 w-32" />
+              <div className="sk h-3.5 w-56" />
+            </div>
+            <div className="mt-3 grid gap-2.5">
+              <div className="sk h-4 w-full" />
+              <div className="sk h-4 w-full" />
+              <div className="sk h-4 w-[72%]" />
+            </div>
+          </div>
         </div>
       ) : (
         <>
-          <dl className="mt-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-            <ContractFigure jobId={jobId} data={data} onSaved={load} />
-            <Figure label="Labour" value={formatMoneyCents(data.labourCostCents)} />
-            <Figure
-              label="Materials"
-              value={materialNone ? "—" : formatMoneyCents(data.materialCostCents)}
-              muted={materialNone}
-            />
-            <Figure
-              label={data.marginPct == null ? "Margin" : `Margin (${data.marginPct}%)`}
-              value={formatMoneyCents(data.marginCents)}
-              muted={data.marginCents == null}
-              tone={data.marginCents != null && data.marginCents < 0 ? "bad" : undefined}
-            />
+          <dl className="mt-4 grid grid-cols-2 border-t border-border sm:grid-cols-4">
+            <div className={cn("px-4 py-3 sm:px-6 sm:py-4", CELLS[0])}>
+              <ContractFigure jobId={jobId} data={data} onSaved={load} />
+            </div>
+            <div className={cn("px-4 py-3 sm:px-6 sm:py-4", CELLS[1])}>
+              <Figure
+                label="Labour"
+                value={labourNone ? "—" : formatMoneyCents(data.labourCostCents)}
+                muted={labourNone}
+                caption={labourNone ? "no hours yet" : undefined}
+              />
+            </div>
+            <div className={cn("px-4 py-3 sm:px-6 sm:py-4", CELLS[2])}>
+              <Figure
+                label="Materials"
+                value={materialNone ? "—" : formatMoneyCents(data.materialCostCents)}
+                muted={materialNone}
+                caption={materialNone ? "no orders yet" : undefined}
+              />
+            </div>
+            <div
+              className={cn(
+                "px-4 py-3 sm:px-6 sm:py-4",
+                CELLS[3],
+                // The margin cell is the only tinted one — and only when the
+                // numbers are real (2f §02).
+                data.marginCents != null &&
+                  (data.marginCents < 0 ? "bg-state-danger-subtle-bg" : "bg-state-success-subtle-bg")
+              )}
+            >
+              <Figure
+                label={data.marginPct == null ? "Margin" : `Margin · ${data.marginPct}%`}
+                value={formatMoneyCents(data.marginCents)}
+                muted={data.marginCents == null}
+                tone={
+                  data.marginCents == null ? undefined : data.marginCents < 0 ? "bad" : "good"
+                }
+              />
+            </div>
           </dl>
 
-          <div className="mt-4 overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left font-mono text-xs uppercase tracking-wider text-text-muted">
-                  <th className="pb-1 pr-2 font-normal">Against estimate</th>
-                  <th className="pb-1 pr-2 text-right font-normal">Actual</th>
-                  <th className="pb-1 pr-2 text-right font-normal">Estimate</th>
-                  <th className="pb-1 text-right font-normal">Variance</th>
-                </tr>
-              </thead>
-              <tbody>
-                <VarianceRow label="Labour" line={data.variance.labour} />
-                <VarianceRow label="Materials" line={data.variance.material} />
-                <VarianceRow label="Total vs contract" line={data.variance.total} bold />
-              </tbody>
-            </table>
-          </div>
+          {noEstimates ? (
+            <div className="border-t border-border px-4 py-5 sm:px-6">
+              <p className="text-sm text-text-muted">
+                No estimate on this job.{" "}
+                <a
+                  href={`/v2/jobs/${encodeURIComponent(jobId)}/builder` as Route}
+                  className="font-medium text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-2"
+                >
+                  Add an estimate
+                </a>{" "}
+                and actual-vs-estimate variance appears here.
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto border-t border-border px-4 py-4 sm:px-6">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left font-mono text-xs font-medium uppercase tracking-[0.14em] text-text-muted">
+                    <th className="pb-1.5 pr-2 font-medium">Against estimate</th>
+                    <th className="pb-1.5 pr-2 text-right font-medium">Actual</th>
+                    <th className="pb-1.5 pr-2 text-right font-medium">Estimate</th>
+                    <th className="pb-1.5 text-right font-medium">Variance</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <VarianceRow label="Labour" line={data.variance.labour} />
+                  <VarianceRow label="Materials" line={data.variance.material} />
+                  <VarianceRow label="Total vs contract" line={data.variance.total} bold />
+                </tbody>
+              </table>
 
-          {/* Plain-language honesty footnotes — replaces the old "·proxy" /
-              "·understated" markers nobody outside the codebase could read. */}
-          <div className="mt-3 space-y-1">
-            {data.completeness.unratedWorkers.length > 0 ? (
-              <p className="text-xs text-text-muted">
-                Labour is understated — no cost rate set for{" "}
-                {data.completeness.unratedWorkers.join(", ")}. Add rates in the employee drawer to
-                include their hours.
-              </p>
-            ) : null}
-            {data.completeness.material === "received_proxy" ? (
-              <p className="text-xs text-text-muted">
-                Materials counts supplier orders received on this job — actual usage isn&rsquo;t
-                tracked yet.
-              </p>
-            ) : null}
-            {materialNone ? (
-              <p className="text-xs text-text-muted">No materials recorded on this job yet.</p>
-            ) : null}
-          </div>
+              {/* Plain-language honesty footnotes — replaces the old "·proxy" /
+                  "·understated" markers nobody outside the codebase could read. */}
+              <div className="mt-3 space-y-1">
+                {data.completeness.unratedWorkers.length > 0 ? (
+                  <p className="text-xs text-text-muted">
+                    Labour is understated — no cost rate set for{" "}
+                    {data.completeness.unratedWorkers.join(", ")}. Add rates in the employee drawer
+                    to include their hours.
+                  </p>
+                ) : null}
+                {data.completeness.material === "received_proxy" ? (
+                  <p className="text-xs text-text-muted">
+                    Materials counts supplier orders received on this job — actual usage
+                    isn&rsquo;t tracked yet.
+                  </p>
+                ) : null}
+                {materialNone ? (
+                  <p className="text-xs text-text-muted">No materials recorded on this job yet.</p>
+                ) : null}
+              </div>
+            </div>
+          )}
         </>
       )}
     </Card>
@@ -186,10 +262,10 @@ function ContractFigure({
 
   if (editing) {
     return (
-      <div className="col-span-2 sm:col-span-1">
+      <div>
         <label
           htmlFor="contract-value-input"
-          className="font-mono text-xs uppercase tracking-wider text-text-muted"
+          className="font-mono text-xs font-medium uppercase tracking-[0.14em] text-text-muted"
         >
           Contract ($ ex GST)
         </label>
@@ -225,18 +301,24 @@ function ContractFigure({
 
   return (
     <div>
-      <dt className="font-mono text-xs uppercase tracking-wider text-text-muted">Contract</dt>
-      <dd className="mt-0.5 flex items-center gap-1.5">
-        <span className={`text-base font-semibold ${has ? "text-text" : "text-text-muted"}`}>
+      <dt className="font-mono text-xs font-medium uppercase tracking-[0.14em] text-text-muted">
+        Contract
+      </dt>
+      <dd className="mt-1 flex items-baseline gap-2">
+        <span
+          className={cn(
+            "font-display text-[26px] font-bold tabular-nums leading-none",
+            has ? "text-text" : "text-text-muted"
+          )}
+        >
           {formatMoneyCents(data.contractValueCents)}
         </span>
         <button
           type="button"
           onClick={beginEdit}
-          className="inline-flex items-center gap-1 rounded-card px-1 py-0.5 text-xs font-medium text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-2 hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-brand-navy"
+          className="text-xs font-medium text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-2 hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-brand-navy"
         >
-          {has ? <Pencil aria-hidden="true" className="h-3 w-3" /> : null}
-          {has ? "Edit" : "Add"}
+          {has ? "Edit" : "Set value"}
         </button>
       </dd>
     </div>
@@ -248,22 +330,43 @@ function Figure({
   value,
   muted,
   tone,
+  caption,
 }: {
   label: string;
   value: string;
   muted?: boolean;
-  tone?: "bad";
+  tone?: "bad" | "good";
+  caption?: string;
 }) {
   return (
     <div>
-      <dt className="font-mono text-xs uppercase tracking-wider text-text-muted">{label}</dt>
+      <dt
+        className={cn(
+          "font-mono text-xs font-medium uppercase tracking-[0.14em]",
+          tone === "good"
+            ? "text-state-success-subtle-text"
+            : tone === "bad"
+              ? "text-state-danger-subtle-text"
+              : "text-text-muted"
+        )}
+      >
+        {label}
+      </dt>
       <dd
-        className={`mt-0.5 text-base font-semibold ${
-          tone === "bad" ? "text-state-danger" : muted ? "text-text-muted" : "text-text"
-        }`}
+        className={cn(
+          "mt-1 font-display text-[26px] font-bold tabular-nums leading-none",
+          tone === "good"
+            ? "text-state-success-subtle-text"
+            : tone === "bad"
+              ? "text-state-danger-subtle-text"
+              : muted
+                ? "text-text-muted"
+                : "text-text"
+        )}
       >
         {value}
       </dd>
+      {caption ? <p className="mt-1 text-xs text-text-muted">{caption}</p> : null}
     </div>
   );
 }
