@@ -68,9 +68,19 @@ export function PeriodPayrollExport({ fromDate, toDate, unexportedApprovedHours,
         >
           Download Xero-ready CSV
         </a>
+        {/* Owner pull 2026-08-10: the printable sheet — same rows as the CSVs,
+            a container you can sign, file or send to the accountant. */}
+        <a
+          href={`${dryRunBase}&format=pdf&dryRun=1`}
+          className="rounded-card border border-border px-3 py-2 text-sm font-medium text-text hover:border-brand-navy"
+          data-testid="period-download-pdf"
+        >
+          Download PDF
+        </a>
       </div>
       <p className="mt-2 text-xs text-text-muted">
-        Both downloads are dry runs — they never mark hours as exported.
+        Every download is a dry run — none of them mark hours as exported. The PDF is the printable
+        sheet (summary by worker + day breakdown); the CSVs are for spreadsheets and Xero.
       </p>
     </Card>
   );
