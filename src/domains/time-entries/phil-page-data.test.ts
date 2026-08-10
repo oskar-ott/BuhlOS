@@ -14,19 +14,24 @@ import { describe, expect, it, vi } from "vitest";
  * Deps are injected — no Blob/PG in this test.
  */
 const requireFromHere = createRequire(import.meta.url);
-const { loadCurrentUserInProcess, loadWorkerEntriesInProcess, loadFieldJobsInProcess } =
-  requireFromHere(requireFromHere.resolve("../../../api/_lib/phil-page-data.js")) as {
-    loadCurrentUserInProcess: (cookie: string | undefined, deps?: unknown) => Promise<unknown>;
-    loadWorkerEntriesInProcess: (
-      cookie: string | undefined,
-      opts?: { fromDate?: string; toDate?: string },
-      deps?: unknown
-    ) => Promise<{ ok: boolean; status: number; entries: unknown[] }>;
-    loadFieldJobsInProcess: (
-      cookie: string | undefined,
-      deps?: unknown
-    ) => Promise<{ ok: boolean; jobs: unknown[] }>;
-  };
+const {
+  loadCurrentUserInProcess,
+  loadWorkerEntriesInProcess,
+  loadFieldJobsInProcess,
+  loadIsApprenticeInProcess,
+} = requireFromHere(requireFromHere.resolve("../../../api/_lib/phil-page-data.js")) as {
+  loadCurrentUserInProcess: (cookie: string | undefined, deps?: unknown) => Promise<unknown>;
+  loadWorkerEntriesInProcess: (
+    cookie: string | undefined,
+    opts?: { fromDate?: string; toDate?: string },
+    deps?: unknown
+  ) => Promise<{ ok: boolean; status: number; entries: unknown[] }>;
+  loadFieldJobsInProcess: (
+    cookie: string | undefined,
+    deps?: unknown
+  ) => Promise<{ ok: boolean; jobs: unknown[] }>;
+  loadIsApprenticeInProcess: (cookie: string | undefined, deps?: unknown) => Promise<boolean>;
+};
 
 const fieldUser = { id: "u1", role: "electrician", name: "Oskar" };
 
@@ -130,5 +135,43 @@ describe("loadFieldJobsInProcess", () => {
     expect(res.ok).toBe(true);
     expect(res.jobs).toEqual([{ id: "j9", name: "Any", status: "draft" }]);
     expect(d.readJobsSummary).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Apprentice lookup for the TAFE-day option (2026-08-10). FAIL-CLOSED: every
+ * miss — no session, no linked employee record, a storage error — is `false`,
+ * so a non-apprentice can never see the option by accident.
+ */
+describe("loadIsApprenticeInProcess", () => {
+  it("true for a worker whose linked employee record is role: apprentice", async () => {
+    const d = deps({
+      readBlob: vi.fn(async () => ({
+        employees: [{ id: "emp1", userId: "u1", role: "apprentice", apprenticeYear: 2 }],
+      })),
+    });
+    expect(await loadIsApprenticeInProcess("c", d)).toBe(true);
+  });
+
+  it("false for any other employee role, and false with no linked record", async () => {
+    const d = deps({
+      readBlob: vi.fn(async () => ({
+        employees: [{ id: "emp1", userId: "u1", role: "electrician" }],
+      })),
+    });
+    expect(await loadIsApprenticeInProcess("c", d)).toBe(false);
+    const none = deps({ readBlob: vi.fn(async () => ({ employees: [] })) });
+    expect(await loadIsApprenticeInProcess("c", none)).toBe(false);
+  });
+
+  it("false (never a throw) when unauthenticated or when the read fails", async () => {
+    const anon = deps({ getCurrentUser: vi.fn(async () => null) });
+    expect(await loadIsApprenticeInProcess(undefined, anon)).toBe(false);
+    const broken = deps({
+      readBlob: vi.fn(async () => {
+        throw new Error("storage down");
+      }),
+    });
+    expect(await loadIsApprenticeInProcess("c", broken)).toBe(false);
   });
 });

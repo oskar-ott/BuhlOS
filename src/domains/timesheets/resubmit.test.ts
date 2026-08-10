@@ -46,6 +46,10 @@ describe("canResubmitInPhil", () => {
     expect(canResubmitInPhil(te({ status: "approved" }))).toBe(false);
     expect(canResubmitInPhil(te({ status: "draft" }))).toBe(false);
   });
+  it("REFUSES a TAFE day (2026-08-10) — the fix sheet would force a job onto a job-less day", () => {
+    expect(canResubmitInPhil(te({ status: "rejected", tafe: true }))).toBe(false);
+    expect(canResubmitInPhil(te({ status: "submitted", tafe: true }))).toBe(false);
+  });
   it("ALLOWS a rejected multi-allocation (split) entry — routed to the split editor", () => {
     const multi = te({
       allocations: [

@@ -233,6 +233,8 @@ export function buildStandardDayPayload(input: {
   date: string;
   jobId: string | null;
   notes?: string | null;
+  /** Paid TAFE day (apprentices, 2026-08-10) — no job; jobId must be null. */
+  tafe?: boolean;
 }): {
   date: string;
   totalHours: number;
@@ -241,6 +243,7 @@ export function buildStandardDayPayload(input: {
   allocations: Array<{ jobId: string | null; hours: number; notes: null }>;
   status: "submitted";
   notes: string | null;
+  tafe?: boolean;
 } {
   const { ordinary, overtime } = autoSplitOT(STANDARD_DAY_HOURS, input.date);
   return {
@@ -250,13 +253,16 @@ export function buildStandardDayPayload(input: {
     overtimeHours: overtime,
     allocations: [
       {
-        jobId: input.jobId,
+        jobId: input.tafe ? null : input.jobId,
         hours: STANDARD_DAY_HOURS,
         notes: null,
       },
     ],
     status: "submitted",
     notes: input.notes ?? null,
+    // Only ever present as true — an absent flag is the plain job day, so
+    // pre-TAFE payload shapes stay byte-identical (regression-pinned).
+    ...(input.tafe ? { tafe: true } : {}),
   };
 }
 
@@ -270,6 +276,8 @@ export function buildCustomHoursPayload(input: {
   totalHours: number;
   jobId: string | null;
   notes?: string | null;
+  /** Paid TAFE day (apprentices, 2026-08-10) — no job; jobId must be null. */
+  tafe?: boolean;
 }): {
   date: string;
   totalHours: number;
@@ -278,6 +286,7 @@ export function buildCustomHoursPayload(input: {
   allocations: Array<{ jobId: string | null; hours: number; notes: null }>;
   status: "submitted";
   notes: string | null;
+  tafe?: boolean;
 } {
   const { ordinary, overtime } = autoSplitOT(input.totalHours, input.date);
   return {
@@ -285,9 +294,13 @@ export function buildCustomHoursPayload(input: {
     totalHours: input.totalHours,
     ordinaryHours: ordinary,
     overtimeHours: overtime,
-    allocations: [{ jobId: input.jobId, hours: input.totalHours, notes: null }],
+    allocations: [
+      { jobId: input.tafe ? null : input.jobId, hours: input.totalHours, notes: null },
+    ],
     status: "submitted",
     notes: input.notes ?? null,
+    // Absent unless true — pre-TAFE payload shapes stay byte-identical.
+    ...(input.tafe ? { tafe: true } : {}),
   };
 }
 

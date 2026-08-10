@@ -209,6 +209,9 @@ function round2(n: number): number {
 }
 
 function jobLabelFor(entry: TimeEntry): string | null {
+  // A paid TAFE day (apprentices, 2026-08-10) names itself — its null jobId
+  // is by design, never "No job".
+  if (entry.tafe) return "TAFE";
   const allocations = entry.allocations ?? [];
   if (allocations.length === 0) return null;
   if (allocations.length > 1) return `${allocations.length} jobs`;

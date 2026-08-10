@@ -137,6 +137,40 @@ describe("logDayDialOptions()", () => {
   });
 });
 
+/**
+ * TAFE payloads (apprentices, owner-directed 2026-08-10): a paid trade-school
+ * day belongs to no job — the builders carry `tafe: true` + a jobId:null
+ * allocation, and WITHOUT the flag emit byte-identical pre-TAFE shapes.
+ */
+describe("TAFE payloads", () => {
+  it("standard day with tafe → jobId null + the flag, and validates against the create schema", () => {
+    const payload = buildStandardDayPayload({ date: "2026-08-12", jobId: null, tafe: true });
+    expect(payload.tafe).toBe(true);
+    expect(payload.allocations).toEqual([{ jobId: null, hours: STANDARD_DAY_HOURS, notes: null }]);
+    expect(CreateTimeEntryPayloadSchema.safeParse(payload).success).toBe(true);
+    // Even a caller passing a jobId gets null — a TAFE day can't be job-costed.
+    expect(
+      buildStandardDayPayload({ date: "2026-08-12", jobId: "j1", tafe: true }).allocations[0]!
+        .jobId,
+    ).toBeNull();
+  });
+
+  it("custom hours with tafe → same rules; WITHOUT the flag the field is ABSENT (byte-identical old shape)", () => {
+    const tafe = buildCustomHoursPayload({
+      date: "2026-08-12",
+      totalHours: 4,
+      jobId: null,
+      tafe: true,
+    });
+    expect(tafe.tafe).toBe(true);
+    expect(tafe.allocations[0]!.jobId).toBeNull();
+    const plain = buildStandardDayPayload({ date: "2026-08-12", jobId: "j1" });
+    expect("tafe" in plain).toBe(false);
+    const plainCustom = buildCustomHoursPayload({ date: "2026-08-12", totalHours: 8, jobId: "j1" });
+    expect("tafe" in plainCustom).toBe(false);
+  });
+});
+
 describe("autoSplitOT()", () => {
   it("overtime starts after the STANDARD DAY (7.6h) — owner-directed 2026-08-09, was 8h", () => {
     expect(autoSplitOT(7.6)).toEqual({ ordinary: 7.6, overtime: 0 });

@@ -51,6 +51,8 @@ function entry(over: Partial<TimeEntry> & Pick<TimeEntry, "date" | "status">): T
     updatedAt: "2026-06-01T00:00:00Z",
     notes: over.notes ?? null,
     rejectedReason: over.rejectedReason ?? null,
+    // Absent unless set — mirrors the store (pre-TAFE entries carry no flag).
+    ...(over.tafe ? { tafe: true } : {}),
   } as TimeEntry;
 }
 
@@ -266,6 +268,37 @@ describe("today's unlogged row (owner-directed, 2026-08-07; whole-row tap 2026-0
     // The row keeps its label and loses the old button-less special copy.
     expect(html).toContain("Not logged");
     expect(html).not.toContain("assign it to a job below");
+  });
+});
+
+/**
+ * TAFE days (apprentices, owner-directed 2026-08-10): a paid trade-school
+ * day names itself on every attribution surface — never "No job recorded" —
+ * and the apprentice-only log toggle rides the SAME shared sheet.
+ */
+describe("PhilHoursSharpened — TAFE days", () => {
+  it("a TAFE day's row and the week job-breakdown both read 'TAFE', never 'No job recorded'", () => {
+    const html = render([
+      entry({
+        date: MONDAY,
+        status: "submitted",
+        tafe: true,
+        allocations: [{ jobId: null, hours: 7.6 }],
+      }),
+    ]);
+    expect(html).toContain("TAFE");
+    expect(html).not.toContain("No job recorded");
+    // A TAFE day never carries the fix-sheet 'Change' pill — the office
+    // handles TAFE corrections (canResubmitInPhil refuses tafe entries).
+    const dayRows = html.split("Log your day")[0];
+    expect(dayRows).not.toContain("phil-edit-submitted");
+  });
+
+  it("canLogTafe passes through to the mounted log sheet", () => {
+    const html = render([], { canLogTafe: true });
+    expect(html).toContain('data-testid="phil-tafe-toggle"');
+    // Default render (non-apprentice) has no trace of it.
+    expect(render([])).not.toContain("phil-tafe-toggle");
   });
 });
 

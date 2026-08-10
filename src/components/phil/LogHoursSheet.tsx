@@ -3,7 +3,15 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronRight, ChevronsUpDown, Clock, MapPin, Split, Timer } from "lucide-react";
+import {
+  ChevronRight,
+  ChevronsUpDown,
+  Clock,
+  GraduationCap,
+  MapPin,
+  Split,
+  Timer,
+} from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { RefreshButton } from "@/components/ui/RefreshButton";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
@@ -115,6 +123,13 @@ interface LogHoursSheetProps {
    * the day flips instantly instead of waiting out the store's listing lag.
    */
   onSaved?: (entry: TimeEntry) => void;
+  /**
+   * True ONLY for apprentices (employee-record role, resolved server-side by
+   * loadIsApprenticeInProcess — fail-closed). Shows the "TAFE day" option:
+   * apprentices attend trade school one paid day a week (owner-directed
+   * 2026-08-10) and log it here, attributed to TAFE instead of a job.
+   */
+  canLogTafe?: boolean;
 }
 
 type Mode = "standard" | "custom";
@@ -150,6 +165,7 @@ export function LogHoursSheet({
   initialDate = null,
   autoOpenFix = false,
   onSaved,
+  canLogTafe = false,
 }: LogHoursSheetProps) {
   const router = useRouter();
   // One replay-safe key per logical submission: a retry after a timeout reuses
@@ -196,10 +212,16 @@ export function LogHoursSheet({
 
   const hasJobs = assignedJobs.length > 0;
   const selectedJob = assignedJobs.find((j) => j.id === selectedJobId) ?? null;
+  // A paid TAFE day (apprentices only — canLogTafe gates the toggle). While
+  // selected, the day belongs to NO job: attribution is "TAFE", the job
+  // guard stands down, and the payloads carry tafe: true + jobId: null.
+  const [tafeSelected, setTafeSelected] = useState(false);
+  const tafeActive = canLogTafe && tafeSelected;
   // Safe to attribute a submission iff jobs loaded, at least one exists, and
-  // one is selected. When false the submit buttons are disabled and the guard
-  // below produces an honest message rather than an unattributed entry.
-  const jobReady = !jobsError && hasJobs && !!selectedJob;
+  // one is selected — OR the day is a TAFE day (deliberately job-less). When
+  // false the submit buttons are disabled and the guard below produces an
+  // honest message rather than an unattributed entry.
+  const jobReady = tafeActive || (!jobsError && hasJobs && !!selectedJob);
 
   /**
    * Returns an error to show instead of submitting, or null when job
@@ -208,6 +230,8 @@ export function LogHoursSheet({
    * with multiple jobs hasn't picked one. Never allows a silent jobId: null.
    */
   function jobAttributionError(): { message: string; status: number } | null {
+    // A TAFE day is deliberately job-less — the guard stands down entirely.
+    if (tafeActive) return null;
     if (jobsError) {
       return { message: "Couldn't load your jobs. Pull to refresh and try again.", status: 0 };
     }
@@ -267,8 +291,9 @@ export function LogHoursSheet({
     // the custom sheet as presets (owner-directed 2026-08-09).
     const payload = buildStandardDayPayload({
       date,
-      jobId: selectedJobId,
+      jobId: tafeActive ? null : selectedJobId,
       notes: notes || null,
+      tafe: tafeActive,
     });
     const result = await timesheetsClient.submitNewEntry(payload, {
       idempotencyKey: submissionKey.keyFor(JSON.stringify(payload)),
@@ -304,8 +329,9 @@ export function LogHoursSheet({
     const payload = buildCustomHoursPayload({
       date,
       totalHours: customHours,
-      jobId: selectedJobId,
+      jobId: tafeActive ? null : selectedJobId,
       notes: notes || null,
+      tafe: tafeActive,
     });
     const result = await timesheetsClient.submitNewEntry(payload, {
       idempotencyKey: submissionKey.keyFor(JSON.stringify(payload)),
@@ -462,18 +488,72 @@ export function LogHoursSheet({
           />
         ) : (
           <>
-            <JobAttribution
-              jobs={assignedJobs}
-              selectedJobId={selectedJobId}
-              onSelect={(id) => {
-                setSelectedJobId(id);
-                setMoreOpen(true); // open the note disclosure once a job is chosen
-              }}
-              lastLoggedJobId={lastLoggedJobId}
-              lastLoggedDate={lastLoggedDate}
-              jobsError={jobsError}
-              disabled={submitting}
-            />
+            {tafeActive ? (
+              // TAFE selected: the attribution slot shows the training day
+              // (same quiet jobLine treatment as a chosen job) + the way back.
+              <div className="space-y-2" data-testid="phil-tafe-selected">
+                <div className={styles.jobLine}>
+                  <span className={styles.jobLinePin} aria-hidden="true">
+                    <GraduationCap className="h-[17px] w-[17px]" />
+                  </span>
+                  <span className={styles.jobLineText}>
+                    <span className={styles.jobLineName}>TAFE</span>
+                    <span className={styles.jobLineCaption}>Paid trade-school day — no job</span>
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setTafeSelected(false)}
+                  disabled={submitting}
+                  className={styles.subAction}
+                >
+                  <span className={styles.subActionIcon} aria-hidden="true">
+                    <MapPin className="h-[17px] w-[17px]" />
+                  </span>
+                  <span className={styles.subActionLabel}>Log a job day instead</span>
+                  <ChevronRight
+                    className={cn(styles.subActionChev, "h-[17px] w-[17px]")}
+                    aria-hidden="true"
+                  />
+                </button>
+              </div>
+            ) : (
+              <>
+                <JobAttribution
+                  jobs={assignedJobs}
+                  selectedJobId={selectedJobId}
+                  onSelect={(id) => {
+                    setSelectedJobId(id);
+                    setMoreOpen(true); // open the note disclosure once a job is chosen
+                  }}
+                  lastLoggedJobId={lastLoggedJobId}
+                  lastLoggedDate={lastLoggedDate}
+                  jobsError={jobsError}
+                  disabled={submitting}
+                />
+                {/* Apprentices only (canLogTafe, server-resolved fail-closed):
+                    one bar switches the day's attribution to TAFE — trade
+                    school is a paid day that belongs to no job. */}
+                {canLogTafe ? (
+                  <button
+                    type="button"
+                    onClick={() => setTafeSelected(true)}
+                    disabled={submitting}
+                    data-testid="phil-tafe-toggle"
+                    className={styles.subAction}
+                  >
+                    <span className={styles.subActionIcon} aria-hidden="true">
+                      <GraduationCap className="h-[17px] w-[17px]" />
+                    </span>
+                    <span className={styles.subActionLabel}>TAFE day — trade school</span>
+                    <ChevronRight
+                      className={cn(styles.subActionChev, "h-[17px] w-[17px]")}
+                      aria-hidden="true"
+                    />
+                  </button>
+                ) : null}
+              </>
+            )}
 
             {/* Weekend rule (owner-directed 2026-08-10): Sat/Sun hours book as
                 all overtime — one muted fact line (P10: no new control, no
@@ -541,7 +621,7 @@ export function LogHoursSheet({
               />
             </button>
 
-            {assignedJobs.length > 1 ? (
+            {assignedJobs.length > 1 && !tafeActive ? (
               <button
                 type="button"
                 onClick={() => setSplitOpen(true)}

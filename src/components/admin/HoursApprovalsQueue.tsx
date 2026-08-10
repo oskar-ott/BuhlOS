@@ -629,7 +629,8 @@ function EntryRow({
 function amendAllocationsFor(entry: TimeEntry): AmendAllocationInput[] {
   return (entry.allocations ?? []).map((a) => ({
     jobId: a.jobId ?? null,
-    label: a.jobName ?? a.jobId ?? "No job assigned",
+    // A TAFE day's null job is by design (2026-08-10) — name the real thing.
+    label: entry.tafe ? "TAFE" : (a.jobName ?? a.jobId ?? "No job assigned"),
     hours: Number(a.hours) || 0,
   }));
 }
@@ -641,9 +642,11 @@ function AllocationLine({ entry }: { entry: TimeEntry }): ReactNode {
       {entry.allocations.map((a, i) => {
         // Legacy / unattributed allocations (jobId null) are flagged so an
         // approver can see at a glance which hours lack job context — they
-        // remain fully approvable/rejectable, this is display only.
-        const unattributed = !a.jobId;
-        const job = a.jobName ?? a.jobId ?? "No job assigned";
+        // remain fully approvable/rejectable, this is display only. A TAFE
+        // day (2026-08-10) is deliberately job-less: it reads "TAFE", never
+        // the warning pill.
+        const unattributed = !a.jobId && !entry.tafe;
+        const job = entry.tafe ? "TAFE" : (a.jobName ?? a.jobId ?? "No job assigned");
         return (
           <span key={i} className="inline-flex items-center gap-1 text-xs text-text-muted">
             <span>{formatHoursLabel(a.hours)} →</span>

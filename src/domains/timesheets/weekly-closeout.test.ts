@@ -474,6 +474,18 @@ describe("buildWeeklyHoursCloseout — day statuses are honest", () => {
     expect(c.workers[0]!.days[1]!.jobLabel).toBe("No job");
   });
 
+  it("labels a TAFE day 'TAFE' (2026-08-10) — a paid trade-school day is never 'No job'", () => {
+    const c = build([
+      entry({
+        userId: "u1",
+        date: "2024-05-20",
+        tafe: true,
+        allocations: [{ jobId: null, jobName: null, hours: 7.6 }],
+      } as Partial<TimeEntry> & { userId: string; date: string }),
+    ]);
+    expect(c.workers[0]!.days[0]!.jobLabel).toBe("TAFE");
+  });
+
   it("carries the STORED ordinary/overtime split through to the day cell (#130)", () => {
     const c = build([
       entry({

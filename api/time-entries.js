@@ -179,6 +179,10 @@ async function handleCreate(req, res, user) {
     ordinaryHours: body.ordinaryHours,
     overtimeHours: body.overtimeHours,
     otOverridden: !!body.otOverridden,
+    // Paid TAFE day (apprentices, owner-directed 2026-08-10): belongs to no
+    // job — the create path already accepts jobId:null allocations, and every
+    // attribution surface labels a tafe entry "TAFE" instead of "No job".
+    tafe: !!body.tafe,
     notes: body.notes || null,
     status: body.status === 'submitted' ? 'submitted' : 'draft',
     submittedAt: body.status === 'submitted' ? now : null,
@@ -331,7 +335,11 @@ async function handlePatch(req, res, user) {
   // same 403 shape as the active-job gate. Create keeps accepting null for
   // backward compatibility (legacy/overhead); the Phil UI remains the guard
   // there.
-  if (isSelf && isFieldRole(user.role) && body.allocations !== undefined) {
+  // A TAFE day (apprentices, 2026-08-10) legitimately carries jobId:null —
+  // the null-job block below is for JOB days only. The edit keeps being a
+  // TAFE day unless the patch explicitly changes that.
+  const editIsTafe = body.tafe !== undefined ? !!body.tafe : !!existing.tafe;
+  if (isSelf && isFieldRole(user.role) && body.allocations !== undefined && !editIsTafe) {
     const hasNullJob = (body.allocations || []).some((a) => !a || !a.jobId);
     if (hasNullJob) {
       return res.status(403).json({ error: 'forbidden — hours can only be logged against an active job' });
@@ -484,6 +492,7 @@ function editableEntryPatch(body) {
     'ordinaryHours',
     'overtimeHours',
     'otOverridden',
+    'tafe',
     'notes',
     'allocations',
   ]) {

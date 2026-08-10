@@ -768,3 +768,112 @@ describe("listUserEntries — the PG rung gets the read-your-writes overlay too 
     expect(got).toEqual([]); // the seeded Blob day is 'submitted'
   });
 });
+
+/**
+ * TAFE days (apprentices, owner-directed 2026-08-10): a paid trade-school
+ * day belongs to NO job. The entry carries `tafe: true` and a jobId:null
+ * allocation; the PATCH null-job block (2026-07-26) stands down for it —
+ * and ONLY for it.
+ */
+describe("TAFE days — job-less by design", () => {
+  function tafeEntrySeed(userId: string, date: string) {
+    return {
+      id: "e_tafe",
+      userId,
+      userName: "mate",
+      userRole: "tradie",
+      date,
+      totalHours: 7.6,
+      ordinaryHours: 7.6,
+      overtimeHours: 0,
+      tafe: true,
+      status: "submitted",
+      submittedAt: `${date}T08:00:00.000Z`,
+      approvedBy: null,
+      approvedAt: null,
+      rejectedReason: null,
+      allocations: [{ jobId: null, hours: 7.6, notes: null, sortOrder: 0 }],
+      createdAt: `${date}T07:00:00.000Z`,
+      updatedAt: `${date}T08:00:00.000Z`,
+    };
+  }
+
+  it("POST stores tafe: true with a null-job allocation", async () => {
+    const res = await call({
+      method: "POST",
+      userId: "u_field2",
+      role: "tradie",
+      body: validEntry({
+        totalHours: 7.6,
+        ordinaryHours: 7.6,
+        overtimeHours: 0,
+        allocations: [{ jobId: null, hours: 7.6 }],
+        tafe: true,
+        status: "submitted",
+      }),
+    });
+    expect(res.statusCode).toBe(201);
+    const stored = blob.get(`users/u_field2/time-entries/${TODAY}.json`) as {
+      tafe: boolean;
+      allocations: Array<{ jobId: string | null }>;
+    };
+    expect(stored.tafe).toBe(true);
+    expect(stored.allocations[0]?.jobId).toBeNull();
+  });
+
+  it("POST without the flag stores tafe: false — the plain job day is unchanged", async () => {
+    const res = await call({
+      method: "POST",
+      userId: "u_field2",
+      role: "tradie",
+      body: validEntry({ status: "submitted" }),
+    });
+    expect(res.statusCode).toBe(201);
+    const stored = blob.get(`users/u_field2/time-entries/${TODAY}.json`) as { tafe: boolean };
+    expect(stored.tafe).toBe(false);
+  });
+
+  it("PATCH: a field self-edit of a TAFE day keeps its null-job allocation (the block stands down)", async () => {
+    blob.set(`users/u_field2/time-entries/${TODAY}.json`, tafeEntrySeed("u_field2", TODAY));
+    const res = await call({
+      method: "PATCH",
+      userId: "u_field2",
+      role: "tradie",
+      query: { date: TODAY },
+      body: {
+        totalHours: 4,
+        ordinaryHours: 4,
+        overtimeHours: 0,
+        allocations: [{ jobId: null, hours: 4 }],
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const stored = blob.get(`users/u_field2/time-entries/${TODAY}.json`) as {
+      tafe: boolean;
+      totalHours: number;
+      allocations: Array<{ jobId: string | null }>;
+    };
+    expect(stored.tafe).toBe(true); // the flag survives an hours-only edit
+    expect(stored.totalHours).toBe(4);
+    expect(stored.allocations[0]?.jobId).toBeNull();
+  });
+
+  it("PATCH: turning the flag OFF in the same edit re-arms the null-job block", async () => {
+    blob.set(`users/u_field2/time-entries/${TODAY}.json`, tafeEntrySeed("u_field2", TODAY));
+    const res = await call({
+      method: "PATCH",
+      userId: "u_field2",
+      role: "tradie",
+      query: { date: TODAY },
+      body: {
+        tafe: false,
+        totalHours: 7.6,
+        ordinaryHours: 7.6,
+        overtimeHours: 0,
+        allocations: [{ jobId: null, hours: 7.6 }],
+      },
+    });
+    expect(res.statusCode).toBe(403);
+    expect((res.body as { error: string }).error).toMatch(/active job/i);
+  });
+});

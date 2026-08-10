@@ -55,6 +55,13 @@ export const TimeEntrySchema = z
     startTime: z.string().nullable().optional(),
     endTime: z.string().nullable().optional(),
     breakMinutes: z.number().nullable().optional(),
+    /**
+     * A paid TAFE (trade-school) day — apprentices attend one day a week
+     * (owner-directed 2026-08-10). The day belongs to no job (allocations
+     * carry jobId: null) and every attribution surface labels it "TAFE".
+     * Optional and additive: entries written before this parse unchanged.
+     */
+    tafe: z.boolean().optional(),
     totalHours: z.number(),
     ordinaryHours: z.number(),
     overtimeHours: z.number(),
@@ -123,6 +130,8 @@ export const CreateTimeEntryPayloadSchema = z
       .max(16, "Total hours cannot exceed 16"),
     ordinaryHours: z.number().min(0, "Ordinary hours cannot be negative"),
     overtimeHours: z.number().min(0, "Overtime hours cannot be negative"),
+    /** Paid TAFE day (apprentices) — no job; see TimeEntrySchema.tafe. */
+    tafe: z.boolean().optional(),
     allocations: z
       .array(
         z.object({

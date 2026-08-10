@@ -375,6 +375,26 @@ describe("LogHoursSheet — log control layout (owner reposition)", () => {
   });
 });
 
+describe("LogHoursSheet — TAFE day (apprentices only, owner-directed 2026-08-10)", () => {
+  // Selecting TAFE is client state (the toggled attribution swap isn't
+  // SSR-reachable); what SSR pins is the GATE: the toggle exists for an
+  // apprentice and for NOBODY else. The payload chain (tafe: true + jobId
+  // null) is pure logic pinned in timesheets.test.ts ("TAFE payloads").
+  const soleJob = { ...base, assignedJobs: [{ id: "j1", name: "Smith St Rewire" }] };
+
+  it("an apprentice gets the TAFE-day bar under the job attribution", () => {
+    const html = render({ ...soleJob, canLogTafe: true });
+    expect(html).toContain('data-testid="phil-tafe-toggle"');
+    expect(html).toContain("TAFE day — trade school");
+  });
+
+  it("everyone else NEVER sees it (default off — the server resolves apprentices fail-closed)", () => {
+    const html = render(soleJob);
+    expect(html).not.toContain("phil-tafe-toggle");
+    expect(html).not.toContain("TAFE");
+  });
+});
+
 describe("LogHoursSheet — the day dial (owner-directed 2026-08-09)", () => {
   // The options themselves (this week only, day names, seeded extra day) are
   // pure logic pinned in timesheets.test.ts ("logDayDialOptions()"); this
