@@ -277,7 +277,7 @@ describe("today's unlogged row (owner-directed, 2026-08-07; whole-row tap 2026-0
  * and the apprentice-only log toggle rides the SAME shared sheet.
  */
 describe("PhilHoursSharpened — TAFE days", () => {
-  it("a TAFE day's row and the week job-breakdown both read 'TAFE', never 'No job recorded'", () => {
+  it("a TAFE day's ROW reads 'TAFE' — but it never rides the per-job breakdown (not job work)", () => {
     const html = render([
       entry({
         date: MONDAY,
@@ -286,8 +286,13 @@ describe("PhilHoursSharpened — TAFE days", () => {
         allocations: [{ jobId: null, hours: 7.6 }],
       }),
     ]);
+    // The day row names the day…
     expect(html).toContain("TAFE");
     expect(html).not.toContain("No job recorded");
+    // …exactly ONCE: with only a TAFE day logged, the job breakdown renders
+    // no TAFE row (owner-directed 2026-08-10 — TAFE is not a job), so the
+    // word appears solely on the day row.
+    expect(html.match(/TAFE/g)).toHaveLength(1);
     // A TAFE day never carries the fix-sheet 'Change' pill — the office
     // handles TAFE corrections (canResubmitInPhil refuses tafe entries).
     const dayRows = html.split("Log your day")[0];
