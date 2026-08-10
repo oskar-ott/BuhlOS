@@ -46,9 +46,10 @@ const ISO = /^\d{4}-\d{2}-\d{2}$/;
 /**
  * /hours/period — the Xero-ready payroll preview across a pay period (#131).
  *
- * The weekly board (/hours/weekly) closes ONE Mon–Sun week; pay runs span
- * periods (fortnightly pay, "what did we approve this fortnight?"). This is
- * that view: pick a period, see approved hours rolled up by worker with the
+ * The weekly board (/hours/weekly) closes ONE Mon–Sun week; this is the
+ * payroll roll-up over a period — by default the SAME Mon–Sun week (pay runs
+ * weekly), with fortnight/custom as look-back options. Pick a period, see
+ * approved hours rolled up by worker with the
  * ordinary/overtime split, what isn't yet in a committed run, and which
  * workers have no Xero employee id — the office's pre-push check.
  *
@@ -91,10 +92,13 @@ export default async function HoursPeriodPage({
   const today = localDateString(new Date(), BUSINESS_TIMEZONE);
 
   // Resolve the period. Custom needs a valid ordered range, else we fall back
-  // to a fortnight and say so. Week/fortnight anchor on a date in the last week.
+  // to a week and say so. Week/fortnight anchor on a date in the last week.
+  // Default is a WEEK — pay runs weekly (owner-corrected 2026-08-10; the
+  // original fortnight default never matched the real pay cycle). Fortnight
+  // stays as an opt-in look-back toggle.
   const requestedCustom = sp.period === "custom";
   const customValid = requestedCustom && isValidRange(sp.from ?? "", sp.to ?? "");
-  const kind: PayPeriodKind = sp.period === "week" ? "week" : "fortnight";
+  const kind: PayPeriodKind = sp.period === "fortnight" ? "fortnight" : "week";
   const anchorParam = sp.anchor && ISO.test(sp.anchor) ? sp.anchor : today;
 
   let range: PayPeriodRange;
@@ -232,7 +236,7 @@ export default async function HoursPeriodPage({
           </CardDescription>
           {customFellBack ? (
             <p className="mt-2 text-xs text-amber-900">
-              That custom range wasn&rsquo;t valid — showing this fortnight instead.
+              That custom range wasn&rsquo;t valid — showing this week instead.
             </p>
           ) : null}
         </Card>
