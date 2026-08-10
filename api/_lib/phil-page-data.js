@@ -121,6 +121,10 @@ async function loadIsApprenticeInProcess(cookieValue, deps = realDeps()) {
     if (!user) return false;
     const blob = await deps.readBlob('employees.json', { employees: [] });
     const employee = (blob.employees || []).find((e) => e && e.userId === user.id);
+    // This is the EMPLOYEE record's field-role vocabulary (employees
+    // schema.ts FIELD_ROLES), not a users.json auth role — the auth.js
+    // predicates don't speak it.
+    // role-literal-ok: employee-record field role, not an auth role
     return !!employee && employee.role === 'apprentice';
   } catch (e) {
     console.error('phil-page-data: apprentice lookup failed (fail-closed)', e && e.message);
