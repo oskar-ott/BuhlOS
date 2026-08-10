@@ -14,7 +14,9 @@ import { describe, expect, it } from "vitest";
 
 const requireFromHere = createRequire(import.meta.url);
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { composePayrollPdf, rollupRows } = requireFromHere("../../../api/_lib/payroll-pdf.js");
+const { composePayrollPdf, rollupRows, longDate, dayDate } = requireFromHere(
+  "../../../api/_lib/payroll-pdf.js"
+);
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { PDFDocument } = requireFromHere("pdf-lib");
 
@@ -94,6 +96,24 @@ describe("rollupRows", () => {
   it("tolerates an empty/absent row set", () => {
     expect(rollupRows([]).totals).toMatchObject({ workerCount: 0, hours: 0 });
     expect(rollupRows(undefined).workers).toEqual([]);
+  });
+});
+
+describe("date formatting (owner-corrected 2026-08-10: day before month)", () => {
+  it("writes header dates day-first, never raw ISO", () => {
+    expect(longDate("2026-08-03")).toBe("3 Aug 2026");
+    // The trap this fixes: 03/08 must never render as the 8th of March.
+    expect(longDate("2026-03-08")).toBe("8 Mar 2026");
+  });
+
+  it("writes breakdown rows as weekday + DD/MM/YYYY", () => {
+    expect(dayDate("2026-08-03")).toBe("Mon 03/08/2026");
+    expect(dayDate("2026-08-09")).toBe("Sun 09/08/2026");
+  });
+
+  it("passes a non-ISO value through untouched rather than mangling it", () => {
+    expect(longDate("")).toBe("");
+    expect(dayDate("not a date")).toBe("not a date");
   });
 });
 
