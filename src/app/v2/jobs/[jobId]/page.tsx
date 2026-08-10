@@ -17,7 +17,7 @@ import type { Route } from "next";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { DuplicateJobButton } from "@/components/admin/DuplicateJobButton";
 import { RecentItemTracker } from "@/components/admin/RecentItemTracker";
-import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
+import { Card, CardDescription, CardKicker, CardTitle } from "@/components/ui/Card";
 import { JobHealthBand } from "@/components/admin/JobHealthBand";
 import { JobLabourSummary } from "@/components/admin/JobLabourSummary";
 import { JobMoneyCard } from "@/components/admin/JobMoneyCard";
@@ -163,48 +163,55 @@ export default async function AdminJobInterfacePage({ params }: PageParams) {
         : null;
 
   return (
-    <AdminShell
-      title={job.name}
-      breadcrumb={
-        <Link
-          href="/v2/jobs"
-          className="underline decoration-accent-yellow decoration-2 underline-offset-2"
-        >
-          ← Jobs
-        </Link>
-      }
-    >
-      <div className="mx-auto max-w-3xl space-y-4">
+    <AdminShell title={job.name} hideHead>
+      <div className="mx-auto w-full max-w-[1200px]">
         {/* #215 — record this job view in the device-local recents ring buffer
             so ⌘K can offer a one-keystroke jump back. Renders nothing. */}
         <RecentItemTracker path={`/v2/jobs/${job.id}`} title={job.name} type="job" />
+
+        <Link
+          href="/v2/jobs"
+          className="font-mono text-xs font-medium uppercase tracking-[0.14em] text-text-muted underline decoration-accent-yellow decoration-2 underline-offset-4 hover:text-text focus:outline-none focus:ring-2 focus:ring-brand-navy"
+        >
+          ← Jobs
+        </Link>
+
         {/* Lean-reset step 5 (#916, owner-decided 2026-07-18): the hub is
-            identity + money-path + capture + tags + site. Stripped from here
-            (reversal is git, the underlying features/data are untouched):
-            Status card, scope of work, scope-recon chip, client & contract,
-            "what the field sees", AI summary, BOQ/claims/closeout/DLP cards,
-            recent activity, readiness + induction, services, field-view
-            toggle. 2026-08-09 job-hub audit pass: the ref strip grew into the
-            health band (same At-risk/Watch read as the jobs list + status
-            control), the two money cards merged into JobMoneyCard (one fetch),
-            and the two-row Sections nav folded into the Evidence card. */}
-        <JobHealthBand job={job} canEdit={canBuild} progressPct={progressPct} />
-        <JobBuildCard job={job} canBuild={canBuild} />
-        {/* Suspense-streamed: the per-job hours walk is the slowest read on
-            the page; the shell paints first and this card fills in. */}
-        <Suspense fallback={<SectionSkeleton title="Labour" />}>
-          <LabourSection base={base} cookieValue={raw} job={job} progressPct={progressPct} />
-        </Suspense>
+            identity + money-path + capture + tags + site. Job Detail Variants
+            (2026-08-10): the hero leads with the verdict, Money runs full
+            width, then "doing left, knowing right" — the daily-decision cards
+            (Labour, Evidence) in the wide column, reference & controls
+            (Build & publish, Tag register, Site) in the narrow one (2f §03). */}
+        <div className="mt-3">
+          <JobHealthBand job={job} canEdit={canBuild} progressPct={progressPct} />
+        </div>
+
         {/* One money card, one fetch: profitability + budget variance are two
             views of the same endpoint. Client-fetched so the expensive
             approved-hours walk never blocks the hub render; admin-tier only
             (hidden for an LH/non-admin viewer). */}
-        <JobMoneyCard jobId={job.id} />
-        <Suspense fallback={<SectionSkeleton title="Evidence" />}>
-          <EvidenceSection base={base} cookieValue={raw} jobId={job.id} />
-        </Suspense>
-        <JobTagsSummary job={job} />
-        {hasSiteContext(job) ? <SiteContextCard job={job} canBuild={canBuild} /> : null}
+        <div className="mt-5">
+          <JobMoneyCard jobId={job.id} />
+        </div>
+
+        <div className="mt-5 grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_380px]">
+          <div className="grid gap-5">
+            {/* Suspense-streamed: the per-job hours walk is the slowest read on
+                the page; the shell paints first and these cards fill in at
+                their exact final footprint (2c). */}
+            <Suspense fallback={<LabourSkeleton />}>
+              <LabourSection base={base} cookieValue={raw} job={job} progressPct={progressPct} />
+            </Suspense>
+            <Suspense fallback={<EvidenceSkeleton />}>
+              <EvidenceSection base={base} cookieValue={raw} jobId={job.id} />
+            </Suspense>
+          </div>
+          <div className="grid gap-5">
+            <JobBuildCard job={job} canBuild={canBuild} />
+            <JobTagsSummary job={job} />
+            {hasSiteContext(job) ? <SiteContextCard job={job} canBuild={canBuild} /> : null}
+          </div>
+        </div>
       </div>
     </AdminShell>
   );
@@ -216,45 +223,46 @@ function JobBuildCard({ job, canBuild }: { job: Job; canBuild: boolean }) {
   const fieldVisible = isVisibleToField(job);
   return (
     <Card>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <CardTitle>Build &amp; publish</CardTitle>
-          <CardDescription className="mt-1">
-            {fieldVisible ? (
-              <span className="inline-flex items-center gap-1 text-emerald-700">
-                <Eye aria-hidden="true" className="h-3.5 w-3.5" /> Published — visible to assigned
-                field workers.
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1">
-                <Lock aria-hidden="true" className="h-3.5 w-3.5" /> Office-only — not yet published
-                to the field.
-              </span>
-            )}
-          </CardDescription>
-        </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-2">
-          {canBuild ? (
-            <a
-              href={`/v2/jobs/${encodeURIComponent(job.id)}/builder` as Route}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-card bg-brand-navy px-3 py-2 text-sm font-medium text-text-inverse transition-colors hover:bg-accent-ink focus:outline-none focus:ring-2 focus:ring-brand-navy"
-            >
-              <PencilRuler aria-hidden="true" className="h-4 w-4" /> Open builder
-            </a>
-          ) : null}
-          {/* #190 — copy structure + site basics into a new draft. */}
-          <DuplicateJobButton jobId={job.id} />
-        </div>
+      <CardKicker>Build &amp; publish</CardKicker>
+      {fieldVisible ? (
+        <p className="mt-3 flex items-center gap-1.5 text-sm text-state-success-subtle-text">
+          <Eye aria-hidden="true" className="h-3.5 w-3.5 shrink-0" /> Published — visible to
+          assigned field workers.
+        </p>
+      ) : (
+        <p className="mt-3 flex items-center gap-1.5 text-sm text-text-muted">
+          <Lock aria-hidden="true" className="h-3.5 w-3.5 shrink-0" /> Not published — the field
+          can&rsquo;t see this job yet. Publish from the builder.
+        </p>
+      )}
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        {canBuild ? (
+          <a
+            href={`/v2/jobs/${encodeURIComponent(job.id)}/builder` as Route}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-[4px] bg-brand-navy px-3.5 py-2 text-sm font-semibold text-text-inverse transition-colors hover:bg-accent-ink focus:outline-none focus:ring-2 focus:ring-brand-navy"
+          >
+            <PencilRuler aria-hidden="true" className="h-4 w-4" /> Open builder
+          </a>
+        ) : null}
+        {/* #190 — copy structure + site basics into a new draft. */}
+        <DuplicateJobButton jobId={job.id} />
       </div>
     </Card>
   );
 }
 
 function SiteContextCard({ job, canBuild }: { job: Job; canBuild: boolean }) {
+  // 2d: when the reference fields are still blank, offer the one add link
+  // rather than rendering invented rows or empty labels.
+  const missingSome =
+    !job.siteContactName?.trim() ||
+    !job.accessNotes ||
+    !job.parkingNotes ||
+    !job.safetyNotes;
   return (
     <Card>
       <div className="flex items-center justify-between gap-3">
-        <CardTitle>Site</CardTitle>
+        <CardKicker>Site</CardKicker>
         {canBuild ? (
           <a
             href={`/v2/jobs/${encodeURIComponent(job.id)}/builder?tab=basics` as Route}
@@ -264,7 +272,7 @@ function SiteContextCard({ job, canBuild }: { job: Job; canBuild: boolean }) {
           </a>
         ) : null}
       </div>
-      <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+      <dl className="mt-4 grid gap-4 text-sm">
         {job.siteAddress ? (
           <SiteField icon={<MapPin className="h-4 w-4" />} label="Address">
             {job.siteAddress}
@@ -302,10 +310,18 @@ function SiteContextCard({ job, canBuild }: { job: Job; canBuild: boolean }) {
           </SiteField>
         ) : null}
       </dl>
+      {missingSome && canBuild ? (
+        <a
+          href={`/v2/jobs/${encodeURIComponent(job.id)}/builder?tab=basics` as Route}
+          className="mt-4 inline-block text-sm font-medium text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-4 focus:outline-none focus:ring-2 focus:ring-brand-navy"
+        >
+          Add contact, access, parking &amp; safety notes →
+        </a>
+      ) : null}
       {job.inductionRequired ? (
-        <div className="mt-3 rounded-card border border-state-warning-subtle-border bg-state-warning-subtle-bg p-3 text-sm text-state-warning-subtle-text">
-          <p className="font-display font-semibold">Site induction required</p>
-          <p className="mt-0.5 text-xs">
+        <div className="mt-4 rounded-[4px] border border-state-warning-subtle-border bg-state-warning-subtle-bg px-4 py-3 text-state-warning-subtle-text">
+          <p className="font-display text-sm font-bold">Site induction required</p>
+          <p className="mt-0.5 text-xs leading-relaxed">
             Confirm with the leading hand before sending the crew on site.
           </p>
         </div>
@@ -329,7 +345,9 @@ function SiteField({
         {icon}
       </span>
       <div className="min-w-0 flex-1">
-        <dt className="font-mono text-xs uppercase tracking-wider text-text-muted">{label}</dt>
+        <dt className="font-mono text-xs font-medium uppercase tracking-[0.14em] text-text-muted">
+          {label}
+        </dt>
         <dd className="mt-0.5 whitespace-pre-line break-words text-text">{children}</dd>
       </div>
     </div>
@@ -416,16 +434,63 @@ async function EvidenceSection({
   );
 }
 
-/** Streaming fallback — same Card chrome as the section it stands in for, so
- *  the fill-in doesn't shift the layout. */
-function SectionSkeleton({ title }: { title: string }) {
+/** Streaming fallbacks (2c) — same Card chrome AND the exact footprint of the
+ *  section each stands in for, so nothing jumps when the data lands. */
+function LabourSkeleton() {
   return (
     <Card>
-      <CardTitle>{title}</CardTitle>
-      <div className="mt-3 space-y-2.5" data-testid="section-skeleton" aria-hidden="true">
-        <div className="h-14 animate-pulse rounded-card bg-surface-subtle" />
-        <div className="h-4 w-1/2 animate-pulse rounded-card bg-surface-subtle" />
+      <div className="flex items-center justify-between gap-3">
+        <CardKicker>Labour</CardKicker>
+        <div className="sk h-4 w-40" />
       </div>
+      <div className="mt-4 grid grid-cols-2 gap-3" data-testid="section-skeleton" aria-hidden="true">
+        <div className="rounded-[4px] border border-border bg-surface-subtle px-4 py-3">
+          <p className="font-mono text-xs font-medium uppercase tracking-[0.14em] text-text-muted">
+            Awaiting approval
+          </p>
+          <div className="sk mt-1 h-[22px] w-14" />
+        </div>
+        <div className="rounded-[4px] border border-border bg-surface-subtle px-4 py-3">
+          <p className="font-mono text-xs font-medium uppercase tracking-[0.14em] text-text-muted">
+            Approved to date
+          </p>
+          <div className="sk mt-1 h-[22px] w-16" />
+        </div>
+      </div>
+      <div className="mt-4 flex flex-wrap items-center gap-2" aria-hidden="true">
+        <div className="sk h-6 w-28 rounded-[4px]" />
+        <div className="sk h-6 w-32 rounded-[4px]" />
+        <div className="sk h-6 w-24 rounded-[4px]" />
+      </div>
+      <div className="sk mt-3 h-3.5 w-72 max-w-full" aria-hidden="true" />
+    </Card>
+  );
+}
+
+function EvidenceSkeleton() {
+  return (
+    <Card>
+      <div className="flex items-center justify-between gap-3">
+        <CardKicker>Evidence</CardKicker>
+        <div className="flex items-center gap-2" aria-hidden="true">
+          <div className="sk h-8 w-24 rounded-[4px]" />
+          <div className="sk h-8 w-24 rounded-[4px]" />
+        </div>
+      </div>
+      <div
+        className="mt-4 grid grid-cols-4 gap-1.5 sm:grid-cols-6"
+        data-testid="section-skeleton"
+        aria-hidden="true"
+      >
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className={i >= 4 ? "sk hidden aspect-square sm:block" : "sk aspect-square"} />
+        ))}
+      </div>
+      <div className="mt-3.5 flex items-center gap-2" aria-hidden="true">
+        <div className="sk h-5 w-20 rounded-pill" />
+        <div className="sk h-5 w-24 rounded-pill" />
+      </div>
+      <div className="sk mt-3 h-4 w-64 max-w-full" aria-hidden="true" />
     </Card>
   );
 }

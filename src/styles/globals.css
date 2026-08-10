@@ -25,6 +25,36 @@ body {
 }
 
 /*
+ * Streaming skeleton shimmer (Job Detail Variants 2c) — blocks that hold a
+ * pending value's EXACT final footprint while it loads. CSS (not a Tailwind
+ * utility) because the animated gradient is too long for a class string;
+ * colours ride the surface tokens so the shimmer retunes with the theme.
+ */
+.sk {
+  position: relative;
+  overflow: hidden;
+  border-radius: 3px;
+  background-color: var(--surface-subtle);
+  background-image: linear-gradient(
+    90deg,
+    var(--surface-subtle) 0%,
+    var(--surface) 40%,
+    var(--surface-subtle) 80%
+  );
+  background-size: 200% 100%;
+  animation: sk-wave 1.3s linear infinite;
+}
+
+@keyframes sk-wave {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/*
  * The UNDER CONSTRUCTION background pattern — black/yellow diagonal stripes.
  * Kept in CSS rather than Tailwind because the gradient is too long for utilities.
  */

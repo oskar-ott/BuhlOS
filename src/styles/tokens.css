@@ -77,6 +77,39 @@
 
   /* Density — regular by default. Compact and roomy variants below. */
   --density-unit: 0.25rem;
+
+  /*
+   * Font indirection — Tailwind's font-display / font-mono read these, so a
+   * surface can retheme its type by overriding the var (see [data-theme])
+   * without Phil or the field surfaces changing. Root = the pre-redesign
+   * stack.
+   */
+  --font-display: var(--font-inter-tight);
+  --font-mono: ui-monospace;
+}
+
+/*
+ * Office warm theme (Job Detail Variants design, 2026-08-10) — the admin
+ * shell's retune of the SAME tokens to the login screen's warm cream/ink
+ * palette, plus the Space Grotesk / JetBrains Mono type. Scoped to
+ * [data-theme="office"] (set on AdminShell's root) so Phil keeps the root
+ * values — recolouring field surfaces is a governance question, not a
+ * side effect. State quads are unchanged: status colours stay semantic.
+ */
+[data-theme="office"] {
+  --brand-navy: #0d1b34;
+  --accent-ink: #16264a;
+
+  --surface-subtle: #f0efe9;
+
+  --text: #0d1b34;
+  --text-muted: #6a7591;
+
+  --border: #e2ded1;
+  --border-strong: #cdc8b8;
+
+  --font-display: var(--font-space-grotesk);
+  --font-mono: var(--font-jetbrains-mono);
 }
 
 [data-density="compact"] {

@@ -1,6 +1,6 @@
 import type { Route } from "next";
-import { AlertTriangle, ArrowRight, CheckCircle2, Clock, Info } from "lucide-react";
-import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
+import { AlertTriangle, Info } from "lucide-react";
+import { Card, CardKicker } from "@/components/ui/Card";
 import { formatDateLabel, formatHoursLabel } from "@/domains/timesheets/format";
 import { groupJobHoursByWorker, summariseJobHours } from "@/domains/jobs/job-hours";
 import { classifyTimeOverrun, timeOverrunView } from "@/domains/analytics/time-overrun";
@@ -73,14 +73,15 @@ export function JobLabourSummary({
 
   return (
     <Card>
-      <div className="flex items-center gap-2">
-        <Clock aria-hidden="true" className="h-5 w-5 text-text-muted" />
-        <CardTitle>Labour</CardTitle>
+      <div className="flex items-center justify-between gap-3">
+        <CardKicker>Labour</CardKicker>
+        <a
+          href={"/hours/approvals" as Route}
+          className="text-sm font-medium text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-4 focus:outline-none focus:ring-2 focus:ring-brand-navy"
+        >
+          Review hours approvals →
+        </a>
       </div>
-      <CardDescription className="mt-1">
-        Approved and submitted hours on this job. Rejected entries and weekly totals live in Hours
-        approvals.
-      </CardDescription>
 
       {fetchError ? (
         <p
@@ -91,72 +92,70 @@ export function JobLabourSummary({
           queue.
         </p>
       ) : !summary.hasAny ? (
-        <p className="mt-3 inline-flex items-center gap-1.5 text-sm text-state-success-subtle-text">
-          <CheckCircle2 aria-hidden="true" className="h-4 w-4" />
-          No labour recorded on this job yet.
+        // 2d — absence is designed: what will appear, and how it gets here.
+        <p className="mt-3 text-sm text-text-muted">
+          No hours logged yet. Entries appear here as the crew clocks time in the field app, with
+          approvals waiting for you.
         </p>
       ) : (
         <>
           {/* Lean-reset replica 390-394: the pending box carries the warning
               tone only while something actually awaits approval — a cleared
               queue renders calm, never a fake amber alarm over "0h". */}
-          <dl className="mt-3 grid gap-3 sm:grid-cols-2">
+          <dl className="mt-4 grid grid-cols-2 gap-3">
             <div
               className={
                 summary.pendingHours > 0
-                  ? "rounded-card border border-state-warning-subtle-border bg-state-warning-subtle-bg px-3.5 py-3"
-                  : "rounded-card border border-border bg-surface-subtle px-3.5 py-3"
+                  ? "rounded-[4px] border border-state-warning-subtle-border bg-state-warning-subtle-bg px-4 py-3"
+                  : "rounded-[4px] border border-border bg-surface-subtle px-4 py-3"
               }
             >
               <dt
                 className={
                   summary.pendingHours > 0
-                    ? "text-xs text-state-warning-subtle-text"
-                    : "text-xs text-text-muted"
+                    ? "font-mono text-xs font-medium uppercase tracking-[0.14em] text-state-warning-subtle-text"
+                    : "font-mono text-xs font-medium uppercase tracking-[0.14em] text-text-muted"
                 }
               >
-                Awaiting approval on this job
+                Awaiting approval
               </dt>
               <dd
                 className={
                   summary.pendingHours > 0
-                    ? "mt-0.5 font-display text-xl font-semibold text-state-warning-subtle-text"
-                    : "mt-0.5 font-display text-xl font-semibold text-text"
+                    ? "mt-1 font-display text-[22px] font-bold tabular-nums leading-none text-state-warning-subtle-text"
+                    : "mt-1 font-display text-[22px] font-bold tabular-nums leading-none text-text"
                 }
               >
                 {formatHoursLabel(summary.pendingHours)}
               </dd>
             </div>
-            <div className="rounded-card border border-border bg-surface-subtle px-3.5 py-3">
-              <dt className="text-xs text-text-muted">Approved to date</dt>
-              <dd className="mt-0.5 font-display text-xl font-semibold text-text">
+            <div className="rounded-[4px] border border-border bg-surface-subtle px-4 py-3">
+              <dt className="font-mono text-xs font-medium uppercase tracking-[0.14em] text-text-muted">
+                Approved to date
+              </dt>
+              <dd className="mt-1 font-display text-[22px] font-bold tabular-nums leading-none text-text">
                 {formatHoursLabel(summary.approvedHours)}
               </dd>
             </div>
           </dl>
-          {summary.latestDate ? (
-            <p className="mt-2 text-xs text-text-muted">
-              Latest entry {formatDateLabel(summary.latestDate)}
-            </p>
-          ) : null}
 
           {workers.length > 0 ? (
-            <div className="mt-3">
-              <p className="font-mono text-xs uppercase tracking-wider text-text-muted">
-                By worker
-              </p>
-              <ul className="mt-1 flex flex-wrap gap-2">
-                {workers.map((w) => (
-                  <li
-                    key={w.userId}
-                    className="inline-flex items-center gap-1.5 rounded-card border border-border bg-surface px-2.5 py-1 text-xs"
-                  >
-                    <span className="font-display font-semibold text-text">{w.userName}</span>
-                    <span className="text-text-muted">{formatHoursLabel(w.hours)}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
+            <ul className="mt-4 flex flex-wrap items-center gap-2">
+              {workers.map((w) => (
+                <li
+                  key={w.userId}
+                  className="inline-flex items-center gap-1.5 rounded-[4px] border border-border bg-surface px-2.5 py-1 text-xs"
+                >
+                  <span className="font-semibold text-text">{w.userName}</span>
+                  <span className="tabular-nums text-text-muted">{formatHoursLabel(w.hours)}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {summary.latestDate ? (
+            <p className="mt-3 text-xs text-text-muted">
+              Latest entry {formatDateLabel(summary.latestDate)}
+            </p>
           ) : null}
         </>
       )}
@@ -193,15 +192,6 @@ export function JobLabourSummary({
         )
       ) : null}
 
-      <div className="mt-4">
-        <a
-          href={"/hours/approvals" as Route}
-          className="inline-flex items-center gap-1 text-sm font-medium text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-4 focus:outline-none focus:ring-2 focus:ring-brand-navy"
-        >
-          Review hours approvals
-          <ArrowRight aria-hidden="true" className="h-3.5 w-3.5" />
-        </a>
-      </div>
     </Card>
   );
 }

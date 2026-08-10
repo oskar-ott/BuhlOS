@@ -4,17 +4,7 @@ import Link from "next/link";
 import type { Route } from "next";
 import { Suspense, use, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import {
-  AlertOctagon,
-  Archive,
-  Camera,
-  ClipboardCheck,
-  MapPin,
-  PencilRuler,
-  Plus,
-  Search,
-  X,
-} from "lucide-react";
+import { Archive, Plus, Search, X } from "lucide-react";
 import { Pill } from "@/components/ui/Pill";
 import { EmptyState } from "@/components/ui/EmptyState";
 import {
@@ -404,6 +394,11 @@ export function JobsList({ jobs, canBuild = false, newJobHref, cardExtrasPromise
             />
           ))}
         </div>
+
+        {/* Job Detail Variants 2a — the list's one ordering, named. */}
+        <p className="ml-auto font-mono text-xs font-medium uppercase tracking-[0.14em] text-text-muted">
+          Sorted by risk
+        </p>
       </div>
 
       {visible.length === 0 ? (
@@ -413,7 +408,7 @@ export function JobsList({ jobs, canBuild = false, newJobHref, cardExtrasPromise
           </div>
         </Card>
       ) : (
-        <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <ul className="grid gap-3">
           {visible.map(({ job, health: jobHealth }) => (
             <li key={job.id}>
               <JobCard
@@ -464,40 +459,34 @@ function FilterPill({
       onClick={onClick}
       aria-pressed={selected}
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-pill border px-2.5 py-1 text-xs font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-brand-navy",
+        "inline-flex items-center gap-1.5 rounded-[6px] border px-3 py-1.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-brand-navy",
         selected
-          ? "border-brand-navy bg-brand-navy text-text-inverse"
+          ? "border-text bg-brand-navy text-text-inverse"
           : "border-border bg-surface text-text hover:bg-surface-subtle"
       )}
     >
       <span>{label}</span>
-      <span
-        className={cn(
-          "inline-flex h-4 min-w-[16px] items-center justify-center rounded-pill px-1 text-[10px] font-semibold",
-          selected ? "bg-accent-yellow text-brand-navy" : "bg-surface-subtle text-text-muted"
-        )}
-      >
-        {count}
-      </span>
+      <span className={selected ? "tabular-nums" : "tabular-nums text-text-muted"}>{count}</span>
     </button>
   );
 }
 
-const HEALTH_TONE: Record<JobHealthLevel, "danger" | "warning" | "success" | "neutral"> = {
-  "at-risk": "danger",
-  watch: "warning",
-  good: "success",
-  unknown: "neutral",
+/** Verdict dot + meter colours per level — the solid state dots, matching the
+ *  hub hero so the verdict travels list→detail in the same voice (2f §06). */
+const HEALTH_DOT: Record<JobHealthLevel, string> = {
+  "at-risk": "bg-state-danger-dot",
+  watch: "bg-state-warning-dot",
+  good: "bg-state-success-dot",
+  unknown: "bg-state-neutral-dot",
 };
 
-/** Risk-meter fill tone — mirrors the replica's red/amber/calm bar (66%/25%),
- *  but the fill is driven by the real health level, not a fabricated 0–100
+/** Risk-meter fill — driven by the real health level, not a fabricated 0–100
  *  score. Widths come off the pctWidthClass ladder (inline styles are banned). */
 const RISK_BAR: Record<JobHealthLevel, { width: string; bar: string }> = {
-  "at-risk": { width: pctWidthClass(100, 100), bar: "bg-state-danger" },
-  watch: { width: pctWidthClass(66, 100), bar: "bg-state-warning" },
-  good: { width: pctWidthClass(25, 100), bar: "bg-state-success" },
-  unknown: { width: pctWidthClass(5, 100), bar: "bg-border" },
+  "at-risk": { width: pctWidthClass(100, 100), bar: "bg-state-danger-dot" },
+  watch: { width: pctWidthClass(66, 100), bar: "bg-state-warning-dot" },
+  good: { width: pctWidthClass(25, 100), bar: "bg-state-success-dot" },
+  unknown: { width: pctWidthClass(0, 100), bar: "bg-border" },
 };
 
 function JobCard({
@@ -528,116 +517,124 @@ function JobCard({
 
   const caption = lastActivityCaption(job);
   const address = (job.siteAddress ?? "").trim();
-  const subline = [job.ref && `Ref ${job.ref}`, job.typeName].filter(Boolean).join(" · ");
+  // Mono identity line, 2a: code · ref · type · address — real parts only.
+  const idLine = [job.code, job.ref, job.typeName, address].filter(Boolean).join(" · ");
   const evidencePending = job.statsEvidenceV2Pending ?? 0;
-  const hasPending = evidencePending > 0;
+
+  // Verdict sub-caption: the top real reason; for clean/absent reads, a true
+  // sentence about the state — never an invented number (P7).
+  const verdictCaption = topReason
+    ? `${topReason.count} ${topReason.label.toLowerCase()}`
+    : health.level === "good"
+      ? "nothing needs you"
+      : health.level === "unknown"
+        ? job.status === "draft"
+          ? "publish to start tracking"
+          : null
+        : null;
+
+  const tasksPct =
+    typeof tasksTotal === "number" && typeof tasksComplete === "number" && tasksTotal > 0
+      ? `${Math.round((tasksComplete / tasksTotal) * 100)}%`
+      : "—";
 
   const risk = RISK_BAR[health.level];
 
   return (
-    <div className="flex h-full flex-col rounded-card border border-border bg-surface-raised p-4 transition-colors hover:border-brand-navy/30">
-      {/* Title + status — the whole title block links to the hub. */}
-      <div className="flex items-start justify-between gap-2">
-        <Link
-          href={hubHref}
-          className="min-w-0 flex-1 focus:outline-none focus:ring-2 focus:ring-brand-navy"
-        >
-          <p className="truncate font-display text-base font-semibold text-text hover:underline">
-            {job.name}
-          </p>
-          {subline ? <p className="mt-0.5 truncate text-xs text-text-muted">{subline}</p> : null}
-          {address ? (
-            <p className="mt-0.5 flex items-center gap-1 truncate text-xs text-text-muted">
-              <MapPin aria-hidden="true" className="h-3 w-3 shrink-0" />
-              <span className="truncate">{address}</span>
+    <div className="relative overflow-hidden rounded-[4px] border border-border bg-surface-raised transition-shadow hover:shadow-raised">
+      <div className="flex items-start justify-between gap-4 px-4 pb-5 pt-4 sm:gap-8 sm:px-6 sm:pb-6 sm:pt-5">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <Link
+              href={hubHref}
+              className="font-display text-[17px] font-bold leading-tight tracking-tight text-text hover:underline hover:decoration-accent-yellow hover:decoration-2 hover:underline-offset-4 focus:outline-none focus:ring-2 focus:ring-brand-navy sm:text-[20px]"
+            >
+              {job.name}
+            </Link>
+            <Pill dot tone={statusTone(job.status)}>
+              {statusLabel(job.status)}
+            </Pill>
+            {isQaTestJobName(job.name) ? <Pill tone="neutral">Test data</Pill> : null}
+          </div>
+          {idLine ? (
+            <p className="mt-1.5 font-mono text-xs font-medium uppercase tracking-[0.1em] text-text-muted">
+              {idLine}
             </p>
           ) : null}
-        </Link>
-        <Pill tone={statusTone(job.status)}>{statusLabel(job.status)}</Pill>
-      </div>
 
-      {/* Meta strip — Value + Crew (real fields only; Billed%/PM dropped). */}
-      <dl className="mt-3 grid grid-cols-3 gap-2">
-        <MetaCell label="Value" value={meta.value} muted={!meta.valueKnown} />
-        <MetaCell label="Crew" value={meta.crew} muted={!meta.crewKnown} />
-        <MetaCell
-          label="Tasks"
-          value={
-            typeof tasksTotal === "number" && typeof tasksComplete === "number"
-              ? tasksTotal === 0
-                ? "—"
-                : `${Math.round((tasksComplete / tasksTotal) * 100)}%`
-              : "—"
-          }
-          muted={!(typeof tasksTotal === "number" && tasksTotal > 0)}
-          hint={
-            typeof tasksTotal === "number" && typeof tasksComplete === "number" && tasksTotal > 0
-              ? `${tasksComplete}/${tasksTotal}`
-              : undefined
-          }
-        />
-      </dl>
+          {/* The verdict — same dot + label + top reason the hub hero carries. */}
+          <p className="mt-3 flex items-center gap-2.5 text-sm">
+            <span
+              aria-hidden="true"
+              className={cn("h-2.5 w-2.5 shrink-0 rounded-pill", HEALTH_DOT[health.level])}
+            />
+            <span className="font-display text-[17px] font-bold leading-none text-text">
+              {healthLabel(health.level)}
+            </span>
+            {verdictCaption ? <span className="text-text-muted">· {verdictCaption}</span> : null}
+            {caption ? (
+              <span className="hidden text-xs uppercase tracking-wider text-text-muted lg:inline">
+                · {caption}
+              </span>
+            ) : null}
+          </p>
 
-      {/* Health badges — the rolled-up risk read + the top contributing reason.
-          `unknown` is the honest "not enough data", never a fake "On track". */}
-      <div className="mt-3 flex flex-wrap items-center gap-1.5">
-        {health.level === "good" ? (
-          <Pill tone="success">On track</Pill>
-        ) : (
-          <Pill tone={HEALTH_TONE[health.level]}>
-            {healthLabel(health.level)}
-            {topReason ? ` · ${topReason.count} ${topReason.label.toLowerCase()}` : ""}
-          </Pill>
-        )}
-        {isQaTestJobName(job.name) ? <Pill tone="neutral">Test data</Pill> : null}
-      </div>
+          {/* Phone (2e): the stats collapse to one mono line under the verdict. */}
+          <p className="mt-2.5 font-mono text-xs font-medium uppercase tracking-[0.08em] text-text-muted sm:hidden">
+            {meta.value} · Crew {meta.crew} · Tasks {tasksPct}
+          </p>
+        </div>
 
-      {/* Pending action chips — deep-link past the hub (power-user one-tap). */}
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        {hasPending ? (
-          <>
+        <div className="hidden shrink-0 flex-col items-end gap-3 sm:flex">
+          <dl className="flex items-start gap-8 text-right">
+            <MetaCell label="Value" value={meta.value} muted={!meta.valueKnown} />
+            <MetaCell label="Crew" value={meta.crew} muted={!meta.crewKnown} />
+            <MetaCell
+              label="Tasks"
+              value={tasksPct}
+              muted={!(typeof tasksTotal === "number" && tasksTotal > 0)}
+              hint={
+                typeof tasksTotal === "number" &&
+                typeof tasksComplete === "number" &&
+                tasksTotal > 0
+                  ? `${tasksComplete}/${tasksTotal}`
+                  : undefined
+              }
+            />
+          </dl>
+          {/* Quick links — deep-link past the hub (power-user one-tap). */}
+          <div className="flex items-center gap-1.5">
+            {canBuild ? (
+              <QuickLink
+                href={`/v2/jobs/${encodeURIComponent(job.id)}/builder`}
+                label="Builder"
+                ariaLabel={`Open the builder for ${job.name}`}
+              />
+            ) : null}
+            <QuickLink
+              href={`/v2/jobs/${encodeURIComponent(job.id)}/photos`}
+              label="Photos"
+              ariaLabel={`Open the photo wall for ${job.name}`}
+            />
             {evidencePending > 0 ? (
-              <ActionChip
+              <QuickLink
                 href={`/v2/jobs/${encodeURIComponent(job.id)}/evidence`}
-                icon={<Camera aria-hidden="true" className="h-3.5 w-3.5" />}
-                label="Evidence"
-                count={evidencePending}
+                label={`Evidence ${evidencePending}`}
+                hot
                 ariaLabel={`Open ${evidencePending} pending evidence for ${job.name}`}
               />
             ) : null}
-          </>
-        ) : (
-          <span className="text-xs uppercase tracking-wider text-text-muted">All clear</span>
-        )}
-        {canBuild ? (
-          <ActionChip
-            href={`/v2/jobs/${encodeURIComponent(job.id)}/builder`}
-            icon={<PencilRuler aria-hidden="true" className="h-3.5 w-3.5" />}
-            label="Build"
-            ariaLabel={`Open the builder for ${job.name}`}
-          />
-        ) : null}
+          </div>
+        </div>
       </div>
 
-      {/* Foot: the real risk read as a meter + the last-activity caption. */}
-      <div className="mt-auto flex items-center justify-between gap-3 pt-3">
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          <span className="font-mono text-xs uppercase tracking-[0.15em] text-text-muted">
-            Risk
-          </span>
-          <span
-            className="h-1.5 flex-1 overflow-hidden rounded-pill bg-surface-subtle"
-            role="img"
-            aria-label={`Risk: ${healthLabel(health.level)}`}
-          >
-            <span className={cn("block h-full rounded-pill", risk.width, risk.bar)} />
-          </span>
-        </div>
-        {caption ? (
-          <span className="whitespace-nowrap text-xs uppercase tracking-wider text-text-muted">
-            {caption}
-          </span>
-        ) : null}
+      {/* The slim risk meter (2a) — real health level, no fabricated score. */}
+      <div
+        className="absolute inset-x-0 bottom-0 h-[3px] bg-surface-subtle"
+        role="img"
+        aria-label={`Risk: ${healthLabel(health.level)}`}
+      >
+        <span className={cn("block h-full", risk.width, risk.bar)} />
       </div>
     </div>
   );
@@ -661,6 +658,7 @@ function cardMetaWithStream(job: Job, extra?: CardExtra): JobCardMeta {
   };
 }
 
+/** Right-column stat (2a): mono label over a bold tabular display figure. */
 function MetaCell({
   label,
   value,
@@ -673,54 +671,47 @@ function MetaCell({
   hint?: string;
 }) {
   return (
-    <div className="rounded-card border border-border bg-surface px-2.5 py-1.5">
-      <div
+    <div>
+      <dt className="font-mono text-xs font-medium uppercase tracking-[0.14em] text-text-muted">
+        {label}
+        {hint ? <span className="ml-1 normal-case tracking-normal">· {hint}</span> : null}
+      </dt>
+      <dd
         className={cn(
-          "truncate font-display text-sm font-semibold",
+          "mt-1 font-display text-[17px] font-bold tabular-nums leading-none",
           muted ? "text-text-muted" : "text-text"
         )}
       >
         {value}
-        {hint ? (
-          <span className="ml-1 font-mono text-[10px] font-normal text-text-muted">{hint}</span>
-        ) : null}
-      </div>
-      <div className="font-mono text-xs uppercase tracking-wider text-text-muted">{label}</div>
+      </dd>
     </div>
   );
 }
 
-interface ActionChipProps {
+/** Quiet per-card deep link (2a). `hot` marks the one with pending work. */
+function QuickLink({
+  href,
+  label,
+  hot,
+  ariaLabel,
+}: {
   href: string;
-  icon: React.ReactNode;
   label: string;
-  /** Omit for action chips that aren't a count (e.g. "Build"). */
-  count?: number;
+  hot?: boolean;
   ariaLabel: string;
-}
-
-/** A pending-count chip. Only rendered when count>0 (or count-less, e.g. Build),
- *  so it is always a "hot" navy chip — no cold zero chips clutter the card. */
-function ActionChip({ href, icon, label, count, ariaLabel }: ActionChipProps) {
-  const hot = count !== undefined;
+}) {
   return (
     <Link
       href={href as Route}
       aria-label={ariaLabel}
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-pill border px-2.5 py-1 text-xs font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-brand-navy",
+        "rounded-[4px] border px-2.5 py-1 text-xs font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-brand-navy",
         hot
           ? "border-brand-navy bg-brand-navy text-text-inverse hover:bg-accent-ink"
           : "border-border bg-surface text-text hover:bg-surface-subtle"
       )}
     >
-      {icon}
-      <span>{label}</span>
-      {count !== undefined ? (
-        <span className="ml-0.5 inline-flex h-4 min-w-[16px] items-center justify-center rounded-pill bg-accent-yellow px-1 text-[10px] font-semibold text-brand-navy">
-          {count}
-        </span>
-      ) : null}
+      {label}
     </Link>
   );
 }

@@ -31,6 +31,25 @@ export function CardTitle({
   );
 }
 
+/**
+ * Quiet mono section label with the small yellow tick — the card-label motif
+ * every section on the Job Detail Variants surfaces shares ("Money", "Labour",
+ * "Evidence", …). Brand yellow stays a brand accent here, never a status.
+ */
+export function CardKicker({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <p
+      className={cn(
+        "font-mono text-xs font-medium uppercase tracking-[0.14em] text-text",
+        className
+      )}
+    >
+      {children}
+      <span aria-hidden="true" className="ml-2 inline-block h-[3px] w-4 -translate-y-0.5 bg-accent-yellow" />
+    </p>
+  );
+}
+
 export function CardDescription({
   children,
   className,

@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter, Inter_Tight } from "next/font/google";
+import { Inter, Inter_Tight, JetBrains_Mono, Space_Grotesk } from "next/font/google";
 import type { ReactNode } from "react";
 import { DemoModeBanner } from "@/components/ui/DemoModeBanner";
 import "@/styles/globals.css";
@@ -13,6 +13,22 @@ const inter = Inter({
 const interTight = Inter_Tight({
   subsets: ["latin"],
   variable: "--font-inter-tight",
+  display: "swap",
+});
+
+// Office warm theme type (Job Detail Variants design): Space Grotesk display +
+// JetBrains Mono micro-labels. Loaded here (fonts must load at the root), but
+// only the [data-theme="office"] scope in tokens.css actually uses them —
+// Phil keeps Inter Tight / system mono.
+const spaceGrotesk = Space_Grotesk({
+  subsets: ["latin"],
+  variable: "--font-space-grotesk",
+  display: "swap",
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  variable: "--font-jetbrains-mono",
   display: "swap",
 });
 
@@ -30,7 +46,10 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" className={`${inter.variable} ${interTight.variable}`}>
+    <html
+      lang="en"
+      className={`${inter.variable} ${interTight.variable} ${spaceGrotesk.variable} ${jetbrainsMono.variable}`}
+    >
       <body className="font-sans">
         <DemoModeBanner />
         {children}
