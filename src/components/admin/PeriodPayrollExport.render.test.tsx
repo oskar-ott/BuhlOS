@@ -33,6 +33,10 @@ describe("PeriodPayrollExport", () => {
       "/api/time-entries-export?status=approved&amp;fromDate=2026-06-08&amp;toDate=2026-06-14&amp;shape=review&amp;dryRun=1",
     );
     expect(html).toContain("&amp;shape=xero&amp;dryRun=1");
+    // Owner pull 2026-08-10 — the printable sheet alongside the CSVs, equally
+    // read-only (the dryRun=1 invariant below covers every href).
+    expect(html).toContain("&amp;format=pdf&amp;dryRun=1");
+    expect(html).toContain("Download PDF");
   });
 
   it("NEVER renders a committed/mutating GET link — only dryRun=1 hrefs, no finalise", () => {
