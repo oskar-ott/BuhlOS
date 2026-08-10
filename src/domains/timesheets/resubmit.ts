@@ -52,13 +52,13 @@ export interface AssignableJob {
  * splits here.
  */
 export function canResubmitInPhil(
-  entry: Pick<TimeEntry, "status" | "allocations" | "tafe">,
+  entry: Pick<TimeEntry, "status" | "allocations" | "dayType">,
 ): boolean {
-  // A TAFE day (2026-08-10) can't go through the fix sheet — that flow
-  // REQUIRES attributing the hours to an active job, which would silently
-  // turn the training day into a job day. The row falls back to the honest
-  // "ask the office" copy; the office edits/amends TAFE days.
-  if (entry.tafe) return false;
+  // A day-type day (TAFE / sick / holiday, 2026-08-10) can't go through the
+  // fix sheet — that flow REQUIRES attributing the hours to an active job,
+  // which would silently turn the training/leave day into a job day. The row
+  // falls back to the honest "ask the office" copy; the office amends these.
+  if (entry.dayType) return false;
   return (
     (entry.status === "rejected" || entry.status === "submitted") &&
     Array.isArray(entry.allocations) &&

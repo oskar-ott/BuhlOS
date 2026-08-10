@@ -233,8 +233,9 @@ export function buildStandardDayPayload(input: {
   date: string;
   jobId: string | null;
   notes?: string | null;
-  /** Paid TAFE day (apprentices, 2026-08-10) — no job; jobId must be null. */
-  tafe?: boolean;
+  /** Job-less day (TAFE / sick / holiday, 2026-08-10) — forces jobId null.
+   *  Day-type days pay ordinary (never weekend-OT-coerced; server mirrors). */
+  dayType?: "tafe" | "sick" | "holiday" | null;
 }): {
   date: string;
   totalHours: number;
@@ -243,9 +244,11 @@ export function buildStandardDayPayload(input: {
   allocations: Array<{ jobId: string | null; hours: number; notes: null }>;
   status: "submitted";
   notes: string | null;
-  tafe?: boolean;
+  dayType?: "tafe" | "sick" | "holiday";
 } {
-  const { ordinary, overtime } = autoSplitOT(STANDARD_DAY_HOURS, input.date);
+  const { ordinary, overtime } = input.dayType
+    ? { ordinary: STANDARD_DAY_HOURS, overtime: 0 }
+    : autoSplitOT(STANDARD_DAY_HOURS, input.date);
   return {
     date: input.date,
     totalHours: STANDARD_DAY_HOURS,
@@ -253,16 +256,16 @@ export function buildStandardDayPayload(input: {
     overtimeHours: overtime,
     allocations: [
       {
-        jobId: input.tafe ? null : input.jobId,
+        jobId: input.dayType ? null : input.jobId,
         hours: STANDARD_DAY_HOURS,
         notes: null,
       },
     ],
     status: "submitted",
     notes: input.notes ?? null,
-    // Only ever present as true — an absent flag is the plain job day, so
-    // pre-TAFE payload shapes stay byte-identical (regression-pinned).
-    ...(input.tafe ? { tafe: true } : {}),
+    // Only ever present when set — an absent field is the plain job day, so
+    // pre-day-type payload shapes stay byte-identical (regression-pinned).
+    ...(input.dayType ? { dayType: input.dayType } : {}),
   };
 }
 
@@ -276,8 +279,9 @@ export function buildCustomHoursPayload(input: {
   totalHours: number;
   jobId: string | null;
   notes?: string | null;
-  /** Paid TAFE day (apprentices, 2026-08-10) — no job; jobId must be null. */
-  tafe?: boolean;
+  /** Job-less day (TAFE / sick / holiday, 2026-08-10) — forces jobId null;
+   *  pays ordinary, never OT-split. */
+  dayType?: "tafe" | "sick" | "holiday" | null;
 }): {
   date: string;
   totalHours: number;
@@ -286,21 +290,23 @@ export function buildCustomHoursPayload(input: {
   allocations: Array<{ jobId: string | null; hours: number; notes: null }>;
   status: "submitted";
   notes: string | null;
-  tafe?: boolean;
+  dayType?: "tafe" | "sick" | "holiday";
 } {
-  const { ordinary, overtime } = autoSplitOT(input.totalHours, input.date);
+  const { ordinary, overtime } = input.dayType
+    ? { ordinary: Math.round(input.totalHours * 100) / 100, overtime: 0 }
+    : autoSplitOT(input.totalHours, input.date);
   return {
     date: input.date,
     totalHours: input.totalHours,
     ordinaryHours: ordinary,
     overtimeHours: overtime,
     allocations: [
-      { jobId: input.tafe ? null : input.jobId, hours: input.totalHours, notes: null },
+      { jobId: input.dayType ? null : input.jobId, hours: input.totalHours, notes: null },
     ],
     status: "submitted",
     notes: input.notes ?? null,
-    // Absent unless true — pre-TAFE payload shapes stay byte-identical.
-    ...(input.tafe ? { tafe: true } : {}),
+    // Absent unless set — pre-day-type payload shapes stay byte-identical.
+    ...(input.dayType ? { dayType: input.dayType } : {}),
   };
 }
 

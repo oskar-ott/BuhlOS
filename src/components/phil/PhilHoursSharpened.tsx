@@ -14,7 +14,12 @@ import {
   readSavedEntries,
   recordSavedEntry,
 } from "@/domains/timesheets/saved-entries-journal";
-import { amendmentLine, formatHoursLabel, otSplitLabel } from "@/domains/timesheets/format";
+import {
+  amendmentLine,
+  dayTypeLabel,
+  formatHoursLabel,
+  otSplitLabel,
+} from "@/domains/timesheets/format";
 import { STATUS_WORDS } from "@/domains/timesheets/status-words";
 import { canResubmitInPhil } from "@/domains/timesheets/resubmit";
 import {
@@ -33,7 +38,6 @@ import {
   mergeSavedEntries,
   toggleWeek,
   NO_JOB_LABEL,
-  TAFE_LABEL,
   UNKNOWN_JOB_LABEL,
   type HoursJobRef,
   type HoursWeek,
@@ -562,9 +566,11 @@ function EntryRow({
           <p className="text-sm font-semibold text-text">{hoursDayLabel(date, todayISO)}</p>
           <div className="mt-0.5 space-y-0.5">
             {allocations.map((a, i) => {
-              // A TAFE day names itself — never "No job recorded" (P7).
-              const { name, ref } = entry.tafe
-                ? { name: TAFE_LABEL, ref: null }
+              // A day-type day (TAFE / sick / holiday) names itself — never
+              // "No job recorded" (P7).
+              const typed = dayTypeLabel(entry.dayType);
+              const { name, ref } = typed
+                ? { name: typed, ref: null }
                 : allocationLabel(a, assignedJobs);
               return (
                 <p key={i} className="flex items-baseline gap-2 text-[13px] text-text-muted">

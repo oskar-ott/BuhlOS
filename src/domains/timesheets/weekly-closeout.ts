@@ -1,5 +1,6 @@
 import type { MissingLog, TimeEntry, TimeEntryAllocation } from "./types";
 import { addDays, weekEndOf } from "./service";
+import { dayTypeLabel } from "./format";
 
 /**
  * Weekly hours closeout — the pure derivation behind /hours/weekly.
@@ -209,9 +210,10 @@ function round2(n: number): number {
 }
 
 function jobLabelFor(entry: TimeEntry): string | null {
-  // A paid TAFE day (apprentices, 2026-08-10) names itself — its null jobId
-  // is by design, never "No job".
-  if (entry.tafe) return "TAFE";
+  // A day-type day (TAFE / sick / holiday, 2026-08-10) names itself — its
+  // null jobId is by design, never "No job".
+  const typed = dayTypeLabel(entry.dayType);
+  if (typed) return typed;
   const allocations = entry.allocations ?? [];
   if (allocations.length === 0) return null;
   if (allocations.length > 1) return `${allocations.length} jobs`;

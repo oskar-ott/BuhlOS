@@ -770,15 +770,15 @@ describe("listUserEntries — the PG rung gets the read-your-writes overlay too 
 });
 
 /**
- * TAFE days (apprentices, owner-directed 2026-08-10): a paid trade-school
- * day belongs to NO job. The entry carries `tafe: true` and a jobId:null
- * allocation; the PATCH null-job block (2026-07-26) stands down for it —
- * and ONLY for it.
+ * Day-type days (owner-directed 2026-08-10): TAFE (apprentice trade school),
+ * sick and holiday days belong to NO job. The entry carries `dayType` and a
+ * jobId:null allocation; the PATCH null-job block (2026-07-26) stands down
+ * for them — and ONLY for them. Unknown day types store as null.
  */
-describe("TAFE days — job-less by design", () => {
-  function tafeEntrySeed(userId: string, date: string) {
+describe("day-type days (TAFE / sick / holiday) — job-less by design", () => {
+  function dayTypeEntrySeed(userId: string, date: string, dayType: string) {
     return {
-      id: "e_tafe",
+      id: "e_daytype",
       userId,
       userName: "mate",
       userRole: "tradie",
@@ -786,7 +786,7 @@ describe("TAFE days — job-less by design", () => {
       totalHours: 7.6,
       ordinaryHours: 7.6,
       overtimeHours: 0,
-      tafe: true,
+      dayType,
       status: "submitted",
       submittedAt: `${date}T08:00:00.000Z`,
       approvedBy: null,
@@ -798,7 +798,7 @@ describe("TAFE days — job-less by design", () => {
     };
   }
 
-  it("POST stores tafe: true with a null-job allocation", async () => {
+  it("POST stores the day type with a null-job allocation (sick day)", async () => {
     const res = await call({
       method: "POST",
       userId: "u_field2",
@@ -808,33 +808,38 @@ describe("TAFE days — job-less by design", () => {
         ordinaryHours: 7.6,
         overtimeHours: 0,
         allocations: [{ jobId: null, hours: 7.6 }],
-        tafe: true,
+        dayType: "sick",
         status: "submitted",
       }),
     });
     expect(res.statusCode).toBe(201);
     const stored = blob.get(`users/u_field2/time-entries/${TODAY}.json`) as {
-      tafe: boolean;
+      dayType: string | null;
       allocations: Array<{ jobId: string | null }>;
     };
-    expect(stored.tafe).toBe(true);
+    expect(stored.dayType).toBe("sick");
     expect(stored.allocations[0]?.jobId).toBeNull();
   });
 
-  it("POST without the flag stores tafe: false — the plain job day is unchanged", async () => {
+  it("POST sanitises: no flag or an unknown value stores dayType null — the plain job day is unchanged", async () => {
     const res = await call({
       method: "POST",
       userId: "u_field2",
       role: "tradie",
-      body: validEntry({ status: "submitted" }),
+      body: validEntry({ status: "submitted", dayType: "long-weekend" }),
     });
     expect(res.statusCode).toBe(201);
-    const stored = blob.get(`users/u_field2/time-entries/${TODAY}.json`) as { tafe: boolean };
-    expect(stored.tafe).toBe(false);
+    const stored = blob.get(`users/u_field2/time-entries/${TODAY}.json`) as {
+      dayType: string | null;
+    };
+    expect(stored.dayType).toBeNull();
   });
 
-  it("PATCH: a field self-edit of a TAFE day keeps its null-job allocation (the block stands down)", async () => {
-    blob.set(`users/u_field2/time-entries/${TODAY}.json`, tafeEntrySeed("u_field2", TODAY));
+  it("PATCH: a field self-edit of a day-type day keeps its null-job allocation (the block stands down)", async () => {
+    blob.set(
+      `users/u_field2/time-entries/${TODAY}.json`,
+      dayTypeEntrySeed("u_field2", TODAY, "holiday"),
+    );
     const res = await call({
       method: "PATCH",
       userId: "u_field2",
@@ -849,24 +854,27 @@ describe("TAFE days — job-less by design", () => {
     });
     expect(res.statusCode).toBe(200);
     const stored = blob.get(`users/u_field2/time-entries/${TODAY}.json`) as {
-      tafe: boolean;
+      dayType: string | null;
       totalHours: number;
       allocations: Array<{ jobId: string | null }>;
     };
-    expect(stored.tafe).toBe(true); // the flag survives an hours-only edit
+    expect(stored.dayType).toBe("holiday"); // survives an hours-only edit
     expect(stored.totalHours).toBe(4);
     expect(stored.allocations[0]?.jobId).toBeNull();
   });
 
-  it("PATCH: turning the flag OFF in the same edit re-arms the null-job block", async () => {
-    blob.set(`users/u_field2/time-entries/${TODAY}.json`, tafeEntrySeed("u_field2", TODAY));
+  it("PATCH: clearing the day type in the same edit re-arms the null-job block", async () => {
+    blob.set(
+      `users/u_field2/time-entries/${TODAY}.json`,
+      dayTypeEntrySeed("u_field2", TODAY, "tafe"),
+    );
     const res = await call({
       method: "PATCH",
       userId: "u_field2",
       role: "tradie",
       query: { date: TODAY },
       body: {
-        tafe: false,
+        dayType: null,
         totalHours: 7.6,
         ordinaryHours: 7.6,
         overtimeHours: 0,

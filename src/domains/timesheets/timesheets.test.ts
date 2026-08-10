@@ -138,36 +138,46 @@ describe("logDayDialOptions()", () => {
 });
 
 /**
- * TAFE payloads (apprentices, owner-directed 2026-08-10): a paid trade-school
- * day belongs to no job — the builders carry `tafe: true` + a jobId:null
- * allocation, and WITHOUT the flag emit byte-identical pre-TAFE shapes.
+ * Day-type payloads (owner-directed 2026-08-10): TAFE (apprentices), sick
+ * and holiday days belong to no job — the builders carry `dayType` + a
+ * jobId:null allocation, pay all-ordinary (leave/training is never OT), and
+ * WITHOUT the field emit byte-identical pre-day-type shapes.
  */
-describe("TAFE payloads", () => {
-  it("standard day with tafe → jobId null + the flag, and validates against the create schema", () => {
-    const payload = buildStandardDayPayload({ date: "2026-08-12", jobId: null, tafe: true });
-    expect(payload.tafe).toBe(true);
-    expect(payload.allocations).toEqual([{ jobId: null, hours: STANDARD_DAY_HOURS, notes: null }]);
-    expect(CreateTimeEntryPayloadSchema.safeParse(payload).success).toBe(true);
-    // Even a caller passing a jobId gets null — a TAFE day can't be job-costed.
+describe("day-type payloads (TAFE / sick / holiday)", () => {
+  it("standard day with a day type → jobId null + the field, and validates against the create schema", () => {
+    for (const dayType of ["tafe", "sick", "holiday"] as const) {
+      const payload = buildStandardDayPayload({ date: "2026-08-12", jobId: null, dayType });
+      expect(payload.dayType).toBe(dayType);
+      expect(payload.allocations).toEqual([
+        { jobId: null, hours: STANDARD_DAY_HOURS, notes: null },
+      ]);
+      // Training/leave pays ordinary — never an OT split.
+      expect(payload.ordinaryHours).toBe(STANDARD_DAY_HOURS);
+      expect(payload.overtimeHours).toBe(0);
+      expect(CreateTimeEntryPayloadSchema.safeParse(payload).success).toBe(true);
+    }
+    // Even a caller passing a jobId gets null — day types can't be job-costed.
     expect(
-      buildStandardDayPayload({ date: "2026-08-12", jobId: "j1", tafe: true }).allocations[0]!
-        .jobId,
+      buildStandardDayPayload({ date: "2026-08-12", jobId: "j1", dayType: "sick" })
+        .allocations[0]!.jobId,
     ).toBeNull();
   });
 
-  it("custom hours with tafe → same rules; WITHOUT the flag the field is ABSENT (byte-identical old shape)", () => {
-    const tafe = buildCustomHoursPayload({
+  it("custom hours with a day type → same rules, all-ordinary even past the OT boundary; absent = byte-identical old shape", () => {
+    const sick = buildCustomHoursPayload({
       date: "2026-08-12",
-      totalHours: 4,
+      totalHours: 8.6,
       jobId: null,
-      tafe: true,
+      dayType: "sick",
     });
-    expect(tafe.tafe).toBe(true);
-    expect(tafe.allocations[0]!.jobId).toBeNull();
+    expect(sick.dayType).toBe("sick");
+    expect(sick.allocations[0]!.jobId).toBeNull();
+    expect(sick.ordinaryHours).toBe(8.6);
+    expect(sick.overtimeHours).toBe(0);
     const plain = buildStandardDayPayload({ date: "2026-08-12", jobId: "j1" });
-    expect("tafe" in plain).toBe(false);
+    expect("dayType" in plain).toBe(false);
     const plainCustom = buildCustomHoursPayload({ date: "2026-08-12", totalHours: 8, jobId: "j1" });
-    expect("tafe" in plainCustom).toBe(false);
+    expect("dayType" in plainCustom).toBe(false);
   });
 });
 

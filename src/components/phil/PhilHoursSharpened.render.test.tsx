@@ -51,8 +51,8 @@ function entry(over: Partial<TimeEntry> & Pick<TimeEntry, "date" | "status">): T
     updatedAt: "2026-06-01T00:00:00Z",
     notes: over.notes ?? null,
     rejectedReason: over.rejectedReason ?? null,
-    // Absent unless set — mirrors the store (pre-TAFE entries carry no flag).
-    ...(over.tafe ? { tafe: true } : {}),
+    // Absent unless set — mirrors the store (pre-day-type entries carry none).
+    ...(over.dayType ? { dayType: over.dayType } : {}),
   } as TimeEntry;
 }
 
@@ -272,38 +272,46 @@ describe("today's unlogged row (owner-directed, 2026-08-07; whole-row tap 2026-0
 });
 
 /**
- * TAFE days (apprentices, owner-directed 2026-08-10): a paid trade-school
- * day names itself on every attribution surface — never "No job recorded" —
- * and the apprentice-only log toggle rides the SAME shared sheet.
+ * Day-type days (owner-directed 2026-08-10): TAFE / sick / holiday days name
+ * themselves on every attribution surface — never "No job recorded" — and
+ * the day-type dial rows ride the SAME shared sheet.
  */
-describe("PhilHoursSharpened — TAFE days", () => {
-  it("a TAFE day's ROW reads 'TAFE' — but it never rides the per-job breakdown (not job work)", () => {
+describe("PhilHoursSharpened — day-type days", () => {
+  it("a day-type day's ROW names its type — but it never rides the per-job breakdown (not job work)", () => {
     const html = render([
       entry({
         date: MONDAY,
         status: "submitted",
-        tafe: true,
+        dayType: "tafe",
+        allocations: [{ jobId: null, hours: 7.6 }],
+      }),
+      entry({
+        date: addDays(MONDAY, 1),
+        status: "submitted",
+        dayType: "sick",
         allocations: [{ jobId: null, hours: 7.6 }],
       }),
     ]);
-    // The day row names the day…
+    // The day rows name the days…
     expect(html).toContain("TAFE");
+    expect(html).toContain("Sick day");
     expect(html).not.toContain("No job recorded");
-    // …exactly ONCE: with only a TAFE day logged, the job breakdown renders
-    // no TAFE row (owner-directed 2026-08-10 — TAFE is not a job), so the
-    // word appears solely on the day row.
+    // …and TAFE appears exactly ONCE (non-apprentice render: no dial row),
+    // proving the job breakdown holds no day-type rows.
     expect(html.match(/TAFE/g)).toHaveLength(1);
-    // A TAFE day never carries the fix-sheet 'Change' pill — the office
-    // handles TAFE corrections (canResubmitInPhil refuses tafe entries).
+    // Day-type days never carry the fix-sheet 'Change' pill — the office
+    // amends them (canResubmitInPhil refuses day-type entries).
     const dayRows = html.split("Log your day")[0];
     expect(dayRows).not.toContain("phil-edit-submitted");
   });
 
-  it("canLogTafe passes through to the mounted log sheet", () => {
+  it("canLogTafe passes through to the mounted log sheet's dial", () => {
     const html = render([], { canLogTafe: true });
-    expect(html).toContain('data-testid="phil-tafe-toggle"');
-    // Default render (non-apprentice) has no trace of it.
-    expect(render([])).not.toContain("phil-tafe-toggle");
+    expect(html).toContain(">TAFE day<");
+    // Default render (non-apprentice): sick/holiday rows only, no TAFE.
+    const plain = render([]);
+    expect(plain).toContain(">Sick day<");
+    expect(plain).not.toContain("TAFE");
   });
 });
 

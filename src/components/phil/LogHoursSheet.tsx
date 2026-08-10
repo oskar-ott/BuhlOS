@@ -10,6 +10,8 @@ import {
   GraduationCap,
   MapPin,
   Split,
+  Sun,
+  Thermometer,
   Timer,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -20,7 +22,7 @@ import { Modal } from "@/components/ui/Modal";
 import { PhilNotice } from "./ui/PhilNotice";
 import { cn } from "@/lib/cn";
 import { SplitDaySheet } from "./SplitDaySheet";
-import { JobDialPicker } from "./JobDialPicker";
+import { DialPicker } from "./DialPicker";
 import { DayDialPicker } from "./DayDialPicker";
 import styles from "./myDay.module.css";
 import { timesheetsClient } from "@/domains/timesheets/client";
@@ -134,6 +136,34 @@ interface LogHoursSheetProps {
 
 type Mode = "standard" | "custom";
 
+/** Job-less day types (owner-directed 2026-08-10) — display metadata for the
+ *  attribution slot and the picker-dial rows. Names come from the ONE
+ *  vocabulary (DAY_TYPE_LABELS in format.ts) via the label fields here. */
+type LogDayType = "tafe" | "sick" | "holiday";
+const DAY_TYPE_META: Record<
+  LogDayType,
+  { label: string; dialLabel: string; caption: string; icon: ReactNode }
+> = {
+  sick: {
+    label: "Sick day",
+    dialLabel: "Sick day",
+    caption: "Logged as leave — no job",
+    icon: <Thermometer className="h-[17px] w-[17px]" />,
+  },
+  holiday: {
+    label: "Holiday",
+    dialLabel: "Holiday",
+    caption: "Logged as leave — no job",
+    icon: <Sun className="h-[17px] w-[17px]" />,
+  },
+  tafe: {
+    label: "TAFE",
+    dialLabel: "TAFE day",
+    caption: "Paid trade-school day — no job",
+    icon: <GraduationCap className="h-[17px] w-[17px]" />,
+  },
+};
+
 type SubmitState =
   | { kind: "idle" }
   | { kind: "submitting" }
@@ -212,16 +242,22 @@ export function LogHoursSheet({
 
   const hasJobs = assignedJobs.length > 0;
   const selectedJob = assignedJobs.find((j) => j.id === selectedJobId) ?? null;
-  // A paid TAFE day (apprentices only — canLogTafe gates the toggle). While
-  // selected, the day belongs to NO job: attribution is "TAFE", the job
-  // guard stands down, and the payloads carry tafe: true + jobId: null.
-  const [tafeSelected, setTafeSelected] = useState(false);
-  const tafeActive = canLogTafe && tafeSelected;
+  // A job-less day type (owner-directed 2026-08-10): sick / holiday for
+  // everyone, TAFE for apprentices (canLogTafe). While selected, the day
+  // belongs to NO job: attribution names the type, the job guard stands
+  // down, and the payloads carry dayType + jobId: null.
+  const [dayTypeSel, setDayTypeSel] = useState<"tafe" | "sick" | "holiday" | null>(null);
+  const dayTypeActive = dayTypeSel === "tafe" ? (canLogTafe ? dayTypeSel : null) : dayTypeSel;
+  // The types this worker may pick — sick/holiday always, TAFE apprentices
+  // only. Order = dial order: leave days first (the common case), TAFE last.
+  const dayTypeOptions: Array<"sick" | "holiday" | "tafe"> = canLogTafe
+    ? ["sick", "holiday", "tafe"]
+    : ["sick", "holiday"];
   // Safe to attribute a submission iff jobs loaded, at least one exists, and
-  // one is selected — OR the day is a TAFE day (deliberately job-less). When
-  // false the submit buttons are disabled and the guard below produces an
-  // honest message rather than an unattributed entry.
-  const jobReady = tafeActive || (!jobsError && hasJobs && !!selectedJob);
+  // one is selected — OR the day is a day-type day (deliberately job-less).
+  // When false the submit buttons are disabled and the guard below produces
+  // an honest message rather than an unattributed entry.
+  const jobReady = !!dayTypeActive || (!jobsError && hasJobs && !!selectedJob);
 
   /**
    * Returns an error to show instead of submitting, or null when job
@@ -230,8 +266,8 @@ export function LogHoursSheet({
    * with multiple jobs hasn't picked one. Never allows a silent jobId: null.
    */
   function jobAttributionError(): { message: string; status: number } | null {
-    // A TAFE day is deliberately job-less — the guard stands down entirely.
-    if (tafeActive) return null;
+    // A day-type day is deliberately job-less — the guard stands down entirely.
+    if (dayTypeActive) return null;
     if (jobsError) {
       return { message: "Couldn't load your jobs. Pull to refresh and try again.", status: 0 };
     }
@@ -291,9 +327,9 @@ export function LogHoursSheet({
     // the custom sheet as presets (owner-directed 2026-08-09).
     const payload = buildStandardDayPayload({
       date,
-      jobId: tafeActive ? null : selectedJobId,
+      jobId: dayTypeActive ? null : selectedJobId,
       notes: notes || null,
-      tafe: tafeActive,
+      dayType: dayTypeActive,
     });
     const result = await timesheetsClient.submitNewEntry(payload, {
       idempotencyKey: submissionKey.keyFor(JSON.stringify(payload)),
@@ -329,9 +365,9 @@ export function LogHoursSheet({
     const payload = buildCustomHoursPayload({
       date,
       totalHours: customHours,
-      jobId: tafeActive ? null : selectedJobId,
+      jobId: dayTypeActive ? null : selectedJobId,
       notes: notes || null,
-      tafe: tafeActive,
+      dayType: dayTypeActive,
     });
     const result = await timesheetsClient.submitNewEntry(payload, {
       idempotencyKey: submissionKey.keyFor(JSON.stringify(payload)),
@@ -488,22 +524,26 @@ export function LogHoursSheet({
           />
         ) : (
           <>
-            {tafeActive ? (
-              // TAFE selected: the attribution slot shows the training day
-              // (same quiet jobLine treatment as a chosen job) + the way back.
-              <div className="space-y-2" data-testid="phil-tafe-selected">
+            {dayTypeActive ? (
+              // A day type selected: the attribution slot shows it (same
+              // quiet jobLine treatment as a chosen job) + the way back.
+              <div className="space-y-2" data-testid={`phil-daytype-selected-${dayTypeActive}`}>
                 <div className={styles.jobLine}>
                   <span className={styles.jobLinePin} aria-hidden="true">
-                    <GraduationCap className="h-[17px] w-[17px]" />
+                    {DAY_TYPE_META[dayTypeActive].icon}
                   </span>
                   <span className={styles.jobLineText}>
-                    <span className={styles.jobLineName}>TAFE</span>
-                    <span className={styles.jobLineCaption}>Paid trade-school day — no job</span>
+                    <span className={styles.jobLineName}>
+                      {DAY_TYPE_META[dayTypeActive].label}
+                    </span>
+                    <span className={styles.jobLineCaption}>
+                      {DAY_TYPE_META[dayTypeActive].caption}
+                    </span>
                   </span>
                 </div>
                 <button
                   type="button"
-                  onClick={() => setTafeSelected(false)}
+                  onClick={() => setDayTypeSel(null)}
                   disabled={submitting}
                   className={styles.subAction}
                 >
@@ -518,41 +558,20 @@ export function LogHoursSheet({
                 </button>
               </div>
             ) : (
-              <>
-                <JobAttribution
-                  jobs={assignedJobs}
-                  selectedJobId={selectedJobId}
-                  onSelect={(id) => {
-                    setSelectedJobId(id);
-                    setMoreOpen(true); // open the note disclosure once a job is chosen
-                  }}
-                  lastLoggedJobId={lastLoggedJobId}
-                  lastLoggedDate={lastLoggedDate}
-                  jobsError={jobsError}
-                  disabled={submitting}
-                />
-                {/* Apprentices only (canLogTafe, server-resolved fail-closed):
-                    one bar switches the day's attribution to TAFE — trade
-                    school is a paid day that belongs to no job. */}
-                {canLogTafe ? (
-                  <button
-                    type="button"
-                    onClick={() => setTafeSelected(true)}
-                    disabled={submitting}
-                    data-testid="phil-tafe-toggle"
-                    className={styles.subAction}
-                  >
-                    <span className={styles.subActionIcon} aria-hidden="true">
-                      <GraduationCap className="h-[17px] w-[17px]" />
-                    </span>
-                    <span className={styles.subActionLabel}>TAFE day — trade school</span>
-                    <ChevronRight
-                      className={cn(styles.subActionChev, "h-[17px] w-[17px]")}
-                      aria-hidden="true"
-                    />
-                  </button>
-                ) : null}
-              </>
+              <JobAttribution
+                jobs={assignedJobs}
+                selectedJobId={selectedJobId}
+                onSelect={(id) => {
+                  setSelectedJobId(id);
+                  setMoreOpen(true); // open the note disclosure once a job is chosen
+                }}
+                lastLoggedJobId={lastLoggedJobId}
+                lastLoggedDate={lastLoggedDate}
+                jobsError={jobsError}
+                disabled={submitting}
+                dayTypes={dayTypeOptions}
+                onSelectDayType={setDayTypeSel}
+              />
             )}
 
             {/* Weekend rule (owner-directed 2026-08-10): Sat/Sun hours book as
@@ -621,7 +640,7 @@ export function LogHoursSheet({
               />
             </button>
 
-            {assignedJobs.length > 1 && !tafeActive ? (
+            {assignedJobs.length > 1 && !dayTypeActive ? (
               <button
                 type="button"
                 onClick={() => setSplitOpen(true)}
@@ -892,13 +911,16 @@ export function LogHoursSheet({
  * Job attribution block. Renders one of four states:
  *   - jobs failed to load   → warning, submit blocked
  *   - zero active jobs       → honest "ask the office" message, submit blocked
- *   - exactly one job        → preselected, shown read-only (no friction)
+ *   - exactly one job        → preselected, shown read-only — plus the
+ *                              day-type entry bar when day types exist
  *   - multiple jobs          → ONE job preselected (the last-logged default, or
  *                              an explicit launch context), collapsed to a
  *                              single line; "Pick a different job" reopens a
- *                              searchable spinning dial (JobDialPicker). With no
- *                              usable default the dial stays open as a required
- *                              choice ("Pick one").
+ *                              searchable spinning dial. With no usable
+ *                              default the dial stays open ("Pick one").
+ * Day types (sick / holiday, + TAFE for apprentices — owner-directed
+ * 2026-08-10) ride the TOP of the same dial so they're easy to find; picking
+ * one hands off to onSelectDayType and the parent swaps the attribution.
  * It never lets the worker proceed with no job when active jobs exist.
  */
 function JobAttribution({
@@ -909,6 +931,8 @@ function JobAttribution({
   lastLoggedDate,
   jobsError,
   disabled,
+  dayTypes,
+  onSelectDayType,
 }: {
   jobs: ReadonlyArray<{ id: string; name: string }>;
   selectedJobId: string | null;
@@ -917,6 +941,8 @@ function JobAttribution({
   lastLoggedDate: string | null;
   jobsError: boolean;
   disabled: boolean;
+  dayTypes: ReadonlyArray<LogDayType>;
+  onSelectDayType: (t: LogDayType) => void;
 }): ReactNode {
   // Multi-job: collapse to the chosen job once one is picked ("Pick a different
   // job" reopens the list); stay expanded while nothing is picked so the
@@ -928,6 +954,10 @@ function JobAttribution({
   const label = (
     <p className="font-display text-xs uppercase tracking-widest text-text-muted">Job</p>
   );
+  // Compact "or a sick day / holiday / TAFE" tail for the picker-open bars.
+  const dayTypeTail = dayTypes
+    .map((t) => (t === "tafe" ? "TAFE" : t === "sick" ? "sick day" : "holiday"))
+    .join(" / ");
 
   if (jobsError) {
     return (
@@ -962,19 +992,42 @@ function JobAttribution({
     );
   }
 
-  if (jobs.length === 1) {
+  if (jobs.length === 1 && !pickerOpen) {
     // Quiet inline context, not a boxed form field — the job already headlines
     // the greeting ("on {job}"). The "Assigned job" pill is kept verbatim (the
     // field-readiness smoke asserts it for the single-job attribution path).
+    // Day types still need a way in (a one-job worker gets sick too): one bar
+    // opens the dial, which then shows the day types above their job.
     return (
-      <div className={styles.jobLine}>
-        <span className={styles.jobLinePin} aria-hidden="true">
-          <MapPin className="h-[17px] w-[17px]" />
-        </span>
-        <span className={styles.jobLineText}>
-          <span className={styles.jobLineName}>{jobs[0]!.name}</span>
-          <span className={styles.jobLineCaption}>Assigned job</span>
-        </span>
+      <div className="space-y-2">
+        <div className={styles.jobLine}>
+          <span className={styles.jobLinePin} aria-hidden="true">
+            <MapPin className="h-[17px] w-[17px]" />
+          </span>
+          <span className={styles.jobLineText}>
+            <span className={styles.jobLineName}>{jobs[0]!.name}</span>
+            <span className={styles.jobLineCaption}>Assigned job</span>
+          </span>
+        </div>
+        {dayTypes.length > 0 ? (
+          <button
+            type="button"
+            onClick={() => setPickerOpen(true)}
+            disabled={disabled}
+            aria-expanded={false}
+            data-testid="phil-daytype-open"
+            className={styles.subAction}
+          >
+            <span className={styles.subActionIcon} aria-hidden="true">
+              <ChevronsUpDown className="h-[17px] w-[17px]" />
+            </span>
+            <span className={styles.subActionLabel}>{`Log a ${dayTypeTail}`}</span>
+            <ChevronRight
+              className={cn(styles.subActionChev, "h-[17px] w-[17px]")}
+              aria-hidden="true"
+            />
+          </button>
+        ) : null}
       </div>
     );
   }
@@ -1018,7 +1071,11 @@ function JobAttribution({
           <span className={styles.subActionIcon} aria-hidden="true">
             <ChevronsUpDown className="h-[17px] w-[17px]" />
           </span>
-          <span className={styles.subActionLabel}>Select a different job</span>
+          <span className={styles.subActionLabel}>
+            {dayTypes.length > 0
+              ? `Select a different job — or a ${dayTypeTail}`
+              : "Select a different job"}
+          </span>
           <ChevronRight
             className={cn(styles.subActionChev, "h-[17px] w-[17px]")}
             aria-hidden="true"
@@ -1028,11 +1085,16 @@ function JobAttribution({
     );
   }
 
-  // Reopened (or never-picked) picker. The search field narrows the dial —
-  // useful as a worker's assigned-job count grows — and taps stay the way a
-  // job is actually chosen.
+  // Reopened (or never-picked) picker. The search field narrows the JOBS on
+  // the dial — the day-type rows stay pinned on top regardless (owner-
+  // directed 2026-08-10: easy to find), and taps stay the way anything is
+  // chosen. A one-job worker gets no search (nothing to narrow).
   const q = query.trim().toLowerCase();
   const filtered = q ? jobs.filter((j) => j.name.toLowerCase().includes(q)) : jobs;
+  const dialItems = [
+    ...dayTypes.map((t) => ({ id: `daytype:${t}`, label: DAY_TYPE_META[t].dialLabel })),
+    ...filtered.map((j) => ({ id: j.id, label: j.name })),
+  ];
   return (
     <div>
       <div className="flex items-baseline justify-between gap-2">
@@ -1040,8 +1102,8 @@ function JobAttribution({
         {!selectedJobId ? (
           <span className="text-xs font-medium text-state-warning">Pick one</span>
         ) : (
-          // Reopened via "Pick a different job" with a job already chosen — let
-          // the worker collapse back without having to re-pick.
+          // Reopened with a job already chosen — let the worker collapse back
+          // without having to re-pick.
           <button
             type="button"
             onClick={() => setPickerOpen(false)}
@@ -1053,42 +1115,59 @@ function JobAttribution({
           </button>
         )}
       </div>
-      <input
-        type="search"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        disabled={disabled}
-        placeholder="Find a job by name or address…"
-        aria-label="Search your jobs"
-        className="mt-2 block w-full rounded-card border border-border bg-surface px-3 py-2 text-sm focus:border-brand-navy focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
-      />
-      {/* The spinning dial (owner-directed 2026-08-02): a fixed 5-row wheel
+      {jobs.length > 1 ? (
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          disabled={disabled}
+          placeholder="Find a job by name or address…"
+          aria-label="Search your jobs"
+          className="mt-2 block w-full rounded-card border border-border bg-surface px-3 py-2 text-sm focus:border-brand-navy focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+        />
+      ) : null}
+      {/* The spinning dial (owner-directed 2026-08-02): a fixed-height wheel
           replaces the vertical radio list, so a growing job list no longer
           grows the page (P10 — the picker's slot has constant height). Same
-          semantics: radiogroup, tap a job to pick it. */}
-      {filtered.length > 0 ? (
-        <JobDialPicker
-          jobs={filtered}
-          selectedJobId={selectedJobId}
+          semantics: radiogroup, tap a row to pick it. Day types ride the top
+          of the SAME drum. */}
+      {dialItems.length > 0 ? (
+        <DialPicker
+          items={dialItems}
+          selectedId={selectedJobId}
           onSelect={(id) => {
-            onSelect(id);
+            if (id.startsWith("daytype:")) {
+              onSelectDayType(id.slice("daytype:".length) as LogDayType);
+            } else {
+              onSelect(id);
+            }
             setQuery("");
             setPickerOpen(false);
           }}
           disabled={disabled}
+          ariaLabel={
+            dayTypes.length > 0
+              ? "Choose the job or day type for these hours"
+              : "Choose the job for these hours"
+          }
+          countNoun="options"
+          testId="job-dial"
         />
-      ) : (
+      ) : null}
+      {q && filtered.length === 0 ? (
         <p className="px-1 py-2 text-xs text-text-muted">
           No assigned job matches “{query.trim()}”.
         </p>
-      )}
+      ) : null}
       {/* #424: this picker logs a single job. With >1 assigned job the worker
           also has the "Split across jobs" action above, so point them at it
           rather than telling them to log the bigger block (which contradicted
           the split feature). */}
-      <p className="mt-2 text-xs text-text-muted">
-        This logs one job. On more than one today? Use “Split across jobs” above.
-      </p>
+      {jobs.length > 1 ? (
+        <p className="mt-2 text-xs text-text-muted">
+          This logs one job. On more than one today? Use “Split across jobs” above.
+        </p>
+      ) : null}
     </div>
   );
 }

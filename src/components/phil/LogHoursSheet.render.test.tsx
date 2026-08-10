@@ -375,23 +375,49 @@ describe("LogHoursSheet — log control layout (owner reposition)", () => {
   });
 });
 
-describe("LogHoursSheet — TAFE day (apprentices only, owner-directed 2026-08-10)", () => {
-  // Selecting TAFE is client state (the toggled attribution swap isn't
-  // SSR-reachable); what SSR pins is the GATE: the toggle exists for an
-  // apprentice and for NOBODY else. The payload chain (tafe: true + jobId
-  // null) is pure logic pinned in timesheets.test.ts ("TAFE payloads").
+describe("LogHoursSheet — day types on the dial (owner-directed 2026-08-10)", () => {
+  // Selecting a day type is client state (the attribution swap isn't
+  // SSR-reachable); what SSR pins is the DIAL: sick/holiday rows on top for
+  // everyone, the TAFE row for apprentices only (canLogTafe, fail-closed).
+  // The payload chain (dayType + jobId null) is pure logic pinned in
+  // timesheets.test.ts ("day-type payloads").
+  const twoJobs = {
+    ...base,
+    assignedJobs: [
+      { id: "j1", name: "Smith St Rewire" },
+      { id: "j2", name: "Depot Switchboard" },
+    ],
+  };
   const soleJob = { ...base, assignedJobs: [{ id: "j1", name: "Smith St Rewire" }] };
 
-  it("an apprentice gets the TAFE-day bar under the job attribution", () => {
-    const html = render({ ...soleJob, canLogTafe: true });
-    expect(html).toContain('data-testid="phil-tafe-toggle"');
-    expect(html).toContain("TAFE day — trade school");
+  it("the open picker dial carries Sick day + Holiday rows ON TOP of the jobs", () => {
+    // Two jobs, no usable default → the picker renders open with the dial.
+    const html = render(twoJobs);
+    expect(html).toContain('aria-label="Choose the job or day type for these hours"');
+    const sickAt = html.indexOf(">Sick day<");
+    const holidayAt = html.indexOf(">Holiday<");
+    expect(sickAt).toBeGreaterThan(-1);
+    expect(holidayAt).toBeGreaterThan(sickAt);
+    // Day types sit ABOVE the first job on the drum.
+    expect(sickAt).toBeLessThan(html.indexOf(">Smith St Rewire<"));
+    // No TAFE row for a non-apprentice — fail-closed.
+    expect(html).not.toContain("TAFE");
   });
 
-  it("everyone else NEVER sees it (default off — the server resolves apprentices fail-closed)", () => {
+  it("an apprentice's dial ALSO carries the TAFE row", () => {
+    const html = render({ ...twoJobs, canLogTafe: true });
+    expect(html).toContain(">TAFE day<");
+  });
+
+  it("a one-job worker still reaches sick/holiday: a bar under the job line opens the dial", () => {
     const html = render(soleJob);
-    expect(html).not.toContain("phil-tafe-toggle");
-    expect(html).not.toContain("TAFE");
+    expect(html).toContain('data-testid="phil-daytype-open"');
+    expect(html).toContain("Log a sick day / holiday");
+    // The job line keeps the smoke-pinned "Assigned job" pill.
+    expect(html).toContain("Assigned job");
+    // Apprentice variant names TAFE too.
+    const apprentice = render({ ...soleJob, canLogTafe: true });
+    expect(apprentice).toContain("Log a sick day / holiday / TAFE");
   });
 });
 
