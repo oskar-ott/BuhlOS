@@ -96,7 +96,10 @@ export async function AdminShell({ children, title, breadcrumb, hideHead }: Admi
       data-theme="office"
       // text-text re-anchors inherited text INSIDE the theme scope — without
       // it, unclassed text falls through to body's root-value ink.
-      className="flex h-screen flex-col overflow-hidden bg-surface-subtle text-text"
+      // bg-surface (white), not bg-surface-subtle — the office cream page wash
+      // read as "sand" against the white header/cards (owner call, 2026-08-11);
+      // the subtle tint stays for chips, hovers and skeletons only.
+      className="flex h-screen flex-col overflow-hidden bg-surface text-text"
     >
       <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-surface px-4 sm:px-5">
         {/* The bühl wordmark leads the office shell — ink on the white bar. */}
