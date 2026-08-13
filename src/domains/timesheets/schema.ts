@@ -63,8 +63,14 @@ export const TimeEntrySchema = z
      * hours are excluded from the Xero timesheet push (payroll enters the
      * leave in Xero); TAFE pushes as ordinary wages. Optional and additive:
      * entries written before this parse unchanged (absent = job day).
+     *
+     * NULLABLE, not merely optional: the server writes an explicit
+     * `dayType: null` on every plain job day (api/time-entries.js create +
+     * PATCH). A null-intolerant schema failed the RESPONSE parse on every
+     * ordinary submission and showed the worker "Couldn't submit" on an entry
+     * that had already saved (HTTP 201).
      */
-    dayType: z.enum(["tafe", "sick", "holiday"]).optional(),
+    dayType: z.enum(["tafe", "sick", "holiday"]).nullable().optional(),
     totalHours: z.number(),
     ordinaryHours: z.number(),
     overtimeHours: z.number(),
