@@ -1,4 +1,22 @@
-import type { TimeEntryStatus } from "./types";
+import type { TimeEntry, TimeEntryStatus } from "./types";
+
+/**
+ * The ONE vocabulary for job-less day types (owner-directed 2026-08-10) —
+ * every surface that names a TAFE / sick / holiday day draws from here, so
+ * the worker's row, the office boards and the payroll warnings never drift.
+ */
+export const DAY_TYPE_LABELS: Record<NonNullable<TimeEntry["dayType"]>, string> = {
+  tafe: "TAFE",
+  sick: "Sick day",
+  holiday: "Holiday",
+};
+
+/** The site word for an entry's day type, or null for a plain job day. */
+export function dayTypeLabel(
+  dayType: TimeEntry["dayType"] | null | undefined,
+): string | null {
+  return dayType ? (DAY_TYPE_LABELS[dayType] ?? null) : null;
+}
 
 /**
  * Pure formatting helpers for the timesheets domain. Kept separate from

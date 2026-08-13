@@ -29,3 +29,9 @@ export declare function loadWorkerEntriesInProcess(
 export declare function loadFieldJobsInProcess(
   cookieValue: string | undefined
 ): Promise<InProcessJobsResult>;
+
+/** True iff the signed-in worker's employee record is role: apprentice —
+ *  drives the TAFE-day option (2026-08-10). Fail-closed: any miss is false. */
+export declare function loadIsApprenticeInProcess(
+  cookieValue: string | undefined
+): Promise<boolean>;

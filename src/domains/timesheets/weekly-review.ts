@@ -345,7 +345,9 @@ export function amendDayAllocations(day: WeeklyHoursDay): AmendDayAllocation[] {
   }
   return allocations.map((a) => ({
     jobId: a.jobId ?? null,
-    label: a.jobName ?? a.jobId ?? "No job",
+    // A null-job allocation falls back to the day's own label — which is
+    // "TAFE" for a paid trade-school day (2026-08-10), "No job" otherwise.
+    label: a.jobName ?? a.jobId ?? day.jobLabel ?? "No job",
     hours: Number(a.hours) || 0,
   }));
 }

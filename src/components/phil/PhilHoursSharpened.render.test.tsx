@@ -51,6 +51,8 @@ function entry(over: Partial<TimeEntry> & Pick<TimeEntry, "date" | "status">): T
     updatedAt: "2026-06-01T00:00:00Z",
     notes: over.notes ?? null,
     rejectedReason: over.rejectedReason ?? null,
+    // Absent unless set — mirrors the store (pre-day-type entries carry none).
+    ...(over.dayType ? { dayType: over.dayType } : {}),
   } as TimeEntry;
 }
 
@@ -266,6 +268,50 @@ describe("today's unlogged row (owner-directed, 2026-08-07; whole-row tap 2026-0
     // The row keeps its label and loses the old button-less special copy.
     expect(html).toContain("Not logged");
     expect(html).not.toContain("assign it to a job below");
+  });
+});
+
+/**
+ * Day-type days (owner-directed 2026-08-10): TAFE / sick / holiday days name
+ * themselves on every attribution surface — never "No job recorded" — and
+ * the day-type dial rows ride the SAME shared sheet.
+ */
+describe("PhilHoursSharpened — day-type days", () => {
+  it("a day-type day's ROW names its type — but it never rides the per-job breakdown (not job work)", () => {
+    const html = render([
+      entry({
+        date: MONDAY,
+        status: "submitted",
+        dayType: "tafe",
+        allocations: [{ jobId: null, hours: 7.6 }],
+      }),
+      entry({
+        date: addDays(MONDAY, 1),
+        status: "submitted",
+        dayType: "sick",
+        allocations: [{ jobId: null, hours: 7.6 }],
+      }),
+    ]);
+    // The day rows name the days…
+    expect(html).toContain("TAFE");
+    expect(html).toContain("Sick day");
+    expect(html).not.toContain("No job recorded");
+    // …and TAFE appears exactly ONCE (non-apprentice render: no dial row),
+    // proving the job breakdown holds no day-type rows.
+    expect(html.match(/TAFE/g)).toHaveLength(1);
+    // Day-type days never carry the fix-sheet 'Change' pill — the office
+    // amends them (canResubmitInPhil refuses day-type entries).
+    const dayRows = html.split("Log your day")[0];
+    expect(dayRows).not.toContain("phil-edit-submitted");
+  });
+
+  it("canLogTafe passes through to the mounted log sheet's dial", () => {
+    const html = render([], { canLogTafe: true });
+    expect(html).toContain(">TAFE day<");
+    // Default render (non-apprentice): sick/holiday rows only, no TAFE.
+    const plain = render([]);
+    expect(plain).toContain(">Sick day<");
+    expect(plain).not.toContain("TAFE");
   });
 });
 

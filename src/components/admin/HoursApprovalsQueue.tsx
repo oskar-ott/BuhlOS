@@ -16,6 +16,7 @@ import {
 } from "@/components/admin/AmendHoursEditor";
 import { timesheetsClient } from "@/domains/timesheets/client";
 import {
+  dayTypeLabel,
   formatDateLabel,
   formatHoursLabel,
   formatTimestamp,
@@ -629,7 +630,8 @@ function EntryRow({
 function amendAllocationsFor(entry: TimeEntry): AmendAllocationInput[] {
   return (entry.allocations ?? []).map((a) => ({
     jobId: a.jobId ?? null,
-    label: a.jobName ?? a.jobId ?? "No job assigned",
+    // A day-type day's null job is by design (2026-08-10) — name the real thing.
+    label: dayTypeLabel(entry.dayType) ?? a.jobName ?? a.jobId ?? "No job assigned",
     hours: Number(a.hours) || 0,
   }));
 }
@@ -641,9 +643,12 @@ function AllocationLine({ entry }: { entry: TimeEntry }): ReactNode {
       {entry.allocations.map((a, i) => {
         // Legacy / unattributed allocations (jobId null) are flagged so an
         // approver can see at a glance which hours lack job context — they
-        // remain fully approvable/rejectable, this is display only.
-        const unattributed = !a.jobId;
-        const job = a.jobName ?? a.jobId ?? "No job assigned";
+        // remain fully approvable/rejectable, this is display only. A
+        // day-type day (TAFE / sick / holiday, 2026-08-10) is deliberately
+        // job-less: it names its type, never the warning pill.
+        const typed = dayTypeLabel(entry.dayType);
+        const unattributed = !a.jobId && !typed;
+        const job = typed ?? a.jobName ?? a.jobId ?? "No job assigned";
         return (
           <span key={i} className="inline-flex items-center gap-1 text-xs text-text-muted">
             <span>{formatHoursLabel(a.hours)} →</span>

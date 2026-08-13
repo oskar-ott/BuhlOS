@@ -106,7 +106,22 @@ async function collectRows({ status, userId, jobId, fromDate, toDate }) {
         // another users.json read.
         workerRole: u.role || null,
         xeroEmployeeId: u.xeroEmployeeId || '',
-        jobName:    j ? j.name : (a.jobId ? '(unknown job)' : 'Internal — no job'),
+        // Job-less day types ride the row (2026-08-10) so the payroll
+        // partition can keep sick/holiday hours out of the wages push (they
+        // are entered as leave in Xero) without another entry read; TAFE
+        // pushes as ordinary wages and names itself instead of "no job".
+        dayType:    e.dayType || null,
+        jobName:    j
+          ? j.name
+          : e.dayType === 'tafe'
+            ? 'TAFE'
+            : e.dayType === 'sick'
+              ? 'Sick day'
+              : e.dayType === 'holiday'
+                ? 'Holiday'
+                : a.jobId
+                  ? '(unknown job)'
+                  : 'Internal — no job',
         jobId:      a.jobId || '',
         hours:      hours,
         ordinaryHours: split.ordinaryHours,

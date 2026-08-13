@@ -27,6 +27,10 @@ const {
   entryView,
 } = require('./_lib/time-entries');
 const { idempotencyKeyFrom, findIdempotent, recordIdempotent } = require('./_lib/idempotency');
+
+// Job-less day types (owner-directed 2026-08-10): apprentice trade school +
+// paid leave days. The one server-side vocabulary — anything else stores null.
+const VALID_DAY_TYPES = ['tafe', 'sick', 'holiday'];
 const { append: appendAuditLog } = require('./_lib/audit-log');
 const { buildHoursAuditEntry } = require('./_lib/hours-audit');
 
@@ -179,6 +183,11 @@ async function handleCreate(req, res, user) {
     ordinaryHours: body.ordinaryHours,
     overtimeHours: body.overtimeHours,
     otOverridden: !!body.otOverridden,
+    // Job-less day types (owner-directed 2026-08-10): 'tafe' (apprentice
+    // trade school), 'sick', 'holiday'. Belongs to no job — the create path
+    // already accepts jobId:null allocations, and every attribution surface
+    // names the day type instead of "No job". Unknown values store as null.
+    dayType: VALID_DAY_TYPES.includes(body.dayType) ? body.dayType : null,
     notes: body.notes || null,
     status: body.status === 'submitted' ? 'submitted' : 'draft',
     submittedAt: body.status === 'submitted' ? now : null,
@@ -331,7 +340,14 @@ async function handlePatch(req, res, user) {
   // same 403 shape as the active-job gate. Create keeps accepting null for
   // backward compatibility (legacy/overhead); the Phil UI remains the guard
   // there.
-  if (isSelf && isFieldRole(user.role) && body.allocations !== undefined) {
+  // A day-type day (TAFE / sick / holiday, 2026-08-10) legitimately carries
+  // jobId:null — the null-job block below is for JOB days only. The edit
+  // keeps its day type unless the patch explicitly changes it.
+  const editDayType =
+    body.dayType !== undefined
+      ? (VALID_DAY_TYPES.includes(body.dayType) ? body.dayType : null)
+      : (existing.dayType || null);
+  if (isSelf && isFieldRole(user.role) && body.allocations !== undefined && !editDayType) {
     const hasNullJob = (body.allocations || []).some((a) => !a || !a.jobId);
     if (hasNullJob) {
       return res.status(403).json({ error: 'forbidden — hours can only be logged against an active job' });
@@ -343,6 +359,10 @@ async function handlePatch(req, res, user) {
   // Build merged shape from an explicit allowlist. Generic PATCH must not
   // spread caller-controlled metadata into payroll, approval or audit fields.
   const editable = editableEntryPatch(body);
+  // Same sanitation as create — an unknown day type never reaches the store.
+  if (editable.dayType !== undefined) {
+    editable.dayType = VALID_DAY_TYPES.includes(editable.dayType) ? editable.dayType : null;
+  }
   const nextStatus = transitioningToSubmitted ? 'submitted' : existing.status;
   const merged = {
     ...existing,
@@ -484,6 +504,7 @@ function editableEntryPatch(body) {
     'ordinaryHours',
     'overtimeHours',
     'otOverridden',
+    'dayType',
     'notes',
     'allocations',
   ]) {

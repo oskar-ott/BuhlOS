@@ -55,6 +55,16 @@ export const TimeEntrySchema = z
     startTime: z.string().nullable().optional(),
     endTime: z.string().nullable().optional(),
     breakMinutes: z.number().nullable().optional(),
+    /**
+     * A day that belongs to NO job (owner-directed 2026-08-10): 'tafe' is an
+     * apprentice's paid trade-school day; 'sick' / 'holiday' are paid leave
+     * days any worker can log. Allocations carry jobId: null and every
+     * attribution surface names the day type instead of a job. Sick/holiday
+     * hours are excluded from the Xero timesheet push (payroll enters the
+     * leave in Xero); TAFE pushes as ordinary wages. Optional and additive:
+     * entries written before this parse unchanged (absent = job day).
+     */
+    dayType: z.enum(["tafe", "sick", "holiday"]).optional(),
     totalHours: z.number(),
     ordinaryHours: z.number(),
     overtimeHours: z.number(),
@@ -123,6 +133,8 @@ export const CreateTimeEntryPayloadSchema = z
       .max(16, "Total hours cannot exceed 16"),
     ordinaryHours: z.number().min(0, "Ordinary hours cannot be negative"),
     overtimeHours: z.number().min(0, "Overtime hours cannot be negative"),
+    /** Job-less day (TAFE / sick / holiday) — see TimeEntrySchema.dayType. */
+    dayType: z.enum(["tafe", "sick", "holiday"]).optional(),
     allocations: z
       .array(
         z.object({

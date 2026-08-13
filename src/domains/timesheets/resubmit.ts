@@ -51,7 +51,14 @@ export interface AssignableJob {
  * by both editors (every row needs a real assigned job), not by excluding
  * splits here.
  */
-export function canResubmitInPhil(entry: Pick<TimeEntry, "status" | "allocations">): boolean {
+export function canResubmitInPhil(
+  entry: Pick<TimeEntry, "status" | "allocations" | "dayType">,
+): boolean {
+  // A day-type day (TAFE / sick / holiday, 2026-08-10) can't go through the
+  // fix sheet — that flow REQUIRES attributing the hours to an active job,
+  // which would silently turn the training/leave day into a job day. The row
+  // falls back to the honest "ask the office" copy; the office amends these.
+  if (entry.dayType) return false;
   return (
     (entry.status === "rejected" || entry.status === "submitted") &&
     Array.isArray(entry.allocations) &&

@@ -106,8 +106,35 @@ async function loadFieldJobsInProcess(cookieValue, deps = realDeps()) {
   return { ok: true, jobs: blob.jobs || [] };
 }
 
+/**
+ * Is the signed-in worker an APPRENTICE (employee-record role, the fine
+ * vocabulary — users.json role is only the auth tier)? Drives the TAFE-day
+ * option on the log sheet (owner-directed 2026-08-10): apprentices attend
+ * trade school one paid day a week and log it as a TAFE day; nobody else
+ * sees the option. FAIL-CLOSED: any miss (no session, no linked employee
+ * record, storage error) returns false — the worst outcome is an apprentice
+ * temporarily not seeing the option, never a non-apprentice seeing it.
+ */
+async function loadIsApprenticeInProcess(cookieValue, deps = realDeps()) {
+  try {
+    const user = await deps.getCurrentUser(reqFromCookieValue(cookieValue));
+    if (!user) return false;
+    const blob = await deps.readBlob('employees.json', { employees: [] });
+    const employee = (blob.employees || []).find((e) => e && e.userId === user.id);
+    // This is the EMPLOYEE record's field-role vocabulary (employees
+    // schema.ts FIELD_ROLES), not a users.json auth role — the auth.js
+    // predicates don't speak it.
+    // role-literal-ok: employee-record field role, not an auth role
+    return !!employee && employee.role === 'apprentice';
+  } catch (e) {
+    console.error('phil-page-data: apprentice lookup failed (fail-closed)', e && e.message);
+    return false;
+  }
+}
+
 module.exports = {
   loadCurrentUserInProcess,
   loadWorkerEntriesInProcess,
   loadFieldJobsInProcess,
+  loadIsApprenticeInProcess,
 };

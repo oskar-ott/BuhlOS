@@ -326,3 +326,48 @@ describe("validatePayroll", () => {
     }
   });
 });
+
+/**
+ * Day-type days (owner-directed 2026-08-10): sick/holiday hours are approved
+ * in the app but NEVER pushed as worked hours — payroll enters the leave in
+ * Xero. TAFE is NOT leave: a paid trade-school day pushes as ordinary wages.
+ */
+describe("sick/holiday days stay out of the wages push", () => {
+  it("leave rows are excluded with a named warning; the job rows still push", () => {
+    const v = validatePayroll(
+      base({
+        rows: [
+          row(),
+          row({ date: "2026-07-08", jobId: "", dayType: "sick", jobName: "Sick day" }),
+          row({ date: "2026-07-09", jobId: "", dayType: "holiday", jobName: "Holiday" }),
+        ],
+      }),
+    );
+    const leave = v.warnings.find(
+      (f: { code: string }) => f.code === "leave_hours_excluded",
+    ) as { message: string } | undefined;
+    expect(leave).toBeTruthy();
+    expect(leave!.message).toContain("8h sick");
+    expect(leave!.message).toContain("8h holiday");
+    expect(leave!.message).toContain("Enter the leave in Xero");
+    // The plain job day still pushes — no error from the leave days.
+    expect(v.errors).toEqual([]);
+  });
+
+  it("a TAFE day is NOT leave — it stays in the push as ordinary wages", () => {
+    const v = validatePayroll(
+      base({ rows: [row({ jobId: "", dayType: "tafe", jobName: "TAFE" })] }),
+    );
+    expect(v.warnings.find((f: { code: string }) => f.code === "leave_hours_excluded")).toBeUndefined();
+    expect(v.errors.find((f: { code: string }) => f.code === "no_rows")).toBeUndefined();
+  });
+
+  it("a leave-only period blocks honestly: nothing to push as worked hours, says why", () => {
+    const v = validatePayroll(base({ rows: [row({ jobId: "", dayType: "sick" })] }));
+    const noRows = v.errors.find((f: { code: string }) => f.code === "no_rows") as
+      | { message: string }
+      | undefined;
+    expect(noRows).toBeTruthy();
+    expect(noRows!.message).toContain("entered as leave in Xero");
+  });
+});

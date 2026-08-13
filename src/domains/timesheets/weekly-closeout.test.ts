@@ -474,6 +474,32 @@ describe("buildWeeklyHoursCloseout — day statuses are honest", () => {
     expect(c.workers[0]!.days[1]!.jobLabel).toBe("No job");
   });
 
+  it("labels day-type days by name (2026-08-10) — TAFE / sick / holiday are never 'No job'", () => {
+    const c = build([
+      entry({
+        userId: "u1",
+        date: "2024-05-20",
+        dayType: "tafe",
+        allocations: [{ jobId: null, jobName: null, hours: 7.6 }],
+      } as Partial<TimeEntry> & { userId: string; date: string }),
+      entry({
+        userId: "u1",
+        date: "2024-05-21",
+        dayType: "sick",
+        allocations: [{ jobId: null, jobName: null, hours: 7.6 }],
+      } as Partial<TimeEntry> & { userId: string; date: string }),
+      entry({
+        userId: "u1",
+        date: "2024-05-22",
+        dayType: "holiday",
+        allocations: [{ jobId: null, jobName: null, hours: 7.6 }],
+      } as Partial<TimeEntry> & { userId: string; date: string }),
+    ]);
+    expect(c.workers[0]!.days[0]!.jobLabel).toBe("TAFE");
+    expect(c.workers[0]!.days[1]!.jobLabel).toBe("Sick day");
+    expect(c.workers[0]!.days[2]!.jobLabel).toBe("Holiday");
+  });
+
   it("carries the STORED ordinary/overtime split through to the day cell (#130)", () => {
     const c = build([
       entry({

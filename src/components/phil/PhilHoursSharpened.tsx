@@ -14,7 +14,12 @@ import {
   readSavedEntries,
   recordSavedEntry,
 } from "@/domains/timesheets/saved-entries-journal";
-import { amendmentLine, formatHoursLabel, otSplitLabel } from "@/domains/timesheets/format";
+import {
+  amendmentLine,
+  dayTypeLabel,
+  formatHoursLabel,
+  otSplitLabel,
+} from "@/domains/timesheets/format";
 import { STATUS_WORDS } from "@/domains/timesheets/status-words";
 import { canResubmitInPhil } from "@/domains/timesheets/resubmit";
 import {
@@ -86,6 +91,9 @@ interface Props {
    *  saved-entries journal so a shared phone never merges another worker's
    *  day. Null/absent → the journal is not read (in-memory overlay only). */
   viewerId?: string | null;
+  /** Apprentice only (server-resolved, fail-closed) — shows the TAFE-day
+   *  option on the mounted log sheet. */
+  canLogTafe?: boolean;
 }
 
 type SendState =
@@ -135,7 +143,14 @@ function JobRefChip({ refCode }: { refCode: string }) {
   );
 }
 
-export function PhilHoursSharpened({ entries, todayISO, assignedJobs, jobsError, viewerId }: Props) {
+export function PhilHoursSharpened({
+  entries,
+  todayISO,
+  assignedJobs,
+  jobsError,
+  viewerId,
+  canLogTafe = false,
+}: Props) {
   const router = useRouter();
 
   // Optimistic overlay (2026-07-28): the store's listing can lag a fresh
@@ -286,6 +301,7 @@ export function PhilHoursSharpened({ entries, todayISO, assignedJobs, jobsError,
                   lastLoggedJobId={lastLogged?.jobId ?? null}
                   lastLoggedDate={lastLogged?.date ?? null}
                   initialDate={logDate}
+                  canLogTafe={canLogTafe}
                 />
               </div>
             ) : null
@@ -550,7 +566,12 @@ function EntryRow({
           <p className="text-sm font-semibold text-text">{hoursDayLabel(date, todayISO)}</p>
           <div className="mt-0.5 space-y-0.5">
             {allocations.map((a, i) => {
-              const { name, ref } = allocationLabel(a, assignedJobs);
+              // A day-type day (TAFE / sick / holiday) names itself — never
+              // "No job recorded" (P7).
+              const typed = dayTypeLabel(entry.dayType);
+              const { name, ref } = typed
+                ? { name: typed, ref: null }
+                : allocationLabel(a, assignedJobs);
               return (
                 <p key={i} className="flex items-baseline gap-2 text-[13px] text-text-muted">
                   {ref ? <JobRefChip refCode={ref} /> : null}

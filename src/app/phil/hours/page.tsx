@@ -4,6 +4,7 @@ import { isFlagEnabled } from "../../../../api/_lib/feature-flags.js";
 import {
   loadWorkerEntriesInProcess,
   loadFieldJobsInProcess,
+  loadIsApprenticeInProcess,
 } from "../../../../api/_lib/phil-page-data.js";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
@@ -88,12 +89,14 @@ export default async function PhilHoursPage({
 
   // History + the worker's active assigned jobs in parallel — the jobs feed
   // the resubmit form's attribution guard so a fix can't land jobId:null.
-  const [{ entries, fetchError }, assignedJobs, sharpenedFlags] =
+  const [{ entries, fetchError }, assignedJobs, sharpenedFlags, canLogTafe] =
     await Promise.all([
       loadHistory(raw),
       loadAssignedJobs(raw),
       // Sharpened-chrome flag (cached flags.json read) — server-resolved boolean.
       philSharpenedFlags(session),
+      // Apprentice (employee-record role) → the TAFE-day option. Fail-closed.
+      loadIsApprenticeInProcess(raw),
     ]);
 
   // ── Sharpened Hours (phil_sharpened, dark — Wave 2c) ─────────────────────
@@ -122,6 +125,7 @@ export default async function PhilHoursPage({
               assignedJobs={assignedJobs.jobs}
               jobsError={assignedJobs.error}
               viewerId={session.userId ?? null}
+              canLogTafe={canLogTafe}
             />
           )}
         </div>

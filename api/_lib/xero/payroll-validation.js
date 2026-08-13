@@ -60,11 +60,20 @@ function isOutsidePayrollRow(r) {
   return OUTSIDE_PAYROLL_ROLES.has(String(r.workerRole || '').toLowerCase());
 }
 
+// Sick / holiday days (2026-08-10): approved in the app so the office signs
+// off the claim, but NEVER pushed as worked hours — payroll enters the leave
+// in Xero (leave accrual/type is Xero's ledger, not a timesheet line). TAFE
+// is NOT leave — a paid trade-school day pushes as ordinary wages.
+function isLeaveRow(r) {
+  return r.dayType === 'sick' || r.dayType === 'holiday';
+}
+
 function partitionPayrollRows({ rows, workerReadiness, allowExported }) {
   const decidedRows = (rows || []).filter((r) => r.status === 'approved');
   const outsideRows = decidedRows.filter(isOutsidePayrollRow);
   const outsideWorkers = [...new Map(outsideRows.map((r) => [r.workerId, { workerId: r.workerId, workerName: r.workerName }])).values()];
-  const approvedRows = decidedRows.filter((r) => !isOutsidePayrollRow(r));
+  const leaveRows = decidedRows.filter((r) => !isOutsidePayrollRow(r) && isLeaveRow(r));
+  const approvedRows = decidedRows.filter((r) => !isOutsidePayrollRow(r) && !isLeaveRow(r));
   const exportedRows = allowExported ? [] : approvedRows.filter((r) => r.exportId);
   const payableRows = allowExported ? approvedRows : approvedRows.filter((r) => !r.exportId);
 
@@ -92,7 +101,7 @@ function partitionPayrollRows({ rows, workerReadiness, allowExported }) {
   const withheldWorkers = [...withheldByWorker.values()]
     .sort((a, b) => String(a.workerName).localeCompare(String(b.workerName)));
 
-  return { approvedRows, includedRows, withheldRows, withheldWorkers, exportedRows, allUnmapped, outsideRows, outsideWorkers };
+  return { approvedRows, includedRows, withheldRows, withheldWorkers, exportedRows, allUnmapped, outsideRows, outsideWorkers, leaveRows };
 }
 
 /**
@@ -119,7 +128,7 @@ function validatePayroll(input) {
     workerReadiness: input.workerReadiness,
     allowExported: input.allowExported,
   });
-  const { approvedRows, includedRows, withheldWorkers, exportedRows, allUnmapped, outsideRows, outsideWorkers } = partition;
+  const { approvedRows, includedRows, withheldWorkers, exportedRows, allUnmapped, outsideRows, outsideWorkers, leaveRows } = partition;
 
   // ── Hours approved: every entry in the period must be decided ─────────────
   const undecided = rows.filter((r) => r.status !== 'approved' && r.status !== 'rejected');
@@ -135,9 +144,11 @@ function validatePayroll(input) {
   if (!approvedRows.length) {
     errors.push(finding(
       'no_rows',
-      outsideRows.length
-        ? 'Only subcontractor hours in this period — they stay in job costing (subbies invoice directly), so there is nothing to push to Xero.'
-        : 'No approved hours in this period — nothing to batch.',
+      leaveRows.length
+        ? 'Only sick/holiday days in this period — they are entered as leave in Xero, so there is nothing to push as worked hours.'
+        : outsideRows.length
+          ? 'Only subcontractor hours in this period — they stay in job costing (subbies invoice directly), so there is nothing to push to Xero.'
+          : 'No approved hours in this period — nothing to batch.',
     ));
   }
 
@@ -151,6 +162,30 @@ function validatePayroll(input) {
       'subcontractor_hours_excluded',
       `${names.join(', ')} — subcontractor hours (${h}h) stay in job costing and are never pushed to Xero. Nothing to do.`,
       { workers: names, hours: h }
+    ));
+  }
+
+  // ── Sick / holiday days (owner decision 2026-08-10) ───────────────────────
+  // Approved in the app (the office signed off the claim) but never pushed as
+  // worked hours — payroll enters the leave in Xero. Calm information.
+  if (leaveRows.length) {
+    const byWorker = new Map();
+    for (const r of leaveRows) {
+      const agg = byWorker.get(r.workerName) || { sick: 0, holiday: 0 };
+      if (r.dayType === 'sick') agg.sick = round2(agg.sick + (Number(r.hours) || 0));
+      else agg.holiday = round2(agg.holiday + (Number(r.hours) || 0));
+      byWorker.set(r.workerName, agg);
+    }
+    const parts = [...byWorker.entries()].sort().map(([name, agg]) => {
+      const bits = [];
+      if (agg.sick) bits.push(`${agg.sick}h sick`);
+      if (agg.holiday) bits.push(`${agg.holiday}h holiday`);
+      return `${name} (${bits.join(', ')})`;
+    });
+    warnings.push(finding(
+      'leave_hours_excluded',
+      `${parts.join('; ')} — sick/holiday days stay out of the wages push. Enter the leave in Xero payroll.`,
+      { workers: parts, count: leaveRows.length }
     ));
   }
 

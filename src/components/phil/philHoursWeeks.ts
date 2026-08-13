@@ -143,7 +143,6 @@ export function buildDraftSendPayload(entry: TimeEntry): PatchTimeEntryPayload {
 /** Honest fallback names for the breakdown when a job can't be resolved. */
 export const UNKNOWN_JOB_LABEL = "A job you're no longer on";
 export const NO_JOB_LABEL = "No job recorded";
-
 /** Per-job breakdown across a week's entries — real allocation sums only. */
 export function buildJobBreakdown(
   entries: ReadonlyArray<TimeEntry>,
@@ -151,6 +150,11 @@ export function buildJobBreakdown(
 ): HoursJobBreakdownRow[] {
   const byJob = new Map<string | null, { hours: number; jobName: string | null }>();
   for (const entry of entries) {
+    // A day-type day (TAFE / sick / holiday) is not job work — it never
+    // rides the per-JOB list (owner-directed 2026-08-10). The day's own row
+    // still names its type and its hours still count in the week total;
+    // only the job breakdown skips it.
+    if (entry.dayType) continue;
     for (const a of entry.allocations ?? []) {
       const key = a.jobId ?? null;
       const agg = byJob.get(key) ?? { hours: 0, jobName: null };

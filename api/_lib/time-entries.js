@@ -62,6 +62,9 @@ function autoSplitOT(totalHours, date) {
 // is not trusted for pay classification). Weekday entries pass through.
 function enforceWeekendSplit(entry) {
   if (!entry || !isWeekendDate(entry.date)) return entry;
+  // Day-type days (TAFE / sick / holiday — 2026-08-10) are never weekend
+  // overtime: training and leave pay ordinary regardless of the calendar.
+  if (entry.dayType) return entry;
   const total = Number(entry.totalHours) || 0;
   return {
     ...entry,

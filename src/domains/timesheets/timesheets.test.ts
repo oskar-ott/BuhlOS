@@ -137,6 +137,50 @@ describe("logDayDialOptions()", () => {
   });
 });
 
+/**
+ * Day-type payloads (owner-directed 2026-08-10): TAFE (apprentices), sick
+ * and holiday days belong to no job — the builders carry `dayType` + a
+ * jobId:null allocation, pay all-ordinary (leave/training is never OT), and
+ * WITHOUT the field emit byte-identical pre-day-type shapes.
+ */
+describe("day-type payloads (TAFE / sick / holiday)", () => {
+  it("standard day with a day type → jobId null + the field, and validates against the create schema", () => {
+    for (const dayType of ["tafe", "sick", "holiday"] as const) {
+      const payload = buildStandardDayPayload({ date: "2026-08-12", jobId: null, dayType });
+      expect(payload.dayType).toBe(dayType);
+      expect(payload.allocations).toEqual([
+        { jobId: null, hours: STANDARD_DAY_HOURS, notes: null },
+      ]);
+      // Training/leave pays ordinary — never an OT split.
+      expect(payload.ordinaryHours).toBe(STANDARD_DAY_HOURS);
+      expect(payload.overtimeHours).toBe(0);
+      expect(CreateTimeEntryPayloadSchema.safeParse(payload).success).toBe(true);
+    }
+    // Even a caller passing a jobId gets null — day types can't be job-costed.
+    expect(
+      buildStandardDayPayload({ date: "2026-08-12", jobId: "j1", dayType: "sick" })
+        .allocations[0]!.jobId,
+    ).toBeNull();
+  });
+
+  it("custom hours with a day type → same rules, all-ordinary even past the OT boundary; absent = byte-identical old shape", () => {
+    const sick = buildCustomHoursPayload({
+      date: "2026-08-12",
+      totalHours: 8.6,
+      jobId: null,
+      dayType: "sick",
+    });
+    expect(sick.dayType).toBe("sick");
+    expect(sick.allocations[0]!.jobId).toBeNull();
+    expect(sick.ordinaryHours).toBe(8.6);
+    expect(sick.overtimeHours).toBe(0);
+    const plain = buildStandardDayPayload({ date: "2026-08-12", jobId: "j1" });
+    expect("dayType" in plain).toBe(false);
+    const plainCustom = buildCustomHoursPayload({ date: "2026-08-12", totalHours: 8, jobId: "j1" });
+    expect("dayType" in plainCustom).toBe(false);
+  });
+});
+
 describe("autoSplitOT()", () => {
   it("overtime starts after the STANDARD DAY (7.6h) — owner-directed 2026-08-09, was 8h", () => {
     expect(autoSplitOT(7.6)).toEqual({ ordinary: 7.6, overtime: 0 });
