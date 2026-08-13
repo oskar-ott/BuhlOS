@@ -755,6 +755,42 @@ describe("response schemas", () => {
       expect(r.data.entry.status).toBe("rejected");
     }
   });
+
+  /**
+   * Field-reported 2026-08-13: a worker logged a sick day, then EVERY later
+   * ordinary day showed "Couldn't submit — response schema mismatch … Expected
+   * 'tafe' | 'sick' | 'holiday', received null (HTTP 201)". The day had saved;
+   * only the response parse failed. api/time-entries.js writes an explicit
+   * `dayType: null` on every plain job day, so the response schema must
+   * tolerate null. This is the line that pins the fix.
+   */
+  it("parses a plain job day whose server dayType is an explicit null (HTTP 201 create)", () => {
+    const mutation = {
+      entry: {
+        id: "e-2",
+        userId: "u-1",
+        date: "2026-08-12",
+        dayType: null,
+        totalHours: 7.6,
+        ordinaryHours: 7.6,
+        overtimeHours: 0,
+        status: "submitted" as const,
+        allocations: [{ jobId: "j-1", hours: 7.6 }],
+        createdAt: "2026-08-12T08:00:00Z",
+        updatedAt: "2026-08-12T08:00:00Z",
+      },
+    };
+    const r = TimeEntryMutationResponseSchema.safeParse(mutation);
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.entry.dayType).toBeNull();
+    // A real day type still parses, and garbage is still refused.
+    expect(
+      TimeEntrySchema.safeParse({ ...mutation.entry, dayType: "sick" }).success,
+    ).toBe(true);
+    expect(
+      TimeEntrySchema.safeParse({ ...mutation.entry, dayType: "smoko" }).success,
+    ).toBe(false);
+  });
 });
 
 /* -----------------------------------------------------------------------
