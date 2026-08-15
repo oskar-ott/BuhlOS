@@ -34,17 +34,29 @@ function companyName() {
 
 // Low-level send. Returns { ok:true, id } or { ok:false, reason } where reason
 // is a stable category — never the provider's raw error body.
-async function sendEmail({ to, subject, html, text }) {
+//
+// Optional per-message fields (the timesheets→accounts send uses all three):
+//   from         a sender on the SAME verified domain that isn't EMAIL_FROM
+//                (e.g. "BuhlOS Timesheets <timesheets@buhlos.com>")
+//   replyTo      where replies land (Resend `reply_to`)
+//   attachments  [{ filename, content }] — content is base64. Attachment
+//                bytes follow the same rule as html/text: never logged.
+async function sendEmail({ to, subject, html, text, from, replyTo, attachments }) {
   if (!isEmailConfigured()) return { ok: false, reason: 'not_configured' };
   if (!to || !subject || !(html || text)) return { ok: false, reason: 'invalid_message' };
   try {
+    const message = { from: from || process.env.EMAIL_FROM, to: [to], subject, html, text };
+    if (replyTo) message.reply_to = replyTo;
+    if (Array.isArray(attachments) && attachments.length) {
+      message.attachments = attachments.map((a) => ({ filename: a.filename, content: a.content }));
+    }
     const res = await fetch(RESEND_ENDPOINT, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ from: process.env.EMAIL_FROM, to: [to], subject, html, text }),
+      body: JSON.stringify(message),
     });
     if (!res.ok) {
       const reason =

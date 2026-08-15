@@ -47,6 +47,7 @@ import {
   WeeklyCloseoutXeroFinale,
   type XeroFinaleGate,
 } from "@/components/admin/WeeklyCloseoutXeroFinale";
+import { WeeklyCloseoutSendFinale } from "@/components/admin/WeeklyCloseoutSendFinale";
 import { AmendHoursEditor, type AmendPayload } from "@/components/admin/AmendHoursEditor";
 import type { ReviewCandidate } from "@/domains/timesheets/xero-closeout";
 
@@ -152,6 +153,11 @@ export function WeeklyHoursApprovalMobile({
   const xeroPushable = Boolean(
     xeroGate?.isAdmin && xeroGate.connectionFlag && xeroGate.exportFlag,
   );
+
+  // Owner pull 2026-08-15: TIMESHEETS_EMAIL_TO set → the closeout ends by
+  // emailing the week's PDF to Tia at accounts. Outranks the Xero copy and
+  // finale while the interim process is on.
+  const accountsMode = Boolean(xeroGate?.isAdmin && xeroGate.accountsConfigured);
 
   // What the Xero finale would send: everyone with approved hours this week.
   // Derived from the closeout already in memory — the finale never refetches
@@ -501,7 +507,13 @@ export function WeeklyHoursApprovalMobile({
       ) : null}
 
       <p className="px-1 text-xs text-text-muted">
-        {xeroPushable ? (
+        {accountsMode ? (
+          <>
+            Approve here on the move, then{" "}
+            <b className="font-semibold text-text">email the week&rsquo;s timesheets to Tia</b> —
+            the pay run goes to accounts as a PDF while Xero is out of action.
+          </>
+        ) : xeroPushable ? (
           <>
             Approve here on the move, then{" "}
             <b className="font-semibold text-text">send the week to Xero as draft timesheets</b> —
@@ -1212,16 +1224,31 @@ function ReviewSheet({
         </div>
 
         {mode === "done" || !worker ? (
-          <WeeklyCloseoutXeroFinale
-            reviewedCount={ids.length}
-            weekStart={weekStart}
-            weekEnd={weekEnd}
-            periodLabel={periodLabel}
-            gate={xeroGate ?? { isAdmin: false, connectionFlag: false, exportFlag: false }}
-            candidates={xeroCandidates}
-            onClose={onClose}
-            onBusyChange={setFinaleBusy}
-          />
+          xeroGate?.isAdmin && xeroGate.accountsConfigured ? (
+            /* Owner pull 2026-08-15: while Xero is out of action the closeout
+               ends by emailing the week to accounts — TIMESHEETS_EMAIL_TO set
+               means the send finale owns this slot. */
+            <WeeklyCloseoutSendFinale
+              reviewedCount={ids.length}
+              weekStart={weekStart}
+              weekEnd={weekEnd}
+              periodLabel={periodLabel}
+              candidates={xeroCandidates}
+              onClose={onClose}
+              onBusyChange={setFinaleBusy}
+            />
+          ) : (
+            <WeeklyCloseoutXeroFinale
+              reviewedCount={ids.length}
+              weekStart={weekStart}
+              weekEnd={weekEnd}
+              periodLabel={periodLabel}
+              gate={xeroGate ?? { isAdmin: false, connectionFlag: false, exportFlag: false }}
+              candidates={xeroCandidates}
+              onClose={onClose}
+              onBusyChange={setFinaleBusy}
+            />
+          )
         ) : (
           <>
             <div className="border-b border-border px-5 pb-4 pt-3">

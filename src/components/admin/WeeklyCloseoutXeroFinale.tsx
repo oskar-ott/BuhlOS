@@ -52,6 +52,13 @@ export interface XeroFinaleGate {
   isAdmin: boolean;
   connectionFlag: boolean;
   exportFlag: boolean;
+  /**
+   * Owner pull 2026-08-15: TIMESHEETS_EMAIL_TO is set, so the temporary
+   * email-to-accounts process owns the closeout finale slot — the review sheet
+   * mounts WeeklyCloseoutSendFinale instead of this Xero finale (whatever the
+   * Xero flags say). Unset the env var and Xero gets the slot back.
+   */
+  accountsConfigured?: boolean;
 }
 
 interface Props {
@@ -369,39 +376,7 @@ export function WeeklyCloseoutXeroFinale({
             </div>
           </div>
 
-          {plan.rows.length > 0 ? (
-            <div>
-              <p className="mb-1.5 font-mono text-[9px] uppercase tracking-widest text-text-muted">
-                {plan.sendCount} {plan.sendCount === 1 ? "timesheet" : "timesheets"} ·{" "}
-                {formatHoursLabel(plan.totalHours)}
-              </p>
-              <ul className="divide-y divide-border overflow-hidden rounded-card border border-border">
-                {plan.rows.map((r) => (
-                  <li key={r.workerId} className="flex items-center gap-3 px-3 py-2.5">
-                    <span
-                      aria-hidden="true"
-                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-navy font-display text-xs font-semibold text-text-inverse"
-                    >
-                      {r.initials}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate font-display text-sm font-semibold text-text">
-                        {r.workerName}
-                      </span>
-                      {r.hasOvertime ? (
-                        <span className="block text-xs text-amber-800">
-                          incl. {formatHoursLabel(r.overtimeHours)} OT
-                        </span>
-                      ) : null}
-                    </span>
-                    <span className="shrink-0 font-display text-sm font-bold tabular-nums text-text">
-                      {formatHoursLabel(r.hours)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
+          <PushRowList plan={plan} />
 
           {/* Withheld (skip-with-warning engine): named workers whose hours
               stay OUT of this push — the push itself still goes ahead. */}
@@ -553,6 +528,46 @@ function PushedPanel({
   );
 }
 
+/** The finale's worker list — "N timesheets · total", then a row per worker.
+ *  SHARED with the send-to-accounts finale (WeeklyCloseoutSendFinale) so both
+ *  closeout endings show the boss exactly the same rows. */
+export function PushRowList({ plan }: { plan: ReviewPlan }) {
+  if (plan.rows.length === 0) return null;
+  return (
+    <div>
+      <p className="mb-1.5 font-mono text-[9px] uppercase tracking-widest text-text-muted">
+        {plan.sendCount} {plan.sendCount === 1 ? "timesheet" : "timesheets"} ·{" "}
+        {formatHoursLabel(plan.totalHours)}
+      </p>
+      <ul className="divide-y divide-border overflow-hidden rounded-card border border-border">
+        {plan.rows.map((r) => (
+          <li key={r.workerId} className="flex items-center gap-3 px-3 py-2.5">
+            <span
+              aria-hidden="true"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-navy font-display text-xs font-semibold text-text-inverse"
+            >
+              {r.initials}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-display text-sm font-semibold text-text">
+                {r.workerName}
+              </span>
+              {r.hasOvertime ? (
+                <span className="block text-xs text-amber-800">
+                  incl. {formatHoursLabel(r.overtimeHours)} OT
+                </span>
+              ) : null}
+            </span>
+            <span className="shrink-0 font-display text-sm font-bold tabular-nums text-text">
+              {formatHoursLabel(r.hours)}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 /** The replica's amber "stays out of this push" card, from the engine's own
  *  withheld findings — names are the API's, never a local guess. */
 function WithheldNotice({ workers }: { workers: ExcludedWorker[] }) {
@@ -568,7 +583,7 @@ function WithheldNotice({ workers }: { workers: ExcludedWorker[] }) {
   );
 }
 
-function ReceiptRow({ label, value, last }: { label: string; value: string; last?: boolean }) {
+export function ReceiptRow({ label, value, last }: { label: string; value: string; last?: boolean }) {
   return (
     <div
       className={cn(
@@ -582,7 +597,7 @@ function ReceiptRow({ label, value, last }: { label: string; value: string; last
   );
 }
 
-function ReviewedMark({ count, sub }: { count: number; sub?: string }) {
+export function ReviewedMark({ count, sub }: { count: number; sub?: string }) {
   return (
     <div className="flex flex-col items-center gap-3 py-2 text-center">
       <span className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
@@ -600,7 +615,7 @@ function ReviewedMark({ count, sub }: { count: number; sub?: string }) {
   );
 }
 
-function Notice({
+export function Notice({
   tone,
   title,
   children,
@@ -624,7 +639,7 @@ function Notice({
 }
 
 /** Shared sheet chrome so every finale state has the same header/body/footer. */
-function FinaleShell({
+export function FinaleShell({
   title,
   onClose,
   children,

@@ -17,6 +17,11 @@ export function sendEmail(msg: {
   subject: string;
   html?: string;
   text?: string;
+  /** Verified-domain sender overriding EMAIL_FROM for this message. */
+  from?: string;
+  replyTo?: string;
+  /** content is base64-encoded file bytes. */
+  attachments?: Array<{ filename: string; content: string }>;
 }): Promise<SendResult>;
 
 // kind ∈ invite | resend | expiredReplacement | accepted — but typed loose so

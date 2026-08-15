@@ -120,6 +120,14 @@ a pure projection over this loop; nothing below changed.
   POST finalise are **retired** (#895); `/api/time-entries-export` is read-only
   preview/download. The Xero draft-timesheet write (#249) rides its own
   `xero_payroll_export` flag — DRAFT timesheets only, no pay run.
+- **INTERIM (owner pull 2026-08-15, while the Xero push is out of action):**
+  the approved period leaves as an **email to accounts** — "Send to Tia" on
+  `/hours/period` and as the phone closeout finale emails the period PDF (the
+  same sheet as Download PDF) from `timesheets@buhlos.com` via
+  `/api/time-entries-email`. `TIMESHEETS_EMAIL_TO` is the switch: set → the
+  send surfaces render and the Xero finale steps aside; unset → Xero resumes.
+  Emailing stamps nothing; each send is journalled as
+  `hours.timesheets_emailed`.
 - **Admin reopen from the v2 UI** — API exists (`/api/time-entries-reopen`),
   surface is legacy for now.
 

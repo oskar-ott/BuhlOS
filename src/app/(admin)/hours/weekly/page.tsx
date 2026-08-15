@@ -78,6 +78,11 @@ export default async function HoursWeeklyCloseoutPage({
     isAdmin: isAdminRole(session.role),
     connectionFlag: xeroConnectionEnabled,
     exportFlag: xeroExportEnabled,
+    // Owner pull 2026-08-15: TIMESHEETS_EMAIL_TO set → the phone closeout ends
+    // at the send-to-accounts finale (the period PDF emailed to Tia) instead
+    // of the Xero push, whatever the Xero flags say. Unset it and the Xero
+    // finale takes the slot back.
+    accountsConfigured: Boolean((process.env.TIMESHEETS_EMAIL_TO || "").trim()),
   };
 
   // `?week=` is any date inside the desired week (nav links pass a Monday).
