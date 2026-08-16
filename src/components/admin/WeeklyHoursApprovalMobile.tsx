@@ -41,7 +41,9 @@ import {
   workerOrdOtSplit,
   amendDayAllocations,
   canAmendDay,
+  outstandingWeek,
   type MobileQueryReason,
+  type OutstandingWeek,
 } from "@/domains/timesheets/weekly-review";
 import {
   WeeklyCloseoutXeroFinale,
@@ -180,6 +182,15 @@ export function WeeklyHoursApprovalMobile({
   );
 
   const [overlay, setOverlay] = useState<Overlay>({});
+
+  // The send finale's wait-or-send question (owner pull 2026-08-16): what is
+  // still to come in across the WHOLE week, session decisions included — so a
+  // boss who just rejected days is told the sheet would miss them.
+  const outstanding = useMemo<OutstandingWeek>(
+    () => outstandingWeek(closeout.workers, overlay),
+    [closeout.workers, overlay],
+  );
+
   // Per-worker in-flight guard. A ref is the source of truth (synchronous, so a
   // rapid stepper can't double-fire the SAME worker), mirrored to state so the
   // buttons can disable. A GLOBAL flag would wrongly block approving worker B
@@ -552,6 +563,7 @@ export function WeeklyHoursApprovalMobile({
           periodLabel={summary.rangeLabel}
           xeroGate={xeroGate}
           xeroCandidates={xeroCandidates}
+          outstanding={outstanding}
         />
       ) : null}
 
@@ -1115,6 +1127,7 @@ function ReviewSheet({
   periodLabel,
   xeroGate,
   xeroCandidates,
+  outstanding,
 }: {
   ids: string[];
   startId: string;
@@ -1139,6 +1152,8 @@ function ReviewSheet({
   periodLabel: string;
   xeroGate?: XeroFinaleGate;
   xeroCandidates: ReviewCandidate[];
+  /** Week-wide "still to come in" counts for the send finale's wait choice. */
+  outstanding: OutstandingWeek;
 }) {
   const panelRef = useDialogFocus(true);
   const [shown, setShown] = useState(false);
@@ -1234,6 +1249,7 @@ function ReviewSheet({
               weekEnd={weekEnd}
               periodLabel={periodLabel}
               candidates={xeroCandidates}
+              outstanding={outstanding}
               onClose={onClose}
               onBusyChange={setFinaleBusy}
             />
