@@ -545,10 +545,10 @@ describe("office-tier viewer scoping (#123)", () => {
   });
 });
 
-describe("friendly worker labels (employees register beats email usernames)", () => {
-  // Invite/signup accounts are filed under their email (users.username =
-  // email); the register's firstName is the human label the boards show.
-  it("missing rows + entries + byUser resolve the register name over the email", async () => {
+describe("worker labels are FULL names, never nicknames (owner-directed 2026-08-16)", () => {
+  // Hours feed payroll, so the boards must match the payroll PDF/CSV/email —
+  // the register's "First Last", with its nickname displayName IGNORED.
+  it("missing rows + entries + byUser resolve the register FULL name over the email", async () => {
     blob.set("employees.json", {
       employees: [
         { id: "e_dyl", userId: "u_elec", firstName: "Dylan", lastName: "Smith", displayName: null },
@@ -566,15 +566,31 @@ describe("friendly worker labels (employees register beats email usernames)", ()
       totals: { byUser: Array<{ userId: string; userName: string }> };
     };
     const entry = body.entries.find((e) => e.userId === "u_elec");
-    expect(entry?.userName).toBe("Dylan");
+    expect(entry?.userName).toBe("Dylan Smith");
     const byUser = body.totals.byUser.find((r) => r.userId === "u_elec");
-    expect(byUser?.userName).toBe("Dylan");
+    expect(byUser?.userName).toBe("Dylan Smith");
     // A worker with no register row keeps the stored/username label unchanged.
     const other = body.missing.find((m) => m.userId === "u_appr");
     expect(other?.userName).toBeTruthy();
   });
 
-  it("two workers sharing a first name get the surname; unique names stay first-name-only", async () => {
+  it("a register displayName (nickname) is IGNORED — the full name shows", async () => {
+    blob.set("employees.json", {
+      employees: [
+        { id: "e_alf", userId: "u_elec", firstName: "Alfredo", lastName: "Hughes", displayName: "Alfie" },
+        { id: "e_jon", userId: "u_appr", firstName: "Jonathan", lastName: "Borg", displayName: "Mr" },
+      ],
+    });
+    const res = await overview("u_admin", "admin", {
+      fromDate: PAST_WEEKDAY,
+      toDate: PAST_WEEKDAY,
+    });
+    const missing = (res.body as { missing: Array<{ userId: string; userName: string }> }).missing;
+    expect(missing.find((m) => m.userId === "u_elec")?.userName).toBe("Alfredo Hughes");
+    expect(missing.find((m) => m.userId === "u_appr")?.userName).toBe("Jonathan Borg");
+  });
+
+  it("every worker gets the surname — unique first names are no longer shortened", async () => {
     blob.set("employees.json", {
       employees: [
         { id: "e_1", userId: "u_elec", firstName: "Dylan", lastName: "Smith", displayName: null },
@@ -589,6 +605,27 @@ describe("friendly worker labels (employees register beats email usernames)", ()
     const missing = (res.body as { missing: Array<{ userId: string; userName: string }> }).missing;
     expect(missing.find((m) => m.userId === "u_elec")?.userName).toBe("Dylan Smith");
     expect(missing.find((m) => m.userId === "u_appr")?.userName).toBe("Dylan Jones");
-    expect(missing.find((m) => m.userId === "u_lab")?.userName).toBe("Louis");
+    expect(missing.find((m) => m.userId === "u_lab")?.userName).toBe("Louis Webb");
+  });
+
+  it("no register row → the LIVE users.json full name beats the email username", async () => {
+    blob.set("users.json", {
+      users: [
+        { id: "u_admin", username: "u_admin", role: "admin", assignedJobIds: [] },
+        {
+          id: "u_elec",
+          username: "dylan@example.com",
+          name: "Dylan Smith",
+          role: "electrician",
+          assignedJobIds: ["job-x"],
+        },
+      ],
+    });
+    const res = await overview("u_admin", "admin", {
+      fromDate: PAST_WEEKDAY,
+      toDate: PAST_WEEKDAY,
+    });
+    const missing = (res.body as { missing: Array<{ userId: string; userName: string }> }).missing;
+    expect(missing.find((m) => m.userId === "u_elec")?.userName).toBe("Dylan Smith");
   });
 });
