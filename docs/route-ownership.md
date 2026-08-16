@@ -73,7 +73,11 @@ deprecated product names and must not appear in new code or UI.
 3. **`src/middleware.ts` gates the modern surfaces.** Unauthenticated access to
    a gated route → `307` redirect to `/v2/login?next=<path>`. Wrong-surface
    access (e.g. a tradie on `/command-centre`) → `307` to `landingFor(role)`.
-   Redirected legacy URLs never reach the middleware.
+   One home-route narrowing: the admin tier on `/phil/my-day` → `307` to
+   `landingFor(role)` (the installed PWA's `start_url` opens the field home
+   for everyone, but an admin's home is the office — owner pull 2026-08-16;
+   the rest of `/phil/*` stays admin-accessible for own tool-day hours, owner
+   decision 2026-08-02). Redirected legacy URLs never reach the middleware.
 
 **Consequence:** there is no URL anywhere that renders legacy UI. A bare
 `/phil` redirects to `/phil/my-day`; `/` lands by session.
@@ -113,7 +117,7 @@ Confirmed in code. These are the intended destinations for new navigation.
 
 | Route | Source | Notes |
 | --- | --- | --- |
-| `/phil/my-day` | `src/app/phil/my-day/page.tsx` | Phil **home** ("Today" tab + the hours loop). Replaces the placeholder `/v2/phil`. |
+| `/phil/my-day` | `src/app/phil/my-day/page.tsx` | Phil **home** ("Today" tab + the hours loop). Replaces the placeholder `/v2/phil`. Field/LH only in effect: the admin tier is `307`'d to its own landing (middleware + in-page, owner pull 2026-08-16) because the installed PWA opens here for everyone. |
 | `/phil/jobs` | `src/app/phil/jobs/page.tsx` | Assigned jobs list. |
 | `/phil/jobs/[jobId]` | `src/app/phil/jobs/[jobId]/page.tsx` | Job detail (identity, tags, capture, photos, simple-ITP link). |
 | `/phil/jobs/[jobId]/plans` | `.../plans/page.tsx` | Read-only Plan Viewer (Phase 1). Field sees **current revisions only** — superseded/archived never reach the field. Gated on the job's `plans` module flag. |
@@ -216,7 +220,7 @@ The legacy estate must stay dead. `scripts/check-legacy-quarantine.js`
 | `/v2/jobs/[jobId]/photos` | BuhlOS | `v2/jobs/[jobId]/photos` | AdminShell | transitional | admin/LH | hub section nav "Photos" | read-only "Job Bible" photo gallery (#242); evidence + snag + ITP/dwelling photos, date-grouped + filterable; pure read over `/api/evidence` + `/api/photos-catalog`; unauth → 307 `/v2/login` |
 | `/v2/jobs/[jobId]/plans` | BuhlOS | `v2/jobs/[jobId]/plans` | AdminShell | transitional | admin/LH | hub section nav (gated on `plans` module) | read-only Plan Viewer; current + superseded; unauth → 307 `/v2/login` |
 | `/v2/jobs/[jobId]/dayworks` | BuhlOS | `v2/jobs/[jobId]/dayworks` | AdminShell | transitional | admin/LH | dayworks rollup row drill-in | read-only per-job daywork register (#370); unsigned-aging payment-risk; data via `api/dayworks.js`; unauth → 307 `/v2/login` |
-| `/phil/my-day` | Phil | `phil/my-day` | PhilShell | canonical | field/LH | tab "Today", `landingFor(field)` | Phil home; unauth → 307 `/v2/login` |
+| `/phil/my-day` | Phil | `phil/my-day` | PhilShell | canonical | field/LH (admin tier → 307 `landingFor(role)`, owner pull 2026-08-16) | tab "Today", `landingFor(field)` | Phil home; unauth → 307 `/v2/login` |
 | `/phil/jobs` | Phil | `phil/jobs` | PhilShell | canonical | field/LH | tab "Jobs" | jobs list |
 | `/phil/jobs/[jobId]/**` | Phil | `phil/jobs/[jobId]/**` | PhilShell | canonical | field/LH | jobs list rows | job detail / ITP |
 | `/phil/jobs/[jobId]/photos` | Phil | `phil/jobs/[jobId]/photos` | PhilShell | canonical | field/LH | job detail "Open photo gallery" (hidden-until-real) | read-only "Job Bible" photo gallery (#242); own evidence + (LH+) snag/ITP photos; a tradie gets an honest "office-side" note for the catalog; unauth → 307 `/v2/login` |

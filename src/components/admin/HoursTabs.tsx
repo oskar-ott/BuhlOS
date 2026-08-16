@@ -155,6 +155,20 @@ export function HoursTabs() {
               </li>
             );
           })}
+          {/* Cross-surface link, NOT a tab (no active state): the admin's OWN
+              day is logged in the field hours flow (owner decision 2026-08-02
+              — admin staff log their tool-day hours in Phil). Needed since the
+              field home now bounces the admin tier to the office (owner pull
+              2026-08-16), so this is the office's one path into that flow. */}
+          <li className="ml-auto shrink-0 pl-4">
+            <Link
+              href={"/phil/hours" as Route}
+              data-testid="hours-log-my-own"
+              className="inline-flex items-center whitespace-nowrap border-b-2 border-transparent px-4 py-3 text-sm text-text-muted transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy"
+            >
+              Log my hours →
+            </Link>
+          </li>
         </ul>
       </div>
     </nav>
