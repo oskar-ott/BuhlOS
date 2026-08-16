@@ -4,6 +4,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Loader2, Mail } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { formatHoursLabel } from "@/domains/timesheets/format";
+import {
+  outstandingWeekLabel,
+  type OutstandingWeek,
+} from "@/domains/timesheets/weekly-review";
 import { buildReviewPlan, type ReviewCandidate } from "@/domains/timesheets/xero-closeout";
 import {
   FinaleShell,
@@ -48,6 +52,15 @@ interface Props {
   reviewedCount: number;
   /** Approved hours per worker, already computed for the crew cards. */
   candidates: ReviewCandidate[];
+  /**
+   * What's still to come in across the WHOLE week (owner pull 2026-08-16):
+   * days sent back for a fix, days not yet reviewed, days never sent in.
+   * total > 0 flips the footer to lead with "Wait for the full week" — the
+   * boss who just rejected days shouldn't email a sheet those days will miss.
+   * Send stays available (demoted): the interim email stamps nothing and a
+   * re-send is safe, so sending early is a judgement call, not an error.
+   */
+  outstanding?: OutstandingWeek;
   onClose: () => void;
   /** Raised while the send is in flight so the sheet can't be dismissed under it. */
   onBusyChange?: (busy: boolean) => void;
@@ -59,12 +72,14 @@ export function WeeklyCloseoutSendFinale({
   periodLabel,
   reviewedCount,
   candidates,
+  outstanding,
   onClose,
   onBusyChange,
 }: Props) {
   // No validation call — there is no Xero in this path. The plan is purely
   // the approved hours already on screen.
   const plan = buildReviewPlan(candidates, null);
+  const weekUnfinished = (outstanding?.total ?? 0) > 0;
 
   const [stage, setStage] = useState<Stage>("review");
   const [error, setError] = useState<string | null>(null);
@@ -180,15 +195,34 @@ export function WeeklyCloseoutSendFinale({
       footer={
         <div className="space-y-1.5">
           {plan.rows.length > 0 ? (
-            <>
-              <Button className="w-full" data-testid="wha-send-accounts" onClick={send}>
-                <Mail aria-hidden="true" className="h-4 w-4" />
-                Send to Tia
-              </Button>
-              <Button variant="ghost" className="w-full text-text-muted" onClick={onClose}>
-                Not now
-              </Button>
-            </>
+            weekUnfinished ? (
+              /* Days are still coming in — waiting is the sensible default,
+                 sending early stays one (demoted) tap away. */
+              <>
+                <Button className="w-full" data-testid="wha-send-wait" onClick={onClose}>
+                  Wait for the full week
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="w-full text-text-muted"
+                  data-testid="wha-send-accounts"
+                  onClick={send}
+                >
+                  <Mail aria-hidden="true" className="h-4 w-4" />
+                  Send anyway
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button className="w-full" data-testid="wha-send-accounts" onClick={send}>
+                  <Mail aria-hidden="true" className="h-4 w-4" />
+                  Send to Tia
+                </Button>
+                <Button variant="ghost" className="w-full text-text-muted" onClick={onClose}>
+                  Not now
+                </Button>
+              </>
+            )
           ) : (
             <Button variant="secondary" className="w-full" onClick={onClose}>
               Done
@@ -210,6 +244,16 @@ export function WeeklyCloseoutSendFinale({
         <Notice tone="danger" title="The email didn&rsquo;t send">
           {error}
         </Notice>
+      ) : null}
+
+      {weekUnfinished && outstanding && plan.rows.length > 0 ? (
+        <div data-testid="wha-send-outstanding">
+          <Notice tone="warn" title="The week isn&rsquo;t finished">
+            {outstandingWeekLabel(outstanding)}. The PDF only carries approved hours — days
+            that land later won&rsquo;t be on it. Waiting costs nothing; this screen is here
+            whenever you&rsquo;re ready.
+          </Notice>
+        </div>
       ) : null}
 
       {plan.rows.length === 0 ? (

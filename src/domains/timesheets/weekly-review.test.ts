@@ -5,6 +5,8 @@ import {
   approvedOrdOtSplit,
   CLOSEOUT_DEFAULT_REJECT_REASON,
   closeoutRejectReason,
+  outstandingWeek,
+  outstandingWeekLabel,
   reviewDayRows,
   weeklyReviewQueue,
   workerOrdOtSplit,
@@ -211,5 +213,114 @@ describe("approvedOrdOtSplit", () => {
   it("reports no overtime on a plain approved week", () => {
     const c = build([entry({ userId: "u1", date: "2024-05-20", status: "approved", totalHours: 8, overtimeHours: 0 })]);
     expect(approvedOrdOtSplit(workerById(c, "u1")).hasOvertime).toBe(false);
+  });
+});
+
+describe("outstandingWeek — the send finale's wait-or-send answer (owner pull 2026-08-16)", () => {
+  // Ended week (todayISO past Sunday) so un-logged weekdays are "missing",
+  // never the excluded "pending".
+  const ENDED = { todayISO: "2024-05-27" };
+
+  it("is all-zero on a fully approved week — the send leads", () => {
+    const c = build(
+      [
+        entry({ userId: "u1", date: "2024-05-20", status: "approved" }),
+        entry({ userId: "u2", date: "2024-05-20", status: "approved" }),
+      ],
+      [],
+      ENDED,
+    );
+    expect(outstandingWeek(c.workers, {})).toEqual({
+      sentBackDays: 0,
+      notReviewedDays: 0,
+      notInYetDays: 0,
+      total: 0,
+    });
+  });
+
+  it("counts persisted rejected days as sent back", () => {
+    const c = build(
+      [
+        entry({ userId: "u1", date: "2024-05-20", status: "rejected" }),
+        entry({ userId: "u1", date: "2024-05-21", status: "approved" }),
+      ],
+      [],
+      ENDED,
+    );
+    const o = outstandingWeek(c.workers, {});
+    expect(o.sentBackDays).toBe(1);
+    expect(o.total).toBe(1);
+  });
+
+  it("moves a queried worker's submitted days to sent back — the reject already landed server-side", () => {
+    const c = build(
+      [
+        entry({ userId: "u1", date: "2024-05-20", status: "submitted" }),
+        entry({ userId: "u1", date: "2024-05-21", status: "submitted" }),
+      ],
+      [],
+      ENDED,
+    );
+    const o = outstandingWeek(c.workers, { u1: { status: "queried" } });
+    expect(o.sentBackDays).toBe(2);
+    expect(o.notReviewedDays).toBe(0);
+  });
+
+  it("clears an overlay-approved worker's submitted days — nothing left to review there", () => {
+    const c = build([entry({ userId: "u1", date: "2024-05-20", status: "submitted" })], [], ENDED);
+    const o = outstandingWeek(c.workers, { u1: { status: "approved" } });
+    expect(o.notReviewedDays).toBe(0);
+    expect(o.total).toBe(0);
+  });
+
+  it("counts unreviewed submitted days for workers with no session decision", () => {
+    const c = build(
+      [
+        entry({ userId: "u1", date: "2024-05-20", status: "submitted" }),
+        entry({ userId: "u2", date: "2024-05-20", status: "submitted" }),
+        entry({ userId: "u2", date: "2024-05-21", status: "submitted" }),
+      ],
+      [],
+      ENDED,
+    );
+    const o = outstandingWeek(c.workers, { u1: { status: "approved" } });
+    expect(o.notReviewedDays).toBe(2); // u2 only
+  });
+
+  it("counts draft and missing days as not in yet — the worker never sent them", () => {
+    const c = build(
+      [entry({ userId: "u1", date: "2024-05-20", status: "draft" })],
+      [missing("u2", "2024-05-21")],
+      ENDED,
+    );
+    const o = outstandingWeek(c.workers, {});
+    expect(o.notInYetDays).toBe(2);
+  });
+
+  it("EXCLUDES pending days — un-logged weekdays mid-week are expected, not outstanding", () => {
+    // Week still running (today = Friday): Mon logged+approved, Tue-Thu un-logged
+    // rank as "pending" in the model, and must not flip the finale to waiting.
+    const c = build([entry({ userId: "u1", date: "2024-05-20", status: "approved" })]);
+    expect(outstandingWeek(c.workers, {}).total).toBe(0);
+  });
+});
+
+describe("outstandingWeekLabel", () => {
+  it("joins only the non-zero parts in site language, singular and plural", () => {
+    expect(
+      outstandingWeekLabel({ sentBackDays: 2, notReviewedDays: 1, notInYetDays: 0, total: 3 }),
+    ).toBe("2 days sent back for a fix · 1 day still waiting for review");
+  });
+
+  it("names days not in yet", () => {
+    expect(
+      outstandingWeekLabel({ sentBackDays: 0, notReviewedDays: 0, notInYetDays: 3, total: 3 }),
+    ).toBe("3 days not in yet");
+  });
+
+  it("is empty when nothing is outstanding", () => {
+    expect(
+      outstandingWeekLabel({ sentBackDays: 0, notReviewedDays: 0, notInYetDays: 0, total: 0 }),
+    ).toBe("");
   });
 });

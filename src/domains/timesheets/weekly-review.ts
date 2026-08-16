@@ -322,6 +322,75 @@ export function canAmendDay(day: WeeklyHoursDay, canAmend: boolean): boolean {
   return canAmend && day.status === "submitted" && day.hours != null;
 }
 
+/**
+ * What is still OUTSTANDING across the week at the send finale — the honest
+ * "is the week actually finished?" answer behind the wait-or-send choice
+ * (owner pull 2026-08-16: after rejecting days, the boss wants to wait and
+ * send only when everything is in).
+ *
+ * Day-level, computed over EVERY worker in the closeout (not just the ones
+ * stepped through) merged with the session's optimistic overlay, so the
+ * numbers are right both before and after the debounced refresh reconciles:
+ *   - sentBackDays    — rejected days waiting on the worker's fix. A worker
+ *     queried THIS session counts their (stale) submitted days here, because
+ *     the reject has already landed server-side.
+ *   - notReviewedDays — submitted days nobody has cleared yet (workers the
+ *     boss skipped or hasn't reached; an overlay entry clears them).
+ *   - notInYetDays    — draft + missing days: the worker never sent them.
+ *
+ * `pendingCount` (un-logged weekdays in a week that hasn't ended) is
+ * deliberately EXCLUDED — the model treats those as expected under weekly
+ * logging, and counting them would make every mid-week review scream.
+ */
+export interface OutstandingWeek {
+  sentBackDays: number;
+  notReviewedDays: number;
+  notInYetDays: number;
+  /** Sum of the three — 0 means the week is genuinely all in and cleared. */
+  total: number;
+}
+
+export function outstandingWeek(
+  workers: ReadonlyArray<WeeklyWorkerHours>,
+  overlay: Readonly<Record<string, { status: "approved" | "queried" } | undefined>>,
+): OutstandingWeek {
+  let sentBackDays = 0;
+  let notReviewedDays = 0;
+  let notInYetDays = 0;
+  for (const w of workers) {
+    const resolved = overlay[w.workerId]?.status;
+    sentBackDays += w.rejectedCount;
+    if (resolved === "queried") {
+      // Their submitted days were just rejected; the stale closeout still
+      // counts them under submittedCount until the refresh lands.
+      sentBackDays += w.submittedCount;
+    } else if (resolved !== "approved") {
+      notReviewedDays += w.submittedCount;
+    }
+    notInYetDays += w.draftCount + w.missingCount;
+  }
+  return {
+    sentBackDays,
+    notReviewedDays,
+    notInYetDays,
+    total: sentBackDays + notReviewedDays + notInYetDays,
+  };
+}
+
+/**
+ * One site-language line for the finale's "week isn't finished" notice —
+ * only the non-zero parts, e.g. "2 days sent back for a fix · 1 day still
+ * waiting for review". Empty string when nothing is outstanding.
+ */
+export function outstandingWeekLabel(o: OutstandingWeek): string {
+  const days = (n: number) => `${n} day${n === 1 ? "" : "s"}`;
+  const parts: string[] = [];
+  if (o.sentBackDays > 0) parts.push(`${days(o.sentBackDays)} sent back for a fix`);
+  if (o.notReviewedDays > 0) parts.push(`${days(o.notReviewedDays)} still waiting for review`);
+  if (o.notInYetDays > 0) parts.push(`${days(o.notInYetDays)} not in yet`);
+  return parts.join(" · ");
+}
+
 export interface AmendDayAllocation {
   jobId: string | null;
   /** A real job name where one is known — never a guessed label. */
