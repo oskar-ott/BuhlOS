@@ -88,7 +88,10 @@ module.exports = async (req, res) => {
   for (const e of entries) {
     const rate = rateByUserId[e.userId] || 0;
     const u = userById[e.userId];
-    const displayName = e.userName || (u && u.username) || e.userId;
+    // LIVE full name first (owner-directed 2026-08-16, matching the payroll
+    // row engine): the entry's userName is a write-time snapshot — nickname-era
+    // submissions would resurface old names on the costing table forever.
+    const displayName = (u && u.name) || e.userName || (u && u.username) || e.userId;
     if (!byUser[e.userId]) {
       byUser[e.userId] = { name: displayName, hours: 0, cost: 0, rate };
     }

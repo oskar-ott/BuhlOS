@@ -72,22 +72,27 @@ module.exports = async (req, res) => {
 
   // Friendly worker labels. Invite/signup accounts are filed under their EMAIL
   // (users.username = email), which is what the raw username fallback surfaces
-  // on the hours boards. The employees register knows the human — prefer its
-  // first name (adding the surname only when two workers share a first name).
-  // Legacy crew with name usernames have no register row and fall through
-  // unchanged.
+  // on the hours boards. FULL names, never nicknames (owner-directed
+  // 2026-08-16): hours feed payroll, so worker identity must be unambiguous —
+  // and must match the payroll PDF/CSV/email, which already print the full
+  // name. The register's "First Last" is the best source; its displayName is
+  // a NICKNAME ("Alfie", "Louie") and is deliberately IGNORED here (greeting
+  // material, not payroll identity). Workers without a register row fall
+  // through to the live users.json full name, then the stored entry snapshot,
+  // then the username.
   const nameByUserId = {};
   {
     const rows = (empBlob.employees || []).filter(e => e && e.userId && e.firstName);
-    const firstCount = {};
-    for (const e of rows) firstCount[e.firstName] = (firstCount[e.firstName] || 0) + 1;
     for (const e of rows) {
-      nameByUserId[e.userId] = e.displayName
-        || (firstCount[e.firstName] > 1 && e.lastName ? `${e.firstName} ${e.lastName}` : e.firstName);
+      nameByUserId[e.userId] = e.lastName ? `${e.firstName} ${e.lastName}` : e.firstName;
     }
   }
   const labelFor = (uid, stored) =>
-    nameByUserId[uid] || stored || (userById[uid] && userById[uid].username) || uid;
+    nameByUserId[uid]
+    || (userById[uid] && userById[uid].name)
+    || stored
+    || (userById[uid] && userById[uid].username)
+    || uid;
   const jobById  = {}; jobs.forEach(j => { jobById[j.id]   = j; });
 
   const viewerJobs = new Set(viewer.assignedJobIds || []);
