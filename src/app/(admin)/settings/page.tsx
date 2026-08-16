@@ -8,6 +8,7 @@ import {
   Clock3,
   Link2,
   ListChecks,
+  Mail,
   ShieldCheck,
   Tags,
   UserRound,
@@ -17,6 +18,7 @@ import { AdminShell } from "@/components/admin/AdminShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { HoursPolicySection } from "@/components/admin/HoursPolicySection";
 import { JobTypesSection } from "@/components/admin/JobTypesSection";
+import { TimesheetRecipientsSection } from "@/components/admin/TimesheetRecipientsSection";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { isOwnerRole } from "@/lib/auth/roles";
@@ -166,6 +168,26 @@ export default async function SettingsHubPage() {
                 </div>
               </div>
               <HoursPolicySection canEdit={canEdit} />
+            </Card>
+          </section>
+
+          {/* Owner pull 2026-08-16: the send-to-accounts recipient list. The
+              list is the SWITCH for the interim email export — see
+              api/_lib/timesheet-email-settings.js. */}
+          <section aria-label="Timesheet emails">
+            <Card className="space-y-4">
+              <div className="flex items-start gap-3">
+                <IconChip icon={Mail} />
+                <div className="min-w-0">
+                  <CardTitle className="text-base">Timesheet emails</CardTitle>
+                  <CardDescription className="mt-0.5">
+                    Who gets the approved-hours PDF when you hit Send to Tia on
+                    the pay period or the weekly closeout — the pay-run handoff
+                    while Xero is out of action.
+                  </CardDescription>
+                </div>
+              </div>
+              <TimesheetRecipientsSection canEdit={canEdit} />
             </Card>
           </section>
 

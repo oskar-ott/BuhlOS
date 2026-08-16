@@ -30,6 +30,11 @@ describe("SendTimesheetsCard", () => {
     expect(html).toContain('data-testid="period-send-accounts"');
   });
 
+  it("points at Settings, where the recipient list is managed", () => {
+    const html = render();
+    expect(html).toContain('href="/settings"');
+  });
+
   it("first render is the two-step entry — no confirm button, no receipt yet", () => {
     const html = render();
     expect(html).not.toContain('data-testid="period-send-confirm"');

@@ -32,7 +32,7 @@ import {
 type Stage = "review" | "sending" | "sent";
 
 interface SentReceipt {
-  to: string;
+  recipients: string[];
   workerCount: number;
   totalHours: number;
   sentAtLabel: string;
@@ -94,7 +94,9 @@ export function WeeklyCloseoutSendFinale({
       }
       if (!alive.current) return;
       setReceipt({
-        to: String(data?.to || "accounts"),
+        recipients: Array.isArray(data?.recipients)
+          ? (data.recipients as unknown[]).filter((r): r is string => typeof r === "string")
+          : [],
         workerCount: Number(data?.workerCount) || 0,
         totalHours: Number(data?.totalHours) || 0,
         sentAtLabel: new Date().toLocaleTimeString("en-AU", {
@@ -155,8 +157,10 @@ export function WeeklyCloseoutSendFinale({
           <p className="mx-auto max-w-[32ch] text-sm leading-relaxed text-text-muted">
             The approved-hours PDF for{" "}
             <b className="font-semibold text-text">{periodLabel}</b> is on its way to{" "}
-            <b className="font-semibold text-text">{receipt.to}</b>. Tia takes the pay run from
-            here.
+            <b className="font-semibold text-text">
+              {receipt.recipients.join(", ") || "accounts"}
+            </b>
+            . Tia takes the pay run from here.
           </p>
         </div>
 

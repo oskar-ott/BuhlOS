@@ -1,25 +1,29 @@
 // Send the pay period to accounts — the temporary export while Xero is out of
-// action (owner pull 2026-08-15).
+// action (owner pull 2026-08-15; recipients moved into Settings 2026-08-16).
 //
 // POST { fromDate, toDate } → compose the SAME approved-hours PDF the
 // Download PDF button serves (payroll-inputs collectRows → payroll-pdf) and
-// email it to the accounts inbox from timesheets@buhlos.com. Emailing a report
-// STAMPS NOTHING (payroll-boundary ADR #609: the locked batch stays the only
-// thing that records a payroll run) — this is the sheet leaving the building,
-// not a run commit. Re-sending is safe and produces a second identical email.
+// email it to the stored recipient list from timesheets@buhlos.com. Emailing a
+// report STAMPS NOTHING (payroll-boundary ADR #609: the locked batch stays the
+// only thing that records a payroll run) — this is the sheet leaving the
+// building, not a run commit. Re-sending is safe and produces a second
+// identical email.
 //
-// TIMESHEETS_EMAIL_TO is the switch for the whole temporary process:
-//   set   → the "Send to Tia" surfaces render (/hours/period card + the phone
-//           closeout finale) and this endpoint sends;
-//   unset → 503 here, the surfaces disappear, and the Xero finale gets its
-//           slot back. No feature flag, no schema — one env var to turn the
-//           interim process on and off.
+// The recipient list (api/_lib/timesheet-email-settings.js, managed on
+// /settings) is the switch for the whole temporary process:
+//   ≥1 address → the "Send to Tia" surfaces render (/hours/period card + the
+//                phone closeout finale) and this endpoint sends;
+//   empty      → 503 here, the surfaces disappear, and the Xero finale gets
+//                its slot back. No env var, no flag, no redeploy.
 //
-// Env:
-//   TIMESHEETS_EMAIL_TO        REQUIRED — the accounts inbox (Tia)
+//   GET  — the recipient list + provenance (feeds the /settings card).
+//   PUT  — replace the list ({ recipients: string[] }); validated, journalled.
+//   POST — send the period ({ fromDate, toDate }).
+//
+// Env (sender knobs only — the recipients live in the store):
 //   TIMESHEETS_EMAIL_FROM      optional sender override
 //                              (default "BuhlOS Timesheets <timesheets@buhlos.com>")
-//   TIMESHEETS_EMAIL_REPLY_TO  optional — where Tia's reply lands
+//   TIMESHEETS_EMAIL_REPLY_TO  optional — where replies land
 //   TIMESHEETS_EMAIL_TO_NAME   optional greeting name (default "Tia")
 //
 // Admin only — payroll data leaves the system here.
@@ -30,6 +34,11 @@ const { collectRows } = require('./_lib/payroll-inputs');
 const { composePayrollPdf, rollupRows } = require('./_lib/payroll-pdf');
 const { renderTimesheetsEmail } = require('./_lib/timesheets-email');
 const { isEmailConfigured, sendEmail } = require('./_lib/email');
+const {
+  normalizeRecipients,
+  readTimesheetEmailSettings,
+  writeTimesheetRecipients,
+} = require('./_lib/timesheet-email-settings');
 const auditLog = require('./_lib/audit-log');
 
 const DEFAULT_FROM = 'BuhlOS Timesheets <timesheets@buhlos.com>';
@@ -41,15 +50,59 @@ module.exports = async (req, res) => {
   const me = await requireAuth(req, res, { roles: ['admin'] });
   if (!me) return;
 
-  if (req.method !== 'POST') return res.status(405).json({ error: 'method not allowed' });
+  if (req.method === 'GET') return handleGetRecipients(res);
+  if (req.method === 'PUT') return handlePutRecipients(req, res, me);
+  if (req.method === 'POST') return handleSend(req, res, me);
+  return res.status(405).json({ error: 'method not allowed' });
+};
 
-  const to = String(process.env.TIMESHEETS_EMAIL_TO || '').trim();
-  if (!to || !isEmailConfigured()) {
-    // Honest 503, never a fake send: the UI hides its buttons off the same
-    // env var, so landing here means the deployment is half-configured.
+// ── GET — the recipient list + provenance (the /settings card's read) ────────
+async function handleGetRecipients(res) {
+  const doc = await readTimesheetEmailSettings();
+  return res.status(200).json(doc);
+}
+
+// ── PUT — replace the recipient list (add + remove both land here) ───────────
+async function handlePutRecipients(req, res, me) {
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  const n = normalizeRecipients(body.recipients);
+  if (!n.ok) return res.status(400).json({ error: n.error });
+
+  const previous = (await readTimesheetEmailSettings()).recipients;
+  const doc = await writeTimesheetRecipients(n.recipients, me);
+
+  // Journal the change — payroll data flows wherever this list points, so the
+  // audit trail must show who re-aimed it and when. Awaited-with-catch: a
+  // journal failure never fails the save.
+  await auditLog
+    .append({
+      action: 'hours.timesheets_recipients_updated',
+      actorId: me.id,
+      actorName: me.username || '',
+      actorRole: me.role || null,
+      jobId: null,
+      targetType: 'time_entry',
+      targetId: 'timesheet-email-recipients',
+      summary: `${me.username || 'someone'} set the timesheet email recipients to ${
+        n.recipients.length ? n.recipients.join(', ') : 'nobody (send switched off)'
+      }`.slice(0, 240),
+      metadata: { recipients: n.recipients, previous },
+    })
+    .catch(() => {});
+
+  return res.status(200).json(doc);
+}
+
+// ── POST — email the period PDF to the stored list ───────────────────────────
+async function handleSend(req, res, me) {
+  const recipients = (await readTimesheetEmailSettings()).recipients;
+  if (!recipients.length || !isEmailConfigured()) {
+    // Honest 503, never a fake send. The UI hides its buttons off the same
+    // list, so landing here usually means the list was emptied mid-session.
     return res.status(503).json({
-      error:
-        'Email to accounts is not configured — set TIMESHEETS_EMAIL_TO (and the Resend key) in the environment.',
+      error: !isEmailConfigured()
+        ? 'Email is not configured on the server (Resend key / sender missing).'
+        : 'No recipients yet — add at least one email address on the Settings page.',
       code: 'not_configured',
     });
   }
@@ -103,7 +156,7 @@ module.exports = async (req, res) => {
   });
 
   const sent = await sendEmail({
-    to,
+    to: recipients,
     subject: msg.subject,
     html: msg.html,
     text: msg.text,
@@ -135,7 +188,7 @@ module.exports = async (req, res) => {
       metadata: {
         fromDate: ctx.fromDate,
         toDate: ctx.toDate,
-        to,
+        recipients,
         workerCount: totals.workerCount,
         totalHours: totals.hours,
         overtimeHours: totals.overtimeHours,
@@ -146,7 +199,7 @@ module.exports = async (req, res) => {
 
   return res.status(200).json({
     sent: true,
-    to,
+    recipients,
     fromDate: ctx.fromDate,
     toDate: ctx.toDate,
     workerCount: totals.workerCount,
@@ -154,4 +207,4 @@ module.exports = async (req, res) => {
     overtimeHours: totals.overtimeHours,
     rowCount: rows.length,
   });
-};
+}

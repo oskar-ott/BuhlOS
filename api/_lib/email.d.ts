@@ -13,7 +13,8 @@ export interface SendResult {
 export function isEmailConfigured(): boolean;
 
 export function sendEmail(msg: {
-  to: string;
+  /** One address or a list — a list goes out as ONE message to all of them. */
+  to: string | string[];
   subject: string;
   html?: string;
   text?: string;

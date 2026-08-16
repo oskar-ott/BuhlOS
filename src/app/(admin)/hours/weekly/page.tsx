@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { isFlagEnabled } from "../../../../../api/_lib/feature-flags.js";
+import { readTimesheetRecipients } from "../../../../../api/_lib/timesheet-email-settings.js";
 import { HoursTabs } from "@/components/admin/HoursTabs";
 import { WeeklyHoursCloseoutBoard } from "@/components/admin/WeeklyHoursCloseoutBoard";
 import { WeeklyHoursApprovalMobile } from "@/components/admin/WeeklyHoursApprovalMobile";
@@ -78,11 +79,11 @@ export default async function HoursWeeklyCloseoutPage({
     isAdmin: isAdminRole(session.role),
     connectionFlag: xeroConnectionEnabled,
     exportFlag: xeroExportEnabled,
-    // Owner pull 2026-08-15: TIMESHEETS_EMAIL_TO set → the phone closeout ends
-    // at the send-to-accounts finale (the period PDF emailed to Tia) instead
-    // of the Xero push, whatever the Xero flags say. Unset it and the Xero
-    // finale takes the slot back.
-    accountsConfigured: Boolean((process.env.TIMESHEETS_EMAIL_TO || "").trim()),
+    // Owner pull 2026-08-15/16: recipients on /settings → the phone closeout
+    // ends at the send-to-accounts finale (the period PDF emailed to Tia)
+    // instead of the Xero push, whatever the Xero flags say. Empty the list
+    // and the Xero finale takes the slot back.
+    accountsConfigured: (await readTimesheetRecipients()).length > 0,
   };
 
   // `?week=` is any date inside the desired week (nav links pass a Monday).

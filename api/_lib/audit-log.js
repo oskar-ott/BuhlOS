@@ -218,6 +218,10 @@ const VALID_ACTIONS = new Set([
   // accounts (api/time-entries-email.js) — the temporary export while the
   // Xero push is out of action. targetId is the synthetic period:<from>:<to>.
   'hours.timesheets_emailed',
+  // 2026-08-16: the stored recipient list behind that send was changed on
+  // /settings (PUT api/time-entries-email). Payroll data flows wherever the
+  // list points, so re-aiming it is journalled with old + new in metadata.
+  'hours.timesheets_recipients_updated',
   // #370: daywork register (api/dayworks.js). daywork.created on POST;
   // daywork.signed on the supervisor sign; daywork.transitioned on the
   // signed → invoiced change (metadata.from/to carry the direction);

@@ -53,10 +53,11 @@ export interface XeroFinaleGate {
   connectionFlag: boolean;
   exportFlag: boolean;
   /**
-   * Owner pull 2026-08-15: TIMESHEETS_EMAIL_TO is set, so the temporary
-   * email-to-accounts process owns the closeout finale slot — the review sheet
-   * mounts WeeklyCloseoutSendFinale instead of this Xero finale (whatever the
-   * Xero flags say). Unset the env var and Xero gets the slot back.
+   * Owner pull 2026-08-15/16: the /settings recipient list has at least one
+   * address, so the temporary email-to-accounts process owns the closeout
+   * finale slot — the review sheet mounts WeeklyCloseoutSendFinale instead of
+   * this Xero finale (whatever the Xero flags say). Empty the list and Xero
+   * gets the slot back.
    */
   accountsConfigured?: boolean;
 }

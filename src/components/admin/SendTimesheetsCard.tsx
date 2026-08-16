@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Check, Loader2, Mail } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
@@ -12,9 +13,9 @@ import { formatHoursLabel } from "@/domains/timesheets/format";
  * document Download PDF serves) to Tia at accounts, from timesheets@buhlos.com
  * (api/time-entries-email.js).
  *
- * The page renders this ONLY when TIMESHEETS_EMAIL_TO is set — that env var is
- * the switch for the whole interim process; unset it and Xero's surfaces get
- * their slot back.
+ * The page renders this ONLY when the /settings recipient list has at least
+ * one address — that list is the switch for the whole interim process; empty
+ * it and Xero's surfaces get their slot back.
  *
  * Two-step confirm: an email to accounts is an outward-facing send, so no
  * single misclick can fire it. A not-closed period WARNS inside the confirm
@@ -24,7 +25,7 @@ import { formatHoursLabel } from "@/domains/timesheets/format";
  */
 
 interface SentReceipt {
-  to: string;
+  recipients: string[];
   workerCount: number;
   totalHours: number;
 }
@@ -74,7 +75,9 @@ export function SendTimesheetsCard({
       setPhase({
         kind: "sent",
         receipt: {
-          to: String(data?.to || "accounts"),
+          recipients: Array.isArray(data?.recipients)
+            ? (data.recipients as unknown[]).filter((r): r is string => typeof r === "string")
+            : [],
           workerCount: Number(data?.workerCount) || 0,
           totalHours: Number(data?.totalHours) || 0,
         },
@@ -93,7 +96,15 @@ export function SendTimesheetsCard({
       <CardDescription className="mt-1">
         Email the approved-hours PDF for this period straight to Tia at accounts, sent from
         timesheets@buhlos.com — the pay-run handoff while Xero is out of action. Approved hours
-        only; it&rsquo;s the same sheet as Download PDF below.
+        only; it&rsquo;s the same sheet as Download PDF below. Add or remove recipient addresses
+        in{" "}
+        <Link
+          href="/settings"
+          className="font-medium text-brand-navy underline underline-offset-2"
+        >
+          Settings
+        </Link>
+        .
       </CardDescription>
 
       {phase.kind === "sent" ? (
@@ -107,7 +118,7 @@ export function SendTimesheetsCard({
             Sent — {phase.receipt.workerCount}{" "}
             {phase.receipt.workerCount === 1 ? "worker" : "workers"},{" "}
             {formatHoursLabel(phase.receipt.totalHours)} emailed to{" "}
-            <b className="font-semibold">{phase.receipt.to}</b>.
+            <b className="font-semibold">{phase.receipt.recipients.join(", ") || "accounts"}</b>.
           </span>
         </p>
       ) : null}

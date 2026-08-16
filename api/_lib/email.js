@@ -43,9 +43,12 @@ function companyName() {
 //                bytes follow the same rule as html/text: never logged.
 async function sendEmail({ to, subject, html, text, from, replyTo, attachments }) {
   if (!isEmailConfigured()) return { ok: false, reason: 'not_configured' };
-  if (!to || !subject || !(html || text)) return { ok: false, reason: 'invalid_message' };
+  // `to` may be one address or a list (the timesheets send goes to every
+  // stored recipient in ONE message, so accounts sees who else got it).
+  const toList = (Array.isArray(to) ? to : [to]).filter(Boolean);
+  if (!toList.length || !subject || !(html || text)) return { ok: false, reason: 'invalid_message' };
   try {
-    const message = { from: from || process.env.EMAIL_FROM, to: [to], subject, html, text };
+    const message = { from: from || process.env.EMAIL_FROM, to: toList, subject, html, text };
     if (replyTo) message.reply_to = replyTo;
     if (Array.isArray(attachments) && attachments.length) {
       message.attachments = attachments.map((a) => ({ filename: a.filename, content: a.content }));

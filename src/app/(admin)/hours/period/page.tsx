@@ -4,6 +4,7 @@ import { cookies, headers } from "next/headers";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { isFlagEnabled } from "../../../../../api/_lib/feature-flags.js";
+import { readTimesheetRecipients } from "../../../../../api/_lib/timesheet-email-settings.js";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -85,11 +86,12 @@ export default async function HoursPeriodPage({
   // #249: the draft-timesheet EXPORT actions ride an independent write flag.
   // Dark means the panel shows batches but no Export/Retry/Reconcile controls.
   const xeroExportEnabled = await isFlagEnabled("xero_payroll_export", session);
-  // Owner pull 2026-08-15: while the Xero push is out of action the pay run is
-  // EMAILED to accounts as the period PDF. TIMESHEETS_EMAIL_TO is the switch —
-  // set → the Send-to-Tia card renders here (and the phone closeout ends the
-  // same way); unset → it disappears and Xero resumes. No feature flag.
-  const accountsEmailConfigured = Boolean((process.env.TIMESHEETS_EMAIL_TO || "").trim());
+  // Owner pull 2026-08-15/16: while the Xero push is out of action the pay run
+  // is EMAILED to accounts as the period PDF. The recipient list managed on
+  // /settings is the switch — ≥1 address → the Send-to-Tia card renders here
+  // (and the phone closeout ends the same way); empty → it disappears and
+  // Xero resumes. No feature flag, no env var.
+  const accountsEmailConfigured = (await readTimesheetRecipients()).length > 0;
   if (!isAdminRole(session.role)) {
     redirect("/hours/weekly");
   }
