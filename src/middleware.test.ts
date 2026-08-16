@@ -147,6 +147,39 @@ describe("middleware — Phil surfaces are field/LH only", () => {
   });
 });
 
+describe("middleware — the field HOME bounces the admin tier to the office (owner pull 2026-08-16)", () => {
+  // The installed PWA opens /phil/my-day for everyone (manifest start_url).
+  // Without this rule an admin's phone always opens the worker experience —
+  // the director read that as "my account is still an employee one".
+  it.each(["admin", "boss", "manager", "office", "pm", "estimator"])(
+    "redirects %s off /phil/my-day to /command-centre",
+    (role) => {
+      const target = redirectTarget(middleware(request("/phil/my-day", { role })));
+      expect(target?.pathname).toBe("/command-centre");
+      expect(target?.next).toBeNull(); // home bounce clears the query, same as wrong-surface
+    },
+  );
+
+  it("redirects the owner off /phil/my-day to the Owner Console (landingFor checks owner first)", () => {
+    const target = redirectTarget(middleware(request("/phil/my-day", { role: "owner" })));
+    expect(target?.pathname).toBe("/owner");
+  });
+
+  it.each(["tradie", "electrician", "apprentice", "labourer", "subcontractor", "leadinghand"])(
+    "still lets %s through /phil/my-day (field/LH home unchanged)",
+    (role) => {
+      expect(isPassThrough(middleware(request("/phil/my-day", { role })))).toBe(true);
+    },
+  );
+
+  it.each(["/phil/hours", "/phil/gear", "/phil/jobs"])(
+    "still lets an admin through %s (own tool-day hours, owner decision 2026-08-02)",
+    (pathname) => {
+      expect(isPassThrough(middleware(request(pathname, { role: "admin" })))).toBe(true);
+    },
+  );
+});
+
 describe("middleware — /v2/jobs admin-review surface (admin OR leading hand)", () => {
   it("lets a leading hand through /v2/jobs (LH read-only enforced in-page)", () => {
     expect(isPassThrough(middleware(request("/v2/jobs", { role: "lh" })))).toBe(true);

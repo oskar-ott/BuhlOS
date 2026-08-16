@@ -24,10 +24,15 @@ import { BUSINESS_TIMEZONE, localDateString } from "@/domains/timesheets/service
  *     feature.
  */
 
-const COOKIE_VALUE =
-  Buffer.from(JSON.stringify({ userId: "u-sparky", role: "electrician" })).toString(
-    "base64url",
-  ) + ".test-signature";
+function cookieFor(role: string): string {
+  return (
+    Buffer.from(JSON.stringify({ userId: "u-sparky", role })).toString("base64url") +
+    ".test-signature"
+  );
+}
+// Mutable so the admin-bounce test can swap the session role; the
+// next/headers mock reads it at call time. beforeEach restores the default.
+let COOKIE_VALUE = cookieFor("electrician");
 
 vi.mock("next/headers", () => ({
   cookies: async () => ({
@@ -133,6 +138,7 @@ function entriesBody() {
 }
 
 beforeEach(() => {
+  COOKIE_VALUE = cookieFor("electrician");
   inProcess.user = { role: "electrician", name: "Sam Payne" };
   inProcess.entries = entriesBody().entries;
   inProcess.jobs = [
@@ -157,6 +163,28 @@ async function renderPage(fixDate?: string): Promise<string> {
   });
   return renderToString(jsx);
 }
+
+describe("/phil/my-day — the admin tier is bounced to the office (owner pull 2026-08-16)", () => {
+  // Belt-and-braces with src/middleware.ts (which owns the authoritative 307,
+  // pinned in src/middleware.test.ts): the installed PWA opens here for
+  // everyone, but an admin's home is the office. The mocked redirect() throws,
+  // so the bounce surfaces as that throw — before any data loader runs.
+  it("redirects an admin session to /command-centre", async () => {
+    COOKIE_VALUE = cookieFor("admin");
+    await expect(renderPage()).rejects.toThrow("unexpected redirect to /command-centre");
+  });
+
+  it("redirects an owner session to /owner (landingFor checks owner first)", async () => {
+    COOKIE_VALUE = cookieFor("owner");
+    await expect(renderPage()).rejects.toThrow("unexpected redirect to /owner");
+  });
+
+  it("does NOT bounce a leading hand — field-tier home unchanged", async () => {
+    COOKIE_VALUE = cookieFor("leadinghand");
+    const html = await renderPage();
+    expect(html).toContain('data-testid="phil-my-day-sharpened"');
+  });
+});
 
 describe("sharpened /phil/my-day — one hours affordance", () => {
   it("renders the Log-hours tile but NOT the old week strip or day-logger form", async () => {

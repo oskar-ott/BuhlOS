@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { decodeSessionCookie, SESSION_COOKIE } from "@/lib/auth/session";
 import { canAccessSurface, type Surface } from "@/lib/auth/permissions";
 import { landingFor } from "@/lib/auth/landing";
+import { isAdminRole } from "@/lib/auth/roles";
 
 /**
  * Phase A + B + C + D1 + D4 route gating.
@@ -23,6 +24,9 @@ import { landingFor } from "@/lib/auth/landing";
  *                                                     LH read-only enforced in page)
  *   /phil/my-day, /phil/hours, /phil/gear, /phil/jobs → field roles or LH
  *                                                       (Phase B + C + D1)
+ *   Admin tier ON Phil: allowed everywhere EXCEPT the field home —
+ *   /phil/my-day 307s the admin tier to landingFor(role), because the
+ *   installed PWA opens there for everyone (owner pull 2026-08-16).
  *   /v2/login              → always public
  *   /                      → not gated; src/app/page.tsx decides at render time
  */
@@ -91,6 +95,21 @@ export function middleware(req: NextRequest) {
   }
 
   if (!canAccessSurface(session.role, gate.surface)) {
+    const url = req.nextUrl.clone();
+    url.pathname = landingFor(session.role);
+    url.search = "";
+    return NextResponse.redirect(url);
+  }
+
+  // The field HOME is the one Phil route the admin tier is bounced OFF — to
+  // their own landing (/command-centre; owner → /owner). The installed PWA
+  // opens /phil/my-day for EVERYONE (manifest.json start_url), so without
+  // this an admin's phone always opens the worker experience, which reads as
+  // "my account is an employee one" (owner pull, 2026-08-16: the director's
+  // phone must open the admin view). The REST of /phil/* stays admin-
+  // accessible — admin staff log their own tool-day hours in the field hours
+  // flow (owner decision 2026-08-02) via the office's "Log my hours" link.
+  if (gate.prefix === "/phil/my-day" && isAdminRole(session.role)) {
     const url = req.nextUrl.clone();
     url.pathname = landingFor(session.role);
     url.search = "";

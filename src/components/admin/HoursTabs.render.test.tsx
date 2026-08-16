@@ -58,6 +58,19 @@ describe("HoursTabs (#415, weekly-first)", () => {
     expect(html).not.toContain(">Approvals<");
   });
 
+  it("carries the cross-surface 'Log my hours' link into the field hours flow — a link, never a tab", () => {
+    // Admin staff log their OWN tool-day hours in Phil (owner decision
+    // 2026-08-02); since the field home bounces the admin tier to the office
+    // (owner pull 2026-08-16), this is the office's one path into that flow.
+    const html = render("/hours/weekly");
+    expect(html).toContain('data-testid="hours-log-my-own"');
+    expect(html).toContain('href="/phil/hours"');
+    expect(html).toContain("Log my hours");
+    // Never active: it is not one of this section's tabs.
+    const link = html.match(/<a[^>]*data-testid="hours-log-my-own"[^>]*>/)?.[0] ?? "";
+    expect(link).not.toContain('aria-current');
+  });
+
   it("marks exactly one tab active per tab route via aria-current", () => {
     expect(activeTab(render("/hours/weekly"))).toBe("This week");
     expect(activeTab(render("/hours/today"))).toBe("Today");

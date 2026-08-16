@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import type { Route } from "next";
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import {
@@ -23,6 +24,8 @@ import {
   type SessionPayload,
 } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
+import { isAdminRole } from "@/lib/auth/roles";
+import { landingFor } from "@/lib/auth/landing";
 import { parseTimeEntryListLenient } from "@/domains/timesheets/parse-entries";
 import type { TimeEntry } from "@/domains/timesheets/types";
 import {
@@ -104,9 +107,17 @@ export default async function MyDayPage({
     redirect("/v2/login?next=/phil/my-day");
   }
   if (!canAccessSurface(session.role, "phil")) {
-    // Wrong-surface visitor (e.g. an admin opens Phil directly) lands back on /v2/login.
+    // Wrong-surface visitor (e.g. a client opens Phil directly) lands back on /v2/login.
     // The middleware will route them to their proper landing once they re-auth.
     redirect("/v2/login");
+  }
+  if (isAdminRole(session.role)) {
+    // Belt-and-braces with src/middleware.ts: the installed PWA opens HERE for
+    // everyone (manifest start_url), but an admin's home is the office (owner
+    // pull 2026-08-16). Admin tier keeps the rest of Phil (own tool-day hours,
+    // owner decision 2026-08-02) — only the field home bounces. The `as Route`
+    // cast matches src/app/page.tsx — landingFor() returns dynamic paths.
+    redirect(landingFor(session.role) as Route);
   }
 
   // ?fixDate=YYYY-MM-DD — landing from a "Hours rejected" push notification,
