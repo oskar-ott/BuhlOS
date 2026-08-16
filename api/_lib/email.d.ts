@@ -13,10 +13,16 @@ export interface SendResult {
 export function isEmailConfigured(): boolean;
 
 export function sendEmail(msg: {
-  to: string;
+  /** One address or a list — a list goes out as ONE message to all of them. */
+  to: string | string[];
   subject: string;
   html?: string;
   text?: string;
+  /** Verified-domain sender overriding EMAIL_FROM for this message. */
+  from?: string;
+  replyTo?: string;
+  /** content is base64-encoded file bytes. */
+  attachments?: Array<{ filename: string; content: string }>;
 }): Promise<SendResult>;
 
 // kind ∈ invite | resend | expiredReplacement | accepted — but typed loose so

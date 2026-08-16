@@ -193,6 +193,11 @@ describe("AuditLogEntrySchema", () => {
       "hours.reopened",
       "hours.resubmitted",
       "hours.submitted",
+      // Owner pull 2026-08-15: the period PDF emailed to accounts while the
+      // Xero push is out of action ('timesheets' sorts after 'submitted').
+      "hours.timesheets_emailed",
+      // 2026-08-16: the recipient list behind that send changed on /settings.
+      "hours.timesheets_recipients_updated",
       // #332: induction register (backfilled sorts before confirmed).
       "induction.backfilled",
       "induction.confirmed",

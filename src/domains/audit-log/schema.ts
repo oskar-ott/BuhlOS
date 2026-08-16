@@ -194,6 +194,13 @@ export const AUDIT_ACTIONS = [
   // hours and approved it in ONE action (api/time-entries-amend-approve.js).
   // Kept in sync with api/_lib/audit-log.js.
   "hours.amended_approved",
+  // Owner pull 2026-08-15: the period's approved-hours PDF was emailed to
+  // accounts (api/time-entries-email.js) — the temporary export while the
+  // Xero push is out of action. Kept in sync with api/_lib/audit-log.js.
+  "hours.timesheets_emailed",
+  // 2026-08-16: the stored recipient list behind that send was changed on
+  // /settings. Kept in sync with api/_lib/audit-log.js.
+  "hours.timesheets_recipients_updated",
   // #370: daywork register (api/dayworks.js). daywork.created on POST;
   // daywork.signed on the supervisor sign; daywork.transitioned on the
   // signed → invoiced change (metadata.from/to); daywork.amended when a
