@@ -6,13 +6,14 @@ import { AdminShell } from "@/components/admin/AdminShell";
 import { isFlagEnabled } from "../../../../../api/_lib/feature-flags.js";
 import { readTimesheetRecipients } from "../../../../../api/_lib/timesheet-email-settings.js";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
-import { Pill } from "@/components/ui/Pill";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { AttentionBanner } from "@/components/ui/AttentionBanner";
 import { HoursTabs } from "@/components/admin/HoursTabs";
-import { PeriodPayrollExport } from "@/components/admin/PeriodPayrollExport";
-import { PayrollBatchPanel } from "@/components/admin/PayrollBatchPanel";
+import { PayRunCard } from "@/components/admin/PayRunCard";
+import { PeriodStatTiles } from "@/components/admin/PeriodStatTiles";
+import { PreviewLinksRow } from "@/components/admin/PreviewLinksRow";
+import { ReadinessStrip } from "@/components/admin/ReadinessStrip";
 import { SendTimesheetsCard } from "@/components/admin/SendTimesheetsCard";
+import { WorkerRollupTable } from "@/components/admin/WorkerRollupTable";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { isAdminRole } from "@/lib/auth/roles";
@@ -23,7 +24,7 @@ import {
   weekEndOf,
   weekStartOf,
 } from "@/domains/timesheets/service";
-import { formatDateLabel, formatHoursLabel } from "@/domains/timesheets/format";
+import { formatDateLabel } from "@/domains/timesheets/format";
 import {
   buildWeeklyHoursCloseout,
   type WeeklyHoursCloseout,
@@ -37,7 +38,6 @@ import {
   summarisePeriodReadiness,
   toPayPeriodRows,
   workerActionMap,
-  type PayPeriodKind,
   type PayPeriodRange,
 } from "@/domains/timesheets/pay-period-view";
 
@@ -46,23 +46,19 @@ export const dynamic = "force-dynamic";
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
- * /hours/period — the Xero-ready payroll preview across a pay period (#131).
+ * /hours/period — the pay-week payroll page (#131; owner redesign 2026-08-16,
+ * "BuhlOS Hours Replica").
  *
- * The weekly board (/hours/weekly) closes ONE Mon–Sun week; this is the
- * payroll roll-up over a period — by default the SAME Mon–Sun week (pay runs
- * weekly), with fortnight/custom as look-back options. Pick a period, see
- * approved hours rolled up by worker with the
- * ordinary/overtime split, what isn't yet in a committed run, and which
- * workers have no Xero employee id — the office's pre-push check.
+ * The weekly board (/hours/weekly) DECIDES days; this page RUNS the pay week:
+ * readiness strip → the four headline tiles → the pay-run card (Send to Tia
+ * while Xero is out of action; the 3-step batch flow when the Xero flags are
+ * on) → the per-worker rollup. Pay runs weekly, Monday to Sunday (#1013) —
+ * the fortnight toggle is gone from the UI (the owner's own design); any
+ * other range is the Custom… disclosure, a plain GET form.
  *
- * NO Xero here (payroll-boundary ADR #609): it reads the EXISTING export
- * dry-run rows and reuses the weekly-closeout engine for readiness. No second
- * calculation engine, no writes, no OAuth. Earnings classes are ordinary +
- * overtime only — travel/allowance/earnings-rate ids are deferred (#129/#611),
- * not faked.
- *
- * Admin-tier only: the content derives from the admin-only export endpoint, so
- * leading hands are sent to the board they can act on.
+ * Same engines as before (payroll-boundary ADR #609): the export dry-run rows
+ * and the weekly-closeout readiness engine — no second calculation engine.
+ * Admin-tier only: the content derives from the admin-only export endpoint.
  */
 export default async function HoursPeriodPage({
   searchParams,
@@ -80,11 +76,10 @@ export default async function HoursPeriodPage({
   }
   // #760: Hours kill-switch — hide the office surface when the owner turns it off.
   if (!(await isFlagEnabled("hours", session))) notFound();
-  // #893/#894: the Xero-ready payroll-batch panel rides the xero_connection
-  // flag — dark means the panel simply doesn't render (CSV export unaffected).
+  // #893/#894: the payroll-batch flow rides the xero_connection flag — dark
+  // means the PayRunCard simply doesn't render (downloads unaffected).
   const xeroBatchesEnabled = await isFlagEnabled("xero_connection", session);
-  // #249: the draft-timesheet EXPORT actions ride an independent write flag.
-  // Dark means the panel shows batches but no Export/Retry/Reconcile controls.
+  // #249: the draft-timesheet SEND rides an independent write flag.
   const xeroExportEnabled = await isFlagEnabled("xero_payroll_export", session);
   // Owner pull 2026-08-15/16: while the Xero push is out of action the pay run
   // is EMAILED to accounts as the period PDF. The recipient list managed on
@@ -99,24 +94,21 @@ export default async function HoursPeriodPage({
   const sp = await searchParams;
   const today = localDateString(new Date(), BUSINESS_TIMEZONE);
 
-  // Resolve the period. Custom needs a valid ordered range, else we fall back
-  // to a week and say so. Week/fortnight anchor on a date in the last week.
-  // Default is a WEEK — pay runs weekly (owner-corrected 2026-08-10; the
-  // original fortnight default never matched the real pay cycle). Fortnight
-  // stays as an opt-in look-back toggle.
+  // Resolve the range. Pay runs WEEKLY, Monday to Sunday — a `?period=`
+  // param other than a valid custom range resolves to the week around the
+  // anchor (the old fortnight links land on the week of their anchor).
   const requestedCustom = sp.period === "custom";
   const customValid = requestedCustom && isValidRange(sp.from ?? "", sp.to ?? "");
-  const kind: PayPeriodKind = sp.period === "fortnight" ? "fortnight" : "week";
   const anchorParam = sp.anchor && ISO.test(sp.anchor) ? sp.anchor : today;
 
   let range: PayPeriodRange;
-  let mode: "week" | "fortnight" | "custom";
+  let mode: "week" | "custom";
   if (customValid) {
     range = { fromDate: sp.from!, toDate: sp.to! };
     mode = "custom";
   } else {
-    range = payPeriodRangeFor(kind, anchorParam);
-    mode = kind;
+    range = payPeriodRangeFor("week", anchorParam);
+    mode = "week";
   }
   const customFellBack = requestedCustom && !customValid;
 
@@ -141,14 +133,7 @@ export default async function HoursPeriodPage({
   const actions = workerActionMap(closeouts);
 
   const rangeLabel = `${formatDateLabel(range.fromDate)} – ${formatDateLabel(range.toDate)}`;
-  // Finalise gates must match the SERVER's eligible-row semantics: the POST
-  // finalise blocks on unmapped workers among NOT-YET-EXPORTED rows only (never
-  // period-wide). Scope the UI counts the same way so the button is never
-  // stricter than the endpoint (an already-exported, unmapped worker must not
-  // disable a legitimate new-hours run).
-  const eligibleWorkers = rollup.workers.filter((w) => w.unexportedApprovedHours > 0);
-  const eligibleWorkerCount = eligibleWorkers.length;
-  const unmappedEligibleWorkerCount = eligibleWorkers.filter((w) => !w.xeroMapped).length;
+  const unmapped = rollup.summary.unmappedWorkerCount;
 
   return (
     <AdminShell
@@ -167,81 +152,72 @@ export default async function HoursPeriodPage({
         <Card>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <CardTitle>Pay period</CardTitle>
-              <CardDescription className="mt-1">{rangeLabel}</CardDescription>
+              <CardTitle>Pay week</CardTitle>
+              <CardDescription className="mt-1">
+                {mode === "week" ? `${rangeLabel} · Monday to Sunday` : rangeLabel}
+              </CardDescription>
             </div>
-            <div className="flex items-center gap-1">
-              <PeriodModeLink mode="week" current={mode} anchor={navAnchor} label="Week" />
-              <PeriodModeLink mode="fortnight" current={mode} anchor={navAnchor} label="Fortnight" />
-            </div>
+            {mode === "week" ? (
+              <div className="flex flex-wrap items-center gap-1">
+                <PeriodNavLink
+                  anchor={shiftAnchor("week", navAnchor, -1)}
+                  label="Previous week"
+                  icon={<ArrowLeft aria-hidden="true" className="h-4 w-4" />}
+                />
+                <Link
+                  href={{ pathname: "/hours/period", query: { period: "week" } }}
+                  className="rounded-card border border-border px-3 py-2 text-xs font-medium text-text hover:border-brand-navy"
+                >
+                  This week
+                </Link>
+                <PeriodNavLink
+                  anchor={shiftAnchor("week", navAnchor, 1)}
+                  label="Next week"
+                  icon={<ArrowRight aria-hidden="true" className="h-4 w-4" />}
+                />
+              </div>
+            ) : null}
           </div>
 
-          {mode !== "custom" ? (
-            <div className="mt-3 flex items-center gap-1">
-              <PeriodNavLink
-                period={mode}
-                anchor={shiftAnchor(mode, navAnchor, -1)}
-                label={`Previous ${mode}`}
-                icon={<ArrowLeft aria-hidden="true" className="h-4 w-4" />}
-              />
-              <Link
-                href={{ pathname: "/hours/period", query: { period: mode } }}
+          {/* Custom range — a plain GET form behind a no-JS disclosure. */}
+          <details open={mode === "custom"} className="mt-3">
+            <summary className="inline-block cursor-pointer list-none rounded-card border border-border px-3 py-2 text-xs font-medium text-text-muted hover:border-brand-navy hover:text-text [&::-webkit-details-marker]:hidden">
+              Custom range…
+            </summary>
+            <form
+              method="get"
+              action="/hours/period"
+              className="mt-3 flex flex-wrap items-end gap-2 border-t border-border pt-3"
+            >
+              <input type="hidden" name="period" value="custom" />
+              <label htmlFor="period-from" className="text-xs text-text-muted">
+                From
+                <input
+                  id="period-from"
+                  type="date"
+                  name="from"
+                  defaultValue={range.fromDate}
+                  className="mt-1 block rounded-card border border-border px-2 py-1.5 text-sm text-text"
+                />
+              </label>
+              <label htmlFor="period-to" className="text-xs text-text-muted">
+                To
+                <input
+                  id="period-to"
+                  type="date"
+                  name="to"
+                  defaultValue={range.toDate}
+                  className="mt-1 block rounded-card border border-border px-2 py-1.5 text-sm text-text"
+                />
+              </label>
+              <button
+                type="submit"
                 className="rounded-card border border-border px-3 py-2 text-xs font-medium text-text hover:border-brand-navy"
               >
-                {mode === "week" ? "This week" : "This fortnight"}
-              </Link>
-              <PeriodNavLink
-                period={mode}
-                anchor={shiftAnchor(mode, navAnchor, 1)}
-                label={`Next ${mode}`}
-                icon={<ArrowRight aria-hidden="true" className="h-4 w-4" />}
-              />
-            </div>
-          ) : null}
-
-          {/* Custom range — a plain GET form, no client JS. */}
-          <form method="get" action="/hours/period" className="mt-3 flex flex-wrap items-end gap-2">
-            <input type="hidden" name="period" value="custom" />
-            <label htmlFor="period-from" className="text-xs text-text-muted">
-              From
-              <input
-                id="period-from"
-                type="date"
-                name="from"
-                defaultValue={range.fromDate}
-                className="mt-1 block rounded-card border border-border px-2 py-1.5 text-sm text-text"
-              />
-            </label>
-            <label htmlFor="period-to" className="text-xs text-text-muted">
-              To
-              <input
-                id="period-to"
-                type="date"
-                name="to"
-                defaultValue={range.toDate}
-                className="mt-1 block rounded-card border border-border px-2 py-1.5 text-sm text-text"
-              />
-            </label>
-            <button
-              type="submit"
-              className="rounded-card border border-border px-3 py-2 text-xs font-medium text-text hover:border-brand-navy"
-            >
-              Apply custom range
-            </button>
-          </form>
-
-          <CardDescription className="mt-3">
-            Approved hours only, rolled up for payroll. Ordinary and overtime
-            only — this is the pre-Xero preview; no hours are sent anywhere from
-            here. Decide submitted or missing days on the{" "}
-            <Link
-              href="/hours/weekly"
-              className="underline decoration-accent-yellow decoration-2 underline-offset-2"
-            >
-              weekly closeout board
-            </Link>
-            .
-          </CardDescription>
+                Apply
+              </button>
+            </form>
+          </details>
           {customFellBack ? (
             <p className="mt-2 text-xs text-amber-900">
               That custom range wasn&rsquo;t valid — showing this week instead.
@@ -275,43 +251,13 @@ export default async function HoursPeriodPage({
           />
         ) : (
           <>
-            {!readiness.fullyClosed ? (
-              <AttentionBanner
-                chip="Not closed"
-                tone="warning"
-                title={`${readiness.workersNeedingAction} worker(s) still have undecided days in this period.`}
-                description="Approved totals below will change once those days are decided."
-                cta={
-                  <Link
-                    href="/hours/weekly"
-                    className="underline decoration-accent-yellow decoration-2 underline-offset-2"
-                  >
-                    Open the weekly closeout board →
-                  </Link>
-                }
-              />
-            ) : null}
+            <ReadinessStrip
+              fullyClosed={readiness.fullyClosed}
+              workersNeedingAction={readiness.workersNeedingAction}
+              weeksTotal={readiness.weeksTotal}
+            />
 
-            <Card>
-              <CardTitle>Approved this period</CardTitle>
-              <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <Metric label="Approved hours" value={rollup.summary.approvedHours} />
-                <Metric label="Ordinary" value={rollup.summary.ordinaryHours} />
-                <Metric label="Overtime" value={rollup.summary.overtimeHours} />
-                <Metric label="Not yet exported" value={rollup.summary.unexportedApprovedHours} />
-              </div>
-              <CardDescription className="mt-3">
-                {rollup.summary.workerCount} worker(s) ·{" "}
-                {rollup.summary.unmappedWorkerCount > 0 ? (
-                  <span className="text-amber-900">
-                    {rollup.summary.unmappedWorkerCount} without a Xero employee id
-                  </span>
-                ) : (
-                  "all have a Xero employee id set"
-                )}
-                . &ldquo;Not yet exported&rdquo; = approved hours not in a committed payroll run.
-              </CardDescription>
-            </Card>
+            <PeriodStatTiles summary={rollup.summary} />
 
             {accountsEmailConfigured ? (
               <SendTimesheetsCard
@@ -323,102 +269,34 @@ export default async function HoursPeriodPage({
               />
             ) : null}
 
-            <PeriodPayrollExport
-              fromDate={range.fromDate}
-              toDate={range.toDate}
-              unexportedApprovedHours={rollup.summary.unexportedApprovedHours}
-              eligibleWorkerCount={eligibleWorkerCount}
-              unmappedEligibleWorkerCount={unmappedEligibleWorkerCount}
-              notClosed={!readiness.fullyClosed}
-            />
-
             {xeroBatchesEnabled ? (
-              <PayrollBatchPanel
+              <PayRunCard
                 fromDate={range.fromDate}
                 toDate={range.toDate}
+                notClosed={!readiness.fullyClosed}
                 exportEnabled={xeroExportEnabled}
               />
-            ) : null}
+            ) : (
+              /* No batch flow on this deployment — the read-only previews
+                 still need a home (the dryRun=1 invariant lives on). */
+              <Card>
+                <p className="text-xs text-text-muted">
+                  <PreviewLinksRow fromDate={range.fromDate} toDate={range.toDate} />
+                </p>
+              </Card>
+            )}
 
-            <Card className="overflow-x-auto p-0">
-              <table className="w-full min-w-[40rem] text-left text-sm">
-                <thead>
-                  <tr className="border-b border-border bg-surface-subtle font-mono text-[10px] uppercase tracking-[.08em] text-text-muted">
-                    <th className="px-4 py-3 font-medium">Worker</th>
-                    <th className="px-2 py-3 text-right font-medium">Approved</th>
-                    <th className="px-2 py-3 text-right font-medium">Ord</th>
-                    <th className="px-2 py-3 text-right font-medium">OT</th>
-                    <th className="px-2 py-3 text-right font-medium">Not exp</th>
-                    <th className="px-2 py-3 font-medium">Xero</th>
-                    <th className="px-4 py-3 font-medium">Readiness</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rollup.workers.map((w) => {
-                    const action = actions.get(w.workerId);
-                    const needsAction = action?.needsAction ?? false;
-                    return (
-                      <tr key={w.workerId} className="border-b border-border/60 last:border-b-0">
-                        <td className="px-4 py-3">
-                          <span className="block font-display text-sm font-semibold text-text">
-                            {w.workerName}
-                          </span>
-                          <span className="block text-[11px] text-text-muted">
-                            {w.approvedDayCount} day(s)
-                          </span>
-                        </td>
-                        <td className="px-2 py-3 text-right tabular-nums text-text">
-                          {formatHoursLabel(w.approvedHours)}
-                        </td>
-                        <td className="px-2 py-3 text-right tabular-nums text-text-muted">
-                          {formatHoursLabel(w.ordinaryHours)}
-                        </td>
-                        <td className="px-2 py-3 text-right tabular-nums text-text-muted">
-                          {w.overtimeHours > 0 ? formatHoursLabel(w.overtimeHours) : "—"}
-                        </td>
-                        <td className="px-2 py-3 text-right tabular-nums">
-                          {w.unexportedApprovedHours > 0 ? (
-                            <span className="text-amber-900">
-                              {formatHoursLabel(w.unexportedApprovedHours)}
-                            </span>
-                          ) : (
-                            <span className="text-text-muted">0h</span>
-                          )}
-                        </td>
-                        <td className="px-2 py-3">
-                          {w.xeroMapped ? (
-                            <span className="inline-flex items-center gap-1.5 text-xs text-emerald-800">
-                              <span
-                                aria-hidden="true"
-                                className="h-2 w-2 rounded-full bg-state-success"
-                              />
-                              set
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1.5 text-xs text-amber-900">
-                              <span
-                                aria-hidden="true"
-                                className="h-2 w-2 rounded-full bg-state-warning"
-                              />
-                              No Xero id
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          {needsAction ? (
-                            <Pill tone="warning">
-                              Needs action{action ? ` (${action.blockingWeeks} wk)` : ""}
-                            </Pill>
-                          ) : (
-                            <Pill tone="success">Ready</Pill>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </Card>
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between px-1">
+                <h2 className="font-display text-sm font-semibold text-text">By worker</h2>
+                <span className="font-mono text-[10px] uppercase tracking-widest text-text-muted">
+                  {rollup.summary.workerCount}{" "}
+                  {rollup.summary.workerCount === 1 ? "worker" : "workers"}
+                  {unmapped > 0 ? ` · ${unmapped} without a Xero id` : " · all Xero ids set"}
+                </span>
+              </div>
+              <WorkerRollupTable rollup={rollup} actions={actions} />
+            </div>
           </>
         )}
       </div>
@@ -426,58 +304,18 @@ export default async function HoursPeriodPage({
   );
 }
 
-function Metric({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-card border border-border bg-surface-subtle px-3 py-2.5">
-      <div className="text-xs text-text-muted">{label}</div>
-      <div className="mt-0.5 font-display text-lg font-semibold tabular-nums text-text">
-        {formatHoursLabel(value)}
-      </div>
-    </div>
-  );
-}
-
-function PeriodModeLink({
-  mode,
-  current,
-  anchor,
-  label,
-}: {
-  mode: "week" | "fortnight";
-  current: "week" | "fortnight" | "custom";
-  anchor: string;
-  label: string;
-}) {
-  const active = current === mode;
-  return (
-    <Link
-      href={{ pathname: "/hours/period", query: { period: mode, anchor } }}
-      aria-current={active ? "true" : undefined}
-      className={
-        active
-          ? "rounded-card border border-brand-navy bg-brand-navy px-3 py-2 text-xs font-semibold text-text-inverse"
-          : "rounded-card border border-border px-3 py-2 text-xs font-medium text-text hover:border-brand-navy"
-      }
-    >
-      {label}
-    </Link>
-  );
-}
-
 function PeriodNavLink({
-  period,
   anchor,
   label,
   icon,
 }: {
-  period: "week" | "fortnight";
   anchor: string;
   label: string;
   icon: React.ReactNode;
 }) {
   return (
     <Link
-      href={{ pathname: "/hours/period", query: { period, anchor } }}
+      href={{ pathname: "/hours/period", query: { period: "week", anchor } }}
       aria-label={label}
       title={label}
       className="rounded-card border border-border p-2 text-text-muted hover:border-brand-navy hover:text-text"
