@@ -7,6 +7,7 @@ import { isFlagEnabled } from "../../../../../api/_lib/feature-flags.js";
 import { readTimesheetRecipients } from "../../../../../api/_lib/timesheet-email-settings.js";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
+import { RefreshButton } from "@/components/ui/RefreshButton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { AttentionBanner } from "@/components/ui/AttentionBanner";
 import { HoursTabs } from "@/components/admin/HoursTabs";
@@ -150,18 +151,11 @@ export default async function HoursPeriodPage({
   const eligibleWorkerCount = eligibleWorkers.length;
   const unmappedEligibleWorkerCount = eligibleWorkers.filter((w) => !w.xeroMapped).length;
 
+  // No breadcrumb: the old "← Hours overview" pointed at a page that no
+  // longer exists (/hours redirects to the weekly board); HoursTabs is the
+  // section navigation.
   return (
-    <AdminShell
-      title="Hours · pay period"
-      breadcrumb={
-        <Link
-          href="/hours"
-          className="underline decoration-accent-yellow decoration-2 underline-offset-2"
-        >
-          ← Hours overview
-        </Link>
-      }
-    >
+    <AdminShell title="Hours · pay period">
       <HoursTabs />
       <div className="mx-auto max-w-4xl space-y-4">
         <Card>
@@ -250,18 +244,21 @@ export default async function HoursPeriodPage({
         </Card>
 
         {fetchError ? (
-          <Card>
+          <Card className="border-amber-200 bg-amber-50" role="alert">
             <CardTitle>Couldn&rsquo;t load this period</CardTitle>
-            <CardDescription className="mt-1">
-              {fetchError}. Reload the page to try again.
+            <CardDescription className="mt-1 text-amber-900">
+              {fetchError}. Nothing was changed — reload to try again.
             </CardDescription>
+            <div className="mt-3">
+              <RefreshButton />
+            </div>
           </Card>
         ) : rollup.workers.length === 0 ? (
           <EmptyState
             title="No approved hours in this period"
             description={
               readiness.workersNeedingAction > 0
-                ? `${readiness.workersNeedingAction} worker(s) have undecided days — approve them on the weekly board and they'll appear here.`
+                ? `${readiness.workersNeedingAction} ${readiness.workersNeedingAction === 1 ? "worker has" : "workers have"} undecided days — approve them on This week and they'll appear here.`
                 : "Nothing has been approved for these dates yet."
             }
             action={
@@ -279,7 +276,7 @@ export default async function HoursPeriodPage({
               <AttentionBanner
                 chip="Not closed"
                 tone="warning"
-                title={`${readiness.workersNeedingAction} worker(s) still have undecided days in this period.`}
+                title={`${readiness.workersNeedingAction} ${readiness.workersNeedingAction === 1 ? "worker still has" : "workers still have"} undecided days in this period.`}
                 description="Approved totals below will change once those days are decided."
                 cta={
                   <Link
@@ -301,7 +298,8 @@ export default async function HoursPeriodPage({
                 <Metric label="Not yet exported" value={rollup.summary.unexportedApprovedHours} />
               </div>
               <CardDescription className="mt-3">
-                {rollup.summary.workerCount} worker(s) ·{" "}
+                {rollup.summary.workerCount}{" "}
+                {rollup.summary.workerCount === 1 ? "worker" : "workers"} ·{" "}
                 {rollup.summary.unmappedWorkerCount > 0 ? (
                   <span className="text-amber-900">
                     {rollup.summary.unmappedWorkerCount} without a Xero employee id
@@ -348,7 +346,7 @@ export default async function HoursPeriodPage({
                     <th className="px-2 py-3 text-right font-medium">Approved</th>
                     <th className="px-2 py-3 text-right font-medium">Ord</th>
                     <th className="px-2 py-3 text-right font-medium">OT</th>
-                    <th className="px-2 py-3 text-right font-medium">Not exp</th>
+                    <th className="px-2 py-3 text-right font-medium">Not exported</th>
                     <th className="px-2 py-3 font-medium">Xero</th>
                     <th className="px-4 py-3 font-medium">Readiness</th>
                   </tr>
@@ -364,7 +362,7 @@ export default async function HoursPeriodPage({
                             {w.workerName}
                           </span>
                           <span className="block text-[11px] text-text-muted">
-                            {w.approvedDayCount} day(s)
+                            {w.approvedDayCount} {w.approvedDayCount === 1 ? "day" : "days"}
                           </span>
                         </td>
                         <td className="px-2 py-3 text-right tabular-nums text-text">

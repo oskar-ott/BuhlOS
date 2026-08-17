@@ -45,11 +45,13 @@ export default async function HoursApprovalsPage() {
     <AdminShell
       title="Hours · approvals"
       breadcrumb={
+        // Approvals has no tab slot (weekly-first directive), so this is the
+        // way back to the section's home surface — the weekly board.
         <Link
-          href="/hours"
+          href="/hours/weekly"
           className="underline decoration-accent-yellow decoration-2 underline-offset-2"
         >
-          ← Hours overview
+          ← Back to This week
         </Link>
       }
     >
@@ -59,8 +61,10 @@ export default async function HoursApprovalsPage() {
         <Card>
           <CardTitle>Submitted entries</CardTitle>
           <CardDescription>
-            Grouped by worker. Approve to push to payroll prep, or reject with a reason — the worker
-            gets a push notification with the reason in it.
+            Every day still waiting on a decision, across all weeks, grouped by
+            worker. Approve to push to payroll prep, or reject with a reason —
+            the worker gets a push notification with the reason in it. The same
+            days also appear on This week, week by week.
           </CardDescription>
         </Card>
 

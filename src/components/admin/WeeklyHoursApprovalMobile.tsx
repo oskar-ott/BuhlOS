@@ -21,6 +21,7 @@ import { useDialogFocus } from "@/components/ui/useDialogFocus";
 import { WeekShapeStrip } from "@/components/admin/WeekShapeStrip";
 import { timesheetsClient } from "@/domains/timesheets/client";
 import { formatHoursLabel } from "@/domains/timesheets/format";
+import { addDays } from "@/domains/timesheets/service";
 import { workerStrip } from "@/domains/timesheets/pay-run";
 import {
   submittedWeekSelection,
@@ -612,6 +613,17 @@ export function WeeklyHoursApprovalMobile({
 /* ── Header + week nav ───────────────────────────────────────────────── */
 
 function Header({ weekNav, rangeLabel }: { weekNav: WeekNav; rangeLabel: string }) {
+  // Orientation: the bare URL deliberately opens the LAST complete week, so
+  // name the viewed week's relation to today rather than leaving the range
+  // to be parsed. Viewed Monday = prevWeek + 7 (the nav maths inverted).
+  const viewedStart = addDays(weekNav.prevWeek, 7);
+  const relation = weekNav.isCurrentWeek
+    ? null // the "This week" pill below already says it
+    : viewedStart === addDays(weekNav.currentWeek, -7)
+      ? "Last week"
+      : viewedStart > weekNav.currentWeek
+        ? "Upcoming"
+        : null;
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-2">
@@ -626,6 +638,7 @@ function Header({ weekNav, rangeLabel }: { weekNav: WeekNav; rangeLabel: string 
       </div>
       <div className="flex items-center gap-2">
         <span className="font-mono text-xs text-text-muted">{rangeLabel}</span>
+        {relation ? <Pill tone="neutral">{relation}</Pill> : null}
         {!weekNav.isCurrentWeek ? (
           <Link
             href={{ pathname: HOURS_WEEKLY, query: { week: weekNav.currentWeek } }}
