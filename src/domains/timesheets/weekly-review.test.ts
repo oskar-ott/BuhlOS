@@ -234,6 +234,7 @@ describe("outstandingWeek — the send finale's wait-or-send answer (owner pull 
       sentBackDays: 0,
       notReviewedDays: 0,
       notInYetDays: 0,
+      actionableDays: 0,
       total: 0,
     });
   });
@@ -297,6 +298,34 @@ describe("outstandingWeek — the send finale's wait-or-send answer (owner pull 
     expect(o.notInYetDays).toBe(2);
   });
 
+  it("not-in-yet days are NEVER actionable — crew on holiday must not hold the send (owner call 2026-08-17)", () => {
+    // The live case: everyone submitted is approved; two guys are away and
+    // never logged. The email must lead, with the gap named as FYI only.
+    const c = build(
+      [entry({ userId: "u1", date: "2024-05-20", status: "approved" })],
+      [missing("u2", "2024-05-21"), missing("u3", "2024-05-22")],
+      ENDED,
+    );
+    const o = outstandingWeek(c.workers, {});
+    expect(o.notInYetDays).toBe(2);
+    expect(o.actionableDays).toBe(0);
+    expect(o.total).toBe(2);
+  });
+
+  it("sent-back and unreviewed days ARE actionable — they hold the send", () => {
+    const c = build(
+      [
+        entry({ userId: "u1", date: "2024-05-20", status: "rejected" }),
+        entry({ userId: "u2", date: "2024-05-20", status: "submitted" }),
+      ],
+      [missing("u3", "2024-05-21")],
+      ENDED,
+    );
+    const o = outstandingWeek(c.workers, {});
+    expect(o.actionableDays).toBe(2); // rejected + unreviewed; the missing day is FYI
+    expect(o.total).toBe(3);
+  });
+
   it("EXCLUDES pending days — un-logged weekdays mid-week are expected, not outstanding", () => {
     // Week still running (today = Friday): Mon logged+approved, Tue-Thu un-logged
     // rank as "pending" in the model, and must not flip the finale to waiting.
@@ -308,19 +337,37 @@ describe("outstandingWeek — the send finale's wait-or-send answer (owner pull 
 describe("outstandingWeekLabel", () => {
   it("joins only the non-zero parts in site language, singular and plural", () => {
     expect(
-      outstandingWeekLabel({ sentBackDays: 2, notReviewedDays: 1, notInYetDays: 0, total: 3 }),
+      outstandingWeekLabel({
+        sentBackDays: 2,
+        notReviewedDays: 1,
+        notInYetDays: 0,
+        actionableDays: 3,
+        total: 3,
+      }),
     ).toBe("2 days sent back for a fix · 1 day still waiting for review");
   });
 
   it("names days not in yet", () => {
     expect(
-      outstandingWeekLabel({ sentBackDays: 0, notReviewedDays: 0, notInYetDays: 3, total: 3 }),
+      outstandingWeekLabel({
+        sentBackDays: 0,
+        notReviewedDays: 0,
+        notInYetDays: 3,
+        actionableDays: 0,
+        total: 3,
+      }),
     ).toBe("3 days not in yet");
   });
 
   it("is empty when nothing is outstanding", () => {
     expect(
-      outstandingWeekLabel({ sentBackDays: 0, notReviewedDays: 0, notInYetDays: 0, total: 0 }),
+      outstandingWeekLabel({
+        sentBackDays: 0,
+        notReviewedDays: 0,
+        notInYetDays: 0,
+        actionableDays: 0,
+        total: 0,
+      }),
     ).toBe("");
   });
 });
