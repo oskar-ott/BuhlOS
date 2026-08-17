@@ -338,6 +338,13 @@ export function canAmendDay(day: WeeklyHoursDay, canAmend: boolean): boolean {
  *     boss skipped or hasn't reached; an overlay entry clears them).
  *   - notInYetDays    — draft + missing days: the worker never sent them.
  *
+ * `actionableDays` (sent-back + not-reviewed) is what HOLDS the send: those
+ * days are mid-flight — a fix is coming back, or the boss hasn't decided.
+ * `notInYetDays` is informational ONLY (owner call 2026-08-17): crew on
+ * holiday who never submit are NORMAL, their days will never arrive, and
+ * waiting on them would block every real pay run — the finale names them
+ * but sends first.
+ *
  * `pendingCount` (un-logged weekdays in a week that hasn't ended) is
  * deliberately EXCLUDED — the model treats those as expected under weekly
  * logging, and counting them would make every mid-week review scream.
@@ -346,7 +353,9 @@ export interface OutstandingWeek {
   sentBackDays: number;
   notReviewedDays: number;
   notInYetDays: number;
-  /** Sum of the three — 0 means the week is genuinely all in and cleared. */
+  /** sentBackDays + notReviewedDays — the days that hold the send. */
+  actionableDays: number;
+  /** Sum of all three — 0 means the week is genuinely all in and cleared. */
   total: number;
 }
 
@@ -373,6 +382,7 @@ export function outstandingWeek(
     sentBackDays,
     notReviewedDays,
     notInYetDays,
+    actionableDays: sentBackDays + notReviewedDays,
     total: sentBackDays + notReviewedDays + notInYetDays,
   };
 }

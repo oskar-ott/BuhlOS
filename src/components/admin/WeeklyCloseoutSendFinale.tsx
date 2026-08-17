@@ -55,9 +55,11 @@ interface Props {
   /**
    * What's still to come in across the WHOLE week (owner pull 2026-08-16):
    * days sent back for a fix, days not yet reviewed, days never sent in.
-   * total > 0 flips the footer to lead with "Wait for the full week" — the
-   * boss who just rejected days shouldn't email a sheet those days will miss.
-   * Send stays available (demoted): the interim email stamps nothing and a
+   * Only ACTIONABLE days (sent-back + not-reviewed) flip the footer to lead
+   * with "Wait for the full week" — those days are mid-flight and will land.
+   * Days never sent in (crew on holiday — normal, owner call 2026-08-17) get
+   * an FYI notice but never hold the send: they'd block every real pay run.
+   * Send always stays available: the interim email stamps nothing and a
    * re-send is safe, so sending early is a judgement call, not an error.
    */
   outstanding?: OutstandingWeek;
@@ -79,7 +81,10 @@ export function WeeklyCloseoutSendFinale({
   // No validation call — there is no Xero in this path. The plan is purely
   // the approved hours already on screen.
   const plan = buildReviewPlan(candidates, null);
-  const weekUnfinished = (outstanding?.total ?? 0) > 0;
+  // Days mid-flight (sent back / not reviewed) lead with waiting; days that
+  // will never arrive (holiday crew) only inform.
+  const holdsSend = (outstanding?.actionableDays ?? 0) > 0;
+  const notInYet = outstanding?.notInYetDays ?? 0;
 
   const [stage, setStage] = useState<Stage>("review");
   const [error, setError] = useState<string | null>(null);
@@ -195,16 +200,18 @@ export function WeeklyCloseoutSendFinale({
       footer={
         <div className="space-y-1.5">
           {plan.rows.length > 0 ? (
-            weekUnfinished ? (
-              /* Days are still coming in — waiting is the sensible default,
-                 sending early stays one (demoted) tap away. */
+            holdsSend ? (
+              /* Fixes are coming back — waiting is the sensible default.
+                 Sending early is a REAL button (secondary, not ghost): the
+                 boss must always be able to find it (2026-08-17 — a demoted
+                 ghost read as "can't send" on the very first live pay run). */
               <>
                 <Button className="w-full" data-testid="wha-send-wait" onClick={onClose}>
                   Wait for the full week
                 </Button>
                 <Button
-                  variant="ghost"
-                  className="w-full text-text-muted"
+                  variant="secondary"
+                  className="w-full"
                   data-testid="wha-send-accounts"
                   onClick={send}
                 >
@@ -246,12 +253,23 @@ export function WeeklyCloseoutSendFinale({
         </Notice>
       ) : null}
 
-      {weekUnfinished && outstanding && plan.rows.length > 0 ? (
+      {holdsSend && outstanding && plan.rows.length > 0 ? (
         <div data-testid="wha-send-outstanding">
           <Notice tone="warn" title="The week isn&rsquo;t finished">
             {outstandingWeekLabel(outstanding)}. The PDF only carries approved hours — days
             that land later won&rsquo;t be on it. Waiting costs nothing; this screen is here
             whenever you&rsquo;re ready.
+          </Notice>
+        </div>
+      ) : null}
+
+      {!holdsSend && notInYet > 0 && plan.rows.length > 0 ? (
+        /* Crew who never sent a week in — holiday, away, or just didn't log.
+           Normal (owner call 2026-08-17), so it informs and never holds. */
+        <div data-testid="wha-send-fyi">
+          <Notice tone="muted" title="Not everyone&rsquo;s week is here">
+            {notInYet} day{notInYet === 1 ? "" : "s"} never came in — crew on holiday or
+            nothing logged. The sheet carries approved hours only, so it sends without them.
           </Notice>
         </div>
       ) : null}

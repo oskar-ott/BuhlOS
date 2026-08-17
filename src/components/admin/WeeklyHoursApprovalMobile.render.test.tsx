@@ -136,6 +136,72 @@ describe("WeeklyHoursApprovalMobile (render)", () => {
     expect(html).not.toContain("Start weekly closeout");
   });
 
+  it("the reviewed card OPENS the send screen when accounts email is on — never a dead end (2026-08-17)", () => {
+    // The live pay-run stranding: everything approved, the boss closed the
+    // finale, and the green card offered no way back to Send.
+    const closeout = buildWeeklyHoursCloseout({
+      entries: [
+        entry({ userId: "u1", date: "2024-05-20", userName: "Ari Boland", status: "approved" }),
+      ],
+      missing: [],
+      weekStart: WEEK_START,
+      todayISO: TODAY,
+    });
+    const html = strip(
+      renderToString(
+        createElement(WeeklyHoursApprovalMobile, {
+          closeout,
+          weekNav: WEEK_NAV,
+          canUndo: true,
+          fetchError: null,
+          xeroGate: {
+            isAdmin: true,
+            connectionFlag: false,
+            exportFlag: false,
+            accountsConfigured: true,
+          },
+        }),
+      ),
+    );
+    expect(html).toContain('data-testid="wha-open-finale"');
+    expect(html).toContain("Open the send screen");
+  });
+
+  it("keeps the plain reviewed card when there is nowhere to send (no email, no push)", () => {
+    const html = render([
+      entry({ userId: "u1", date: "2024-05-20", userName: "Ari Boland", status: "approved" }),
+    ]);
+    expect(html).not.toContain('data-testid="wha-open-finale"');
+  });
+
+  it("offers no send entry when nothing is approved — an empty sheet would be a false promise", () => {
+    const closeout = buildWeeklyHoursCloseout({
+      entries: [
+        entry({ userId: "u1", date: "2024-05-20", userName: "Ari Boland", status: "rejected" }),
+      ],
+      missing: [],
+      weekStart: WEEK_START,
+      todayISO: TODAY,
+    });
+    const html = strip(
+      renderToString(
+        createElement(WeeklyHoursApprovalMobile, {
+          closeout,
+          weekNav: WEEK_NAV,
+          canUndo: true,
+          fetchError: null,
+          xeroGate: {
+            isAdmin: true,
+            connectionFlag: false,
+            exportFlag: false,
+            accountsConfigured: true,
+          },
+        }),
+      ),
+    );
+    expect(html).not.toContain('data-testid="wha-open-finale"');
+  });
+
   it("gives a submitted week inline Approve + Query, under 'To approve'", () => {
     const html = render([
       entry({ userId: "u1", date: "2024-05-20", userName: "Rhys Kelly", status: "submitted" }),

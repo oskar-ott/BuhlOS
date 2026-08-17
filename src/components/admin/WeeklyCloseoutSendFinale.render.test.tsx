@@ -77,15 +77,23 @@ describe("WeeklyCloseoutSendFinale", () => {
 });
 
 describe("WeeklyCloseoutSendFinale — wait-or-send (owner pull 2026-08-16)", () => {
+  // Rejected + unreviewed days are ACTIONABLE — fixes are mid-flight.
   const unfinished = {
-    outstanding: { sentBackDays: 2, notReviewedDays: 1, notInYetDays: 0, total: 3 },
+    outstanding: {
+      sentBackDays: 2,
+      notReviewedDays: 1,
+      notInYetDays: 0,
+      actionableDays: 3,
+      total: 3,
+    },
   };
 
-  it("days still outstanding → the wait choice LEADS and send is demoted to 'Send anyway'", () => {
+  it("actionable days outstanding → the wait choice LEADS; send is a REAL secondary button", () => {
     const html = render(unfinished);
     expect(html).toContain('data-testid="wha-send-wait"');
     expect(html).toContain("Wait for the full week");
-    // Send stays available — the interim email stamps nothing — but demoted.
+    // Send stays findable — a ghost read as "can't send" on the first live
+    // pay run (2026-08-17), so it must render as a bordered button.
     expect(html).toContain('data-testid="wha-send-accounts"');
     expect(html).toContain("Send anyway");
     expect(html).not.toContain("Send to Tia</button>");
@@ -101,13 +109,41 @@ describe("WeeklyCloseoutSendFinale — wait-or-send (owner pull 2026-08-16)", ()
     expect(html).toContain("days that land later won’t be on it");
   });
 
-  it("a finished week keeps today's layout — Send to Tia leads, no warning", () => {
+  it("crew away all week (not-in-yet only) → Send to Tia LEADS with an FYI, never a wait wall (owner call 2026-08-17)", () => {
+    // The live pay-run case: guys on holiday never submit — normal. Their
+    // days will never arrive, so waiting on them would block every send.
     const html = render({
-      outstanding: { sentBackDays: 0, notReviewedDays: 0, notInYetDays: 0, total: 0 },
+      outstanding: {
+        sentBackDays: 0,
+        notReviewedDays: 0,
+        notInYetDays: 5,
+        actionableDays: 0,
+        total: 5,
+      },
     });
     expect(html).toContain("Send to Tia");
     expect(html).not.toContain('data-testid="wha-send-wait"');
     expect(html).not.toContain('data-testid="wha-send-outstanding"');
+    expect(html).toContain('data-testid="wha-send-fyi"');
+    expect(html).toContain("Not everyone’s week is here");
+    expect(html).toContain("5 days never came in");
+    expect(html).toContain("it sends without them");
+  });
+
+  it("a finished week keeps today's layout — Send to Tia leads, no notices", () => {
+    const html = render({
+      outstanding: {
+        sentBackDays: 0,
+        notReviewedDays: 0,
+        notInYetDays: 0,
+        actionableDays: 0,
+        total: 0,
+      },
+    });
+    expect(html).toContain("Send to Tia");
+    expect(html).not.toContain('data-testid="wha-send-wait"');
+    expect(html).not.toContain('data-testid="wha-send-outstanding"');
+    expect(html).not.toContain('data-testid="wha-send-fyi"');
   });
 
   it("no outstanding prop (desktop caller / older mount) → unchanged send-first face", () => {

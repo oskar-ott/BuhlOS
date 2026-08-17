@@ -118,7 +118,10 @@ interface OverlayEntry {
 }
 type Overlay = Record<string, OverlayEntry>;
 
-type SheetMode = "review" | "query";
+/** "done" opens the sheet STRAIGHT at the finale — the re-entry path once
+ *  every timesheet is reviewed (2026-08-17: with nothing left to approve the
+ *  green card was a dead end, stranding the boss one screen short of Send). */
+type SheetMode = "review" | "query" | "done";
 
 interface Toast {
   id: number;
@@ -448,6 +451,17 @@ export function WeeklyHoursApprovalMobile({
         allReady={summary.allReady}
         crewCount={summary.crewCount}
         onStart={() => openReview(pending.map((w) => w.workerId), pending[0]!.workerId, false)}
+        onOpenFinale={
+          xeroCandidates.length > 0 && (accountsMode || xeroPushable)
+            ? () =>
+                openReview(
+                  xeroCandidates.map((c) => c.workerId),
+                  xeroCandidates[0]!.workerId,
+                  false,
+                  "done",
+                )
+            : undefined
+        }
       />
 
       {/* To approve — the actionable weeks. */}
@@ -721,22 +735,48 @@ function ReviewCTA({
   allReady,
   crewCount,
   onStart,
+  onOpenFinale,
 }: {
   pendingCount: number;
   allReady: boolean;
   crewCount: number;
   onStart: () => void;
+  /** Set when there are approved hours AND somewhere to send them (accounts
+   *  email or a live Xero push) — the reviewed card then opens the finale
+   *  instead of dead-ending (2026-08-17: the boss was stranded one screen
+   *  short of Send once everything was approved). */
+  onOpenFinale?: () => void;
 }) {
   if (pendingCount === 0) {
+    const head = allReady && crewCount > 0 ? "Week reviewed" : "Nothing to review";
+    if (onOpenFinale) {
+      return (
+        <button
+          type="button"
+          data-testid="wha-open-finale"
+          onClick={onOpenFinale}
+          className="flex w-full items-center gap-3 rounded-card border border-emerald-200 bg-emerald-50 px-4 py-3.5 text-left active:translate-y-px"
+        >
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-card bg-state-success text-text-inverse">
+            <Check aria-hidden="true" className="h-5 w-5" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block font-display text-[15px] font-bold text-emerald-900">{head}</span>
+            <span className="block text-xs text-emerald-800">
+              Everything submitted is cleared. Open the send screen when you&rsquo;re ready.
+            </span>
+          </span>
+          <ChevronRight aria-hidden="true" className="h-5 w-5 shrink-0 text-emerald-900" />
+        </button>
+      );
+    }
     return (
       <div className="flex items-center gap-3 rounded-card border border-emerald-200 bg-emerald-50 px-4 py-3.5">
         <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-card bg-state-success text-text-inverse">
           <Check aria-hidden="true" className="h-5 w-5" />
         </span>
         <div className="min-w-0">
-          <p className="font-display text-[15px] font-bold text-emerald-900">
-            {allReady && crewCount > 0 ? "Week reviewed" : "Nothing to review"}
-          </p>
+          <p className="font-display text-[15px] font-bold text-emerald-900">{head}</p>
           <p className="text-xs text-emerald-800">
             Every submitted week is cleared for the payroll run.
           </p>
