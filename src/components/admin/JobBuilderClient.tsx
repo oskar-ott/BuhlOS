@@ -64,7 +64,11 @@ import {
   type ReadinessIssue,
   type TaskRowForm,
 } from "@/domains/jobs/builder";
-import { JobBuilderCockpit, type CockpitNavGroup, type CockpitSectionStatus } from "./JobBuilderCockpit";
+import {
+  JobBuilderCockpit,
+  type CockpitNavGroup,
+  type CockpitSectionStatus,
+} from "./JobBuilderCockpit";
 import { Inspector, type InspectorRow } from "./Inspector";
 import { validateJobBasics } from "@/domains/jobs/validate";
 import { statusLabel, statusTone } from "@/domains/jobs/format";
@@ -242,7 +246,13 @@ const COCKPIT_GROUPS: ReadonlyArray<{ heading: string; keys: ReadonlyArray<TabKe
  */
 const DELIVER_LINKS: Record<
   DeliverKey,
-  { label: string; desc: string; path: (jobId: string) => string; module?: keyof JobModules; external?: boolean }
+  {
+    label: string;
+    desc: string;
+    path: (jobId: string) => string;
+    module?: keyof JobModules;
+    external?: boolean;
+  }
 > = {
   plans: {
     label: "Plans & documents",
@@ -251,9 +261,12 @@ const DELIVER_LINKS: Record<
     module: "plans",
   },
   materials: {
-    label: "Materials",
-    desc: "Field material requests — approve & order, then confirm delivery.",
-    path: (id) => `/v2/jobs/${id}/material-requests`,
+    // 2026-08-23 audit (M2): this used to link /material-requests, a route
+    // the 2026-07 gut deleted — a dead link. The materials surface that exists
+    // is the office spend ledger on the job page (docs/job-materials-spend.md).
+    label: "Materials spend",
+    desc: "What's been bought for this job — the office spend ledger on the job page (admin only; feeds the Money card).",
+    path: (id) => `/v2/jobs/${id}#materials`,
     module: "materials",
   },
   gear: {
@@ -496,9 +509,12 @@ export function JobBuilderClient({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ id: savedJob.id, mode }),
       });
-      const body = (await res.json().catch(() => null)) as
-        | { ok?: boolean; changed?: boolean; summary?: GenerationSummary; error?: string }
-        | null;
+      const body = (await res.json().catch(() => null)) as {
+        ok?: boolean;
+        changed?: boolean;
+        summary?: GenerationSummary;
+        error?: string;
+      } | null;
       if (!res.ok || !body?.ok) {
         setGenError((body && body.error) || `Generation failed (${res.status})`);
         return;
@@ -906,13 +922,15 @@ export function JobBuilderClient({
             <ul className="mt-3 space-y-1.5">
               {readiness.blockers.slice(0, 3).map((b) => (
                 <li key={b.code} className="flex items-start gap-2 text-sm text-state-danger">
-                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" /> {b.message}
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />{" "}
+                  {b.message}
                 </li>
               ))}
             </ul>
           ) : (
             <p className="mt-3 inline-flex items-center gap-1.5 text-sm text-state-success">
-              <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> No blockers — clear to publish.
+              <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> No blockers — clear to
+              publish.
             </p>
           )}
         </Card>
@@ -928,8 +946,8 @@ export function JobBuilderClient({
             <p className="mt-2 text-sm text-text-muted">
               {struct.areaCount} area{struct.areaCount === 1 ? "" : "s"} ·{" "}
               {struct.roughInTaskCount + struct.fitOffTaskCount} job-level task template
-              {struct.roughInTaskCount + struct.fitOffTaskCount === 1 ? "" : "s"} · {fieldTools} field
-              tool{fieldTools === 1 ? "" : "s"} on.
+              {struct.roughInTaskCount + struct.fitOffTaskCount === 1 ? "" : "s"} · {fieldTools}{" "}
+              field tool{fieldTools === 1 ? "" : "s"} on.
               {preview.isVisibleToField
                 ? " Published — visible to assigned crew."
                 : " Draft — office-only."}
@@ -1118,9 +1136,9 @@ export function JobBuilderClient({
             <div>
               <CardTitle>Generate tasks from rules</CardTitle>
               <CardDescription className="mt-1">
-                Fill every empty area that matches a rule with its task lists — a
-                reviewed starting point, never auto-published. Non-empty areas are
-                left alone unless you choose to merge.{" "}
+                Fill every empty area that matches a rule with its task lists — a reviewed starting
+                point, never auto-published. Non-empty areas are left alone unless you choose to
+                merge.{" "}
                 <a
                   href="/settings/task-rules"
                   className="font-medium text-brand-navy underline underline-offset-2"
@@ -1145,7 +1163,10 @@ export function JobBuilderClient({
             </p>
           ) : null}
           {genError ? (
-            <p role="alert" className="mt-2 rounded-card border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+            <p
+              role="alert"
+              className="mt-2 rounded-card border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800"
+            >
               {genError}
             </p>
           ) : null}
@@ -1748,8 +1769,8 @@ export function JobBuilderClient({
             <MoreRow
               icon={Package}
               title="Materials"
-              real="Requests only for now."
-              body="Field material requests have their own inbox under Material requests in the sidebar. Job materials (takeoff, POs, invoice match) were a legacy-only tool and were retired in the legacy cutover — a modern materials editor is on the backlog."
+              real="Spend ledger on the job page."
+              body="Record what's bought for this job — supplier, date, amount ex GST — in the Materials card on the job page; it feeds the Money card's Materials figure. Field material requests and the legacy takeoff / PO / invoice-match tool were retired in the legacy cutover."
             />
             <MoreRow
               icon={HardHat}

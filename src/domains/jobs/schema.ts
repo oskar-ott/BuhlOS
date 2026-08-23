@@ -19,13 +19,7 @@ import { z } from "zod";
  *   api/jobs.js — projectJobStructure() + GET handler
  */
 
-export const JOB_STATUSES = [
-  "active",
-  "complete",
-  "archived",
-  "on_hold",
-  "draft",
-] as const;
+export const JOB_STATUSES = ["active", "complete", "archived", "on_hold", "draft"] as const;
 export const JobStatusSchema = z.enum(JOB_STATUSES);
 
 /**
@@ -262,7 +256,7 @@ export const JobListResponseSchema = z
         row && typeof row === "object" && "id" in row ? String((row as { id: unknown }).id) : "?";
       console.warn(
         `jobs list: dropping row ${id} that failed JobSchema —`,
-        parsed.error.issues[0]?.message ?? "unknown issue",
+        parsed.error.issues[0]?.message ?? "unknown issue"
       );
       return [];
     }),
@@ -412,6 +406,13 @@ const JobWritableFieldsSchema = z.object({
   clientReference: z.string().max(200).nullable().optional(),
   contractValue: z.number().nonnegative().nullable().optional(),
   contractNotes: z.string().max(4000).nullable().optional(),
+  /** Owner pull 2026-08-23: the two estimate lines the Money card's
+   *  actual-vs-estimate table divides against. DOLLARS (server ×100 → cents),
+   *  admin-only like contractValue (api/jobs.js 403s a leading hand), set
+   *  inline on the Money card only — buildUpdatePayload omits them, so the
+   *  wholesale builder save never touches them. */
+  labourEstimate: z.number().nonnegative().nullable().optional(),
+  materialEstimate: z.number().nonnegative().nullable().optional(),
 });
 
 /** POST /api/jobs body. `name` required; `id` optional (server slugifies

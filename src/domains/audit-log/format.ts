@@ -104,6 +104,8 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "hours.amended_approved": "Fixed and approved hours",
   "hours.timesheets_emailed": "Emailed timesheets to accounts",
   "hours.timesheets_recipients_updated": "Changed timesheet email recipients",
+  "job.material_spend_added": "Recorded materials spend",
+  "job.material_spend_removed": "Removed a materials spend line",
   // #370: daywork register (targetType 'daywork' groups as Other, like time_entry).
   "daywork.created": "Raised daywork docket",
   "daywork.signed": "Signed daywork docket",
@@ -248,9 +250,7 @@ export interface JobActivitySummary {
   other: number;
 }
 
-export function summariseJobActivity(
-  entries: ReadonlyArray<AuditLogEntry>
-): JobActivitySummary {
+export function summariseJobActivity(entries: ReadonlyArray<AuditLogEntry>): JobActivitySummary {
   const s: JobActivitySummary = {
     total: entries.length,
     evidence: 0,

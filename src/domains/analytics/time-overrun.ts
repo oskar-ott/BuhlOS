@@ -210,9 +210,7 @@ export function classifyTimeOverrun(input: TimeOverrunInput): TimeOverrunFlag {
       : "warning";
 
   const math = `${consumed} of ${round1(estimate)} estimated hours used (${burnPct}%), ${completePct}% complete`;
-  const reason = fires
-    ? `Hours outpacing progress — ${math}.`
-    : `On track — ${math}.`;
+  const reason = fires ? `Hours outpacing progress — ${math}.` : `On track — ${math}.`;
 
   return {
     state: "watched",
@@ -251,6 +249,17 @@ const HEADLINE: Record<TimeOverrunState, string> = {
   watched: "On track",
 };
 
+/**
+ * The card renders `headline — detail`; a reason that opens with the headline
+ * ("No time estimate set — can't watch…") would read twice (2026-08-23 audit).
+ * Strip the repeated opener and re-capitalise; an unrelated reason passes through.
+ */
+function withoutHeadline(headline: string, reason: string): string {
+  if (!reason.toLowerCase().startsWith(headline.toLowerCase())) return reason;
+  const rest = reason.slice(headline.length).replace(/^\s*[—–-]\s*/, "");
+  return rest ? rest.charAt(0).toUpperCase() + rest.slice(1) : reason;
+}
+
 export function timeOverrunView(flag: TimeOverrunFlag): TimeOverrunView {
   if (flag.flagged) {
     return {
@@ -261,10 +270,20 @@ export function timeOverrunView(flag: TimeOverrunFlag): TimeOverrunView {
     };
   }
   if (flag.state === "no-estimate") {
-    return { show: true, tone: "muted", headline: HEADLINE["no-estimate"], detail: flag.reason };
+    return {
+      show: true,
+      tone: "muted",
+      headline: HEADLINE["no-estimate"],
+      detail: withoutHeadline(HEADLINE["no-estimate"], flag.reason),
+    };
   }
   if (flag.state === "no-progress") {
-    return { show: true, tone: "muted", headline: HEADLINE["no-progress"], detail: flag.reason };
+    return {
+      show: true,
+      tone: "muted",
+      headline: HEADLINE["no-progress"],
+      detail: withoutHeadline(HEADLINE["no-progress"], flag.reason),
+    };
   }
   // zero-burn and on-track "watched" are quiet — nothing actionable to surface.
   return { show: false, tone: "muted", headline: HEADLINE[flag.state], detail: flag.reason };

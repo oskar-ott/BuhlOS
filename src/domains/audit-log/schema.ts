@@ -201,6 +201,11 @@ export const AUDIT_ACTIONS = [
   // 2026-08-16: the stored recipient list behind that send was changed on
   // /settings. Kept in sync with api/_lib/audit-log.js.
   "hours.timesheets_recipients_updated",
+  // Owner pull 2026-08-23: per-job materials SPEND ledger (api/job-materials.js)
+  // — a line added / soft-removed; never carries the amount. Kept in sync with
+  // api/_lib/audit-log.js.
+  "job.material_spend_added",
+  "job.material_spend_removed",
   // #370: daywork register (api/dayworks.js). daywork.created on POST;
   // daywork.signed on the supervisor sign; daywork.transitioned on the
   // signed → invoiced change (metadata.from/to); daywork.amended when a

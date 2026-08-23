@@ -25,7 +25,7 @@ const validEntry: AuditLogEntry = {
   jobId: "birdwood-iv3232",
   targetType: "evidence",
   targetId: "ev_xyz12345",
-  summary: "photo evidence captured — \"Cabling looks good\"",
+  summary: 'photo evidence captured — "Cabling looks good"',
   metadata: {
     kind: "photo",
     areaId: "ar_abc",
@@ -226,6 +226,9 @@ describe("AuditLogEntrySchema", () => {
       // #235 defect liability period (handover date set / cleared).
       "job.handover_cleared",
       "job.handover_set",
+      // Owner pull 2026-08-23: per-job materials spend ledger (api/job-materials.js).
+      "job.material_spend_added",
+      "job.material_spend_removed",
       "job.reopened",
       "job.tasks_generated",
       // #127/#333 leave lifecycle.
@@ -480,10 +483,7 @@ describe("entriesForTarget", () => {
     const a: AuditLogEntry = { ...validEntry, id: "a", targetId: "ev_1" };
     const b: AuditLogEntry = { ...validEntry, id: "b", targetId: "ev_2" };
     const c: AuditLogEntry = { ...validEntry, id: "c", targetId: "ev_1" };
-    expect(entriesForTarget([a, b, c], "evidence", "ev_1").map((e) => e.id)).toEqual([
-      "a",
-      "c",
-    ]);
+    expect(entriesForTarget([a, b, c], "evidence", "ev_1").map((e) => e.id)).toEqual(["a", "c"]);
   });
 
   it("returns empty when target type doesn't match", () => {

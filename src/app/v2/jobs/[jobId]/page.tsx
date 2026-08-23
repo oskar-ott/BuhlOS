@@ -14,15 +14,18 @@ import {
   User,
 } from "lucide-react";
 import type { Route } from "next";
+import { z } from "zod";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { DuplicateJobButton } from "@/components/admin/DuplicateJobButton";
 import { RecentItemTracker } from "@/components/admin/RecentItemTracker";
 import { Card, CardDescription, CardKicker, CardTitle } from "@/components/ui/Card";
 import { JobHealthBand } from "@/components/admin/JobHealthBand";
 import { JobLabourSummary } from "@/components/admin/JobLabourSummary";
+import { JobMaterialsCard } from "@/components/admin/JobMaterialsCard";
 import { JobMoneyCard } from "@/components/admin/JobMoneyCard";
 import { JobTagsSummary } from "@/components/admin/JobTagsSummary";
 import { JobEvidenceSummary } from "@/components/admin/JobEvidenceSummary";
+import { isFlagEnabled } from "../../../../../api/_lib/feature-flags.js";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import {
@@ -30,10 +33,12 @@ import {
   parseHoursResult,
   parseJobResult,
 } from "@/domains/jobs/job-interface-data";
+import { hoursOnJob } from "@/domains/jobs/job-hours";
 import { hasSiteContext } from "@/domains/jobs/format";
 import { isVisibleToField } from "@/domains/jobs/builder";
 import { progressPct as canonicalProgressPct } from "@/domains/jobs/progress";
 import { readEstimatedHours } from "@/domains/analytics/job-estimate";
+import { CostRateHistoryResponseSchema, type CostRateEntry } from "@/domains/cost-rates/schema";
 import type { Job } from "@/domains/jobs/types";
 
 export const dynamic = "force-dynamic";
@@ -52,11 +57,14 @@ interface PageParams {
  * Sections rendered here (top to bottom):
  *   - Health band: IV code / ref / type / address, status control, the same
  *     At-risk/Watch/On-track read the jobs list shows, crew + task progress
- *   - Build &amp; publish
- *   - Labour &mdash; hours awaiting approval on this job (time-entries)
- *   - Money &mdash; contract / labour / materials / margin + budget variance
+ *   - Money &mdash; contract / labour / materials / margin, completeness notes,
+ *     inline contract + estimate entry, budget variance (admin only)
+ *   - Labour &mdash; hours AND cost per worker, day by day (admin only: the
+ *     per-job hours read and the cost rates are office data)
+ *   - Materials &mdash; the per-job spend ledger (admin only, behind the
+ *     job_materials_spend flag)
  *   - Evidence &mdash; capture summary by status, with the Photos link
- *   - Tag register (only when flagged) and Site context
+ *   - Build &amp; publish, Tag register (only when flagged) and Site context
  *
  * The health band's reasons come from /api/jobs?withStats=1 (the same stats
  * the list derives health from). Only that job fetch blocks the first paint:
@@ -64,8 +72,16 @@ interface PageParams {
  * their own fetch (the hours read recomputes from a full users/ scan and the
  * blob reads run 1&ndash;2s, so blocking on them made the whole page feel
  * broken &mdash; 2026-08-09 audit follow-up). Each still degrades to its own
- * error state via the unit-tested parsers; the Money card was already a
- * client fetch with a skeleton.
+ * error state via the unit-tested parsers; the Money and Materials cards are
+ * client fetches with skeletons.
+ *
+ * 2026-08-23 audit (owner pull: "labour spent + its value, materials used +
+ * their value, on one job"): the Labour card gained cost per worker off the
+ * same effective-dated rates the Money card uses; the Money card's captions
+ * and completeness notes tell the truth in every state; estimates are set
+ * inline; the Materials ledger replaces a figure that read a file nothing
+ * could write. A leading hand no longer gets a 403 error card for office
+ * data &mdash; those cards are simply not rendered below the admin tier.
  *
  * This page does NOT replace the /v2/jobs/[jobId]/evidence route &mdash; it
  * adds a parent hub. JobsList row chips still deep-link past the hub into
@@ -75,6 +91,7 @@ interface PageParams {
  *   src/app/v2/jobs/[jobId]/evidence/page.tsx &mdash; per-section page precedent
  *   src/components/phil/PhilJobDetail.tsx &mdash; Phil-side mirror of the
  *       same sections (with UC stubs)
+ *   docs/job-materials-spend.md &mdash; the materials ledger
  *   docs/rebuild-audit/35-current-product-state-audit.md §7.2 + §13
  */
 export default async function AdminJobInterfacePage({ params }: PageParams) {
@@ -92,6 +109,8 @@ export default async function AdminJobInterfacePage({ params }: PageParams) {
     redirect("/v2/login");
   }
   const canBuild = canAccessSurface(session.role, "admin");
+  // The materials spend ledger is an admin-tier launch-gate (dark by default).
+  const materialsEnabled = canBuild && (await isFlagEnabled("job_materials_spend", session));
 
   const base = await requestBase();
   const result = await loadJob(base, raw, jobId);
@@ -180,8 +199,8 @@ export default async function AdminJobInterfacePage({ params }: PageParams) {
             identity + money-path + capture + tags + site. Job Detail Variants
             (2026-08-10): the hero leads with the verdict, Money runs full
             width, then "doing left, knowing right" — the daily-decision cards
-            (Labour, Evidence) in the wide column, reference & controls
-            (Build & publish, Tag register, Site) in the narrow one (2f §03). */}
+            (Labour, Materials, Evidence) in the wide column, reference &
+            controls (Build & publish, Tag register, Site) in the narrow one. */}
         <div className="mt-3">
           <JobHealthBand job={job} canEdit={canBuild} progressPct={progressPct} />
         </div>
@@ -190,18 +209,23 @@ export default async function AdminJobInterfacePage({ params }: PageParams) {
             views of the same endpoint. Client-fetched so the expensive
             approved-hours walk never blocks the hub render; admin-tier only
             (hidden for an LH/non-admin viewer). */}
-        <div className="mt-5">
-          <JobMoneyCard jobId={job.id} />
-        </div>
+        {canBuild ? (
+          <div className="mt-5">
+            <JobMoneyCard jobId={job.id} materialsLedgerEnabled={materialsEnabled} />
+          </div>
+        ) : null}
 
         <div className="mt-5 grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_380px]">
           <div className="grid gap-5">
             {/* Suspense-streamed: the per-job hours walk is the slowest read on
                 the page; the shell paints first and these cards fill in at
-                their exact final footprint (2c). */}
-            <Suspense fallback={<LabourSkeleton />}>
-              <LabourSection base={base} cookieValue={raw} job={job} progressPct={progressPct} />
-            </Suspense>
+                their exact final footprint (2c). Office data — admin only. */}
+            {canBuild ? (
+              <Suspense fallback={<LabourSkeleton />}>
+                <LabourSection base={base} cookieValue={raw} job={job} progressPct={progressPct} />
+              </Suspense>
+            ) : null}
+            {materialsEnabled ? <JobMaterialsCard jobId={job.id} /> : null}
             <Suspense fallback={<EvidenceSkeleton />}>
               <EvidenceSection base={base} cookieValue={raw} jobId={job.id} />
             </Suspense>
@@ -255,10 +279,7 @@ function SiteContextCard({ job, canBuild }: { job: Job; canBuild: boolean }) {
   // 2d: when the reference fields are still blank, offer the one add link
   // rather than rendering invented rows or empty labels.
   const missingSome =
-    !job.siteContactName?.trim() ||
-    !job.accessNotes ||
-    !job.parkingNotes ||
-    !job.safetyNotes;
+    !job.siteContactName?.trim() || !job.accessNotes || !job.parkingNotes || !job.safetyNotes;
   return (
     <Card>
       <div className="flex items-center justify-between gap-3">
@@ -388,8 +409,15 @@ async function loadJob(base: string, cookieValue: string | undefined, jobId: str
   return parseJobResult(jobRes);
 }
 
-/** Per-job hours (#134): submitted + approved entries, bucketed by the Labour
- *  card into approved vs pending. Same entry shape as the approver queue. */
+/**
+ * Per-job hours (#134): submitted + approved entries, then — for the workers
+ * with hours on this job — each one's effective-dated cost-rate history
+ * (api/cost-rates.js, admin-only) so the card can cost the hours with the
+ * SAME resolution the Money card's server read uses. A worker whose rate read
+ * fails is simply absent from the map and shows as unrated with a "Set rate"
+ * link; if EVERY read fails the map is null and the card says "office only"
+ * rather than mislabelling the whole crew as unrated.
+ */
 async function LabourSection({
   base,
   cookieValue,
@@ -405,6 +433,15 @@ async function LabourSection({
     fetch(`${base}/api/job-hours?jobId=${encodeURIComponent(job.id)}`, authInit(cookieValue)),
   ]);
   const hours = await parseHoursResult(hoursRes);
+  const workerIds = [
+    ...new Set(
+      hours.entries.filter((e) => e.userId && hoursOnJob(e, job.id) > 0).map((e) => e.userId)
+    ),
+  ];
+  const [ratesByUser, employeeIdByUserId] = await Promise.all([
+    loadRateHistories(base, cookieValue, workerIds),
+    workerIds.length > 0 ? loadEmployeeIds(base, cookieValue) : Promise.resolve({}),
+  ]);
   return (
     <JobLabourSummary
       entries={hours.entries}
@@ -412,8 +449,73 @@ async function LabourSection({
       fetchError={hours.error}
       estimatedHours={readEstimatedHours(job)}
       progressPct={progressPct}
+      ratesByUser={ratesByUser}
+      employeeIdByUserId={employeeIdByUserId}
     />
   );
+}
+
+async function loadRateHistories(
+  base: string,
+  cookieValue: string | undefined,
+  workerIds: string[]
+): Promise<Record<string, CostRateEntry[]> | null> {
+  if (workerIds.length === 0) return {};
+  let failures = 0;
+  const pairs = await Promise.all(
+    workerIds.map(async (userId): Promise<[string, CostRateEntry[]] | null> => {
+      try {
+        const res = await fetch(
+          `${base}/api/cost-rates?userId=${encodeURIComponent(userId)}`,
+          authInit(cookieValue)
+        );
+        if (!res.ok) {
+          failures += 1;
+          return null;
+        }
+        const parsed = CostRateHistoryResponseSchema.safeParse(await res.json());
+        if (!parsed.success) {
+          failures += 1;
+          return null;
+        }
+        return [userId, parsed.data.history];
+      } catch {
+        failures += 1;
+        return null;
+      }
+    })
+  );
+  if (failures === workerIds.length) return null;
+  const out: Record<string, CostRateEntry[]> = {};
+  for (const p of pairs) if (p) out[p[0]] = p[1];
+  return out;
+}
+
+const EmployeeIdsSchema = z
+  .object({
+    employees: z.array(
+      z.object({ id: z.string(), userId: z.string().nullable().optional() }).passthrough()
+    ),
+  })
+  .passthrough();
+
+/** users.json id → employees.json id, so an unrated worker links straight to
+ *  the employee record the cost rate is set on. Fail-soft: {} on any error. */
+async function loadEmployeeIds(
+  base: string,
+  cookieValue: string | undefined
+): Promise<Record<string, string>> {
+  try {
+    const res = await fetch(`${base}/api/employees`, authInit(cookieValue));
+    if (!res.ok) return {};
+    const parsed = EmployeeIdsSchema.safeParse(await res.json());
+    if (!parsed.success) return {};
+    const out: Record<string, string> = {};
+    for (const e of parsed.data.employees) if (e.userId) out[e.userId] = e.id;
+    return out;
+  } catch {
+    return {};
+  }
 }
 
 async function EvidenceSection({
@@ -441,27 +543,31 @@ function LabourSkeleton() {
     <Card>
       <div className="flex items-center justify-between gap-3">
         <CardKicker>Labour</CardKicker>
-        <div className="sk h-4 w-40" />
+        <div className="sk h-4 w-28" />
       </div>
-      <div className="mt-4 grid grid-cols-2 gap-3" data-testid="section-skeleton" aria-hidden="true">
-        <div className="rounded-[4px] border border-border bg-surface-subtle px-4 py-3">
-          <p className="font-mono text-xs font-medium uppercase tracking-[0.14em] text-text-muted">
-            Awaiting approval
-          </p>
-          <div className="sk mt-1 h-[22px] w-14" />
-        </div>
-        <div className="rounded-[4px] border border-border bg-surface-subtle px-4 py-3">
-          <p className="font-mono text-xs font-medium uppercase tracking-[0.14em] text-text-muted">
-            Approved to date
-          </p>
-          <div className="sk mt-1 h-[22px] w-16" />
-        </div>
+      <div
+        className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4"
+        data-testid="section-skeleton"
+        aria-hidden="true"
+      >
+        {["Approved", "Awaiting approval", "Labour cost", "If approved"].map((label) => (
+          <div
+            key={label}
+            className="rounded-[4px] border border-border bg-surface-subtle px-4 py-3"
+          >
+            <p className="font-mono text-xs font-medium uppercase tracking-[0.14em] text-text-muted">
+              {label}
+            </p>
+            <div className="sk mt-1 h-[22px] w-14" />
+          </div>
+        ))}
       </div>
-      <div className="mt-4 flex flex-wrap items-center gap-2" aria-hidden="true">
-        <div className="sk h-6 w-28 rounded-[4px]" />
-        <div className="sk h-6 w-32 rounded-[4px]" />
-        <div className="sk h-6 w-24 rounded-[4px]" />
+      <div className="mt-4 grid gap-2" aria-hidden="true">
+        <div className="sk h-4 w-full" />
+        <div className="sk h-4 w-full" />
+        <div className="sk h-4 w-[72%]" />
       </div>
+      <div className="sk mt-4 h-9 w-full rounded-[4px]" aria-hidden="true" />
       <div className="sk mt-3 h-3.5 w-72 max-w-full" aria-hidden="true" />
     </Card>
   );
@@ -483,7 +589,10 @@ function EvidenceSkeleton() {
         aria-hidden="true"
       >
         {Array.from({ length: 6 }).map((_, i) => (
-          <div key={i} className={i >= 4 ? "sk hidden aspect-square sm:block" : "sk aspect-square"} />
+          <div
+            key={i}
+            className={i >= 4 ? "sk hidden aspect-square sm:block" : "sk aspect-square"}
+          />
         ))}
       </div>
       <div className="mt-3.5 flex items-center gap-2" aria-hidden="true">

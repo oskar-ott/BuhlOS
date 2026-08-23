@@ -1,11 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import type { Route } from "next";
 import { Card, CardKicker } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
 import { updateJob } from "@/domains/jobs/client";
+import { formatHoursLabel } from "@/domains/timesheets/format";
+import { JOB_MONEY_CHANGED_EVENT } from "@/domains/jobs/job-materials-client";
 import {
   formatMoneyCents,
   jobProfitability,
@@ -19,35 +21,66 @@ import {
  * /api/job-profitability fetch.
  *
  * Replaces the #327 Profitability card + #341 Budget-vs-actual card, which
- * each fetched the same endpoint (2026-08-09 job-hub audit, finding A2: two
- * cards, one endpoint, twice the expensive approved-hours walk, and labour /
- * materials / contract each appearing twice on the page with no verdict).
+ * each fetched the same endpoint (2026-08-09 job-hub audit, finding A2).
  *
- * Honesty rules are unchanged from #327: a margin is never shown as more
- * certain than its inputs — unrated workers are named, proxy materials are
- * footnoted in plain language, a missing contract value reads "—" with an
- * inline way to add one (the biggest ask the old card made without offering
- * the affordance — audit finding B8). Contract value is the one editable
- * field here: the same dedicated PUT the builder's ClientContractSection
- * uses (dollars in; the server ×100s to cents), admin-gated server-side.
+ * Honesty rules (2026-08-23 audit, findings L2/U2/U4 — the card used to say
+ * "no hours yet" over 252 approved hours, hide its own "labour is understated"
+ * note behind a variance table no job could reach, and link "Add an estimate"
+ * to a builder with no estimate field):
+ *   - Every caption states what is TRUE: "252h approved · no cost rates set",
+ *     never "no hours yet" when hours exist.
+ *   - The completeness notes (unrated workers — linked to the employee record
+ *     the rate is set on — materials source, charge-out value) render in EVERY
+ *     state, not only under the variance table.
+ *   - Estimates are set INLINE here (the same admin-only PUT the contract
+ *     value uses); the variance table appears the moment one exists.
+ *   - A margin is never more certain than its inputs: uncosted labour is named
+ *     beside it.
+ *   - A failed read says so and offers a retry; only a 401/403 (a viewer who
+ *     mustn't see money) hides the card.
  *
- * Admin-tier only: the endpoint 403s otherwise and the card hides rather
- * than show an error to an LH who shouldn't see money.
+ * Contract value is edited inline (ContractFigure): the same dedicated PUT the
+ * builder's ClientContractSection uses (dollars in; the server ×100s to cents),
+ * admin-gated server-side.
+ *
+ * Admin-tier only: the endpoint 403s otherwise and the card hides rather than
+ * show an error to an LH who shouldn't see money. The sibling Materials card
+ * announces ledger writes on `window` (JOB_MONEY_CHANGED_EVENT); this card
+ * refetches so the Materials figure follows without a reload.
  */
 
-export function JobMoneyCard({ jobId }: { jobId: string }) {
+export function JobMoneyCard({
+  jobId,
+  materialsLedgerEnabled = false,
+}: {
+  jobId: string;
+  /** The job_materials_spend flag, resolved by the server page — shapes the
+   *  Materials caption ("nothing recorded yet" vs "not tracked yet"). */
+  materialsLedgerEnabled?: boolean;
+}) {
   const [data, setData] = useState<JobProfitabilityResponse | null>(null);
-  const [state, setState] = useState<"loading" | "ready" | "hidden">("loading");
+  const [state, setState] = useState<"loading" | "ready" | "hidden" | "error">("loading");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const res = await jobProfitability(jobId);
     if (!res.ok) {
-      // 403 (non-admin) or any error → hide the card rather than leak a money
-      // surface or show a scary error on a read-only summary.
-      setState("hidden");
+      // 401/403 (non-admin) → hide rather than leak a money surface. Anything
+      // else is a real failure the owner should see — not a vanished card.
+      if (res.error.status === 403 || res.error.status === 401) {
+        setState("hidden");
+        return false;
+      }
+      setErrorMessage(
+        res.error.status > 0
+          ? `API returned ${res.error.status}`
+          : res.error.message || "network error"
+      );
+      setState((prev) => (prev === "ready" ? prev : "error"));
       return false;
     }
     setData(res.data);
+    setErrorMessage(null);
     setState("ready");
     return true;
   }, [jobId]);
@@ -56,26 +89,16 @@ export function JobMoneyCard({ jobId }: { jobId: string }) {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    const onChanged = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ jobId?: string }>).detail;
+      if (!detail?.jobId || detail.jobId === jobId) void load();
+    };
+    window.addEventListener(JOB_MONEY_CHANGED_EVENT, onChanged);
+    return () => window.removeEventListener(JOB_MONEY_CHANGED_EVENT, onChanged);
+  }, [jobId, load]);
+
   if (state === "hidden") return null;
-
-  const materialNone = data?.completeness.material === "none";
-  // 2d "Absence is designed": zero labour cost means no costed hours yet — an
-  // em-dash + a sentence about what will appear, never a fake "$0" figure.
-  const labourNone = data != null && (data.labourCostCents == null || data.labourCostCents === 0);
-  // No estimate anywhere → one designed sentence instead of an all-dash table.
-  const noEstimates =
-    data != null &&
-    data.variance.labour.budgetCents == null &&
-    data.variance.material.budgetCents == null &&
-    data.variance.total.budgetCents == null;
-
-  // Money-strip cell borders: 2×2 on the phone, one divided row from sm up.
-  const CELLS = [
-    "border-b border-r border-border sm:border-b-0 sm:border-r-0",
-    "border-b border-border sm:border-b-0 sm:border-l",
-    "border-r border-border sm:border-r-0 sm:border-l",
-    "border-border sm:border-l",
-  ];
 
   return (
     <Card role="region" aria-label="Money" className="p-0">
@@ -86,130 +109,417 @@ export function JobMoneyCard({ jobId }: { jobId: string }) {
         </p>
       </div>
 
-      {state === "loading" || !data ? (
-        // 2c: shimmer at the EXACT final heights so nothing jumps when data lands.
-        <div data-testid="money-skeleton" aria-hidden="true">
-          <div className="mt-4 grid grid-cols-2 border-t border-border sm:grid-cols-4">
-            {["w-28", "w-24", "w-24", "w-20"].map((w, i) => (
-              <div key={w + i} className={cn("px-4 py-3 sm:px-6 sm:py-4", CELLS[i])}>
-                <p className="font-mono text-xs font-medium uppercase tracking-[0.14em] text-text-muted">
-                  {["Contract", "Labour", "Materials", "Margin"][i]}
-                </p>
-                <div className={cn("sk mt-1 h-[26px]", w)} />
-              </div>
-            ))}
-          </div>
-          <div className="border-t border-border px-4 py-4 sm:px-6">
-            <div className="flex justify-between">
-              <div className="sk h-3.5 w-32" />
-              <div className="sk h-3.5 w-56" />
-            </div>
-            <div className="mt-3 grid gap-2.5">
-              <div className="sk h-4 w-full" />
-              <div className="sk h-4 w-full" />
-              <div className="sk h-4 w-[72%]" />
-            </div>
-          </div>
+      {state === "error" ? (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-4 sm:px-6">
+          <p className="text-sm text-text-muted" role="alert">
+            Couldn&rsquo;t load the money figures ({errorMessage ?? "unknown error"}).
+          </p>
+          <Button size="sm" variant="secondary" onClick={() => void load()}>
+            Try again
+          </Button>
         </div>
+      ) : state === "loading" || !data ? (
+        <MoneySkeleton />
       ) : (
-        <>
-          <dl className="mt-4 grid grid-cols-2 border-t border-border sm:grid-cols-4">
-            <div className={cn("px-4 py-3 sm:px-6 sm:py-4", CELLS[0])}>
-              <ContractFigure jobId={jobId} data={data} onSaved={load} />
-            </div>
-            <div className={cn("px-4 py-3 sm:px-6 sm:py-4", CELLS[1])}>
-              <Figure
-                label="Labour"
-                value={labourNone ? "—" : formatMoneyCents(data.labourCostCents)}
-                muted={labourNone}
-                caption={labourNone ? "no hours yet" : undefined}
-              />
-            </div>
-            <div className={cn("px-4 py-3 sm:px-6 sm:py-4", CELLS[2])}>
-              <Figure
-                label="Materials"
-                value={materialNone ? "—" : formatMoneyCents(data.materialCostCents)}
-                muted={materialNone}
-                caption={materialNone ? "no orders yet" : undefined}
-              />
-            </div>
-            <div
-              className={cn(
-                "px-4 py-3 sm:px-6 sm:py-4",
-                CELLS[3],
-                // The margin cell is the only tinted one — and only when the
-                // numbers are real (2f §02).
-                data.marginCents != null &&
-                  (data.marginCents < 0 ? "bg-state-danger-subtle-bg" : "bg-state-success-subtle-bg")
-              )}
-            >
-              <Figure
-                label={data.marginPct == null ? "Margin" : `Margin · ${data.marginPct}%`}
-                value={formatMoneyCents(data.marginCents)}
-                muted={data.marginCents == null}
-                tone={
-                  data.marginCents == null ? undefined : data.marginCents < 0 ? "bad" : "good"
-                }
-              />
-            </div>
-          </dl>
-
-          {noEstimates ? (
-            <div className="border-t border-border px-4 py-5 sm:px-6">
-              <p className="text-sm text-text-muted">
-                No estimate on this job.{" "}
-                <a
-                  href={`/v2/jobs/${encodeURIComponent(jobId)}/builder` as Route}
-                  className="font-medium text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-2"
-                >
-                  Add an estimate
-                </a>{" "}
-                and actual-vs-estimate variance appears here.
-              </p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto border-t border-border px-4 py-4 sm:px-6">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left font-mono text-xs font-medium uppercase tracking-[0.14em] text-text-muted">
-                    <th className="pb-1.5 pr-2 font-medium">Against estimate</th>
-                    <th className="pb-1.5 pr-2 text-right font-medium">Actual</th>
-                    <th className="pb-1.5 pr-2 text-right font-medium">Estimate</th>
-                    <th className="pb-1.5 text-right font-medium">Variance</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <VarianceRow label="Labour" line={data.variance.labour} />
-                  <VarianceRow label="Materials" line={data.variance.material} />
-                  <VarianceRow label="Total vs contract" line={data.variance.total} bold />
-                </tbody>
-              </table>
-
-              {/* Plain-language honesty footnotes — replaces the old "·proxy" /
-                  "·understated" markers nobody outside the codebase could read. */}
-              <div className="mt-3 space-y-1">
-                {data.completeness.unratedWorkers.length > 0 ? (
-                  <p className="text-xs text-text-muted">
-                    Labour is understated — no cost rate set for{" "}
-                    {data.completeness.unratedWorkers.join(", ")}. Add rates in the employee drawer
-                    to include their hours.
-                  </p>
-                ) : null}
-                {data.completeness.material === "received_proxy" ? (
-                  <p className="text-xs text-text-muted">
-                    Materials counts supplier orders received on this job — actual usage
-                    isn&rsquo;t tracked yet.
-                  </p>
-                ) : null}
-                {materialNone ? (
-                  <p className="text-xs text-text-muted">No materials recorded on this job yet.</p>
-                ) : null}
-              </div>
-            </div>
-          )}
-        </>
+        <JobMoneyFigures
+          jobId={jobId}
+          data={data}
+          materialsLedgerEnabled={materialsLedgerEnabled}
+          onSaved={load}
+        />
       )}
     </Card>
+  );
+}
+
+// Money-strip cell borders: 2×2 on the phone, one divided row from sm up.
+const CELLS = [
+  "border-b border-r border-border sm:border-b-0 sm:border-r-0",
+  "border-b border-border sm:border-b-0 sm:border-l",
+  "border-r border-border sm:border-r-0 sm:border-l",
+  "border-border sm:border-l",
+];
+
+function MoneySkeleton() {
+  // 2c: shimmer at the EXACT final heights so nothing jumps when data lands.
+  return (
+    <div data-testid="money-skeleton" aria-hidden="true">
+      <div className="mt-4 grid grid-cols-2 border-t border-border sm:grid-cols-4">
+        {["w-28", "w-24", "w-24", "w-20"].map((w, i) => (
+          <div key={w + i} className={cn("px-4 py-3 sm:px-6 sm:py-4", CELLS[i])}>
+            <p className="font-mono text-xs font-medium uppercase tracking-[0.14em] text-text-muted">
+              {["Contract", "Labour", "Materials", "Margin"][i]}
+            </p>
+            <div className={cn("sk mt-1 h-[26px]", w)} />
+            <div className="sk mt-1.5 h-3.5 w-24" />
+          </div>
+        ))}
+      </div>
+      <div className="border-t border-border px-4 py-4 sm:px-6">
+        <div className="grid gap-2.5">
+          <div className="sk h-3.5 w-72 max-w-full" />
+          <div className="sk h-3.5 w-56 max-w-full" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The loaded card body — a pure function of the profitability payload, so the
+ * render tests pin every state (the prod state the audit found included).
+ */
+export function JobMoneyFigures({
+  jobId,
+  data,
+  materialsLedgerEnabled = false,
+  onSaved,
+}: {
+  jobId: string;
+  data: JobProfitabilityResponse;
+  materialsLedgerEnabled?: boolean;
+  onSaved: () => Promise<boolean>;
+}) {
+  const approvedHours = data.hoursTotal;
+  const labourZero = data.labourCostCents <= 0;
+  const labourUnderstated = data.completeness.labour === "understated";
+  const materialSource = data.completeness.material;
+  const materialNone = materialSource === "none";
+  const hasEstimates =
+    data.budget.labourEstimateCents != null || data.budget.materialEstimateCents != null;
+
+  const labourCaption = labourZero
+    ? approvedHours > 0
+      ? `${formatHoursLabel(approvedHours)} approved · no cost rates set`
+      : "no approved hours yet"
+    : labourUnderstated
+      ? `${formatHoursLabel(approvedHours)} approved · some hours uncosted`
+      : `${formatHoursLabel(approvedHours)} approved`;
+
+  const materialCaption =
+    materialSource === "ledger"
+      ? "from the spend ledger"
+      : materialSource === "received_proxy"
+        ? "supplier orders received · proxy"
+        : materialSource === "consumption"
+          ? "actual usage"
+          : materialsLedgerEnabled
+            ? "nothing recorded yet"
+            : "not tracked yet";
+
+  const marginCaption =
+    data.marginCents != null && (labourUnderstated || (labourZero && approvedHours > 0))
+      ? "before uncosted labour"
+      : undefined;
+
+  return (
+    <>
+      <dl className="mt-4 grid grid-cols-2 border-t border-border sm:grid-cols-4">
+        <div className={cn("px-4 py-3 sm:px-6 sm:py-4", CELLS[0])}>
+          <ContractFigure jobId={jobId} data={data} onSaved={onSaved} />
+        </div>
+        <div className={cn("px-4 py-3 sm:px-6 sm:py-4", CELLS[1])}>
+          <Figure
+            label="Labour"
+            value={labourZero ? "—" : formatMoneyCents(data.labourCostCents)}
+            muted={labourZero}
+            caption={labourCaption}
+          />
+        </div>
+        <div className={cn("px-4 py-3 sm:px-6 sm:py-4", CELLS[2])}>
+          <Figure
+            label="Materials"
+            value={materialNone ? "—" : formatMoneyCents(data.materialCostCents)}
+            muted={materialNone}
+            caption={materialCaption}
+          />
+        </div>
+        <div
+          className={cn(
+            "px-4 py-3 sm:px-6 sm:py-4",
+            CELLS[3],
+            // The margin cell is the only tinted one — and only when the
+            // numbers are real (2f §02).
+            data.marginCents != null &&
+              (data.marginCents < 0 ? "bg-state-danger-subtle-bg" : "bg-state-success-subtle-bg")
+          )}
+        >
+          <Figure
+            label={data.marginPct == null ? "Margin" : `Margin · ${data.marginPct}%`}
+            value={formatMoneyCents(data.marginCents)}
+            muted={data.marginCents == null}
+            tone={data.marginCents == null ? undefined : data.marginCents < 0 ? "bad" : "good"}
+            caption={marginCaption}
+          />
+        </div>
+      </dl>
+
+      {/* Completeness notes — ALWAYS rendered (audit L2): the reader must never
+          take a figure as more certain than its inputs. */}
+      <div className="space-y-1 border-t border-border px-4 py-3 sm:px-6" data-testid="money-notes">
+        {data.unratedWorkerRefs.length > 0 ? (
+          <p className="text-xs text-text-muted">
+            Labour is understated — no cost rate set for{" "}
+            <UnratedWorkerLinks refs={data.unratedWorkerRefs} />. Set each rate on the
+            worker&rsquo;s employee record and their hours are costed from the day the rate starts.
+          </p>
+        ) : null}
+        {data.labourChargeOutCents != null ? (
+          <p className="text-xs text-text-muted">
+            {`At charge-out rates this labour is worth ${formatMoneyCents(data.labourChargeOutCents)}${
+              data.chargeOutHours < approvedHours
+                ? ` (${formatHoursLabel(data.chargeOutHours)} of ${formatHoursLabel(approvedHours)} carry a charge-out rate)`
+                : ""
+            }.`}
+          </p>
+        ) : null}
+        {materialSource === "ledger" ? (
+          <p className="text-xs text-text-muted">
+            Materials are this job&rsquo;s recorded spend — every docket in the Materials card
+            below.
+          </p>
+        ) : materialSource === "received_proxy" ? (
+          <p className="text-xs text-text-muted">
+            Materials counts supplier orders received on this job — actual usage isn&rsquo;t
+            tracked.
+          </p>
+        ) : materialNone ? (
+          <p className="text-xs text-text-muted">
+            {materialsLedgerEnabled
+              ? "No materials spend recorded on this job yet — add dockets in the Materials card below."
+              : "Materials spend isn't tracked on this job yet."}
+          </p>
+        ) : null}
+      </div>
+
+      {hasEstimates ? (
+        <VarianceTable jobId={jobId} data={data} onSaved={onSaved} />
+      ) : (
+        <EstimatesPrompt jobId={jobId} data={data} onSaved={onSaved} />
+      )}
+    </>
+  );
+}
+
+function UnratedWorkerLinks({ refs }: { refs: JobProfitabilityResponse["unratedWorkerRefs"] }) {
+  return (
+    <>
+      {refs.map((w, i) => (
+        <span key={w.userId}>
+          {i > 0 ? ", " : ""}
+          {w.employeeId ? (
+            <a
+              href={`/employees/${encodeURIComponent(w.employeeId)}` as Route}
+              className="font-medium text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-2"
+            >
+              {w.name}
+            </a>
+          ) : (
+            <span className="font-medium text-text">{w.name}</span>
+          )}
+        </span>
+      ))}
+    </>
+  );
+}
+
+function VarianceTable({
+  jobId,
+  data,
+  onSaved,
+}: {
+  jobId: string;
+  data: JobProfitabilityResponse;
+  onSaved: () => Promise<boolean>;
+}) {
+  const [editing, setEditing] = useState(false);
+  return (
+    <div className="overflow-x-auto border-t border-border px-4 py-4 sm:px-6">
+      <div className="flex items-center justify-between gap-3">
+        <p className="font-mono text-xs font-medium uppercase tracking-[0.14em] text-text-muted">
+          Against estimate
+        </p>
+        {!editing ? (
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="text-xs font-medium text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-2 hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-brand-navy"
+          >
+            Edit estimates
+          </button>
+        ) : null}
+      </div>
+      {editing ? (
+        <EstimatesEditor
+          jobId={jobId}
+          data={data}
+          onSaved={onSaved}
+          onClose={() => setEditing(false)}
+        />
+      ) : (
+        <table className="mt-2 w-full text-sm">
+          <thead>
+            <tr className="text-left font-mono text-xs font-medium uppercase tracking-[0.14em] text-text-muted">
+              <th className="pb-1.5 pr-2 font-medium">Line</th>
+              <th className="pb-1.5 pr-2 text-right font-medium">Actual</th>
+              <th className="pb-1.5 pr-2 text-right font-medium">Estimate</th>
+              <th className="pb-1.5 text-right font-medium">Variance</th>
+            </tr>
+          </thead>
+          <tbody>
+            <VarianceRow label="Labour" line={data.variance.labour} />
+            <VarianceRow label="Materials" line={data.variance.material} />
+            <VarianceRow label="Total vs contract" line={data.variance.total} bold />
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+function EstimatesPrompt({
+  jobId,
+  data,
+  onSaved,
+}: {
+  jobId: string;
+  data: JobProfitabilityResponse;
+  onSaved: () => Promise<boolean>;
+}) {
+  const [editing, setEditing] = useState(false);
+  return (
+    <div className="border-t border-border px-4 py-4 sm:px-6">
+      {editing ? (
+        <EstimatesEditor
+          jobId={jobId}
+          data={data}
+          onSaved={onSaved}
+          onClose={() => setEditing(false)}
+        />
+      ) : (
+        <p className="text-sm text-text-muted">
+          No estimates on this job.{" "}
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="font-medium text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-2 hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-brand-navy"
+          >
+            Set labour and materials estimates
+          </button>{" "}
+          and actual-vs-estimate variance appears here.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Inline labour / materials estimate editor (audit U2 — "Add an estimate" used
+ * to link to a builder with no such field). Dollars in, like the contract
+ * value; the same admin-only patch PUT; blank = clear (null). Reloads the
+ * profitability read on save so the variance lines pick the values up.
+ */
+function EstimatesEditor({
+  jobId,
+  data,
+  onSaved,
+  onClose,
+}: {
+  jobId: string;
+  data: JobProfitabilityResponse;
+  onSaved: () => Promise<boolean>;
+  onClose: () => void;
+}) {
+  const ids = useId();
+  const [labour, setLabour] = useState(
+    data.budget.labourEstimateCents != null ? String(data.budget.labourEstimateCents / 100) : ""
+  );
+  const [material, setMaterial] = useState(
+    data.budget.materialEstimateCents != null ? String(data.budget.materialEstimateCents / 100) : ""
+  );
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function parseDollars(raw: string): number | null | undefined {
+    const t = raw.trim();
+    if (!t) return null;
+    const n = Number(t.replace(/^\$/, ""));
+    return Number.isFinite(n) && n >= 0 ? n : undefined;
+  }
+
+  async function save() {
+    const labourEstimate = parseDollars(labour);
+    const materialEstimate = parseDollars(material);
+    if (labourEstimate === undefined || materialEstimate === undefined) {
+      setError("Enter each estimate in dollars, or leave it blank.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    const result = await updateJob({ id: jobId, labourEstimate, materialEstimate });
+    if (!result.ok) {
+      setBusy(false);
+      setError("Couldn't save — try again.");
+      return;
+    }
+    await onSaved();
+    setBusy(false);
+    onClose();
+  }
+
+  const inputClass =
+    "h-8 w-full rounded-card border border-border bg-surface px-2 text-sm text-text focus:outline-none focus:ring-2 focus:ring-brand-navy";
+
+  return (
+    <div className="mt-2 grid gap-2" data-testid="estimates-editor">
+      <div className="grid grid-cols-2 gap-2">
+        <label
+          htmlFor={`${ids}-labour`}
+          className="font-mono text-xs font-medium uppercase tracking-[0.14em] text-text-muted"
+        >
+          Labour estimate ($ ex GST)
+          <input
+            id={`${ids}-labour`}
+            type="text"
+            inputMode="decimal"
+            value={labour}
+            onChange={(e) => setLabour(e.target.value)}
+            disabled={busy}
+            placeholder="12000"
+            className={cn(inputClass, "mt-1 font-sans normal-case tracking-normal")}
+          />
+        </label>
+        <label
+          htmlFor={`${ids}-material`}
+          className="font-mono text-xs font-medium uppercase tracking-[0.14em] text-text-muted"
+        >
+          Materials estimate ($ ex GST)
+          <input
+            id={`${ids}-material`}
+            type="text"
+            inputMode="decimal"
+            value={material}
+            onChange={(e) => setMaterial(e.target.value)}
+            disabled={busy}
+            placeholder="8000"
+            className={cn(inputClass, "mt-1 font-sans normal-case tracking-normal")}
+          />
+        </label>
+      </div>
+      <div className="flex items-center gap-1.5">
+        <Button size="sm" onClick={() => void save()} disabled={busy}>
+          Save estimates
+        </Button>
+        <Button size="sm" variant="ghost" onClick={onClose} disabled={busy}>
+          Cancel
+        </Button>
+      </div>
+      {error ? (
+        <p className="text-xs text-state-danger-subtle-text" role="alert">
+          {error}
+        </p>
+      ) : null}
+    </div>
   );
 }
 
@@ -321,6 +631,7 @@ function ContractFigure({
           {has ? "Edit" : "Set value"}
         </button>
       </dd>
+      {!has ? <p className="mt-1 text-xs text-text-muted">no contract value yet</p> : null}
     </div>
   );
 }
