@@ -30,7 +30,8 @@ that every dollar figure in the system currently multiplies hours by.
   `validateRateInput`, `appendRate`, `costRateCoverage`).
 - Admin UI — "Cost rate (admin only)" section in the employee detail drawer
   (view current + history, add an effective-dated rate). Keyed by the worker
-  account id, like licences.
+  account id, like licences. The job hub's Money and Labour cards deep-link an
+  unrated worker straight to that record ("Set rate →").
 
 ## Coverage — supersedes `staff-no-rate`
 
@@ -40,28 +41,38 @@ still keys off `users.json` `hourlyRate` and is intentionally left in place unti
 the consumers below migrate — it now reports the **legacy** field's sparseness,
 which the cost-rate coverage report replaces for analytics decisions.
 
-## Migration order for existing `hourlyRate` consumers
+## Consumers (status 2026-08-23)
 
-This issue is **additive**: the new store and helper land without changing any
-money math. The existing consumers still read `users.json` `hourlyRate`. They
-migrate onto `effectiveCostRate(...)` in this order — no silent dual-source drift,
-each its own change:
+**Reading this store** — every per-job labour dollar the product shows:
 
-1. **`api/costs.js`** (admin Costs rollup) — the most direct labour-$ consumer.
-   First to move; pin parity per job/week before/after.
-2. **`api/cash-watch.js`** (`labourSpent`) — daily spend vs contract; move with
-   `costs.js` so the two never disagree.
-3. **`api/crew-utilization.js`** / **`api/crew-export.js`** — utilisation $ and
-   the payroll-adjacent export; move together.
-4. **`api/time-entries-export.js`** — if it carries a rate, last (payroll export
-   is the highest-stakes path).
-5. **Quoting** (`src/domains/quoting/labour-calc.ts`, `margin.ts`,
-   `api/quotes.js`) — quoting uses an *estimating* sell rate, a deliberately
-   **separate** number from a worker's confidential cost; it does **not** migrate
-   to this store. Documented here only so it isn't mistaken for a consumer.
+- `api/job-profitability.js` — the job hub's Money card: APPROVED hours ×
+  `effectiveCostRate(history, entry.date)`, unrated workers named (with the
+  employee record the rate is set on), plus the optional charge-out value.
+- `src/domains/jobs/job-hours.ts` `costJobHours` — the job hub's Labour card:
+  the same maths client-side via `effectiveCostRateOn`, per worker, approved
+  and awaiting costed separately — so the Labour card's approved cost IS the
+  Money card's labour figure.
+- `src/app/(admin)/hours/weekly/page.tsx` — the week board's labour $ (rate
+  effective on the week's Monday).
 
-Job profitability (#327) is the first NEW consumer and reads the store directly
-via `effectiveCostRate`.
+**Still on the legacy `users.json` `hourlyRate`** (set for one worker in prod;
+migrate in this order, each its own change, parity pinned before/after):
+
+1. **`api/_lib/payroll-inputs.js`** — the payroll CSV's `Rate ex-GST` /
+   `Line cost ex-GST` columns (`api/_lib/payroll-csv.js`). Highest-stakes
+   path, so last to move; until it does those columns read $0 for unrated
+   workers and must not be presented as cost.
+2. **`api/crew-export.js`** — the crew export's rate column; move with the
+   CSV.
+
+**Deleted:** `api/costs.js` (the old admin Costs rollup — all statuses ×
+`hourlyRate`, zero UI callers since the lean reset) was removed 2026-08-23 so
+there is one labour-dollar engine, not three. `api/cash-watch.js` and
+`api/crew-utilization.js` went with the 2026-07-27 gut.
+
+**Quoting** (`src/domains/quoting/*`) used an *estimating* sell rate — a
+deliberately separate number from a worker's confidential cost; it was deleted
+in the gut and never read this store.
 
 ## What is NOT guaranteed
 

@@ -1,4 +1,5 @@
 import type { TimeEntry } from "@/domains/timesheets/types";
+import { effectiveCostRateOn, type CostRateEntry } from "@/domains/cost-rates/schema";
 
 /**
  * Pure per-job labour derivation for the admin Job hub Overview.
@@ -86,7 +87,7 @@ export function hoursOnJob(entry: Pick<TimeEntry, "allocations">, jobId: string)
  */
 export function summariseJobHours(
   entries: ReadonlyArray<TimeEntry>,
-  jobId: string,
+  jobId: string
 ): JobHoursSummary {
   const summary: JobHoursSummary = {
     jobId,
@@ -152,7 +153,7 @@ export function summariseJobHours(
  */
 export function groupJobHoursByWorker(
   entries: ReadonlyArray<TimeEntry>,
-  jobId: string,
+  jobId: string
 ): JobWorkerHours[] {
   if (!Array.isArray(entries)) return [];
   const byWorker = new Map<string, JobWorkerHours>();
@@ -175,7 +176,7 @@ export function groupJobHoursByWorker(
   }
 
   return [...byWorker.values()].sort(
-    (a, b) => b.hours - a.hours || a.userName.localeCompare(b.userName),
+    (a, b) => b.hours - a.hours || a.userName.localeCompare(b.userName)
   );
 }
 
@@ -197,4 +198,151 @@ export function deriveJobHoursAttention(summary: JobHoursSummary): JobHoursAtten
     pendingHours: summary.pendingHours,
     pendingCount: summary.pendingCount,
   };
+}
+
+// ── Costing (owner pull 2026-08-23: "the labour spent and the value of it") ──
+//
+// The SAME maths as api/job-profitability.js — approved hours × the worker's
+// cost rate effective on the day worked (effectiveCostRateOn, the pure mirror
+// of the server's effectiveCostRate) — so the Labour card's approved cost and
+// the Money card's labour figure agree by construction. Awaiting-approval
+// hours are costed separately ("what approval adds"), never mixed in.
+// Rates are confidential: the page passes `null` when the viewer can't read
+// them and every cost reads null → the card shows "—" and says so.
+
+export interface JobWorkerLabour {
+  userId: string;
+  userName: string;
+  approvedHours: number;
+  pendingHours: number;
+  entryCount: number;
+  /** Approved hours × rate, integer cents. null when rates are unknown or no
+   *  approved hour could be costed; PARTIAL (and `rated` false) when some days
+   *  carried no effective rate — never a silent $0 for those days. */
+  approvedCostCents: number | null;
+  pendingCostCents: number | null;
+  /** True when every hour (approved + awaiting) resolved to a rate. */
+  rated: boolean;
+  /** Hours (any status) that found no effective rate — 0 when rated. */
+  uncostedHours: number;
+}
+
+export interface JobLabourCosting {
+  /** Heaviest contributor first (approved + awaiting), ties alphabetical. */
+  workers: JobWorkerLabour[];
+  approvedHours: number;
+  pendingHours: number;
+  /** Σ costed approved cents — equals the Money card's labourCostCents. */
+  approvedCostCents: number | null;
+  pendingCostCents: number | null;
+  /** Workers with at least one uncosted hour. Empty when ratesKnown is false. */
+  unratedWorkers: JobWorkerLabour[];
+  /** False when the caller couldn't read rates (non-admin / fetch failure). */
+  ratesKnown: boolean;
+}
+
+export function costJobHours(
+  entries: ReadonlyArray<TimeEntry>,
+  jobId: string,
+  ratesByUser: Readonly<Record<string, ReadonlyArray<CostRateEntry>>> | null
+): JobLabourCosting {
+  const ratesKnown = ratesByUser != null;
+  const byWorker = new Map<string, JobWorkerLabour>();
+  let approvedHours = 0;
+  let pendingHours = 0;
+  let approvedCost = 0;
+  let pendingCost = 0;
+
+  for (const e of Array.isArray(entries) ? entries : []) {
+    const h = hoursOnJob(e, jobId);
+    if (h <= 0 || !e.userId) continue;
+    if (e.status !== "approved" && e.status !== "submitted") continue;
+
+    let w = byWorker.get(e.userId);
+    if (!w) {
+      w = {
+        userId: e.userId,
+        userName: e.userName || e.userId,
+        approvedHours: 0,
+        pendingHours: 0,
+        entryCount: 0,
+        approvedCostCents: null,
+        pendingCostCents: null,
+        rated: ratesKnown,
+        uncostedHours: 0,
+      };
+      byWorker.set(e.userId, w);
+    }
+    w.entryCount += 1;
+    const approved = e.status === "approved";
+    if (approved) {
+      w.approvedHours = round2(w.approvedHours + h);
+      approvedHours += h;
+    } else {
+      w.pendingHours = round2(w.pendingHours + h);
+      pendingHours += h;
+    }
+    if (!ratesKnown) continue;
+
+    const rate = effectiveCostRateOn(ratesByUser[e.userId] ?? [], e.date);
+    if (rate && rate.costRateCents > 0) {
+      const cents = Math.round(h * rate.costRateCents);
+      if (approved) {
+        w.approvedCostCents = (w.approvedCostCents ?? 0) + cents;
+        approvedCost += cents;
+      } else {
+        w.pendingCostCents = (w.pendingCostCents ?? 0) + cents;
+        pendingCost += cents;
+      }
+    } else {
+      w.rated = false;
+      w.uncostedHours = round2(w.uncostedHours + h);
+    }
+  }
+
+  const workers = [...byWorker.values()].sort(
+    (a, b) =>
+      b.approvedHours + b.pendingHours - (a.approvedHours + a.pendingHours) ||
+      a.userName.localeCompare(b.userName)
+  );
+  return {
+    workers,
+    approvedHours: round2(approvedHours),
+    pendingHours: round2(pendingHours),
+    approvedCostCents: ratesKnown ? approvedCost : null,
+    pendingCostCents: ratesKnown ? pendingCost : null,
+    unratedWorkers: ratesKnown ? workers.filter((w) => !w.rated) : [],
+    ratesKnown,
+  };
+}
+
+/** One day-row for the card's "all days on this job" ledger. */
+export interface JobHoursRow {
+  id: string;
+  date: string;
+  userId: string;
+  userName: string;
+  hours: number;
+  status: TimeEntry["status"];
+}
+
+/** Every approved/awaiting day with hours on this job, newest first (ties by
+ *  worker name) — the "amount of labour spent" the owner asked to see, day by
+ *  day, not just as a total. */
+export function listJobHoursRows(entries: ReadonlyArray<TimeEntry>, jobId: string): JobHoursRow[] {
+  const rows: JobHoursRow[] = [];
+  for (const e of Array.isArray(entries) ? entries : []) {
+    const h = hoursOnJob(e, jobId);
+    if (h <= 0 || !e.userId) continue;
+    if (e.status !== "approved" && e.status !== "submitted") continue;
+    rows.push({
+      id: e.id,
+      date: e.date,
+      userId: e.userId,
+      userName: e.userName || e.userId,
+      hours: h,
+      status: e.status,
+    });
+  }
+  return rows.sort((a, b) => b.date.localeCompare(a.date) || a.userName.localeCompare(b.userName));
 }

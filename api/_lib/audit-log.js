@@ -222,6 +222,12 @@ const VALID_ACTIONS = new Set([
   // /settings (PUT api/time-entries-email). Payroll data flows wherever the
   // list points, so re-aiming it is journalled with old + new in metadata.
   'hours.timesheets_recipients_updated',
+  // Owner pull 2026-08-23: per-job materials SPEND ledger (api/job-materials.js).
+  // targetType 'job'. Journalled WITHOUT the amount (the journal is readable
+  // below the admin tier) — metadata carries lineId/date/supplier only. Kept in
+  // sync with src/domains/audit-log/schema.ts AUDIT_ACTIONS.
+  'job.material_spend_added',
+  'job.material_spend_removed',
   // #370: daywork register (api/dayworks.js). daywork.created on POST;
   // daywork.signed on the supervisor sign; daywork.transitioned on the
   // signed → invoiced change (metadata.from/to carry the direction);

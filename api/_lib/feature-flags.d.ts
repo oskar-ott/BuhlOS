@@ -30,6 +30,7 @@ export type FlagKey =
   | "xero_payroll_export" // #249 first Xero WRITE — draft-timesheet export; independent write gate
   | "signup_link" // crew sign-up link — /onboarding/<code> + the employees review queue
   | "itp_simple" // #912 simple mobile ITP builder
+  | "job_materials_spend" // owner pull 2026-08-23 — per-job materials spend ledger on the admin job hub
   // #760 owner feature-control kill-switches (LIVE features, default ON).
   // The 2026-07 lean reset + gut left only the lean core here; every other
   // feature's flag was deleted with its code (docs/product/02-lean-reset.md).
