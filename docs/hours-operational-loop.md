@@ -68,6 +68,14 @@ State persists.                       Vercel Blob: users/<userId>/time-entries/<
   worker verbatim). Empty state is honest ("No entries to approve").
 - **Leading hands** see/action only entries on jobs they run, never another
   LH's entry. Self-approval is impossible for everyone.
+- **Worker names are FULL names, never nicknames** (owner-directed 2026-08-16,
+  #1020; extended to the job hub's Labour card by #1027). Hours feed payroll,
+  so every office surface labels a worker the way the payroll PDF does:
+  employees-register "First Last" → live `users.json` name → the entry's
+  write-time snapshot → username. One resolver, `api/_lib/worker-names.js`,
+  serves the hours boards (`api/time-entries-overview.js`) and the per-job
+  read (`api/job-hours.js`); the register's `displayName` is greeting
+  material and is never shown on a board.
 
 ## Status transitions (server-enforced)
 

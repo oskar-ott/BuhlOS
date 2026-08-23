@@ -7,7 +7,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * lookup) + a stubbed listAllEntriesForApprovers (the blob scan). Asserts the
  * endpoint pulls submitted+approved in ONE scan, returns only entries with an
  * allocation on the job (split days included, draft/rejected/other-job/null-job
- * excluded), gates to admin tier, and stamps `asOf`.
+ * excluded), gates to admin tier, stamps `asOf`, and (#1027) overlays each
+ * entry's `userName` with the LIVE full name — register "First Last" → users.json
+ * name → stored snapshot → username — so the Labour card can never print a
+ * nickname-era snapshot ("Mr Borg") that the payroll PDF doesn't.
  */
 const requireFromHere = createRequire(import.meta.url);
 const blobPath = requireFromHere.resolve("../../../api/_lib/blob.js");
@@ -51,6 +54,7 @@ const ALL_ENTRIES = [
   { id: "e2", userId: "uB", userName: "Bo", date: "2026-06-02", status: "approved", submittedAt: "t2", approvedAt: "t2a", allocations: [alloc("job-1", 4), alloc("job-2", 3.6)] }, // split day
   { id: "e4", userId: "uA", userName: "Al", date: "2026-06-03", status: "approved", submittedAt: "t4", allocations: [alloc("job-2", 8)] }, // other job
   { id: "e6", userId: "uC", userName: "Cy", date: "2026-06-04", status: "submitted", submittedAt: "t6", allocations: [alloc(null, 7.6)] }, // null-job (overhead)
+  { id: "e7", userId: "uZ", userName: "Zed", date: "2026-06-05", status: "approved", submittedAt: "t7", allocations: [alloc("job-2", 8)] }, // unknown to users.json + register
   // draft/rejected never returned by the scan (statuses filter) — represented by absence
 ];
 
@@ -62,6 +66,13 @@ beforeEach(() => {
       { id: "u_boss", username: "boss", role: "boss", assignedJobIds: [] },
       { id: "u_field", username: "sparky", role: "electrician", assignedJobIds: ["job-1"] },
       { id: "u_client", username: "client", role: "client", assignedJobIds: ["job-1"] },
+      // uA's entries were written under the nickname "Al"; the live full name wins.
+      { id: "uA", username: "al@example.com", name: "Alfredo Lopez", role: "electrician", assignedJobIds: ["job-1"] },
+      // uB has a register row — "First Last" outranks even the live users.json name.
+      { id: "uB", username: "bo@example.com", name: "Bo", role: "electrician", assignedJobIds: ["job-1"] },
+    ] }],
+    ["employees.json", { employees: [
+      { id: "emp_b", userId: "uB", firstName: "Jonathan", lastName: "Borg", displayName: "Mr Borg" },
     ] }],
   ]);
 
@@ -90,7 +101,7 @@ beforeEach(() => {
   handler = requireFromHere(handlerPath);
 });
 
-type JobHours = { jobId: string; entries: Array<{ id: string; status: string; allocations: Array<{ jobId: string | null; hours: number }> }>; asOf: string };
+type JobHours = { jobId: string; entries: Array<{ id: string; userId: string; userName: string; status: string; allocations: Array<{ jobId: string | null; hours: number }> }>; asOf: string };
 
 describe("GET /api/job-hours", () => {
   it("returns this job's submitted+approved entries (split day included), excluding other-job/null-job", async () => {
@@ -116,6 +127,23 @@ describe("GET /api/job-hours", () => {
     expect(split.allocations.find((a) => a.jobId === "job-1")!.hours).toBe(4);
     expect(split.allocations.find((a) => a.jobId === "job-2")!.hours).toBe(3.6);
     expect(split.status).toBe("approved");
+  });
+
+  it("overlays the LIVE full name on each entry — register 'First Last' > users.json name > snapshot (#1027)", async () => {
+    const res = await call({ query: { jobId: "job-1" } });
+    const entry = (id: string) => (res.body as JobHours).entries.find((e) => e.id === id)!;
+    expect(entry("e1").userName).toBe("Alfredo Lopez"); // snapshot "Al" → live users.json name
+    expect(entry("e2").userName).toBe("Jonathan Borg"); // register row wins; its nickname displayName ignored
+    expect(entry("e2").userId).toBe("uB"); // identity untouched
+  });
+
+  it("keeps the stored snapshot only for a worker unknown to users.json and the register", async () => {
+    const res = await call({ query: { jobId: "job-2" } });
+    const body = res.body as JobHours;
+    const entry = (id: string) => body.entries.find((e) => e.id === id)!;
+    expect(body.entries.map((e) => e.id).sort()).toEqual(["e2", "e4", "e7"]);
+    expect(entry("e7").userName).toBe("Zed");
+    expect(entry("e4").userName).toBe("Alfredo Lopez");
   });
 
   it("400 without jobId; 405 on non-GET", async () => {
