@@ -7,6 +7,7 @@ import {
   buildJobBreakdown,
   defaultOpenWeeks,
   draftSendBlockReason,
+  hoursDayRows,
   hoursWeekDot,
   hoursWeekLabel,
   mergeSavedEntries,
@@ -105,7 +106,7 @@ describe("buildHoursWeeks", () => {
 
   it("caps the rendered weeks and reports the honest hidden count", () => {
     const entries = Array.from({ length: 20 }, (_, i) =>
-      entry({ date: addDays(MONDAY, -7 * (i + 1)), status: "approved" }),
+      entry({ date: addDays(MONDAY, -7 * (i + 1)), status: "approved" })
     );
     const { weeks, hiddenWeekCount } = buildHoursWeeks(entries, {
       todayISO: TODAY,
@@ -171,14 +172,14 @@ describe("draftSendBlockReason (attribution invariant)", () => {
           ],
         }),
         JOBS,
-        false,
-      ),
+        false
+      )
     ).toContain("No job attached");
   });
 
   it("never claims a non-draft is sendable", () => {
     expect(draftSendBlockReason(entry({ date: MONDAY, status: "submitted" }), JOBS, false)).toBe(
-      "Not a draft",
+      "Not a draft"
     );
   });
 });
@@ -236,9 +237,14 @@ describe("buildJobBreakdown", () => {
           allocations: [{ jobId: null, hours: 1 }],
         }),
       ],
-      JOBS,
+      JOBS
     );
-    expect(rows[0]).toMatchObject({ name: "Level 12 Office Fitout", ref: "IV0041", hours: 12.6, known: true });
+    expect(rows[0]).toMatchObject({
+      name: "Level 12 Office Fitout",
+      ref: "IV0041",
+      hours: 12.6,
+      known: true,
+    });
     expect(rows[1]).toMatchObject({ name: "Payneham Rd Bakery", ref: null, hours: 3, known: true });
     // Unknown/unattributed sink below the real jobs, honestly labelled.
     const names = rows.map((r) => r.name);
@@ -264,7 +270,7 @@ describe("buildJobBreakdown", () => {
           ],
         }),
       ],
-      JOBS,
+      JOBS
     );
     const named = rows.find((r) => r.jobId === "gone-named")!;
     expect(named).toMatchObject({ name: "Old Depot", ref: null, hours: 3, known: false });
@@ -339,5 +345,68 @@ describe("mergeSavedEntries (optimistic overlay for confirmed saves)", () => {
   it("no saves → the server list unchanged (same reference, no churn)", () => {
     const server = [entry({ date: MONDAY, status: "approved" })];
     expect(mergeSavedEntries(server, [])).toBe(server);
+  });
+});
+
+// ── hoursDayRows — entries + honest gaps, clock-injected ────────────────────
+// Fixed on the 2026-08-24 field evidence: Monday morning, a worker who worked
+// last Saturday (22 Aug) had NO path to log it — the old row loop skipped
+// every weekend day and the log sheet's dial is this-week only.
+
+describe("hoursDayRows (weekend backfill, 2026-08-24 field evidence)", () => {
+  const CRAIG_TODAY = "2026-08-24"; // Monday
+  const LAST_WEEK = { weekStart: "2026-08-17" }; // Mon 17 – Sun 23 Aug
+
+  it("a worked-but-unlogged weekend in LAST week gets a live, loggable row", () => {
+    const entries = [0, 1, 2, 3, 4].map((i) =>
+      entry({ date: addDays("2026-08-17", i), status: "submitted" })
+    );
+    const rows = hoursDayRows({ ...LAST_WEEK, entries }, CRAIG_TODAY);
+    expect(rows.map((r) => r.date)).toEqual([
+      "2026-08-17",
+      "2026-08-18",
+      "2026-08-19",
+      "2026-08-20",
+      "2026-08-21",
+      "2026-08-22", // Craig's Saturday — the row that did not exist
+      "2026-08-23",
+    ]);
+    const sat = rows.find((r) => r.date === "2026-08-22")!;
+    expect(sat).toMatchObject({ entry: null, weekend: true, loggable: true });
+    const sun = rows.find((r) => r.date === "2026-08-23")!;
+    expect(sun).toMatchObject({ entry: null, weekend: true, loggable: true });
+  });
+
+  it("an out-of-window weekend renders NOTHING — an unworked weekend never reads as owed", () => {
+    // Week of 27 Jul: its Saturday (1 Aug) is 23 days before today — past the
+    // server's 14-day backdate window, so no row and no dead pill.
+    const rows = hoursDayRows(
+      { weekStart: "2026-07-27", entries: [entry({ date: "2026-07-27", status: "approved" })] },
+      CRAIG_TODAY
+    );
+    expect(rows.some((r) => r.date === "2026-08-01" || r.date === "2026-08-02")).toBe(false);
+    // Weekday gaps of that old week stay as honest history — present but not
+    // loggable (the window has passed).
+    const tue = rows.find((r) => r.date === "2026-07-28")!;
+    expect(tue).toMatchObject({ entry: null, weekend: false, loggable: false });
+  });
+
+  it("a weekend day that WAS worked always renders its entry, however old", () => {
+    const sat = entry({ date: "2026-08-01", status: "approved" });
+    const rows = hoursDayRows({ weekStart: "2026-07-27", entries: [sat] }, CRAIG_TODAY);
+    expect(rows.find((r) => r.date === "2026-08-01")).toMatchObject({ entry: sat, weekend: true });
+  });
+
+  it("future days render nothing — the current week on a Monday is just Monday", () => {
+    const rows = hoursDayRows({ weekStart: "2026-08-24", entries: [] }, CRAIG_TODAY);
+    expect(rows.map((r) => r.date)).toEqual(["2026-08-24"]);
+    expect(rows[0]).toMatchObject({ entry: null, weekend: false, loggable: true });
+  });
+
+  it("a weekend 'today' is offered like any other day (the my-day strip rule, philWeek.ts)", () => {
+    const rows = hoursDayRows({ weekStart: "2026-08-17", entries: [] }, "2026-08-22"); // a Saturday
+    const sat = rows.find((r) => r.date === "2026-08-22")!;
+    expect(sat).toMatchObject({ entry: null, weekend: true, loggable: true });
+    expect(rows.some((r) => r.date === "2026-08-23")).toBe(false); // Sunday still future
   });
 });

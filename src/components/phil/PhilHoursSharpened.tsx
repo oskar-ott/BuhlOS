@@ -10,10 +10,7 @@ import { PhilNotice } from "./ui/PhilNotice";
 import { LogHoursSheet } from "./LogHoursSheet";
 import { RejectedHoursResubmitSheet } from "./RejectedHoursResubmitSheet";
 import { timesheetsClient } from "@/domains/timesheets/client";
-import {
-  readSavedEntries,
-  recordSavedEntry,
-} from "@/domains/timesheets/saved-entries-journal";
+import { readSavedEntries, recordSavedEntry } from "@/domains/timesheets/saved-entries-journal";
 import {
   amendmentLine,
   dayTypeLabel,
@@ -22,18 +19,14 @@ import {
 } from "@/domains/timesheets/format";
 import { STATUS_WORDS } from "@/domains/timesheets/status-words";
 import { canResubmitInPhil } from "@/domains/timesheets/resubmit";
-import {
-  STANDARD_DAY_HOURS,
-  addDays,
-  isWithinBackdateWindow,
-  lastLoggedJobFor,
-} from "@/domains/timesheets/service";
+import { STANDARD_DAY_HOURS, lastLoggedJobFor } from "@/domains/timesheets/service";
 import type { TimeEntry, TimeEntryAllocation } from "@/domains/timesheets/types";
 import {
   buildDraftSendPayload,
   buildHoursWeeks,
   defaultOpenWeeks,
   hoursDayLabel,
+  hoursDayRows,
   hoursWeekLabel,
   mergeSavedEntries,
   toggleWeek,
@@ -179,19 +172,19 @@ export function PhilHoursSharpened({
   }
   const mergedEntries = useMemo(
     () => mergeSavedEntries(entries, savedEntries),
-    [entries, savedEntries],
+    [entries, savedEntries]
   );
 
   const { weeks, hiddenWeekCount } = useMemo(
     () => buildHoursWeeks(mergedEntries, { todayISO, assignedJobs, jobsError }),
-    [mergedEntries, todayISO, assignedJobs, jobsError],
+    [mergedEntries, todayISO, assignedJobs, jobsError]
   );
 
   // Fold state: this week open, prior weeks folded (design §2.6). Weeks that
   // appear later (a new week ticking over after a refresh) default per the
   // same rule via the ?? fallback in isOpen below.
   const [openWeeks, setOpenWeeks] = useState<Record<string, boolean>>(() =>
-    defaultOpenWeeks(weeks),
+    defaultOpenWeeks(weeks)
   );
   const isOpen = (w: HoursWeek) => openWeeks[w.weekStart] ?? w.isCurrent;
 
@@ -227,10 +220,7 @@ export function PhilHoursSharpened({
     // next; a failure never blocks the rest, and nothing renders as sent
     // until the server said so.
     for (const draft of drafts) {
-      const result = await timesheetsClient.editOwnEntry(
-        draft.date,
-        buildDraftSendPayload(draft),
-      );
+      const result = await timesheetsClient.editOwnEntry(draft.date, buildDraftSendPayload(draft));
       if (result.ok) {
         ok += 1;
         recordSaved(result.data.entry);
@@ -239,7 +229,9 @@ export function PhilHoursSharpened({
     setSendStates((s) => ({
       ...s,
       [week.weekStart]:
-        failed === 0 ? { kind: "sent", count: ok } : { kind: "failed", okCount: ok, failCount: failed },
+        failed === 0
+          ? { kind: "sent", count: ok }
+          : { kind: "failed", okCount: ok, failCount: failed },
     }));
     // Reload the server data either way so the rows show their true new
     // statuses (and a partial failure's remaining drafts recompute).
@@ -247,8 +239,12 @@ export function PhilHoursSharpened({
   }
 
   const lastLogged = useMemo(
-    () => lastLoggedJobFor(mergedEntries, assignedJobs.map((j) => j.id)),
-    [mergedEntries, assignedJobs],
+    () =>
+      lastLoggedJobFor(
+        mergedEntries,
+        assignedJobs.map((j) => j.id)
+      ),
+    [mergedEntries, assignedJobs]
   );
   const soleJobId = assignedJobs.length === 1 ? assignedJobs[0]!.id : null;
   const initialTodayEntry = mergedEntries.find((e) => e.date === todayISO) ?? null;
@@ -256,9 +252,7 @@ export function PhilHoursSharpened({
   return (
     <div className="space-y-4" data-testid="phil-hours-sharpened">
       <header className="flex items-baseline justify-between gap-3">
-        <h1 className="font-display text-2xl font-extrabold tracking-[-0.02em] text-text">
-          Hours
-        </h1>
+        <h1 className="font-display text-2xl font-extrabold tracking-[-0.02em] text-text">Hours</h1>
         {weeks.length > 1 ? (
           <span className="font-display text-[12px] font-bold uppercase tracking-[0.09em] text-text-muted">
             {weeks.length} weeks
@@ -275,8 +269,8 @@ export function PhilHoursSharpened({
             setOpenWeeks((open) =>
               toggleWeek(
                 { ...open, [week.weekStart]: open[week.weekStart] ?? week.isCurrent },
-                week.weekStart,
-              ),
+                week.weekStart
+              )
             )
           }
           todayISO={todayISO}
@@ -398,7 +392,7 @@ function WeekCard({
           aria-hidden="true"
           className={cn(
             "h-5 w-5 shrink-0 text-text-muted transition-transform",
-            open && "rotate-180",
+            open && "rotate-180"
           )}
         />
       </button>
@@ -416,7 +410,7 @@ function WeekCard({
                     <span
                       className={cn(
                         "truncate text-sm font-medium",
-                        row.known ? "text-text" : "text-text-muted",
+                        row.known ? "text-text" : "text-text-muted"
                       )}
                     >
                       {row.name}
@@ -481,32 +475,34 @@ function DayRows({
   onLogDay: (date: string) => void;
   onSaved: (entry: TimeEntry) => void;
 }) {
-  const byDate = new Map(week.entries.map((e) => [e.date, e]));
-  const rows: Array<{ date: string; entry: TimeEntry | null }> = [];
-  for (let i = 0; i < 7; i++) {
-    const date = addDays(week.weekStart, i);
-    const entry = byDate.get(date) ?? null;
-    if (entry) {
-      rows.push({ date, entry });
-      continue;
-    }
-    if (date > todayISO) continue; // future — nothing to show yet
-    // An unworked weekend never reads as owed (same rule as philWeek.ts).
-    if (i >= 5) continue;
-    rows.push({ date, entry: null });
-  }
+  // Entries + honest gaps — the pure, clock-injected rule (weekend rows are
+  // window-guarded offers, weekday gaps are history; philHoursWeeks.ts).
+  const rows = hoursDayRows(week, todayISO);
   // Entries outside the Mon–Sun frame can't exist (weekStartOf groups them),
   // so `rows` is the complete honest picture of the week.
   if (rows.length === 0) return null;
 
   return (
     <ul className="divide-y divide-border border-t border-border">
-      {rows.map(({ date, entry }) => (
+      {rows.map(({ date, entry, weekend, loggable }) => (
         <li key={date} className="py-2.5">
           {entry ? (
-            <EntryRow entry={entry} date={date} todayISO={todayISO} assignedJobs={assignedJobs} jobsError={jobsError} onSaved={onSaved} />
+            <EntryRow
+              entry={entry}
+              date={date}
+              todayISO={todayISO}
+              assignedJobs={assignedJobs}
+              jobsError={jobsError}
+              onSaved={onSaved}
+            />
           ) : (
-            <MissedRow date={date} todayISO={todayISO} onLogDay={onLogDay} />
+            <MissedRow
+              date={date}
+              todayISO={todayISO}
+              weekend={weekend}
+              loggable={loggable}
+              onLogDay={onLogDay}
+            />
           )}
         </li>
       ))}
@@ -516,7 +512,7 @@ function DayRows({
 
 function allocationLabel(
   a: TimeEntryAllocation,
-  assignedJobs: ReadonlyArray<HoursJobRef>,
+  assignedJobs: ReadonlyArray<HoursJobRef>
 ): { name: string; ref: string | null } {
   const job = a.jobId ? assignedJobs.find((j) => j.id === a.jobId) : undefined;
   if (job) return { name: job.name, ref: job.ref ?? null };
@@ -593,10 +589,7 @@ function EntryRow({
               </p>
             ) : null}
             {adjusted ? (
-              <p
-                data-testid="phil-hours-adjusted"
-                className="text-[13px] text-text-muted"
-              >
+              <p data-testid="phil-hours-adjusted" className="text-[13px] text-text-muted">
                 {adjusted}
               </p>
             ) : null}
@@ -659,14 +652,22 @@ function EntryRow({
 function MissedRow({
   date,
   todayISO,
+  weekend = false,
+  loggable,
   onLogDay,
 }: {
   date: string;
   todayISO: string;
+  /** Sat/Sun rows carry an offer ("log it if you worked"), never the
+   *  missing-day "Not logged" — an unworked weekend is not owed (P11). */
+  weekend?: boolean;
+  /** From hoursDayRows (clock-injected): inside the server's 14-day backdate
+   *  window. Backdating past it can't succeed — no dead-end tap. Weekend
+   *  rows are window-filtered upstream and only arrive loggable. */
+  loggable: boolean;
   onLogDay: (date: string) => void;
 }) {
-  // Backdating past the server's window can't succeed — no dead-end tap.
-  const canLog = isWithinBackdateWindow(date);
+  const canLog = loggable;
   if (!canLog) {
     return (
       <div className="flex min-h-[44px] items-center justify-between gap-3">
@@ -693,7 +694,9 @@ function MissedRow({
         <span className="block text-sm font-semibold text-text">
           {hoursDayLabel(date, todayISO)}
         </span>
-        <span className="mt-0.5 block text-[13px] text-text-muted">Not logged</span>
+        <span className="mt-0.5 block text-[13px] text-text-muted">
+          {weekend ? "Weekend — log it if you worked" : "Not logged"}
+        </span>
       </span>
       <ChevronRight aria-hidden="true" className="h-5 w-5 shrink-0 text-text-muted" />
     </button>
