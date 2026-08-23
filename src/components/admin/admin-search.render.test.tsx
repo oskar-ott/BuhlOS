@@ -20,7 +20,10 @@ describe("AdminSearchBox (SSR)", () => {
   it("renders the input affordance and the '/' focus hint; no panel until typed", () => {
     const html = renderToString(createElement(AdminSearchBox));
     expect(html).toContain("admin-search-input");
-    expect(html).toContain("Search jobs, snags, people");
+    expect(html).toContain("Search jobs, people");
+    // 2026-08-24: the placeholder no longer advertises "snags" — a dark feature
+    // api/search.js never returns (it searches jobs + users only).
+    expect(html).not.toContain("snags");
     // Closed on first paint — no results panel.
     expect(html).not.toContain("admin-search-panel");
     expect(html).not.toContain("No matches");

@@ -150,7 +150,7 @@ export function AdminSearchBox() {
           onFocus={() => setOpen(true)}
           onBlur={() => window.setTimeout(close, 150)} // allow click-through
           onKeyDown={onKeyDown}
-          placeholder="Search jobs, snags, people…"
+          placeholder="Search jobs, people…"
           aria-label="Search"
           data-testid="admin-search-input"
           className="h-9 w-full bg-transparent text-sm outline-none placeholder:text-text-muted"
@@ -214,7 +214,9 @@ export function AdminSearchBox() {
                         >
                           <span className="line-clamp-1 text-sm text-text">{result.label}</span>
                           {result.sub ? (
-                            <span className="line-clamp-1 text-xs text-text-muted">{result.sub}</span>
+                            <span className="line-clamp-1 text-xs text-text-muted">
+                              {result.sub}
+                            </span>
                           ) : null}
                         </button>
                       </li>
