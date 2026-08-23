@@ -56,7 +56,10 @@ function entry(over: Partial<TimeEntry> & Pick<TimeEntry, "date" | "status">): T
   } as TimeEntry;
 }
 
-function render(entries: TimeEntry[], over: Partial<Parameters<typeof PhilHoursSharpened>[0]> = {}) {
+function render(
+  entries: TimeEntry[],
+  over: Partial<Parameters<typeof PhilHoursSharpened>[0]> = {}
+) {
   return renderToString(
     createElement(PhilHoursSharpened, {
       entries,
@@ -64,7 +67,7 @@ function render(entries: TimeEntry[], over: Partial<Parameters<typeof PhilHoursS
       assignedJobs: JOBS,
       jobsError: false,
       ...over,
-    }),
+    })
   );
 }
 
@@ -82,12 +85,16 @@ describe("PhilHoursSharpened — week cards", () => {
     expect(html).toContain("phil-hours-sharpened");
     // This week: expanded — real attribution + badge visible.
     expect(html).toContain(`phil-hours-week-toggle-${MONDAY}`);
-    expect(html).toMatch(new RegExp(`aria-expanded="true"[^>]*aria-controls="phil-hours-week-body-${MONDAY}"`));
+    expect(html).toMatch(
+      new RegExp(`aria-expanded="true"[^>]*aria-controls="phil-hours-week-body-${MONDAY}"`)
+    );
     expect(html).toContain("Level 12 Office Fitout");
     expect(html).toContain("IV0041");
     expect(html).toContain("Approved");
     // Last week: folded — header shows the real total, body content absent.
-    expect(html).toMatch(new RegExp(`aria-expanded="false"[^>]*aria-controls="phil-hours-week-body-${LAST_MONDAY}"`));
+    expect(html).toMatch(
+      new RegExp(`aria-expanded="false"[^>]*aria-controls="phil-hours-week-body-${LAST_MONDAY}"`)
+    );
     expect(html).toContain("Last week");
     expect(html).not.toContain("Payneham Rd Bakery"); // lives only in the folded body
   });
@@ -103,7 +110,7 @@ describe("PhilHoursSharpened — week cards", () => {
     expect(html).toContain("Last week");
     // Folded by default like every past week; opening it is the worker's tap.
     expect(html).toMatch(
-      new RegExp(`aria-expanded="false"[^>]*aria-controls="phil-hours-week-body-${LAST_MONDAY}"`),
+      new RegExp(`aria-expanded="false"[^>]*aria-controls="phil-hours-week-body-${LAST_MONDAY}"`)
     );
   });
 
@@ -249,7 +256,9 @@ describe("PhilHoursSharpened — honest footer", () => {
 
 describe("today's unlogged row (owner-directed, 2026-08-07; whole-row tap 2026-08-10)", () => {
   it("today's whole row is the log tap-target, same as any other unlogged day — never a dead end", () => {
-    // An unworked weekend is never owed, so a real Sat/Sun "today" renders no
+    // (Weekend days now render window-guarded offer rows too — covered in the
+    // fixed-clock describe below; this case pins the WEEKDAY today row.)
+    // The original rule note, kept for history: a weekend "today" used to render no
     // unlogged row at all. Pin "today" to the Friday of the same real week —
     // still inside isWithinBackdateWindow's real-clock 14-day window.
     const dow = new Date(TODAY + "T00:00:00").getDay();
@@ -368,5 +377,32 @@ describe("PhilHoursSharpened — OT breakdown (total kept, split shown)", () => 
     const html = render([entry({ date: MONDAY, status: "approved" })]);
     expect(html).not.toContain("phil-hours-week-ot-");
     expect(html).not.toContain("incl.");
+  });
+});
+
+describe("weekend backfill (2026-08-24 field evidence — a worked Saturday had no way in)", () => {
+  // Deterministic: a synthetic Sunday as todayISO. hoursDayRows and MissedRow
+  // key entirely off the prop clock, so the render is stable on any run day.
+  const SUNDAY = "2026-08-23";
+  const WEEK_ENTRIES = [0, 1, 2, 3, 4].map((i) =>
+    entry({ date: addDays("2026-08-17", i), status: "submitted" })
+  );
+
+  it("an unlogged past Saturday in the open week is a tappable row with weekend copy — never 'Not logged'", () => {
+    const html = render(WEEK_ENTRIES, { todayISO: SUNDAY });
+    expect(html).toContain('data-testid="phil-hours-log-day-2026-08-22"');
+    expect(html).toContain("Weekend — log it if you worked");
+    // The weekend offer never borrows the missing-day debt copy: the only
+    // gap rows in this fixture are Sat 22 + Sun 23 (both weekend), so no
+    // "Not logged" renders at all.
+    const dayRows = html.split("Log your day")[0];
+    expect(dayRows).not.toContain("Not logged");
+  });
+
+  it("a weekday gap still reads 'Not logged' — the weekend copy never leaks onto weekdays", () => {
+    const missingWednesday = WEEK_ENTRIES.filter((e) => e.date !== "2026-08-19");
+    const html = render(missingWednesday, { todayISO: SUNDAY });
+    expect(html).toContain('data-testid="phil-hours-log-day-2026-08-19"');
+    expect(html).toContain("Not logged");
   });
 });
