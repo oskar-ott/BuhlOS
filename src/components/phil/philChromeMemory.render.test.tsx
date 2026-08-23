@@ -22,8 +22,10 @@ import {
  * server pass — effects never run and `mounted` stays false — so even with
  * the memory artificially warmed to full-sharpened, a flag-less render must
  * be BYTE-IDENTICAL to today's default chrome. That is exactly what keeps
- * SSR/hydration consistent and flag-off viewers unchanged; the skeleton only
- * ever sharpens one frame after mount, client-side.
+ * SSR/hydration consistent and flag-off viewers unchanged. (The one thing
+ * that MAY sharpen a flag-less SSR is the request-scoped chrome hint —
+ * philChromeHint.render.test.tsx — which is identical on both passes; these
+ * renders sit OUTSIDE its provider, so the memory alone must never leak.)
  */
 // Same indirection as PhilShell.render.test.tsx — the props object (children
 // included) is typed against the component, not spelled at the createElement

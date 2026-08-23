@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { User } from "lucide-react";
 import { PhilOfflineLink } from "./PhilOfflineLink";
+import { usePhilChromeHint } from "./philChromeHint";
 import { readPhilChromeMemory, rememberPhilChrome } from "./philChromeMemory";
 
 interface PhilHeaderProps {
@@ -13,8 +14,10 @@ interface PhilHeaderProps {
    * the sharpened nav (§1: "Account lives on the header avatar, not a tab").
    * An explicit boolean (server-resolved) always wins and refreshes the
    * chrome memory; `undefined` (a flag-less render such as a `loading.tsx`
-   * skeleton) consults the memory POST-MOUNT so navigations don't flash the
-   * ratified chrome — SSR / first client frame stays the default header.
+   * skeleton) falls back to the memory POST-MOUNT, then to the request's
+   * chrome hint (the /phil layout's cookie read — philChromeHint.tsx), which
+   * IS available during SSR — so navigations AND cold app opens keep the
+   * remembered chrome instead of flashing the ratified header.
    * False = the ratified header, byte-identical.
    */
   sharpened?: boolean;
@@ -40,7 +43,9 @@ interface PhilHeaderProps {
 export function PhilHeader({ title, sharpened, accountInitials }: PhilHeaderProps) {
   // Mounted gate (see philChromeMemory.ts): the memory fallback applies only
   // after mount so the first client frame matches the server HTML exactly —
-  // no hydration mismatch, and flag-less SSR stays the default (navy) header.
+  // no hydration mismatch. The chrome HINT below it is request-scoped and
+  // identical on both passes, so it MAY drive SSR: a cold-start skeleton
+  // paints the remembered chrome from the first byte (philChromeHint.tsx).
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
   // Explicit props refresh the memory; undefined keys are no-ops by design.
@@ -48,7 +53,11 @@ export function PhilHeader({ title, sharpened, accountInitials }: PhilHeaderProp
     rememberPhilChrome({ sharpened, accountInitials });
   }, [sharpened, accountInitials]);
   const memory = readPhilChromeMemory();
-  const effectiveSharpened = sharpened ?? (mounted ? memory.sharpened : false);
+  const hint = usePhilChromeHint();
+  // Explicit prop → session memory (post-mount; null until server-confirmed)
+  // → the request's cookie hint → the ratified default.
+  const effectiveSharpened =
+    sharpened ?? (mounted ? memory.sharpened : null) ?? hint?.sharpened ?? false;
   const effectiveInitials =
     accountInitials !== undefined
       ? accountInitials

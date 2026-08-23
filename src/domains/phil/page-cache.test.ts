@@ -44,6 +44,27 @@ describe("purgePhilPageCaches", () => {
     } as unknown as CacheStorage;
     await expect(purgePhilPageCaches(cs)).resolves.toBeUndefined();
   });
+
+  it("also expires the chrome-hint cookie at the same boundary (shared-phone hygiene)", async () => {
+    // Node env has no document (covered by the no-op tests above); install a
+    // recording stub for this case only.
+    const writes: string[] = [];
+    (globalThis as { document?: unknown }).document = {
+      get cookie() {
+        return "phil_chrome=s1.r1";
+      },
+      set cookie(v: string) {
+        writes.push(v);
+      },
+    };
+    try {
+      const { cs } = fakeCacheStorage(["buhl-sw-v12-pages"]);
+      await purgePhilPageCaches(cs);
+      expect(writes).toEqual(["phil_chrome=; path=/; max-age=0; samesite=lax"]);
+    } finally {
+      delete (globalThis as { document?: unknown }).document;
+    }
+  });
 });
 
 /**

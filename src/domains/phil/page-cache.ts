@@ -1,11 +1,17 @@
+import { CHROME_HINT_EXPIRE_COOKIE } from "./chrome-hint";
 import { shouldCachePhilPage } from "./sw-cache-policy";
 
-// Session-boundary purge for the offline read cache (#135 Layer 2, #575 P1a).
+// Session-boundary purge for the per-viewer Phil presentation caches
+// (#135 Layer 2, #575 P1a).
 //
 // The service worker caches the worker's own /phil/* pages per-device so they
 // open offline. That cache MUST be cleared at every session boundary, or a
 // shared site phone would serve the previous worker's pages to the next person —
-// a privacy leak. Called at BOTH:
+// a privacy leak. The chrome-hint cookie (chrome-hint.ts — the cold-start
+// skeleton's remembered chrome) is cleared at the same boundaries for the same
+// shared-phone reason: the next signer-in must not inherit the previous
+// viewer's chrome baseline (their first page render re-confirms their own).
+// Called at BOTH:
 //   * sign-out (PhilSignOutButton), and
 //   * successful sign-in (login-form) — the load-bearing hook, because a new
 //     worker can only take over by logging in, so this runs even when no
@@ -17,6 +23,11 @@ import { shouldCachePhilPage } from "./sw-cache-policy";
 export async function purgePhilPageCaches(
   cacheStorage: CacheStorage | undefined = typeof caches !== "undefined" ? caches : undefined
 ): Promise<void> {
+  try {
+    if (typeof document !== "undefined") document.cookie = CHROME_HINT_EXPIRE_COOKIE;
+  } catch {
+    // Best-effort — same contract as the cache purge below.
+  }
   if (!cacheStorage) return;
   try {
     const keys = await cacheStorage.keys();
