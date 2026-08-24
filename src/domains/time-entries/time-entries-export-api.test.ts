@@ -23,6 +23,7 @@ const blobPath = requireFromHere.resolve("../../../api/_lib/blob.js");
 const authPath = requireFromHere.resolve("../../../api/_lib/auth.js");
 const vercelBlobPath = requireFromHere.resolve("@vercel/blob");
 const handlerPath = requireFromHere.resolve("../../../api/time-entries-export.js");
+const payrollInputsPath = requireFromHere.resolve("../../../api/_lib/payroll-inputs.js");
 
 type Res = ReturnType<typeof createRes>;
 let blob: Map<string, unknown>;
@@ -130,7 +131,7 @@ beforeEach(() => {
   blob.set("users/w2/time-entries/2026-06-10.json", entry("w2", "2026-06-10"));
   blob.set("users/w1/time-entries/2026-06-01.json", entry("w1", "2026-06-01"));
 
-  for (const p of [authPath, handlerPath]) {
+  for (const p of [authPath, handlerPath, payrollInputsPath]) {
     delete requireFromHere.cache[p];
   }
   requireFromHere.cache[blobPath] = {
@@ -174,6 +175,13 @@ beforeEach(() => {
 
   auth = requireFromHere(authPath);
   handler = requireFromHere(handlerPath);
+  // Freshness guarantee (2026-08-24): one instant retry instead of the ~5s
+  // production backoff, so the refusal/recovery paths run without sleeping.
+  (
+    requireFromHere(payrollInputsPath) as {
+      __setFreshnessRetryDelaysForTests: (d: number[]) => void;
+    }
+  ).__setFreshnessRetryDelaysForTests([0]);
 });
 
 afterEach(() => {
@@ -415,5 +423,86 @@ describe("confirmed PG worker links override the legacy users.json field (#248/#
 
     const res = await call("u_admin", "office", { ...WEEK, shape: "xero", dryRun: "1" });
     expect(dataRows(res).find((r) => r[2] === "w1")![3]).toBe("XE-legacy");
+  });
+});
+
+// ── Freshness guarantee (2026-08-24 incident) ────────────────────────────────
+// wk34's print-out silently dropped freshly-approved days: the CDN served the
+// pre-approval document ("submitted") and the approved filter removed real
+// hours with no error. The engine now verifies content against the blob's
+// last-PUT time and REFUSES rather than producing a short artifact.
+describe("freshness guarantee — a stale or unreadable day refuses the whole payroll read", () => {
+  function listWith(uploadedAtByPath: Record<string, string>, extraPaths: string[] = []) {
+    const vb = requireFromHere(vercelBlobPath) as { list: ReturnType<typeof vi.fn> };
+    vb.list.mockImplementation(async ({ prefix }: { prefix: string }) => ({
+      blobs: [...new Set([...blob.keys(), ...extraPaths])]
+        .filter((k) => k.startsWith(prefix))
+        .map((k) => ({
+          pathname: k,
+          url: `memory://${k}`,
+          ...(uploadedAtByPath[k] ? { uploadedAt: uploadedAtByPath[k] } : {}),
+        })),
+    }));
+  }
+
+  it("REFUSES (503, naming the day) when a just-overwritten entry still reads stale — the wk34 bug", async () => {
+    // The store still serves content stamped 10 minutes ago…
+    blob.set(
+      "users/w1/time-entries/2026-06-09.json",
+      entry("w1", "2026-06-09", {
+        status: "submitted",
+        updatedAt: new Date(Date.now() - 10 * 60_000).toISOString(),
+      }),
+    );
+    // …but the blob's last PUT was moments ago (the approval that hasn't propagated).
+    listWith({ "users/w1/time-entries/2026-06-09.json": new Date().toISOString() });
+    const res = await call("u_admin", "office", { ...WEEK, dryRun: "1", format: "json", status: "approved" });
+    expect(res.statusCode).toBe(503);
+    const err = (res.body as { error: string }).error;
+    expect(err).toContain("payroll read refused");
+    expect(err).toContain("sparky 2026-06-09 (just changed)");
+    expect(err).toContain("Nothing was produced with missing hours");
+  });
+
+  it("recovers when a retry serves the fresh content — the day is included, from the retry not the stale read", async () => {
+    const key = "users/w1/time-entries/2026-06-09.json";
+    const stale = entry("w1", "2026-06-09", {
+      status: "submitted",
+      updatedAt: new Date(Date.now() - 10 * 60_000).toISOString(),
+    });
+    const fresh = entry("w1", "2026-06-09", {
+      status: "approved",
+      updatedAt: new Date().toISOString(),
+    });
+    listWith({ [key]: new Date().toISOString() });
+    let calls = 0;
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementation(async (url: unknown) => {
+      const k = String(url).replace(/^memory:\/\//, "").replace(/\?.*$/, "");
+      if (k === key) {
+        calls += 1;
+        return { ok: true, json: async () => clone(calls === 1 ? stale : fresh) };
+      }
+      if (!blob.has(k)) return { ok: false, json: async () => null };
+      return { ok: true, json: async () => clone(blob.get(k)) };
+    });
+    const res = await call("u_admin", "office", { ...WEEK, dryRun: "1", format: "json", status: "approved" });
+    expect(res.statusCode).toBe(200);
+    const rows = (res.body as { rows: Array<{ date: string; workerId: string }> }).rows;
+    expect(rows.some((r) => r.workerId === "w1" && r.date === "2026-06-09")).toBe(true);
+    expect(calls).toBeGreaterThan(1);
+  });
+
+  it("REFUSES when a listed day-file cannot be read at all — never a silently shorter payroll", async () => {
+    listWith({}, ["users/w2/time-entries/2026-06-11.json"]); // listed but unfetchable
+    const res = await call("u_admin", "office", { ...WEEK, dryRun: "1", format: "csv", status: "approved" });
+    expect(res.statusCode).toBe(503);
+    expect((res.body as { error: string }).error).toContain("appy 2026-06-11 (unreadable)");
+    expect(res.sent).toBeNull(); // no CSV bytes were produced
+  });
+
+  it("accepts what it cannot verify (no uploadedAt in the listing; legacy rows without stamps) — never invents staleness", async () => {
+    const res = await call("u_admin", "office", { ...WEEK, dryRun: "1", format: "json", status: "approved" });
+    expect(res.statusCode).toBe(200);
+    expect((res.body as { rows: unknown[] }).rows.length).toBeGreaterThan(0);
   });
 });
