@@ -147,8 +147,22 @@ Hardening items (this PR closes the first; the rest are issues):
 - **Scale latent (#935, P1):** several hours endpoints still
   `list({ prefix:'users/', limit:5000 })` without pagination; at ~50 blobs/week
   the 5000 cap is ~2 years out, but it silently truncates rather than erroring.
-  The per-job money read and two core walks were paginated (2fe/1263 lineage);
-  the rest remain.
+  The per-job money read, two core walks, and (2026-08-24, PR #1036) the
+  payroll row engine are paginated; the rest remain.
+- **INCIDENT + FIX (2026-08-24, wk34, PR #1036):** the payroll print-out
+  silently dropped freshly-approved days — just-overwritten day blobs served
+  their pre-approval content from the CDN, still read "submitted", and the
+  approved filter removed real hours with no error. Fixed at the ONE row
+  engine (`api/_lib/payroll-inputs.js`): every entry read is verified against
+  the blob's last-PUT time vs the entry's own write stamps; a stale read is
+  retried briefly, then the WHOLE collection refuses with a 503 naming the
+  affected days; unreadable blobs refuse the same way. Every payroll artifact
+  (CSV, PDF, timesheet email, Xero batch create/lock) inherits the guarantee:
+  **complete, or it does not exist.** Note for the "just read Supabase"
+  instinct: at incident time PG *lagged* Blob (dual-write gated off in the
+  live env; approvals reach PG via the daily sync), so a PG-first read would
+  have been worse — the #152 strangler stays the long-term cure behind its
+  documented flip prerequisites.
 
 ---
 
