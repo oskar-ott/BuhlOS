@@ -215,28 +215,41 @@ module.exports = async (req, res) => {
         (jobId ? e.jobId === jobId : true)
     );
 
-    // Tradie sees only entries where they were the actor OR the target
-    // evidence was captured by them. Look up the evidence row once to
-    // resolve ownership without re-reading per entry.
-    //
-    // Snag targetType: every field user assigned to the job can see
-    // the whole snag history (same visibility as the snag itself in
-    // api/snags.js GET). No per-actor filter applies. Tradie evidence
-    // filter is unchanged.
-    if (isFieldRole(user.role) && targetType === 'evidence') {
-      let evCapturedById = null;
-      try {
-        const data = await readBlob(dataKey(jobId), { evidence: [] });
-        const arr = Array.isArray(data && data.evidence) ? data.evidence : [];
-        const ev = arr.find((it) => it && it.id === targetId);
-        if (ev) evCapturedById = ev.capturedById || null;
-      } catch {
-        // Best-effort: a read failure makes us conservative — filter
-        // to actor-only.
+    // Field-role narrowing (2026-08-24 market-readiness hardening): a field
+    // worker only ever sees their OWN slice of a row's history.
+    //   - evidence: their own actions, plus everything on a capture they took
+    //     (the capturedBy lookup below) — unchanged behaviour.
+    //   - EVERY other target type (job, snag, itp_*, observation,
+    //     material_request, time_entry, …): actor-only. Before this, only
+    //     evidence was narrowed, so a field worker could read a job-target
+    //     row history — which carries the job.material_spend_added/_removed
+    //     entries (supplier + date; the $ amount is deliberately kept out of
+    //     the journal by api/job-materials.js). Money-adjacent commercial
+    //     context is office data. This deliberately supersedes the old
+    //     "every field user sees the whole snag history" rule from the
+    //     deleted snags feature (api/snags.js is gone; no live surface reads
+    //     snag history) — if snags ever return, decide their visibility
+    //     afresh rather than inheriting this filter silently.
+    // Admins and leading hands are unaffected; the scope=job feed above is
+    // already staff-gated, and clients were 403'd before this point.
+    if (isFieldRole(user.role)) {
+      if (targetType === 'evidence') {
+        let evCapturedById = null;
+        try {
+          const data = await readBlob(dataKey(jobId), { evidence: [] });
+          const arr = Array.isArray(data && data.evidence) ? data.evidence : [];
+          const ev = arr.find((it) => it && it.id === targetId);
+          if (ev) evCapturedById = ev.capturedById || null;
+        } catch {
+          // Best-effort: a read failure makes us conservative — filter
+          // to actor-only.
+        }
+        filtered = filtered.filter(
+          (e) => e.actorId === user.id || evCapturedById === user.id
+        );
+      } else {
+        filtered = filtered.filter((e) => e.actorId === user.id);
       }
-      filtered = filtered.filter(
-        (e) => e.actorId === user.id || evCapturedById === user.id
-      );
     }
 
     const sorted = filtered

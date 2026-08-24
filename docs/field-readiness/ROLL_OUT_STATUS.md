@@ -1,6 +1,11 @@
 # BuhlOS / Phil — Roll-out Status
 
-> **One-line answer: NOT ready for real field roll-out. READY for controlled
+> **SUPERSEDED (2026-08-25).** This page is a pre-lean-reset snapshot
+> (`main @ 55ca30c`, 2026-06-05) kept as history — several lines (e.g.
+> "Payroll/Xero: NOT BUILT") are no longer true. The current verdict is
+> **[MARKET_READINESS_V1.md](./MARKET_READINESS_V1.md)**.
+
+> **One-line answer (as of 2026-06-05): NOT ready for real field roll-out. READY for controlled
 > internal dogfood with seeded QA and manual oversight.**
 
 | | |

@@ -3,13 +3,20 @@
 A practical, honest answer to one question: **is BuhlOS / Phil ready to use
 onsite?**
 
-**Short answer (snapshot `main @ 55ca30c`, 2026-06-05):** not ready for real
-field roll-out; ready for **controlled internal dogfood with supervision**.
-Current readiness rating: **2 / 5**.
+> **Current verdict lives in [MARKET_READINESS_V1.md](./MARKET_READINESS_V1.md)**
+> (snapshot `main @ f86f0f37`, 2026-08-25): the lean core is **ready for a
+> founder-supported external design partner on a dedicated per-company
+> deployment** — not shared-instance beta, not public self-serve. It
+> supersedes the verdict below.
+
+**Historical answer (snapshot `main @ 55ca30c`, 2026-06-05 — pre-lean-reset,
+superseded):** not ready for real field roll-out; ready for **controlled
+internal dogfood with supervision**. Readiness rating then: **2 / 5**.
 
 ## Read in this order
 
-1. **[ROLL_OUT_STATUS.md](./ROLL_OUT_STATUS.md)** — the verdict: what's solid, what blocks roll-out (P0/P1/P2), what's safe vs unsafe for dogfood, the 0–5 readiness scale with the current rating, and the exact gates before a limited field pilot.
+0. **[MARKET_READINESS_V1.md](./MARKET_READINESS_V1.md)** — the current release gate: verified product boundary, tenancy constraint, security/data/Xero verdicts, P0–P2 blockers (#1032–#1035), journeys, and the per-company provisioning runbook.
+1. **[ROLL_OUT_STATUS.md](./ROLL_OUT_STATUS.md)** *(historical, 2026-06-05)* — the verdict: what's solid, what blocks roll-out (P0/P1/P2), what's safe vs unsafe for dogfood, the 0–5 readiness scale with the current rating, and the exact gates before a limited field pilot.
 2. **[DOGFOOD_CHECKLIST.md](./DOGFOOD_CHECKLIST.md)** — the practical checklist for a supervised internal dogfood session: before / admin setup / field worker / office review / cleanup / stop conditions / report template.
 3. **[KNOWN_LIMITATIONS.md](./KNOWN_LIMITATIONS.md)** — a blunt, per-domain list of what is **not** finished, so a polished surface isn't mistaken for a production-ready one.
 4. **[NEXT_HARDENING_LANE.md](./NEXT_HARDENING_LANE.md)** — the prioritised roadmap (P0/P1 before pilot → P1/P2 after dogfood → future only), each item with why-it-matters, status, recommended PR, risk, and dependencies.

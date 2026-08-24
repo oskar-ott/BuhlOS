@@ -112,7 +112,12 @@ import { cn } from "@/lib/cn";
  *   api/jobs.js — PUT (update) + the draft GET gate
  */
 
-type DeliverKey = "plans" | "materials" | "gear" | "itps" | "risks";
+// 2026-08-24 market-readiness: itps/risks removed — their per-job routes
+// (/v2/jobs/[id]/itps, /rfis) were deleted in the 2026-07-27 gut, so the
+// cockpit sections rendered dead 404 buttons. ITP happens in Phil
+// (itp_simple); risks/RFIs is a dark feature. The per-job field-module
+// toggles (JobModules.itps) are a separate namespace and are untouched.
+type DeliverKey = "plans" | "materials" | "gear";
 
 type TabKey =
   | "overview"
@@ -134,8 +139,6 @@ const TABS: ReadonlyArray<{ key: TabKey; label: string }> = [
   { key: "plans", label: "Plans & docs" },
   { key: "materials", label: "Materials" },
   { key: "gear", label: "Gear" },
-  { key: "itps", label: "ITPs / QA" },
-  { key: "risks", label: "Risks & RFIs" },
   { key: "preview", label: "Field preview" },
   { key: "publish", label: "Publish" },
   { key: "more", label: "More" },
@@ -233,7 +236,7 @@ const SECTION_TESTID: Partial<Record<TabKey, string>> = {
 
 const COCKPIT_GROUPS: ReadonlyArray<{ heading: string; keys: ReadonlyArray<TabKey> }> = [
   { heading: "Build", keys: ["overview", "basics", "scope", "structure", "modules"] },
-  { heading: "Deliver", keys: ["plans", "materials", "gear", "itps", "risks"] },
+  { heading: "Deliver", keys: ["plans", "materials", "gear"] },
   { heading: "Ship", keys: ["preview", "publish"] },
   { heading: "More", keys: ["more"] },
 ];
@@ -274,17 +277,6 @@ const DELIVER_LINKS: Record<
     desc: "The test-and-tag register: who holds what and tag currency. Assign gear to this job's crew there.",
     path: () => `/gear`,
     external: true,
-  },
-  itps: {
-    label: "ITPs / QA",
-    desc: "Inspection & test points and hold points recorded against this job.",
-    path: (id) => `/v2/jobs/${id}/itps`,
-    module: "itps",
-  },
-  risks: {
-    label: "Risks & RFIs",
-    desc: "Open RFIs and risks that gate the work before or during the job.",
-    path: (id) => `/v2/jobs/${id}/rfis`,
   },
 };
 
@@ -842,8 +834,6 @@ export function JobBuilderClient({
       case "plans":
       case "materials":
       case "gear":
-      case "itps":
-      case "risks":
         return renderDeliverLink(tab);
       case "structure":
         return renderStructure();

@@ -225,13 +225,16 @@ export const JobSchema = z
      *  Drives the "Documents N" chip on /v2/jobs and the section nav
      *  on /v2/jobs/[jobId]. */
     statsDocumentsCurrent: z.number().optional(),
-    /** Job Builder redesign follow-up: material requests still in motion
-     *  (requested/approved/ordered — delivered + cancelled are done).
-     *  Drives the builder Deliver card's Materials count. */
+    /** Material requests still in motion (requested/approved/ordered).
+     *  HISTORY: fed the dark job_builder_redesign Deliver counts; no live UI
+     *  consumes it since the 2026-07 gut (the surviving Materials section
+     *  renders no count). api/jobs.js still computes it per list read —
+     *  drop both together when confirmed unneeded. */
     statsMaterialRequestsOpen: z.number().optional(),
-    /** Job Builder redesign follow-up: RFIs awaiting an answer
-     *  (open | sent — answered + closed are resolved). Drives the builder
-     *  Deliver card's Risks & RFIs count. */
+    /** RFIs awaiting an answer. HISTORY: fed the removed "Risks & RFIs"
+     *  Deliver section (dead 404 rail cut 2026-08-24); zero live consumers.
+     *  api/jobs.js still computes it per list read — drop both together
+     *  when confirmed unneeded. */
     statsRfisOpen: z.number().optional(),
   })
   .passthrough();
