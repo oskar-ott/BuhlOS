@@ -8,7 +8,8 @@
 
 | | |
 | --- | --- |
-| **Snapshot** | `main @ 2fe6907e`, 2026-08-24 |
+| **Snapshot** | `main @ f86f0f37`, 2026-08-25 (incl. the #1036 payroll freshness fix §5 describes) |
+| **Re-verify before acting** | `main` moves fast — re-check flags, issues and the commands cited here before relying on any line. |
 | **Method** | Repo + code + production config + Supabase + Blob evidence (read-only). Adversarial auth/IDOR, payroll money-path, and hidden-surface reviews. No production data mutated; no direct prod deploy. |
 | **Companion (stale)** | [ROLL_OUT_STATUS](./ROLL_OUT_STATUS.md) · [KNOWN_LIMITATIONS](./KNOWN_LIMITATIONS.md) — pre-lean-reset, do not rely on their verdicts |
 
@@ -106,7 +107,7 @@ Hardening items (this PR closes the first; the rest are issues):
   date; the $ amount is excluded from the journal by design). The field-role
   narrowing was evidence-only; it now filters non-evidence targets to
   actor-only. (`api/audit-log.js`.)
-- **Watch-item (issue):** `decodeSessionCookie` does **not** verify the HMAC;
+- **Watch-item (#1035):** `decodeSessionCookie` does **not** verify the HMAC;
   `middleware.ts` and ~40 server pages gate on it. Not a breach today — every
   sensitive byte comes from an HMAC-verifying `api/*` call, so a forged cookie
   yields an empty/error shell — but a future server page that renders sensitive
@@ -183,7 +184,7 @@ token refresh under CAS; period alignment (client-supplied Sydney date + exact
 calendar-period equality, else block); and the legacy CSV finalise path is now
 `410` (POST), closing the dual-path double-pay trap.
 
-**P0 — concurrent export can double-POST a batch (issue filed).** Idempotency is
+**P0 — concurrent export can double-POST a batch (#1032).** Idempotency is
 an app-level `SELECT` over a **non-unique** index with no advisory lock / no
 `FOR UPDATE` / no unique constraint, and the admission logic admits a second
 runner while status is already `exporting`/`partially_exported`
@@ -221,15 +222,15 @@ action, and duplicate drafts must be checked in Xero before the pay run is built
 ## 8 · Blockers by severity
 
 **P0 — external launch blockers**
-1. **Tenancy / no multi-company isolation or provisioning** (§3). Gate: per-company deployment only until a per-request tenant identity + enforcement lands.
+1. **Tenancy / no multi-company isolation or provisioning** (§3, **#1033**). Gate: per-company deployment only until a per-request tenant identity + enforcement lands.
 2. **Xero concurrent double-export** (§6). Gate: single-operator export + Xero duplicate check until the DB unique index (or admission lease) ships.
 
 **P1 — before charging broadly**
 3. Shared-store last-write-wins — tags / leave / job-create (#934).
 4. Hours-walk 5000-blob cap, unpaginated (#935).
 5. Approval-path duplication (`/hours/weekly` vs `/hours/approvals`; #1022 open) — pick one.
-6. **Gear primary tab shows "Coming soon"** — decision: ship the register or flip the `gear` kill-switch off (removes the nav slot). A live nav slot to an unbuilt feature is the one clear breach of the "hide what isn't built" rule.
-7. Unverified-cookie server-page trust — hardening before any sensitive in-process page read (§4).
+6. **Gear primary tab shows "Coming soon"** (**#1034**) — decision: ship the register or flip the `gear` kill-switch off (removes the nav slot). A live nav slot to an unbuilt feature is the one clear breach of the "hide what isn't built" rule.
+7. Unverified-cookie server-page trust (**#1035**) — hardening before any sensitive in-process page read (§4).
 8. Supabase PITR + a restore drill (#897/#532); confirm the live Supabase read/dual-write posture (§2 caveat).
 
 **P2 — private-beta polish**

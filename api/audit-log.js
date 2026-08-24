@@ -45,15 +45,9 @@
 // to resolve ownership when role=tradie. Heavier loads can move this
 // to a server-side index in a later phase.
 
-const { readBlob, setNoCache } = require("./_lib/blob");
-const {
-  requireAuth,
-  isAdminRole,
-  isLeadingHandRole,
-  isFieldRole,
-  isClientRole,
-} = require("./_lib/auth");
-const { readMonth } = require("./_lib/audit-log");
+const { readBlob, setNoCache } = require('./_lib/blob');
+const { requireAuth, isAdminRole, isLeadingHandRole, isFieldRole, isClientRole } = require('./_lib/auth');
+const { readMonth } = require('./_lib/audit-log');
 
 // Kept in sync with api/_lib/audit-log.js VALID_TARGET_TYPES and
 // src/domains/audit-log/schema.ts AUDIT_TARGET_TYPES — PR 9 added
@@ -62,36 +56,36 @@ const { readMonth } = require("./_lib/audit-log");
 // already writes these into audit/<yyyy-mm>.json; the GET endpoint
 // was just rejecting them on read).
 const VALID_TARGET_TYPES = new Set([
-  "evidence",
-  "snag",
-  "itp_template",
-  "itp_instance",
-  "employee",
-  "invite",
-  "observation",
+  'evidence',
+  'snag',
+  'itp_template',
+  'itp_instance',
+  'employee',
+  'invite',
+  'observation',
   // PR 11: Material Request module — the GET endpoint must accept it so the
   // per-job feed (?scope=job) and a future row-history view both work.
-  "material_request",
+  'material_request',
   // Sync sweep (#299 noticed the drift): writers added these targets but the
   // READ endpoint was still rejecting them as filters — #151 'system',
   // #194 'document', #189 'contact', #331 'credential', #332 'induction'.
-  "system",
-  "document",
-  "contact",
-  "credential",
-  "induction",
-  "leave",
+  'system',
+  'document',
+  'contact',
+  'credential',
+  'induction',
+  'leave',
   // #390: hours / time-entry decisions — the read endpoint must accept it so the
   // per-job feed and history filters surface the office approvals pass.
-  "time_entry",
+  'time_entry',
   // #581: a created job + a converted quote — so the per-job feed and the quote's
   // / job's row-history can filter and surface the creation trail.
-  "job",
-  "quote",
+  'job',
+  'quote',
   // #230: services-locations register — so the per-job feed can filter to it.
-  "service_location",
+  'service_location',
   // #283: site-instructions register — so the per-job feed can filter to it.
-  "instruction",
+  'instruction',
 ]);
 const MAX_MONTHS = 12;
 const DEFAULT_MONTHS = 2;
@@ -105,7 +99,7 @@ function recentMonths(now, count) {
   const d = new Date(now);
   for (let i = 0; i < count; i += 1) {
     const y = d.getUTCFullYear();
-    const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const m = String(d.getUTCMonth() + 1).padStart(2, '0');
     out.push(`${y}-${m}`);
     d.setUTCDate(1);
     d.setUTCMonth(d.getUTCMonth() - 1);
@@ -115,15 +109,15 @@ function recentMonths(now, count) {
 
 module.exports = async (req, res) => {
   setNoCache(res);
-  if (req.method === "OPTIONS") return res.status(200).end();
-  if (req.method !== "GET") return res.status(405).json({ error: "method not allowed" });
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'GET') return res.status(405).json({ error: 'method not allowed' });
 
   const q = req.query || {};
-  const targetType = String(q.targetType || "");
-  const targetId = String(q.targetId || "");
-  const jobId = String(q.jobId || "");
-  const scope = String(q.scope || "");
-  const typesCsv = String(q.types || "");
+  const targetType = String(q.targetType || '');
+  const targetId = String(q.targetId || '');
+  const jobId = String(q.jobId || '');
+  const scope = String(q.scope || '');
+  const typesCsv = String(q.types || '');
   const monthsParam = Number(q.months || DEFAULT_MONTHS);
   const months = Math.min(
     MAX_MONTHS,
@@ -133,16 +127,16 @@ module.exports = async (req, res) => {
   // PR 9: per-job activity feed mode. Admin/LH only — the field-worker view of
   // a job already shows their own captures + assigned snags + ITP rows; a
   // cross-event timeline is an office triage / closeout tool.
-  if (scope === "job") {
-    if (!jobId) return res.status(400).json({ error: "jobId required" });
+  if (scope === 'job') {
+    if (!jobId) return res.status(400).json({ error: 'jobId required' });
     const user = await requireAuth(req, res, { jobId });
     if (!user) return;
     if (!isAdminRole(user.role) && !isLeadingHandRole(user.role)) {
-      return res.status(403).json({ error: "job activity feed is admin/LH only" });
+      return res.status(403).json({ error: 'job activity feed is admin/LH only' });
     }
     const typeFilter = typesCsv
       ? typesCsv
-          .split(",")
+          .split(',')
           .map((t) => t.trim())
           .filter((t) => VALID_TARGET_TYPES.has(t))
       : null;
@@ -151,65 +145,63 @@ module.exports = async (req, res) => {
       const lists = await Promise.all(yyyymms.map((m) => readMonth(m)));
       const all = lists.flat();
       const filtered = all.filter(
-        (e) => e && e.jobId === jobId && (typeFilter ? typeFilter.includes(e.targetType) : true)
+        (e) =>
+          e &&
+          e.jobId === jobId &&
+          (typeFilter ? typeFilter.includes(e.targetType) : true)
       );
       const sorted = filtered
         .slice()
-        .sort((a, b) => String(b.ts || "").localeCompare(String(a.ts || "")));
+        .sort((a, b) => String(b.ts || '').localeCompare(String(a.ts || '')));
       return res.status(200).json({ entries: sorted });
     } catch (e) {
-      return res.status(500).json({ error: e.message || "job feed read failed" });
+      return res.status(500).json({ error: e.message || 'job feed read failed' });
     }
   }
 
   // #220: company-wide cross-job activity feed. Admin-tier only (the office
   // end-of-day review tool); LH → 403. Bounded by the same monthly-blob cap as
   // every other mode — no unbounded scan. Optional job / type / actor filters.
-  if (scope === "all") {
+  if (scope === 'all') {
     const user = await requireAuth(req, res);
     if (!user) return;
     if (!isAdminRole(user.role)) {
-      return res.status(403).json({ error: "cross-job activity is admin only" });
+      return res.status(403).json({ error: 'cross-job activity is admin only' });
     }
     const typeFilter = typesCsv
-      ? typesCsv
-          .split(",")
-          .map((t) => t.trim())
-          .filter((t) => VALID_TARGET_TYPES.has(t))
+      ? typesCsv.split(',').map((t) => t.trim()).filter((t) => VALID_TARGET_TYPES.has(t))
       : null;
-    const actorFilter = String(q.actorId || "") || null;
+    const actorFilter = String(q.actorId || '') || null;
     const jobFilter = jobId || null;
     try {
       const yyyymms = recentMonths(Date.now(), months);
       const lists = await Promise.all(yyyymms.map((m) => readMonth(m)));
-      const all = lists
-        .flat()
-        .filter(
-          (e) =>
-            e &&
-            (jobFilter ? e.jobId === jobFilter : true) &&
-            (typeFilter ? typeFilter.includes(e.targetType) : true) &&
-            (actorFilter ? e.actorId === actorFilter : true)
-        );
+      const all = lists.flat().filter(
+        (e) =>
+          e &&
+          (jobFilter ? e.jobId === jobFilter : true) &&
+          (typeFilter ? typeFilter.includes(e.targetType) : true) &&
+          (actorFilter ? e.actorId === actorFilter : true)
+      );
       const sorted = all
         .slice()
-        .sort((a, b) => String(b.ts || "").localeCompare(String(a.ts || "")));
+        .sort((a, b) => String(b.ts || '').localeCompare(String(a.ts || '')));
       return res.status(200).json({ entries: sorted });
     } catch (e) {
-      return res.status(500).json({ error: e.message || "activity feed read failed" });
+      return res.status(500).json({ error: e.message || 'activity feed read failed' });
     }
   }
 
-  if (!targetType) return res.status(400).json({ error: "targetType required" });
+  if (!targetType) return res.status(400).json({ error: 'targetType required' });
   if (!VALID_TARGET_TYPES.has(targetType)) {
-    return res.status(400).json({ error: "unsupported targetType" });
+    return res.status(400).json({ error: 'unsupported targetType' });
   }
-  if (!targetId) return res.status(400).json({ error: "targetId required" });
-  if (!jobId) return res.status(400).json({ error: "jobId required" });
+  if (!targetId) return res.status(400).json({ error: 'targetId required' });
+  if (!jobId) return res.status(400).json({ error: 'jobId required' });
 
   const user = await requireAuth(req, res, { jobId });
   if (!user) return;
-  if (isClientRole(user.role)) return res.status(403).json({ error: "forbidden" });
+  if (isClientRole(user.role)) return res.status(403).json({ error: 'forbidden' });
 
   try {
     const yyyymms = recentMonths(Date.now(), months);
@@ -223,45 +215,49 @@ module.exports = async (req, res) => {
         (jobId ? e.jobId === jobId : true)
     );
 
-    // Tradie sees only entries where they were the actor OR the target
-    // evidence was captured by them. Look up the evidence row once to
-    // resolve ownership without re-reading per entry.
-    //
-    // Snag targetType: every field user assigned to the job can see
-    // the whole snag history (same visibility as the snag itself in
-    // api/snags.js GET). No per-actor filter applies. Tradie evidence
-    // filter is unchanged.
-    if (isFieldRole(user.role) && targetType === "evidence") {
-      let evCapturedById = null;
-      try {
-        const data = await readBlob(dataKey(jobId), { evidence: [] });
-        const arr = Array.isArray(data && data.evidence) ? data.evidence : [];
-        const ev = arr.find((it) => it && it.id === targetId);
-        if (ev) evCapturedById = ev.capturedById || null;
-      } catch {
-        // Best-effort: a read failure makes us conservative — filter
-        // to actor-only.
+    // Field-role narrowing (2026-08-24 market-readiness hardening): a field
+    // worker only ever sees their OWN slice of a row's history.
+    //   - evidence: their own actions, plus everything on a capture they took
+    //     (the capturedBy lookup below) — unchanged behaviour.
+    //   - EVERY other target type (job, snag, itp_*, observation,
+    //     material_request, time_entry, …): actor-only. Before this, only
+    //     evidence was narrowed, so a field worker could read a job-target
+    //     row history — which carries the job.material_spend_added/_removed
+    //     entries (supplier + date; the $ amount is deliberately kept out of
+    //     the journal by api/job-materials.js). Money-adjacent commercial
+    //     context is office data. This deliberately supersedes the old
+    //     "every field user sees the whole snag history" rule from the
+    //     deleted snags feature (api/snags.js is gone; no live surface reads
+    //     snag history) — if snags ever return, decide their visibility
+    //     afresh rather than inheriting this filter silently.
+    // Admins and leading hands are unaffected; the scope=job feed above is
+    // already staff-gated, and clients were 403'd before this point.
+    if (isFieldRole(user.role)) {
+      if (targetType === 'evidence') {
+        let evCapturedById = null;
+        try {
+          const data = await readBlob(dataKey(jobId), { evidence: [] });
+          const arr = Array.isArray(data && data.evidence) ? data.evidence : [];
+          const ev = arr.find((it) => it && it.id === targetId);
+          if (ev) evCapturedById = ev.capturedById || null;
+        } catch {
+          // Best-effort: a read failure makes us conservative — filter
+          // to actor-only.
+        }
+        filtered = filtered.filter(
+          (e) => e.actorId === user.id || evCapturedById === user.id
+        );
+      } else {
+        filtered = filtered.filter((e) => e.actorId === user.id);
       }
-      filtered = filtered.filter((e) => e.actorId === user.id || evCapturedById === user.id);
-    } else if (isFieldRole(user.role)) {
-      // 2026-08-24 market-readiness (audit finding A): the field-role narrowing
-      // above was evidence-only, so a field worker could read a JOB-target feed
-      // (?targetType=job) — which carries the job.material_spend_added/_removed
-      // entries (supplier + date; the $ amount is deliberately excluded from the
-      // journal, api/job-materials.js). Money-adjacent commercial context is
-      // office data. For every NON-evidence target type a field worker now sees
-      // only entries where they were the actor — their own actions, never the
-      // office's. Admin/LH are unaffected; the admin scope=job feed (line ~134)
-      // is already staff-gated.
-      filtered = filtered.filter((e) => e.actorId === user.id);
     }
 
     const sorted = filtered
       .slice()
-      .sort((a, b) => String(b.ts || "").localeCompare(String(a.ts || "")));
+      .sort((a, b) => String(b.ts || '').localeCompare(String(a.ts || '')));
 
     return res.status(200).json({ entries: sorted });
   } catch (e) {
-    return res.status(500).json({ error: e.message || "audit read failed" });
+    return res.status(500).json({ error: e.message || 'audit read failed' });
   }
 };

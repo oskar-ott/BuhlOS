@@ -120,8 +120,10 @@ export interface GalleryPhoto {
   /** The originating evidence row, for opening EvidenceDrawer. Null for
    *  catalog-only photos (snag / ITP / dwelling). */
   evidenceItem: EvidenceItem | null;
-  /** The snag id, for catalog snag photos — lets the UI deep-link to the snag
-   *  surface. Null otherwise. */
+  /** The snag id a legacy catalog photo was captured against. Provenance
+   *  only: the snag surface (and its deep-link) was deleted in the 2026-07-27
+   *  gut, so no UI consumes this today — kept so old records stay
+   *  attributable. Null otherwise. */
   snagId: string | null;
 }
 
@@ -135,10 +137,7 @@ function stageLabelFromToken(stage: string): string {
 }
 
 /** Build the human provenance line for an evidence photo/note. */
-function evidenceProvenance(
-  item: EvidenceItem,
-  areaNameById: Record<string, string>,
-): string {
+function evidenceProvenance(item: EvidenceItem, areaNameById: Record<string, string>): string {
   const parts: string[] = [];
   if (item.stage) parts.push(stageLabelFromToken(item.stage));
   if (item.areaId) parts.push(areaNameById[item.areaId] ?? item.areaId);
@@ -156,7 +155,7 @@ function evidenceProvenance(
  */
 function fromEvidence(
   evidence: ReadonlyArray<EvidenceItem>,
-  areaNameById: Record<string, string>,
+  areaNameById: Record<string, string>
 ): GalleryPhoto[] {
   const out: GalleryPhoto[] = [];
   for (const item of evidence) {
@@ -167,7 +166,7 @@ function fromEvidence(
     if (!isNote && !item.photoUrl) continue;
     out.push({
       id: `evidence:${item.id}`,
-      url: isNote ? "" : item.photoUrl ?? "",
+      url: isNote ? "" : (item.photoUrl ?? ""),
       thumbnailUrl: item.thumbnailUrl ?? null,
       capturedAt: item.capturedAt ?? "",
       uploader: item.capturedByName || item.capturedById || "Unknown",
@@ -271,10 +270,7 @@ export function buildGalleryPhotos(input: {
   areaNameById?: Record<string, string>;
 }): GalleryPhoto[] {
   const areaNameById = input.areaNameById ?? {};
-  const merged = [
-    ...fromEvidence(input.evidence, areaNameById),
-    ...fromCatalog(input.catalog),
-  ];
+  const merged = [...fromEvidence(input.evidence, areaNameById), ...fromCatalog(input.catalog)];
   // Newest first; entries with no timestamp sort last (stable-ish via id).
   merged.sort((a, b) => {
     if (a.capturedAt && b.capturedAt) return b.capturedAt.localeCompare(a.capturedAt);
@@ -298,9 +294,7 @@ export interface GalleryDateGroup {
  * timestamp collect under the "" day key, which sorts last — honest about the
  * fact that the source recorded no time, rather than guessing "today".
  */
-export function groupPhotosByDay(
-  photos: ReadonlyArray<GalleryPhoto>,
-): GalleryDateGroup[] {
+export function groupPhotosByDay(photos: ReadonlyArray<GalleryPhoto>): GalleryDateGroup[] {
   const byDay = new Map<string, GalleryPhoto[]>();
   for (const p of photos) {
     const day = p.capturedAt ? p.capturedAt.slice(0, 10) : "";
@@ -352,10 +346,7 @@ export const EMPTY_GALLERY_FILTER: GalleryFilter = {
  * a photo with no timestamp is excluded the moment ANY date bound is set
  * (you can't place an undated photo in a range honestly).
  */
-export function matchesGalleryFilter(
-  photo: GalleryPhoto,
-  filter: GalleryFilter,
-): boolean {
+export function matchesGalleryFilter(photo: GalleryPhoto, filter: GalleryFilter): boolean {
   if (filter.fromDate || filter.toDate) {
     const day = photo.capturedAt ? photo.capturedAt.slice(0, 10) : "";
     if (!day) return false;
@@ -375,9 +366,7 @@ export function matchesGalleryFilter(
 }
 
 /** Count of as-built-flagged photos — drives the hidden-when-empty chip. */
-export function galleryAsBuiltCount(
-  photos: ReadonlyArray<GalleryPhoto>,
-): number {
+export function galleryAsBuiltCount(photos: ReadonlyArray<GalleryPhoto>): number {
   let n = 0;
   for (const p of photos) if (p.asBuilt) n += 1;
   return n;
@@ -385,7 +374,7 @@ export function galleryAsBuiltCount(
 
 /** Distinct uploaders present in a gallery, for the filter dropdown. */
 export function galleryUploaders(
-  photos: ReadonlyArray<GalleryPhoto>,
+  photos: ReadonlyArray<GalleryPhoto>
 ): Array<{ key: string; name: string }> {
   const map = new Map<string, string>();
   for (const p of photos) {

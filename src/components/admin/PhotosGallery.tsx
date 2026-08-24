@@ -59,9 +59,9 @@ const SOURCE_TONE: Record<GallerySourceKind, "info" | "warning" | "neutral"> = {
  *
  * Tapping an EVIDENCE photo opens the existing EvidenceDrawer (reuse — no
  * second detail UI). A catalog-only photo (snag / ITP / dwelling) has no
- * evidence drawer: a snag photo links to its snag surface; any catalog photo
- * also opens a plain full-size lightbox. NO capture / tagging controls (Epic 10
- * boundary).
+ * evidence drawer: it opens a plain full-size lightbox. (The old "open the
+ * snag" deep-link is gone — the snags surface was deleted in the 2026-07-27
+ * gut.) NO capture / tagging controls (Epic 10 boundary).
  */
 export function PhotosGallery({ job, evidence, catalog, sourceErrors, areaNameById }: Props) {
   const allPhotos = useMemo(
@@ -193,11 +193,9 @@ export function PhotosGallery({ job, evidence, catalog, sourceErrors, areaNameBy
       />
 
       {/* Catalog-only photos (snag / ITP / dwelling) have no evidence drawer —
-          a plain full-size lightbox + a link to the source surface. Never a
-          bespoke second detail panel. */}
-      {lightbox ? (
-        <Lightbox photo={lightbox} onClose={() => setLightbox(null)} />
-      ) : null}
+          a plain full-size lightbox only (the snag deep-link died with the
+          snags surface in the gut). Never a bespoke second detail panel. */}
+      {lightbox ? <Lightbox photo={lightbox} onClose={() => setLightbox(null)} /> : null}
     </div>
   );
 }
@@ -258,13 +256,7 @@ function PhotoTile({ photo, onOpen }: { photo: GalleryPhoto; onOpen: () => void 
   );
 }
 
-function Lightbox({
-  photo,
-  onClose,
-}: {
-  photo: GalleryPhoto;
-  onClose: () => void;
-}) {
+function Lightbox({ photo, onClose }: { photo: GalleryPhoto; onClose: () => void }) {
   return (
     <div
       role="dialog"
