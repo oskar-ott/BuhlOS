@@ -56,7 +56,8 @@ interface PageParams {
  *
  * Sections rendered here (top to bottom):
  *   - Health band: IV code / ref / type / address, status control, the same
- *     At-risk/Watch/On-track read the jobs list shows, crew + task progress
+ *     At-risk/Watch/On-track read the jobs list shows, crew + task progress,
+ *     and (admin) the Edit link beside the name into the builder Basics tab
  *   - Money &mdash; contract / labour / materials / margin, completeness notes,
  *     inline contract + estimate entry, budget variance (admin only)
  *   - Labour &mdash; hours AND cost per worker, day by day (admin only: the
