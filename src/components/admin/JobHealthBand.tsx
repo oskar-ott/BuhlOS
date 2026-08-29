@@ -24,7 +24,9 @@ import type { Job } from "@/domains/jobs/types";
  *
  * All facts are real stats off the loaded Job; an absent stat renders a muted
  * "—" or a designed sentence (2d), never a fabricated number (P7). The hero
- * carries the page's h1 — the shell renders hideHead for this page.
+ * carries the page's h1 — the shell renders hideHead for this page. Next to
+ * the name, admins get the Edit entry into the builder's Basics tab (the one
+ * editor for name + details — owner pull 2026-08-29).
  *
  * Cross-ref:
  *   src/domains/jobs/job-health.ts — the derivation (unit-tested)
@@ -92,9 +94,24 @@ export function JobHealthBand({
           </div>
         </div>
 
-        <h1 className="mt-2 font-display text-[26px] font-bold leading-[1.08] tracking-tight text-text sm:text-[36px] sm:leading-[1.05]">
-          {job.name}
-        </h1>
+        <div className="mt-2 flex items-start justify-between gap-3">
+          <h1 className="min-w-0 font-display text-[26px] font-bold leading-[1.08] tracking-tight text-text sm:text-[36px] sm:leading-[1.05]">
+            {job.name}
+          </h1>
+          {/* Owner pull 2026-08-29 ("edit job names and details"): the one
+              editor for name + basics is the builder's Basics tab, but no
+              affordance sat where the name is actually read. Admin-gated —
+              the PUT name field is admin-only server-side. */}
+          {canEdit ? (
+            <Link
+              href={`/v2/jobs/${encodeURIComponent(job.id)}/builder?tab=basics` as Route}
+              aria-label={`Edit name & details for ${job.name}`}
+              className="mt-1.5 shrink-0 text-sm font-medium text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-4 focus:outline-none focus:ring-2 focus:ring-brand-navy"
+            >
+              Edit
+            </Link>
+          ) : null}
+        </div>
         {address ? (
           <p className="mt-2 flex items-center gap-1.5 text-sm text-text-muted">
             <MapPin aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
