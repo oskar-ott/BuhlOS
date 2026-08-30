@@ -118,6 +118,37 @@ describe("WeeklyHoursApprovalMobile (render)", () => {
     expect(html).toContain("Overtime");
   });
 
+  it("labels a non-current week with its relation to today (Last week)", () => {
+    const closeout = buildWeeklyHoursCloseout({
+      entries: [entry({ userId: "u1", date: "2024-05-20", userName: "Ari Boland" })],
+      missing: [],
+      weekStart: WEEK_START,
+      todayISO: "2024-05-27",
+    });
+    const html = strip(
+      renderToString(
+        createElement(WeeklyHoursApprovalMobile, {
+          closeout,
+          // Viewed 2024-05-20; current week is 2024-05-27 → last complete week.
+          weekNav: {
+            prevWeek: "2024-05-13",
+            nextWeek: "2024-05-27",
+            currentWeek: "2024-05-27",
+            isCurrentWeek: false,
+          },
+          canUndo: true,
+          fetchError: null,
+        }),
+      ),
+    );
+    expect(html).toContain("Last week");
+    // The jump link back to the current week is still offered.
+    expect(html).toContain("This week");
+    // The current week itself claims no relation chip beyond "This week".
+    const current = render([entry({ userId: "u1", date: "2024-05-20", userName: "Ari Boland" })]);
+    expect(current).not.toContain("Last week");
+  });
+
   it("offers the yellow 'Start weekly closeout' stepper CTA, naming the pending count", () => {
     const html = render([
       entry({ userId: "u1", date: "2024-05-20", userName: "Ari Boland", status: "submitted" }),

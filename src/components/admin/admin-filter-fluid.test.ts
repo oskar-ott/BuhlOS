@@ -20,8 +20,9 @@ const ADMIN_DIR = resolve(dirname(fileURLToPath(import.meta.url)));
 const read = (rel: string): string => readFileSync(join(ADMIN_DIR, rel), "utf8");
 
 // Each file → the marker strings that uniquely identify its filter select(s).
+// HoursFilterBar was deleted with the /hours/today day view (owner directive
+// 2026-08-09) — add any new admin filter bar here when it lands.
 const FILTER_SELECTS: ReadonlyArray<{ file: string; floors: string[] }> = [
-  { file: "HoursFilterBar.tsx", floors: ["sm:min-w-[10rem]"] },
   { file: "EvidenceFilterBar.tsx", floors: ["sm:min-w-[10rem]"] },
 ];
 

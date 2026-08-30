@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import type { Route } from "next";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { PayrollBatchExportSection } from "./PayrollBatchExportSection";
 
@@ -162,8 +164,14 @@ export function PayrollBatchPanel({
       <Card>
         <CardTitle>Finalise pay run</CardTitle>
         <CardDescription className="mt-1">
-          Xero isn&rsquo;t connected (or no organisation is selected). Connect on the Xero settings
-          page to start batching payroll — the CSV export below keeps working either way.
+          Xero isn&rsquo;t connected (or no organisation is selected). Connect on the{" "}
+          <Link
+            href={"/settings/integrations/xero" as Route}
+            className="underline decoration-accent-yellow decoration-2 underline-offset-2"
+          >
+            Xero settings page
+          </Link>{" "}
+          to start batching payroll — the CSV export below keeps working either way.
         </CardDescription>
       </Card>
     );

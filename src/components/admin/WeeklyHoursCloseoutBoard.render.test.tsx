@@ -84,6 +84,51 @@ describe("WeeklyHoursCloseoutBoard (render)", () => {
     expect(html).toContain("Approve all clean");
   });
 
+  it("names the viewed week's relation to today — Last week / In progress", () => {
+    const closeout = buildWeeklyHoursCloseout({
+      entries: [entry({ userId: "u1", date: "2024-05-20", userName: "Tom Brown" })],
+      missing: [],
+      weekStart: WEEK_START,
+      todayISO: TODAY,
+    });
+    // Viewed week 2024-05-20, current week (of TODAY 2024-05-27) = 2024-05-27
+    // → the viewed week is the last complete one.
+    const lastWeek = clean(
+      renderToString(
+        createElement(WeeklyHoursCloseoutBoard, {
+          closeout,
+          fetchError: null,
+          weekNav: {
+            prevWeek: "2024-05-13",
+            nextWeek: "2024-05-27",
+            currentWeek: "2024-05-27",
+            isCurrentWeek: false,
+          },
+        })
+      )
+    );
+    expect(lastWeek).toContain("Last week");
+    const current = clean(
+      renderToString(
+        createElement(WeeklyHoursCloseoutBoard, {
+          closeout,
+          fetchError: null,
+          weekNav: {
+            prevWeek: "2024-05-13",
+            nextWeek: "2024-05-27",
+            currentWeek: "2024-05-20",
+            isCurrentWeek: true,
+          },
+        })
+      )
+    );
+    expect(current).toContain("In progress");
+    // Without weekNav (tests, embeds) no relation is claimed.
+    const bare = render([entry({ userId: "u1", date: "2024-05-20", userName: "Tom Brown" })]);
+    expect(bare).not.toContain("Last week");
+    expect(bare).not.toContain("In progress");
+  });
+
   it("hides the 'need a look' meta when nothing is flagged (no zero-noise)", () => {
     const html = render([
       entry({ userId: "u1", date: "2024-05-20", userName: "Jack Smith", status: "submitted" }),

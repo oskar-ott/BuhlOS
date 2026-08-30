@@ -27,9 +27,9 @@ const read = (rel: string): string => readFileSync(join(ADMIN_DIR, rel), "utf8")
 
 // Filter bars whose <select> options come from live job/worker data and so
 // MUST cap the control width.
+// HoursFilterBar was deleted with the /hours/today day view (2026-08-09).
 const CAPPED_FILTER_SELECTS = [
   "ExceptionsInbox.tsx",
-  "HoursFilterBar.tsx",
   "EvidenceFilterBar.tsx",
 ];
 

@@ -12,19 +12,18 @@ interface HoursTab {
 }
 
 /**
- * Weekly-first (owner directive 2026-08-08): the crew logs hours weekly, so
- * the section leads with This week — /hours itself now redirects there and
- * the day view moved to /hours/today. Tab order mirrors the operating
- * rhythm: the week you're closing out, the drill-in day view, the pay
- * period. The Approvals ROUTE stays fully live (deep links, the day view's
- * "Review N pending" CTA and the mobile tab bar all still land on
+ * Weekly-first (owner directives 2026-08-08 + 2026-08-09): the crew logs
+ * hours weekly, so the section is two surfaces — the week you're closing
+ * out and the pay period you roll it into. The day view was removed
+ * outright on 2026-08-09 ("redundant, muddies the interface");
+ * /hours/today lives on only as a redirect to the board. The Approvals
+ * ROUTE also stays fully live (deep links and the mobile tab bar land on
  * /hours/approvals) — it just doesn't occupy a tab slot.
  */
 const TABS: ReadonlyArray<HoursTab> = [
   // `as Route` — typedRoutes' generated map is from the previous build
   // (same pattern as AdminSidebar's newer entries); validated by `next build`.
   { label: "This week", href: "/hours/weekly" as Route },
-  { label: "Today", href: "/hours/today" as Route },
   { label: "Pay period", href: "/hours/period" as Route },
 ];
 
@@ -124,9 +123,9 @@ export function HoursTabs() {
             className="pointer-events-none absolute inset-y-0 right-0 z-10 w-8 bg-gradient-to-l from-surface-subtle to-transparent md:hidden"
           />
         ) : null}
-        {/* Scrollable on phones: the 4 labels (incl. "Weekly closeout",
-            "Pay period") overflow ≤375px, so the strip scrolls horizontally
-            rather than clipping tabs off-screen. Desktop shows no scrollbar. */}
+        {/* Scrollable on phones: the tab labels can overflow very narrow
+            screens, so the strip scrolls horizontally rather than clipping
+            tabs off-screen. Desktop shows no scrollbar. */}
         <ul
           ref={scrollRef}
           data-testid="hours-tabs-scroll"
