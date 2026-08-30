@@ -1037,6 +1037,14 @@ export function JobBuilderClient({
               readOnly
             />
           </Field>
+          <Field label="Builder" help="The builder this job is for.">
+            <input
+              className={inputClass}
+              value={form.builderName}
+              onChange={(e) => set("builderName", e.target.value)}
+              placeholder="e.g. Sansara"
+            />
+          </Field>
           <Field label="Site address" className="sm:col-span-2">
             <AddressAutocompleteInput
               className={inputClass}
@@ -1804,6 +1812,7 @@ function jobToForm(job: Job): JobBuilderForm {
     type: job.type ?? "",
     status: job.status ?? "active",
     clientUserId: job.clientUserId ?? "",
+    builderName: job.builderName ?? "",
     siteAddress: job.siteAddress ?? "",
     siteContactName: job.siteContactName ?? "",
     siteContactPhone: job.siteContactPhone ?? "",

@@ -29,6 +29,7 @@ function fullForm(over: Partial<JobBuilderForm> = {}): JobBuilderForm {
     type: "",
     status: "draft",
     clientUserId: "",
+    builderName: "",
     siteAddress: "",
     siteContactName: "",
     siteContactPhone: "",
@@ -94,15 +95,22 @@ describe("buildCreatePayload", () => {
     });
   });
 
-  it("carries ref / type / siteAddress when provided", () => {
+  it("carries ref / type / siteAddress / builderName when provided", () => {
     expect(
-      buildCreatePayload({ name: "J", ref: " R1 ", type: "fitout", siteAddress: " 1 Site Rd " })
+      buildCreatePayload({
+        name: "J",
+        ref: " R1 ",
+        type: "fitout",
+        siteAddress: " 1 Site Rd ",
+        builderName: " Sansara ",
+      })
     ).toEqual({
       name: "J",
       status: "draft",
       ref: "R1",
       type: "fitout",
       siteAddress: "1 Site Rd",
+      builderName: "Sansara",
     });
   });
 });
@@ -115,6 +123,7 @@ describe("buildUpdatePayload", () => {
         name: "  Tower  ",
         status: "active",
         siteAddress: "  5 George St ",
+        builderName: " Sansara ",
         type: "",
         clientUserId: "",
       })
@@ -123,6 +132,7 @@ describe("buildUpdatePayload", () => {
     expect(payload.name).toBe("Tower");
     expect(payload.status).toBe("active");
     expect(payload.siteAddress).toBe("5 George St");
+    expect(payload.builderName).toBe("Sansara");
     expect(payload.type).toBeNull();
     expect(payload.clientUserId).toBeNull();
   });
