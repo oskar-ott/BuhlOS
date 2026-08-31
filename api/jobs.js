@@ -913,8 +913,28 @@ module.exports = async (req, res) => {
     const job = data.jobs.find(j => j.id === id);
     if (!job) return res.status(404).json({ error: 'job not found' });
 
-    // Permission: admin OR leadingHand on this specific job
-    if (!canManageJob(me, id)) return res.status(403).json({ error: 'forbidden' });
+    // Permission: admin OR leadingHand on this specific job — plus ONE narrow
+    // field path. Owner ruling 2026-08-31 ("anyone can add jobs and should be
+    // able to edit the name"): the phil_sharpened field CREATE (POST above)
+    // lets a worker mint a job, so the same worker must be able to fix its
+    // name. Same gate shape as handlePhilFieldCreate — field tier + the same
+    // flag + assigned to THIS job (visibility = the create path auto-assigns
+    // the creator). NAME ONLY: any other field in the body is refused, so the
+    // admin/LH write surface is untouched. Flag off ⇒ byte-identical old
+    // policy (field PUT 403s exactly as before).
+    let fieldNameOnly = false;
+    if (!canManageJob(me, id)) {
+      const philRenamer =
+        isFieldRole(me.role) &&
+        (me.assignedJobIds || []).includes(id) &&
+        (await isFlagEnabled('phil_sharpened', me));
+      if (!philRenamer) return res.status(403).json({ error: 'forbidden' });
+      const extras = Object.keys(req.body || {}).filter(k => k !== 'id' && k !== 'name');
+      if (extras.length > 0 || name === undefined) {
+        return res.status(403).json({ error: 'field can only fix the job name' });
+      }
+      fieldNameOnly = true;
+    }
 
     // Snapshot the fields we'll audit before any mutation runs. We compare
     // shallow values (name, status, type, clientUserId, modules, custom-
@@ -948,12 +968,15 @@ module.exports = async (req, res) => {
       defectPeriodEndsAt: job.defectPeriodEndsAt || '',
     };
 
-    // leadingHand may only patch areaGroups, roughInTasks, fitOffTasks, clientUserId.
-    // Tier-aware so every LH alias (lh / leadinghand / leading-hand) is held to
-    // the restriction — a literal 'leadingHand' check let an aliased LH (who
-    // still passes canManageJob) edit money + module fields.
+    // leadingHand may only patch areaGroups, roughInTasks, fitOffTasks,
+    // clientUserId, the job basics — and, since the owner ruling 2026-08-31
+    // (whoever can add a job can fix its name), the NAME. Money / modules /
+    // scope / status / type / DLP dates stay admin-tier. Tier-aware so every
+    // LH alias (lh / leadinghand / leading-hand) is held to the restriction —
+    // a literal 'leadingHand' check let an aliased LH (who still passes
+    // canManageJob) edit money + module fields.
     if (isLeadingHandRole(me.role)) {
-      if (name !== undefined || type !== undefined || status !== undefined ||
+      if (type !== undefined || status !== undefined ||
           contractValue !== undefined || labourEstimate !== undefined ||
           materialEstimate !== undefined || claimedToDate !== undefined ||
           paidToDate !== undefined || oldestClaimDays !== undefined ||
@@ -1348,6 +1371,16 @@ module.exports = async (req, res) => {
     // PUT mutations should return the *complete* server-side view so
     // admin editors get archived rows back too — they want to see what
     // they just archived. Mobile-facing GETs filter via the default.
+    // The field name-only path gets the REDACTED live view instead — the
+    // same shape its GETs see (no archived rows, no office-only fields).
+    if (fieldNameOnly) {
+      return res.status(200).json({
+        job: redactJobForViewer(
+          { ...projectJobStructure(job), modules: effectiveModules(job) },
+          me.role,
+        ),
+      });
+    }
     return res.status(200).json({ job: { ...projectJobStructure(job, { includeArchived: true }), modules: effectiveModules(job) } });
   }
 
