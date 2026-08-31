@@ -42,6 +42,7 @@ import { TodaysCapturesStrip } from "./TodaysCapturesStrip";
 import { JobDocumentsPanel } from "./JobDocumentsPanel";
 import { PhilJobSiteCard } from "./PhilJobSiteCard";
 import { PhilJobCrewCard } from "./PhilJobCrewCard";
+import { PhilFixJobName } from "./PhilFixJobName";
 import { PhilJobHero } from "./PhilJobHero";
 import { PhilJobCommandPanel } from "./PhilJobCommandPanel";
 import { PhilJobAttentionStrip } from "./PhilJobAttentionStrip";
@@ -122,6 +123,11 @@ interface Props {
    * are in-page client state on this same route — no new URLs.
    */
   rooms?: boolean;
+  /** Owner ruling 2026-08-31 — whoever can add a job can fix its name. True
+   *  when the viewer could have created this job (phil_sharpened resolved
+   *  server-side, same gate as "+ New job"); renders the bottom-of-page
+   *  "Wrong job name? Fix it" row. False/absent = no trace (dark-safe). */
+  canFixName?: boolean;
 }
 
 /**
@@ -154,6 +160,9 @@ interface Props {
  *      (address / contact / access / parking / safety / induction),
  *      collapsible. Demoted to the bottom reference zone so the active work
  *      loop leads; keeps #phil-job-site for the induction attention link.
+ *  12. <PhilFixJobName/> — "Wrong job name? Fix it" quiet row, dead last
+ *      (owner ruling 2026-08-31: whoever can add a job can fix its name).
+ *      Gated by canFixName (the page's phil_sharpened resolution).
  *
  * Section ORDER is the worker flow: do the work → capture proof → handle
  * problems/checks → references (plans/docs) → site details. Dark features
@@ -184,6 +193,7 @@ export function PhilJobDetail({
   itpSimpleEnabled = false,
   photosGalleryEnabled = false,
   rooms = false,
+  canFixName = false,
 }: Props) {
   // #332: induction completion is server truth — the tap is NON-optimistic
   // (state flips only after the API confirms; a failed save shows the error
@@ -857,6 +867,13 @@ export function PhilJobDetail({
       <section id="phil-job-crew" aria-label="On site today" className="scroll-mt-16">
         <PhilJobCrewCard jobId={job.id} viewerId={viewer?.id ?? null} />
       </section>
+
+      {/* Owner ruling 2026-08-31 — whoever can add a job can fix its name.
+          The rare corrective action buys the CHEAPEST slot on the page: one
+          quiet row at the very bottom of the reference zone (P10); the hero
+          keeps its "no icons next to the name" rule. Gated by the same
+          phil_sharpened resolution as "+ New job" — no trace while dark. */}
+      {canFixName ? <PhilFixJobName job={job} /> : null}
 
       {sheets}
     </div>

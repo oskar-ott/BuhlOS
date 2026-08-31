@@ -16,6 +16,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  *   - `code` is validated (400 bad format), unique (409 duplicate,
  *     case-insensitive) and additive (admin creates keep working with or
  *     without it).
+ *
+ * Plus the create path's counterpart (owner ruling 2026-08-31 — "anyone can
+ * add jobs and should be able to edit the name"): the flag-gated FIELD
+ * name-only PUT, and the LH name un-forbidding, tested at the bottom.
  */
 
 const requireFromHere = createRequire(import.meta.url);
@@ -73,6 +77,15 @@ async function post(userId: string, role: string, body: unknown) {
   return res;
 }
 
+async function put(userId: string, role: string, body: unknown) {
+  const res = createRes();
+  await handler(
+    { method: "PUT", query: {}, body, headers: { cookie: cookieFor(userId, role) } },
+    res,
+  );
+  return res;
+}
+
 function jobsInStore(): Array<Record<string, unknown>> {
   return (blob.get("jobs.json") as { jobs: Array<Record<string, unknown>> }).jobs;
 }
@@ -92,7 +105,11 @@ function jobsWriteCount(): number {
 function auditEntries(): Array<Record<string, unknown>> {
   const rows: Array<Record<string, unknown>> = [];
   for (const [key, val] of blob.entries()) {
-    if (key.startsWith("audit/") && val && Array.isArray((val as { entries?: unknown[] }).entries)) {
+    if (
+      (key.startsWith("audit/") || /^jobs\/.+\/audit\.json$/.test(key)) &&
+      val &&
+      Array.isArray((val as { entries?: unknown[] }).entries)
+    ) {
       rows.push(...(val as { entries: Array<Record<string, unknown>> }).entries);
     }
   }
@@ -447,5 +464,91 @@ describe("POST /api/jobs — flag ON field create (phil_sharpened)", () => {
     expect(res.statusCode).toBe(200);
     const rows = (res.body as { jobs: Array<{ id: string; code?: string }> }).jobs;
     expect(rows.find((j) => j.id === id)!.code).toBe("IV7007");
+  });
+});
+
+describe("PUT /api/jobs — field name-only fix (owner ruling 2026-08-31)", () => {
+  it("flag OFF ⇒ byte-identical old policy: field PUT 403s, no write", async () => {
+    const res = await put("u_field", "electrician", { id: "job-active", name: "Fixed" });
+    expect(res.statusCode).toBe(403);
+    expect(jobsWriteCount()).toBe(0);
+    expect(jobsInStore().find((j) => j.id === "job-active")!.name).toBe("Active");
+  });
+
+  it("flag ON ⇒ an assigned field worker fixes the NAME; write lands + rename is audited", async () => {
+    process.env.FLAG_PHIL_SHARPENED = "1";
+    const res = await put("u_field", "electrician", { id: "job-active", name: "  Norwood Depot " });
+    expect(res.statusCode).toBe(200);
+    expect(jobsInStore().find((j) => j.id === "job-active")!.name).toBe("Norwood Depot");
+    // Non-optimistic client contract: the reply carries the saved name.
+    expect((res.body as { job: { name: string } }).job.name).toBe("Norwood Depot");
+    // The rename is on the record with the WORKER as actor.
+    const rename = auditEntries().find((e) => e.kind === "rename");
+    expect(rename).toBeDefined();
+    expect(rename!.byUserId).toBe("u_field");
+    expect(String(rename!.summary)).toContain("Active");
+    expect(String(rename!.summary)).toContain("Norwood Depot");
+  });
+
+  it("flag ON ⇒ the reply is the REDACTED field view (no office-only fields)", async () => {
+    process.env.FLAG_PHIL_SHARPENED = "1";
+    // Give the stored job an office-only field the redaction must strip.
+    const store = blob.get("jobs.json") as { jobs: Array<Record<string, unknown>> };
+    store.jobs.find((j) => j.id === "job-active")!.contractValue = 120000;
+    const res = await put("u_field", "electrician", { id: "job-active", name: "Fixed" });
+    expect(res.statusCode).toBe(200);
+    expect((res.body as { job: Record<string, unknown> }).job).not.toHaveProperty("contractValue");
+  });
+
+  it("flag ON ⇒ name only: ANY other field in the body is refused, nothing written", async () => {
+    process.env.FLAG_PHIL_SHARPENED = "1";
+    for (const body of [
+      { id: "job-active", name: "Fixed", siteAddress: "1 Sneaky St" },
+      { id: "job-active", name: "Fixed", contractValue: 1 },
+      { id: "job-active", name: "Fixed", status: "archived" },
+      { id: "job-active" }, // no name at all
+    ]) {
+      const res = await put("u_field", "electrician", body);
+      expect(res.statusCode).toBe(403);
+    }
+    expect(jobsWriteCount()).toBe(0);
+    expect(jobsInStore().find((j) => j.id === "job-active")!.name).toBe("Active");
+  });
+
+  it("flag ON ⇒ a job the worker is NOT assigned to stays forbidden", async () => {
+    process.env.FLAG_PHIL_SHARPENED = "1";
+    const res = await put("u_field", "electrician", { id: "job-custom", name: "Fixed" });
+    expect(res.statusCode).toBe(403);
+    expect(jobsInStore().find((j) => j.id === "job-custom")!.name).toBe("Custom ref job");
+  });
+
+  it("flag ON ⇒ a blank name is still refused (400) — a job never loses its name", async () => {
+    process.env.FLAG_PHIL_SHARPENED = "1";
+    const res = await put("u_field", "electrician", { id: "job-active", name: "   " });
+    expect(res.statusCode).toBe(400);
+    expect(jobsInStore().find((j) => j.id === "job-active")!.name).toBe("Active");
+  });
+
+  it("clients stay forbidden even with the flag on", async () => {
+    process.env.FLAG_PHIL_SHARPENED = "1";
+    const res = await put("u_client", "client", { id: "job-active", name: "Fixed" });
+    expect(res.statusCode).toBe(403);
+  });
+});
+
+describe("PUT /api/jobs — leading hand can now fix the name (tier right, no flag)", () => {
+  it("an assigned LH renames the job — flag OFF, it's a tier permission like their basics edits", async () => {
+    const res = await put("u_lh", "lh", { id: "job-active", name: "Renamed by lead" });
+    expect(res.statusCode).toBe(200);
+    expect(jobsInStore().find((j) => j.id === "job-active")!.name).toBe("Renamed by lead");
+    const rename = auditEntries().find((e) => e.kind === "rename");
+    expect(rename).toBeDefined();
+    expect(rename!.byUserId).toBe("u_lh");
+  });
+
+  it("money / status / scope stay forbidden for the LH exactly as before", async () => {
+    const res = await put("u_lh", "lh", { id: "job-active", name: "Ok", contractValue: 5 });
+    expect(res.statusCode).toBe(403);
+    expect(jobsInStore().find((j) => j.id === "job-active")!.name).toBe("Active");
   });
 });
