@@ -63,6 +63,10 @@ function realDeps() {
   const blob = require('./blob');
   return {
     readBlob: blob.readBlob,
+    // Cache-SKIPPING source read for the rebuild (see readJobsSummary): the
+    // freshness stamp is only honest if the records were built from a jobs.json
+    // as new as the uploadedAt we stamp them with.
+    readBlobFresh: blob.readBlobFresh,
     writeBlob: blob.writeBlob,
     blobUploadedAt: blob.blobUploadedAt,
   };
@@ -77,6 +81,16 @@ function realDeps() {
  */
 async function readJobsSummary(deps = realDeps()) {
   const { readBlob, writeBlob, blobUploadedAt } = deps;
+  // The rebuild MUST read the source cache-skipping. readBlob's 5s content
+  // cache can hand back a jobs.json snapshot OLDER than the uploadedAt we
+  // sampled fresh above; stamping those stale records with the current
+  // uploadedAt marks the summary "fresh" and it is then served — with a
+  // just-created job missing — until the NEXT jobs.json write. That is the
+  // #1036 stale-read-stamped-fresh class of bug (there: a payroll PDF dropped
+  // freshly-approved days; here: a worker adds a job and can't see it on the
+  // field list). readBlobFresh closes it; fall back to readBlob only when a
+  // caller (a test) injects no fresh reader.
+  const readSourceFresh = deps.readBlobFresh || readBlob;
 
   const uploadedAt = await blobUploadedAt(SUMMARY_SOURCE_KEY);
 
@@ -94,8 +108,9 @@ async function readJobsSummary(deps = realDeps()) {
     summary.builtFromUploadedAt === uploadedAt;
   if (fresh) return { records: summary.records, source: 'summary' };
 
-  // Miss / stale / can't-confirm-freshness → rebuild from the authoritative monolith.
-  const jobsDoc = await readBlob(SUMMARY_SOURCE_KEY, { jobs: [] });
+  // Miss / stale / can't-confirm-freshness → rebuild from the authoritative
+  // monolith, read FRESH so the records can't predate the stamped uploadedAt.
+  const jobsDoc = await readSourceFresh(SUMMARY_SOURCE_KEY, { jobs: [] });
   const jobTypesDoc = await readBlob('job-types.json', { jobTypes: [] });
   const records = buildJobsSummary(jobsDoc.jobs || [], jobTypesDoc.jobTypes || []);
 

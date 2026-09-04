@@ -16,6 +16,7 @@ const mod = requireFromHere("../../../api/_lib/jobs-summary.js") as {
   buildJobsSummary: (jobs: unknown[], jobTypes: unknown[]) => Array<Record<string, unknown>>;
   readJobsSummary: (deps: {
     readBlob: (key: string, fallback: unknown) => Promise<unknown>;
+    readBlobFresh?: (key: string, fallback: unknown) => Promise<unknown>;
     writeBlob: (key: string, data: unknown) => Promise<unknown>;
     blobUploadedAt: (key: string) => Promise<string | null>;
   }) => Promise<{ records: Array<Record<string, unknown>>; source: string }>;
@@ -96,13 +97,18 @@ function makeDeps(over: Partial<{ store: Map<string, unknown>; uploadedAt: strin
   const readBlob = vi.fn(async (key: string, fallback: unknown) =>
     store.has(key) ? store.get(key) : fallback
   );
+  // Cache-skipping read used by the rebuild — same store here, but a separate
+  // spy so a test can prove the SOURCE is read fresh (never the 5s-cached read).
+  const readBlobFresh = vi.fn(async (key: string, fallback: unknown) =>
+    store.has(key) ? store.get(key) : fallback
+  );
   const writeBlob = vi.fn(async (key: string, data: unknown) => {
     store.set(key, data);
   });
   const blobUploadedAt = vi.fn(async (_key: string) =>
     "uploadedAt" in over ? (over.uploadedAt as string | null) : "T1"
   );
-  return { store, readBlob, writeBlob, blobUploadedAt };
+  return { store, readBlob, readBlobFresh, writeBlob, blobUploadedAt };
 }
 
 describe("readJobsSummary — freshness + fallback", () => {
@@ -135,6 +141,27 @@ describe("readJobsSummary — freshness + fallback", () => {
     });
     // and the next read sees fresh data
     expect((store.get(SUMMARY_KEY) as { builtFromUploadedAt: string }).builtFromUploadedAt).toBe("T2");
+  });
+
+  it("REBUILD reads the SOURCE cache-skipping (readBlobFresh), never the 5s-cached read — no stale-stamped-fresh (#1036 class)", async () => {
+    // Freshness stamp (uploadedAt) is sampled fresh; the records must be built
+    // from a jobs.json read that is at least as new, or a just-created job can
+    // be persisted-as-fresh yet missing from the field list until the next
+    // write. So the rebuild's source read must go through the fresh reader.
+    const store = new Map<string, unknown>([
+      [SUMMARY_KEY, { builtFromUploadedAt: "OLD", records: [{ id: "stale" }] }],
+      [SUMMARY_SOURCE_KEY, { jobs: [{ id: "j1", name: "One" }, { id: "j2", name: "Two just added" }] }],
+      ["job-types.json", { jobTypes: [] }],
+    ]);
+    const deps = makeDeps({ store, uploadedAt: "T2" });
+    const out = await readJobsSummary(deps);
+    expect(out.source).toBe("rebuilt");
+    // The source came through the cache-skipping reader…
+    expect(deps.readBlobFresh).toHaveBeenCalledWith(SUMMARY_SOURCE_KEY, { jobs: [] });
+    // …and NOT through the 5s-cached read (which could serve a stale monolith).
+    expect(deps.readBlob).not.toHaveBeenCalledWith(SUMMARY_SOURCE_KEY, expect.anything());
+    // The freshly-added job is present in the rebuilt records.
+    expect(out.records.map((r) => r.id)).toEqual(["j1", "j2"]);
   });
 
   it("MISSING summary → rebuilds (first run)", async () => {
