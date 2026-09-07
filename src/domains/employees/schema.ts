@@ -185,6 +185,20 @@ export const EmployeeRowSchema = z.object({
   gearCount: z.number().int().min(0),
 });
 
+/**
+ * Admin resets a worker's login credential IN PLACE (the "Reset PIN" action in
+ * the employee drawer). Targets the users.json account (`userId`, the same id
+ * Licences / Cost rate key on) via PUT /api/users {id, secret} — the account
+ * id, assigned jobs and hours history are untouched; only the bcrypt hash
+ * changes. Format (4-digit PIN for workers, ≥6-char password for a literal
+ * 'admin' login) is enforced server-side by api/users.js validateSecret; the
+ * form mirrors it so the office never sends a value the server refuses.
+ */
+export const ResetPinPayloadSchema = z.object({
+  userId: z.string().min(1, "worker account required"),
+  secret: z.string().min(1, "new PIN required"),
+});
+
 export const EmployeeListResponseSchema = z.object({
   employees: z.array(EmployeeRowSchema),
   /** Whether a real email provider is wired. False → copy-link fallback. */

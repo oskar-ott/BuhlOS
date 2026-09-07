@@ -515,11 +515,30 @@ describe("PUT /api/jobs — field name-only fix (owner ruling 2026-08-31)", () =
     expect(jobsInStore().find((j) => j.id === "job-active")!.name).toBe("Active");
   });
 
-  it("flag ON ⇒ a job the worker is NOT assigned to stays forbidden", async () => {
+  it("flag ON ⇒ a job the worker did NOT create is still renamable — all-jobs access (a field worker works every active job)", async () => {
+    // job-custom is active and NOT in u_field.assignedJobIds. Under the
+    // all-jobs-access model the field worker can view + work it (canWrite,
+    // requireAuth), and the job page shows them the "Wrong job name? Fix it"
+    // row (canFixName = phil_sharpened, not assignment) — so the PUT must
+    // agree instead of 403ing that row into a dead end.
     process.env.FLAG_PHIL_SHARPENED = "1";
-    const res = await put("u_field", "electrician", { id: "job-custom", name: "Fixed" });
-    expect(res.statusCode).toBe(403);
-    expect(jobsInStore().find((j) => j.id === "job-custom")!.name).toBe("Custom ref job");
+    const res = await put("u_field", "electrician", { id: "job-custom", name: "Fixed Off-list" });
+    expect(res.statusCode).toBe(200);
+    expect(jobsInStore().find((j) => j.id === "job-custom")!.name).toBe("Fixed Off-list");
+    const rename = auditEntries().find((e) => e.kind === "rename");
+    expect(rename).toBeDefined();
+    expect(rename!.byUserId).toBe("u_field");
+  });
+
+  it("flag ON ⇒ an office-only job (draft / archived / complete) stays forbidden — a field worker can't open, or rename, one", async () => {
+    process.env.FLAG_PHIL_SHARPENED = "1";
+    const store = blob.get("jobs.json") as { jobs: Array<Record<string, unknown>> };
+    for (const status of ["draft", "archived", "complete"] as const) {
+      store.jobs.find((j) => j.id === "job-custom")!.status = status;
+      const res = await put("u_field", "electrician", { id: "job-custom", name: "Sneaky" });
+      expect(res.statusCode, status).toBe(403);
+      expect(jobsInStore().find((j) => j.id === "job-custom")!.name).toBe("Custom ref job");
+    }
   });
 
   it("flag ON ⇒ a blank name is still refused (400) — a job never loses its name", async () => {

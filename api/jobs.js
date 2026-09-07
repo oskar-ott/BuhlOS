@@ -916,17 +916,30 @@ module.exports = async (req, res) => {
     // Permission: admin OR leadingHand on this specific job — plus ONE narrow
     // field path. Owner ruling 2026-08-31 ("anyone can add jobs and should be
     // able to edit the name"): the phil_sharpened field CREATE (POST above)
-    // lets a worker mint a job, so the same worker must be able to fix its
-    // name. Same gate shape as handlePhilFieldCreate — field tier + the same
-    // flag + assigned to THIS job (visibility = the create path auto-assigns
-    // the creator). NAME ONLY: any other field in the body is refused, so the
-    // admin/LH write surface is untouched. Flag off ⇒ byte-identical old
-    // policy (field PUT 403s exactly as before).
+    // lets a worker mint a job, so a field worker must be able to fix a job's
+    // name from the same phone.
+    //
+    // Scope = the ALL-JOBS-ACCESS model (auth.js requireAuth/canWrite,
+    // day-pulse.js, time-entries.js): a field worker may VIEW and WORK every
+    // active job — assignment no longer scopes staff visibility. So the field
+    // rename matches what the job page actually offers: the "Wrong job name?
+    // Fix it" row is gated by phil_sharpened alone (canFixName), NOT by
+    // assignment, and is shown on every job the worker can open. The old gate
+    // ALSO required `assignedJobIds.includes(id)`, so on any job the worker
+    // didn't create the row appeared but Save 403'd — a dead end ("can't edit
+    // jobs on the mobile app"). The gate now matches the row: field tier + the
+    // flag + a field-VISIBLE job (draft/archived/complete stay office-only —
+    // a field worker can't open them, and a crafted PUT must not reach them).
+    // NAME ONLY: any other field in the body is refused, so the admin/LH write
+    // surface is untouched. Flag off ⇒ byte-identical old policy (field PUT
+    // 403s exactly as before).
     let fieldNameOnly = false;
     if (!canManageJob(me, id)) {
+      const fieldVisible =
+        job.status !== 'draft' && job.status !== 'archived' && job.status !== 'complete';
       const philRenamer =
         isFieldRole(me.role) &&
-        (me.assignedJobIds || []).includes(id) &&
+        fieldVisible &&
         (await isFlagEnabled('phil_sharpened', me));
       if (!philRenamer) return res.status(403).json({ error: 'forbidden' });
       const extras = Object.keys(req.body || {}).filter(k => k !== 'id' && k !== 'name');

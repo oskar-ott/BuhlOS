@@ -1,4 +1,6 @@
-import { httpGet, httpPost, httpPatch, type HttpResult, type HttpError } from "@/lib/http";
+import { httpGet, httpPost, httpPut, httpPatch, type HttpResult, type HttpError } from "@/lib/http";
+import type { z } from "zod";
+import { UserMutationResponseSchema } from "@/domains/users/schema";
 import {
   EmployeeListResponseSchema,
   EmployeeDetailResponseSchema,
@@ -7,6 +9,7 @@ import {
   UpdateEmployeePayloadSchema,
   IssueInvitePayloadSchema,
   DisableEmployeePayloadSchema,
+  ResetPinPayloadSchema,
 } from "./schema";
 import type {
   EmployeeListResponse,
@@ -150,6 +153,32 @@ export function disableEmployee(
   );
 }
 
+type ResetPinPayload = z.infer<typeof ResetPinPayloadSchema>;
+type ResetPinResponse = z.infer<typeof UserMutationResponseSchema>;
+
+/**
+ * Reset a worker's login PIN / password IN PLACE — the employee drawer's
+ * "Reset PIN" action. Hits the legacy `PUT /api/users {id, secret}` (admin-tier
+ * server-side): the account keeps its id, assigned jobs and hours history; only
+ * the stored bcrypt hash changes. The reply is the updated account with the
+ * hash already stripped (UserMutationResponseSchema is strict, so a hash could
+ * never reach the caller even if the API regressed). The new PIN is never
+ * returned — the office already typed it and texts it out-of-band.
+ */
+export function resetWorkerPin(payload: ResetPinPayload): Promise<HttpResult<ResetPinResponse>> {
+  const parsed = ResetPinPayloadSchema.safeParse(payload);
+  if (!parsed.success) {
+    return Promise.resolve(
+      badPayload(parsed.error.issues.map((i) => i.message).join("; "), parsed.error.format())
+    );
+  }
+  return httpPut<ResetPinResponse>(
+    "/api/users",
+    { id: parsed.data.userId, secret: parsed.data.secret },
+    { schema: UserMutationResponseSchema, init: { ...sameOrigin } }
+  );
+}
+
 export const employeesClient = {
   listEmployees,
   getEmployee,
@@ -158,4 +187,5 @@ export const employeesClient = {
   issueInvite,
   revokeInvite,
   disableEmployee,
+  resetWorkerPin,
 } as const;
