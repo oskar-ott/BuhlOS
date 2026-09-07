@@ -24,8 +24,10 @@ interface PhilShellProps {
    * (src/lib/phil/sharpened.ts) and pass the boolean; never the flags blob.
    * False = today's chrome, byte-identical. `undefined` (a flag-less render —
    * the `loading.tsx` skeletons) passes through untouched: the client chrome
-   * components fall back to the last server-confirmed value POST-MOUNT
-   * (philChromeMemory.ts) so navigations don't flash the ratified chrome.
+   * components fall back to the last server-confirmed value — the chrome
+   * memory post-mount (philChromeMemory.ts), and the /phil layout's cookie
+   * hint during SSR (philChromeHint.tsx) — so neither navigations NOR cold
+   * app opens flash the ratified chrome.
    */
   sharpened?: boolean;
   /**

@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { usePhilChromeHint } from "./philChromeHint";
 import { readPhilChromeMemory, rememberPhilChrome } from "./philChromeMemory";
 
 /**
@@ -24,7 +25,9 @@ import { readPhilChromeMemory, rememberPhilChrome } from "./philChromeMemory";
  *
  * `undefined` props (a flag-less render such as a `loading.tsx` skeleton)
  * consult the chrome memory POST-MOUNT (philChromeMemory.ts — mounted-gate
- * contract); explicit booleans always win and refresh that memory.
+ * contract), then the request's chrome hint (philChromeHint.tsx — cookie-fed,
+ * SSR-safe, covers cold app opens); explicit booleans always win and refresh
+ * that memory.
  */
 interface PhilSharpenedContextValue {
   sharpened: boolean;
@@ -48,8 +51,8 @@ export function PhilSharpenedProvider({
   children: ReactNode;
 }) {
   // Mounted gate (see philChromeMemory.ts): the memory fallback applies only
-  // after mount so the first client frame matches the server HTML — flag-less
-  // SSR keeps today's un-sharpened value.
+  // after mount so the first client frame matches the server HTML. The chrome
+  // HINT is request-scoped (identical on both passes) so it may drive SSR.
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
   // Explicit props refresh the memory; undefined keys are no-ops by design.
@@ -57,8 +60,13 @@ export function PhilSharpenedProvider({
     rememberPhilChrome({ sharpened, rfiRegister });
   }, [sharpened, rfiRegister]);
   const memory = readPhilChromeMemory();
-  const effectiveSharpened = sharpened ?? (mounted ? memory.sharpened : false);
-  const effectiveRfiRegister = rfiRegister ?? (mounted ? memory.rfiRegister : false);
+  const hint = usePhilChromeHint();
+  const effectiveSharpened =
+    sharpened ?? (mounted ? memory.sharpened : null) ?? hint?.sharpened ?? false;
+  // The hint carries no rfiRegister bit (the chip only matters after an
+  // interaction, by which time the memory is warm) — memory or off.
+  const effectiveRfiRegister =
+    rfiRegister ?? (mounted ? memory.rfiRegister : null) ?? false;
   const value = useMemo(
     () => ({ sharpened: effectiveSharpened, rfiRegister: effectiveRfiRegister }),
     [effectiveSharpened, effectiveRfiRegister],

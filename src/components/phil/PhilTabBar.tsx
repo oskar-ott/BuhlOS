@@ -32,6 +32,7 @@ import {
 } from "./philJobRoomsBar";
 import type { PhilJobRoom } from "./philJobRooms";
 import { useLongPress } from "./useLongPress";
+import { usePhilChromeHint } from "./philChromeHint";
 import { readPhilChromeMemory, rememberPhilChrome } from "./philChromeMemory";
 import { readJobListPrefs } from "./jobListPrefs";
 import { PhilShortcutSheet } from "./PhilShortcutSheet";
@@ -296,10 +297,11 @@ interface PhilTabBarProps {
    * false the bar is byte-identical to the ratified default
    * (Today · Jobs · [Capture] · Gear · More). `undefined` (a flag-less
    * render such as a `loading.tsx` skeleton) consults the chrome memory
-   * POST-MOUNT (philChromeMemory.ts) so navigations don't flash the ratified
-   * bar; explicit booleans always win and refresh that memory. Behavioural
-   * change to the ratified Phil package — the flag flips only via
-   * governance (P15).
+   * POST-MOUNT (philChromeMemory.ts), then the request's chrome hint
+   * (philChromeHint.tsx — cookie-fed and SSR-safe, so a COLD app open's
+   * skeleton keeps the remembered bar too); explicit booleans always win
+   * and refresh that memory. Behavioural change to the ratified Phil
+   * package — the flag flips only via governance (P15).
    */
   sharpened?: boolean;
   /**
@@ -309,9 +311,10 @@ interface PhilTabBarProps {
    * mis-tap on Hours/Gear in that window exits the job. Until the real
    * binding arrives the room buttons no-op (they're in-page tabs) and carry
    * no badges (counts are client-derived — never invented, P7). `undefined`
-   * falls back post-mount to the remembered phil_job_rooms flag AND the
-   * pathname being exactly a job-detail route, so the job loading skeleton
-   * keeps the room bar instead of flashing the global tabs (#133 mis-tap).
+   * falls back to the remembered phil_job_rooms flag (memory post-mount, the
+   * chrome hint during SSR) AND the pathname being exactly a job-detail
+   * route, so the job loading skeleton keeps the room bar instead of
+   * flashing the global tabs (#133 mis-tap) — cold deep links included.
    */
   roomsActive?: boolean;
   /**
@@ -344,7 +347,9 @@ export function PhilTabBar({
   const currentJobId = philJobDetailId(pathname);
   // Mounted gate (see philChromeMemory.ts): the memory fallback applies only
   // after mount so the first client frame matches the server HTML exactly —
-  // no hydration mismatch, and flag-less SSR stays the default bar.
+  // no hydration mismatch. The chrome HINT is request-scoped and identical
+  // on both passes, so it MAY drive SSR — a cold-start skeleton paints the
+  // remembered bar from the first byte (philChromeHint.tsx).
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
   // Explicit props refresh the memory; undefined keys are no-ops by design.
@@ -357,9 +362,15 @@ export function PhilTabBar({
     });
   }, [sharpened, jobRoomsEnabled, roomsActive]);
   const memory = readPhilChromeMemory();
-  const effectiveSharpened = sharpened ?? (mounted ? memory.sharpened : false);
+  const hint = usePhilChromeHint();
+  // Explicit prop → session memory (post-mount; null until server-confirmed)
+  // → the request's cookie hint → the ratified default.
+  const effectiveSharpened =
+    sharpened ?? (mounted ? memory.sharpened : null) ?? hint?.sharpened ?? false;
   const effectiveRoomsActive =
-    roomsActive ?? (mounted && memory.jobRooms && currentJobId !== null);
+    roomsActive ??
+    (((mounted ? memory.jobRooms : null) ?? hint?.jobRooms ?? false) &&
+      currentJobId !== null);
   // In-job rooms binding (phil_job_rooms): non-null ONLY while a job screen has
   // registered its rooms — the flanking slots then render room tabs. The FAB
   // and every capture path below run identically in both modes. On the job
