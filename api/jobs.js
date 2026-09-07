@@ -913,8 +913,41 @@ module.exports = async (req, res) => {
     const job = data.jobs.find(j => j.id === id);
     if (!job) return res.status(404).json({ error: 'job not found' });
 
-    // Permission: admin OR leadingHand on this specific job
-    if (!canManageJob(me, id)) return res.status(403).json({ error: 'forbidden' });
+    // Permission: admin OR leadingHand on this specific job — plus ONE narrow
+    // field path. Owner ruling 2026-08-31 ("anyone can add jobs and should be
+    // able to edit the name"): the phil_sharpened field CREATE (POST above)
+    // lets a worker mint a job, so a field worker must be able to fix a job's
+    // name from the same phone.
+    //
+    // Scope = the ALL-JOBS-ACCESS model (auth.js requireAuth/canWrite,
+    // day-pulse.js, time-entries.js): a field worker may VIEW and WORK every
+    // active job — assignment no longer scopes staff visibility. So the field
+    // rename matches what the job page actually offers: the "Wrong job name?
+    // Fix it" row is gated by phil_sharpened alone (canFixName), NOT by
+    // assignment, and is shown on every job the worker can open. The old gate
+    // ALSO required `assignedJobIds.includes(id)`, so on any job the worker
+    // didn't create the row appeared but Save 403'd — a dead end ("can't edit
+    // jobs on the mobile app"). The gate now matches the row: field tier + the
+    // flag + a field-VISIBLE job (draft/archived/complete stay office-only —
+    // a field worker can't open them, and a crafted PUT must not reach them).
+    // NAME ONLY: any other field in the body is refused, so the admin/LH write
+    // surface is untouched. Flag off ⇒ byte-identical old policy (field PUT
+    // 403s exactly as before).
+    let fieldNameOnly = false;
+    if (!canManageJob(me, id)) {
+      const fieldVisible =
+        job.status !== 'draft' && job.status !== 'archived' && job.status !== 'complete';
+      const philRenamer =
+        isFieldRole(me.role) &&
+        fieldVisible &&
+        (await isFlagEnabled('phil_sharpened', me));
+      if (!philRenamer) return res.status(403).json({ error: 'forbidden' });
+      const extras = Object.keys(req.body || {}).filter(k => k !== 'id' && k !== 'name');
+      if (extras.length > 0 || name === undefined) {
+        return res.status(403).json({ error: 'field can only fix the job name' });
+      }
+      fieldNameOnly = true;
+    }
 
     // Snapshot the fields we'll audit before any mutation runs. We compare
     // shallow values (name, status, type, clientUserId, modules, custom-
@@ -948,12 +981,15 @@ module.exports = async (req, res) => {
       defectPeriodEndsAt: job.defectPeriodEndsAt || '',
     };
 
-    // leadingHand may only patch areaGroups, roughInTasks, fitOffTasks, clientUserId.
-    // Tier-aware so every LH alias (lh / leadinghand / leading-hand) is held to
-    // the restriction — a literal 'leadingHand' check let an aliased LH (who
-    // still passes canManageJob) edit money + module fields.
+    // leadingHand may only patch areaGroups, roughInTasks, fitOffTasks,
+    // clientUserId, the job basics — and, since the owner ruling 2026-08-31
+    // (whoever can add a job can fix its name), the NAME. Money / modules /
+    // scope / status / type / DLP dates stay admin-tier. Tier-aware so every
+    // LH alias (lh / leadinghand / leading-hand) is held to the restriction —
+    // a literal 'leadingHand' check let an aliased LH (who still passes
+    // canManageJob) edit money + module fields.
     if (isLeadingHandRole(me.role)) {
-      if (name !== undefined || type !== undefined || status !== undefined ||
+      if (type !== undefined || status !== undefined ||
           contractValue !== undefined || labourEstimate !== undefined ||
           materialEstimate !== undefined || claimedToDate !== undefined ||
           paidToDate !== undefined || oldestClaimDays !== undefined ||
@@ -1348,6 +1384,16 @@ module.exports = async (req, res) => {
     // PUT mutations should return the *complete* server-side view so
     // admin editors get archived rows back too — they want to see what
     // they just archived. Mobile-facing GETs filter via the default.
+    // The field name-only path gets the REDACTED live view instead — the
+    // same shape its GETs see (no archived rows, no office-only fields).
+    if (fieldNameOnly) {
+      return res.status(200).json({
+        job: redactJobForViewer(
+          { ...projectJobStructure(job), modules: effectiveModules(job) },
+          me.role,
+        ),
+      });
+    }
     return res.status(200).json({ job: { ...projectJobStructure(job, { includeArchived: true }), modules: effectiveModules(job) } });
   }
 

@@ -2,25 +2,45 @@
 //
 //   GET /api/job-profitability?jobId=<id>
 //     → { jobId, contractValueCents, labourCostCents, materialCostCents,
-//         marginCents, marginPct, completeness, badges, hoursTotal, asOf }
+//         marginCents, marginPct, completeness, badges, budget, variance,
+//         hoursTotal, labourChargeOutCents, chargeOutHours, unratedWorkerRefs, asOf }
 //
 // Revenue (contractValue) − labour − material, with an honest completeness
 // statement. Labour is APPROVED hours costed at the EFFECTIVE-DATED cost rate
-// (#304) for the week those hours fall in — a worker with no rate effective on
-// an entry's date has those hours EXCLUDED and is named (never a silent 0).
-// Material is the received-materials rollup, labelled a proxy (real consumption
-// is Epic 12, not built). Walks the per-user time-entry blobs the same way
-// api/cash-watch.js does — there is no per-job hours index.
+// (#304) for the day those hours fall on — a worker with no rate effective on
+// an entry's date has those hours EXCLUDED and is named (never a silent 0),
+// with the employee record the rate is set on (unratedWorkerRefs) so the card
+// can link straight to the fix. The same hours valued at each worker's
+// optional CHARGE-OUT rate give labourChargeOutCents — "what is this labour
+// worth" (owner ask 2026-08-23), kept separate from cost; null until at least
+// one worker on the job carries a charge-out rate.
 //
-// Reconciliation note (#327 AC): this counts APPROVED entries only and costs
-// them at the confidential cost rate; api/costs.js counts ALL statuses at the
-// legacy users.json hourlyRate, so the two will differ by design.
+// Material (owner pull 2026-08-23): the per-job materials SPEND ledger
+// (api/_lib/job-materials.js) when the job_materials_spend flag is on for the
+// viewer and the job has lines → materialSource 'ledger'. Otherwise the legacy
+// received-materials rollup (jobs/<id>/materials-list.json — written by a tool
+// the 2026-07 gut deleted, so present on no current job) as a labelled proxy,
+// else 'none'. Never a fabricated $0.
+//
+// Walks the per-user time-entry blobs through the fully paginated helper
+// (api/_lib/time-entry-blobs.js, #935) — there is no per-job hours index.
+//
+// Reconciliation note: this counts APPROVED entries only, at the confidential
+// cost rate. The hub's Labour card costs the same entries with the same pure
+// effective-date resolution (src/domains/jobs/job-hours.ts costJobHours), so
+// the two labour figures agree by construction.
 
-const { list } = require('@vercel/blob');
 const { readBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, isAdminRole } = require('./_lib/auth');
 const { readCostRates, historyFor, effectiveCostRate } = require('./_lib/cost-rates');
 const { computeJobProfitability, buildBudgetLines } = require('./_lib/job-profitability');
+const { listTimeEntryBlobs, fetchTimeEntries } = require('./_lib/time-entry-blobs');
+const { isFlagEnabled } = require('./_lib/feature-flags');
+const { readLedger, summariseLedger } = require('./_lib/job-materials');
+
+function round2(n) {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
 
 module.exports = async (req, res) => {
   setNoCache(res);
@@ -38,33 +58,29 @@ module.exports = async (req, res) => {
   const job = (jobsBlob.jobs || []).find((j) => j.id === jobId);
   if (!job) return res.status(404).json({ error: 'job not found' });
 
-  const [usersBlob, ratesData, matsList] = await Promise.all([
+  const [usersBlob, employeesBlob, ratesData, matsList, ledgerOn] = await Promise.all([
     readBlob('users.json', { users: [] }),
+    readBlob('employees.json', { employees: [] }),
     readCostRates(),
     readBlob(`jobs/${jobId}/materials-list.json`, null),
+    isFlagEnabled('job_materials_spend', me),
   ]);
   const userById = {};
   (usersBlob.users || []).forEach((u) => { userById[u.id] = u; });
+  const employeeIdByUserId = {};
+  ((employeesBlob && employeesBlob.employees) || []).forEach((e) => {
+    if (e && e.userId && e.id) employeeIdByUserId[e.userId] = e.id;
+  });
 
   // ── Labour: walk approved entries allocated to this job ──────────────────
   let labourCostCents = 0;
   let hoursTotal = 0;
+  let chargeOutCents = 0;
+  let chargeOutHours = 0;
   const totalHoursByUser = {};
   const costedHoursByUser = {};
   try {
-    const token = process.env.BLOB_READ_WRITE_TOKEN;
-    const r = await list({ prefix: 'users/', token, limit: 5000 });
-    const entryBlobs = (r.blobs || []).filter((b) =>
-      b.pathname.includes('/time-entries/') &&
-      !b.pathname.includes('/time-entries-audit/') &&
-      b.pathname.endsWith('.json'));
-    const entries = (await Promise.all(entryBlobs.map(async (b) => {
-      try {
-        const rr = await fetch(b.url + '?t=' + Date.now(), { cache: 'no-store' });
-        return rr.ok ? await rr.json() : null;
-      } catch { return null; }
-    }))).filter(Boolean);
-
+    const entries = await fetchTimeEntries(await listTimeEntryBlobs());
     for (const e of entries) {
       if (!e || e.status !== 'approved') continue;
       const hrs = (e.allocations || [])
@@ -78,6 +94,10 @@ module.exports = async (req, res) => {
         labourCostCents += Math.round(hrs * rate.costRateCents);
         costedHoursByUser[e.userId] = (costedHoursByUser[e.userId] || 0) + hrs;
       }
+      if (rate && rate.chargeOutRateCents > 0) {
+        chargeOutCents += Math.round(hrs * rate.chargeOutRateCents);
+        chargeOutHours += hrs;
+      }
     }
   } catch (err) {
     // Non-fatal: a labour-walk failure yields 0 labour + an understated badge,
@@ -87,20 +107,35 @@ module.exports = async (req, res) => {
 
   // A worker is "unrated" when ANY of their approved hours on the job could not
   // be costed (no rate effective on that entry's date) — their costable hours
-  // are still counted, but the labour figure is flagged understated.
-  const unratedWorkers = [];
+  // are still counted, but the labour figure is flagged understated. Named by
+  // LIVE full name (owner-directed 2026-08-16), never a nickname.
+  const unratedWorkerRefs = [];
   for (const uid of Object.keys(totalHoursByUser)) {
     const costed = costedHoursByUser[uid] || 0;
     if (costed < totalHoursByUser[uid] - 0.001) {
       const u = userById[uid];
-      unratedWorkers.push((u && u.username) || uid);
+      const name = (u && (u.name || u.username)) || uid;
+      unratedWorkerRefs.push({ userId: uid, name, employeeId: employeeIdByUserId[uid] || null });
     }
   }
+  unratedWorkerRefs.sort((a, b) => a.name.localeCompare(b.name));
+  const unratedWorkers = unratedWorkerRefs.map((w) => w.name);
 
-  // ── Materials: received-rollup proxy (Epic 12 consumption not built) ─────
+  // ── Materials: the spend ledger when lit, else the legacy proxy, else none ─
   let materialCostCents = null;
   let materialSource = 'none';
-  if (matsList && matsList.costRollup) {
+  if (ledgerOn) {
+    try {
+      const ledger = summariseLedger(await readLedger(jobId));
+      if (ledger.count > 0) {
+        materialCostCents = ledger.totalCents;
+        materialSource = 'ledger';
+      }
+    } catch (err) {
+      console.error('job-profitability: materials ledger read failed', err && err.message);
+    }
+  }
+  if (materialSource === 'none' && matsList && matsList.costRollup) {
     const dollars = Number(matsList.costRollup.receivedExGst) ||
                     Number(matsList.costRollup.invoicedExGst) || 0;
     if (dollars > 0) {
@@ -140,9 +175,12 @@ module.exports = async (req, res) => {
   return res.status(200).json({
     jobId,
     ...result,
+    unratedWorkerRefs,
+    labourChargeOutCents: chargeOutHours > 0 ? chargeOutCents : null,
+    chargeOutHours: round2(chargeOutHours),
     budget,
     variance,
-    hoursTotal: Math.round(hoursTotal * 100) / 100,
+    hoursTotal: round2(hoursTotal),
     asOf: new Date().toISOString(),
   });
 };

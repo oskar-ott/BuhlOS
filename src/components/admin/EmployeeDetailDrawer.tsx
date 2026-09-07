@@ -8,6 +8,7 @@ import { Modal } from "@/components/ui/Modal";
 import { InviteStatusCard } from "./InviteStatusCard";
 import { LicencesSection } from "./LicencesSection";
 import { CostRateSection } from "./CostRateSection";
+import { ResetPinSection } from "./ResetPinSection";
 import { EmployeeStatusChip } from "./EmployeeStatusChip";
 import type { ActiveJobOption } from "./AddEmployeeDrawer";
 import { cn } from "@/lib/cn";
@@ -78,9 +79,11 @@ export function EmployeeDetailDrawer({
       >
         <div className="space-y-4">
           {/* Lean-reset head (replica lines 458-463): navy initials avatar +
-              role/mobile, status pill on the right. The replica's Reset PIN /
-              Assign to job buttons are NOT built — no fake actions; resend/
-              revoke live in the invite card below, disable in the danger zone. */}
+              role/mobile, status pill on the right. The replica's Assign to job
+              button is NOT built — no fake actions; resend/revoke live in the
+              invite card below, disable in the danger zone. Reset PIN IS built
+              now (ResetPinSection below) — a real action on the existing
+              in-place PUT /api/users reset, pulled by a locked-out worker. */}
           <div className="flex items-center gap-4 rounded-card border border-border bg-surface-raised p-4 shadow-card">
             <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-brand-navy font-display text-lg font-semibold text-text-inverse">
               {initialsFor(employee)}
@@ -192,6 +195,21 @@ export function EmployeeDetailDrawer({
             userId={employee.userId ?? null}
             workerName={displayNameFor(employee)}
           />
+
+          {/* Login PIN reset — the office's way back in for a worker who forgot
+              their PIN. Keyed by the worker account id (same as Licences / Cost
+              rate) and resets IN PLACE (PUT /api/users): same account, assigned
+              jobs and hours untouched — the invite flow refuses an existing
+              email, so this is the only sanctioned reset. Hidden for a disabled
+              employee (re-enable first; access is the question there, not the
+              PIN). */}
+          {employee.status !== "disabled" ? (
+            <ResetPinSection
+              userId={employee.userId ?? null}
+              workerName={displayNameFor(employee)}
+              role={employee.role}
+            />
+          ) : null}
 
           <InviteStatusCard
             row={row}

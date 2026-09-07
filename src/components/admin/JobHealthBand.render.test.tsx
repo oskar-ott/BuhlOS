@@ -48,6 +48,18 @@ describe("JobHealthBand", () => {
     // Reason chips deep-link to where they're actioned.
     expect(html).toContain(`/v2/jobs/job-1/evidence`);
     expect(html).toContain(`/gear`);
+    // Owner pull 2026-08-29 — the Edit entry beside the name lands on the
+    // builder's Basics tab (the one editor for name + details).
+    expect(html).toContain(`/v2/jobs/job-1/builder?tab=basics`);
+    expect(html).toContain(">Edit<");
+  });
+
+  it("hides the Edit entry below the admin tier — the name PUT would 403", () => {
+    const html = renderToString(
+      createElement(JobHealthBand, { job: baseJob, canEdit: false, progressPct: null })
+    );
+    expect(html).not.toContain("builder?tab=basics");
+    expect(html).not.toContain(">Edit<");
   });
 
   it("is honest when nothing is loaded — No data, muted dashes, no invented numbers", () => {

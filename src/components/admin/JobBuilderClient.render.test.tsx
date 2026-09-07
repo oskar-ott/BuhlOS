@@ -58,8 +58,11 @@ describe("JobBuilderClient", () => {
     expect(html).toContain("Plans &amp; docs");
     expect(html).toContain("Materials");
     expect(html).toContain("Gear");
-    expect(html).toContain("ITPs / QA");
-    expect(html).toContain("Risks &amp; RFIs");
+    // 2026-08-24 market-readiness: the ITPs / QA and Risks & RFIs Deliver
+    // sections were removed — their per-job routes (/v2/jobs/[id]/itps, /rfis)
+    // were deleted in the 2026-07-27 gut, so the rail rendered dead 404 buttons.
+    expect(html).not.toContain("ITPs / QA");
+    expect(html).not.toContain("Risks &amp; RFIs");
     expect(html).toContain("Field preview");
     expect(html).toContain("Publish");
     expect(html).toContain("More");
@@ -155,7 +158,7 @@ describe("ArchivedStructureSection (#377 read-only rows)", () => {
     // Read-only: no text inputs and no remove/trash controls in the section.
     expect(html).not.toContain("<input");
     expect(html).not.toContain("Remove");
-    expect(html).not.toContain("aria-label=\"Remove area\"");
+    expect(html).not.toContain('aria-label="Remove area"');
   });
 
   it("renders nothing when the job has no archived structure", () => {

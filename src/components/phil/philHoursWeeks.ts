@@ -1,5 +1,5 @@
 import type { PatchTimeEntryPayload, TimeEntry } from "@/domains/timesheets/types";
-import { weekStartOf, addDays } from "@/domains/timesheets/service";
+import { weekStartOf, addDays, isWithinBackdateWindow } from "@/domains/timesheets/service";
 import { isoWeekNumber } from "./philWeek";
 
 /**
@@ -102,7 +102,7 @@ export function hoursWeekDot(entries: ReadonlyArray<Pick<TimeEntry, "status">>):
 export function draftSendBlockReason(
   entry: Pick<TimeEntry, "status" | "allocations">,
   assignedJobs: ReadonlyArray<HoursJobRef>,
-  jobsError: boolean,
+  jobsError: boolean
 ): string | null {
   if (entry.status !== "draft") return "Not a draft";
   if (jobsError) return "Couldn't load your jobs — pull to refresh and try again";
@@ -146,7 +146,7 @@ export const NO_JOB_LABEL = "No job recorded";
 /** Per-job breakdown across a week's entries — real allocation sums only. */
 export function buildJobBreakdown(
   entries: ReadonlyArray<TimeEntry>,
-  assignedJobs: ReadonlyArray<HoursJobRef>,
+  assignedJobs: ReadonlyArray<HoursJobRef>
 ): HoursJobBreakdownRow[] {
   const byJob = new Map<string | null, { hours: number; jobName: string | null }>();
   for (const entry of entries) {
@@ -199,7 +199,7 @@ export function buildHoursWeeks(
     assignedJobs: ReadonlyArray<HoursJobRef>;
     jobsError: boolean;
     maxWeeks?: number;
-  },
+  }
 ): { weeks: HoursWeek[]; hiddenWeekCount: number } {
   const { todayISO, assignedJobs, jobsError } = opts;
   const maxWeeks = opts.maxWeeks ?? 12;
@@ -237,7 +237,7 @@ export function buildHoursWeeks(
 
   const weeks: HoursWeek[] = mondays.slice(0, maxWeeks).map((monday) => {
     const weekEntries = [...(byWeek.get(monday) ?? [])].sort((a, b) =>
-      a.date < b.date ? -1 : a.date > b.date ? 1 : 0,
+      a.date < b.date ? -1 : a.date > b.date ? 1 : 0
     );
     const drafts = weekEntries.filter((e) => e.status === "draft");
     const sendableDrafts: TimeEntry[] = [];
@@ -253,12 +253,10 @@ export function buildHoursWeeks(
       weekNumber: isoWeekNumber(monday),
       isCurrent: monday === currentMonday,
       entries: weekEntries,
-      totalHours:
-        Math.round(weekEntries.reduce((s, e) => s + (e.totalHours ?? 0), 0) * 100) / 100,
+      totalHours: Math.round(weekEntries.reduce((s, e) => s + (e.totalHours ?? 0), 0) * 100) / 100,
       overtimeHours:
-        Math.round(
-          weekEntries.reduce((s, e) => s + Math.max(0, e.overtimeHours ?? 0), 0) * 100,
-        ) / 100,
+        Math.round(weekEntries.reduce((s, e) => s + Math.max(0, e.overtimeHours ?? 0), 0) * 100) /
+        100,
       jobBreakdown: buildJobBreakdown(weekEntries, assignedJobs),
       sendableDrafts,
       blockedDrafts,
@@ -267,6 +265,57 @@ export function buildHoursWeeks(
   });
 
   return { weeks, hiddenWeekCount };
+}
+
+/** One row of a week card: a real entry, or an honest gap. */
+export interface HoursDayRow {
+  date: string;
+  entry: TimeEntry | null;
+  /** Sat/Sun — gap rows carry the "log it if you worked" offer, never the
+   *  missing-day "Not logged" (an unworked weekend is not owed). */
+  weekend: boolean;
+  /** Gap rows only: still inside the server's 14-day backdate window, so the
+   *  row may be a live tap target (a dead pill is worse than no pill). */
+  loggable: boolean;
+}
+
+/**
+ * The rows a week card shows, top to bottom — real entries plus honest gaps.
+ * Pure and clock-injected (everything keys off `todayISO`, the same value the
+ * page passes everywhere), so the rule is unit-testable on fixed dates.
+ *
+ * Gap rules:
+ *   - future days render nothing (nothing to show yet);
+ *   - past WEEKDAYS always render — "Not logged" history, tappable while the
+ *     backdate window lasts;
+ *   - past WEEKEND days render ONLY while still inside the 14-day backdate
+ *     window (2026-08-24 field evidence: a worker who worked last Saturday
+ *     had no path back to it — the old loop skipped every weekend row and
+ *     the log sheet's dial is this-week only; the my-day strip had already
+ *     made weekends loggable, philWeek.ts). Out of window they disappear
+ *     rather than read as a permanent debt nobody owed.
+ */
+export function hoursDayRows(
+  week: Pick<HoursWeek, "weekStart" | "entries">,
+  todayISO: string
+): HoursDayRow[] {
+  const byDate = new Map(week.entries.map((e) => [e.date, e]));
+  const todayRef = new Date(todayISO + "T00:00:00");
+  const rows: HoursDayRow[] = [];
+  for (let i = 0; i < 7; i++) {
+    const date = addDays(week.weekStart, i);
+    const entry = byDate.get(date) ?? null;
+    const weekend = i >= 5;
+    const loggable = isWithinBackdateWindow(date, todayRef) && date <= todayISO;
+    if (entry) {
+      rows.push({ date, entry, weekend, loggable });
+      continue;
+    }
+    if (date > todayISO) continue; // future — nothing to show yet
+    if (weekend && !loggable) continue; // an unworked weekend never reads as owed
+    rows.push({ date, entry: null, weekend, loggable });
+  }
+  return rows;
 }
 
 /**
@@ -304,7 +353,9 @@ export function hoursDayLabel(dateISO: string, todayISO: string): string {
  * folded (design §2.6). Pure so the default — and toggling — is testable
  * without a DOM (the repo's vitest runs in the node env).
  */
-export function defaultOpenWeeks(weeks: ReadonlyArray<Pick<HoursWeek, "weekStart" | "isCurrent">>): Record<string, boolean> {
+export function defaultOpenWeeks(
+  weeks: ReadonlyArray<Pick<HoursWeek, "weekStart" | "isCurrent">>
+): Record<string, boolean> {
   const open: Record<string, boolean> = {};
   for (const w of weeks) open[w.weekStart] = w.isCurrent;
   return open;
@@ -312,7 +363,7 @@ export function defaultOpenWeeks(weeks: ReadonlyArray<Pick<HoursWeek, "weekStart
 
 export function toggleWeek(
   open: Readonly<Record<string, boolean>>,
-  weekStart: string,
+  weekStart: string
 ): Record<string, boolean> {
   return { ...open, [weekStart]: !open[weekStart] };
 }
@@ -328,7 +379,7 @@ export function toggleWeek(
  */
 export function mergeSavedEntries(
   serverEntries: ReadonlyArray<TimeEntry>,
-  savedEntries: ReadonlyArray<TimeEntry>,
+  savedEntries: ReadonlyArray<TimeEntry>
 ): ReadonlyArray<TimeEntry> {
   if (savedEntries.length === 0) return serverEntries;
   const byDate = new Map<string, TimeEntry>();

@@ -370,3 +370,91 @@ describe("DELETE /api/users?hard=1 — unapproved-hours guard", () => {
     expect(rosterIds()).toContain("u_field2");
   });
 });
+
+describe("PUT /api/users — admin resets a worker's login PIN IN PLACE (employee drawer 'Reset PIN')", () => {
+  const bcrypt = requireFromHere("bcryptjs") as {
+    compare: (plain: string, hash: string) => Promise<boolean>;
+  };
+  function hashOf(userId: string): string {
+    const data = blob.get("users.json") as { users: Array<{ id: string; passwordHash: string }> };
+    return data.users.find((u) => u.id === userId)!.passwordHash;
+  }
+
+  it("admin sets a new 4-digit PIN: the hash changes to one that verifies, the account is otherwise untouched, and no hash is returned", async () => {
+    const before = hashOf("u_field");
+    const res = await call(usersHandler, {
+      method: "PUT",
+      userId: "u_admin",
+      role: "admin",
+      body: { id: "u_field", secret: "4821" },
+    });
+    expect(res.statusCode).toBe(200);
+    const after = hashOf("u_field");
+    expect(after).not.toBe(before);
+    expect(await bcrypt.compare("4821", after)).toBe(true);
+    // IN PLACE: same account id, assigned jobs kept — never a new/duplicate row.
+    expect(assignedIdsOf("u_field")).toEqual(["job-active", "other-job"]);
+    const data = blob.get("users.json") as { users: Array<{ id: string }> };
+    expect(data.users.filter((u) => u.id === "u_field")).toHaveLength(1);
+    // The reply carries the updated account with the hash stripped.
+    expect((res.body as { user: { id: string } }).user.id).toBe("u_field");
+    expect(JSON.stringify(res.body)).not.toContain("passwordHash");
+  });
+
+  it("OFFICE (admin tier, not literal 'admin') can reset too — the same tier that can assign", async () => {
+    const before = hashOf("u_field2");
+    const res = await call(usersHandler, {
+      method: "PUT",
+      userId: "u_office",
+      role: "office",
+      body: { id: "u_field2", secret: "7364" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(await bcrypt.compare("7364", hashOf("u_field2"))).toBe(true);
+    expect(hashOf("u_field2")).not.toBe(before);
+  });
+
+  it("refuses a malformed worker PIN (400) and leaves the hash untouched", async () => {
+    const before = hashOf("u_field");
+    for (const bad of ["12", "12345", "abcd", "48 21"]) {
+      const res = await call(usersHandler, {
+        method: "PUT",
+        userId: "u_admin",
+        role: "admin",
+        body: { id: "u_field", secret: bad },
+      });
+      expect(res.statusCode, bad).toBe(400);
+    }
+    expect(hashOf("u_field")).toBe(before);
+  });
+
+  it("a literal 'admin' login takes a password (≥6 chars), not a 4-digit PIN", async () => {
+    const short = await call(usersHandler, {
+      method: "PUT",
+      userId: "u_admin",
+      role: "admin",
+      body: { id: "u_admin", secret: "4821" },
+    });
+    expect(short.statusCode).toBe(400);
+    const ok = await call(usersHandler, {
+      method: "PUT",
+      userId: "u_admin",
+      role: "admin",
+      body: { id: "u_admin", secret: "correct-horse" },
+    });
+    expect(ok.statusCode).toBe(200);
+    expect(await bcrypt.compare("correct-horse", hashOf("u_admin"))).toBe(true);
+  });
+
+  it("403s a field worker trying to reset anyone's PIN (write is admin-tier only)", async () => {
+    const before = hashOf("u_field2");
+    const res = await call(usersHandler, {
+      method: "PUT",
+      userId: "u_field",
+      role: "electrician",
+      body: { id: "u_field2", secret: "1111" },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(hashOf("u_field2")).toBe(before);
+  });
+});

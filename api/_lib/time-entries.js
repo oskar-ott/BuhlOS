@@ -11,6 +11,7 @@ const { readBlob, writeBlob, deleteBlob } = require('./blob');
 const { mirrorTimeEntry, mirrorTimeEntryDelete } = require('./hours-mirror');
 const { recordMirrorDrift } = require('./mirror-drift'); // DWD-04: surface Blob-ok/PG-fail drift
 const { listUserEntriesFromPgIfEnabled } = require('./hours-read');
+const { listTimeEntryBlobs } = require('./time-entry-blobs'); // #935 paginated users/ walk
 
 const ENTRY_PREFIX = (userId) => `users/${userId}/time-entries/`;
 const ENTRY_PATH   = (userId, date) => `users/${userId}/time-entries/${date}.json`;
@@ -286,20 +287,13 @@ function recentDatesWithin(fromDate, toDate) {
 // pull several states in ONE scan (e.g. per-job costing needs submitted+approved).
 async function listAllEntriesForApprovers({ status = 'submitted', statuses } = {}) {
   const wanted = Array.isArray(statuses) && statuses.length ? statuses : [status];
-  const token = process.env.BLOB_READ_WRITE_TOKEN;
-  let blobs;
+  let entryBlobs;
   try {
-    const res = await list({ prefix: 'users/', token, limit: 5000 });
-    blobs = res.blobs || [];
+    entryBlobs = await listTimeEntryBlobs(); // #935: fully paginated — never the silent 5000 cap
   } catch (e) {
     console.error('list error', e.message);
     return [];
   }
-  const entryBlobs = blobs.filter(b =>
-    b.pathname.includes('/time-entries/') &&
-    !b.pathname.includes('/time-entries-audit/') &&
-    b.pathname.endsWith('.json')
-  );
   const entries = await Promise.all(entryBlobs.map(async b => {
     try {
       const r = await fetch(b.url + '?t=' + Date.now(), { cache: 'no-store' });
@@ -320,11 +314,9 @@ async function listAllEntriesForApprovers({ status = 'submitted', statuses } = {
 // (`unreadable`) so an auditable document can state its coverage gaps
 // instead of presenting partial data as complete.
 async function listEntriesForDate(date) {
-  const token = process.env.BLOB_READ_WRITE_TOKEN;
   let blobs;
   try {
-    const res = await list({ prefix: 'users/', token, limit: 5000 });
-    blobs = res.blobs || [];
+    blobs = await listTimeEntryBlobs(); // #935: fully paginated — never the silent 5000 cap
   } catch (e) {
     console.error('list error', e.message);
     return { entries: [], unreadable: -1 }; // -1 = the listing itself failed

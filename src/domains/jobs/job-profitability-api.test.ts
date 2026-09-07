@@ -14,6 +14,9 @@ const authPath = requireFromHere.resolve("../../../api/_lib/auth.js");
 const vercelBlobPath = requireFromHere.resolve("@vercel/blob");
 const costRatesPath = requireFromHere.resolve("../../../api/_lib/cost-rates.js");
 const profitPath = requireFromHere.resolve("../../../api/_lib/job-profitability.js");
+const walkPath = requireFromHere.resolve("../../../api/_lib/time-entry-blobs.js");
+const ledgerPath = requireFromHere.resolve("../../../api/_lib/job-materials.js");
+const flagsPath = requireFromHere.resolve("../../../api/_lib/feature-flags.js");
 const handlerPath = requireFromHere.resolve("../../../api/job-profitability.js");
 
 type Res = ReturnType<typeof createRes>;
@@ -29,10 +32,20 @@ function createRes() {
   return {
     statusCode: 200,
     body: null as unknown,
-    status(code: number) { this.statusCode = code; return this; },
-    json(body: unknown) { this.body = body; return this; },
-    setHeader() { return this; },
-    end() { return this; },
+    status(code: number) {
+      this.statusCode = code;
+      return this;
+    },
+    json(body: unknown) {
+      this.body = body;
+      return this;
+    },
+    setHeader() {
+      return this;
+    },
+    end() {
+      return this;
+    },
   };
 }
 
@@ -40,11 +53,20 @@ function cookieFor(userId: string, role: string): string {
   return `buhl_session=${auth.signSession({ userId, role, exp: Date.now() + 60_000 })}`;
 }
 
-async function call(opts: { role: string; userId?: string; query?: Record<string, string> }): Promise<Res> {
+async function call(opts: {
+  role: string;
+  userId?: string;
+  query?: Record<string, string>;
+}): Promise<Res> {
   const res = createRes();
   await handler(
-    { method: "GET", query: opts.query || {}, headers: { cookie: cookieFor(opts.userId || "u_admin", opts.role) }, body: undefined },
-    res,
+    {
+      method: "GET",
+      query: opts.query || {},
+      headers: { cookie: cookieFor(opts.userId || "u_admin", opts.role) },
+      body: undefined,
+    },
+    res
   );
   return res;
 }
@@ -52,7 +74,12 @@ async function call(opts: { role: string; userId?: string; query?: Record<string
 beforeEach(() => {
   process.env.SESSION_SECRET = "test-session-secret-long-enough";
   blob = new Map<string, unknown>();
-  blob.set("jobs.json", { jobs: [{ id: "job-a", name: "Job A", status: "active", contractValue: 120000 }, { id: "job-novalue", name: "No Value", status: "active" }] });
+  blob.set("jobs.json", {
+    jobs: [
+      { id: "job-a", name: "Job A", status: "active", contractValue: 120000 },
+      { id: "job-novalue", name: "No Value", status: "active" },
+    ],
+  });
   blob.set("users.json", {
     users: [
       { id: "u_admin", username: "boss", role: "admin" },
@@ -63,39 +90,87 @@ beforeEach(() => {
   });
   // u_field has a $52.50 rate from 2026-01-01; u_field2 has NONE (→ unrated).
   blob.set("workforce/cost-rates.json", {
-    rates: { u_field: [{ id: "cr1", costRateCents: 5250, chargeOutRateCents: null, effectiveFrom: "2026-01-01" }] },
+    rates: {
+      u_field: [
+        { id: "cr1", costRateCents: 5250, chargeOutRateCents: null, effectiveFrom: "2026-01-01" },
+      ],
+    },
   });
   // Approved hours on job-a: u_field 8h (rated), u_field2 4h (unrated). A
   // SUBMITTED entry must be excluded. An entry on another job must be excluded.
-  blob.set("users/u_field/time-entries/2026-06-01.json", { userId: "u_field", date: "2026-06-01", status: "approved", allocations: [{ jobId: "job-a", hours: 8 }] });
-  blob.set("users/u_field/time-entries/2026-06-03.json", { userId: "u_field", date: "2026-06-03", status: "submitted", allocations: [{ jobId: "job-a", hours: 8 }] });
-  blob.set("users/u_field2/time-entries/2026-06-02.json", { userId: "u_field2", date: "2026-06-02", status: "approved", allocations: [{ jobId: "job-a", hours: 4 }] });
-  blob.set("users/u_field/time-entries/2026-06-04.json", { userId: "u_field", date: "2026-06-04", status: "approved", allocations: [{ jobId: "other-job", hours: 8 }] });
+  blob.set("users/u_field/time-entries/2026-06-01.json", {
+    userId: "u_field",
+    date: "2026-06-01",
+    status: "approved",
+    allocations: [{ jobId: "job-a", hours: 8 }],
+  });
+  blob.set("users/u_field/time-entries/2026-06-03.json", {
+    userId: "u_field",
+    date: "2026-06-03",
+    status: "submitted",
+    allocations: [{ jobId: "job-a", hours: 8 }],
+  });
+  blob.set("users/u_field2/time-entries/2026-06-02.json", {
+    userId: "u_field2",
+    date: "2026-06-02",
+    status: "approved",
+    allocations: [{ jobId: "job-a", hours: 4 }],
+  });
+  blob.set("users/u_field/time-entries/2026-06-04.json", {
+    userId: "u_field",
+    date: "2026-06-04",
+    status: "approved",
+    allocations: [{ jobId: "other-job", hours: 8 }],
+  });
   blob.set("jobs/job-a/materials-list.json", { costRollup: { receivedExGst: 30000 } });
 
-  for (const p of [authPath, handlerPath, costRatesPath, profitPath]) delete requireFromHere.cache[p];
+  for (const p of [
+    authPath,
+    handlerPath,
+    costRatesPath,
+    profitPath,
+    walkPath,
+    ledgerPath,
+    flagsPath,
+  ])
+    delete requireFromHere.cache[p];
   requireFromHere.cache[blobPath] = {
-    id: blobPath, filename: blobPath, loaded: true,
+    id: blobPath,
+    filename: blobPath,
+    loaded: true,
     exports: {
-      readBlob: vi.fn(async (key: string, fallback: unknown) => (blob.has(key) ? clone(blob.get(key)) : fallback)),
-      writeBlob: vi.fn(async (key: string, data: unknown) => { blob.set(key, clone(data)); }),
+      readBlob: vi.fn(async (key: string, fallback: unknown) =>
+        blob.has(key) ? clone(blob.get(key)) : fallback
+      ),
+      writeBlob: vi.fn(async (key: string, data: unknown) => {
+        blob.set(key, clone(data));
+      }),
       setNoCache: vi.fn(),
     },
   } as NodeJS.Module;
   requireFromHere.cache[vercelBlobPath] = {
-    id: vercelBlobPath, filename: vercelBlobPath, loaded: true,
+    id: vercelBlobPath,
+    filename: vercelBlobPath,
+    loaded: true,
     exports: {
       list: vi.fn(async ({ prefix }: { prefix: string }) => ({
-        blobs: [...blob.keys()].filter((k) => k.startsWith(prefix)).map((k) => ({ pathname: k, url: `memory://${k}` })),
+        blobs: [...blob.keys()]
+          .filter((k) => k.startsWith(prefix))
+          .map((k) => ({ pathname: k, url: `memory://${k}` })),
       })),
       put: vi.fn(async () => ({})),
     },
   } as NodeJS.Module;
-  vi.stubGlobal("fetch", vi.fn(async (url: string) => {
-    const key = String(url).replace(/^memory:\/\//, "").replace(/\?.*$/, "");
-    if (!blob.has(key)) return { ok: false, json: async () => null };
-    return { ok: true, json: async () => clone(blob.get(key)) };
-  }));
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) => {
+      const key = String(url)
+        .replace(/^memory:\/\//, "")
+        .replace(/\?.*$/, "");
+      if (!blob.has(key)) return { ok: false, json: async () => null };
+      return { ok: true, json: async () => clone(blob.get(key)) };
+    })
+  );
 
   auth = requireFromHere(authPath);
   handler = requireFromHere(handlerPath);
@@ -103,12 +178,17 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  delete process.env.FLAG_JOB_MATERIALS_SPEND;
 });
 
 describe("GET /api/job-profitability — confidentiality + shape (#327)", () => {
   it("403s a leading hand and a field worker", async () => {
-    expect((await call({ role: "leadingHand", userId: "u_lh", query: { jobId: "job-a" } })).statusCode).toBe(403);
-    expect((await call({ role: "electrician", userId: "u_field", query: { jobId: "job-a" } })).statusCode).toBe(403);
+    expect(
+      (await call({ role: "leadingHand", userId: "u_lh", query: { jobId: "job-a" } })).statusCode
+    ).toBe(403);
+    expect(
+      (await call({ role: "electrician", userId: "u_field", query: { jobId: "job-a" } })).statusCode
+    ).toBe(403);
   });
 
   it("404s an unknown job and 400s a missing jobId", async () => {
@@ -122,9 +202,13 @@ describe("GET /api/job-profitability — honest margin (#327)", () => {
     const res = await call({ role: "admin", query: { jobId: "job-a" } });
     expect(res.statusCode).toBe(200);
     const b = res.body as {
-      contractValueCents: number; labourCostCents: number; materialCostCents: number;
-      marginCents: number; completeness: { labour: string; material: string; unratedWorkers: string[] };
-      hoursTotal: number; badges: string[];
+      contractValueCents: number;
+      labourCostCents: number;
+      materialCostCents: number;
+      marginCents: number;
+      completeness: { labour: string; material: string; unratedWorkers: string[] };
+      hoursTotal: number;
+      badges: string[];
     };
     // u_field 8h × 5250 = 42000c; u_field2 4h excluded (no rate); submitted + other-job excluded.
     expect(b.labourCostCents).toBe(42000);
@@ -149,19 +233,171 @@ describe("GET /api/job-profitability — honest margin (#327)", () => {
 
   it("returns budget-variance lines (#341): actual vs estimate, null when no estimate", async () => {
     // Give job-a a labour estimate; leave the material estimate unset.
-    (blob.get("jobs.json") as { jobs: Array<{ id: string; labourEstimate?: number }> }).jobs
-      .find((j) => j.id === "job-a")!.labourEstimate = 500; // $500 = 50,000c
+    (blob.get("jobs.json") as { jobs: Array<{ id: string; labourEstimate?: number }> }).jobs.find(
+      (j) => j.id === "job-a"
+    )!.labourEstimate = 500; // $500 = 50,000c
     const res = await call({ role: "admin", query: { jobId: "job-a" } });
     expect(res.statusCode).toBe(200);
     const b = res.body as {
       budget: { labourEstimateCents: number | null; materialEstimateCents: number | null };
-      variance: { labour: { actualCents: number; budgetCents: number | null; varianceCents: number | null }; material: { budgetCents: number | null }; total: { actualCents: number; budgetCents: number | null } };
+      variance: {
+        labour: { actualCents: number; budgetCents: number | null; varianceCents: number | null };
+        material: { budgetCents: number | null };
+        total: { actualCents: number; budgetCents: number | null };
+      };
     };
     expect(b.budget.labourEstimateCents).toBe(50000);
     expect(b.budget.materialEstimateCents).toBeNull();
-    expect(b.variance.labour).toMatchObject({ actualCents: 42000, budgetCents: 50000, varianceCents: -8000 });
+    expect(b.variance.labour).toMatchObject({
+      actualCents: 42000,
+      budgetCents: 50000,
+      varianceCents: -8000,
+    });
     expect(b.variance.material.budgetCents).toBeNull(); // no material estimate → null, not a fake 0
     expect(b.variance.total.actualCents).toBe(42000 + 3_000_000);
     expect(b.variance.total.budgetCents).toBe(12_000_000); // vs contractValue
+  });
+});
+
+describe("GET /api/job-profitability — owner pull 2026-08-23 (rates links, charge-out, spend ledger)", () => {
+  it("links each unrated worker to their employee record and uses the LIVE full name", async () => {
+    (blob.get("users.json") as { users: Array<{ id: string; name?: string }> }).users.find(
+      (u) => u.id === "u_field2"
+    )!.name = "Mate Jones";
+    blob.set("employees.json", {
+      employees: [{ id: "emp_2", userId: "u_field2", firstName: "Mate", lastName: "Jones" }],
+    });
+    const res = await call({ role: "admin", query: { jobId: "job-a" } });
+    const b = res.body as {
+      completeness: { unratedWorkers: string[] };
+      unratedWorkerRefs: Array<{ userId: string; name: string; employeeId: string | null }>;
+    };
+    expect(b.completeness.unratedWorkers).toEqual(["Mate Jones"]);
+    expect(b.unratedWorkerRefs).toEqual([
+      { userId: "u_field2", name: "Mate Jones", employeeId: "emp_2" },
+    ]);
+  });
+
+  it("values approved hours at the charge-out rate where one exists, stating the coverage", async () => {
+    blob.set("workforce/cost-rates.json", {
+      rates: {
+        u_field: [
+          { id: "cr1", costRateCents: 5250, chargeOutRateCents: 9500, effectiveFrom: "2026-01-01" },
+        ],
+      },
+    });
+    const res = await call({ role: "admin", query: { jobId: "job-a" } });
+    const b = res.body as {
+      labourChargeOutCents: number | null;
+      chargeOutHours: number;
+      hoursTotal: number;
+    };
+    expect(b.labourChargeOutCents).toBe(8 * 9500); // only u_field carries a charge-out rate
+    expect(b.chargeOutHours).toBe(8);
+    expect(b.hoursTotal).toBe(12);
+  });
+
+  it("charge-out is null (never a fake 0) when no worker on the job has a charge-out rate", async () => {
+    const res = await call({ role: "admin", query: { jobId: "job-a" } });
+    expect((res.body as { labourChargeOutCents: number | null }).labourChargeOutCents).toBeNull();
+  });
+
+  it("with the job_materials_spend flag ON, materials come from the spend ledger and the legacy proxy is ignored", async () => {
+    process.env.FLAG_JOB_MATERIALS_SPEND = "true";
+    blob.set("jobs/job-a/materials-ledger.json", {
+      lines: [
+        {
+          id: "ml_1",
+          date: "2026-06-01",
+          supplier: "L&H",
+          description: null,
+          amountCents: 18450,
+          createdBy: "u_admin",
+          createdByName: "boss",
+          createdAt: "2026-06-01T00:00:00.000Z",
+        },
+        {
+          id: "ml_2",
+          date: "2026-06-02",
+          supplier: "MM",
+          description: "GPOs",
+          amountCents: 5000,
+          createdBy: "u_admin",
+          createdByName: "boss",
+          createdAt: "2026-06-02T00:00:00.000Z",
+        },
+        {
+          id: "ml_3",
+          date: "2026-06-03",
+          supplier: "Gone",
+          description: null,
+          amountCents: 99999,
+          createdBy: "u_admin",
+          createdByName: "boss",
+          createdAt: "2026-06-03T00:00:00.000Z",
+          deletedAt: "2026-06-04T00:00:00.000Z",
+        },
+      ],
+    });
+    const res = await call({ role: "admin", query: { jobId: "job-a" } });
+    const b = res.body as {
+      materialCostCents: number;
+      completeness: { material: string };
+      badges: string[];
+      marginCents: number;
+    };
+    expect(b.completeness.material).toBe("ledger");
+    expect(b.materialCostCents).toBe(23450); // tombstoned line excluded; $30,000 proxy ignored
+    expect(b.badges).toContain("materials from spend ledger");
+    expect(b.marginCents).toBe(12_000_000 - 42000 - 23450);
+  });
+
+  it("with the flag ON but an empty ledger, falls back to the legacy proxy rather than claiming $0", async () => {
+    process.env.FLAG_JOB_MATERIALS_SPEND = "true";
+    const res = await call({ role: "admin", query: { jobId: "job-a" } });
+    expect((res.body as { completeness: { material: string } }).completeness.material).toBe(
+      "received_proxy"
+    );
+  });
+
+  it("with the flag OFF the ledger is never read — materials stay on the legacy proxy", async () => {
+    blob.set("jobs/job-a/materials-ledger.json", {
+      lines: [
+        {
+          id: "ml_1",
+          date: "2026-06-01",
+          supplier: "L&H",
+          description: null,
+          amountCents: 18450,
+          createdBy: "u_admin",
+          createdByName: "boss",
+          createdAt: "2026-06-01T00:00:00.000Z",
+        },
+      ],
+    });
+    const res = await call({ role: "admin", query: { jobId: "job-a" } });
+    const b = res.body as { materialCostCents: number; completeness: { material: string } };
+    expect(b.completeness.material).toBe("received_proxy");
+    expect(b.materialCostCents).toBe(3_000_000);
+  });
+
+  it("walks EVERY page of the users/ listing (#935) — an entry on page two still counts", async () => {
+    // Re-mock list with a two-page cursor protocol: page 1 carries nothing
+    // useful, page 2 carries the approved entries.
+    const keys = [...blob.keys()].filter((k) => k.startsWith("users/"));
+    const [first, ...rest] = keys;
+    const listMock = requireFromHere(vercelBlobPath) as { list: ReturnType<typeof vi.fn> };
+    listMock.list.mockImplementation(async ({ cursor }: { cursor?: string }) => {
+      if (!cursor)
+        return {
+          blobs: [{ pathname: first, url: `memory://${first}` }],
+          hasMore: true,
+          cursor: "page-2",
+        };
+      return { blobs: rest.map((k) => ({ pathname: k, url: `memory://${k}` })), hasMore: false };
+    });
+    const res = await call({ role: "admin", query: { jobId: "job-a" } });
+    expect(res.statusCode).toBe(200);
+    expect((res.body as { hoursTotal: number }).hoursTotal).toBe(12); // all approved job-a hours across both pages
   });
 });

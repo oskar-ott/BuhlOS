@@ -19,15 +19,23 @@ import type { AuditLogEntry, AuditLogListResponse } from "./types";
  * GET /api/audit-log?targetType=evidence&targetId=X&jobId=X
  *
  * The server filters by targetType + targetId + jobId, applies the
- * role-based visibility rule (tradie sees own activity / activity
- * about own captures), and returns entries newest-first.
+ * role-based visibility rule, and returns entries newest-first. For field
+ * roles that rule is (2026-08-24 hardening): evidence targets → own actions
+ * plus everything on a capture they took; EVERY other target type → own
+ * actions only. Admin/LH see the full history.
  *
  * `months` defaults to 2 server-side (scans 2 recent monthly blobs).
  * Pass a higher number to read further back; the server caps at 12.
  */
 export function listAuditForTarget(args: {
   jobId: string;
-  targetType: "evidence" | "snag" | "itp_template" | "itp_instance" | "observation" | "material_request";
+  targetType:
+    | "evidence"
+    | "snag"
+    | "itp_template"
+    | "itp_instance"
+    | "observation"
+    | "material_request";
   targetId: string;
   months?: number;
 }): Promise<HttpResult<AuditLogListResponse>> {
@@ -87,9 +95,7 @@ export const auditLogClient = {
  * with the same `ts` keep their original insertion order.
  */
 export function sortNewestFirst(entries: ReadonlyArray<AuditLogEntry>): AuditLogEntry[] {
-  return entries
-    .slice()
-    .sort((a, b) => String(b.ts || "").localeCompare(String(a.ts || "")));
+  return entries.slice().sort((a, b) => String(b.ts || "").localeCompare(String(a.ts || "")));
 }
 
 /**
@@ -102,9 +108,7 @@ export function entriesForTarget(
   targetType: string,
   targetId: string
 ): AuditLogEntry[] {
-  return entries.filter(
-    (e) => e.targetType === targetType && e.targetId === targetId
-  );
+  return entries.filter((e) => e.targetType === targetType && e.targetId === targetId);
 }
 
 /**

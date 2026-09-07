@@ -1,9 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
-import type { Route } from "next";
-import { ExternalLink, FileText, Image as ImageIcon, Stamp, X } from "lucide-react";
+import { FileText, Image as ImageIcon, Stamp, X } from "lucide-react";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Pill } from "@/components/ui/Pill";
@@ -61,20 +59,14 @@ const SOURCE_TONE: Record<GallerySourceKind, "info" | "warning" | "neutral"> = {
  *
  * Tapping an EVIDENCE photo opens the existing EvidenceDrawer (reuse — no
  * second detail UI). A catalog-only photo (snag / ITP / dwelling) has no
- * evidence drawer: a snag photo links to its snag surface; any catalog photo
- * also opens a plain full-size lightbox. NO capture / tagging controls (Epic 10
- * boundary).
+ * evidence drawer: it opens a plain full-size lightbox. (The old "open the
+ * snag" deep-link is gone — the snags surface was deleted in the 2026-07-27
+ * gut.) NO capture / tagging controls (Epic 10 boundary).
  */
-export function PhotosGallery({
-  job,
-  evidence,
-  catalog,
-  sourceErrors,
-  areaNameById,
-}: Props) {
+export function PhotosGallery({ job, evidence, catalog, sourceErrors, areaNameById }: Props) {
   const allPhotos = useMemo(
     () => buildGalleryPhotos({ evidence, catalog, areaNameById }),
-    [evidence, catalog, areaNameById],
+    [evidence, catalog, areaNameById]
   );
 
   const [filter, setFilter] = useState<GalleryFilter>(EMPTY_GALLERY_FILTER);
@@ -83,7 +75,7 @@ export function PhotosGallery({
 
   const visible = useMemo(
     () => allPhotos.filter((p) => matchesGalleryFilter(p, filter)),
-    [allPhotos, filter],
+    [allPhotos, filter]
   );
   const groups = useMemo(() => groupPhotosByDay(visible), [visible]);
   const uploaders = useMemo(() => galleryUploaders(allPhotos), [allPhotos]);
@@ -112,8 +104,8 @@ export function PhotosGallery({
           <div>
             <CardTitle>Photos · {job.name}</CardTitle>
             <CardDescription className="mt-1">
-              Every photo on this job in one place — field captures, snag photos
-              and ITP / dwelling photos. Read-only; open a capture to review it.
+              Every photo on this job in one place — field captures, snag photos and ITP / dwelling
+              photos. Read-only; open a capture to review it.
             </CardDescription>
           </div>
           <Pill tone="neutral">Read-only</Pill>
@@ -128,15 +120,10 @@ export function PhotosGallery({
       </Card>
 
       {sourceErrors.map((e) => (
-        <Card
-          key={e.label}
-          className="border-amber-200 bg-amber-50"
-          role="alert"
-        >
+        <Card key={e.label} className="border-amber-200 bg-amber-50" role="alert">
           <CardTitle>Couldn&rsquo;t load {e.label} photos</CardTitle>
           <CardDescription className="text-amber-900">
-            {e.message}. These photos are missing from the gallery below — refresh
-            to try again.
+            {e.message}. These photos are missing from the gallery below — refresh to try again.
           </CardDescription>
         </Card>
       ))}
@@ -154,9 +141,7 @@ export function PhotosGallery({
       {visible.length === 0 ? (
         <EmptyState
           title={
-            allPhotos.length === 0
-              ? "No photos on this job yet."
-              : "No photos match these filters."
+            allPhotos.length === 0 ? "No photos on this job yet." : "No photos match these filters."
           }
           description={
             allPhotos.length === 0
@@ -208,22 +193,14 @@ export function PhotosGallery({
       />
 
       {/* Catalog-only photos (snag / ITP / dwelling) have no evidence drawer —
-          a plain full-size lightbox + a link to the source surface. Never a
-          bespoke second detail panel. */}
-      {lightbox ? (
-        <Lightbox photo={lightbox} jobId={job.id} onClose={() => setLightbox(null)} />
-      ) : null}
+          a plain full-size lightbox only (the snag deep-link died with the
+          snags surface in the gut). Never a bespoke second detail panel. */}
+      {lightbox ? <Lightbox photo={lightbox} onClose={() => setLightbox(null)} /> : null}
     </div>
   );
 }
 
-function PhotoTile({
-  photo,
-  onOpen,
-}: {
-  photo: GalleryPhoto;
-  onOpen: () => void;
-}) {
+function PhotoTile({ photo, onOpen }: { photo: GalleryPhoto; onOpen: () => void }) {
   const tone = SOURCE_TONE[photo.sourceKind];
   return (
     <button
@@ -231,7 +208,7 @@ function PhotoTile({
       onClick={onOpen}
       className={cn(
         "group flex w-full flex-col overflow-hidden rounded-card border border-border bg-surface text-left",
-        "transition-colors hover:border-border-strong focus:outline-none focus:ring-2 focus:ring-brand-navy",
+        "transition-colors hover:border-border-strong focus:outline-none focus:ring-2 focus:ring-brand-navy"
       )}
       aria-label={`${sourceKindLabel(photo.sourceKind)} — ${photo.provenance}`}
     >
@@ -269,9 +246,7 @@ function PhotoTile({
         ) : null}
       </span>
       <span className="flex flex-col gap-0.5 p-2">
-        <span className="truncate text-xs font-medium text-text">
-          {photo.provenance}
-        </span>
+        <span className="truncate text-xs font-medium text-text">{photo.provenance}</span>
         <span className="truncate text-[11px] text-text-muted">
           {photo.uploader}
           {photo.capturedAt ? ` · ${formatTime(photo.capturedAt)}` : ""}
@@ -281,15 +256,7 @@ function PhotoTile({
   );
 }
 
-function Lightbox({
-  photo,
-  jobId,
-  onClose,
-}: {
-  photo: GalleryPhoto;
-  jobId: string;
-  onClose: () => void;
-}) {
+function Lightbox({ photo, onClose }: { photo: GalleryPhoto; onClose: () => void }) {
   return (
     <div
       role="dialog"
@@ -330,22 +297,13 @@ function Lightbox({
               className="mx-auto block max-h-[70vh] w-full object-contain"
             />
           ) : (
-            <p className="p-8 text-center text-sm text-text-muted">
-              This entry has no image.
-            </p>
+            <p className="p-8 text-center text-sm text-text-muted">This entry has no image.</p>
           )}
         </div>
-        {photo.snagId ? (
-          <footer className="border-t border-border px-4 py-3">
-            <Link
-              href={`/v2/jobs/${encodeURIComponent(jobId)}/snags` as Route}
-              className="inline-flex items-center gap-1 text-sm font-medium text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-2"
-            >
-              <ExternalLink aria-hidden="true" className="h-4 w-4" />
-              Open the snag
-            </Link>
-          </footer>
-        ) : null}
+        {/* 2026-08-24 market-readiness: the "Open the snag" link pointed at
+            /v2/jobs/[id]/snags, a route deleted in the 2026-07-27 gut — a 404
+            on any legacy evidence still carrying snagId. Removed (snags are a
+            dark feature; nothing writes snagId now). */}
       </div>
     </div>
   );
@@ -450,8 +408,7 @@ function GalleryFilterBar({
             onChange={(e) =>
               onChange({
                 ...value,
-                sourceKind:
-                  e.target.value === "" ? null : (e.target.value as GallerySourceKind),
+                sourceKind: e.target.value === "" ? null : (e.target.value as GallerySourceKind),
               })
             }
             className="block h-10 rounded-card border border-border bg-surface px-3 text-sm focus:border-brand-navy focus:outline-none"
@@ -476,7 +433,7 @@ function GalleryFilterBar({
                 "inline-flex h-10 items-center gap-1 rounded-card border px-3 text-sm font-medium",
                 value.asBuilt === true
                   ? "border-amber-300 bg-amber-50 text-amber-900"
-                  : "border-border bg-surface text-text hover:bg-surface-subtle",
+                  : "border-border bg-surface text-text hover:bg-surface-subtle"
               )}
             >
               <Stamp aria-hidden="true" className="h-4 w-4" />
@@ -493,7 +450,7 @@ function GalleryFilterBar({
             className={cn(
               "inline-flex h-10 items-center gap-1 rounded-card px-3 text-sm font-medium",
               "text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-2",
-              "hover:bg-surface-subtle",
+              "hover:bg-surface-subtle"
             )}
           >
             <X aria-hidden="true" className="h-4 w-4" />
@@ -510,13 +467,7 @@ function GalleryFilterBar({
   );
 }
 
-function FilterField({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
+function FilterField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
       <span className="block font-display text-xs uppercase tracking-wider text-text-muted">

@@ -13,13 +13,13 @@
 //   - No contract value → margin is null ("no contract value set"), never faked.
 //   - Labour from workers with NO cost rate is not silently costed at 0 — it is
 //     excluded and those workers are named (labour "understated").
-//   - Material cost is labelled by source (real consumption / received-rollup
-//     proxy / none) so a proxy is never read as truth.
+//   - Material cost is labelled by source (real consumption / the per-job spend
+//     ledger / received-rollup proxy / none) so a proxy is never read as truth.
 
 /**
  * @param {{ contractValueCents: number|null, labourCostCents: number,
  *           unratedWorkers: string[], materialCostCents: number|null,
- *           materialSource: 'consumption'|'received_proxy'|'none' }} input
+ *           materialSource: 'consumption'|'ledger'|'received_proxy'|'none' }} input
  */
 function computeJobProfitability(input) {
   const labourCostCents = Math.max(0, Math.round((input && input.labourCostCents) || 0));
@@ -44,6 +44,7 @@ function computeJobProfitability(input) {
     labourComplete ? 'labour complete' : `${unrated.length} worker${unrated.length === 1 ? '' : 's'} unrated`,
   );
   if (materialSource === 'consumption') badges.push('materials actual');
+  else if (materialSource === 'ledger') badges.push('materials from spend ledger');
   else if (materialSource === 'received_proxy') badges.push('materials proxy');
   else badges.push('no material data');
   if (contractValueCents == null) badges.push('no contract value set');

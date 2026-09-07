@@ -121,6 +121,9 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
           jobRooms: sharpenedFlags.jobRooms,
           itpSimpleEnabled,
           photosGalleryEnabled,
+          // Owner ruling 2026-08-31 — same gate as "+ New job": whoever can
+          // add a job can fix its name.
+          canFixName: sharpenedFlags.sharpened,
         })}
       </PhilShell>
     );
@@ -157,6 +160,7 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
           jobRooms={sharpenedFlags.jobRooms}
           itpSimpleEnabled={itpSimpleEnabled}
           photosGalleryEnabled={photosGalleryEnabled}
+          canFixName={sharpenedFlags.sharpened}
         />
       </Suspense>
     </PhilShell>
@@ -181,6 +185,7 @@ async function PhilJobDetailFull({
   jobRooms,
   itpSimpleEnabled,
   photosGalleryEnabled,
+  canFixName,
 }: {
   raw: string | undefined;
   jobId: string;
@@ -194,6 +199,9 @@ async function PhilJobDetailFull({
   itpSimpleEnabled: boolean;
   /** #915: gate for the data-driven gallery card, whose route 404s dark. */
   photosGalleryEnabled: boolean;
+  /** Owner ruling 2026-08-31 — same phil_sharpened gate as "+ New job":
+   *  whoever can add a job can fix its name (bottom-of-page quiet row). */
+  canFixName: boolean;
 }) {
   // Lean reset step 5 (#916): the work-to-do machinery left the job page —
   // no task-state read (blocking or streamed), no job-control spine read, no
@@ -249,6 +257,7 @@ async function PhilJobDetailFull({
       autoCaptureToken={captureToken}
       itpSimpleEnabled={itpSimpleEnabled}
       photosGalleryEnabled={photosGalleryEnabled}
+      canFixName={canFixName}
     />
   );
 }

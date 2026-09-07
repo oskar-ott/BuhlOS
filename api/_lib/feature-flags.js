@@ -389,6 +389,12 @@ const REGISTRY = {
     target: 'global',
     expires: '2026-12-31',
   },
+  job_materials_spend: {
+    description: 'Per-job materials SPEND ledger on the admin job hub (owner pull 2026-08-23) — date/supplier/amount ex GST typed by the office, feeding the Money card\'s Materials figure via api/job-profitability (materialSource ledger). api/job-materials + the Materials card. Admin-tier. Dark.',
+    default: false,
+    target: 'admin-tier',
+    expires: '2026-11-30',
+  },
 
   // job_photos left the hidden list by owner decision (#916 call 2,
   // 2026-07-18): the gallery completes the capture loop, so it is lean-core —
@@ -410,6 +416,7 @@ const REGISTRY = {
 const FLAG_PRESENTATION = {
   signup_link: { label: 'Crew sign-up link', domain: 'Company', surface: 'Shared', previewHref: '/employees' },
   itp_simple: { label: 'Simple ITP builder (Phil)', domain: 'QA & compliance', surface: 'Phil', previewHref: '/phil/jobs' },
+  job_materials_spend: { label: 'Job materials spend ledger', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/v2/jobs' },
   admin_flags_readout: { label: 'Flags readout card', domain: 'Platform', surface: 'BuhlOS', previewHref: '/command-centre' },
   servicem8_sync: { label: 'ServiceM8 job sync', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/command-centre' },
   phil_sharpened: { label: 'Phil sharpened redesign', domain: 'Phil', surface: 'Phil', previewHref: '/phil/my-day' },

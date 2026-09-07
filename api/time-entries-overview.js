@@ -33,6 +33,7 @@ const { readBlob, setNoCache } = require('./_lib/blob');
 const { readLeave, approvedLeaveByUserDate } = require('./_lib/leave');
 const { publicHolidaysInRange } = require('./_lib/public-holidays');
 const { requireAuth, isStaffRole, isAdminRole, isHoursTrackedWorker } = require('./_lib/auth');
+const { buildWorkerLabeller } = require('./_lib/worker-names');
 const { HOURS_GO_LIVE } = require('./_lib/hours-epoch');
 
 module.exports = async (req, res) => {
@@ -70,29 +71,12 @@ module.exports = async (req, res) => {
   const jobs  = jobsBlob.jobs   || [];
   const userById = {}; users.forEach(u => { userById[u.id] = u; });
 
-  // Friendly worker labels. Invite/signup accounts are filed under their EMAIL
-  // (users.username = email), which is what the raw username fallback surfaces
-  // on the hours boards. FULL names, never nicknames (owner-directed
-  // 2026-08-16): hours feed payroll, so worker identity must be unambiguous —
-  // and must match the payroll PDF/CSV/email, which already print the full
-  // name. The register's "First Last" is the best source; its displayName is
-  // a NICKNAME ("Alfie", "Louie") and is deliberately IGNORED here (greeting
-  // material, not payroll identity). Workers without a register row fall
-  // through to the live users.json full name, then the stored entry snapshot,
-  // then the username.
-  const nameByUserId = {};
-  {
-    const rows = (empBlob.employees || []).filter(e => e && e.userId && e.firstName);
-    for (const e of rows) {
-      nameByUserId[e.userId] = e.lastName ? `${e.firstName} ${e.lastName}` : e.firstName;
-    }
-  }
-  const labelFor = (uid, stored) =>
-    nameByUserId[uid]
-    || (userById[uid] && userById[uid].name)
-    || stored
-    || (userById[uid] && userById[uid].username)
-    || uid;
+  // Friendly worker labels — FULL names, never nicknames (#1020). The
+  // resolution order (register "First Last" → live users.json name → stored
+  // snapshot → username → id) lives in ONE place, api/_lib/worker-names.js,
+  // shared with the per-job Labour card (api/job-hours.js, #1027) so the two
+  // boards can never disagree about who worked.
+  const labelFor = buildWorkerLabeller({ users, employees: empBlob.employees });
   const jobById  = {}; jobs.forEach(j => { jobById[j.id]   = j; });
 
   const viewerJobs = new Set(viewer.assignedJobIds || []);
