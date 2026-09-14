@@ -247,12 +247,54 @@ function welcomeEmail(ctx) {
 }
 
 // Map an invite "kind" to its template renderer (used by api/_lib/email.js).
+/**
+ * E5 · PIN reset. Sent to the address ON FILE when someone asks to reset a
+ * forgotten PIN from the sign-in screen. Inbox control is the whole gate, so
+ * the copy says plainly what to do if they did NOT ask — and the link is
+ * deliberately short-lived. The plaintext token only ever appears inside
+ * ctx.ctaUrl (bible §10 S02); nothing here logs or stores it.
+ */
+function pinResetEmail(ctx) {
+  const noun = ctx.isPassword ? 'password' : 'PIN';
+  const bodyHtml = `<p style="font-size:15px;line-height:1.5;color:${INK};margin:0 0 14px">Someone asked to reset the ${esc(noun)} for this ${APP} account. Tap below and pick a new one — you'll be signing in again in under a minute.</p>`
+    + `<p style="font-size:14px;line-height:1.5;color:${INK};margin:0 0 14px">If that wasn't you, ignore this email — nothing changes until the link is used, and your current ${esc(noun)} still works.</p>`;
+  return {
+    subject: `Reset your ${APP} ${noun}`,
+    html: shell({
+      heading: `G'day ${esc(ctx.firstName)}.<br>Let's get you back in.`,
+      bodyHtml,
+      ctaLabel: `Set a new ${noun}`,
+      ctaUrl: ctx.ctaUrl,
+      expiresText: ctx.expiresText,
+      adminName: ctx.adminName,
+      companyName: ctx.companyName,
+      adminPhone: ctx.adminPhone,
+    }),
+    text: plainShell({
+      greeting: `G'day ${ctx.firstName},`,
+      lines: [
+        `Someone asked to reset the ${noun} for this ${APP} account.`,
+        `Open the link below and pick a new ${noun}.`,
+        '',
+        `If that wasn't you, ignore this email — nothing changes until the link is used, and your current ${noun} still works.`,
+      ],
+      ctaLabel: `Set a new ${noun} here`,
+      ctaUrl: ctx.ctaUrl,
+      expiresText: ctx.expiresText,
+      adminName: ctx.adminName,
+      companyName: ctx.companyName,
+      adminPhone: ctx.adminPhone,
+    }),
+  };
+}
+
 const TEMPLATES = {
   welcome: welcomeEmail,
   invite: inviteEmail,
   resend: resendEmail,
   expiredReplacement: expiredReplacementEmail,
   accepted: acceptedNotificationEmail,
+  pinReset: pinResetEmail,
 };
 
 module.exports = {
@@ -261,6 +303,7 @@ module.exports = {
   resendEmail,
   expiredReplacementEmail,
   acceptedNotificationEmail,
+  pinResetEmail,
   TEMPLATES,
   article,
 };

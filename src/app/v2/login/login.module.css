@@ -150,6 +150,10 @@
 }
 
 /* ── Worker sign-in (#421): big-key PIN keypad, glove-friendly ─────────── */
+/* Recovery link under the mode switch (owner pull 2026-09-14). */
+.footLink {
+  margin-top: 10px;
+}
 .workerSwitch {
   background: none;
   border: 0;
