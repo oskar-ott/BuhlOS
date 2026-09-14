@@ -178,7 +178,7 @@ export function PinResetRequestScreen({
         />
       </label>
       <p className="mt-2 text-sm text-text-muted">
-        It&rsquo;s the email on your account — often your personal one, not your bühl address.
+        It&rsquo;s the email you used to sign up with.
       </p>
 
       <PrimaryCta

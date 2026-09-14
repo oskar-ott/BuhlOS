@@ -30,8 +30,9 @@ describe("PinResetRequestScreen", () => {
     expect(html).toContain("Forgotten your PIN?");
     expect(html).toContain('data-testid="pin-reset-email"');
     expect(html).toContain('data-testid="pin-reset-send"');
-    // Steers them to the account email, the exact trap that locked Anders out.
-    expect(html).toContain("not your bühl address");
+    // Names the right address plainly — the trap that locked a worker out was
+    // signing in with the wrong email (and their email password).
+    expect(html).toContain("the email you used to sign up with");
   });
 
   it("with NO mail provider it offers the office phone, never a button that can't deliver", () => {
