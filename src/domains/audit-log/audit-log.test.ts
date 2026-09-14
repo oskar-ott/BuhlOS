@@ -121,6 +121,9 @@ describe("AuditLogEntrySchema", () => {
       "ai.digest_generated",
       "ai.job_summarised",
       "ai.office_summary_generated",
+      // Self-service login recovery (emailed one-time link).
+      "auth.pin_reset_completed",
+      "auth.pin_reset_requested",
       "backup.completed",
       // #231: certificates register.
       "certificate.uploaded",

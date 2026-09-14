@@ -51,6 +51,11 @@ export const AUDIT_ACTIONS = [
   // with api/_lib/audit-log.js.
   "ai.digest_generated",
   "ai.office_summary_generated",
+  // Self-service LOGIN recovery (emailed one-time link). Its own namespace —
+  // "credential.*" is licences/tickets. Kept in sync with
+  // api/_lib/audit-log.js VALID_ACTIONS.
+  "auth.pin_reset_requested",
+  "auth.pin_reset_completed",
   "job.contract_obligations_extracted",
   "job.contract_obligation_accepted",
   "evidence.captured",

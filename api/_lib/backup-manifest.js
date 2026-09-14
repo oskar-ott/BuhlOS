@@ -49,6 +49,7 @@ const EXACT_STORES = [
   'temps/assets.json',
   'temps/movements.json',
   'platform/errors.json', // error-event journal (#154) — capped FIFO, still a canonical store
+  'pin-resets.json', // self-service login-recovery tokens (bcrypt hashes only, single-use, 60-min expiry, pruned at 24h) — disposable like jobs-summary.json, but written by api/ so it is listed for the guard. Restoring an old snapshot can't revive a link: expiry is checked against the clock and a spent one stays 'used'
   'xero/sync-open.json', // Xero sync recorder open working set (#251) — unresolved finance failures, NEVER trimmed
 ];
 

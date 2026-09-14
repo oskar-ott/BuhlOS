@@ -79,6 +79,13 @@ const VALID_ACTIONS = new Set([
   // metadata.resentCount carries which. Kept in sync with
   // src/domains/audit-log/schema.ts AUDIT_ACTIONS.
   'employee.created',
+  // Self-service LOGIN recovery (a locked-out worker resets their own PIN from
+  // an emailed one-time link). Deliberately its own 'auth.' namespace: the
+  // 'credential.' verbs above are licences/tickets, an unrelated thing.
+  // Metadata is never the token or the PIN — only which account, and how the
+  // request arrived.
+  'auth.pin_reset_requested',
+  'auth.pin_reset_completed',
   'employee.updated',
   'employee.role_changed',
   'employee.disabled',

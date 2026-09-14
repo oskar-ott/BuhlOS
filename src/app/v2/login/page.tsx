@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import type { Route } from "next";
 import { JetBrains_Mono } from "next/font/google";
+import { isEmailConfigured } from "../../../../api/_lib/email.js";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { landingFor } from "@/lib/auth/landing";
 import { LoginForm } from "./login-form";
@@ -45,7 +46,13 @@ export default async function LoginPage({
   return (
     <div className={`${styles.login} ${jetbrainsMono.variable}`} data-testid="login-screen">
       <main className={styles.main}>
-        <LoginForm next={params.next} initialMode={params.mode === "worker" ? "worker" : "office"} />
+        <LoginForm
+          next={params.next}
+          initialMode={params.mode === "worker" ? "worker" : "office"}
+          // Self-service PIN recovery mails a one-time link, so the
+          // affordance only exists where a provider is wired (P7).
+          resetAvailable={isEmailConfigured()}
+        />
       </main>
       <footer className={styles.screenFoot}>
         <span>bühl electrical · Sydney</span>

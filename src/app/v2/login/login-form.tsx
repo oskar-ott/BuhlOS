@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import Link from "next/link";
 import { landingFor } from "@/lib/auth/landing";
 import { migrateLocalStorage } from "@/lib/storage/migrate-local-storage";
 import { purgePhilPageCaches } from "@/domains/phil/page-cache";
@@ -11,6 +12,11 @@ interface LoginFormProps {
   /** #421: deep-link straight into worker (name+PIN) mode via ?mode=worker —
    *  e.g. from the invite-accepted screen. Defaults to the office form. */
   initialMode?: "office" | "worker";
+  /** Owner pull 2026-09-14: self-service PIN recovery. True only when a mail
+   *  provider is wired (resolved server-side), because the reset link is
+   *  emailed — a link we could never deliver would be the dead affordance the
+   *  original "Forgot your password?" was omitted for. */
+  resetAvailable?: boolean;
 }
 
 /**
@@ -30,11 +36,14 @@ interface LoginFormProps {
  *     api/auth.js matches exact username first, then the email field.
  *
  * Intentional deviations from the replica:
- *   • "Forgot your password?" — omitted (no self-service reset backend; a dead
- *     link would break the honest-UI rule). The screen footer's office phone
- *     is the real recovery path.
+ *   • "Forgot your password?" — now BUILT (owner pull 2026-09-14): /reset mails
+ *     a one-time link so a locked-out worker recovers without the office. It
+ *     renders only when `resetAvailable` (a mail provider is wired), so the
+ *     original honest-UI reason for omitting it — a dead link — still holds
+ *     wherever email isn't configured; the footer's office phone remains the
+ *     fallback either way.
  */
-export function LoginForm({ next, initialMode = "office" }: LoginFormProps) {
+export function LoginForm({ next, initialMode = "office", resetAvailable = false }: LoginFormProps) {
   const [mode, setMode] = useState<"office" | "worker">(initialMode);
   const [identifier, setIdentifier] = useState("");
   const [secret, setSecret] = useState("");
@@ -98,6 +107,7 @@ export function LoginForm({ next, initialMode = "office" }: LoginFormProps) {
       <WorkerSignIn
         pending={pending}
         error={error}
+        resetAvailable={resetAvailable}
         onBack={() => {
           setMode("office");
           setError(null);
@@ -218,6 +228,13 @@ export function LoginForm({ next, initialMode = "office" }: LoginFormProps) {
         >
           On the tools? Sign in with your email &amp; PIN →
         </button>
+        {resetAvailable ? (
+          <div className={styles.footLink}>
+            <Link className={styles.workerSwitch} href="/reset" data-testid="login-forgot">
+              Forgotten your password?
+            </Link>
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -234,11 +251,13 @@ function WorkerSignIn({
   error,
   onBack,
   onSubmit,
+  resetAvailable,
 }: {
   pending: boolean;
   error: string | null;
   onBack: () => void;
   onSubmit: (name: string, pin: string, clearPin: () => void) => void;
+  resetAvailable: boolean;
 }) {
   const [name, setName] = useState("");
   const [pin, setPin] = useState("");
@@ -376,6 +395,13 @@ function WorkerSignIn({
         <button type="button" className={styles.workerSwitch} onClick={onBack}>
           ← Office sign-in (email &amp; password)
         </button>
+        {resetAvailable ? (
+          <div className={styles.footLink}>
+            <Link className={styles.workerSwitch} href="/reset" data-testid="worker-forgot">
+              Forgotten your PIN?
+            </Link>
+          </div>
+        ) : null}
       </div>
     </div>
   );
