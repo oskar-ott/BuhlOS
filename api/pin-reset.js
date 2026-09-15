@@ -155,6 +155,17 @@ async function writeAudit(action, user, summary, metadata) {
   }
 }
 
+// Why a request produced no email. The CALLER is never told — every path below
+// still answers the same 200 {ok:true}, so this leaks nothing. It exists because
+// the first real use of this flow (2026-09-14) ended with "email didn't send"
+// and NOTHING in the function logs could say which silent branch ran: no match,
+// disabled, no address on file, or a send that the provider accepted and then
+// didn't deliver. `warn` rather than `log` so the answer is one error-level log
+// query away. Never the typed address, never the token.
+function trace(outcome) {
+  console.warn(`pin-reset: ${outcome}`);
+}
+
 module.exports = async (req, res) => {
   setNoCache(res);
   if (req.method === 'OPTIONS') return res.status(200).end();
@@ -170,9 +181,15 @@ module.exports = async (req, res) => {
     // address from a real one, a throttle, or a mail failure.
     const ok = () => res.status(200).json({ ok: true });
     if (!typed) return res.status(400).json({ error: 'email required' });
-    if (ip && ipLimiter.isLimited(ip)) return ok();
+    if (ip && ipLimiter.isLimited(ip)) {
+      trace('rate limited by ip — no link sent');
+      return ok();
+    }
     const emailKey = typed.toLowerCase();
-    if (emailLimiter.isLimited(emailKey)) return ok();
+    if (emailLimiter.isLimited(emailKey)) {
+      trace('rate limited by address — no link sent');
+      return ok();
+    }
     if (ip) ipLimiter.record(ip);
     emailLimiter.record(emailKey);
 
@@ -182,9 +199,22 @@ module.exports = async (req, res) => {
       // No account, a disabled one, or an account with no address to send to:
       // stop silently. A disabled worker must not be re-credentialled, and
       // login would refuse them anyway.
-      if (!user || isDisabledUser(user)) return ok();
+      if (!user) {
+        trace('no account matches the address typed — no link sent');
+        return ok();
+      }
+      if (isDisabledUser(user)) {
+        trace('account is disabled — no link sent');
+        return ok();
+      }
       const to = String(user.email || user.username || '').trim();
-      if (!to || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return ok();
+      if (!to || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+        trace('account has no email on file — nowhere to send the link');
+        await writeAudit('auth.pin_reset_requested', user,
+          `Reset link requested for ${user.username || user.id} — no email on file`,
+          { delivered: false, outcome: 'no_email_on_file', viaIp: ip || null });
+        return ok();
+      }
       if (!isEmailConfigured()) {
         console.error('pin-reset: email provider not configured — no link sent');
         return ok();
@@ -221,12 +251,18 @@ module.exports = async (req, res) => {
         adminPhone: process.env.OFFICE_PHONE || '',
         isPassword: isPasswordRole(user.role),
       });
-      if (sent && sent.ok === false) {
+      const delivered = Boolean(sent && sent.ok !== false);
+      if (!delivered) {
         console.error('pin-reset: send failed', sent.reason || sent.error || 'unknown');
+      } else {
+        // Accepted by the provider — which is NOT proof it landed. A bounce or a
+        // junk-folder filing happens after this point and never reaches us, so
+        // the screen still offers the office phone as the way through.
+        trace('link accepted by the email provider');
       }
       await writeAudit('auth.pin_reset_requested', user,
         `Reset link requested for ${user.username || user.id}`,
-        { delivered: Boolean(sent && sent.ok !== false), viaIp: ip || null });
+        { delivered, outcome: delivered ? 'sent' : 'send_failed', viaIp: ip || null });
     } catch (e) {
       // Never leak a backend failure as an enumeration signal.
       console.error('pin-reset request failed', e && e.message);

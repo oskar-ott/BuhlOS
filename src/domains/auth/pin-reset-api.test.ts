@@ -12,6 +12,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  *     newer request;
  *   - the reset is IN PLACE (same account id — hours and jobs survive);
  *   - a bad PIN never spends the link.
+ *
+ * ...and one OBSERVABILITY contract, added after the first real use of the flow
+ * ended in "email didn't send" with nothing in the logs able to say why: the
+ * caller still can't tell the outcomes apart, but the function logs can.
  */
 
 const requireFromHere = createRequire(import.meta.url);
@@ -86,6 +90,9 @@ beforeEach(() => {
         { id: "u_named", username: "sparky", email: "sparky@work.com", name: "Sparky Jones", role: "electrician", passwordHash: bcrypt.hashSync("0002", 10), assignedJobIds: [] },
         { id: "u_admin", username: "boss", email: "boss@work.com", name: "The Boss", role: "admin", passwordHash: bcrypt.hashSync("bosspass", 10), assignedJobIds: [] },
         { id: "u_gone", username: "gone@work.com", email: "gone@work.com", name: "Gone Away", role: "labourer", passwordHash: bcrypt.hashSync("0003", 10), disabled: true, assignedJobIds: [] },
+        // A real shape in production (2026-09-14): an early account whose
+        // username is a bare name and whose email was never filled in.
+        { id: "u_noemail", username: "tom", email: null, name: "Tom G", role: "admin", passwordHash: bcrypt.hashSync("tompass", 10), assignedJobIds: [] },
       ],
     }],
   ]);
@@ -166,6 +173,43 @@ describe("POST ?action=request — the gate is inbox control, and asking reveals
     expect((old.body as { state: string }).state).toBe("invalid");
     const fresh = await call("GET", "resolve", { query: { token: secondToken } });
     expect((fresh.body as { state: string }).state).toBe("valid");
+  });
+
+  it("an account with NO email on file sends nothing — there is nowhere to send it", async () => {
+    // Production has accounts like this. The worker is still shown "check your
+    // email", because saying otherwise would turn this screen into a
+    // people-finder — the office is told instead, in the employee drawer.
+    const res = await call("POST", "request", { body: { email: "tom" } });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({ ok: true });
+    expect(sent).toHaveLength(0);
+    expect(storedResets()).toHaveLength(0);
+  });
+
+  it("every silent outcome is distinguishable IN THE LOGS, never in the reply", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const replies: unknown[] = [];
+    for (const [email, ip] of [
+      ["nobody@nowhere.com", "10.0.1.1"],
+      ["gone@work.com", "10.0.1.2"],
+      ["tom", "10.0.1.3"],
+      ["anders@gmail.com", "10.0.1.4"],
+    ] as const) {
+      const res = await call("POST", "request", { body: { email }, ip });
+      replies.push({ status: res.statusCode, body: res.body });
+    }
+    // Every caller saw exactly the same thing.
+    expect(new Set(replies.map((r) => JSON.stringify(r))).size).toBe(1);
+
+    const lines = warn.mock.calls.map((c) => String(c[0]));
+    expect(lines.some((l) => l.includes("no account matches"))).toBe(true);
+    expect(lines.some((l) => l.includes("account is disabled"))).toBe(true);
+    expect(lines.some((l) => l.includes("no email on file"))).toBe(true);
+    expect(lines.some((l) => l.includes("accepted by the email provider"))).toBe(true);
+    // The address typed and the token never reach the logs.
+    const joined = lines.join(" ");
+    expect(joined).not.toContain("nobody@nowhere.com");
+    expect(joined).not.toContain(lastLink());
   });
 
   it("throttles repeat requests for one address without ever changing the reply", async () => {
