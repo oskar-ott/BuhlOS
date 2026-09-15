@@ -6,12 +6,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * in-memory Blob — the jobs-api harness shape.
  *
  * The contract under test is a SECURITY contract:
- *   - the gate is inbox control: a link only ever goes to the address ON FILE;
- *   - asking reveals nothing (same 200 for unknown / disabled / real);
+ *   - the gate is inbox control: a link only ever goes to the address ON FILE
+ *     (which is why naming an account, below, grants nobody anything);
+ *   - asking REPORTS WHICH of four things happened — sent / no_account /
+ *     unavailable / throttled. This deliberately replaced the earlier
+ *     same-answer-every-time design (owner decision 2026-09-15): it bought
+ *     secrecy the crew's guessable firstname@company addresses didn't have
+ *     anyway, and cost a worker who mistyped a day of waiting on a link that
+ *     was never sent. The rate limits below are what now caps walking a list;
  *   - tokens are stored hashed, single-use, short-lived, and superseded by a
  *     newer request;
  *   - the reset is IN PLACE (same account id — hours and jobs survive);
  *   - a bad PIN never spends the link.
+ *
+ * ...and one OBSERVABILITY contract, added after the first real use of the flow
+ * ended in "email didn't send" with nothing in the logs able to say why: the
+ * caller still can't tell the outcomes apart, but the function logs can.
  */
 
 const requireFromHere = createRequire(import.meta.url);
@@ -86,6 +96,9 @@ beforeEach(() => {
         { id: "u_named", username: "sparky", email: "sparky@work.com", name: "Sparky Jones", role: "electrician", passwordHash: bcrypt.hashSync("0002", 10), assignedJobIds: [] },
         { id: "u_admin", username: "boss", email: "boss@work.com", name: "The Boss", role: "admin", passwordHash: bcrypt.hashSync("bosspass", 10), assignedJobIds: [] },
         { id: "u_gone", username: "gone@work.com", email: "gone@work.com", name: "Gone Away", role: "labourer", passwordHash: bcrypt.hashSync("0003", 10), disabled: true, assignedJobIds: [] },
+        // A real shape in production (2026-09-14): an early account whose
+        // username is a bare name and whose email was never filled in.
+        { id: "u_noemail", username: "tom", email: null, name: "Tom G", role: "admin", passwordHash: bcrypt.hashSync("tompass", 10), assignedJobIds: [] },
       ],
     }],
   ]);
@@ -116,10 +129,11 @@ beforeEach(() => {
 
 afterEach(() => { vi.restoreAllMocks(); });
 
-describe("POST ?action=request — the gate is inbox control, and asking reveals nothing", () => {
+describe("POST ?action=request — a link only reaches the address on file, and the answer is honest", () => {
   it("mails a one-time link to the address ON FILE and stores only its hash", async () => {
     const res = await call("POST", "request", { body: { email: "anders@gmail.com" } });
     expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({ ok: true, outcome: "sent" });
     expect(sent).toHaveLength(1);
     expect(sent[0]!.kind).toBe("pinReset");
     expect(sent[0]!.ctx.to).toBe("anders@gmail.com");
@@ -133,18 +147,27 @@ describe("POST ?action=request — the gate is inbox control, and asking reveals
     expect(await bcrypt.compare(token, rows[0]!.tokenHash as string)).toBe(true);
   });
 
-  it("an UNKNOWN address looks identical to a real one and sends nothing", async () => {
+  it("an UNKNOWN address is SAID to be unknown — the typo is fixable on the spot", async () => {
+    // Replaces the old "looks identical to a real one" assertion on purpose.
+    // What it gave up (an outsider can confirm an address has an account) is
+    // bounded by the limiters below; what it bought is a worker who mistyped
+    // finding out in two seconds instead of waiting on a link.
     const real = await call("POST", "request", { body: { email: "anders@gmail.com" }, ip: "10.0.0.2" });
     const fake = await call("POST", "request", { body: { email: "nobody@nowhere.com" }, ip: "10.0.0.3" });
-    expect(fake.statusCode).toBe(real.statusCode);
-    expect(fake.body).toEqual(real.body);
+    expect(real.body).toMatchObject({ ok: true, outcome: "sent" });
+    expect(fake.body).toMatchObject({ ok: true, outcome: "no_account" });
+    expect(fake.statusCode).toBe(200);
+    // Still nothing sent, and still nothing about the account itself.
     expect(sent.map((s) => s.ctx.to)).toEqual(["anders@gmail.com"]);
+    expect(JSON.stringify(fake.body)).not.toContain("@");
   });
 
-  it("a DISABLED account is never re-credentialled, and still looks identical", async () => {
+  it("a DISABLED account is never re-credentialled, and is NOT told it's disabled", async () => {
     const res = await call("POST", "request", { body: { email: "gone@work.com" } });
     expect(res.statusCode).toBe(200);
-    expect(res.body).toEqual({ ok: true });
+    // 'unavailable', not 'no_account' — we don't lie about them existing — and
+    // not "you're disabled" either: that's the office's news to break.
+    expect(res.body).toMatchObject({ ok: true, outcome: "unavailable" });
     expect(sent).toHaveLength(0);
   });
 
@@ -168,16 +191,73 @@ describe("POST ?action=request — the gate is inbox control, and asking reveals
     expect((fresh.body as { state: string }).state).toBe("valid");
   });
 
-  it("throttles repeat requests for one address without ever changing the reply", async () => {
+  it("an account with NO email on file says 'ring the office', never 'check your email'", async () => {
+    // Production has accounts like this. Sharing 'unavailable' with the
+    // disabled case is deliberate: both mean "there's an account and no link
+    // can reach it", and the office is the one who can say which.
+    const res = await call("POST", "request", { body: { email: "tom" } });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({ ok: true, outcome: "unavailable" });
+    expect(sent).toHaveLength(0);
+    expect(storedResets()).toHaveLength(0);
+  });
+
+  it("every outcome is named in the reply AND traced in the logs, with no address or token in either", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const replies: unknown[] = [];
+    for (const [email, ip] of [
+      ["nobody@nowhere.com", "10.0.1.1"],
+      ["gone@work.com", "10.0.1.2"],
+      ["tom", "10.0.1.3"],
+      ["anders@gmail.com", "10.0.1.4"],
+    ] as const) {
+      const res = await call("POST", "request", { body: { email }, ip });
+      replies.push({ status: res.statusCode, body: res.body });
+    }
+    // Each caller is told which of the four things happened.
+    expect(replies.map((r) => (r as { body: { outcome: string } }).body.outcome)).toEqual([
+      "no_account", "unavailable", "unavailable", "sent",
+    ]);
+    expect(new Set(replies.map((r) => (r as { status: number }).status))).toEqual(new Set([200]));
+
+    const lines = warn.mock.calls.map((c) => String(c[0]));
+    expect(lines.some((l) => l.includes("no account matches"))).toBe(true);
+    expect(lines.some((l) => l.includes("account is disabled"))).toBe(true);
+    expect(lines.some((l) => l.includes("no email on file"))).toBe(true);
+    expect(lines.some((l) => l.includes("accepted by the email provider"))).toBe(true);
+    // The address typed and the token never reach the logs.
+    const joined = lines.join(" ");
+    expect(joined).not.toContain("nobody@nowhere.com");
+    expect(joined).not.toContain(lastLink());
+  });
+
+  it("throttling SAYS it is throttling, and still protects the mailbox", async () => {
     const bodies = [];
     for (let i = 0; i < 6; i++) {
       const r = await call("POST", "request", { body: { email: "anders@gmail.com" }, ip: `10.1.0.${i}` });
-      bodies.push({ status: r.statusCode, body: r.body });
+      bodies.push({ status: r.statusCode, body: r.body as { outcome: string; retryAfterSec?: number } });
     }
-    // Every reply is the same 200 {ok:true} — a throttle is not a signal…
-    for (const b of bodies) expect(b).toEqual({ status: 200, body: { ok: true } });
-    // …but the mailbox is protected (3 per 30 min).
+    // "Check your email" for a link the throttle swallowed is the same lie the
+    // whole change is undoing — so say "too many tries", with when to retry.
+    const outcomes = bodies.map((b) => b.body.outcome);
+    expect(outcomes.slice(0, 3)).toEqual(["sent", "sent", "sent"]);
+    expect(outcomes.slice(3)).toEqual(["throttled", "throttled", "throttled"]);
+    for (const b of bodies) expect(b.status).toBe(200);
+    expect(bodies[3]!.body.retryAfterSec).toBeGreaterThan(0);
+    // The mailbox is still protected (3 per 30 min).
     expect(sent.length).toBeLessThanOrEqual(3);
+  });
+
+  it("the per-IP limiter still caps how fast a list of addresses can be walked", async () => {
+    // Naming unknown addresses is only safe because this bounds the scrape:
+    // 8 per IP per 30 min, and the 9th is refused whatever address it carries.
+    const outcomes = [];
+    for (let i = 0; i < 10; i++) {
+      const r = await call("POST", "request", { body: { email: `probe${i}@nowhere.com` }, ip: "10.9.9.9" });
+      outcomes.push((r.body as { outcome: string }).outcome);
+    }
+    expect(outcomes.filter((o) => o === "no_account").length).toBeLessThanOrEqual(8);
+    expect(outcomes.at(-1)).toBe("throttled");
   });
 });
 

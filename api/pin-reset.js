@@ -19,13 +19,27 @@
 //   · the reset is IN PLACE — same account id, so assigned jobs and hours
 //     history are untouched (never a new/duplicate account).
 //
-// ENUMERATION RESISTANCE: ?action=request ALWAYS returns 200 {ok:true} —
-// unknown address, disabled account, rate-limited, email provider down. The
-// response never distinguishes them, so the endpoint can't be used to discover
-// who has an account (same contract as api/password-resets.js).
+// WHY THIS NAMES AN UNKNOWN ADDRESS (owner decision, 2026-09-15). This used to
+// answer every request identically — unknown address, disabled account, rate
+// limited, provider down — so the endpoint couldn't be used to discover who has
+// an account. That protection was worth little here and cost real support: a
+// worker who mistypes their address is told "check your email" and waits for a
+// link that was never sent (exactly what happened on 14 Sep). The crew's
+// addresses follow firstname@<company domain> and are guessable anyway, so the
+// silence bought secrecy nobody needed and spent the honesty P7 requires.
+//
+// So ?action=request now reports WHICH of four things happened. What still
+// protects the accounts, and must not be weakened to compensate:
+//   · the rate limits below (8 addresses per IP / 3 per address, per 30 min)
+//     cap how fast a list can be walked;
+//   · login itself throttles at 5 wrong PINs per 15 minutes (api/auth.js);
+//   · a reset still only ever DELIVERS to the address on file — naming an
+//     account grants nothing, the token still goes to the inbox.
+// 'unavailable' deliberately covers disabled AND no-address-on-file together:
+// "you're disabled" is the office's news to break, not the app's.
 //
 // Routes:
-//   POST /api/pin-reset?action=request   { email }                → always 200
+//   POST /api/pin-reset?action=request   { email }                → 200 { ok, outcome }
 //   GET  /api/pin-reset?action=resolve&token=…                    → { state, firstName? }
 //   POST /api/pin-reset?action=accept    { token, pin, confirmPin }→ { ok, username }
 //
@@ -155,6 +169,17 @@ async function writeAudit(action, user, summary, metadata) {
   }
 }
 
+// Why a request produced no email. The CALLER is never told — every path below
+// still answers the same 200 {ok:true}, so this leaks nothing. It exists because
+// the first real use of this flow (2026-09-14) ended with "email didn't send"
+// and NOTHING in the function logs could say which silent branch ran: no match,
+// disabled, no address on file, or a send that the provider accepted and then
+// didn't deliver. `warn` rather than `log` so the answer is one error-level log
+// query away. Never the typed address, never the token.
+function trace(outcome) {
+  console.warn(`pin-reset: ${outcome}`);
+}
+
 module.exports = async (req, res) => {
   setNoCache(res);
   if (req.method === 'OPTIONS') return res.status(200).end();
@@ -166,28 +191,50 @@ module.exports = async (req, res) => {
     const typed = String((req.body && req.body.email) || '').trim();
     const ip = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim()
       || (req.socket && req.socket.remoteAddress) || '';
-    // Every early return below is the SAME 200 — a caller can't tell an unknown
-    // address from a real one, a throttle, or a mail failure.
-    const ok = () => res.status(200).json({ ok: true });
+    // One of four outcomes, and the screen says each one plainly:
+    //   sent        a link is on its way to the address on file
+    //   no_account  nothing here matches what they typed
+    //   unavailable there IS an account but no link can go to it (disabled, or
+    //               no address on file) — ring the office
+    //   throttled   too many tries just now
+    const ok = (outcome, extra) => res.status(200).json({ ok: true, outcome, ...(extra || {}) });
     if (!typed) return res.status(400).json({ error: 'email required' });
-    if (ip && ipLimiter.isLimited(ip)) return ok();
+    if (ip && ipLimiter.isLimited(ip)) {
+      trace('rate limited by ip — no link sent');
+      return ok('throttled', { retryAfterSec: ipLimiter.retryAfterSec(ip) });
+    }
     const emailKey = typed.toLowerCase();
-    if (emailLimiter.isLimited(emailKey)) return ok();
+    if (emailLimiter.isLimited(emailKey)) {
+      trace('rate limited by address — no link sent');
+      return ok('throttled', { retryAfterSec: emailLimiter.retryAfterSec(emailKey) });
+    }
     if (ip) ipLimiter.record(ip);
     emailLimiter.record(emailKey);
 
     try {
       const usersBlob = await readBlob(USERS_KEY, { users: [] });
       const user = findUser(usersBlob.users || [], typed);
-      // No account, a disabled one, or an account with no address to send to:
-      // stop silently. A disabled worker must not be re-credentialled, and
-      // login would refuse them anyway.
-      if (!user || isDisabledUser(user)) return ok();
+      if (!user) {
+        trace('no account matches the address typed — no link sent');
+        return ok('no_account');
+      }
+      // A disabled worker must not be re-credentialled (login would refuse them
+      // anyway) — but they're told to ring the office, not that they're disabled.
+      if (isDisabledUser(user)) {
+        trace('account is disabled — no link sent');
+        return ok('unavailable');
+      }
       const to = String(user.email || user.username || '').trim();
-      if (!to || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return ok();
+      if (!to || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+        trace('account has no email on file — nowhere to send the link');
+        await writeAudit('auth.pin_reset_requested', user,
+          `Reset link requested for ${user.username || user.id} — no email on file`,
+          { delivered: false, outcome: 'no_email_on_file', viaIp: ip || null });
+        return ok('unavailable');
+      }
       if (!isEmailConfigured()) {
         console.error('pin-reset: email provider not configured — no link sent');
-        return ok();
+        return ok('unavailable');
       }
 
       const token = crypto.randomBytes(TOKEN_BYTES).toString('base64url');
@@ -221,17 +268,25 @@ module.exports = async (req, res) => {
         adminPhone: process.env.OFFICE_PHONE || '',
         isPassword: isPasswordRole(user.role),
       });
-      if (sent && sent.ok === false) {
+      const delivered = Boolean(sent && sent.ok !== false);
+      if (!delivered) {
         console.error('pin-reset: send failed', sent.reason || sent.error || 'unknown');
+      } else {
+        // Accepted by the provider — which is NOT proof it landed. A bounce or a
+        // junk-folder filing happens after this point and never reaches us, so
+        // the screen still offers the office phone as the way through.
+        trace('link accepted by the email provider');
       }
       await writeAudit('auth.pin_reset_requested', user,
         `Reset link requested for ${user.username || user.id}`,
-        { delivered: Boolean(sent && sent.ok !== false), viaIp: ip || null });
+        { delivered, outcome: delivered ? 'sent' : 'send_failed', viaIp: ip || null });
+      return ok('sent');
     } catch (e) {
-      // Never leak a backend failure as an enumeration signal.
+      // A backend wobble is not "no account" — never say the address is unknown
+      // when the truth is that we failed to look.
       console.error('pin-reset request failed', e && e.message);
+      return ok('unavailable');
     }
-    return ok();
   }
 
   // ── GET ?action=resolve — public; reveals nothing on a bad token ─────────

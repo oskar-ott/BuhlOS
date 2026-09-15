@@ -25,6 +25,14 @@ import { errorText, resetWorkerPin } from "@/domains/employees/client";
  *
  * Records key on the users.json userId (the id Licences / Cost rate use): a
  * worker who hasn't finished setup has no login to reset yet (honest note).
+ *
+ * It also says, plainly, when an account has NO email on file. Such an account
+ * can never use the self-service reset (/reset emails a one-time link, so with
+ * no address there is nowhere to send it) — and because that flow answers every
+ * request the same way to avoid becoming a people-finder, the worker just sees
+ * "check your email" and waits for something that was never sent. The office is
+ * the only place that can see the truth, so it is told here, next to the action
+ * that still works.
  */
 
 interface ResetPinSectionProps {
@@ -32,15 +40,24 @@ interface ResetPinSectionProps {
   workerName: string;
   /** The employee's role — a literal 'admin' login uses a password, not a PIN. */
   role: string;
+  /** Address on file. Blank → they can't use the self-service reset at all. */
+  email?: string | null;
   /** Start with the form open (render tests only). */
   defaultOpen?: boolean;
 }
 
-export function ResetPinSection({ userId, workerName, role, defaultOpen = false }: ResetPinSectionProps) {
+export function ResetPinSection({
+  userId,
+  workerName,
+  role,
+  email,
+  defaultOpen = false,
+}: ResetPinSectionProps) {
   // role-literal-ok: credential FORMAT (password vs 4-digit PIN) is tied to the
   // literal stored role in api/users.js validateSecret, not the admin tier.
   const isPassword = role === "admin";
   const noun = isPassword ? "password" : "PIN";
+  const hasEmail = Boolean((email || "").trim());
 
   const [open, setOpen] = useState(defaultOpen);
   const [secret, setSecret] = useState("");
@@ -101,6 +118,16 @@ export function ResetPinSection({ userId, workerName, role, defaultOpen = false 
   return (
     <section>
       <SectionHeading noun={noun} />
+
+      {!hasEmail ? (
+        <p
+          data-testid="reset-pin-no-email"
+          className="mb-2 rounded-card border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+        >
+          No email on file, so {workerName} can&rsquo;t reset this themselves — the link has
+          nowhere to go. Add their email above, or set a new {noun} here and text it to them.
+        </p>
+      ) : null}
 
       {updated ? (
         <p
