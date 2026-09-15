@@ -235,6 +235,24 @@ const VALID_ACTIONS = new Set([
   // sync with src/domains/audit-log/schema.ts AUDIT_ACTIONS.
   'job.material_spend_added',
   'job.material_spend_removed',
+  // Supplier-invoice capture (invoice_capture, docs/invoice-capture.md).
+  // targetType 'supplier_invoice' (targetId = the PG invoice uuid), jobId = the
+  // matched job when one exists. Journalled WITHOUT amounts (the journal is
+  // readable below the admin tier) — metadata carries supplier / supplier
+  // invoice number / IV reference / job only. The per-invoice money history
+  // lives in public.supplier_invoice_events. Kept in sync with
+  // src/domains/audit-log/schema.ts AUDIT_ACTIONS.
+  'invoice.uploaded',
+  'invoice.received',
+  'invoice.corrected',
+  'invoice.job_selected',
+  'invoice.confirmed',
+  'invoice.reassigned',
+  'invoice.marked_duplicate',
+  'invoice.excluded',
+  'invoice.archived',
+  'invoice.restored',
+  'invoice.retried',
   // #370: daywork register (api/dayworks.js). daywork.created on POST;
   // daywork.signed on the supervisor sign; daywork.transitioned on the
   // signed → invoiced change (metadata.from/to carry the direction);
@@ -471,6 +489,8 @@ const VALID_TARGET_TYPES = new Set([
   // #893: a durable payroll batch (targetId = the batch uuid).
   'payroll_batch',
   'xero_sync_item',
+  // Supplier-invoice capture: targetId = public.supplier_invoices.id.
+  'supplier_invoice',
 ]);
 
 const MAX_ENTRIES_PER_MONTH = 5000;

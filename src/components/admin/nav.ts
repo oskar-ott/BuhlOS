@@ -1,4 +1,4 @@
-import { LayoutGrid, Briefcase, Clock, Wrench, Users } from "lucide-react";
+import { LayoutGrid, Briefcase, Clock, Wrench, Users, Receipt } from "lucide-react";
 import type { Route } from "next";
 import type { FlagKey } from "../../../api/_lib/feature-flags";
 
@@ -87,6 +87,16 @@ export const NAV_GROUPS: ReadonlyArray<NavGroup> = [
         activeFor: ["/v2/jobs"],
         flag: "jobs",
         countKey: "jobs",
+      },
+      {
+        // Supplier-invoice capture (invoice_capture, dark, admin-tier): hidden
+        // entirely while the flag is off — no item, no badge, no palette entry.
+        // No countKey until a real cheap count source exists (honesty rule).
+        label: "Invoices",
+        href: "/invoices" as Route,
+        icon: Receipt,
+        activeFor: ["/invoices"],
+        flag: "invoice_capture",
       },
     ],
   },

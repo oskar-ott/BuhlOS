@@ -25,6 +25,7 @@ describe("NAV_GROUPS / ALL_ITEMS (#215 shared source)", () => {
     expect(hrefs).toEqual([
       "/command-centre",
       "/v2/jobs",
+      "/invoices", // supplier-invoice capture — flag-gated (invoice_capture), hidden while off
       "/hours",
       "/employees",
       "/gear",
