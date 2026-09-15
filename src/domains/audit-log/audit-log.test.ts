@@ -212,6 +212,18 @@ describe("AuditLogEntrySchema", () => {
       "invite.opened",
       "invite.revoked",
       "invite.send_failed",
+      // Supplier-invoice capture (sorted: 'invite.' < 'invoice.' < 'itp.').
+      "invoice.archived",
+      "invoice.confirmed",
+      "invoice.corrected",
+      "invoice.excluded",
+      "invoice.job_selected",
+      "invoice.marked_duplicate",
+      "invoice.reassigned",
+      "invoice.received",
+      "invoice.restored",
+      "invoice.retried",
+      "invoice.uploaded",
       "itp.archived",
       "itp.attached",
       "itp.point.recorded",
@@ -376,6 +388,8 @@ describe("AuditLogEntrySchema", () => {
       // Crew sign-up link requests + link lifecycle.
       "signup",
       "snag",
+      // Supplier-invoice capture (sorts between snag and system).
+      "supplier_invoice",
       // #151: platform-level events (backup runs).
       "system",
       // #390: timesheet day records.
