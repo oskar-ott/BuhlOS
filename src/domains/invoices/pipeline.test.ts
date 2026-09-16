@@ -89,7 +89,7 @@ describe("processInvoice", () => {
     const other = F.TAX_INVOICE_IV0041.replace("Sparky Supplies Pty Ltd", "Other Wholesale Pty Ltd");
     const b = await seed(other, { sha: "f".repeat(64) });
     await processInvoice({ sql: null, tenantId: T, invoiceId: b, trigger: "upload", deps: deps() });
-    expect(store.invoices[1].status).toBe("matched");
+    expect(store.invoices[1]!.status).toBe("matched");
   });
 
   it("a statement that lists an invoice number is NOT a duplicate of that invoice", async () => {
@@ -98,7 +98,7 @@ describe("processInvoice", () => {
     const s = await seed(F.STATEMENT, { sha: "8".repeat(64) });
     await processInvoice({ sql: null, tenantId: T, invoiceId: s, trigger: "upload", deps: deps() });
     expect(store.invoices[1]).toMatchObject({ status: "needs_review", documentType: "statement", duplicateOfId: null });
-    expect(store.invoices[1].reviewReasons).toContain("not_allocatable");
+    expect(store.invoices[1]!.reviewReasons).toContain("not_allocatable");
   });
 
   it("a missing supplier invoice number never matches anything as a duplicate", async () => {
@@ -114,7 +114,7 @@ describe("processInvoice", () => {
     const failing = deps({ fetchPdf: async () => { const e = new Error("blob down") as Error & { code: string }; e.code = "document_unavailable"; throw e; } });
     let r = await processInvoice({ sql: null, tenantId: T, invoiceId: id, trigger: "upload", deps: failing });
     expect(r).toMatchObject({ ok: false, status: "received", code: "document_unavailable" });
-    expect(store.invoices[0].nextAttemptAt).toBeTruthy();
+    expect(store.invoices[0]!.nextAttemptAt).toBeTruthy();
     expect(store.documents).toHaveLength(1);
     await (store.claimOne as StoreFn)(null, T, id);
     r = await processInvoice({ sql: null, tenantId: T, invoiceId: id, trigger: "sweep", deps: failing });
@@ -130,12 +130,12 @@ describe("processInvoice", () => {
     const id = await seed(F.INVOICE_MISSING_SUBTOTAL);
     const ai = async () => ({ documentType: "tax_invoice", supplierName: null, supplierInvoiceNumber: "AI-SAYS-OTHER", invoiceDate: null, subtotalCents: 10000, gstCents: 1000, totalCents: 11000, confidence: { subtotalCents: "high" } });
     await processInvoice({ sql: null, tenantId: T, invoiceId: id, trigger: "upload", deps: deps({ aiExtract: ai }) });
-    const inv = store.invoices[0];
+    const inv = store.invoices[0]!;
     expect(inv.supplierInvoiceNumber).toBe("WW-4"); // parser value kept
     expect(inv.subtotalCents).toBe(10000);
     expect(inv.totalsConsistent).toBe(true);
     expect(inv.extractionMethod).toBe("pdf_text+ai");
-    expect((inv.fields as Record<string, { provenance: string }>).subtotalCents.provenance).toBe("ai");
+    expect((inv.fields as Record<string, { provenance: string }>).subtotalCents!.provenance).toBe("ai");
     expect(inv).toMatchObject({ status: "matched", matchedJobId: "birdwood" });
   });
 

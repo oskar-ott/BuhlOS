@@ -120,7 +120,8 @@ afterEach(() => {
 describe("api/invoices — gating", () => {
   it("is invisible (404) while the flag is off, on every route including the document proxy", async () => {
     delete process.env.FLAG_INVOICE_CAPTURE;
-    for (const p of [{ }, { query: { action: "setup" } }, { query: { action: "document", id: "x" } }, { method: "POST", query: { action: "upload" } }]) {
+    const probes: Array<Parameters<typeof call>[0]> = [{}, { query: { action: "setup" } }, { query: { action: "document", id: "x" } }, { method: "POST", query: { action: "upload" } }];
+    for (const p of probes) {
       const r = await call({ ...p });
       expect(r.statusCode, JSON.stringify(p)).toBe(404);
     }
@@ -241,7 +242,7 @@ describe("api/invoices — confirmation is transactional, idempotent and the onl
     let summary = (await call({ query: { action: "job-summary", jobId: "birdwood" } })).body as Record<string, unknown>;
     expect(summary).toMatchObject({ confirmedCents: 108000, awaitingCount: 1 });
     const r = await call({ method: "POST", query: { action: "confirm", id: cnId } });
-    expect((r.body as { allocations: Array<{ amountCents: number }> }).allocations[0].amountCents).toBe(-12000);
+    expect((r.body as { allocations: Array<{ amountCents: number }> }).allocations[0]!.amountCents).toBe(-12000);
     summary = (await call({ query: { action: "job-summary", jobId: "birdwood" } })).body as Record<string, unknown>;
     expect(summary).toMatchObject({ confirmedCents: 96000, confirmedCount: 2, awaitingCount: 0 });
   });
@@ -309,7 +310,7 @@ describe("api/invoices — confirmation is transactional, idempotent and the onl
     await call({ method: "POST", query: { action: "confirm", id } });
     const r = await call({ method: "POST", query: { action: "archive", id } });
     expect((r.body as { invoice: Record<string, unknown> }).invoice).toMatchObject({ status: "archived" });
-    expect(store.allocations[0].status).toBe("reversed");
+    expect(store.allocations[0]!.status).toBe("reversed");
     expect(store.documents).toHaveLength(1);
     expect((await call({ query: { action: "document", id } })).statusCode).toBe(200);
   });
