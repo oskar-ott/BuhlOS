@@ -135,7 +135,7 @@ describe("processInvoice", () => {
     expect(inv.subtotalCents).toBe(10000);
     expect(inv.totalsConsistent).toBe(true);
     expect(inv.extractionMethod).toBe("pdf_text+ai");
-    expect((inv.fields as Record<string, { provenance: string }>).subtotalCents.provenance).toBe("ai");
+    expect((inv.fields as Record<string, { provenance: string }>).subtotalCents!.provenance).toBe("ai");
     expect(inv).toMatchObject({ status: "matched", matchedJobId: "birdwood" });
   });
 
