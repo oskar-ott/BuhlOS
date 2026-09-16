@@ -129,6 +129,15 @@ describe("inbound webhook — receipt, replay, scoping", () => {
     expect(resendCalls).toEqual([]);
     expect(store.invoices).toEqual([]);
   });
+  it("with no token configured, the plain invoices@domain address is accepted and nothing else is", async () => {
+    const plainEnv = { ...env, INVOICE_INBOUND_TOKEN: "" };
+    const ok = event({ to: ["invoices@inbound.example.com"] });
+    const r = await handleInboundWebhook({ rawBody: ok, headers: sign(ok, "msg_plain_1"), env: plainEnv, deps: deps() });
+    expect(r.body).toEqual({ received: true, created: 1, skipped: 1 });
+    const other = event({ to: ["accounts@inbound.example.com"] });
+    const r2 = await handleInboundWebhook({ rawBody: other, headers: sign(other, "msg_plain_2"), env: plainEnv, deps: deps() });
+    expect(r2.body).toEqual({ ignored: true });
+  });
   it("other event types are acknowledged and ignored after verification", async () => {
     const body = JSON.stringify({ type: "email.delivered", data: { email_id: "x" } });
     const r = await handleInboundWebhook({ rawBody: body, headers: sign(body), env, deps: deps() });

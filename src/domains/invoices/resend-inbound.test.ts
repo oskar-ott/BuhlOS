@@ -68,6 +68,24 @@ describe("matchInboundAddress", () => {
     expect(inbound.matchInboundAddress(["invoices+s3cr3tT0ken@anywhere.example"], { token: "s3cr3tT0ken" })).toBe(true);
     expect(inbound.matchInboundAddress(["invoices+s3cr3tT0ken@inbound.example.com"], { token: undefined })).toBe(false);
   });
+  it("accepts the plain invoices@domain address when no token is configured — domain required", () => {
+    const plain = { token: null, localPart: "invoices", domain: "buhlos.com" };
+    expect(inbound.matchInboundAddress(["invoices@buhlos.com"], plain)).toBe(true);
+    expect(inbound.matchInboundAddress(["Accounts <INVOICES@BUHLOS.COM>"], plain)).toBe(true);
+    expect(inbound.matchInboundAddress(["invoices+anything@buhlos.com"], plain)).toBe(false);
+    expect(inbound.matchInboundAddress(["invoice@buhlos.com"], plain)).toBe(false);
+    expect(inbound.matchInboundAddress(["invoices@evil.example"], plain)).toBe(false);
+    expect(inbound.matchInboundAddress(["invoices@buhlos.com"], { token: null, domain: null })).toBe(false);
+    // a configured token still requires the plus form
+    expect(inbound.matchInboundAddress(["invoices@buhlos.com"], { token: "t", domain: "buhlos.com" })).toBe(false);
+  });
+  it("reports the configured address and readiness", () => {
+    expect(inbound.inboundAddress({ INVOICE_INBOUND_DOMAIN: "buhlos.com" })).toBe("invoices@buhlos.com");
+    expect(inbound.inboundAddress({ INVOICE_INBOUND_DOMAIN: "buhlos.com", INVOICE_INBOUND_TOKEN: "abc" })).toBe("invoices+abc@buhlos.com");
+    expect(inbound.inboundAddress({ INVOICE_INBOUND_TOKEN: "abc" })).toBeNull();
+    expect(inbound.inboundConfigured({ RESEND_INBOUND_WEBHOOK_SECRET: "s", RESEND_API_KEY: "k", INVOICE_INBOUND_DOMAIN: "buhlos.com" })).toBe(true);
+    expect(inbound.inboundConfigured({ RESEND_INBOUND_WEBHOOK_SECRET: "s", RESEND_API_KEY: "k" })).toBe(false);
+  });
 });
 
 describe("selectPdfAttachments", () => {

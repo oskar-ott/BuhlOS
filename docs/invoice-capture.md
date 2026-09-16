@@ -18,7 +18,8 @@ Reference*, *Order Number*, *Purchase Reference*, *Your Reference*, …).
 With the flag on:
 
 1. The office mailbox forwards qualifying emails to a BuhlOS inbound address
-   (`invoices+<unguessable-token>@<inbound domain>`, Resend Inbound), or an
+   (`invoices@<inbound domain>`, or `invoices+<token>@<inbound domain>` when a
+   token is configured; Resend Inbound), or an
    office user uploads a PDF at `/invoices`.
 2. BuhlOS records a durable receipt, fetches the PDF attachments through the
    Resend API (never from the webhook body), keeps every original in Blob, and
@@ -151,10 +152,16 @@ fix behind the existing tests, not a design change.
   5-minute timestamp tolerance; constant-time compare. This is why the
   webhook is a Next route handler (`request.text()`) rather than an `api/*.js`
   function (whose body arrives pre-parsed).
-- **Scoping:** only mail addressed to `invoices+<INVOICE_INBOUND_TOKEN>@…` is
-  processed; the token is compared in constant time; everything else is
-  recorded as `ignored`. The sender address is **not** treated as proof of
-  anything.
+- **Scoping:** only mail addressed to the configured inbound address is
+  processed — `invoices@<INVOICE_INBOUND_DOMAIN>` (owner choice 2026-09-16:
+  `invoices@buhlos.com`), or `invoices+<INVOICE_INBOUND_TOKEN>@…` when a token
+  is set (compared in constant time). Everything else is recorded as
+  `ignored`. Authentication is the Svix signature, never the address; the
+  sender address is **not** treated as proof of anything, and every document
+  is confirmed by a person before it costs anything. Trade-off of the plain
+  address: anyone who learns it can put a PDF into the review queue (never
+  into a job cost) — add `INVOICE_INBOUND_TOKEN` if that ever becomes a
+  nuisance; the address on `/invoices` updates automatically.
 - **Quarantine (documented exception to fail-closed):** a correctly signed
   delivery to the right address while the flag is **off** is recorded by
   email id as `quarantined` — nothing fetched, nothing stored, nothing shown —
@@ -172,18 +179,20 @@ fix behind the existing tests, not a design change.
 
 ### External steps still required (none performed by the PR)
 
-1. **Resend:** add the receiving (sub)domain — e.g. `inbound.buhlos.com` — and
-   its MX record. Do **not** touch the office domain's MX.
+1. **Resend:** enable receiving on `buhlos.com` (already a verified sending
+   domain; it has no MX record today, so nothing else receives mail there) and
+   add the MX record Resend shows. Do **not** touch the office email domain.
 2. **Resend:** Webhooks → Add Webhook → URL
    `https://<production host>/api/inbound/invoices`, event `email.received`;
    copy the signing secret.
 3. **Vercel env (Production, and Preview for testing):**
-   `RESEND_INBOUND_WEBHOOK_SECRET`, `INVOICE_INBOUND_TOKEN` (a long random
-   string, e.g. `openssl rand -hex 16`), `INVOICE_INBOUND_DOMAIN` (the
-   receiving domain), optional `INVOICE_INBOUND_LOCAL_PART` (default
-   `invoices`). `RESEND_API_KEY` already exists.
+   `RESEND_INBOUND_WEBHOOK_SECRET`, `INVOICE_INBOUND_DOMAIN` (`buhlos.com`);
+   optional `INVOICE_INBOUND_TOKEN` (a long random string, e.g.
+   `openssl rand -hex 16`, turns the address into `invoices+<token>@…`) and
+   `INVOICE_INBOUND_LOCAL_PART` (default `invoices`). `RESEND_API_KEY` already
+   exists and must be a full-access key (it reads received emails).
 4. **Office mailbox:** a forwarding rule for wholesaler emails to
-   `invoices+<token>@<domain>` (the exact address is shown on `/invoices` once
+   `invoices@buhlos.com` (the exact address is shown on `/invoices` once
    configured).
 5. **Supabase production:** apply migration `20260915100000_supplier_invoices`
    through the documented workflow.
