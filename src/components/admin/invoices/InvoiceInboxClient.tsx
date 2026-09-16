@@ -305,7 +305,6 @@ function SetupCard({
               {[
                 !inbound?.webhookSecretSet && "webhook secret",
                 !inbound?.apiKeySet && "Resend API key",
-                !inbound?.tokenSet && "inbound token",
                 !inbound?.domainSet && "inbound domain",
               ]
                 .filter(Boolean)

@@ -18,9 +18,15 @@
 // Env:
 //   RESEND_INBOUND_WEBHOOK_SECRET  the signing secret of the receiving webhook
 //   RESEND_API_KEY                 (already used by api/_lib/email.js)
-//   INVOICE_INBOUND_TOKEN          the unguessable token in the inbound address
-//   INVOICE_INBOUND_DOMAIN         optional — the receiving domain to require
+//   INVOICE_INBOUND_DOMAIN         the receiving domain (required)
 //   INVOICE_INBOUND_LOCAL_PART     optional — defaults to "invoices"
+//   INVOICE_INBOUND_TOKEN          optional — when set the address is
+//                                  invoices+<token>@domain (unguessable);
+//                                  when unset the plain invoices@domain is
+//                                  accepted (owner choice 2026-09-16). Either
+//                                  way the Svix signature is the authentication;
+//                                  the address only scopes which mail counts,
+//                                  and a human confirms every document.
 //
 // No secret, address, subject or attachment content is ever logged here.
 
@@ -114,16 +120,20 @@ function addressOf(entry) {
 }
 
 /**
- * Does any recipient equal `<localPart>+<token>@<domain>`? The token is
- * compared in constant time; the domain only when configured. Pure.
+ * Does any recipient equal the configured inbound address?
+ *   token set   → `<localPart>+<token>@<domain>` (token compared in constant
+ *                 time; domain required when configured)
+ *   token unset → exactly `<localPart>@<domain>` — the domain MUST be
+ *                 configured, otherwise nothing matches (fail closed)
+ * Pure.
  * @param {string[]} addresses
- * @param {{ token: string|undefined, localPart?: string, domain?: string|null }} expected
+ * @param {{ token?: string|null, localPart?: string, domain?: string|null }} expected
  */
 function matchInboundAddress(addresses, expected) {
-  const token = expected && expected.token;
-  if (!token) return false;
+  const token = expected && expected.token ? String(expected.token) : null;
   const localPart = ((expected && expected.localPart) || 'invoices').toLowerCase();
   const domain = expected && expected.domain ? String(expected.domain).toLowerCase() : null;
+  if (!token && !domain) return false;
   for (const entry of Array.isArray(addresses) ? addresses : []) {
     const addr = addressOf(entry);
     const at = addr.lastIndexOf('@');
@@ -132,9 +142,13 @@ function matchInboundAddress(addresses, expected) {
     const dom = addr.slice(at + 1);
     if (domain && dom !== domain) continue;
     const plus = local.indexOf('+');
-    if (plus <= 0) continue;
-    if (local.slice(0, plus) !== localPart) continue;
-    if (timingSafeEqualStr(local.slice(plus + 1), token.toLowerCase())) return true;
+    if (token) {
+      if (plus <= 0) continue;
+      if (local.slice(0, plus) !== localPart) continue;
+      if (timingSafeEqualStr(local.slice(plus + 1), token.toLowerCase())) return true;
+    } else if (plus < 0 && local === localPart) {
+      return true;
+    }
   }
   return false;
 }
@@ -209,15 +223,15 @@ async function downloadAttachment(downloadUrl, { maxBytes, fetchImpl }) {
 
 /** The inbound address the office forwards to, or null when not configured. */
 function inboundAddress(env = process.env) {
-  const token = env.INVOICE_INBOUND_TOKEN;
   const domain = env.INVOICE_INBOUND_DOMAIN;
-  if (!token || !domain) return null;
+  if (!domain) return null;
   const local = env.INVOICE_INBOUND_LOCAL_PART || 'invoices';
-  return `${local}+${token}@${domain}`;
+  const token = env.INVOICE_INBOUND_TOKEN;
+  return token ? `${local}+${token}@${domain}` : `${local}@${domain}`;
 }
 
 function inboundConfigured(env = process.env) {
-  return Boolean(env.RESEND_INBOUND_WEBHOOK_SECRET && env.RESEND_API_KEY && env.INVOICE_INBOUND_TOKEN);
+  return Boolean(env.RESEND_INBOUND_WEBHOOK_SECRET && env.RESEND_API_KEY && env.INVOICE_INBOUND_DOMAIN);
 }
 
 module.exports = {
