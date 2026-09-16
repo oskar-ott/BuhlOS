@@ -1,0 +1,210 @@
+import { z } from "zod";
+
+/**
+ * Supplier-invoice capture — API shapes (mirrors api/invoices.js +
+ * api/_lib/invoices/store.js). Money is INTEGER CENTS end to end; the
+ * supplier's invoice number (`supplierInvoiceNumber`) and the BuhlOS IV job
+ * reference (`ivReference`) are separate fields and are never merged.
+ */
+
+export const INVOICE_STATUSES = [
+  "received",
+  "processing",
+  "matched",
+  "needs_review",
+  "confirmed",
+  "duplicate",
+  "excluded",
+  "failed",
+  "archived",
+] as const;
+export type InvoiceStatus = (typeof INVOICE_STATUSES)[number];
+
+export const DOCUMENT_TYPES = ["invoice", "tax_invoice", "credit_note", "statement", "quote", "unknown"] as const;
+export type DocumentType = (typeof DOCUMENT_TYPES)[number];
+
+export const MATCH_STATUSES = ["none", "exact", "ambiguous", "not_found", "multi_reference", "manual"] as const;
+
+const FieldSchema = z
+  .object({
+    value: z.unknown().nullable().optional(),
+    confidence: z.string().nullable().optional(),
+    provenance: z.string().nullable().optional(),
+    label: z.string().nullable().optional(),
+    line: z.number().nullable().optional(),
+  })
+  .passthrough();
+export type ExtractedField = z.infer<typeof FieldSchema>;
+
+export const InvoiceSchema = z
+  .object({
+    id: z.string(),
+    status: z.enum(INVOICE_STATUSES),
+    source: z.enum(["email", "upload"]),
+    documentType: z.enum(DOCUMENT_TYPES),
+    supplierName: z.string().nullable(),
+    supplierKey: z.string().nullable(),
+    supplierAbn: z.string().nullable(),
+    supplierInvoiceNumber: z.string().nullable(),
+    invoiceDate: z.string().nullable(),
+    currency: z.string(),
+    subtotalCents: z.number().int().nullable(),
+    gstCents: z.number().int().nullable(),
+    totalCents: z.number().int().nullable(),
+    totalsConsistent: z.boolean().nullable(),
+    ivReferenceRaw: z.string().nullable(),
+    ivReference: z.string().nullable(),
+    ivCandidates: z.array(z.record(z.unknown())).default([]),
+    matchedJobId: z.string().nullable(),
+    matchStatus: z.enum(MATCH_STATUSES),
+    matchReason: z.record(z.unknown()).nullable(),
+    reviewReasons: z.array(z.string()).default([]),
+    failureCode: z.string().nullable(),
+    extractionMethod: z.string().nullable(),
+    fields: z.record(FieldSchema).default({}),
+    excerpt: z.string().nullable(),
+    attemptCount: z.number().int(),
+    duplicateOfId: z.string().nullable(),
+    duplicateReason: z.string().nullable(),
+    sourceEmailId: z.string().nullable(),
+    sourceSubject: z.string().nullable(),
+    sourceFrom: z.string().nullable(),
+    createdBy: z.string().nullable(),
+    reviewedAt: z.string().nullable(),
+    reviewedBy: z.string().nullable(),
+    confirmedAt: z.string().nullable(),
+    confirmedBy: z.string().nullable(),
+    excludedReason: z.string().nullable(),
+    archivedAt: z.string().nullable(),
+    createdAt: z.string().nullable(),
+    updatedAt: z.string().nullable(),
+  })
+  .passthrough();
+export type Invoice = z.infer<typeof InvoiceSchema>;
+
+export const InvoiceDocumentSchema = z
+  .object({
+    id: z.string(),
+    invoiceId: z.string(),
+    source: z.string(),
+    filename: z.string(),
+    contentType: z.string(),
+    byteSize: z.number(),
+    sha256: z.string(),
+    pageCount: z.number().nullable(),
+    hasTextLayer: z.boolean().nullable(),
+    uploadedBy: z.string().nullable(),
+    createdAt: z.string().nullable(),
+  })
+  .passthrough();
+export type InvoiceDocument = z.infer<typeof InvoiceDocumentSchema>;
+
+export const AllocationSchema = z
+  .object({
+    id: z.string(),
+    jobId: z.string(),
+    amountCents: z.number().int(),
+    gstCents: z.number().int().nullable(),
+    totalCents: z.number().int().nullable(),
+    status: z.enum(["active", "reversed"]),
+    confirmedBy: z.string().nullable(),
+    confirmedAt: z.string().nullable(),
+    reversedAt: z.string().nullable(),
+    reversedBy: z.string().nullable(),
+    reversalReason: z.string().nullable(),
+  })
+  .passthrough();
+export type Allocation = z.infer<typeof AllocationSchema>;
+
+export const InvoiceEventSchema = z
+  .object({
+    id: z.string(),
+    event: z.string(),
+    actor: z.string().nullable(),
+    actorRole: z.string().nullable(),
+    detail: z.record(z.unknown()).default({}),
+    at: z.string().nullable(),
+  })
+  .passthrough();
+export type InvoiceEvent = z.infer<typeof InvoiceEventSchema>;
+
+export const JobSummarySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  code: z.string().nullable(),
+  status: z.string(),
+});
+export type JobSummary = z.infer<typeof JobSummarySchema>;
+
+export const InvoiceDetailSchema = z
+  .object({
+    invoice: InvoiceSchema,
+    documents: z.array(InvoiceDocumentSchema),
+    allocations: z.array(AllocationSchema),
+    events: z.array(InvoiceEventSchema),
+    attempts: z.array(z.record(z.unknown())).default([]),
+    job: JobSummarySchema.nullable(),
+    duplicateOf: z
+      .object({
+        id: z.string(),
+        supplierName: z.string().nullable(),
+        supplierInvoiceNumber: z.string().nullable(),
+        status: z.string(),
+        createdAt: z.string().nullable(),
+      })
+      .nullable(),
+    canConfirm: z.boolean(),
+    confirmBlockers: z.array(z.string()).default([]),
+    alreadyConfirmed: z.boolean().optional(),
+  })
+  .passthrough();
+export type InvoiceDetail = z.infer<typeof InvoiceDetailSchema>;
+
+export const InvoiceListSchema = z
+  .object({
+    invoices: z.array(InvoiceSchema),
+    total: z.number().int(),
+    page: z.number().int(),
+    limit: z.number().int(),
+    counts: z.record(z.number()).default({}),
+    suppliers: z.array(z.object({ key: z.string(), name: z.string().nullable(), count: z.number() })).default([]),
+    jobsById: z.record(JobSummarySchema).default({}),
+  })
+  .passthrough();
+export type InvoiceList = z.infer<typeof InvoiceListSchema>;
+
+export const InvoiceSetupSchema = z
+  .object({
+    inbound: z.object({
+      configured: z.boolean(),
+      address: z.string().nullable(),
+      webhookSecretSet: z.boolean(),
+      apiKeySet: z.boolean(),
+      tokenSet: z.boolean(),
+      domainSet: z.boolean(),
+      stats: z.record(z.unknown()).default({}),
+      quarantinedWaiting: z.boolean(),
+    }),
+    ai: z.object({ enabled: z.boolean(), model: z.string().nullable() }),
+    pending: z.number().int(),
+    maxUploadBytes: z.number().int(),
+  })
+  .passthrough();
+export type InvoiceSetup = z.infer<typeof InvoiceSetupSchema>;
+
+export const JobInvoiceSummarySchema = z
+  .object({
+    jobId: z.string(),
+    confirmedCents: z.number().int().nullable(),
+    confirmedCount: z.number().int(),
+    awaitingCount: z.number().int(),
+    invoices: z.array(InvoiceSchema).default([]),
+  })
+  .passthrough();
+export type JobInvoiceSummary = z.infer<typeof JobInvoiceSummarySchema>;
+
+export const JobPickerSchema = z.object({ jobs: z.array(JobSummarySchema) });
+
+export const ProcessPendingSchema = z.object({
+  processed: z.array(z.object({ id: z.string(), status: z.string(), code: z.string().nullable().optional() })),
+});

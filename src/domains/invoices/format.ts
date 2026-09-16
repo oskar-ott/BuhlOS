@@ -1,0 +1,146 @@
+import type { DocumentType, Invoice, InvoiceStatus } from "./schema";
+import type { StatusTone } from "@/components/ui/StatusChip";
+
+/** Office wording for statuses (the inbox filter chips use the same words). */
+export const STATUS_LABELS: Record<InvoiceStatus, string> = {
+  received: "Received",
+  processing: "Reading…",
+  matched: "Matched — awaiting confirmation",
+  needs_review: "Needs review",
+  confirmed: "Confirmed",
+  duplicate: "Duplicate",
+  excluded: "Excluded",
+  failed: "Failed",
+  archived: "Archived",
+};
+
+export function statusLabel(status: InvoiceStatus): string {
+  return STATUS_LABELS[status] ?? status;
+}
+
+export function statusTone(status: InvoiceStatus): StatusTone {
+  switch (status) {
+    case "confirmed":
+      return "success";
+    case "matched":
+      return "info";
+    case "needs_review":
+    case "received":
+    case "processing":
+      return "warning";
+    case "failed":
+      return "danger";
+    default:
+      return "neutral";
+  }
+}
+
+export const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
+  invoice: "Invoice",
+  tax_invoice: "Tax invoice",
+  credit_note: "Credit note",
+  statement: "Statement",
+  quote: "Quote",
+  unknown: "Unknown document",
+};
+
+export function documentTypeLabel(t: DocumentType): string {
+  return DOCUMENT_TYPE_LABELS[t] ?? t;
+}
+
+/** Mirrors REVIEW_REASON_LABELS in api/_lib/invoices/state.js. */
+export const REVIEW_REASON_LABELS: Record<string, string> = {
+  no_iv_reference: "No IV job reference found on the document",
+  iv_not_found: "The IV job reference does not match any job",
+  iv_ambiguous: "More than one job carries this IV reference",
+  multi_reference: "Several different IV references appear on the document",
+  totals_inconsistent: "Ex-GST + GST does not equal the total",
+  missing_subtotal: "No ex-GST amount could be read",
+  unknown_document_type: "Could not tell what kind of document this is",
+  not_allocatable: "Statements and quotes are never job costs",
+  no_text_layer: "The PDF has no readable text (scanned image) — enter the details by hand",
+  job_inactive: "The matched job is not active",
+  extraction_failed: "The document could not be read",
+  negative_amounts: "The amounts are negative — is this a credit note?",
+};
+
+export function reviewReasonLabel(code: string): string {
+  return REVIEW_REASON_LABELS[code] ?? code.replace(/_/g, " ");
+}
+
+/** Why the Confirm button is disabled — mirrors confirmBlockers in api/invoices.js. */
+export const CONFIRM_BLOCKER_LABELS: Record<string, string> = {
+  status: "This document is not awaiting confirmation",
+  no_job: "Choose the matched BuhlOS job first",
+  not_allocatable: "Only invoices and credit notes can be confirmed as costs",
+  missing_subtotal: "Enter the cost excluding GST first",
+  totals_inconsistent: "Fix the totals — ex-GST + GST must equal the total",
+  iv_ambiguous: "More than one job carries this IV reference — choose the job",
+};
+
+export function confirmBlockerLabel(code: string): string {
+  return CONFIRM_BLOCKER_LABELS[code] ?? code.replace(/_/g, " ");
+}
+
+/** Cents → "$1,234.56" (always two decimals — money surfaces). Null → "—". */
+export function formatCentsExact(cents: number | null | undefined): string {
+  if (cents == null || !Number.isFinite(cents)) return "—";
+  const neg = cents < 0;
+  const abs = Math.abs(cents);
+  const dollars = Math.floor(abs / 100).toLocaleString("en-AU");
+  const rem = String(abs % 100).padStart(2, "0");
+  return `${neg ? "-$" : "$"}${dollars}.${rem}`;
+}
+
+/** "$1,234.56" / "1234.5" / "" → integer cents or null. Pure. */
+export function dollarsInputToCents(input: string): number | null {
+  const s = input.replace(/[$,\s]/g, "").trim();
+  if (!s) return null;
+  if (!/^\d+(?:\.\d{1,2})?$/.test(s)) return null;
+  const [whole, frac = ""] = s.split(".");
+  return Number(whole) * 100 + Number((frac + "00").slice(0, 2));
+}
+
+export function centsToDollarsInput(cents: number | null | undefined): string {
+  if (cents == null) return "";
+  return (cents / 100).toFixed(2);
+}
+
+/** Per-document sign of the cost contribution: invoices +, credit notes −. */
+export function signedCostCents(inv: Pick<Invoice, "documentType" | "subtotalCents">): number | null {
+  if (inv.subtotalCents == null) return null;
+  if (inv.documentType === "credit_note") return -inv.subtotalCents;
+  if (inv.documentType === "invoice" || inv.documentType === "tax_invoice") return inv.subtotalCents;
+  return null;
+}
+
+export function formatShortDate(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const d = new Date(iso.length === 10 ? iso + "T00:00:00" : iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
+}
+
+export const EVENT_LABELS: Record<string, string> = {
+  received: "Received by email",
+  uploaded: "Uploaded",
+  extracted: "Details read from the PDF",
+  matched: "IV reference matched a job",
+  review_required: "Sent to review",
+  duplicate_detected: "Flagged as a duplicate",
+  corrected: "Details corrected",
+  job_selected: "Job chosen",
+  confirmed: "Cost confirmed",
+  reassigned: "Moved to another job",
+  marked_duplicate: "Marked as a duplicate",
+  excluded: "Excluded",
+  archived: "Archived",
+  restored: "Restored",
+  retried: "Re-read requested",
+  attempt_failed: "Read attempt failed",
+  failed: "Reading failed",
+};
+
+export function eventLabel(event: string): string {
+  return EVENT_LABELS[event] ?? event.replace(/_/g, " ");
+}
