@@ -31,7 +31,12 @@ describe("ResetPinSection — honest initial states", () => {
   });
 
   it("account exists → a real Reset PIN action, no form until asked", () => {
-    const html = render({ userId: "u_field", workerName: "Anders", role: "apprentice" });
+    const html = render({
+      userId: "u_field",
+      workerName: "Anders",
+      role: "apprentice",
+      email: "anders@example.com",
+    });
     expect(html).toContain('data-testid="reset-pin-open"');
     expect(html).toContain("Reset PIN");
     expect(html).toContain("same account, nothing else changes");
@@ -43,6 +48,7 @@ describe("ResetPinSection — honest initial states", () => {
       userId: "u_field",
       workerName: "Anders",
       role: "apprentice",
+      email: "anders@example.com",
       defaultOpen: true,
     });
     expect(html).toContain('data-testid="reset-pin-form"');
@@ -64,6 +70,7 @@ describe("ResetPinSection — honest initial states", () => {
       userId: "u_admin",
       workerName: "Tom",
       role: "admin",
+      email: "tom@example.com",
       defaultOpen: true,
     });
     expect(html).toContain("Login password");
@@ -71,5 +78,33 @@ describe("ResetPinSection — honest initial states", () => {
     expect(html).toContain('type="password"');
     expect(html).not.toContain("(4 digits)");
     expect(html).toContain("Save password");
+  });
+
+  it("an address on file → no warning; the office is only told when there isn't one", () => {
+    const html = render({
+      userId: "u_field",
+      workerName: "Anders",
+      role: "apprentice",
+      email: "anders@example.com",
+    });
+    expect(html).not.toContain('data-testid="reset-pin-no-email"');
+  });
+
+  it("no address on file → says so plainly: they can't reset it themselves", () => {
+    // The live gap this pins (2026-09-14): /reset answers every request the same
+    // way, so a worker with no email on file is told "check your email" for a
+    // link that was never sent. Only the office can see why — so it is told here.
+    const html = render({ userId: "u_field", workerName: "Anders", role: "apprentice", email: "" });
+    expect(html).toContain('data-testid="reset-pin-no-email"');
+    expect(html).toContain("No email on file");
+    expect(html).toContain("nowhere to go");
+    // The action that DOES work is still offered.
+    expect(html).toContain('data-testid="reset-pin-open"');
+  });
+
+  it("no worker account yet outranks the email note — one honest reason, not two", () => {
+    const html = render({ userId: null, workerName: "Anders", role: "apprentice", email: "" });
+    expect(html).toContain("finishes BuhlOS setup");
+    expect(html).not.toContain('data-testid="reset-pin-no-email"');
   });
 });

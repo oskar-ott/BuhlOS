@@ -6,8 +6,13 @@ import { PinResetLanding, PinResetRequestScreen } from "./PinResetScreens";
 /**
  * Server-render guards for self-service PIN recovery. The security contract is
  * pinned by the API harness (pin-reset-api.test.ts); these pin what a locked-out
- * worker SEES — above all the two honesty rules:
- *   · asking for a link never confirms whether an account exists (P7);
+ * worker SEES — above all the honesty rules (P7):
+ *   · each of the four outcomes gets its OWN screen, and "check your email"
+ *     appears for a real send and nothing else (owner decision 2026-09-15 —
+ *     the old one-neutral-message version left a mistyped address waiting on a
+ *     link that was never coming);
+ *   · a wrong address is named as wrong, so it can be fixed on the spot;
+ *   · an account we can't email says "ring the office" and never why;
  *   · with no mail provider wired, no button is offered at all — the office
  *     phone is, because a link could never arrive.
  */
@@ -32,6 +37,64 @@ describe("PinResetRequestScreen", () => {
     expect(html).toContain('data-testid="pin-reset-send"');
     // Steers them to the account email, the exact trap that locked Anders out.
     expect(html).toContain("not your bühl address");
+  });
+
+  it("a real send is the ONLY thing that says 'check your email', and it names the address", () => {
+    const html = render(
+      createElement(PinResetRequestScreen, {
+        emailConfigured: true,
+        officePhone: PHONE,
+        defaultOutcome: "sent",
+      }),
+    );
+    expect(html).toContain('data-testid="pin-reset-sent"');
+    expect(html).toContain("Check your email");
+    expect(html).toContain("junk folder");
+  });
+
+  it("an unknown address is named as unknown, with a way to try the other one", () => {
+    const html = render(
+      createElement(PinResetRequestScreen, {
+        emailConfigured: true,
+        officePhone: PHONE,
+        defaultOutcome: "no_account",
+      }),
+    );
+    expect(html).toContain('data-testid="pin-reset-no-account"');
+    expect(html).toContain("No account with that email");
+    expect(html).toContain('data-testid="pin-reset-try-another"');
+    expect(html).toContain(PHONE);
+    // Never the false reassurance.
+    expect(html).not.toContain("Check your email");
+  });
+
+  it("an account that can't be emailed says ring the office — and never why", () => {
+    const html = render(
+      createElement(PinResetRequestScreen, {
+        emailConfigured: true,
+        officePhone: PHONE,
+        defaultOutcome: "unavailable",
+      }),
+    );
+    expect(html).toContain('data-testid="pin-reset-unavailable"');
+    expect(html).toContain(PHONE);
+    expect(html).not.toContain("Check your email");
+    // "disabled" is the office's news to break, not the app's.
+    expect(html.toLowerCase()).not.toContain("disabled");
+    expect(html.toLowerCase()).not.toContain("no email on file");
+  });
+
+  it("a throttled request says so, rather than pretending a link went out", () => {
+    const html = render(
+      createElement(PinResetRequestScreen, {
+        emailConfigured: true,
+        officePhone: PHONE,
+        defaultOutcome: "throttled",
+      }),
+    );
+    expect(html).toContain('data-testid="pin-reset-throttled"');
+    expect(html).toContain("Too many tries");
+    expect(html).not.toContain("Check your email");
   });
 
   it("with NO mail provider it offers the office phone, never a button that can't deliver", () => {

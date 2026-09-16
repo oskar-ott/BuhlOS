@@ -208,6 +208,7 @@ export function EmployeeDetailDrawer({
               userId={employee.userId ?? null}
               workerName={displayNameFor(employee)}
               role={employee.role}
+              email={employee.email}
             />
           ) : null}
 
