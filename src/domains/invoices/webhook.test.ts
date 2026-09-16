@@ -125,7 +125,7 @@ describe("inbound webhook — receipt, replay, scoping", () => {
     const body = event({ to: ["invoices+wrong@inbound.example.com"] });
     const r = await handleInboundWebhook({ rawBody: body, headers: sign(body), env, deps: deps() });
     expect(r.body).toEqual({ ignored: true });
-    expect(store.inbound[0].status).toBe("ignored");
+    expect(store.inbound[0]!.status).toBe("ignored");
     expect(resendCalls).toEqual([]);
     expect(store.invoices).toEqual([]);
   });
@@ -156,9 +156,9 @@ describe("inbound webhook — feature disabled", () => {
     const waiting = (await (store.listQuarantined as StoreFn)(null, {})) as Array<{ emailId: string }>;
     expect(waiting).toHaveLength(1);
     const d = deps();
-    const r = await ingestReceivedEmail({ sql: null, tenant: { id: "t", slug: "buhl" }, emailId: waiting[0].emailId, deps: { store, resend: d.resend, storePdf: d.storePdf, sha256: d.sha256, apiKey: "re_test" } });
+    const r = await ingestReceivedEmail({ sql: null, tenant: { id: "t", slug: "buhl" }, emailId: waiting[0]!.emailId, deps: { store, resend: d.resend, storePdf: d.storePdf, sha256: d.sha256, apiKey: "re_test" } });
     expect(r.created).toHaveLength(1);
-    expect(store.invoices[0].status).toBe("received");
+    expect(store.invoices[0]!.status).toBe("received");
   });
 });
 
