@@ -21,7 +21,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  *
  * ...and one OBSERVABILITY contract, added after the first real use of the flow
  * ended in "email didn't send" with nothing in the logs able to say why: the
- * caller still can't tell the outcomes apart, but the function logs can.
+ * screen names the outcome, and every branch — including the ones that answer
+ * nothing useful to a caller, like a disabled account — traces to the function
+ * logs, so the office can still answer "why did nobody get a link?" later.
  */
 
 const requireFromHere = createRequire(import.meta.url);
