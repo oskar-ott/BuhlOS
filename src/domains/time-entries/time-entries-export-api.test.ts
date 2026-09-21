@@ -505,4 +505,47 @@ describe("freshness guarantee — a stale or unreadable day refuses the whole pa
     expect(res.statusCode).toBe(200);
     expect((res.body as { rows: unknown[] }).rows.length).toBeGreaterThan(0);
   });
+
+  /**
+   * 2026-09-21. A batch approve stamped every entry with one timestamp taken
+   * before its slow sequential write loop, so the last entries written carried
+   * a stamp minutes behind their own PUT. That shape is indistinguishable from
+   * the wk34 stale read ABOVE by gap alone — but not by recency. These two
+   * tests are the pair that separates them, and they must stay a pair.
+   */
+  it("INCLUDES a settled entry whose own stamp trails its write — the lag is stored, so refusing it is permanent", async () => {
+    const key = "users/w1/time-entries/2026-06-09.json";
+    // Approved as part of a long batch: the stamp is the batch's start…
+    blob.set(
+      key,
+      entry("w1", "2026-06-09", {
+        status: "approved",
+        updatedAt: new Date(Date.now() - 3 * 60 * 60_000 - 40_000).toISOString(),
+      }),
+    );
+    // …and its own write landed 40s later, but that was HOURS ago. Nothing is
+    // propagating any more; this is the current document and payroll must run.
+    listWith({ [key]: new Date(Date.now() - 3 * 60 * 60_000).toISOString() });
+    const res = await call("u_admin", "office", { ...WEEK, dryRun: "1", format: "json", status: "approved" });
+    expect(res.statusCode).toBe(200);
+    const rows = (res.body as { rows: Array<{ date: string }> }).rows;
+    expect(rows.some((r) => r.date === "2026-06-09")).toBe(true);
+  });
+
+  it("…but the SAME gap on a just-written blob is still refused — the wk34 protection is untouched", async () => {
+    const key = "users/w1/time-entries/2026-06-09.json";
+    blob.set(
+      key,
+      entry("w1", "2026-06-09", {
+        status: "approved",
+        updatedAt: new Date(Date.now() - 40_000).toISOString(),
+      }),
+    );
+    // Written seconds ago — squarely inside the propagation window, so a
+    // trailing stamp is exactly the read we must not trust.
+    listWith({ [key]: new Date().toISOString() });
+    const res = await call("u_admin", "office", { ...WEEK, dryRun: "1", format: "json", status: "approved" });
+    expect(res.statusCode).toBe(503);
+    expect((res.body as { error: string }).error).toContain("sparky 2026-06-09 (just changed)");
+  });
 });
