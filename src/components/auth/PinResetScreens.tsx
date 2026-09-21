@@ -7,6 +7,7 @@ import {
   acceptPinReset,
   pinResetErrorText,
   requestPinReset,
+  type PinResetOutcome,
   type PinResetState,
 } from "@/domains/auth/pin-reset";
 
@@ -17,11 +18,14 @@ import {
  * Mobile-first and glove-sized, matching the invite landing's idiom: one
  * question per screen, one primary action, calm copy, site language (P11).
  *
- * HONESTY (P7): asking for a link says the SAME thing whether or not the
- * address has an account — the server is enumeration-resistant and these
- * screens must not undo that by reporting "no such account". When email isn't
- * wired at all the form is not offered; the office phone is shown instead of a
- * button that could never deliver.
+ * HONESTY (P7): every outcome gets its own screen, including "there's no
+ * account with that email" (owner decision 2026-09-15 — the neutral
+ * same-answer-every-time version left a worker who mistyped waiting on a link
+ * that was never sent). A wrong address is a typo you can fix on the spot; an
+ * account we can't email is a phone call. Never show "check your email" for
+ * anything but a real send. When email isn't wired at all the form is not
+ * offered; the office phone is shown instead of a button that could never
+ * deliver.
  */
 
 function Screen({ children }: { children: React.ReactNode }) {
@@ -80,14 +84,19 @@ function SignInLink({ label = "Back to sign in" }: { label?: string }) {
 export function PinResetRequestScreen({
   emailConfigured,
   officePhone,
+  defaultOutcome = null,
 }: {
   /** False → we cannot deliver a link, so we never offer the form (P7). */
   emailConfigured: boolean;
   officePhone: string;
+  /** Start on one of the outcome screens (render tests only — the real one
+   *  arrives from the server, and renderToString runs no effects). */
+  defaultOutcome?: PinResetOutcome | null;
 }) {
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
-  const [sent, setSent] = useState(false);
+  const [outcome, setOutcome] = useState<PinResetOutcome | null>(defaultOutcome);
+  const [retryAfterSec, setRetryAfterSec] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   if (!emailConfigured) {
@@ -106,18 +115,16 @@ export function PinResetRequestScreen({
     );
   }
 
-  if (sent) {
+  if (outcome === "sent") {
     return (
       <Screen>
         <div className="rounded-card border border-border bg-surface-subtle p-5">
           <h1 className="font-display text-xl text-text" data-testid="pin-reset-sent">
             Check your email
           </h1>
-          {/* Deliberately neutral: we never confirm whether the address has an
-              account (that would turn this screen into a people-finder). */}
           <p className="mt-2 text-sm text-text-muted">
-            If that address is on your BuhlOS account, a link is on its way. Open it on this phone
-            and pick a new PIN — it only works for the next hour.
+            A link is on its way to <b className="text-text">{email.trim()}</b>. Open it on this
+            phone and pick a new PIN — it only works for the next hour.
           </p>
           <p className="mt-3 text-sm text-text-muted">
             Nothing after a few minutes? Check your junk folder, or ring the office on{" "}
@@ -127,6 +134,74 @@ export function PinResetRequestScreen({
         <SignInLink />
       </Screen>
     );
+  }
+
+  if (outcome === "no_account") {
+    return (
+      <Screen>
+        <div className="rounded-card border border-border bg-surface-subtle p-5">
+          <h1 className="font-display text-xl text-text" data-testid="pin-reset-no-account">
+            No account with that email
+          </h1>
+          <p className="mt-2 text-sm text-text-muted">
+            Nothing here is signed up as <b className="text-text">{email.trim()}</b>. It&rsquo;s
+            usually the other one — if you tried your bühl address, try your personal one, or the
+            other way round.
+          </p>
+          <p className="mt-3 text-sm text-text-muted">
+            Still stuck? Ring the office on <b className="text-text">{officePhone}</b> and
+            they&rsquo;ll set you a new PIN on the spot.
+          </p>
+        </div>
+        <PrimaryCta onClick={tryAnother} testId="pin-reset-try-another">
+          Try another email
+        </PrimaryCta>
+        <SignInLink />
+      </Screen>
+    );
+  }
+
+  if (outcome === "unavailable") {
+    // There IS an account — it just can't be emailed (no address on file, or
+    // switched off). Which of those it is, is the office's news to break.
+    return (
+      <Screen>
+        <div className="rounded-card border border-border bg-surface-subtle p-5">
+          <h1 className="font-display text-xl text-text" data-testid="pin-reset-unavailable">
+            Give the office a call
+          </h1>
+          <p className="mt-2 text-sm text-text-muted">
+            We can&rsquo;t send a reset link for that account. Ring the office on{" "}
+            <b className="text-text">{officePhone}</b> — they can set you a new PIN on the spot.
+          </p>
+        </div>
+        <SignInLink />
+      </Screen>
+    );
+  }
+
+  if (outcome === "throttled") {
+    const mins = Math.max(1, Math.ceil((retryAfterSec ?? 0) / 60));
+    return (
+      <Screen>
+        <div className="rounded-card border border-border bg-surface-subtle p-5">
+          <h1 className="font-display text-xl text-text" data-testid="pin-reset-throttled">
+            Too many tries
+          </h1>
+          <p className="mt-2 text-sm text-text-muted">
+            Give it about {mins} {mins === 1 ? "minute" : "minutes"} and try again — or ring the
+            office on <b className="text-text">{officePhone}</b> if you need in now.
+          </p>
+        </div>
+        <SignInLink />
+      </Screen>
+    );
+  }
+
+  function tryAnother() {
+    setOutcome(null);
+    setRetryAfterSec(null);
+    setError(null);
   }
 
   async function send() {
@@ -140,7 +215,10 @@ export function PinResetRequestScreen({
       setError(pinResetErrorText(res.error));
       return;
     }
-    setSent(true);
+    // An older deploy answers without an outcome; that reply only ever came
+    // back after a send was attempted, so read it as 'sent'.
+    setRetryAfterSec(res.data.retryAfterSec ?? null);
+    setOutcome(res.data.outcome ?? "sent");
   }
 
   return (
