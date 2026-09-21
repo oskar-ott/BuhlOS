@@ -211,6 +211,21 @@ export const AUDIT_ACTIONS = [
   // api/_lib/audit-log.js.
   "job.material_spend_added",
   "job.material_spend_removed",
+  // Supplier-invoice capture (invoice_capture): upload / inbound receipt /
+  // office correction / job selection / confirmation / reassignment /
+  // duplicate / exclude / archive / restore / retry. Never carries amounts.
+  // Kept in sync with api/_lib/audit-log.js.
+  "invoice.uploaded",
+  "invoice.received",
+  "invoice.corrected",
+  "invoice.job_selected",
+  "invoice.confirmed",
+  "invoice.reassigned",
+  "invoice.marked_duplicate",
+  "invoice.excluded",
+  "invoice.archived",
+  "invoice.restored",
+  "invoice.retried",
   // #370: daywork register (api/dayworks.js). daywork.created on POST;
   // daywork.signed on the supervisor sign; daywork.transitioned on the
   // signed → invoiced change (metadata.from/to); daywork.amended when a
@@ -391,6 +406,8 @@ export const AUDIT_TARGET_TYPES = [
   // #893: a durable payroll batch (targetId = the batch uuid).
   "payroll_batch",
   "xero_sync_item",
+  // Supplier-invoice capture: targetId = the PG invoice uuid.
+  "supplier_invoice",
 ] as const;
 export const AuditTargetTypeSchema = z.enum(AUDIT_TARGET_TYPES);
 

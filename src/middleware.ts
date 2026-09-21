@@ -35,6 +35,9 @@ const PROTECTED: ReadonlyArray<{ prefix: string; surface: Surface }> = [
   { prefix: "/command-centre", surface: "admin" },
   { prefix: "/hours", surface: "admin" },
   { prefix: "/gear", surface: "admin" },
+  // Supplier-invoice capture (invoice_capture, dark): office money surface —
+  // admin tier; the page + api/invoices additionally 404 while the flag is off.
+  { prefix: "/invoices", surface: "admin" },
   // People · Employees onboarding (O1). The Phil setup routes
   // (/phil/invite/[token], /phil/setup) are intentionally NOT gated — a worker
   // has no session yet when they open their invite (O3).
@@ -128,6 +131,7 @@ export const config = {
     "/command-centre/:path*",
     "/hours/:path*",
     "/gear/:path*",
+    "/invoices/:path*",
     "/employees/:path*",
     "/observations/:path*",
     "/material-requests/:path*",
