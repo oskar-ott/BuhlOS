@@ -484,3 +484,94 @@ describe("approve/reject and the idempotency ring (#497)", () => {
     expect(ring("u_field")).toHaveLength(1);
   });
 });
+
+/**
+ * 2026-09-21 payroll block. The owner reviewed the week, hit "Send to Tia" and
+ * got "payroll read refused — 2 day record(s) could not be read consistently:
+ * Simon Exkhof 2026-09-19 (just changed); Louis Kane 2026-09-20 (just
+ * changed)", six times over. Retrying could never have worked.
+ *
+ * Both bulk handlers used to take ONE timestamp before their write loop and
+ * stamp every entry in the batch with it. The loop is sequential and each
+ * iteration costs several round trips (read, CAS re-read, put, PG mirror,
+ * audit append), so the later an entry was written the further its own
+ * updatedAt trailed the moment it actually landed. Past FRESHNESS_SKEW_MS the
+ * payroll freshness guard (api/_lib/payroll-inputs.js) reads that entry as a
+ * stale CDN read and refuses the WHOLE run — and because the lag is then
+ * frozen in the stored document and in the blob's PUT time, every later
+ * payroll read refuses it again. It poisons the tail of a long batch, which is
+ * why the two named days were the last of two workers' weeks.
+ *
+ * The clock here advances on every entry write, standing in for that latency.
+ */
+describe("bulk approve/reject stamp each entry at its own write", () => {
+  const SKEW_MS = 15_000; // FRESHNESS_SKEW_MS in api/_lib/payroll-inputs.js
+  const PER_WRITE_MS = 9_000;
+
+  function advanceClockOnEachEntryWrite() {
+    const realSet = blob.set.bind(blob);
+    blob.set = ((key: string, value: unknown) => {
+      const result = realSet(key, value);
+      // Only real day-files cost time; the audit append lives under
+      // /time-entries-audit/ and never matches.
+      if (typeof key === "string" && key.includes("/time-entries/")) {
+        vi.setSystemTime(new Date(Date.now() + PER_WRITE_MS));
+      }
+      return result;
+    }) as typeof blob.set;
+  }
+
+  function stampsFor(userIds: string[]): number[] {
+    return userIds.map((id) => {
+      const entry = blob.get(ENTRY_PATH(id)) as { updatedAt?: string };
+      return Date.parse(entry.updatedAt || "");
+    });
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-21T10:00:00.000Z"));
+    advanceClockOnEachEntryWrite();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("a slow batch stamps its last entry at ITS write, not at the batch's start", async () => {
+    const crew = ["u_field", "u_other", "u_canonical"];
+    const approved = await call(bulkApprove, "u_office", "office", {
+      entries: crew.map((userId) => ({ userId, date: TODAY })),
+    });
+    expect(approved.statusCode).toBe(200);
+    expect(approved.body).toMatchObject({ approvedCount: 3 });
+
+    const stamps = stampsFor(crew);
+    // Each entry carries its own moment — strictly increasing down the batch.
+    expect(stamps[1]).toBeGreaterThan(stamps[0]!);
+    expect(stamps[2]).toBeGreaterThan(stamps[1]!);
+    // And the spread is real: a single batch-wide stamp would make this 0,
+    // leaving the last entry's stored stamp SKEW_MS+ behind its own PUT — the
+    // exact shape the payroll guard refuses, permanently.
+    expect(stamps[2]! - stamps[0]!).toBeGreaterThanOrEqual(SKEW_MS);
+  });
+
+  it("bulk reject does the same — each rejection dates itself", async () => {
+    const crew = ["u_field", "u_other", "u_canonical"];
+    const rejected = await call(bulkReject, "u_office", "office", {
+      entries: crew.map((userId) => ({ userId, date: TODAY })),
+      defaultReason: "Wrong job",
+    });
+    expect(rejected.body).toMatchObject({ rejectedCount: 3 });
+    expect(rejected.statusCode).toBe(200);
+
+    const stamps = stampsFor(crew);
+    expect(stamps[2]! - stamps[0]!).toBeGreaterThanOrEqual(SKEW_MS);
+    // rejectedAt powers the 30s undo window, so it has to be per entry too —
+    // a batch stamp would have started everyone's window at the first write.
+    const rejectedAts = crew.map((id) =>
+      Date.parse((blob.get(ENTRY_PATH(id)) as { rejectedAt?: string }).rejectedAt || "")
+    );
+    expect(new Set(rejectedAts).size).toBe(crew.length);
+  });
+});

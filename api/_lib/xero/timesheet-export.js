@@ -471,11 +471,16 @@ async function stampWorkerEntries({ batchId, workerId, actor }) {
     select distinct entry_date from public.payroll_batch_items
     where batch_id = ${batchId} and worker_id = ${workerId}
   `;
-  const stampedAt = new Date().toISOString();
   for (const r of rows) {
     const date = toDateStr(r.entry_date);
     const entry = await readEntry(workerId, date);
     if (!entry || entry.exportId) continue; // never re-stamp
+    // Per entry, immediately before its own write — see the note in
+    // api/time-entries-bulk-approve.js. exportId (the batch id) is what ties
+    // these rows together; exportedAt is only ever displayed, so stamping it
+    // per entry loses no grouping and keeps each entry's stamp honest against
+    // its own PUT time.
+    const stampedAt = new Date().toISOString();
     await writeEntry(workerId, { ...entry, exportedAt: stampedAt, exportId: String(batchId), updatedAt: stampedAt });
     await appendAudit(workerId, entry.id, 'exported', actor ? actor.id : 'system', String(batchId), null);
   }
