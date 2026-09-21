@@ -67,6 +67,8 @@ function entryLastWriteMs(entry) {
 async function fetchEntryVerified(b) {
   const uploadedMs = Date.parse((b && b.uploadedAt) || '');
   let lastProblem = 'unreadable';
+  let lastGapMs = null;
+  let lastContentMs = null;
   for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
     if (attempt > 0) await sleep(RETRY_DELAYS_MS[attempt - 1]);
     let entry = null;
@@ -80,8 +82,13 @@ async function fetchEntryVerified(b) {
     if (contentMs == null) return { entry }; // legacy row → cannot verify
     if (uploadedMs - contentMs <= FRESHNESS_SKEW_MS) return { entry };
     lastProblem = 'stale'; // CDN served the pre-overwrite document — retry
+    lastGapMs = uploadedMs - contentMs;
+    lastContentMs = contentMs;
   }
-  return { problem: lastProblem };
+  // Carry the numbers out so the refusal can SAY why, not just that. A refusal
+  // used to log nothing at all, so "the email didn't send" was unanswerable
+  // after the fact — the 2026-09-21 payroll block took a code read to explain.
+  return { problem: lastProblem, uploadedMs, contentMs: lastContentMs, gapMs: lastGapMs };
 }
 
 async function collectRows({ status, userId, jobId, fromDate, toDate }) {
@@ -147,7 +154,13 @@ async function collectRows({ status, userId, jobId, fromDate, toDate }) {
   const refused = [];
   for (const { b, out } of results) {
     if (out.entry) entries.push(out.entry);
-    else refused.push({ pathname: b.pathname, problem: out.problem });
+    else refused.push({
+      pathname: b.pathname,
+      problem: out.problem,
+      uploadedMs: out.uploadedMs,
+      contentMs: out.contentMs,
+      gapMs: out.gapMs,
+    });
   }
   if (refused.length) {
     // Never produce a payroll artifact missing real hours. Name the days so
@@ -158,6 +171,23 @@ async function collectRows({ status, userId, jobId, fromDate, toDate }) {
       const who = (u && (u.name || u.username)) || (m ? m[1] : r.pathname);
       return (who + ' ' + (m ? m[2] : '') + ' (' + (r.problem === 'stale' ? 'just changed' : 'unreadable') + ')').trim();
     };
+    // One line per refused day, with the NUMBERS behind the verdict: which blob,
+    // when it was last PUT, the newest stamp inside it, and the gap that failed
+    // the skew. A 'stale' verdict with a large, stable gap is not a CDN lag at
+    // all — it is a document whose own stamp trails its write (the batch-stamp
+    // bug fixed in time-entries-bulk-approve.js on 2026-09-21), and no retry
+    // will ever clear that. Only the office sees this; it carries ids, not hours.
+    for (const r of refused) {
+      console.error(
+        'payroll read refused: ' + r.pathname + ' — ' + r.problem +
+        (r.problem === 'stale'
+          ? ' (blob PUT ' + new Date(r.uploadedMs).toISOString() +
+            ', newest stamp in content ' +
+            (r.contentMs ? new Date(r.contentMs).toISOString() : 'none') +
+            ', gap ' + r.gapMs + 'ms, skew allows ' + FRESHNESS_SKEW_MS + 'ms)'
+          : ''),
+      );
+    }
     const shown = refused.slice(0, 6).map(label).join('; ');
     return {
       ok: false,
