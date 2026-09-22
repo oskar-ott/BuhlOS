@@ -15,15 +15,17 @@ import {
   documentTypeLabel,
   formatCentsExact,
   formatShortDate,
+  autoBookCountdown,
   statusLabel,
   statusTone,
 } from "@/domains/invoices/format";
 import { InvoiceUploadButton } from "./InvoiceUploadButton";
 
-type Filter = "review" | "matched" | "confirmed" | "duplicate" | "failed" | "excluded" | "all";
+type Filter = "review" | "soon" | "matched" | "confirmed" | "duplicate" | "failed" | "excluded" | "all";
 
 const FILTER_STATUSES: Record<Filter, string[]> = {
   review: ["needs_review", "received", "processing"],
+  soon: ["matched"],
   matched: ["matched"],
   confirmed: ["confirmed"],
   duplicate: ["duplicate"],
@@ -71,6 +73,7 @@ export function InvoiceInboxClient({
   const load = useCallback(async () => {
     const res = await listInvoices({
       status: FILTER_STATUSES[filter],
+      autoConfirm: filter === "soon" ? "pending" : undefined,
       q: q || undefined,
       supplier: supplier || undefined,
       jobId: jobId || undefined,
@@ -128,6 +131,7 @@ export function InvoiceInboxClient({
   const segOptions = useMemo(
     () => [
       { value: "review" as Filter, label: "Needs review", count: countFor("review") },
+      { value: "soon" as Filter, label: "Booking soon", count: data?.autoConfirmPendingCount || undefined },
       { value: "matched" as Filter, label: "Matched", count: countFor("matched") },
       { value: "confirmed" as Filter, label: "Confirmed", count: countFor("confirmed") },
       { value: "duplicate" as Filter, label: "Duplicate", count: countFor("duplicate") },
@@ -236,7 +240,7 @@ export function InvoiceInboxClient({
         </Card>
       ) : data && data.invoices.length === 0 ? (
         <EmptyState
-          title={filter === "review" ? "Nothing to review" : "No invoices here"}
+          title={filter === "review" ? "Nothing to review" : filter === "soon" ? "Nothing is waiting to book itself" : "No invoices here"}
           description={
             filter === "review"
               ? "Invoices forwarded to the inbound address, or uploaded above, appear here once they have been read. Each one is matched to a job by the IV reference the wholesaler printed."
@@ -312,6 +316,13 @@ function SetupCard({
               .
             </p>
           )}
+          {setup?.autoConfirm ? (
+            <p className="mt-2 text-xs text-text-muted" data-testid="invoice-auto-confirm-state">
+              {setup.autoConfirm.enabled
+                ? `Clean invoices book themselves after ${setup.autoConfirm.graceHours}h (cap ${formatCentsExact(setup.autoConfirm.capCents)} ex GST). Hold any from its page.`
+                : "Automatic booking is off — every invoice waits for a person. Clean ones are marked “would book itself” so you can see how often that would happen."}
+            </p>
+          ) : null}
           {processing ? (
             <p className="mt-2 text-xs text-text-muted" aria-live="polite">
               Reading new invoices…
@@ -369,8 +380,13 @@ function InvoiceTable({ invoices, jobsById }: { invoices: Invoice[]; jobsById: I
               <td className="px-3 py-2 whitespace-nowrap">{documentTypeLabel(inv.documentType)}</td>
               <td className="px-3 py-2">
                 <StatusChip tone={statusTone(inv.status)} uppercase={false}>
-                  {statusLabel(inv.status)}
+                  {inv.status === "confirmed" && inv.confirmedBy === "BuhlOS (auto)" ? "Booked automatically" : statusLabel(inv.status)}
                 </StatusChip>
+                {inv.status === "matched" && inv.autoConfirmAt && !inv.heldAt ? (
+                  <p className="mt-1 text-[11px] text-text-muted">{autoBookCountdown(inv.autoConfirmAt)}</p>
+                ) : inv.heldAt ? (
+                  <p className="mt-1 text-[11px] text-text-muted">On hold</p>
+                ) : null}
               </td>
             </tr>
           ))}
@@ -392,9 +408,12 @@ function InvoiceCards({ invoices, jobsById }: { invoices: Invoice[]; jobsById: I
             <div className="flex items-start justify-between gap-2">
               <span className="font-medium text-text">{inv.supplierName ?? "Unknown supplier"}</span>
               <StatusChip tone={statusTone(inv.status)} uppercase={false}>
-                {statusLabel(inv.status)}
+                {inv.status === "confirmed" && inv.confirmedBy === "BuhlOS (auto)" ? "Booked automatically" : statusLabel(inv.status)}
               </StatusChip>
             </div>
+            {inv.status === "matched" && inv.autoConfirmAt && !inv.heldAt ? (
+              <p className="mt-1 text-[11px] text-text-muted">{autoBookCountdown(inv.autoConfirmAt)}</p>
+            ) : null}
             <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-text-muted">
               <dt>Supplier invoice number</dt>
               <dd className="font-mono text-text">{inv.supplierInvoiceNumber ?? "—"}</dd>

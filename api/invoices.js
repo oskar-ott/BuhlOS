@@ -21,7 +21,10 @@
 //   POST   /api/invoices?action=exclude&id=X      { reason? }
 //   POST   /api/invoices?action=archive&id=X
 //   POST   /api/invoices?action=restore&id=X
-//   GET    /api/invoices?action=sweep           cron (CRON_SECRET) — re-ingest + process pending
+//   POST   /api/invoices?action=hold&id=X         → never books automatically until a person acts
+//   POST   /api/invoices?action=supplier-pref&id=X { alwaysReview }  → per-supplier "always review"
+//   GET    /api/invoices?action=sweep           cron (CRON_SECRET) — re-ingest + process pending + book due clean invoices
+//   GET    /api/invoices?action=digest          cron (CRON_SECRET) — Monday digest to the accounts recipient list
 //
 // MONEY IS INTEGER CENTS. The supplier invoice number and the IV job reference
 // are separate fields end to end. Every mutation validates, checks the tier,
@@ -48,6 +51,10 @@ const { canTransition, DOCUMENT_TYPES, ALLOCATABLE_TYPES, STATUSES } = require('
 const { ingestReceivedEmail } = require('./_lib/invoices/ingest');
 const resend = require('./_lib/invoices/resend-inbound');
 const aiExtractModule = require('./_lib/invoices/ai-extract');
+const { getSettings } = require('./_lib/feature-settings');
+const { sendEmail } = require('./_lib/email');
+const { readTimesheetRecipients } = require('./_lib/timesheet-email-settings');
+const { AUTO_ACTOR, buildDigest } = require('./_lib/invoices/auto-confirm');
 
 const MAX_UPLOAD_BYTES = 3 * 1024 * 1024; // the serverless JSON body cap (~4.5 MB) minus base64 overhead
 const SWEEP_BUDGET_MS = 45_000;
@@ -72,13 +79,29 @@ function liveJob(jobs, id) {
   return j;
 }
 
-function pipelineDeps() {
+/** The auto-booking knobs, resolved once per request (owner-console settings). */
+async function autoConfirmSettings() {
+  try {
+    const s = await getSettings('invoice_capture');
+    return {
+      enabled: s.autoConfirm === true,
+      capCents: Math.round(Number(s.autoConfirmCapDollars) * 100),
+      graceHours: Number(s.autoConfirmGraceHours),
+      lookbackDays: Number(s.autoConfirmLookbackDays),
+    };
+  } catch {
+    return { enabled: false, capCents: 0, graceHours: 12, lookbackDays: 90 };
+  }
+}
+
+async function pipelineDeps() {
   return {
     store,
     fetchPdf: fetchInvoicePdf,
     extractText: extractPdfText,
     readJobs,
     aiExtract: aiExtractModule.enabled() ? aiExtractModule.aiExtract : null,
+    autoConfirm: await autoConfirmSettings(),
   };
 }
 
@@ -114,8 +137,10 @@ async function detailWithJob(sql, tenant, id, jobs) {
   const inv = detail.invoice;
   const job = inv.matchedJobId ? all.find((j) => j && j.id === inv.matchedJobId) : null;
   const dupOf = inv.duplicateOfId ? await store.getInvoiceRow(sql, tenant.id, inv.duplicateOfId) : null;
+  const supplierPref = inv.supplierKey ? await store.getSupplierPref(sql, tenant.id, inv.supplierKey) : { alwaysReview: false, setBy: null, setAt: null };
   return {
     ...detail,
+    supplierPref,
     job: job ? jobSummaryRow(job) : null,
     duplicateOf: dupOf ? { id: dupOf.id, supplierName: dupOf.supplierName, supplierInvoiceNumber: dupOf.supplierInvoiceNumber, status: dupOf.status, createdAt: dupOf.createdAt } : null,
     canConfirm: confirmBlockers(inv).length === 0,
@@ -174,6 +199,11 @@ async function handler(req, res) {
     if (!requireCron(req, res)) return;
     if (!(await isFlagOn('invoice_capture'))) return res.status(200).json({ skipped: 'flag_off' });
     return sweep(req, res);
+  }
+  if (action === 'digest' && req.method === 'GET') {
+    if (!requireCron(req, res)) return;
+    if (!(await isFlagOn('invoice_capture'))) return res.status(200).json({ skipped: 'flag_off' });
+    return digest(req, res);
   }
 
   const me = await requireAuth(req, res);
@@ -235,10 +265,11 @@ async function handler(req, res) {
         from: /^\d{4}-\d{2}-\d{2}$/.test(String(q.from || '')) ? String(q.from) : '',
         to: /^\d{4}-\d{2}-\d{2}$/.test(String(q.to || '')) ? String(q.to) : '',
         q: typeof q.q === 'string' ? q.q.slice(0, 120) : '',
+        autoConfirm: q.autoConfirm === 'pending' ? 'pending' : '',
         page: q.page,
         limit: q.limit,
       });
-      const [counts, suppliers, jobs] = await Promise.all([store.countsByStatus(sql, tenant.id), store.listSuppliers(sql, tenant.id), readJobs()]);
+      const [counts, suppliers, jobs, soon] = await Promise.all([store.countsByStatus(sql, tenant.id), store.listSuppliers(sql, tenant.id), readJobs(), store.listInvoices(sql, tenant.id, { autoConfirm: 'pending', status: ['matched'], limit: 1 })]);
       const jobsById = {};
       for (const row of list.rows) {
         if (row.matchedJobId && !jobsById[row.matchedJobId]) {
@@ -246,7 +277,7 @@ async function handler(req, res) {
           if (j) jobsById[row.matchedJobId] = jobSummaryRow(j);
         }
       }
-      return res.status(200).json({ invoices: list.rows, total: list.total, page: list.page, limit: list.limit, counts, suppliers, jobsById, asOf: new Date().toISOString() });
+      return res.status(200).json({ invoices: list.rows, total: list.total, page: list.page, limit: list.limit, counts, autoConfirmPendingCount: soon.total, suppliers, jobsById, asOf: new Date().toISOString() });
     }
 
     // ── writes ───────────────────────────────────────────────────────────────
@@ -264,6 +295,8 @@ async function handler(req, res) {
     if (req.method !== 'POST') return res.status(405).json({ error: 'method not allowed' });
     switch (action) {
       case 'retry': return retry(sql, tenant, me, current, res);
+      case 'hold': return hold(sql, tenant, me, current, res);
+      case 'supplier-pref': return supplierPref(sql, tenant, me, current, body, res);
       case 'select-job': return selectJob(sql, tenant, me, current, body, res);
       case 'confirm': return confirm(sql, tenant, me, current, body, res);
       case 'reassign': return reassign(sql, tenant, me, current, body, res);
@@ -298,6 +331,7 @@ async function setupPayload(sql, tenant) {
       quarantinedWaiting: quarantined.length > 0,
     },
     ai: { enabled: aiExtractModule.enabled(), model: aiExtractModule.enabled() ? aiExtractModule.AI_MODEL : null },
+    autoConfirm: await autoConfirmSettings(),
     pending: pending.total,
     maxUploadBytes: MAX_UPLOAD_BYTES,
   };
@@ -345,7 +379,7 @@ async function upload(sql, tenant, me, body, res) {
   });
   await store.insertEvent(sql, tenant.id, invoice.id, { event: 'uploaded', actor: actorOf(me), detail: { filename, byteSize: bytes.length, sha256: digest } });
   await store.claimOne(sql, tenant.id, invoice.id);
-  const result = await processInvoice({ sql, tenantId: tenant.id, invoiceId: invoice.id, trigger: 'upload', deps: pipelineDeps() });
+  const result = await processInvoice({ sql, tenantId: tenant.id, invoiceId: invoice.id, trigger: 'upload', deps: await pipelineDeps() });
   const detail = await detailWithJob(sql, tenant, invoice.id);
   await journal(me, 'invoice.uploaded', detail.invoice, `Uploaded supplier document ${filename}`, { filename, outcome: result.status || result.code });
   return res.status(201).json(detail);
@@ -358,7 +392,7 @@ async function processPending(sql, tenant, trigger, limit, budgetMs) {
   const out = [];
   for (const inv of claimed) {
     if (Date.now() - started > budgetMs) { out.push({ id: inv.id, status: 'deferred' }); continue; }
-    const r = await processInvoice({ sql, tenantId: tenant.id, invoiceId: inv.id, trigger, deps: pipelineDeps() });
+    const r = await processInvoice({ sql, tenantId: tenant.id, invoiceId: inv.id, trigger, deps: await pipelineDeps() });
     out.push({ id: inv.id, status: r.status || 'failed', code: r.code || null });
   }
   return out;
@@ -398,15 +432,111 @@ async function sweep(req, res) {
   }
   // 2. extraction for anything received / stale
   const processed = await processPending(sql, tenant, 'sweep', 5, SWEEP_BUDGET_MS - (Date.now() - started));
-  console.log('[invoices] sweep', { reingested: reingested.length, processed: processed.length });
-  return res.status(200).json({ reingested, processed, ms: Date.now() - started });
+  // 3. clean invoices whose grace window has passed book themselves
+  const booked = await bookDueInvoices(sql, tenant);
+  console.log('[invoices] sweep', { reingested: reingested.length, processed: processed.length, booked: booked.length });
+  return res.status(200).json({ reingested, processed, booked, ms: Date.now() - started });
+}
+
+/**
+ * Automatic booking (docs/invoice-capture.md "Auto-booking"). Only when the
+ * owner knob is on; each claim clears the deadline first so a crash mid-loop
+ * can never book twice, and the allocation index makes a double book
+ * impossible anyway. The eligibility verdict is re-checked against the
+ * current row (a person may have edited it since it was scheduled).
+ */
+async function bookDueInvoices(sql, tenant) {
+  const settings = await autoConfirmSettings();
+  if (!settings.enabled) return [];
+  const due = await store.claimAutoConfirmDue(sql, tenant.id, { limit: 10 });
+  const out = [];
+  const jobs = due.length ? await readJobs() : [];
+  for (const inv of due) {
+    const job = liveJob(jobs, inv.matchedJobId);
+    const amountCents = allocationAmountCents(inv.documentType, inv.subtotalCents);
+    const stillClean = job && (job.status || 'active') === 'active' && inv.status === 'matched' && !inv.heldAt && !inv.reviewedAt
+      && inv.autoConfirmEligible && amountCents != null && confirmBlockers(inv).length === 0 && Math.abs(amountCents) < settings.capCents;
+    if (!stillClean) {
+      await store.insertEvent(sql, tenant.id, inv.id, { event: 'auto_confirm_skipped', detail: { reason: !job ? 'job_missing' : 'no_longer_clean' } });
+      out.push({ id: inv.id, booked: false });
+      continue;
+    }
+    try {
+      const r = await store.confirmAllocation(sql, tenant.id, inv.id, {
+        jobLegacyId: job.id, jobUuid: await store.resolveJobUuid(sql, tenant.id, job.id), amountCents,
+        gstCents: inv.gstCents, totalCents: inv.totalCents, matchStatus: 'exact', actor: AUTO_ACTOR,
+      });
+      if (r.conflict) { out.push({ id: inv.id, booked: false }); continue; }
+      await store.insertEvent(sql, tenant.id, inv.id, { event: 'auto_confirmed', actor: AUTO_ACTOR, detail: { jobId: job.id, amountCents, checks: inv.autoConfirmChecks } });
+      await journal({ id: AUTO_ACTOR.id, name: AUTO_ACTOR.name, role: AUTO_ACTOR.role }, 'invoice.auto_confirmed', { ...inv, matchedJobId: job.id },
+        `Booked a supplier ${inv.documentType === 'credit_note' ? 'credit note' : 'invoice'} automatically against ${job.code || job.id}`, { documentType: inv.documentType });
+      out.push({ id: inv.id, booked: true });
+    } catch (e) {
+      console.error('[invoices] auto-booking failed', { code: (e && e.code) || 'error' });
+      out.push({ id: inv.id, booked: false });
+    }
+  }
+  return out;
+}
+
+/** Monday digest → the accounts recipient list (the same list timesheets go to). */
+async function digest(req, res) {
+  let sql;
+  let tenant;
+  try {
+    sql = getDb({ mode: 'read' });
+    tenant = await store.resolveTenant(sql);
+  } catch (e) {
+    console.error('[invoices] digest: store unavailable', { code: (e && e.code) || 'db' });
+    return res.status(503).json({ error: 'store_unavailable' });
+  }
+  if (!tenant) return res.status(503).json({ error: 'store_unprovisioned' });
+  const recipients = await readTimesheetRecipients();
+  if (!recipients.length) return res.status(200).json({ skipped: 'no_recipients' });
+  const since = new Date(Date.now() - 7 * 86_400_000).toISOString();
+  const stats = await store.digestStats(sql, tenant.id, { since });
+  const jobs = await readJobs();
+  const label = (row) => { const j = jobs.find((x) => x && x.id === row.matchedJobId); return j ? `${j.code ? `${j.code} · ` : ''}${j.name || j.id}` : row.matchedJobId; };
+  const base = process.env.APP_BASE_URL || 'https://buhlos.com';
+  const decorate = (list) => list.map((r) => ({ ...r, jobLabel: label(r), url: `${base}/invoices/${r.id}` }));
+  const msg = buildDigest({
+    weekLabel: `week to ${new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'short', timeZone: 'Australia/Sydney' })}`,
+    capturedCount: stats.capturedCount,
+    autoBooked: decorate(stats.autoBooked), humanBooked: decorate(stats.humanBooked),
+    pending: decorate(stats.pending), bookingSoon: decorate(stats.bookingSoon),
+    failedCount: stats.failedCount, stuckCount: stats.stuckCount, lastReceivedAt: stats.lastReceivedAt, everReceived: stats.everReceived,
+    inboxUrl: `${base}/invoices`,
+  });
+  const sent = await sendEmail({ to: recipients, subject: msg.subject, html: msg.html, text: msg.text });
+  console.log('[invoices] digest', { recipients: recipients.length, ok: sent.ok, attention: msg.attention });
+  return res.status(200).json({ sent: sent.ok, reason: sent.ok ? null : sent.reason, recipients: recipients.length, attention: msg.attention });
+}
+
+async function hold(sql, tenant, me, current, res) {
+  if (!['matched', 'needs_review'].includes(current.status)) return res.status(409).json({ error: 'invalid_transition', status: current.status });
+  await store.holdInvoice(sql, tenant.id, current.id, actorOf(me));
+  await store.insertEvent(sql, tenant.id, current.id, { event: 'held', actor: actorOf(me), detail: { hadDeadline: !!current.autoConfirmAt } });
+  const detail = await detailWithJob(sql, tenant, current.id);
+  await journal(me, 'invoice.held', detail.invoice, 'Held a supplier invoice — it will not book automatically', {});
+  return res.status(200).json(detail);
+}
+
+async function supplierPref(sql, tenant, me, current, body, res) {
+  if (!current.supplierKey) return res.status(409).json({ error: 'no_supplier' });
+  const alwaysReview = body.alwaysReview === true;
+  await store.setSupplierPref(sql, tenant.id, current.supplierKey, { alwaysReview, actor: actorOf(me) });
+  if (alwaysReview && current.autoConfirmAt) await store.holdInvoice(sql, tenant.id, current.id, actorOf(me));
+  await store.insertEvent(sql, tenant.id, current.id, { event: 'supplier_pref_changed', actor: actorOf(me), detail: { supplierKey: current.supplierKey, alwaysReview } });
+  const detail = await detailWithJob(sql, tenant, current.id);
+  await journal(me, 'invoice.supplier_pref_changed', detail.invoice, `${alwaysReview ? 'Always review' : 'Allow automatic booking for'} ${current.supplierName || current.supplierKey}`, { alwaysReview });
+  return res.status(200).json(detail);
 }
 
 async function retry(sql, tenant, me, current, res) {
   if (!canTransition(current.status, 'retry')) return res.status(409).json({ error: 'invalid_transition', status: current.status });
   await store.claimOne(sql, tenant.id, current.id, { resetAttempts: true });
   await store.insertEvent(sql, tenant.id, current.id, { event: 'retried', actor: actorOf(me) });
-  const result = await processInvoice({ sql, tenantId: tenant.id, invoiceId: current.id, trigger: 'retry', deps: pipelineDeps() });
+  const result = await processInvoice({ sql, tenantId: tenant.id, invoiceId: current.id, trigger: 'retry', deps: await pipelineDeps() });
   const detail = await detailWithJob(sql, tenant, current.id);
   await journal(me, 'invoice.retried', detail.invoice, 'Re-read a supplier invoice', { outcome: result.status || result.code });
   return res.status(200).json(detail);
@@ -639,4 +769,4 @@ async function restore(sql, tenant, me, current, res) {
 }
 
 module.exports = withErrorCapture(handler, 'invoices');
-module.exports.__test = { confirmBlockers, reviewReasonsAfterEdit, statusAfterEdit, decideMatch, MAX_UPLOAD_BYTES };
+module.exports.__test = { confirmBlockers, reviewReasonsAfterEdit, statusAfterEdit, decideMatch, MAX_UPLOAD_BYTES, bookDueInvoices };

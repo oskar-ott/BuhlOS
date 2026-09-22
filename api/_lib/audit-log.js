@@ -253,6 +253,11 @@ const VALID_ACTIONS = new Set([
   'invoice.archived',
   'invoice.restored',
   'invoice.retried',
+  // Automatic booking (owner decision 2026-09-22): the sweep booked a clean
+  // invoice; a person held one; a supplier was set to always-review.
+  'invoice.auto_confirmed',
+  'invoice.held',
+  'invoice.supplier_pref_changed',
   // #370: daywork register (api/dayworks.js). daywork.created on POST;
   // daywork.signed on the supervisor sign; daywork.transitioned on the
   // signed → invoiced change (metadata.from/to carry the direction);

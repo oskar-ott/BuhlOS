@@ -24,6 +24,7 @@ const { normaliseSupplierName } = require('./supplier-identity');
 const { decideDuplicate, normaliseInvoiceNumber } = require('./dedupe');
 const { reconcileTotals } = require('./money');
 const { ALLOCATABLE_TYPES } = require('./state');
+const { evaluateAutoConfirm, autoConfirmDeadline } = require('./auto-confirm');
 const { withTimeout } = require('../with-timeout');
 
 const MAX_PDF_BYTES = 10 * 1024 * 1024;
@@ -184,6 +185,7 @@ async function processInvoice({ sql, tenantId, invoiceId, trigger, deps }) {
         await store.insertEvent(sql, tenantId, invoiceId, { event: 'duplicate_detected', detail: { ofId: dup.ofId, reason: dup.reason } });
       } else if (status === 'matched') {
         await store.insertEvent(sql, tenantId, invoiceId, { event: 'matched', detail: { jobId: decision.matchedJob.id, reason: decision.matchReason } });
+        await scheduleAutoBooking({ sql, tenantId, invoiceId, store, settings: deps.autoConfirm, supplierKey, jobLegacyId: decision.matchedJob.id, jobStatus: decision.matchedJob.status || 'active' });
       } else {
         await store.insertEvent(sql, tenantId, invoiceId, { event: 'review_required', detail: { reasons: decision.reasons, matchStatus: decision.matchStatus } });
       }
@@ -193,6 +195,41 @@ async function processInvoice({ sql, tenantId, invoiceId, trigger, deps }) {
   } catch (e) {
     const code = (e && e.code) || (/timed out/.test(String(e && e.message)) ? 'timeout' : 'extraction_failed');
     return fail(String(code).slice(0, 60));
+  }
+}
+
+/**
+ * Evaluate the automatic-booking rules for a freshly matched invoice and
+ * record the verdict. With the knob OFF the verdict is still recorded
+ * (review-only mode: the inbox says "would have booked") but no deadline is
+ * set, so nothing ever books. Failures here never fail the document.
+ */
+async function scheduleAutoBooking({ sql, tenantId, invoiceId, store, settings, supplierKey, jobLegacyId, jobStatus }) {
+  if (!settings) return;
+  try {
+    const inv = await store.getInvoiceRow(sql, tenantId, invoiceId);
+    if (!inv || inv.status !== 'matched') return;
+    const [humanCount, onJob, pref] = await Promise.all([
+      store.supplierHumanConfirmedCount(sql, tenantId, supplierKey),
+      store.supplierConfirmedOnJob(sql, tenantId, supplierKey, jobLegacyId),
+      store.getSupplierPref(sql, tenantId, supplierKey),
+    ]);
+    const verdict = evaluateAutoConfirm(inv, {
+      capCents: settings.capCents,
+      lookbackDays: settings.lookbackDays,
+      supplierHumanConfirmed: humanCount > 0,
+      supplierAlwaysReview: pref.alwaysReview,
+      supplierConfirmedOnJob: onJob,
+      jobStatus,
+    });
+    const at = verdict.eligible && settings.enabled ? autoConfirmDeadline(settings.graceHours) : null;
+    await store.scheduleAutoConfirm(sql, tenantId, invoiceId, { eligible: verdict.eligible, checks: verdict.checks, at });
+    await store.insertEvent(sql, tenantId, invoiceId, {
+      event: verdict.eligible ? (at ? 'auto_confirm_scheduled' : 'auto_confirm_eligible') : 'auto_confirm_ineligible',
+      detail: { at, failed: verdict.checks.filter((c) => !c.ok).map((c) => c.code) },
+    });
+  } catch (e) {
+    console.error('[invoices] auto-booking evaluation failed', { code: (e && e.code) || 'error' });
   }
 }
 
@@ -231,4 +268,4 @@ function mergeAi(extracted, ai) {
   return out;
 }
 
-module.exports = { processInvoice, decideMatch, mergeAi, needsAi, MAX_PDF_BYTES, PROCESS_TIMEOUT_MS };
+module.exports = { processInvoice, decideMatch, mergeAi, needsAi, scheduleAutoBooking, MAX_PDF_BYTES, PROCESS_TIMEOUT_MS };

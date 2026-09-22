@@ -75,7 +75,8 @@ sent to a browser — the only read path is the authenticated proxy
 (`frovgpywsopbeuekijmo`) on 2026-09-15; **not** applied to production — that
 is a release step (`docs/supabase-environment.md` workflow).
 
-Statuses: `received → processing → matched | needs_review | duplicate | failed`,
+Statuses: `received → processing → matched | needs_review | duplicate | failed`
+(a matched invoice may also be *booking soon* or *held* — see Auto-booking),
 then the office's `confirmed | excluded | archived`, with `restore` back to
 review. `api/_lib/invoices/state.js` is the transition table.
 
@@ -197,6 +198,54 @@ fix behind the existing tests, not a design change.
 5. **Supabase production:** apply migration `20260915100000_supplier_invoices`
    through the documented workflow.
 6. **Owner Console:** preview the feature (`Preview for me`) before `Live`.
+
+## Auto-booking (owner decision 2026-09-22)
+
+Set-and-forget needs the normal case to book itself and a person to see only
+exceptions. A **clean** invoice books itself after a grace window; everything
+else waits for a person. The rules are deterministic and recorded on the
+invoice (`auto_confirm_checks`), so every automatic booking is explainable.
+
+All of these must hold (`api/_lib/invoices/auto-confirm.js`):
+
+| Check | Why |
+| --- | --- |
+| tax invoice, invoice or credit note | statements and quotes never book |
+| IV reference read from a **labelled** field | the wholesaler wrote it deliberately |
+| exactly one job carries the code and it is **active** | complete / on-hold / draft / archived stay human |
+| ex-GST, GST and total all **printed** and reconciled | nothing derived, nothing from AI |
+| supplier invoice number and a date within the lookback | old or partial documents stay human |
+| not a duplicate | existing rules |
+| supplier has a previously **human**-confirmed invoice | trust is earned per supplier; the first is always reviewed |
+| supplier not set to "always review" | revocable per supplier from the review screen |
+| ex-GST under the cap | big ones get eyes |
+| credit note: supplier already has a confirmed invoice on that job | a credit with nothing to credit is suspicious |
+| nobody has edited or held it | a person's edit means a person finishes it |
+
+**Flow.** After extraction a matched invoice is evaluated and marked eligible
+or not. With the owner knob **on**, an eligible invoice gets
+`auto_confirm_at = now + grace` and shows as *Booking soon* with a countdown
+and a **Hold** button; the 15-minute sweep books everything past its
+deadline (claiming clears the deadline first, and the one-active-allocation
+index makes a double booking impossible). With the knob **off** (default,
+review-only mode) the verdict is still recorded and the inbox says "would
+book itself", so the office can see how often the rules would fire before
+trusting them. Any correction, job change, hold or status change clears the
+deadline. Automatic bookings carry `confirmed_by = BuhlOS (auto)` and reverse
+exactly like human ones (Move / Exclude / Archive).
+
+**Owner knobs** (`/owner` → settings, `invoice_capture.*`): `autoConfirm`
+(off), `autoConfirmCapDollars` (5000), `autoConfirmGraceHours` (12),
+`autoConfirmLookbackDays` (90).
+
+**The digest is the oversight.** Every Monday 07:30 Sydney
+(`GET /api/invoices?action=digest`, cron) the accounts recipient list — the
+same list timesheets go to, managed on `/settings` — gets one email: captured
+/ booked automatically / booked by a person / waiting on you / failed, each
+booking with a link, plus a health section (failed reads, documents stuck
+unread for a day, no supplier mail for 14 days). No recipients → no email.
+
+Rollout: review-only for two weeks, then knob on with a low cap, then raise.
 
 ## Security
 

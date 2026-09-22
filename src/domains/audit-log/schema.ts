@@ -226,6 +226,9 @@ export const AUDIT_ACTIONS = [
   "invoice.archived",
   "invoice.restored",
   "invoice.retried",
+  "invoice.auto_confirmed",
+  "invoice.held",
+  "invoice.supplier_pref_changed",
   // #370: daywork register (api/dayworks.js). daywork.created on POST;
   // daywork.signed on the supervisor sign; daywork.transitioned on the
   // signed → invoiced change (metadata.from/to); daywork.amended when a
