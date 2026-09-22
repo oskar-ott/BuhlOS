@@ -13,6 +13,8 @@ import {
   correctInvoice,
   excludeInvoice,
   getInvoice,
+  holdInvoice,
+  setSupplierAlwaysReview,
   invoiceDocumentUrl,
   markInvoiceDuplicate,
   reassignInvoice,
@@ -24,6 +26,7 @@ import {
 } from "@/domains/invoices/client";
 import { DOCUMENT_TYPES, type InvoiceDetail, type JobSummary } from "@/domains/invoices/schema";
 import {
+  autoBookCountdown,
   centsToDollarsInput,
   confirmBlockerLabel,
   documentTypeLabel,
@@ -222,7 +225,7 @@ export function InvoiceReviewClient({ invoiceId }: { invoiceId: string }) {
           </p>
         </div>
         <StatusChip tone={statusTone(inv.status)} uppercase={false} data-testid="invoice-status">
-          {statusLabel(inv.status)}
+          {inv.status === "confirmed" && inv.confirmedBy === "BuhlOS (auto)" ? "Booked automatically" : statusLabel(inv.status)}
         </StatusChip>
       </div>
 
@@ -243,6 +246,54 @@ export function InvoiceReviewClient({ invoiceId }: { invoiceId: string }) {
               <li key={r}>{reviewReasonLabel(r)}</li>
             ))}
           </ul>
+        </Card>
+      ) : null}
+
+      {inv.status === "matched" || (inv.status === "confirmed" && inv.confirmedBy === "BuhlOS (auto)") ? (
+        <Card className={cn(inv.autoConfirmAt && !inv.heldAt ? "border-l-4 border-l-brand-navy" : "")} data-testid="invoice-auto-booking">
+          <CardKicker>Automatic booking</CardKicker>
+          {inv.status === "confirmed" ? (
+            <p className="mt-2 text-sm text-text">
+              Booked by BuhlOS on {formatShortDate(inv.confirmedAt)} because every check passed. Wrong? Use Move, Exclude or Archive below — the cost reverses.
+            </p>
+          ) : inv.heldAt ? (
+            <p className="mt-2 text-sm text-text">On hold by {inv.heldBy ?? "a person"} since {formatShortDate(inv.heldAt)} — it will not book itself.</p>
+          ) : inv.autoConfirmAt ? (
+            <p className="mt-2 text-sm text-text" data-testid="invoice-auto-countdown">{autoBookCountdown(inv.autoConfirmAt)}.</p>
+          ) : inv.autoConfirmEligible ? (
+            <p className="mt-2 text-sm text-text">Every check passes — this would book itself if automatic booking were switched on.</p>
+          ) : (
+            <p className="mt-2 text-sm text-text">Waits for a person: {inv.autoConfirmChecks.filter((c) => !c.ok).map((c) => c.label ?? c.code).join("; ") || "checks not yet run"}.</p>
+          )}
+          {inv.autoConfirmChecks.length ? (
+            <details className="mt-2 text-xs text-text-muted">
+              <summary className="cursor-pointer">Checks</summary>
+              <ul className="mt-1 space-y-0.5">
+                {inv.autoConfirmChecks.map((c) => (
+                  <li key={c.code}>{c.ok ? "✓" : "✗"} {c.label ?? c.code}{c.detail ? ` — ${c.detail}` : ""}</li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {inv.status === "matched" && inv.autoConfirmAt && !inv.heldAt ? (
+              <Button type="button" variant="secondary" size="sm" disabled={busy !== null} data-testid="invoice-hold" onClick={() => void run("hold", (id) => holdInvoice(id), "Held — it will wait for a person.")}>
+                Hold &mdash; don&rsquo;t book automatically
+              </Button>
+            ) : null}
+            {inv.supplierKey ? (
+              <label className="inline-flex items-center gap-2 text-xs text-text-muted">
+                <input
+                  type="checkbox"
+                  checked={detail.supplierPref.alwaysReview}
+                  disabled={busy !== null}
+                  data-testid="invoice-supplier-always-review"
+                  onChange={(e) => void run("pref", (id) => setSupplierAlwaysReview(id, e.target.checked), e.target.checked ? "This supplier will always wait for a person." : "This supplier can book automatically again.")}
+                />
+                Always review invoices from {inv.supplierName ?? "this supplier"}
+              </label>
+            ) : null}
+          </div>
         </Card>
       ) : null}
 

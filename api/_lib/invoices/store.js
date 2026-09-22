@@ -95,6 +95,11 @@ function invoiceRow(r) {
     confirmedBy: r.confirmed_by_name,
     excludedReason: r.excluded_reason,
     archivedAt: iso(r.archived_at),
+    autoConfirmEligible: r.auto_confirm_eligible === true,
+    autoConfirmAt: iso(r.auto_confirm_at),
+    autoConfirmChecks: json(r.auto_confirm_checks, []),
+    heldAt: iso(r.held_at),
+    heldBy: r.held_by_name || null,
     createdAt: iso(r.created_at),
     updatedAt: iso(r.updated_at),
   };
@@ -238,6 +243,7 @@ async function listInvoices(sql, tenantId, f = {}) {
     ${statuses.length ? sql`and status in ${sql(statuses)}` : sql``}
     ${f.supplier ? sql`and (supplier_key = ${f.supplier} or supplier_name ilike ${like(f.supplier)})` : sql``}
     ${f.jobId ? sql`and matched_job_legacy_id = ${f.jobId}` : sql``}
+    ${f.autoConfirm === 'pending' ? sql`and auto_confirm_eligible and auto_confirm_at is not null and held_at is null and status = 'matched'` : sql``}
     ${f.from ? sql`and coalesce(invoice_date, created_at::date) >= ${f.from}::date` : sql``}
     ${f.to ? sql`and coalesce(invoice_date, created_at::date) <= ${f.to}::date` : sql``}
     ${f.q ? sql`and (supplier_name ilike ${like(f.q)} or supplier_invoice_number ilike ${like(f.q)}
@@ -324,6 +330,8 @@ async function updateInvoiceFields(sql, tenantId, id, p) {
       status = coalesce(${p.status === undefined ? null : p.status}, status),
       review_reasons = ${p.reviewReasons === undefined ? sql`review_reasons` : sql.json(p.reviewReasons)},
       extraction_confidence = ${p.fields === undefined ? sql`extraction_confidence` : sql.json(p.fields)},
+      auto_confirm_at = null,
+      auto_confirm_eligible = false,
       reviewed_at = now(),
       reviewed_by_legacy_id = ${(p.actor && p.actor.id) || null},
       reviewed_by_name = ${(p.actor && p.actor.name) || null}
@@ -343,6 +351,7 @@ async function setStatus(sql, tenantId, id, status, extra = {}) {
       archived_by_legacy_id = ${status === 'archived' ? (extra.actor && extra.actor.id) || null : sql`archived_by_legacy_id`},
       failure_code = ${extra.failureCode === undefined ? sql`failure_code` : extra.failureCode},
       next_attempt_at = ${extra.nextAttemptAt === undefined ? sql`next_attempt_at` : extra.nextAttemptAt},
+      auto_confirm_at = null,
       reviewed_at = ${extra.actor ? sql`now()` : sql`reviewed_at`},
       reviewed_by_legacy_id = ${extra.actor ? extra.actor.id || null : sql`reviewed_by_legacy_id`},
       reviewed_by_name = ${extra.actor ? extra.actor.name || null : sql`reviewed_by_name`}
@@ -571,6 +580,113 @@ async function jobSummaries(sql, tenantId, jobLegacyIds) {
   return out;
 }
 
+// ── automatic booking (docs/invoice-capture.md "Auto-booking") ──────────────
+/** Invoices of this supplier a PERSON confirmed (the trust bootstrap). */
+async function supplierHumanConfirmedCount(sql, tenantId, supplierKey) {
+  if (!supplierKey) return 0;
+  const rows = await sql`
+    select count(*)::int as n from public.supplier_invoices
+    where tenant_id = ${tenantId} and supplier_key = ${supplierKey} and status = 'confirmed'
+      and confirmed_by_legacy_id is distinct from '__auto__'`;
+  return Number(rows[0].n);
+}
+
+/** Does this supplier already have an ACTIVE confirmed invoice allocation on this job? */
+async function supplierConfirmedOnJob(sql, tenantId, supplierKey, jobLegacyId) {
+  if (!supplierKey || !jobLegacyId) return false;
+  const rows = await sql`
+    select 1 from public.supplier_invoice_allocations a
+    join public.supplier_invoices i on i.id = a.invoice_id
+    where a.tenant_id = ${tenantId} and a.job_legacy_id = ${jobLegacyId} and a.status = 'active'
+      and i.supplier_key = ${supplierKey} and i.document_type in ('invoice','tax_invoice')
+    limit 1`;
+  return rows.length > 0;
+}
+
+async function getSupplierPref(sql, tenantId, supplierKey) {
+  if (!supplierKey) return { alwaysReview: false, setBy: null, setAt: null };
+  const rows = await sql`select * from public.supplier_invoice_supplier_prefs where tenant_id = ${tenantId} and supplier_key = ${supplierKey}`;
+  return rows.length ? { alwaysReview: rows[0].always_review === true, setBy: rows[0].set_by_name || null, setAt: iso(rows[0].set_at) } : { alwaysReview: false, setBy: null, setAt: null };
+}
+
+async function setSupplierPref(sql, tenantId, supplierKey, { alwaysReview, actor }) {
+  await sql`
+    insert into public.supplier_invoice_supplier_prefs (tenant_id, supplier_key, always_review, set_by_name)
+    values (${tenantId}, ${supplierKey}, ${!!alwaysReview}, ${(actor && actor.name) || null})
+    on conflict (tenant_id, supplier_key) do update
+      set always_review = excluded.always_review, set_by_name = excluded.set_by_name, set_at = now()`;
+  return getSupplierPref(sql, tenantId, supplierKey);
+}
+
+/** Record the eligibility verdict (and the deadline when booking is switched on). */
+async function scheduleAutoConfirm(sql, tenantId, id, { eligible, checks, at }) {
+  const rows = await sql`
+    update public.supplier_invoices set
+      auto_confirm_eligible = ${!!eligible},
+      auto_confirm_checks = ${sql.json(checks || [])},
+      auto_confirm_at = ${at == null ? null : at}
+    where id = ${id} and tenant_id = ${tenantId} and status = 'matched'
+    returning *`;
+  return rows.length ? invoiceRow(rows[0]) : null;
+}
+
+/** A person holds it: never books automatically until a person acts. */
+async function holdInvoice(sql, tenantId, id, actor) {
+  const rows = await sql`
+    update public.supplier_invoices set auto_confirm_at = null, held_at = now(), held_by_name = ${(actor && actor.name) || null}
+    where id = ${id} and tenant_id = ${tenantId}
+    returning *`;
+  return rows.length ? invoiceRow(rows[0]) : null;
+}
+
+/** Atomically claim due auto-bookings (the claim clears the deadline so a retry never double-books). */
+async function claimAutoConfirmDue(sql, tenantId, { limit = 10, now } = {}) {
+  const at = now || new Date().toISOString();
+  const rows = await sql`
+    update public.supplier_invoices set auto_confirm_at = null
+    where id in (
+      select id from public.supplier_invoices
+      where tenant_id = ${tenantId} and status = 'matched' and auto_confirm_eligible and held_at is null
+        and auto_confirm_at is not null and auto_confirm_at <= ${at}::timestamptz
+      order by auto_confirm_at
+      limit ${limit}
+      for update skip locked)
+    returning *`;
+  return rows.map(invoiceRow);
+}
+
+/** Everything the weekly digest needs, in one place. */
+async function digestStats(sql, tenantId, { since }) {
+  const rowOf = (r) => ({ id: r.id, supplierName: r.supplier_name, supplierInvoiceNumber: r.supplier_invoice_number, matchedJobId: r.matched_job_legacy_id, amountCents: cents(r.amount) });
+  const [captured, auto, human, pending, soon, failed, stuck, last] = await Promise.all([
+    sql`select count(*)::int as n from public.supplier_invoices where tenant_id = ${tenantId} and created_at >= ${since}::timestamptz`,
+    sql`select i.id, i.supplier_name, i.supplier_invoice_number, i.matched_job_legacy_id, a.amount_ex_gst_cents as amount
+        from public.supplier_invoice_allocations a join public.supplier_invoices i on i.id = a.invoice_id
+        where a.tenant_id = ${tenantId} and a.confirmed_at >= ${since}::timestamptz and a.confirmed_by_legacy_id = '__auto__' order by a.confirmed_at`,
+    sql`select i.id, i.supplier_name, i.supplier_invoice_number, i.matched_job_legacy_id, a.amount_ex_gst_cents as amount
+        from public.supplier_invoice_allocations a join public.supplier_invoices i on i.id = a.invoice_id
+        where a.tenant_id = ${tenantId} and a.confirmed_at >= ${since}::timestamptz and a.confirmed_by_legacy_id is distinct from '__auto__' order by a.confirmed_at`,
+    sql`select id, supplier_name, supplier_invoice_number, matched_job_legacy_id, subtotal_ex_gst_cents as amount
+        from public.supplier_invoices where tenant_id = ${tenantId} and status in ('needs_review','matched') and (auto_confirm_at is null or held_at is not null) order by created_at limit 50`,
+    sql`select id, supplier_name, supplier_invoice_number, matched_job_legacy_id, subtotal_ex_gst_cents as amount
+        from public.supplier_invoices where tenant_id = ${tenantId} and status = 'matched' and auto_confirm_eligible and auto_confirm_at is not null and held_at is null order by auto_confirm_at limit 50`,
+    sql`select count(*)::int as n from public.supplier_invoices where tenant_id = ${tenantId} and status = 'failed'`,
+    sql`select count(*)::int as n from public.supplier_invoices where tenant_id = ${tenantId} and status in ('received','processing') and created_at < now() - interval '1 day'`,
+    sql`select max(created_at) as last, count(*)::int as n from public.supplier_invoice_inbound_events where status in ('received','processed','quarantined')`,
+  ]);
+  return {
+    capturedCount: Number(captured[0].n),
+    autoBooked: auto.map(rowOf),
+    humanBooked: human.map(rowOf),
+    pending: pending.map(rowOf),
+    bookingSoon: soon.map(rowOf),
+    failedCount: Number(failed[0].n),
+    stuckCount: Number(stuck[0].n),
+    lastReceivedAt: iso(last[0].last),
+    everReceived: Number(last[0].n) > 0,
+  };
+}
+
 // ── events ──────────────────────────────────────────────────────────────────
 async function insertEvent(sql, tenantId, invoiceId, { event, actor, detail }) {
   await sql`
@@ -653,6 +769,14 @@ module.exports = {
   jobSummary,
   jobSummaries,
   insertEvent,
+  supplierHumanConfirmedCount,
+  supplierConfirmedOnJob,
+  getSupplierPref,
+  setSupplierPref,
+  scheduleAutoConfirm,
+  holdInvoice,
+  claimAutoConfirmDue,
+  digestStats,
   recordInboundEvent,
   finishInboundEvent,
   listQuarantined,

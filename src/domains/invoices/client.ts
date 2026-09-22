@@ -28,6 +28,7 @@ export interface InvoiceListFilters {
   from?: string;
   to?: string;
   q?: string;
+  autoConfirm?: "pending";
   page?: number;
   limit?: number;
 }
@@ -51,6 +52,7 @@ export function listInvoices(f: InvoiceListFilters = {}): Promise<HttpResult<Inv
       from: f.from,
       to: f.to,
       q: f.q,
+      autoConfirm: f.autoConfirm,
       page: f.page,
       limit: f.limit,
     })}`,
@@ -115,3 +117,5 @@ export const excludeInvoice = (id: string, reason?: string) => act("exclude", id
 export const archiveInvoice = (id: string) => act("archive", id);
 export const restoreInvoice = (id: string) => act("restore", id);
 export const retryInvoice = (id: string) => act("retry", id, {}, 60_000);
+export const holdInvoice = (id: string) => act("hold", id);
+export const setSupplierAlwaysReview = (id: string, alwaysReview: boolean) => act("supplier-pref", id, { alwaysReview });

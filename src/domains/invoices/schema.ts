@@ -76,6 +76,13 @@ export const InvoiceSchema = z
     confirmedBy: z.string().nullable(),
     excludedReason: z.string().nullable(),
     archivedAt: z.string().nullable(),
+    autoConfirmEligible: z.boolean().default(false),
+    autoConfirmAt: z.string().nullable().default(null),
+    autoConfirmChecks: z
+      .array(z.object({ code: z.string(), label: z.string().optional(), ok: z.boolean(), detail: z.string().nullable().optional() }).passthrough())
+      .default([]),
+    heldAt: z.string().nullable().default(null),
+    heldBy: z.string().nullable().default(null),
     createdAt: z.string().nullable(),
     updatedAt: z.string().nullable(),
   })
@@ -155,6 +162,7 @@ export const InvoiceDetailSchema = z
       .nullable(),
     canConfirm: z.boolean(),
     confirmBlockers: z.array(z.string()).default([]),
+    supplierPref: z.object({ alwaysReview: z.boolean(), setBy: z.string().nullable(), setAt: z.string().nullable() }).default({ alwaysReview: false, setBy: null, setAt: null }),
     alreadyConfirmed: z.boolean().optional(),
   })
   .passthrough();
@@ -167,6 +175,7 @@ export const InvoiceListSchema = z
     page: z.number().int(),
     limit: z.number().int(),
     counts: z.record(z.number()).default({}),
+    autoConfirmPendingCount: z.number().int().default(0),
     suppliers: z.array(z.object({ key: z.string(), name: z.string().nullable(), count: z.number() })).default([]),
     jobsById: z.record(JobSummarySchema).default({}),
   })
@@ -186,6 +195,7 @@ export const InvoiceSetupSchema = z
       quarantinedWaiting: z.boolean(),
     }),
     ai: z.object({ enabled: z.boolean(), model: z.string().nullable() }),
+    autoConfirm: z.object({ enabled: z.boolean(), capCents: z.number(), graceHours: z.number(), lookbackDays: z.number() }).optional(),
     pending: z.number().int(),
     maxUploadBytes: z.number().int(),
   })

@@ -121,6 +121,17 @@ export function formatShortDate(iso: string | null | undefined): string {
   return d.toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
 }
 
+/** "Booking in 3h 20m" / "Booking now" for a scheduled automatic booking. */
+export function autoBookCountdown(autoConfirmAt: string | null | undefined, now: Date = new Date()): string | null {
+  if (!autoConfirmAt) return null;
+  const ms = new Date(autoConfirmAt).getTime() - now.getTime();
+  if (!Number.isFinite(ms)) return null;
+  if (ms <= 0) return "Booking on the next sweep";
+  const h = Math.floor(ms / 3_600_000);
+  const m = Math.floor((ms % 3_600_000) / 60_000);
+  return `Books itself in ${h > 0 ? `${h}h ` : ""}${m}m unless held`;
+}
+
 export const EVENT_LABELS: Record<string, string> = {
   received: "Received by email",
   uploaded: "Uploaded",
@@ -139,6 +150,13 @@ export const EVENT_LABELS: Record<string, string> = {
   retried: "Re-read requested",
   attempt_failed: "Read attempt failed",
   failed: "Reading failed",
+  auto_confirm_scheduled: "Clean — scheduled to book itself",
+  auto_confirm_eligible: "Clean — would book itself (automatic booking is off)",
+  auto_confirm_ineligible: "Needs a person (automatic checks failed)",
+  auto_confirmed: "Booked automatically",
+  auto_confirm_skipped: "Automatic booking skipped",
+  held: "Held for a person",
+  supplier_pref_changed: "Supplier review preference changed",
 };
 
 export function eventLabel(event: string): string {

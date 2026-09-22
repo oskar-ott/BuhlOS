@@ -119,6 +119,9 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "invoice.archived": "Archived a supplier invoice",
   "invoice.restored": "Restored a supplier invoice",
   "invoice.retried": "Re-read a supplier invoice",
+  "invoice.auto_confirmed": "Booked a supplier invoice automatically",
+  "invoice.held": "Held a supplier invoice for a person",
+  "invoice.supplier_pref_changed": "Changed a supplier's review preference",
   // #370: daywork register (targetType 'daywork' groups as Other, like time_entry).
   "daywork.created": "Raised daywork docket",
   "daywork.signed": "Signed daywork docket",

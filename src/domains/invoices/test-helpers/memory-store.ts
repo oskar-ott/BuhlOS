@@ -37,6 +37,7 @@ function inv(row: Row) {
 export function createMemoryStore(opts: { tenantId?: string; jobUuids?: Record<string, string> } = {}): MemoryStore {
   const tenantId = opts.tenantId ?? "11111111-1111-4111-8111-111111111111";
   const store: MemoryStore = { invoices: [], documents: [], allocations: [], events: [], attempts: [], inbound: [] };
+  const supplierPrefs = new Map<string, { alwaysReview: boolean; setBy: string | null; setAt: string | null }>();
   const MAX_ATTEMPTS = 3;
 
   const byId = (id: string) => store.invoices.find((r) => r.id === id) ?? null;
@@ -99,6 +100,11 @@ export function createMemoryStore(opts: { tenantId?: string; jobUuids?: Record<s
       confirmedBy: null,
       excludedReason: null,
       archivedAt: null,
+      autoConfirmEligible: false,
+      autoConfirmAt: null,
+      autoConfirmChecks: [],
+      heldAt: null,
+      heldBy: null,
       createdAt: now(),
       updatedAt: now(),
     };
@@ -147,6 +153,7 @@ export function createMemoryStore(opts: { tenantId?: string; jobUuids?: Record<s
         if (statuses.length && !statuses.includes(r.status as string)) return false;
         if (f.supplier && r.supplierKey !== f.supplier && !like(r.supplierName, f.supplier as string)) return false;
         if (f.jobId && r.matchedJobId !== f.jobId) return false;
+        if (f.autoConfirm === "pending" && !(r.autoConfirmEligible && r.autoConfirmAt && !r.heldAt && r.status === "matched")) return false;
         const d = (r.invoiceDate as string | null) ?? String(r.createdAt).slice(0, 10);
         if (f.from && d < (f.from as string)) return false;
         if (f.to && d > (f.to as string)) return false;
@@ -201,6 +208,8 @@ export function createMemoryStore(opts: { tenantId?: string; jobUuids?: Record<s
       const actor = p.actor as Row | undefined;
       r.reviewedAt = now();
       r.reviewedBy = actor?.name ?? null;
+      r.autoConfirmAt = null;
+      r.autoConfirmEligible = false;
       r.updatedAt = now();
       return { ...r };
     },
@@ -216,6 +225,7 @@ export function createMemoryStore(opts: { tenantId?: string; jobUuids?: Record<s
       if (extra.failureCode !== undefined) r.failureCode = extra.failureCode;
       if (extra.nextAttemptAt !== undefined) r.nextAttemptAt = extra.nextAttemptAt;
       if (extra.actor) { r.reviewedAt = now(); r.reviewedBy = (extra.actor as Row).name ?? null; }
+      r.autoConfirmAt = null;
       r.updatedAt = now();
       return { ...r };
     },
@@ -274,7 +284,7 @@ export function createMemoryStore(opts: { tenantId?: string; jobUuids?: Record<s
       const row = { id: uuid(), invoiceId, jobId: a.jobLegacyId, amountCents: a.amountCents, gstCents: a.gstCents ?? null, totalCents: a.totalCents ?? null, status: "active", confirmedBy: actor?.name ?? null, confirmedAt: now(), reversedAt: null, reversedBy: null, reversalReason: null };
       store.allocations.push(row);
       const r = byId(invoiceId)!;
-      Object.assign(r, { status: "confirmed", matchedJobId: a.jobLegacyId, matchStatus: a.matchStatus || "manual", confirmedAt: now(), confirmedBy: actor?.name ?? null, reviewedAt: now(), reviewedBy: actor?.name ?? null });
+      Object.assign(r, { status: "confirmed", matchedJobId: a.jobLegacyId, matchStatus: a.matchStatus || "manual", confirmedAt: now(), confirmedBy: actor?.name ?? null, confirmedByLegacyId: actor?.id ?? null, reviewedAt: now(), reviewedBy: actor?.name ?? null, autoConfirmAt: null });
       await insertEvent(null, t, invoiceId, { event: "confirmed", actor, detail: { jobId: a.jobLegacyId, amountCents: a.amountCents } });
       return { allocation: { ...row }, alreadyConfirmed: false };
     },
@@ -317,6 +327,49 @@ export function createMemoryStore(opts: { tenantId?: string; jobUuids?: Record<s
       return out;
     },
     insertEvent,
+    supplierHumanConfirmedCount: async (_s: unknown, _t: string, key: string) =>
+      store.invoices.filter((r) => r.supplierKey === key && r.status === "confirmed" && r.confirmedByLegacyId !== "__auto__").length,
+    supplierConfirmedOnJob: async (_s: unknown, _t: string, key: string, jobId: string) =>
+      store.allocations.some((a) => a.jobId === jobId && a.status === "active" && store.invoices.some((r) => r.id === a.invoiceId && r.supplierKey === key && ["invoice", "tax_invoice"].includes(r.documentType as string))),
+    getSupplierPref: async (_s: unknown, _t: string, key: string) => supplierPrefs.get(key) ?? { alwaysReview: false, setBy: null, setAt: null },
+    setSupplierPref: async (_s: unknown, _t: string, key: string, { alwaysReview, actor }: Row) => {
+      const v = { alwaysReview: !!alwaysReview, setBy: (actor as Row | null)?.name as string ?? null, setAt: now() };
+      supplierPrefs.set(key, v);
+      return v;
+    },
+    scheduleAutoConfirm: async (_s: unknown, _t: string, id: string, { eligible, checks, at }: Row) => {
+      const r = byId(id);
+      if (!r || r.status !== "matched") return null;
+      r.autoConfirmEligible = !!eligible; r.autoConfirmChecks = checks ?? []; r.autoConfirmAt = at ?? null;
+      return { ...r };
+    },
+    holdInvoice: async (_s: unknown, _t: string, id: string, actor: Row) => {
+      const r = byId(id);
+      if (!r) return null;
+      r.autoConfirmAt = null; r.heldAt = now(); r.heldBy = actor?.name ?? null;
+      return { ...r };
+    },
+    claimAutoConfirmDue: async (_s: unknown, _t: string, { limit = 10, now: at }: { limit?: number; now?: string } = {}) => {
+      const cutoff = at ?? now();
+      const due = store.invoices.filter((r) => r.status === "matched" && r.autoConfirmEligible && !r.heldAt && r.autoConfirmAt && (r.autoConfirmAt as string) <= cutoff).slice(0, limit);
+      for (const r of due) r.autoConfirmAt = null;
+      return due.map((r) => ({ ...r }));
+    },
+    digestStats: async (_s: unknown, _t: string, { since }: { since: string }) => {
+      const rowOf = (r: Row, amount: unknown) => ({ id: r.id, supplierName: r.supplierName, supplierInvoiceNumber: r.supplierInvoiceNumber, matchedJobId: r.matchedJobId, amountCents: amount });
+      const inv = (id: unknown) => store.invoices.find((r) => r.id === id)!;
+      return {
+        capturedCount: store.invoices.filter((r) => (r.createdAt as string) >= since).length,
+        autoBooked: store.allocations.filter((a) => a.confirmedBy === "BuhlOS (auto)").map((a) => rowOf(inv(a.invoiceId), a.amountCents)),
+        humanBooked: store.allocations.filter((a) => a.confirmedBy !== "BuhlOS (auto)" && a.status === "active").map((a) => rowOf(inv(a.invoiceId), a.amountCents)),
+        pending: store.invoices.filter((r) => ["needs_review", "matched"].includes(r.status as string) && (!r.autoConfirmAt || r.heldAt)).map((r) => rowOf(r, r.subtotalCents)),
+        bookingSoon: store.invoices.filter((r) => r.status === "matched" && r.autoConfirmEligible && r.autoConfirmAt && !r.heldAt).map((r) => rowOf(r, r.subtotalCents)),
+        failedCount: store.invoices.filter((r) => r.status === "failed").length,
+        stuckCount: 0,
+        lastReceivedAt: store.inbound.length ? (store.inbound[store.inbound.length - 1]!.createdAt as string) : null,
+        everReceived: store.inbound.length > 0,
+      };
+    },
     recordInboundEvent: async (_s: unknown, e: Row) => {
       if (store.inbound.some((x) => x.svixId === e.svixId)) return { inserted: false };
       const row = { id: uuid(), svixId: e.svixId, emailId: e.emailId ?? null, toMatched: !!e.toMatched, from: e.from ?? null, subject: e.subject ?? null, attachmentCount: e.attachmentCount ?? 0, status: e.status, failureCode: e.failureCode ?? null, createdAt: now(), processedAt: null };
