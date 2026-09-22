@@ -9,7 +9,12 @@ const { getDb } = require('../supabase-db');
 const store = require('./store');
 const { ingestReceivedEmail } = require('./ingest');
 const resend = require('./resend-inbound');
-const { storeInvoicePdf, sha256Hex } = require('./document-store');
+const { storeInvoicePdf, fetchInvoicePdf, sha256Hex } = require('./document-store');
+const { processInvoice } = require('./pipeline');
+const { extractPdfText } = require('./pdf-text');
+const { readBlob } = require('../blob');
+const { getSettings } = require('../feature-settings');
+const aiExtract = require('./ai-extract');
 
 function webhookDeps() {
   return {
@@ -20,6 +25,23 @@ function webhookDeps() {
     resend,
     storePdf: storeInvoicePdf,
     sha256: sha256Hex,
+    processOne: async ({ sql, tenant, invoiceId }) => {
+      let autoConfirm = { enabled: false, capCents: 0, graceHours: 12, lookbackDays: 90 };
+      try {
+        const s = await getSettings('invoice_capture');
+        autoConfirm = { enabled: s.autoConfirm === true, capCents: Math.round(Number(s.autoConfirmCapDollars) * 100), graceHours: Number(s.autoConfirmGraceHours), lookbackDays: Number(s.autoConfirmLookbackDays) };
+      } catch { /* defaults */ }
+      await store.claimOne(sql, tenant.id, invoiceId);
+      return processInvoice({
+        sql, tenantId: tenant.id, invoiceId, trigger: 'webhook',
+        deps: {
+          store, fetchPdf: fetchInvoicePdf, extractText: extractPdfText,
+          readJobs: async () => { const d = await readBlob('jobs.json', { jobs: [] }); return Array.isArray(d.jobs) ? d.jobs : []; },
+          aiExtract: aiExtract.enabled() ? aiExtract.aiExtract : null,
+          autoConfirm,
+        },
+      });
+    },
   };
 }
 

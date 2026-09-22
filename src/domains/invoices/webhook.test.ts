@@ -97,7 +97,7 @@ describe("inbound webhook — receipt, replay, scoping", () => {
   it("captures the PDF attachment only, records the receipt, leaves extraction for later", async () => {
     const body = event();
     const r = await handleInboundWebhook({ rawBody: body, headers: sign(body), env, deps: deps() });
-    expect(r).toEqual({ status: 200, body: { received: true, created: 1, skipped: 1 } });
+    expect(r).toEqual({ status: 200, body: { received: true, created: 1, skipped: 1, reviewItem: false, processedInline: false } });
     expect(store.inbound[0]).toMatchObject({ status: "processed", toMatched: true, emailId: "email_1" });
     expect(store.invoices).toHaveLength(1);
     expect(store.invoices[0]).toMatchObject({ status: "received", source: "email", sourceEmailId: "email_1", sourceSubject: "Invoice SS-88123" });
@@ -117,7 +117,7 @@ describe("inbound webhook — receipt, replay, scoping", () => {
     const body = event();
     await handleInboundWebhook({ rawBody: body, headers: sign(body, "msg_1"), env, deps: deps() });
     const r = await handleInboundWebhook({ rawBody: body, headers: sign(body, "msg_2"), env, deps: deps() });
-    expect(r.body).toEqual({ received: true, created: 0, skipped: 2 });
+    expect(r.body).toEqual({ received: true, created: 0, skipped: 2, reviewItem: false, processedInline: false });
     expect(store.invoices).toHaveLength(1);
     expect(store.documents).toHaveLength(1);
   });
@@ -133,7 +133,7 @@ describe("inbound webhook — receipt, replay, scoping", () => {
     const plainEnv = { ...env, INVOICE_INBOUND_TOKEN: "" };
     const ok = event({ to: ["invoices@inbound.example.com"] });
     const r = await handleInboundWebhook({ rawBody: ok, headers: sign(ok, "msg_plain_1"), env: plainEnv, deps: deps() });
-    expect(r.body).toEqual({ received: true, created: 1, skipped: 1 });
+    expect(r.body).toEqual({ received: true, created: 1, skipped: 1, reviewItem: false, processedInline: false });
     const other = event({ to: ["accounts@inbound.example.com"] });
     const r2 = await handleInboundWebhook({ rawBody: other, headers: sign(other, "msg_plain_2"), env: plainEnv, deps: deps() });
     expect(r2.body).toEqual({ ignored: true });
@@ -177,8 +177,11 @@ describe("inbound webhook — robustness", () => {
     const resend = resendStub();
     resend.downloadAttachment = async () => { const e = new Error("too big") as Error & { code: string }; e.code = "attachment_too_large"; throw e; };
     const r = await handleInboundWebhook({ rawBody: body, headers: sign(body), env, deps: deps({ resend }) });
-    expect(r.body).toEqual({ received: true, created: 0, skipped: 2 });
-    expect(store.invoices).toEqual([]);
+    expect(r.body).toEqual({ received: true, created: 0, skipped: 2, reviewItem: true, processedInline: false });
+    // The sender meant to send an invoice: one review item says so, with no document.
+    expect(store.invoices).toHaveLength(1);
+    expect(store.invoices[0]).toMatchObject({ status: "needs_review", reviewReasons: ["attachment_unreadable"], sourceEmailId: "email_1" });
+    expect(store.documents).toEqual([]);
   });
   it("a provider outage during ingest leaves the receipt for the sweep and still acks", async () => {
     const body = event();

@@ -161,6 +161,8 @@ export interface NewJobForm {
   ref?: string;
   type?: string;
   siteAddress?: string;
+  /** The IV job number (IV####) — what workers give the wholesaler and what supplier invoices are matched on. */
+  code?: string;
 }
 
 /* ---------------------------------------------------------------------
@@ -216,6 +218,8 @@ export function buildCreatePayload(form: NewJobForm): JobCreateInput {
     name: form.name.trim(),
     status: "draft",
   };
+  const code = (form.code ?? "").trim().toUpperCase();
+  if (code) payload.code = code;
   const ref = (form.ref ?? "").trim();
   if (ref) payload.ref = ref;
   const type = (form.type ?? "").trim();

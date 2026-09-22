@@ -19,11 +19,11 @@
 // up to MAX_ATTEMPTS before parking it as `failed` (retryable from the inbox).
 
 const { extractInvoiceFromText } = require('./extract');
-const { buildJobCodeIndex, matchJobByIv } = require('./iv-match');
+const { buildJobCodeIndex, matchJobByIv, nearMissJobs } = require('./iv-match');
 const { normaliseSupplierName } = require('./supplier-identity');
 const { decideDuplicate, normaliseInvoiceNumber } = require('./dedupe');
 const { reconcileTotals } = require('./money');
-const { ALLOCATABLE_TYPES } = require('./state');
+const { ALLOCATABLE_TYPES, NON_INVOICE_TYPES } = require('./state');
 const { evaluateAutoConfirm, autoConfirmDeadline } = require('./auto-confirm');
 const { withTimeout } = require('../with-timeout');
 
@@ -62,6 +62,8 @@ function decideMatch(extracted, jobs) {
     } else {
       matchStatus = 'not_found';
       reasons.push('iv_not_found');
+      // one typo away — offered to the reviewer, never matched automatically
+      matchReason.suggestions = nearMissJobs(sel.normalised, index).slice(0, 3).map((j) => ({ id: j.id, name: j.name || j.id, code: j.code, status: j.status || 'active' }));
     }
   } else {
     reasons.push('no_iv_reference');
@@ -105,6 +107,17 @@ async function processInvoice({ sql, tenantId, invoiceId, trigger, deps }) {
   try {
     const doc = await store.getDocumentWithBlob(sql, tenantId, invoiceId, null);
     if (!doc) return await fail('no_document', { retryable: false });
+
+    // A photo or scan: nothing to read — straight to a person, image intact.
+    if (doc.kind === 'image') {
+      await store.applyExtraction(sql, tenantId, invoiceId, {
+        status: 'needs_review', reviewReasons: ['image_only'], extractionMethod: 'none', matchStatus: 'none',
+        fields: {}, ivCandidates: [], excerpt: null,
+      });
+      await store.finishAttempt(sql, attempt.id, { outcome: 'ok', extractionMethod: 'none' });
+      await store.insertEvent(sql, tenantId, invoiceId, { event: 'review_required', detail: { reasons: ['image_only'] } });
+      return { ok: true, status: 'needs_review' };
+    }
 
     const run = async () => {
       const bytes = await deps.fetchPdf(doc.blobUrl, MAX_PDF_BYTES);
@@ -150,8 +163,12 @@ async function processInvoice({ sql, tenantId, invoiceId, trigger, deps }) {
       const decision = decideMatch(extracted, jobs);
       const matchedJobUuid = decision.matchedJob ? await store.resolveJobUuid(sql, tenantId, decision.matchedJob.id) : null;
 
-      const status = dup.duplicate ? 'duplicate' : decision.reasons.length === 0 && decision.matchStatus === 'exact' ? 'matched' : 'needs_review';
+      // Paperwork that is never a cost is set aside automatically (visible under
+      // Excluded, restorable) — the review queue is for decisions, not dockets.
+      const setAside = !dup.duplicate && NON_INVOICE_TYPES.has(extracted.documentType);
+      const status = dup.duplicate ? 'duplicate' : setAside ? 'excluded' : decision.reasons.length === 0 && decision.matchStatus === 'exact' ? 'matched' : 'needs_review';
       await store.applyExtraction(sql, tenantId, invoiceId, {
+        excludedReason: setAside ? `not_an_invoice:${extracted.documentType}` : null,
         supplierName: extracted.supplierName,
         supplierKey,
         supplierAbn: extracted.supplierAbn,
@@ -183,6 +200,8 @@ async function processInvoice({ sql, tenantId, invoiceId, trigger, deps }) {
       await store.insertEvent(sql, tenantId, invoiceId, { event: 'extracted', detail: { method, documentType: extracted.documentType, pageCount: textResult.pageCount } });
       if (dup.duplicate) {
         await store.insertEvent(sql, tenantId, invoiceId, { event: 'duplicate_detected', detail: { ofId: dup.ofId, reason: dup.reason } });
+      } else if (setAside) {
+        await store.insertEvent(sql, tenantId, invoiceId, { event: 'auto_excluded', detail: { documentType: extracted.documentType } });
       } else if (status === 'matched') {
         await store.insertEvent(sql, tenantId, invoiceId, { event: 'matched', detail: { jobId: decision.matchedJob.id, reason: decision.matchReason } });
         await scheduleAutoBooking({ sql, tenantId, invoiceId, store, settings: deps.autoConfirm, supplierKey, jobLegacyId: decision.matchedJob.id, jobStatus: decision.matchedJob.status || 'active' });

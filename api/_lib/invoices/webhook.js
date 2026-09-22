@@ -24,6 +24,7 @@ const { verifySvixSignature, parseReceivedEvent, matchInboundAddress } = require
 const { withTimeout } = require('../with-timeout');
 
 const INGEST_BUDGET_MS = 20_000;
+const INLINE_PROCESS_BUDGET_MS = 25_000;
 
 function inboundExpected(env) {
   return { token: env.INVOICE_INBOUND_TOKEN, localPart: env.INVOICE_INBOUND_LOCAL_PART || 'invoices', domain: env.INVOICE_INBOUND_DOMAIN || null };
@@ -81,8 +82,20 @@ async function handleInboundWebhook({ rawBody, headers, env = process.env, deps 
       'inbound ingest',
     );
     await deps.store.finishInboundEvent(sql, sig.id, { status: 'processed' });
-    console.log('[invoices] inbound ingested', { created: result.created.length, skipped: result.skipped.length });
-    return { status: 200, body: { received: true, created: result.created.length, skipped: result.skipped.length } };
+    // The common case is one invoice per email: read it now (bounded) so the
+    // office sees it matched within seconds instead of on the next sweep.
+    // Best-effort — a timeout leaves it `received` for the sweep.
+    let processedInline = false;
+    if (result.created.length === 1 && typeof deps.processOne === 'function') {
+      try {
+        await withTimeout(deps.processOne({ sql, tenant, invoiceId: result.created[0] }), INLINE_PROCESS_BUDGET_MS, 'inline processing');
+        processedInline = true;
+      } catch {
+        // stays received; the sweep / inbox picks it up
+      }
+    }
+    console.log('[invoices] inbound ingested', { created: result.created.length, skipped: result.skipped.length, reviewItem: !!result.reviewItem, processedInline });
+    return { status: 200, body: { received: true, created: result.created.length, skipped: result.skipped.length, reviewItem: !!result.reviewItem, processedInline } };
   } catch (e) {
     // The receipt row stays `received` with processed_at null → the sweep re-ingests.
     const code = String((e && e.code) || 'ingest_failed').slice(0, 40);
@@ -91,4 +104,4 @@ async function handleInboundWebhook({ rawBody, headers, env = process.env, deps 
   }
 }
 
-module.exports = { handleInboundWebhook, INGEST_BUDGET_MS };
+module.exports = { handleInboundWebhook, INGEST_BUDGET_MS, INLINE_PROCESS_BUDGET_MS };

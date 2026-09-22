@@ -10,7 +10,8 @@
 //   GET    /api/invoices?action=jobs&q=        job picker (id, name, code, status)
 //   GET    /api/invoices?action=job-summary&jobId=  a job's confirmed figure + its invoices
 //   GET    /api/invoices?action=document&id=X[&documentId=D]   the original PDF (authed proxy)
-//   POST   /api/invoices?action=upload         { filename, dataUrl }  → captures + processes
+//   POST   /api/invoices?action=upload         { filename, dataUrl }  → captures (PDF or photo) + processes
+//   POST   /api/invoices?action=attach&id=X    { filename, dataUrl }  → adds the document to a record that had none, then processes
 //   POST   /api/invoices?action=process-pending                        → processes up to 3 received rows
 //   POST   /api/invoices?action=retry&id=X                             → re-runs extraction
 //   PUT    /api/invoices?id=X                  { field corrections }   → re-checks totals + IV match
@@ -43,8 +44,8 @@ const store = require('./_lib/invoices/store');
 const { processInvoice, decideMatch } = require('./_lib/invoices/pipeline');
 const { extractPdfText } = require('./_lib/invoices/pdf-text');
 const { storeInvoicePdf, fetchInvoicePdf, sha256Hex } = require('./_lib/invoices/document-store');
-const { sanitiseFilename, isPdfBuffer, decodeDataUrl } = require('./_lib/invoices/safe-file');
-const { normaliseIvReference, buildJobCodeIndex, matchJobByIv } = require('./_lib/invoices/iv-match');
+const { sanitiseFilename, sanitiseFilenameFor, sniffDocument, decodeDataUrl } = require('./_lib/invoices/safe-file');
+const { normaliseIvReference, buildJobCodeIndex, matchJobByIv, nearMissJobs } = require('./_lib/invoices/iv-match');
 const { normaliseSupplierName } = require('./_lib/invoices/supplier-identity');
 const { reconcileTotals, allocationAmountCents, isCents } = require('./_lib/invoices/money');
 const { canTransition, DOCUMENT_TYPES, ALLOCATABLE_TYPES, STATUSES } = require('./_lib/invoices/state');
@@ -58,7 +59,8 @@ const { AUTO_ACTOR, buildDigest } = require('./_lib/invoices/auto-confirm');
 
 const MAX_UPLOAD_BYTES = 3 * 1024 * 1024; // the serverless JSON body cap (~4.5 MB) minus base64 overhead
 const SWEEP_BUDGET_MS = 45_000;
-const PROCESS_BATCH = 3;
+const PROCESS_BATCH = 10;
+const SWEEP_BATCH = 20;
 
 function actorOf(me) {
   return { id: me.id, name: me.name || me.username || '', role: me.role || null };
@@ -138,8 +140,12 @@ async function detailWithJob(sql, tenant, id, jobs) {
   const job = inv.matchedJobId ? all.find((j) => j && j.id === inv.matchedJobId) : null;
   const dupOf = inv.duplicateOfId ? await store.getInvoiceRow(sql, tenant.id, inv.duplicateOfId) : null;
   const supplierPref = inv.supplierKey ? await store.getSupplierPref(sql, tenant.id, inv.supplierKey) : { alwaysReview: false, setBy: null, setAt: null };
+  const suggestions = inv.matchStatus === 'not_found' && inv.ivReference
+    ? nearMissJobs(inv.ivReference, buildJobCodeIndex(all)).slice(0, 3).map(jobSummaryRow)
+    : [];
   return {
     ...detail,
+    suggestions,
     supplierPref,
     job: job ? jobSummaryRow(job) : null,
     duplicateOf: dupOf ? { id: dupOf.id, supplierName: dupOf.supplierName, supplierInvoiceNumber: dupOf.supplierInvoiceNumber, status: dupOf.status, createdAt: dupOf.createdAt } : null,
@@ -296,6 +302,7 @@ async function handler(req, res) {
     switch (action) {
       case 'retry': return retry(sql, tenant, me, current, res);
       case 'hold': return hold(sql, tenant, me, current, res);
+      case 'attach': return attach(sql, tenant, me, current, body, res);
       case 'supplier-pref': return supplierPref(sql, tenant, me, current, body, res);
       case 'select-job': return selectJob(sql, tenant, me, current, body, res);
       case 'confirm': return confirm(sql, tenant, me, current, body, res);
@@ -347,42 +354,77 @@ async function serveDocument(sql, tenant, id, documentId, res) {
   } catch {
     return res.status(502).json({ error: 'document_unavailable' });
   }
-  res.setHeader('Content-Type', 'application/pdf');
+  const contentType = doc.kind === 'image' && /^image\/(jpeg|png|webp)$/.test(doc.contentType || '') ? doc.contentType : 'application/pdf';
+  res.setHeader('Content-Type', contentType);
   res.setHeader('Content-Length', String(bytes.length));
-  res.setHeader('Content-Disposition', `inline; filename="${sanitiseFilename(doc.filename).replace(/"/g, '')}"`);
+  res.setHeader('Content-Disposition', `inline; filename="${String(doc.filename || 'document').replace(/[^A-Za-z0-9._-]/g, '_')}"`);
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Cache-Control', 'private, no-store');
   return res.status(200).end(bytes);
 }
 
 // ── upload ───────────────────────────────────────────────────────────────────
-async function upload(sql, tenant, me, body, res) {
+/** Decode + sniff an uploaded file. Returns { bytes, kind, contentType, filename } or an error response. */
+function readUpload(body, res) {
   const decoded = decodeDataUrl(body.dataUrl, MAX_UPLOAD_BYTES);
-  if (!decoded) return res.status(400).json({ error: 'file_required' });
-  if (decoded.tooLarge) return res.status(413).json({ error: 'file_too_large', maxBytes: MAX_UPLOAD_BYTES });
-  const bytes = decoded.bytes;
-  if (!isPdfBuffer(bytes)) return res.status(400).json({ error: 'not_a_pdf' });
-  const filename = sanitiseFilename(body.filename);
-  const digest = sha256Hex(bytes);
+  if (!decoded) { res.status(400).json({ error: 'file_required' }); return null; }
+  if (decoded.tooLarge) { res.status(413).json({ error: 'file_too_large', maxBytes: MAX_UPLOAD_BYTES }); return null; }
+  const sniff = sniffDocument(decoded.bytes);
+  if (!sniff) { res.status(400).json({ error: 'not_a_pdf_or_image' }); return null; }
+  return { bytes: decoded.bytes, kind: sniff.kind, contentType: sniff.contentType, filename: sanitiseFilenameFor(body.filename, sniff.contentType) };
+}
+
+async function storeDocumentFor(sql, tenant, me, invoiceId, file, source) {
+  const digest = sha256Hex(file.bytes);
+  const stored = await storeInvoicePdf({ tenantSlug: tenant.slug, invoiceId, filename: file.filename, bytes: file.bytes, contentType: file.contentType });
+  await store.addDocument(sql, tenant.id, {
+    invoiceId, source, kind: file.kind, filename: file.filename, contentType: file.contentType, byteSize: file.bytes.length,
+    sha256: digest, blobPathname: stored.pathname, blobUrl: stored.url, uploadedBy: actorOf(me),
+  });
+  return digest;
+}
+
+async function upload(sql, tenant, me, body, res) {
+  const file = readUpload(body, res);
+  if (!file) return;
   const invoice = await store.createInvoice(sql, tenant.id, { source: 'upload', createdBy: actorOf(me) });
-  let stored;
+  let digest;
   try {
-    stored = await storeInvoicePdf({ tenantSlug: tenant.slug, invoiceId: invoice.id, filename, bytes });
+    digest = await storeDocumentFor(sql, tenant, me, invoice.id, file, 'upload');
   } catch (e) {
     await store.setStatus(sql, tenant.id, invoice.id, 'failed', { failureCode: 'storage_failed' });
     console.error('[invoices] upload storage failed', { code: (e && e.code) || 'blob' });
     return res.status(502).json({ error: 'storage_failed' });
   }
-  await store.addDocument(sql, tenant.id, {
-    invoiceId: invoice.id, source: 'upload', filename, contentType: 'application/pdf', byteSize: bytes.length,
-    sha256: digest, blobPathname: stored.pathname, blobUrl: stored.url, uploadedBy: actorOf(me),
-  });
-  await store.insertEvent(sql, tenant.id, invoice.id, { event: 'uploaded', actor: actorOf(me), detail: { filename, byteSize: bytes.length, sha256: digest } });
+  await store.insertEvent(sql, tenant.id, invoice.id, { event: 'uploaded', actor: actorOf(me), detail: { filename: file.filename, byteSize: file.bytes.length, sha256: digest, kind: file.kind } });
   await store.claimOne(sql, tenant.id, invoice.id);
   const result = await processInvoice({ sql, tenantId: tenant.id, invoiceId: invoice.id, trigger: 'upload', deps: await pipelineDeps() });
   const detail = await detailWithJob(sql, tenant, invoice.id);
-  await journal(me, 'invoice.uploaded', detail.invoice, `Uploaded supplier document ${filename}`, { filename, outcome: result.status || result.code });
+  await journal(me, 'invoice.uploaded', detail.invoice, `Uploaded supplier document ${file.filename}`, { filename: file.filename, outcome: result.status || result.code });
   return res.status(201).json(detail);
+}
+
+/** Give a record that arrived without a usable document (link-only email,
+ *  forwarded-as-attachment, zip) its PDF or photo, then read it. */
+async function attach(sql, tenant, me, current, body, res) {
+  const existing = await store.getDocumentWithBlob(sql, tenant.id, current.id, null);
+  if (existing) return res.status(409).json({ error: 'already_has_document' });
+  if (!['needs_review', 'failed'].includes(current.status)) return res.status(409).json({ error: 'invalid_transition', status: current.status });
+  const file = readUpload(body, res);
+  if (!file) return;
+  let digest;
+  try {
+    digest = await storeDocumentFor(sql, tenant, me, current.id, file, 'upload');
+  } catch (e) {
+    console.error('[invoices] attach storage failed', { code: (e && e.code) || 'blob' });
+    return res.status(502).json({ error: 'storage_failed' });
+  }
+  await store.insertEvent(sql, tenant.id, current.id, { event: 'attached', actor: actorOf(me), detail: { filename: file.filename, byteSize: file.bytes.length, sha256: digest, kind: file.kind } });
+  await store.claimOne(sql, tenant.id, current.id, { resetAttempts: true });
+  const result = await processInvoice({ sql, tenantId: tenant.id, invoiceId: current.id, trigger: 'upload', deps: await pipelineDeps() });
+  const detail = await detailWithJob(sql, tenant, current.id);
+  await journal(me, 'invoice.uploaded', detail.invoice, `Attached ${file.filename} to a supplier invoice record`, { filename: file.filename, outcome: result.status || result.code, attached: true });
+  return res.status(200).json(detail);
 }
 
 // ── processing ───────────────────────────────────────────────────────────────
@@ -431,7 +473,7 @@ async function sweep(req, res) {
     }
   }
   // 2. extraction for anything received / stale
-  const processed = await processPending(sql, tenant, 'sweep', 5, SWEEP_BUDGET_MS - (Date.now() - started));
+  const processed = await processPending(sql, tenant, 'sweep', SWEEP_BATCH, SWEEP_BUDGET_MS - (Date.now() - started));
   // 3. clean invoices whose grace window has passed book themselves
   const booked = await bookDueInvoices(sql, tenant);
   console.log('[invoices] sweep', { reingested: reingested.length, processed: processed.length, booked: booked.length });

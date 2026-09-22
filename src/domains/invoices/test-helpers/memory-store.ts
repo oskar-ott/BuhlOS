@@ -80,7 +80,7 @@ export function createMemoryStore(opts: { tenantId?: string; jobUuids?: Record<s
       matchedJobId: null,
       matchStatus: "none",
       matchReason: null,
-      reviewReasons: [],
+      reviewReasons: Array.isArray(input.reviewReasons) ? input.reviewReasons : [],
       failureCode: null,
       extractionMethod: null,
       fields: {},
@@ -93,6 +93,8 @@ export function createMemoryStore(opts: { tenantId?: string; jobUuids?: Record<s
       sourceMessageId: (input.sourceMessageId as string) || null,
       sourceSubject: (input.sourceSubject as string) || null,
       sourceFrom: (input.sourceFrom as string) || null,
+      sourceLinks: Array.isArray(input.sourceLinks) ? input.sourceLinks : [],
+      sourceTextExcerpt: (input.sourceTextExcerpt as string) || null,
       createdBy: (input.createdBy as Row | null)?.name ?? null,
       reviewedAt: null,
       reviewedBy: null,
@@ -132,7 +134,7 @@ export function createMemoryStore(opts: { tenantId?: string; jobUuids?: Record<s
       }
       const row = baseInvoice(invoiceInput);
       store.invoices.push(row);
-      const doc = { id: uuid(), invoiceId: row.id, ...docInput, byteSize: docInput.byteSize, pageCount: null, hasTextLayer: null, uploadedBy: (docInput.uploadedBy as Row | null)?.name ?? null, createdAt: now() };
+      const doc = { id: uuid(), invoiceId: row.id, kind: "pdf", ...docInput, byteSize: docInput.byteSize, pageCount: null, hasTextLayer: null, uploadedBy: (docInput.uploadedBy as Row | null)?.name ?? null, createdAt: now() };
       store.documents.push(doc);
       await insertEvent(null, t, row.id as string, { event: invoiceInput.source === "email" ? "received" : "uploaded", actor: invoiceInput.createdBy ?? null, detail: { filename: docInput.filename } });
       return { invoice: { ...row }, document: { ...doc } };
@@ -192,7 +194,7 @@ export function createMemoryStore(opts: { tenantId?: string; jobUuids?: Record<s
         ivCandidates: p.ivCandidates ?? [], matchedJobId: p.matchedJobId ?? null, matchStatus: p.matchStatus || "none", matchReason: p.matchReason ?? null,
         status: p.status, reviewReasons: p.reviewReasons ?? [], failureCode: p.failureCode ?? null, extractionMethod: p.extractionMethod ?? null,
         fields: p.fields ?? {}, excerpt: p.excerpt ?? null, duplicateOfId: p.duplicateOfId ?? null, duplicateReason: p.duplicateReason ?? null,
-        nextAttemptAt: null, updatedAt: now(),
+        excludedReason: p.excludedReason ?? null, nextAttemptAt: null, updatedAt: now(),
       });
       return { ...r };
     },
@@ -231,7 +233,7 @@ export function createMemoryStore(opts: { tenantId?: string; jobUuids?: Record<s
     },
     addDocument: async (_s: unknown, _t: string, d: Row) => {
       if (d.providerEmailId && d.providerAttachmentId && store.documents.some((x) => x.providerEmailId === d.providerEmailId && x.providerAttachmentId === d.providerAttachmentId)) return null;
-      const doc = { id: uuid(), ...d, pageCount: d.pageCount ?? null, hasTextLayer: d.hasTextLayer ?? null, uploadedBy: (d.uploadedBy as Row | null)?.name ?? null, createdAt: now() };
+      const doc = { id: uuid(), kind: "pdf", ...d, pageCount: d.pageCount ?? null, hasTextLayer: d.hasTextLayer ?? null, uploadedBy: (d.uploadedBy as Row | null)?.name ?? null, createdAt: now() };
       store.documents.push(doc);
       return { ...doc };
     },
@@ -365,6 +367,7 @@ export function createMemoryStore(opts: { tenantId?: string; jobUuids?: Record<s
         pending: store.invoices.filter((r) => ["needs_review", "matched"].includes(r.status as string) && (!r.autoConfirmAt || r.heldAt)).map((r) => rowOf(r, r.subtotalCents)),
         bookingSoon: store.invoices.filter((r) => r.status === "matched" && r.autoConfirmEligible && r.autoConfirmAt && !r.heldAt).map((r) => rowOf(r, r.subtotalCents)),
         failedCount: store.invoices.filter((r) => r.status === "failed").length,
+        setAsideCount: store.invoices.filter((r) => r.status === "excluded" && String(r.excludedReason ?? "").startsWith("not_an_invoice:") && (r.createdAt as string) >= since).length,
         stuckCount: 0,
         lastReceivedAt: store.inbound.length ? (store.inbound[store.inbound.length - 1]!.createdAt as string) : null,
         everReceived: store.inbound.length > 0,

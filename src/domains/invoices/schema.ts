@@ -20,7 +20,7 @@ export const INVOICE_STATUSES = [
 ] as const;
 export type InvoiceStatus = (typeof INVOICE_STATUSES)[number];
 
-export const DOCUMENT_TYPES = ["invoice", "tax_invoice", "credit_note", "statement", "quote", "unknown"] as const;
+export const DOCUMENT_TYPES = ["invoice", "tax_invoice", "credit_note", "statement", "quote", "delivery_docket", "order_confirmation", "remittance", "purchase_order", "other", "unknown"] as const;
 export type DocumentType = (typeof DOCUMENT_TYPES)[number];
 
 export const MATCH_STATUSES = ["none", "exact", "ambiguous", "not_found", "multi_reference", "manual"] as const;
@@ -68,6 +68,9 @@ export const InvoiceSchema = z
     duplicateReason: z.string().nullable(),
     sourceEmailId: z.string().nullable(),
     sourceSubject: z.string().nullable(),
+    /** https links found in an email that carried no usable attachment (bounded). */
+    sourceLinks: z.array(z.string()).default([]),
+    sourceTextExcerpt: z.string().nullable().default(null),
     sourceFrom: z.string().nullable(),
     createdBy: z.string().nullable(),
     reviewedAt: z.string().nullable(),
@@ -94,6 +97,8 @@ export const InvoiceDocumentSchema = z
     id: z.string(),
     invoiceId: z.string(),
     source: z.string(),
+    /** pdf = text was read; image = a photo/scan shown for manual entry. */
+    kind: z.enum(["pdf", "image"]).default("pdf"),
     filename: z.string(),
     contentType: z.string(),
     byteSize: z.number(),
@@ -162,6 +167,8 @@ export const InvoiceDetailSchema = z
       .nullable(),
     canConfirm: z.boolean(),
     confirmBlockers: z.array(z.string()).default([]),
+    /** Near-miss job codes when the printed IV number matches nothing ("Did you mean…?"). */
+    suggestions: z.array(JobSummarySchema).default([]),
     supplierPref: z.object({ alwaysReview: z.boolean(), setBy: z.string().nullable(), setAt: z.string().nullable() }).default({ alwaysReview: false, setBy: null, setAt: null }),
     alreadyConfirmed: z.boolean().optional(),
   })

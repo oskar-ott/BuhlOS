@@ -171,7 +171,7 @@ describe("api/invoices — upload → extraction → exact match", () => {
     expect(journal().map((e) => e.action)).toEqual(["invoice.uploaded"]);
   });
   it("rejects a fake PDF (extension only), an empty upload and an oversized file", async () => {
-    expect((await call({ method: "POST", query: { action: "upload" }, body: { filename: "x.pdf", dataUrl: `data:application/pdf;base64,${Buffer.from("MZ exe").toString("base64")}` } })).body).toEqual({ error: "not_a_pdf" });
+    expect((await call({ method: "POST", query: { action: "upload" }, body: { filename: "x.pdf", dataUrl: `data:application/pdf;base64,${Buffer.from("MZ exe").toString("base64")}` } })).body).toEqual({ error: "not_a_pdf_or_image" });
     expect((await call({ method: "POST", query: { action: "upload" }, body: {} })).body).toEqual({ error: "file_required" });
     const huge = `data:application/pdf;base64,${Buffer.alloc(3 * 1024 * 1024 + 10).toString("base64")}`;
     const r = await call({ method: "POST", query: { action: "upload" }, body: { filename: "x.pdf", dataUrl: huge } });
@@ -360,5 +360,60 @@ describe("api/invoices — secure document access", () => {
     expect((await call({ role: "leadingHand", userId: "u_lh", query: { action: "document", id } })).statusCode).toBe(404);
     delete process.env.FLAG_INVOICE_CAPTURE;
     expect((await call({ query: { action: "document", id } })).statusCode).toBe(404);
+  });
+});
+
+describe("api/invoices — photos, attach-to-record, Did-you-mean, batch sizes", () => {
+  const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(200, 1)]);
+  it("uploads a photo: captured as an image document, served with its own content type, review for manual entry", async () => {
+    const r = await call({ method: "POST", query: { action: "upload" }, body: { filename: "IMG_1.pdf", dataUrl: `data:image/png;base64,${PNG.toString("base64")}` } });
+    expect(r.statusCode).toBe(201);
+    const body = r.body as { invoice: { id: string; status: string; reviewReasons: string[] }; documents: Array<{ kind: string; filename: string; contentType: string }> };
+    expect(body.invoice).toMatchObject({ status: "needs_review", reviewReasons: ["image_only"] });
+    expect(body.documents[0]).toMatchObject({ kind: "image", filename: "IMG_1.png", contentType: "image/png" });
+    const doc = await call({ query: { action: "document", id: body.invoice.id } });
+    expect(doc.headers["content-type"]).toBe("image/png");
+    expect(doc.headers["content-disposition"]).toContain("IMG_1.png");
+  });
+  it("refuses a file that is neither a PDF nor a photo", async () => {
+    const r = await call({ method: "POST", query: { action: "upload" }, body: { filename: "x.pdf", dataUrl: `data:application/pdf;base64,${Buffer.from("GIF89a nope").toString("base64")}` } });
+    expect(r.statusCode).toBe(400);
+    expect(r.body).toEqual({ error: "not_a_pdf_or_image" });
+    expect(store.invoices).toEqual([]);
+  });
+  it("attach: a link-only email record gets its PDF, is read and matched at once; a second attach is refused", async () => {
+    const row = await (store.createInvoice as (...a: unknown[]) => Promise<{ id: string }>)(null, "t", { source: "email", sourceEmailId: "e9", status: "needs_review", reviewReasons: ["no_attachment"], sourceLinks: ["https://portal.example/inv/1"] });
+    const r = await call({ method: "POST", query: { action: "attach", id: row.id }, body: { filename: "inv.pdf", dataUrl: dataUrl(F.TAX_INVOICE_IV0041) } });
+    expect(r.statusCode).toBe(200);
+    const body = r.body as { invoice: { status: string; matchedJobId: string; reviewReasons: string[] }; documents: unknown[]; canConfirm: boolean };
+    expect(body.invoice).toMatchObject({ status: "matched", matchedJobId: "birdwood", reviewReasons: [] });
+    expect(body.documents).toHaveLength(1);
+    expect(body.canConfirm).toBe(true);
+    expect(store.events.filter((e) => e.invoiceId === row.id).map((e) => e.event)).toContain("attached");
+    expect(journal().some((j) => j.action === "invoice.uploaded" && j.metadata?.attached === true)).toBe(true);
+    const again = await call({ method: "POST", query: { action: "attach", id: row.id }, body: { filename: "inv.pdf", dataUrl: dataUrl(F.TAX_INVOICE_IV0041) } });
+    expect(again.statusCode).toBe(409);
+    expect(again.body).toEqual({ error: "already_has_document" });
+  });
+  it("attach is refused on a confirmed record", async () => {
+    const id = ((await upload(F.TAX_INVOICE_IV0041)).body as { invoice: { id: string } }).invoice.id;
+    await call({ method: "POST", query: { action: "confirm", id }, body: {} });
+    const r = await call({ method: "POST", query: { action: "attach", id }, body: { filename: "inv.pdf", dataUrl: dataUrl(F.TAX_INVOICE_IV0041) } });
+    expect(r.statusCode).toBe(409);
+  });
+  it("the detail offers near-miss jobs for an unknown IV number; choosing one is the ordinary select-job path", async () => {
+    blob.set("jobs.json", { jobs: [...F.JOBS, { id: "j0099", name: "Ninety-nine", code: "IV0099", status: "active" }] });
+    const id = ((await upload(F.INVOICE_UNKNOWN_IV)).body as { invoice: { id: string } }).invoice.id;
+    const detail = (await call({ query: { id } })).body as { suggestions: Array<{ id: string; code: string }> };
+    expect(detail.suggestions).toEqual([{ id: "j0099", name: "Ninety-nine", code: "IV0099", status: "active" }]);
+    const chosen = await call({ method: "POST", query: { action: "select-job", id }, body: { jobId: "j0099" } });
+    expect((chosen.body as { invoice: { matchedJobId: string; matchStatus: string; ivReference: string } }).invoice).toMatchObject({ matchedJobId: "j0099", matchStatus: "manual", ivReference: "IV0999" });
+  });
+  it("a docket upload lands set aside with a human-readable reason, and restore brings it back to review", async () => {
+    const r = await upload("Sparky Supplies Pty Ltd\nDELIVERY DOCKET\nDocket No: DD-1\nJob Number: IV 0041\nQty 10 cable");
+    const body = r.body as { invoice: { id: string; status: string; excludedReason: string } };
+    expect(body.invoice).toMatchObject({ status: "excluded", excludedReason: "not_an_invoice:delivery_docket" });
+    const restored = await call({ method: "POST", query: { action: "restore", id: body.invoice.id }, body: {} });
+    expect((restored.body as { invoice: { status: string } }).invoice.status).toBe("needs_review");
   });
 });

@@ -100,6 +100,8 @@ function invoiceRow(r) {
     autoConfirmChecks: json(r.auto_confirm_checks, []),
     heldAt: iso(r.held_at),
     heldBy: r.held_by_name || null,
+    sourceLinks: json(r.source_links, []),
+    sourceTextExcerpt: r.source_text_excerpt || null,
     createdAt: iso(r.created_at),
     updatedAt: iso(r.updated_at),
   };
@@ -110,6 +112,7 @@ function documentRow(r) {
     id: r.id,
     invoiceId: r.invoice_id,
     source: r.source,
+    kind: r.kind || 'pdf',
     filename: r.original_filename,
     contentType: r.content_type,
     byteSize: Number(r.byte_size || 0),
@@ -152,10 +155,11 @@ async function createInvoice(sql, tenantId, input) {
   const rows = await sql`
     insert into public.supplier_invoices
       (tenant_id, source, status, source_email_id, source_message_id, source_subject, source_from,
-       created_by_legacy_id, created_by_name)
+       source_links, source_text_excerpt, review_reasons, created_by_legacy_id, created_by_name)
     values (${tenantId}, ${input.source}, ${input.status || 'received'},
             ${input.sourceEmailId || null}, ${input.sourceMessageId || null},
             ${input.sourceSubject || null}, ${input.sourceFrom || null},
+            ${sql.json(input.sourceLinks || [])}, ${input.sourceTextExcerpt || null}, ${sql.json(input.reviewReasons || [])},
             ${(input.createdBy && input.createdBy.id) || null}, ${(input.createdBy && input.createdBy.name) || null})
     returning *`;
   return invoiceRow(rows[0]);
@@ -172,9 +176,9 @@ async function createInvoiceWithDocument(sql, tenantId, invoiceInput, docInput) 
       const invoice = await createInvoice(tx, tenantId, invoiceInput);
       const rows = await tx`
         insert into public.supplier_invoice_documents
-          (tenant_id, invoice_id, source, provider_email_id, provider_attachment_id, original_filename,
+          (tenant_id, invoice_id, source, kind, provider_email_id, provider_attachment_id, original_filename,
            content_type, byte_size, sha256, blob_pathname, blob_url, uploaded_by_legacy_id, uploaded_by_name)
-        values (${tenantId}, ${invoice.id}, ${docInput.source}, ${docInput.providerEmailId || null}, ${docInput.providerAttachmentId || null},
+        values (${tenantId}, ${invoice.id}, ${docInput.source}, ${docInput.kind || 'pdf'}, ${docInput.providerEmailId || null}, ${docInput.providerAttachmentId || null},
                 ${docInput.filename}, ${docInput.contentType}, ${docInput.byteSize}, ${docInput.sha256}, ${docInput.blobPathname}, ${docInput.blobUrl},
                 ${(docInput.uploadedBy && docInput.uploadedBy.id) || null}, ${(docInput.uploadedBy && docInput.uploadedBy.name) || null})
         returning *`;
@@ -302,6 +306,7 @@ async function applyExtraction(sql, tenantId, id, p) {
       extracted_text_excerpt = ${p.excerpt == null ? null : p.excerpt},
       duplicate_of_id = ${p.duplicateOfId == null ? null : p.duplicateOfId},
       duplicate_reason = ${p.duplicateReason == null ? null : p.duplicateReason},
+      excluded_reason = ${p.excludedReason == null ? null : p.excludedReason},
       next_attempt_at = null
     where id = ${id} and tenant_id = ${tenantId}
     returning *`;
@@ -366,10 +371,10 @@ async function addDocument(sql, tenantId, d) {
   try {
     const rows = await sql`
       insert into public.supplier_invoice_documents
-        (tenant_id, invoice_id, source, provider_email_id, provider_attachment_id, original_filename,
+        (tenant_id, invoice_id, source, kind, provider_email_id, provider_attachment_id, original_filename,
          content_type, byte_size, sha256, blob_pathname, blob_url, page_count, has_text_layer,
          uploaded_by_legacy_id, uploaded_by_name)
-      values (${tenantId}, ${d.invoiceId}, ${d.source}, ${d.providerEmailId || null}, ${d.providerAttachmentId || null},
+      values (${tenantId}, ${d.invoiceId}, ${d.source}, ${d.kind || 'pdf'}, ${d.providerEmailId || null}, ${d.providerAttachmentId || null},
               ${d.filename}, ${d.contentType}, ${d.byteSize}, ${d.sha256}, ${d.blobPathname}, ${d.blobUrl},
               ${d.pageCount == null ? null : d.pageCount}, ${d.hasTextLayer == null ? null : d.hasTextLayer},
               ${(d.uploadedBy && d.uploadedBy.id) || null}, ${(d.uploadedBy && d.uploadedBy.name) || null})
@@ -658,7 +663,7 @@ async function claimAutoConfirmDue(sql, tenantId, { limit = 10, now } = {}) {
 /** Everything the weekly digest needs, in one place. */
 async function digestStats(sql, tenantId, { since }) {
   const rowOf = (r) => ({ id: r.id, supplierName: r.supplier_name, supplierInvoiceNumber: r.supplier_invoice_number, matchedJobId: r.matched_job_legacy_id, amountCents: cents(r.amount) });
-  const [captured, auto, human, pending, soon, failed, stuck, last] = await Promise.all([
+  const [captured, auto, human, pending, soon, failed, setAside, stuck, last] = await Promise.all([
     sql`select count(*)::int as n from public.supplier_invoices where tenant_id = ${tenantId} and created_at >= ${since}::timestamptz`,
     sql`select i.id, i.supplier_name, i.supplier_invoice_number, i.matched_job_legacy_id, a.amount_ex_gst_cents as amount
         from public.supplier_invoice_allocations a join public.supplier_invoices i on i.id = a.invoice_id
@@ -671,6 +676,7 @@ async function digestStats(sql, tenantId, { since }) {
     sql`select id, supplier_name, supplier_invoice_number, matched_job_legacy_id, subtotal_ex_gst_cents as amount
         from public.supplier_invoices where tenant_id = ${tenantId} and status = 'matched' and auto_confirm_eligible and auto_confirm_at is not null and held_at is null order by auto_confirm_at limit 50`,
     sql`select count(*)::int as n from public.supplier_invoices where tenant_id = ${tenantId} and status = 'failed'`,
+    sql`select count(*)::int as n from public.supplier_invoices where tenant_id = ${tenantId} and status = 'excluded' and excluded_reason like 'not_an_invoice:%' and created_at >= ${since}::timestamptz`,
     sql`select count(*)::int as n from public.supplier_invoices where tenant_id = ${tenantId} and status in ('received','processing') and created_at < now() - interval '1 day'`,
     sql`select max(created_at) as last, count(*)::int as n from public.supplier_invoice_inbound_events where status in ('received','processed','quarantined')`,
   ]);
@@ -681,6 +687,7 @@ async function digestStats(sql, tenantId, { since }) {
     pending: pending.map(rowOf),
     bookingSoon: soon.map(rowOf),
     failedCount: Number(failed[0].n),
+    setAsideCount: Number(setAside[0].n),
     stuckCount: Number(stuck[0].n),
     lastReceivedAt: iso(last[0].last),
     everReceived: Number(last[0].n) > 0,

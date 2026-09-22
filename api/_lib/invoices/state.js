@@ -16,7 +16,11 @@
 // A row never leaves the table; the event rows record every move.
 
 const STATUSES = ['received', 'processing', 'matched', 'needs_review', 'confirmed', 'duplicate', 'excluded', 'failed', 'archived'];
-const DOCUMENT_TYPES = ['invoice', 'tax_invoice', 'credit_note', 'statement', 'quote', 'unknown'];
+const DOCUMENT_TYPES = ['invoice', 'tax_invoice', 'credit_note', 'statement', 'quote', 'delivery_docket', 'order_confirmation', 'remittance', 'purchase_order', 'other', 'unknown'];
+// Paperwork wholesalers email that is NEVER a cost: set aside automatically
+// (status excluded, reason not_an_invoice:<type>) — visible under Excluded,
+// restorable if the reader got it wrong.
+const NON_INVOICE_TYPES = new Set(['delivery_docket', 'order_confirmation', 'remittance', 'purchase_order', 'other']);
 const MATCH_STATUSES = ['none', 'exact', 'ambiguous', 'not_found', 'multi_reference', 'manual'];
 const ALLOCATABLE_TYPES = new Set(['invoice', 'tax_invoice', 'credit_note']);
 
@@ -52,6 +56,13 @@ const REVIEW_REASON_LABELS = {
   no_text_layer: 'The PDF has no readable text (scanned image) — enter the details by hand',
   job_inactive: 'The matched job is not active',
   extraction_failed: 'The document could not be read',
+  negative_amounts: 'The amounts are negative — is this a credit note?',
+  image_only: 'This is a photo or scan — enter the details by hand',
+  no_attachment: 'The email had no PDF attached — open the link, download the invoice and attach it',
+  forwarded_as_attachment: 'The email was forwarded as an attachment (.eml) — set the mailbox rule to forward normally, then attach the PDF',
+  zip_attachment: 'The attachment was a zip — open it and attach the PDF',
+  unsupported_attachment: 'The attachment type is not supported — attach the PDF',
+  attachment_unreadable: 'The attachment could not be downloaded or read (too large, corrupt, or not really a PDF) — attach the invoice by hand',
 };
 
 module.exports = {
@@ -59,6 +70,7 @@ module.exports = {
   DOCUMENT_TYPES,
   MATCH_STATUSES,
   ALLOCATABLE_TYPES,
+  NON_INVOICE_TYPES,
   TRANSITIONS,
   canTransition,
   REVIEW_REASON_LABELS,
