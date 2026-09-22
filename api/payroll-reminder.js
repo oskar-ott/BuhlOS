@@ -36,7 +36,7 @@
 //   "11.5h pending · oldest from Mon 11 May"
 //   tap → /hours/approvals
 
-const { list } = require('@vercel/blob');
+const { listTimeEntryBlobs } = require('./_lib/time-entry-blobs'); // #935: paginated walk
 const { readBlob, setNoCache } = require('./_lib/blob');
 const { isFlagOn } = require('./_lib/feature-flags');
 const { requireCron } = require('./_lib/cron-auth');
@@ -104,12 +104,12 @@ module.exports = async (req, res) => {
     .toISOString().slice(0, 10);
   const inWindow = (d) => d >= windowStart && d <= today;
 
-  // Walk all per-user time-entries blobs for the week.
-  const token = process.env.BLOB_READ_WRITE_TOKEN;
+  // Walk all per-user time-entries blobs for the week — fully paginated
+  // (#935): a capped listing would silently under-count pending hours and
+  // the Monday nudge would go quiet exactly when the store got busy.
   let entries = [];
   try {
-    const r = await list({ prefix: 'users/', token, limit: 5000 });
-    const blobs = (r.blobs || []).filter(b => {
+    const blobs = (await listTimeEntryBlobs()).filter(b => {
       const m = b.pathname.match(/\/time-entries\/(\d{4}-\d{2}-\d{2})\.json$/);
       return m && inWindow(m[1]);
     });

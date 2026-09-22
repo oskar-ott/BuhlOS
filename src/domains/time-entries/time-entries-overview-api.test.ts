@@ -629,3 +629,49 @@ describe("worker labels are FULL names, never nicknames (owner-directed 2026-08-
     expect(missing.find((m) => m.userId === "u_elec")?.userName).toBe("Dylan Smith");
   });
 });
+
+/**
+ * 2026-09-22 payroll audit (#935 residue). This overview feeds the weekly
+ * closeout board, the pay-period readiness banner and the command centre. It
+ * used to take ONE `list({ limit: 5000 })` page and never follow the cursor;
+ * the store caps a page well below that, so past the cap real logged days
+ * would have dropped off the boards as "missing" with no error — the same
+ * silently-short class the payroll engine refuses. The walk is now fully
+ * paginated: a day that only exists on the SECOND page must still be seen.
+ */
+describe("the entry walk follows the listing cursor to the end (#935)", () => {
+  it("an entry on the second listing page is counted, never reported missing", async () => {
+    seedEntry("u_tradie", PAST_WEEKDAY);
+    seedEntry("u_elec", PAST_WEEKDAY);
+    const sdk = requireFromHere(blobSdkPath) as { list: ReturnType<typeof vi.fn> };
+    const toBlob = (pathname: string) => ({
+      pathname,
+      url: `https://blob.test/${encodeURIComponent(pathname)}`,
+    });
+    // Page 1 carries only the tradie's day and says there is more; page 2
+    // (reached by cursor) carries the electrician's.
+    sdk.list.mockImplementation(async ({ cursor }: { cursor?: string }) =>
+      cursor === "page-2"
+        ? { blobs: [toBlob(`users/u_elec/time-entries/${PAST_WEEKDAY}.json`)], hasMore: false }
+        : {
+            blobs: [toBlob(`users/u_tradie/time-entries/${PAST_WEEKDAY}.json`)],
+            hasMore: true,
+            cursor: "page-2",
+          },
+    );
+    const res = await overview("u_admin", "admin", {
+      fromDate: PAST_WEEKDAY,
+      toDate: PAST_WEEKDAY,
+    });
+    expect(res.statusCode).toBe(200);
+    // The cursor was followed: a second listing call carried page 1's cursor.
+    expect(sdk.list.mock.calls.some(([opts]) => opts && opts.cursor === "page-2")).toBe(true);
+    const entryUsers = (res.body as { entries: Array<{ userId: string }> }).entries
+      .map((e) => e.userId)
+      .sort();
+    expect(entryUsers).toEqual(["u_elec", "u_tradie"]);
+    // Neither is "missing" — the second page was read, not dropped.
+    expect(missingIds(res)).not.toContain("u_elec");
+    expect(missingIds(res)).not.toContain("u_tradie");
+  });
+});
