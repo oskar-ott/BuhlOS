@@ -101,6 +101,7 @@ function parseReceivedEvent(json) {
       filename: str(a.filename, 255) || '',
       contentType: (str(a.content_type, 120) || '').toLowerCase(),
       disposition: str(a.content_disposition, 40),
+      size: typeof a.size === 'number' ? a.size : null,
     }));
   return {
     emailId: d.email_id,
@@ -151,6 +152,34 @@ function matchInboundAddress(addresses, expected) {
     }
   }
   return false;
+}
+
+/**
+ * Sort an email's attachments into what the pipeline can do with them:
+ *   pdfs    — fetched and read (declared PDF or .pdf name; bytes sniffed after)
+ *   images  — a photo/scan of a docket (jpeg/png/webp, not inline, not tiny logos)
+ *   emls    — an Outlook "forward as attachment": the office must change the rule
+ *   zips    — never opened server-side
+ *   others  — anything else (skipped)
+ * Pure.
+ */
+function classifyAttachments(attachments) {
+  const out = { pdfs: [], images: [], emls: [], zips: [], others: [] };
+  for (const a of Array.isArray(attachments) ? attachments : []) {
+    if (!a || !a.id) continue;
+    const ct = String(a.contentType || '').toLowerCase();
+    const name = String(a.filename || '');
+    if (ct === 'application/pdf' || /\.pdf$/i.test(name)) { if (out.pdfs.length < MAX_ATTACHMENTS) out.pdfs.push(a); continue; }
+    if (ct === 'message/rfc822' || /\.eml$/i.test(name)) { out.emls.push(a); continue; }
+    if (ct === 'application/zip' || ct === 'application/x-zip-compressed' || /\.zip$/i.test(name)) { out.zips.push(a); continue; }
+    if (/^image\/(jpeg|png|webp)$/.test(ct) || /\.(jpe?g|png|webp)$/i.test(name)) {
+      if (a.disposition === 'inline' || (typeof a.size === 'number' && a.size < 40 * 1024)) { out.others.push(a); continue; }
+      if (out.images.length < MAX_ATTACHMENTS) out.images.push(a);
+      continue;
+    }
+    out.others.push(a);
+  }
+  return out;
 }
 
 /** Attachments worth fetching: PDFs by declared type OR .pdf name (the bytes are
@@ -239,6 +268,7 @@ module.exports = {
   parseReceivedEvent,
   matchInboundAddress,
   selectPdfAttachments,
+  classifyAttachments,
   fetchReceivedEmail,
   fetchAttachmentMeta,
   downloadAttachment,

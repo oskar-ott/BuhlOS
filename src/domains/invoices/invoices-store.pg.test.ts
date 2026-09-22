@@ -131,4 +131,31 @@ describe.skipIf(!ENABLED)("invoices store — dev Postgres", () => {
     const stats = await store.inboundStats(sql);
     expect(stats.processed).toBeGreaterThanOrEqual(1);
   });
+
+  it("stores photo documents, link-only review items and auto set-aside reasons; the digest counts set-asides", async () => {
+    // A photo (kind = image) round-trips with its own content type.
+    const photo = await store.createInvoiceWithDocument(sql, tenantId,
+      { source: "email", sourceEmailId: `${marker}-photo`, sourceSubject: marker, createdBy: null },
+      { source: "email", kind: "image", providerEmailId: `${marker}-photo`, providerAttachmentId: "p1", filename: "IMG_1.jpg", contentType: "image/jpeg", byteSize: 10, sha256: "f".repeat(64), blobPathname: "x", blobUrl: "https://example.invalid/p", uploadedBy: null });
+    created.push(photo.invoice.id);
+    expect(photo.document).toMatchObject({ kind: "image", contentType: "image/jpeg" });
+    expect(await store.getDocumentWithBlob(sql, tenantId, photo.invoice.id, null)).toMatchObject({ kind: "image" });
+    // A link-only email becomes a review row with no document, carrying its links + excerpt.
+    const linkOnly = await store.createInvoice(sql, tenantId, {
+      source: "email", sourceEmailId: `${marker}-link`, sourceSubject: marker, createdBy: null,
+      status: "needs_review", reviewReasons: ["no_attachment"], sourceLinks: ["https://portal.example/inv/1"], sourceTextExcerpt: "view your invoice",
+    });
+    created.push(linkOnly.id);
+    expect(linkOnly).toMatchObject({ status: "needs_review", reviewReasons: ["no_attachment"], sourceLinks: ["https://portal.example/inv/1"], sourceTextExcerpt: "view your invoice" });
+    expect(await store.invoiceIdsForEmail(sql, tenantId, `${marker}-link`)).toEqual([linkOnly.id]);
+    const attached = await store.addDocument(sql, tenantId, { invoiceId: linkOnly.id, source: "upload", kind: "pdf", filename: "inv.pdf", contentType: "application/pdf", byteSize: 10, sha256: "e".repeat(64), blobPathname: "y", blobUrl: "https://example.invalid/y", uploadedBy: actor });
+    expect(attached).toMatchObject({ kind: "pdf" });
+    // A docket is set aside with its reason and counted by the digest.
+    const docket = await make("d".repeat(64));
+    await store.claimOne(sql, tenantId, docket.invoice.id);
+    const ex = await store.applyExtraction(sql, tenantId, docket.invoice.id, { documentType: "delivery_docket", status: "excluded", excludedReason: "not_an_invoice:delivery_docket", extractionMethod: "pdf_text", currency: "AUD", matchStatus: "none", reviewReasons: [] });
+    expect(ex).toMatchObject({ status: "excluded", documentType: "delivery_docket", excludedReason: "not_an_invoice:delivery_docket" });
+    const digest = await store.digestStats(sql, tenantId, { since: new Date(Date.now() - 60_000).toISOString() });
+    expect(digest.setAsideCount).toBeGreaterThanOrEqual(1);
+  });
 });

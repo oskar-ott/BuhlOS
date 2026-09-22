@@ -26,12 +26,12 @@ function sha256Hex(bytes) {
  * @param {{ tenantSlug: string, invoiceId: string, filename: string, bytes: Buffer }} input
  * @returns {Promise<{ url: string, pathname: string }>}
  */
-async function storeInvoicePdf({ tenantSlug, invoiceId, filename, bytes }) {
+async function storeInvoicePdf({ tenantSlug, invoiceId, filename, bytes, contentType }) {
   const stamp = Date.now().toString(36);
   const blob = await put(`invoices/${tenantSlug}/${invoiceId}/${stamp}-${filename}`, bytes, {
     access: 'public',
     addRandomSuffix: true,
-    contentType: 'application/pdf',
+    contentType: contentType || 'application/pdf',
     token: process.env.BLOB_READ_WRITE_TOKEN,
   });
   return { url: blob.url, pathname: blob.pathname };

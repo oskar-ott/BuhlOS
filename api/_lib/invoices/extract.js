@@ -21,17 +21,28 @@ const { extractAbn } = require('./supplier-identity');
 const EXCERPT_CHARS = 2000;
 
 // ── document type ──────────────────────────────────────────────────────────
+// Priority order. Credit notes, remittances, statements and quotes beat
+// "invoice" words (a statement lists invoices; a remittance names them). An
+// invoice word beats docket / confirmation / purchase-order words, because a
+// wholesaler's "Tax Invoice / Delivery Docket" IS the invoice and every invoice
+// prints "Purchase Order No: …" — so those types only win when no invoice word
+// appears at all. Pro-forma invoices are requests for payment before supply,
+// never a cost: "other".
 const TYPE_RULES = [
   { type: 'credit_note', re: /\b(?:credit|adjustment)\s*note\b|\bcredit\s*memo\b/i },
+  { type: 'remittance', re: /\b(?:remittance|payment)\s*advice\b/i },
   { type: 'statement', re: /\bstatement\b/i },
   { type: 'quote', re: /\bquot(?:e|ation)\b/i },
+  { type: 'other', re: /\bpro[\s-]?forma\b/i },
   { type: 'tax_invoice', re: /\btax\s*invoice\b/i },
   { type: 'invoice', re: /\binvoice\b/i },
+  { type: 'delivery_docket', re: /\bdelivery\s*(?:docket|note|advice)\b|\b(?:picking|packing)\s*(?:slip|list)\b|\bdespatch\s*(?:note|advice|docket)\b|\bdispatch\s*(?:note|advice|docket)\b/i },
+  { type: 'order_confirmation', re: /\border\s*(?:confirmation|acknowledg(?:e)?ment)\b|\bsales\s*order\b|\bconfirmation\s*of\s*order\b/i },
+  { type: 'purchase_order', re: /\bpurchase\s*order\b/i },
 ];
 
-/** Classify by priority (credit note > statement > quote > tax invoice > invoice),
- *  looking at the document HEADER first (top 30% of lines, at least 12), then the
- *  whole text at lower confidence. Pure. */
+/** Classify by priority (see TYPE_RULES), looking at the document HEADER first
+ *  (top 30% of lines, at least 12), then the whole text at lower confidence. Pure. */
 function classifyDocumentType(lines) {
   const headerCount = Math.max(12, Math.ceil(lines.length * 0.3));
   const header = lines.slice(0, headerCount).join('\n');

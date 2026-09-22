@@ -102,8 +102,9 @@ function buildDigest(d) {
 
   lines.push(`Supplier invoices — ${week}`);
   lines.push('');
-  lines.push(`Captured: ${d.capturedCount} · Booked automatically: ${d.autoBooked.length} · Booked by a person: ${d.humanBooked.length} · Waiting on you: ${d.pending.length} · Failed: ${d.failedCount}`);
-  html.push(`<p><b>Captured ${d.capturedCount}</b> · booked automatically ${d.autoBooked.length} · booked by a person ${d.humanBooked.length} · waiting on you ${d.pending.length} · failed ${d.failedCount}</p>`);
+  const setAside = d.setAsideCount ? ` · Set aside (dockets, confirmations, remittances): ${d.setAsideCount}` : '';
+  lines.push(`Captured: ${d.capturedCount} · Booked automatically: ${d.autoBooked.length} · Booked by a person: ${d.humanBooked.length} · Waiting on you: ${d.pending.length} · Failed: ${d.failedCount}${setAside}`);
+  html.push(`<p><b>Captured ${d.capturedCount}</b> · booked automatically ${d.autoBooked.length} · booked by a person ${d.humanBooked.length} · waiting on you ${d.pending.length} · failed ${d.failedCount}${esc(setAside)}</p>`);
 
   const section = (title, items, empty) => {
     lines.push('', title);

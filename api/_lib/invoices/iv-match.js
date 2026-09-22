@@ -221,7 +221,40 @@ function matchJobByIv(normalised, index) {
   return { status: 'exact', job, matchCount: 1, warnings };
 }
 
+/**
+ * Jobs whose code is ONE typo away from a reference that matched nothing —
+ * one digit different, or two adjacent digits swapped. For the reviewer to
+ * choose from ("did you mean…?"); never used to match automatically. Pure.
+ * @returns {Array<object>} jobs, closest first (digit-swap before single-digit)
+ */
+function nearMissJobs(normalised, index) {
+  if (!isCanonicalIvCode(normalised) || !index || !index.byCode) return [];
+  const digits = normalised.slice(2);
+  const out = [];
+  const seen = new Set();
+  const consider = (code, rank) => {
+    if (code === normalised || seen.has(code)) return;
+    const jobs = index.byCode.get(code);
+    if (!jobs || jobs.length !== 1) return;
+    seen.add(code);
+    out.push({ job: jobs[0], rank });
+  };
+  for (let i = 0; i < 3; i++) {
+    const d = digits.split('');
+    [d[i], d[i + 1]] = [d[i + 1], d[i]];
+    consider(`IV${d.join('')}`, 0);
+  }
+  for (let i = 0; i < 4; i++) {
+    for (let n = 0; n <= 9; n++) {
+      if (String(n) === digits[i]) continue;
+      consider(`IV${digits.slice(0, i)}${n}${digits.slice(i + 1)}`, 1);
+    }
+  }
+  return out.sort((a, b) => a.rank - b.rank).map((x) => x.job);
+}
+
 module.exports = {
+  nearMissJobs,
   IV_CODE_RE,
   normaliseIvReference,
   isCanonicalIvCode,

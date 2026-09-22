@@ -10,6 +10,7 @@ export interface InboundWebhookDeps {
   resend: unknown;
   storePdf: (input: unknown) => Promise<{ url: string; pathname: string }>;
   sha256: (bytes: Uint8Array) => string;
+  processOne?: (input: { sql: unknown; tenant: unknown; invoiceId: string }) => Promise<unknown>;
   nowSec?: number;
 }
 

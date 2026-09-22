@@ -41,6 +41,11 @@ export const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
   credit_note: "Credit note",
   statement: "Statement",
   quote: "Quote",
+  delivery_docket: "Delivery docket",
+  order_confirmation: "Order confirmation",
+  remittance: "Remittance advice",
+  purchase_order: "Purchase order",
+  other: "Other paperwork",
   unknown: "Unknown document",
 };
 
@@ -62,7 +67,21 @@ export const REVIEW_REASON_LABELS: Record<string, string> = {
   job_inactive: "The matched job is not active",
   extraction_failed: "The document could not be read",
   negative_amounts: "The amounts are negative — is this a credit note?",
+  image_only: "This is a photo or scan — enter the details by hand",
+  no_attachment: "The email had no attachment — the invoice may be behind a link",
+  forwarded_as_attachment: "The email was forwarded as an attachment (.eml) — open it and forward the PDF itself",
+  zip_attachment: "The attachment is a zip — unpack it and upload the PDF",
+  unsupported_attachment: "The attachment is not a PDF or a photo — upload the invoice itself",
+  attachment_unreadable: "The attachment could not be downloaded or read (too large, corrupt, or not really a PDF) — attach the invoice by hand",
 };
+
+/** Human label for an auto set-aside reason (excluded_reason = not_an_invoice:<type>). */
+export function excludedReasonLabel(reason: string | null | undefined): string | null {
+  if (!reason) return null;
+  const m = /^not_an_invoice:(\w+)$/.exec(reason);
+  if (m) return `Set aside automatically — ${DOCUMENT_TYPE_LABELS[m[1] as DocumentType]?.toLowerCase() ?? m[1]}, not an invoice`;
+  return reason;
+}
 
 export function reviewReasonLabel(code: string): string {
   return REVIEW_REASON_LABELS[code] ?? code.replace(/_/g, " ");
@@ -145,6 +164,8 @@ export const EVENT_LABELS: Record<string, string> = {
   reassigned: "Moved to another job",
   marked_duplicate: "Marked as a duplicate",
   excluded: "Excluded",
+  auto_excluded: "Set aside automatically (not an invoice)",
+  attached: "Document attached by the office",
   archived: "Archived",
   restored: "Restored",
   retried: "Re-read requested",

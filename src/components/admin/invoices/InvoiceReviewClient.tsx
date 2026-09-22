@@ -34,10 +34,12 @@ import {
   eventLabel,
   formatCentsExact,
   formatShortDate,
+  excludedReasonLabel,
   reviewReasonLabel,
   statusLabel,
   statusTone,
 } from "@/domains/invoices/format";
+import { InvoiceUploadButton } from "./InvoiceUploadButton";
 
 type Action = (id: string) => Promise<{ ok: true; data: InvoiceDetail } | { ok: false; error: { status: number; body: unknown } }>;
 
@@ -238,6 +240,15 @@ export function InvoiceReviewClient({ invoiceId }: { invoiceId: string }) {
         </p>
       ) : null}
 
+      {inv.status === "excluded" && excludedReasonLabel(inv.excludedReason)?.startsWith("Set aside") ? (
+        <Card className="border-l-4 border-l-border" data-testid="invoice-set-aside">
+          <CardKicker>Set aside</CardKicker>
+          <p className="mt-2 text-sm text-text">
+            {excludedReasonLabel(inv.excludedReason)}. Nothing was booked. If this really is an invoice, restore it and correct the document type.
+          </p>
+        </Card>
+      ) : null}
+
       {inv.reviewReasons.length > 0 && !["confirmed", "excluded", "archived", "duplicate"].includes(inv.status) ? (
         <Card className="border-l-4 border-l-accent-yellow">
           <CardKicker>Why this needs you</CardKicker>
@@ -318,12 +329,20 @@ export function InvoiceReviewClient({ invoiceId }: { invoiceId: string }) {
         {/* Left: the original document */}
         <Card className="p-3">
           <div className="flex items-center justify-between gap-2 px-2 pt-1">
-            <CardKicker>Original PDF</CardKicker>
+            <CardKicker>{detail.documents[0]?.kind === "image" ? "Original photo" : "Original PDF"}</CardKicker>
             <a href={pdfUrl} target="_blank" rel="noreferrer" className="text-sm underline decoration-accent-yellow decoration-2 underline-offset-2" data-testid="invoice-open-pdf">
               Open in a new tab
             </a>
           </div>
-          {detail.documents.length ? (
+          {detail.documents.length && detail.documents[0]?.kind === "image" ? (
+            // eslint-disable-next-line @next/next/no-img-element -- authed proxy URL, not an optimisable static asset
+            <img
+              alt="Photo of the supplier document"
+              src={pdfUrl}
+              className="mt-2 max-h-[60vh] w-full rounded-[4px] border border-border bg-surface object-contain"
+              data-testid="invoice-image"
+            />
+          ) : detail.documents.length ? (
             <iframe
               title="Original supplier document"
               src={pdfUrl}
@@ -331,10 +350,37 @@ export function InvoiceReviewClient({ invoiceId }: { invoiceId: string }) {
               data-testid="invoice-pdf-frame"
             />
           ) : (
-            <p className="mt-2 px-2 text-sm text-text-muted">No document is attached to this record.</p>
+            <div className="mt-2 space-y-3 px-2" data-testid="invoice-no-document">
+              <p className="text-sm text-text">No document arrived with this email.</p>
+              {inv.sourceLinks.length ? (
+                <div>
+                  <p className="text-xs text-text-muted">Links in the email — the invoice may be behind one of these:</p>
+                  <ul className="mt-1 space-y-1 text-sm">
+                    {inv.sourceLinks.map((l) => (
+                      <li key={l} className="truncate">
+                        <a href={l} target="_blank" rel="noreferrer noopener" className="underline decoration-accent-yellow decoration-2 underline-offset-2">
+                          {l}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {inv.sourceTextExcerpt ? (
+                <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-[4px] border border-border bg-surface-subtle p-2 text-xs text-text" data-testid="invoice-email-excerpt">
+                  {inv.sourceTextExcerpt}
+                </pre>
+              ) : null}
+              {editable ? (
+                <div>
+                  <p className="mb-1 text-xs text-text-muted">Download the invoice from the supplier, then attach it here — BuhlOS reads and matches it straight away.</p>
+                  <InvoiceUploadButton attachTo={inv.id} onAttached={apply} />
+                </div>
+              ) : null}
+            </div>
           )}
           <p className="mt-2 px-2 text-xs text-text-muted">
-            {detail.documents.map((d) => `${d.filename} · ${(d.byteSize / 1024).toFixed(0)} KB${d.pageCount ? ` · ${d.pageCount} page${d.pageCount === 1 ? "" : "s"}` : ""}${d.hasTextLayer === false ? " · no text layer" : ""}`).join(" · ")}
+            {detail.documents.map((d) => `${d.filename} · ${(d.byteSize / 1024).toFixed(0)} KB${d.pageCount ? ` · ${d.pageCount} page${d.pageCount === 1 ? "" : "s"}` : ""}${d.kind === "image" ? " · photo" : d.hasTextLayer === false ? " · no text layer" : ""}`).join(" · ")}
           </p>
         </Card>
 
@@ -366,6 +412,26 @@ export function InvoiceReviewClient({ invoiceId }: { invoiceId: string }) {
                         ? `Several different IV references were printed: ${(Array.isArray(reason.distinct) ? (reason.distinct as string[]) : []).join(", ")}.`
                         : "No IV job reference was read from the document."}
             </p>
+            {inv.matchStatus === "not_found" && editable && detail.suggestions.length ? (
+              <div className="mt-2" data-testid="invoice-suggestions">
+                <p className="text-xs text-text-muted">Did you mean one of these? (one digit off — check the paperwork before choosing)</p>
+                <div className="mt-1 flex flex-wrap gap-2">
+                  {detail.suggestions.map((j) => (
+                    <Button
+                      key={j.id}
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      disabled={busy !== null}
+                      data-testid={`invoice-suggestion-${j.id}`}
+                      onClick={() => void run("job", (id) => selectInvoiceJob(id, j.id), `Job chosen: ${j.code ?? j.name}.`)}
+                    >
+                      <span className="font-mono text-xs">{j.code}</span>&nbsp;· {j.name}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             {warnings.length ? (
               <ul className="mt-2 space-y-1 text-xs text-state-warning-subtle-text">
                 {warnings.map((w) => (
@@ -529,7 +595,7 @@ export function InvoiceReviewClient({ invoiceId }: { invoiceId: string }) {
               ) : null}
               {["failed", "needs_review", "matched"].includes(inv.status) ? (
                 <Button type="button" variant="ghost" size="sm" disabled={busy !== null} data-testid="invoice-retry" onClick={() => void run("retry", (id) => retryInvoice(id), "Re-read the document.")}>
-                  {busy === "retry" ? "Reading…" : "Re-read the PDF"}
+                  {busy === "retry" ? "Reading…" : "Re-read the document"}
                 </Button>
               ) : null}
               {["duplicate", "excluded", "archived"].includes(inv.status) ? (

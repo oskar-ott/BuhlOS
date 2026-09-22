@@ -118,4 +118,7 @@ export const archiveInvoice = (id: string) => act("archive", id);
 export const restoreInvoice = (id: string) => act("restore", id);
 export const retryInvoice = (id: string) => act("retry", id, {}, 60_000);
 export const holdInvoice = (id: string) => act("hold", id);
+/** Give a record that arrived without a usable document its PDF or photo; the server re-reads it. */
+export const attachInvoiceDocument = (id: string, input: { filename: string; dataUrl: string }) =>
+  act("attach", id, input, 60_000);
 export const setSupplierAlwaysReview = (id: string, alwaysReview: boolean) => act("supplier-pref", id, { alwaysReview });

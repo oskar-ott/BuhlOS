@@ -28,6 +28,31 @@ function isPdfBuffer(buf) {
   return head.indexOf('%PDF-') !== -1;
 }
 
+/** JPEG / PNG / WebP by magic bytes → the mime type, else null. Never trusts the name. */
+function imageTypeOf(buf) {
+  if (!buf || typeof buf.length !== 'number' || buf.length < 12) return null;
+  const b = Buffer.from(buf.subarray ? buf.subarray(0, 12) : buf.slice(0, 12));
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'image/jpeg';
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return 'image/png';
+  if (b.toString('ascii', 0, 4) === 'RIFF' && b.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
+  return null;
+}
+
+/** What the bytes actually are: { kind: 'pdf'|'image', contentType } or null. */
+function sniffDocument(buf) {
+  if (isPdfBuffer(buf)) return { kind: 'pdf', contentType: 'application/pdf' };
+  const img = imageTypeOf(buf);
+  if (img) return { kind: 'image', contentType: img };
+  return null;
+}
+
+/** Keep the real extension for images; PDFs still end in .pdf. */
+function sanitiseFilenameFor(name, contentType) {
+  const ext = contentType === 'image/jpeg' ? '.jpg' : contentType === 'image/png' ? '.png' : contentType === 'image/webp' ? '.webp' : '.pdf';
+  const base = sanitiseFilename(name).replace(/\.pdf$/i, '');
+  return base + ext;
+}
+
 /**
  * Decode a data: URL or bare base64 into bytes. Returns { bytes } or
  * { tooLarge: true } (bounded BEFORE decoding so a huge payload never
@@ -49,4 +74,4 @@ function decodeDataUrl(input, maxBytes) {
   }
 }
 
-module.exports = { sanitiseFilename, isPdfBuffer, decodeDataUrl, MAX_NAME };
+module.exports = { sanitiseFilename, sanitiseFilenameFor, isPdfBuffer, imageTypeOf, sniffDocument, decodeDataUrl, MAX_NAME };

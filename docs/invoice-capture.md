@@ -168,11 +168,31 @@ fix behind the existing tests, not a design change.
   email id as `quarantined` — nothing fetched, nothing stored, nothing shown —
   so no email is lost. The sweep re-ingests quarantined and stalled receipts
   once the flag is on.
-- **Fast ack:** the webhook records the receipt, downloads PDFs (≤10 MB
-  each, ≤10 per email, sniffed as PDF by bytes) within a 20 s budget, and
-  returns 200. Extraction happens later: when the inbox is opened
-  (`process-pending`), or on the 15-minute sweep, with backoff and at most
-  three attempts before a row is parked `failed` (retryable).
+- **Fast ack:** the webhook records the receipt, downloads PDFs and photos
+  (≤10 MB each, ≤10 per email, sniffed by bytes) within a 20 s budget, then —
+  when exactly one document arrived, the common case — reads and matches it
+  inline within a further 25 s budget so the office sees it matched within
+  seconds. Anything else (several documents, a slow read, a timeout) is left
+  `received` for the inbox (`process-pending`, 10 at a time) or the 15-minute
+  sweep (20 at a time), with backoff and at most three attempts before a row
+  is parked `failed` (retryable).
+
+### What arrives that is not a PDF invoice (owner direction 2026-09-22)
+
+Wholesaler mailboxes carry far more than tax invoices. Every case has a
+defined outcome; nothing is silently dropped, and nothing is booked without a
+person unless the auto-booking checks pass on a real invoice.
+
+| Arrives | Outcome |
+| --- | --- |
+| PDF tax invoice / invoice / credit note | Captured, read, matched (the normal path). |
+| PDF delivery docket, order confirmation, remittance advice, purchase order, pro-forma / "this is not a tax invoice" | Read, recognised by its own heading (`extract.js` type rules; an invoice heading always outranks a docket heading on the same page), then **set aside**: status `excluded`, `excluded_reason = not_an_invoice:<type>`, event `auto_excluded`. Visible under the Excluded filter and counted in the Monday digest ("Set aside"). Restore + correct the type if the reader was wrong. |
+| Statement / quote | Read and sent to review as before (not allocatable) — statements are the office's reconciliation aid. |
+| Photo or scan (JPEG/PNG/WebP, not inline signature images under 40 KB) | Captured as a document of `kind = image`, shown on the review screen as a picture, review reason `image_only` — the office enters the details by hand, then Confirm as usual. |
+| Email with no attachment, or only a "view your invoice" link | One review item per email carrying the https links found in the body (≤5) and a text excerpt (≤1500 chars), reason `no_attachment` — but only when the subject/body looks invoice-related (auto-replies and chatter are ignored, recorded `ignored`). The office opens the link, downloads the PDF and **attaches** it on the review screen (`POST ?action=attach`), which reads and matches it straight away. |
+| Outlook "forward as attachment" (.eml), zip, other file types | Same review item, reason `forwarded_as_attachment` / `zip_attachment` / `unsupported_attachment`, with the fix spelled out. |
+| A printed IV number that matches no job (typo) | Review as before, plus up to three **"Did you mean…?"** jobs whose code is one digit off (adjacent swap or single-digit change, unique codes only). One click chooses the job; the printed reference is never rewritten. |
+| An office job created without an IV number | Cannot happen for new jobs: the office New-job form requires `IV####` (the server already validates the format and refuses duplicates). Older jobs without a code can still be chosen by hand. |
 - **Limits:** manual upload ≤3 MB (the serverless JSON body cap minus base64
   overhead); attachment ≤10 MB; ≤40 pages read.
 - Logs carry counts and stable codes only — no addresses, subjects, secrets

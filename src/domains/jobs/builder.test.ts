@@ -94,6 +94,11 @@ describe("buildCreatePayload", () => {
     });
   });
 
+  it("carries the IV number upper-cased and trimmed (what supplier invoices match on)", () => {
+    expect(buildCreatePayload({ name: "J", code: " iv3232 " })).toEqual({ name: "J", status: "draft", code: "IV3232" });
+    expect(buildCreatePayload({ name: "J", code: "  " })).toEqual({ name: "J", status: "draft" });
+  });
+
   it("carries ref / type / siteAddress when provided", () => {
     expect(
       buildCreatePayload({ name: "J", ref: " R1 ", type: "fitout", siteAddress: " 1 Site Rd " })
