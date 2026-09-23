@@ -167,6 +167,8 @@ describe.skipIf(!ENABLED)("invoices store — dev Postgres", () => {
     const rows = await store.listSupplierInvoices(sql, tenantId, `statement-co-${marker}`, st.invoice.id);
     expect(rows).toEqual([{ id: a.invoice.id, supplierInvoiceNumber: "SC-1", status: "matched", documentType: "tax_invoice", subtotalCents: 1000, totalCents: 1100 }]);
     expect(await store.listSupplierInvoices(sql, tenantId, null, st.invoice.id)).toEqual([]);
+  });
+
   it("records forwarded stray replies and reads the health snapshot the mid-week alert needs", async () => {
     const r = await store.recordInboundEvent(sql, { svixId: `${marker}-fwd`, tenantId, emailId: "e-fwd", toMatched: false, status: "forwarded", attachmentCount: 0 });
     expect(r.inserted).toBe(true);
