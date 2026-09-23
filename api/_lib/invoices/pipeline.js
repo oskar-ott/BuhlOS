@@ -26,6 +26,7 @@ const { reconcileTotals } = require('./money');
 const { ALLOCATABLE_TYPES, NON_INVOICE_TYPES } = require('./state');
 const { evaluateAutoConfirm, autoConfirmDeadline } = require('./auto-confirm');
 const { withTimeout } = require('../with-timeout');
+const { extractStatementLines, reconcileStatement } = require('./statement');
 
 const MAX_PDF_BYTES = 10 * 1024 * 1024;
 const PROCESS_TIMEOUT_MS = 40_000;
@@ -163,6 +164,17 @@ async function processInvoice({ sql, tenantId, invoiceId, trigger, deps }) {
       const decision = decideMatch(extracted, jobs);
       const matchedJobUuid = decision.matchedJob ? await store.resolveJobUuid(sql, tenantId, decision.matchedJob.id) : null;
 
+      // A statement is the supplier's list of what we owe: compare it with what
+      // was captured so the invoice that never arrived is caught here, not when
+      // the supplier chases it (docs/invoice-capture.md "Statement check").
+      let statementCheck = null;
+      if (extracted.documentType === 'statement' && supplierKey && !dup.duplicate) {
+        const captured = await store.listSupplierInvoices(sql, tenantId, supplierKey, invoiceId);
+        statementCheck = reconcileStatement(extractStatementLines(textResult.text), captured);
+        if (statementCheck.missing.length) decision.reasons.push('statement_missing_invoices');
+      }
+      const matchReason = statementCheck ? { ...(decision.matchReason || {}), statement: statementCheck } : decision.matchReason;
+
       // Paperwork that is never a cost is set aside automatically (visible under
       // Excluded, restorable) — the review queue is for decisions, not dockets.
       const setAside = !dup.duplicate && NON_INVOICE_TYPES.has(extracted.documentType);
@@ -186,7 +198,7 @@ async function processInvoice({ sql, tenantId, invoiceId, trigger, deps }) {
         matchedJobId: decision.matchedJob ? decision.matchedJob.id : null,
         matchedJobUuid,
         matchStatus: decision.matchStatus,
-        matchReason: decision.matchReason,
+        matchReason,
         status,
         reviewReasons: decision.reasons,
         failureCode: null,

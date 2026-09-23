@@ -276,6 +276,18 @@ async function listSuppliers(sql, tenantId) {
   return rows.map((r) => ({ key: r.supplier_key, name: r.supplier_name, count: Number(r.n) }));
 }
 
+/** This supplier's captured documents (for the statement check), newest first. */
+async function listSupplierInvoices(sql, tenantId, supplierKey, excludeInvoiceId) {
+  if (!supplierKey) return [];
+  const rows = await sql`
+    select id, supplier_invoice_number, status, document_type, subtotal_ex_gst_cents as subtotal, total_inc_gst_cents as total
+    from public.supplier_invoices
+    where tenant_id = ${tenantId} and supplier_key = ${supplierKey} and id <> ${excludeInvoiceId}
+      and supplier_invoice_number is not null
+    order by created_at desc limit 500`;
+  return rows.map((r) => ({ id: r.id, supplierInvoiceNumber: r.supplier_invoice_number, status: r.status, documentType: r.document_type, subtotalCents: cents(r.subtotal), totalCents: cents(r.total) }));
+}
+
 /** Patch extraction + match + status fields in one UPDATE (pipeline result). */
 async function applyExtraction(sql, tenantId, id, p) {
   const rows = await sql`
@@ -766,6 +778,7 @@ module.exports = {
   findDocumentByProvider,
   findInvoicesByChecksum,
   findInvoicesBySupplierNumber,
+  listSupplierInvoices,
   claimPending,
   claimOne,
   startAttempt,

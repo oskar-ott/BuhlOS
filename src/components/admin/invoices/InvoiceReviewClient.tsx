@@ -24,7 +24,7 @@ import {
   selectInvoiceJob,
   type InvoiceCorrections,
 } from "@/domains/invoices/client";
-import { DOCUMENT_TYPES, type InvoiceDetail, type JobSummary } from "@/domains/invoices/schema";
+import { DOCUMENT_TYPES, statementCheckOf, type InvoiceDetail, type JobSummary } from "@/domains/invoices/schema";
 import {
   autoBookCountdown,
   centsToDollarsInput,
@@ -211,6 +211,7 @@ export function InvoiceReviewClient({ invoiceId }: { invoiceId: string }) {
   const isConfirmedElsewhere = inv.status === "confirmed";
   const reason = inv.matchReason ?? {};
   const warnings = Array.isArray(reason.warnings) ? (reason.warnings as string[]) : [];
+  const statement = inv.documentType === "statement" ? statementCheckOf(inv.matchReason) : null;
 
   return (
     <div className="space-y-4" data-testid="invoice-review">
@@ -257,6 +258,50 @@ export function InvoiceReviewClient({ invoiceId }: { invoiceId: string }) {
               <li key={r}>{reviewReasonLabel(r)}</li>
             ))}
           </ul>
+        </Card>
+      ) : null}
+
+      {statement ? (
+        <Card className={cn(statement.missing.length ? "border-l-4 border-l-accent-yellow" : "")} data-testid="invoice-statement-check">
+          <CardKicker>Statement check</CardKicker>
+          {statement.listed === 0 ? (
+            <p className="mt-2 text-sm text-text-muted">No invoice lines could be read from this statement — compare it with the inbox by hand.</p>
+          ) : (
+            <p className="mt-2 text-sm text-text">
+              {statement.matched.length} of {statement.listed} {statement.listed === 1 ? "invoice" : "invoices"} on this statement{" "}
+              {statement.matched.length === 1 ? "is" : "are"} captured in BuhlOS.
+            </p>
+          )}
+          {statement.missing.length ? (
+            <div className="mt-2">
+              <p className="text-xs font-medium text-text">Not captured — ask the supplier to resend these to the invoices address, or upload them:</p>
+              <ul className="mt-1 space-y-0.5 text-sm" data-testid="invoice-statement-missing">
+                {statement.missing.map((m) => (
+                  <li key={m.ref} className="font-mono text-xs">
+                    {m.ref}
+                    {m.date ? ` · ${m.date}` : ""}
+                    {m.amountCents != null ? ` · ${formatCentsExact(m.amountCents)}` : ""}
+                    {m.kind === "credit" ? " · credit" : ""}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {statement.matched.length ? (
+            <ul className="mt-2 space-y-0.5 text-xs text-text-muted" data-testid="invoice-statement-matched">
+              {statement.matched.map((m) => (
+                <li key={m.invoiceId}>
+                  <a href={`/invoices/${encodeURIComponent(m.invoiceId)}`} className="font-mono underline decoration-accent-yellow decoration-2 underline-offset-2">
+                    {m.ref}
+                  </a>{" "}
+                  · {statusLabel(m.status as InvoiceDetail["invoice"]["status"])}
+                  {m.amountCents != null && m.capturedTotalCents != null && m.amountCents !== m.capturedTotalCents
+                    ? ` · statement says ${formatCentsExact(m.amountCents)}, captured ${formatCentsExact(m.capturedTotalCents)}`
+                    : ""}
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </Card>
       ) : null}
 
