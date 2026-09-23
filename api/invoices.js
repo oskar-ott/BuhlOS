@@ -50,6 +50,7 @@ const { sanitiseFilename, sanitiseFilenameFor, sniffDocument, decodeDataUrl } = 
 const { normaliseIvReference, buildJobCodeIndex, matchJobByIv, nearMissJobs } = require('./_lib/invoices/iv-match');
 const { normaliseSupplierName } = require('./_lib/invoices/supplier-identity');
 const { CATEGORY_LABELS, isCategory, descriptionKey } = require('./_lib/invoices/categories');
+const { measureOf, rollUpProducts, measureTotals } = require('./_lib/invoices/measure');
 const { reconcileTotals, allocationAmountCents, isCents } = require('./_lib/invoices/money');
 const { canTransition, DOCUMENT_TYPES, ALLOCATABLE_TYPES, STATUSES } = require('./_lib/invoices/state');
 const { ingestReceivedEmail } = require('./_lib/invoices/ingest');
@@ -147,11 +148,13 @@ async function detailWithJob(sql, tenant, id, jobs) {
   const job = inv.matchedJobId ? all.find((j) => j && j.id === inv.matchedJobId) : null;
   const dupOf = inv.duplicateOfId ? await store.getInvoiceRow(sql, tenant.id, inv.duplicateOfId) : null;
   const supplierPref = inv.supplierKey ? await store.getSupplierPref(sql, tenant.id, inv.supplierKey) : { alwaysReview: false, setBy: null, setAt: null };
+  const lines = Array.isArray(detail.lines) ? detail.lines.map((l) => ({ ...l, measure: measureOf(l.description, l.quantity, l.unit) })) : [];
   const suggestions = inv.matchStatus === 'not_found' && inv.ivReference
     ? nearMissJobs(inv.ivReference, buildJobCodeIndex(all)).slice(0, 3).map(jobSummaryRow)
     : [];
   return {
     ...detail,
+    lines,
     suggestions,
     supplierPref,
     job: job ? jobSummaryRow(job) : null,
@@ -256,23 +259,34 @@ async function handler(req, res) {
         const jobId = String(q.jobId || '');
         if (!jobId) return res.status(400).json({ error: 'jobId required' });
         const b = await store.jobMaterialsBreakdown(sql, tenant.id, jobId);
+        // Each line gets its MEASURE (metres, pieces …) so a category can say
+        // "450 m of cable" and each product "300 m across 3 rolls".
+        const lines = b.lines.map((l) => ({ ...l, measure: measureOf(l.description, l.quantity, l.unit) }));
         const byCat = {};
         const bySupplier = {};
         let linesCents = 0;
-        for (const l of b.lines) {
-          const c = byCat[l.category] || (byCat[l.category] = { category: l.category, label: CATEGORY_LABELS[l.category] || l.category, cents: 0, lineCount: 0 });
-          c.cents += l.signedCents; c.lineCount += 1; linesCents += l.signedCents;
+        for (const l of lines) {
+          const c = byCat[l.category] || (byCat[l.category] = { category: l.category, label: CATEGORY_LABELS[l.category] || l.category, cents: 0, lineCount: 0, lines: [] });
+          c.cents += l.signedCents; c.lineCount += 1; c.lines.push(l); linesCents += l.signedCents;
           const s = l.supplierName || 'Unknown supplier';
           bySupplier[s] = (bySupplier[s] || 0) + l.signedCents;
         }
+        const byCategory = Object.values(byCat).map((c) => {
+          const m = measureTotals(c.lines);
+          return {
+            category: c.category, label: c.label, cents: c.cents, lineCount: c.lineCount,
+            measure: m.totals, measuredLines: m.measuredLines, unmeasuredLines: m.unmeasuredLines,
+            products: rollUpProducts(c.lines).map((p) => ({ key: p.key, description: p.description, supplierName: p.supplierName, cents: p.cents, lineCount: p.lineCount, invoiceCount: p.invoiceCount, quantities: p.quantities, measures: p.measures, lineIds: p.lines.map((l) => l.id) })),
+          };
+        }).sort((a, c) => c.cents - a.cents);
         return res.status(200).json({
           jobId,
           confirmedCents: b.confirmedCents,
           invoiceCount: b.invoiceCount,
           linesCents,
-          byCategory: Object.values(byCat).sort((a, c) => c.cents - a.cents),
+          byCategory,
           bySupplier: Object.entries(bySupplier).map(([supplierName, cents]) => ({ supplierName, cents })).sort((a, c) => c.cents - a.cents),
-          lines: b.lines,
+          lines,
           invoicesWithoutLines: b.invoicesWithoutLines,
         });
       }

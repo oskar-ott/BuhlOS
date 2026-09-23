@@ -185,6 +185,15 @@ export function formatQuantity(q: number | null | undefined, unit: string | null
   return unit ? `${n} ${unit}` : n;
 }
 
+/** "450 m" / "128 pcs" / "3 roll" — a measure or quantity map, human-sized. */
+export function formatMeasureMap(m: Record<string, number> | null | undefined): string {
+  if (!m) return "";
+  const parts = Object.entries(m)
+    .filter(([, v]) => v !== 0)
+    .map(([u, v]) => `${Number.isInteger(v) ? v : v.toFixed(1)} ${u}`);
+  return parts.join(" + ");
+}
+
 export const EVENT_LABELS: Record<string, string> = {
   received: "Received by email",
   uploaded: "Uploaded",

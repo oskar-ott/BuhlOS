@@ -436,6 +436,7 @@ describe("api/invoices — line items, re-filing, and the job materials breakdow
     const d = (await upload(WHOLESALER)).body as Detail;
     expect(d.invoice.linesConsistent).toBe(true);
     expect(d.lines.map((l) => [l.lineNo, l.category])).toEqual([[1, "cable"], [2, "lighting"], [3, "freight"]]);
+    expect((d.lines[0] as unknown as { measure: unknown }).measure).toEqual({ amount: 300, unit: "m", explain: "3 × 100 m" });
     const r = await call({ method: "PUT", query: { action: "line", id: d.invoice.id }, body: { lineNo: 3, category: "consumables" } });
     expect(r.statusCode).toBe(200);
     expect((r.body as Detail).lines[2]).toMatchObject({ category: "consumables", categorySource: "manual" });
@@ -459,6 +460,12 @@ describe("api/invoices — line items, re-filing, and the job materials breakdow
     const b = (await call({ query: { action: "job-materials", jobId: "birdwood" } })).body as Breakdown;
     expect(b).toMatchObject({ invoiceCount: 2, confirmedCents: 41550 - 12000, linesCents: 41550 });
     expect(b.byCategory.map((c) => [c.category, c.label, c.cents, c.lineCount])).toEqual([["cable", "Cable", 26850, 1], ["lighting", "Lighting", 13200, 1], ["freight", "Freight & delivery", 1500, 1]]);
+    // "exactly how much cable": the category carries its measure and a product roll-up
+    const cable = b.byCategory[0] as unknown as { measure: Record<string, number>; measuredLines: number; products: Array<{ description: string; measures: Record<string, number>; quantities: Record<string, number>; invoiceCount: number; lineIds: string[] }> };
+    expect(cable.measure).toEqual({ m: 300 });
+    expect(cable.products).toEqual([expect.objectContaining({ description: "CBL2.5T 2.5MM TWIN & EARTH TPS 100M ROLL", measures: { m: 300 }, quantities: { roll: 3 }, invoiceCount: 1 })]);
+    expect(cable.products[0]!.lineIds).toHaveLength(1);
+    expect(b.lines[0]).toMatchObject({ measure: { amount: 300, unit: "m", explain: "3 × 100 m" } });
     expect(b.bySupplier).toEqual([{ supplierName: "Wholesale Wires Pty Ltd", cents: 41550 }]);
     expect(b.invoicesWithoutLines).toEqual([expect.objectContaining({ invoiceId: cn.invoice.id, amountCents: -12000 })]);
   });
