@@ -348,19 +348,16 @@ module.exports = async (req, res) => {
     if (!getWebPush()) return res.status(503).json({ error: 'push not configured (missing VAPID env vars)' });
 
     const today = sydneyToday();
-    const { list } = require('@vercel/blob');
-    const token = process.env.BLOB_READ_WRITE_TOKEN;
+    const { listTimeEntryBlobsForDate } = require('./_lib/time-entry-blobs');
 
     // Hours submitted today (across all users) — walk every per-user
-    // time-entries blob for today's date. Same path /api/time-entries-overview
-    // walks; inlined here so the cron stays self-contained.
+    // time-entries blob for today's date. Same paginated walk
+    // /api/time-entries-overview uses (#935), never the silent cap.
     let hoursSubmittedCount = 0;
     let hoursSubmittedTotal = 0;
     let hoursPendingCount   = 0;
     try {
-      const r = await list({ prefix: 'users/', token, limit: 5000 });
-      const blobs = (r.blobs || []).filter(b =>
-        b.pathname.endsWith(`/time-entries/${today}.json`));
+      const blobs = await listTimeEntryBlobsForDate(today);
       const entries = (await Promise.all(blobs.map(async b => {
         try {
           const rr = await fetch(b.url + '?t=' + Date.now(), { cache: 'no-store' });

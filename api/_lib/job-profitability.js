@@ -19,7 +19,7 @@
 /**
  * @param {{ contractValueCents: number|null, labourCostCents: number,
  *           unratedWorkers: string[], materialCostCents: number|null,
- *           materialSource: 'consumption'|'ledger'|'received_proxy'|'none' }} input
+ *           materialSource: 'consumption'|'ledger'|'invoices'|'received_proxy'|'none' }} input
  */
 function computeJobProfitability(input) {
   const labourCostCents = Math.max(0, Math.round((input && input.labourCostCents) || 0));
@@ -45,6 +45,7 @@ function computeJobProfitability(input) {
   );
   if (materialSource === 'consumption') badges.push('materials actual');
   else if (materialSource === 'ledger') badges.push('materials from spend ledger');
+  else if (materialSource === 'invoices') badges.push('materials from supplier invoices');
   else if (materialSource === 'received_proxy') badges.push('materials proxy');
   else badges.push('no material data');
   if (contractValueCents == null) badges.push('no contract value set');

@@ -67,7 +67,6 @@ module.exports = async (req, res) => {
 
   const approved = [];
   const failed   = [];
-  const now = new Date().toISOString();
 
   // Process sequentially. The per-entry writeEntry/appendAudit pair is
   // cheap (single blob write + audit append) and serialising avoids any
@@ -114,6 +113,19 @@ module.exports = async (req, res) => {
       }
     }
 
+    // Stamped PER ENTRY, immediately before its own write — never once for the
+    // whole batch. This loop is sequential and every iteration costs several
+    // round trips (read, CAS re-read, put, PG mirror, audit append), so a
+    // batch-wide stamp drifts further behind real time with every entry. The
+    // payroll freshness guard (api/_lib/payroll-inputs.js) reads an entry whose
+    // newest stamp trails its blob's last-PUT time by more than the skew as a
+    // stale CDN read and REFUSES THE WHOLE PAYROLL RUN — permanently, because
+    // both values are then frozen in the stored document, so no retry can ever
+    // clear it. A hoisted stamp poisoned the tail of every long batch that way
+    // (owner, 2026-09-21: "the email didn't send", six times, naming the last
+    // days of two workers' weeks). It is also simply true: these entries were
+    // approved one after another, not all in the same instant.
+    const now = new Date().toISOString();
     const updated = {
       ...entry,
       status: 'approved',

@@ -22,6 +22,16 @@ are worth.* Before this the hub's Materials figure read
   ledger (`materialSource: 'ledger'`), so the Money card's Materials cell and
   the ledger's total can never disagree. The legacy `materials-list.json`
   rollup stays as a fallback proxy for any job that still has one.
+- **Supplier invoices add to it (2026-09-23)**: with `invoice_capture` on,
+  the CONFIRMED supplier-invoice allocations for the job (Supabase
+  `supplier_invoice_allocations`, active rows, credit notes negative) are
+  added to the same Materials figure — `materialSource` stays `'ledger'` when
+  the ledger has lines, is `'invoices'` when only invoices carry the figure,
+  and the response's `supplierInvoices` names the invoice share so the card
+  can say what the number is made of. The ledger is therefore for cash-sale
+  dockets and anything that never came by email; the card says so, so the
+  office does not retype captured invoices. An unreadable invoice store is
+  reported (`unavailable`), never a quiet 0.
 - **Audit**: `job.material_spend_added` / `job.material_spend_removed` in the
   canonical journal, **without the amount** (the journal is readable below the
   admin tier; supplier + date only).

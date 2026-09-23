@@ -22,6 +22,7 @@ import { Card, CardDescription, CardKicker, CardTitle } from "@/components/ui/Ca
 import { JobHealthBand } from "@/components/admin/JobHealthBand";
 import { JobLabourSummary } from "@/components/admin/JobLabourSummary";
 import { JobMaterialsCard } from "@/components/admin/JobMaterialsCard";
+import { JobSupplierInvoicesCard } from "@/components/admin/invoices/JobSupplierInvoicesCard";
 import { JobMoneyCard } from "@/components/admin/JobMoneyCard";
 import { JobTagsSummary } from "@/components/admin/JobTagsSummary";
 import { JobEvidenceSummary } from "@/components/admin/JobEvidenceSummary";
@@ -112,6 +113,9 @@ export default async function AdminJobInterfacePage({ params }: PageParams) {
   const canBuild = canAccessSurface(session.role, "admin");
   // The materials spend ledger is an admin-tier launch-gate (dark by default).
   const materialsEnabled = canBuild && (await isFlagEnabled("job_materials_spend", session));
+  // Supplier-invoice capture is an admin-tier launch-gate (dark): when off the
+  // hub renders no card, no count and makes no fetch — no trace at all.
+  const invoicesEnabled = canBuild && (await isFlagEnabled("invoice_capture", session));
 
   const base = await requestBase();
   const result = await loadJob(base, raw, jobId);
@@ -226,7 +230,8 @@ export default async function AdminJobInterfacePage({ params }: PageParams) {
                 <LabourSection base={base} cookieValue={raw} job={job} progressPct={progressPct} />
               </Suspense>
             ) : null}
-            {materialsEnabled ? <JobMaterialsCard jobId={job.id} /> : null}
+            {materialsEnabled ? <JobMaterialsCard jobId={job.id} invoicesEnabled={invoicesEnabled} /> : null}
+            {invoicesEnabled ? <JobSupplierInvoicesCard jobId={job.id} /> : null}
             <Suspense fallback={<EvidenceSkeleton />}>
               <EvidenceSection base={base} cookieValue={raw} jobId={job.id} />
             </Suspense>

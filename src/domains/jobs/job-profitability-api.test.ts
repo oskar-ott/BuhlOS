@@ -18,6 +18,12 @@ const walkPath = requireFromHere.resolve("../../../api/_lib/time-entry-blobs.js"
 const ledgerPath = requireFromHere.resolve("../../../api/_lib/job-materials.js");
 const flagsPath = requireFromHere.resolve("../../../api/_lib/feature-flags.js");
 const handlerPath = requireFromHere.resolve("../../../api/job-profitability.js");
+const dbPath = requireFromHere.resolve("../../../api/_lib/supabase-db.js");
+const invoiceStorePath = requireFromHere.resolve("../../../api/_lib/invoices/store.js");
+
+/** What the (mocked) supplier-invoice store answers for job-a; a thrown error
+ *  simulates an unreachable Postgres. */
+let invoiceSummary: { confirmedCents: number; confirmedCount: number; awaitingCount: number } | Error;
 
 type Res = ReturnType<typeof createRes>;
 let blob: Map<string, unknown>;
@@ -148,6 +154,20 @@ beforeEach(() => {
       setNoCache: vi.fn(),
     },
   } as NodeJS.Module;
+  invoiceSummary = { confirmedCents: 0, confirmedCount: 0, awaitingCount: 0 };
+  requireFromHere.cache[dbPath] = { id: dbPath, filename: dbPath, loaded: true, exports: { getDb: () => ({}) } } as NodeJS.Module;
+  requireFromHere.cache[invoiceStorePath] = {
+    id: invoiceStorePath,
+    filename: invoiceStorePath,
+    loaded: true,
+    exports: {
+      resolveTenant: async () => ({ id: "tenant", slug: "buhl" }),
+      jobSummary: async (_sql: unknown, _t: string, jobId: string) => {
+        if (invoiceSummary instanceof Error) throw invoiceSummary;
+        return { jobId, ...invoiceSummary };
+      },
+    },
+  } as NodeJS.Module;
   requireFromHere.cache[vercelBlobPath] = {
     id: vercelBlobPath,
     filename: vercelBlobPath,
@@ -179,6 +199,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   delete process.env.FLAG_JOB_MATERIALS_SPEND;
+  delete process.env.FLAG_INVOICE_CAPTURE;
 });
 
 describe("GET /api/job-profitability — confidentiality + shape (#327)", () => {
@@ -399,5 +420,60 @@ describe("GET /api/job-profitability — owner pull 2026-08-23 (rates links, cha
     const res = await call({ role: "admin", query: { jobId: "job-a" } });
     expect(res.statusCode).toBe(200);
     expect((res.body as { hoursTotal: number }).hoursTotal).toBe(12); // all approved job-a hours across both pages
+  });
+});
+
+describe("GET /api/job-profitability — confirmed supplier invoices reach Materials (owner direction 2026-09-23)", () => {
+  type Body = {
+    materialCostCents: number;
+    marginCents: number | null;
+    completeness: { material: string };
+    badges: string[];
+    supplierInvoices: { confirmedCents: number; confirmedCount: number; awaitingCount: number; unavailable: boolean } | null;
+  };
+  it("with invoice_capture OFF the store is never consulted and the response carries no trace", async () => {
+    invoiceSummary = new Error("must not be read");
+    const res = await call({ role: "admin", query: { jobId: "job-a" } });
+    expect(res.statusCode).toBe(200);
+    const b = res.body as Body;
+    expect(b.supplierInvoices).toBeNull();
+    expect(b.completeness.material).toBe("received_proxy"); // legacy proxy, unchanged
+  });
+  it("invoices alone carry the Materials figure (source 'invoices'), the awaiting count is named, margin includes them", async () => {
+    process.env.FLAG_INVOICE_CAPTURE = "true";
+    invoiceSummary = { confirmedCents: 108_000, confirmedCount: 2, awaitingCount: 1 };
+    const b = (await call({ role: "admin", query: { jobId: "job-a" } })).body as Body;
+    expect(b.completeness.material).toBe("invoices");
+    expect(b.materialCostCents).toBe(108_000);
+    expect(b.supplierInvoices).toEqual({ confirmedCents: 108_000, confirmedCount: 2, awaitingCount: 1, unavailable: false });
+    expect(b.badges).toContain("materials from supplier invoices");
+    expect(b.marginCents).toBe(12_000_000 - 8 * 5250 - 108_000);
+  });
+  it("ledger lines + invoices add up under source 'ledger'", async () => {
+    process.env.FLAG_INVOICE_CAPTURE = "true";
+    process.env.FLAG_JOB_MATERIALS_SPEND = "true";
+    blob.set("jobs/job-a/materials-ledger.json", {
+      lines: [{ id: "l1", date: "2026-08-01", supplier: "L&H", description: null, amountCents: 18_450, addedBy: "boss", addedAt: "2026-08-01T00:00:00Z", removedAt: null }],
+    });
+    invoiceSummary = { confirmedCents: 50_000, confirmedCount: 1, awaitingCount: 0 };
+    const b = (await call({ role: "admin", query: { jobId: "job-a" } })).body as Body;
+    expect(b.completeness.material).toBe("ledger");
+    expect(b.materialCostCents).toBe(18_450 + 50_000);
+  });
+  it("no confirmed invoices and no ledger → still the legacy proxy, never a fake 0 from the invoice store", async () => {
+    process.env.FLAG_INVOICE_CAPTURE = "true";
+    invoiceSummary = { confirmedCents: 0, confirmedCount: 0, awaitingCount: 3 };
+    const b = (await call({ role: "admin", query: { jobId: "job-a" } })).body as Body;
+    expect(b.completeness.material).toBe("received_proxy");
+    expect(b.supplierInvoices?.awaitingCount).toBe(3);
+  });
+  it("an unreachable invoice store is REPORTED (unavailable), the rest of the figures still return", async () => {
+    process.env.FLAG_INVOICE_CAPTURE = "true";
+    invoiceSummary = Object.assign(new Error("pg down"), { code: "db" });
+    const res = await call({ role: "admin", query: { jobId: "job-a" } });
+    expect(res.statusCode).toBe(200);
+    const b = res.body as Body;
+    expect(b.supplierInvoices).toEqual({ confirmedCents: 0, confirmedCount: 0, awaitingCount: 0, unavailable: true });
+    expect(b.completeness.material).toBe("received_proxy");
   });
 });

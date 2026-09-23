@@ -20,8 +20,9 @@ import { cn } from "@/lib/cn";
  * Builder. On success we route straight into the Builder for that job so
  * the admin keeps building without a detour.
  *
- * Name is the one required field (mirrors the server). Ref + site address
- * are optional conveniences so the draft is recognisable in the jobs list.
+ * Name and the IV number are required (the server validates the IV format and
+ * refuses a duplicate with a 409). Ref + site address are optional
+ * conveniences so the draft is recognisable in the jobs list.
  * Job type + client are deliberately NOT here — they need lookup tables and
  * are managed where those tables live; the Builder round-trips them.
  *
@@ -33,13 +34,19 @@ import { cn } from "@/lib/cn";
 export function NewJobForm() {
   const router = useRouter();
   const [name, setName] = useState("");
+  const [code, setCode] = useState("");
   const [ref, setRef] = useState("");
   const [siteAddress, setSiteAddress] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showErrors, setShowErrors] = useState(false);
 
-  const fieldErrors = validateJobBasics({ name }, { requireName: true });
+  const fieldErrors: Record<string, string | undefined> = { ...validateJobBasics({ name }, { requireName: true }) };
+  // The IV number is what every worker gives the wholesaler and what supplier
+  // invoices are matched on — a job without one can never receive a cost.
+  const codeTrim = code.trim().toUpperCase();
+  if (!codeTrim) fieldErrors.code = "IV number is required";
+  else if (!/^IV\d{4}$/.test(codeTrim)) fieldErrors.code = "IV followed by four digits, e.g. IV3232";
   const canSubmit = Object.keys(fieldErrors).length === 0 && !submitting;
 
   async function submit() {
@@ -50,6 +57,7 @@ export function NewJobForm() {
     const res = await createJob(
       buildCreatePayload({
         name,
+        code: codeTrim,
         ref: ref.trim() || undefined,
         siteAddress: siteAddress.trim() || undefined,
       })
@@ -90,6 +98,24 @@ export function NewJobForm() {
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="e.g. Magill Rd — Unit 4 fitout"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") submit();
+            }}
+          />
+        </Field>
+        <Field
+          label="IV number"
+          required
+          help="The job number workers give the wholesaler — supplier invoices are matched on it."
+          error={showErrors ? fieldErrors.code : undefined}
+        >
+          <input
+            data-testid="job-code"
+            className={cn(inputClass, "font-mono uppercase", showErrors && fieldErrors.code && "border-rose-400")}
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            placeholder="e.g. IV3232"
+            maxLength={8}
             onKeyDown={(e) => {
               if (e.key === "Enter") submit();
             }}

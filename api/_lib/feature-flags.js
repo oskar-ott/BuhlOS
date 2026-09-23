@@ -396,6 +396,21 @@ const REGISTRY = {
     expires: '2026-11-30',
   },
 
+  // Supplier-invoice capture (docs/invoice-capture.md): supplier invoices the
+  // office forwards to the BuhlOS inbound address are captured (PDF kept in
+  // Blob, metadata Supabase-first), the wholesaler's printed IV job reference is
+  // matched EXACTLY against jobs.json `code`, and ONLY an office confirmation
+  // allocates the ex-GST amount to the job. Dark, unproven, admin-tier: gates
+  // /invoices, api/invoices, the webhook's processing path (a valid signed
+  // inbound delivery while OFF is quarantined — recorded by id, nothing fetched,
+  // nothing lost), the hub card, the nav item and the sweep cron. Not lean core.
+  invoice_capture: {
+    description: 'Supplier-invoice capture — inbound email (Resend) + manual upload → PDF kept → IV job reference matched EXACTLY against jobs.json code → office confirms → ex-GST cost on the job (api/invoices, /invoices, hub card). Dark, unproven, admin-tier.',
+    default: false,
+    target: 'admin-tier',
+    expires: '2026-12-31',
+  },
+
   // job_photos left the hidden list by owner decision (#916 call 2,
   // 2026-07-18): the gallery completes the capture loop, so it is lean-core —
   // a kill-switch (default ON).
@@ -417,6 +432,7 @@ const FLAG_PRESENTATION = {
   signup_link: { label: 'Crew sign-up link', domain: 'Company', surface: 'Shared', previewHref: '/employees' },
   itp_simple: { label: 'Simple ITP builder (Phil)', domain: 'QA & compliance', surface: 'Phil', previewHref: '/phil/jobs' },
   job_materials_spend: { label: 'Job materials spend ledger', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/v2/jobs' },
+  invoice_capture: { label: 'Supplier invoice capture', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/invoices' },
   admin_flags_readout: { label: 'Flags readout card', domain: 'Platform', surface: 'BuhlOS', previewHref: '/command-centre' },
   servicem8_sync: { label: 'ServiceM8 job sync', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/command-centre' },
   phil_sharpened: { label: 'Phil sharpened redesign', domain: 'Phil', surface: 'Phil', previewHref: '/phil/my-day' },

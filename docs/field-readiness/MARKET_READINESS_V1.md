@@ -145,11 +145,13 @@ Hardening items (this PR closes the first; the rest are issues):
   `backups/pre-restore-<ts>/` (`scripts/backup-restore.js`); runbook in
   `docs/backups.md`. **Gap:** Supabase PITR is a human step (#897/#532) — confirm
   it is enabled per env; a restore drill has not been run recently.
-- **Scale latent (#935, P1):** several hours endpoints still
-  `list({ prefix:'users/', limit:5000 })` without pagination; at ~50 blobs/week
-  the 5000 cap is ~2 years out, but it silently truncates rather than erroring.
-  The per-job money read, two core walks, and (2026-08-24, PR #1036) the
-  payroll row engine are paginated; the rest remain.
+- **Scale latent (#935) — CLOSED 2026-09-22:** every hours walk under
+  `users/` now pages through `api/_lib/time-entry-blobs.js` (the overview
+  behind the weekly board / pay-period readiness / command centre, on-site
+  crew, payroll reminder, day pulse, daily digest, job timeline, job glance).
+  The old single `list({ limit:5000 })` page was capped by the store well below
+  5000 and silently truncated rather than erroring — 352 blobs at audit time,
+  growing ~50/week. See `docs/regressions/payroll-export-blocked.md`.
 - **INCIDENT + FIX (2026-08-24, wk34, PR #1036):** the payroll print-out
   silently dropped freshly-approved days — just-overwritten day blobs served
   their pre-approval content from the CDN, still read "submitted", and the
@@ -164,6 +166,18 @@ Hardening items (this PR closes the first; the rest are issues):
   live env; approvals reach PG via the daily sync), so a PG-first read would
   have been worse — the #152 strangler stays the long-term cure behind its
   documented flip prerequisites.
+- **SECOND INCIDENT + FIX (2026-09-21, PR #1049; hardened 2026-09-22):** the
+  #1036 guard itself blocked the pay week — it compared the PUT time against
+  the HANDLER's `updatedAt`, and a bulk approve stamped a whole sequential
+  batch with one timestamp taken before the loop, so the tail of the batch
+  stored a stamp a minute behind its own PUT and was refused forever. #1049
+  stamped per entry and accepted settled blobs; the 2026-09-22 audit then
+  moved the guard onto the STORAGE layer's `__updatedAt` (written inside
+  `writeBlob` immediately before the put), which no handler can trail, bounded
+  every content fetch, and measured the skew against every production day-file
+  (storage stamp trails the PUT by ≤3.1s; handler stamps by up to 78s). Full
+  account, guardrails and the process failure in
+  `docs/regressions/payroll-export-blocked.md`.
 
 ---
 

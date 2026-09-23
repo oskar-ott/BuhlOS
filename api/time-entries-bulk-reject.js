@@ -67,7 +67,6 @@ module.exports = async (req, res) => {
 
   const rejected = [];
   const failed   = [];
-  const now = new Date().toISOString();
 
   for (const ref of list) {
     const userId = ref && ref.userId;
@@ -115,6 +114,11 @@ module.exports = async (req, res) => {
       }
     }
 
+    // Per entry, immediately before its own write — see the note in
+    // time-entries-bulk-approve.js: a batch-wide stamp drifts behind the
+    // sequential writes and trips the payroll freshness guard permanently.
+    // It also makes each undo window start when THAT entry was rejected.
+    const now = new Date().toISOString();
     const updated = {
       ...entry,
       status: 'rejected',

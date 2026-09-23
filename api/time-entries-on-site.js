@@ -17,7 +17,7 @@
 //   - leadingHand / tradie: only jobs in their assignedJobIds
 //   - client: 403 (clients don't see hours)
 
-const { list } = require('@vercel/blob');
+const { listTimeEntryBlobsForDate } = require('./_lib/time-entry-blobs'); // #935: paginated walk
 const { readBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, canWrite, isAdminRole, isClientRole } = require('./_lib/auth');
 
@@ -41,16 +41,13 @@ module.exports = async (req, res) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
 
   // Walk users/<*>/time-entries/<date>.json by path-prefix — no body fetch
-  // unless the path matches.
-  const token = process.env.BLOB_READ_WRITE_TOKEN;
-  let blobs = [];
+  // unless the path matches. Fully paginated (#935), never the silent cap.
+  let matching = [];
   try {
-    const r = await list({ prefix: 'users/', token, limit: 5000 });
-    blobs = r.blobs || [];
+    matching = await listTimeEntryBlobsForDate(date);
   } catch (e) {
     return res.status(502).json({ error: 'blob list failed: ' + e.message });
   }
-  const matching = blobs.filter(b => b.pathname.endsWith('/time-entries/' + date + '.json'));
 
   const fetched = await Promise.all(matching.map(async b => {
     try {

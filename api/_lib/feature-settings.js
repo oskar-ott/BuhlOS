@@ -40,6 +40,57 @@ const SETTINGS_REGISTRY = {
   // Each default MUST equal the feature's current hardcoded constant.
   // The 2026-07-27 gut deleted every previously-registered feature; what
   // remains is the lean core's knobs.
+  // Supplier-invoice capture (docs/invoice-capture.md "Auto-booking"): the
+  // automatic booking of clean invoices is OFF by default — review-only mode
+  // computes eligibility and shows "would have booked" without booking.
+  invoice_capture: {
+    autoConfirm: {
+      type: 'boolean',
+      label: 'Book clean invoices automatically',
+      description: 'A matched invoice that passes every check (labelled IV reference, one active job, printed figures that add up, known supplier, under the cap) books itself after the grace window unless someone holds it. Off = every invoice waits for a person.',
+      default: false,
+    },
+    autoConfirmCapDollars: {
+      type: 'number',
+      label: 'Auto-book cap (ex GST)',
+      description: 'Invoices at or above this ex-GST amount always wait for a person.',
+      default: 5000,
+      min: 0,
+      max: 100000,
+      step: 100,
+      unit: '$',
+    },
+    autoConfirmGraceHours: {
+      type: 'number',
+      label: 'Grace window (hours)',
+      description: 'How long a clean invoice sits as "booking soon" before the sweep books it — the window in which the office can hold or fix it.',
+      default: 12,
+      min: 1,
+      max: 72,
+      step: 1,
+      unit: 'h',
+    },
+    autoConfirmLookbackDays: {
+      type: 'number',
+      label: 'Oldest invoice date to auto-book (days)',
+      description: 'Invoices dated further back than this always wait for a person.',
+      default: 90,
+      min: 7,
+      max: 365,
+      step: 1,
+      unit: 'days',
+    },
+    alertQuietDays: {
+      type: 'number',
+      label: 'Alert after this many quiet days',
+      description: 'If no supplier email arrives for this long, the accounts list gets an alert (the forwarding rule or the webhook may have broken). 0 = never.',
+      default: 7,
+      min: 0,
+      max: 60,
+      step: 1,
+      unit: 'days',
+    },
+  },
   itp_simple: {
     maxUploadMb: {
       type: 'number',
