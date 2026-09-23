@@ -557,7 +557,7 @@ describe("validation — identical rules to the worker's own submission", () => 
       allocations: [{ jobId: "job-old", hours: 8 }],
     });
     expect(archived.statusCode).toBe(400);
-    expect((archived.body as { error: string }).error).toMatch(/active job/);
+    expect((archived.body as { error: string }).error).toMatch(/archived or draft/);
 
     const unknown = await call("u_admin", "admin", {
       userId: "u_field",

@@ -205,16 +205,29 @@ describe("GET /api/jobs field visibility", () => {
     }
   });
 
-  it("a closed-out (complete) job is field-invisible but admin-visible (#349)", async () => {
-    // Close out the assigned active job.
-    (blob.get("jobs.json") as { jobs: Array<{ id: string; status: string }> }).jobs
-      .find((j) => j.id === "job-active")!.status = "complete";
+  it("a finished job stays in the crew's list for the callback window, then leaves it but stays openable (docs/job-lifecycle.md)", async () => {
+    const store = (blob.get("jobs.json") as { jobs: Array<{ id: string; status: string; completedAt?: string }> }).jobs;
+    const job = store.find((j) => j.id === "job-active")!;
 
-    // Field worker: not in their list, and a direct GET 404s (office-only, like archived).
-    const list = await call({ method: "GET", userId: "u_field", role: "electrician" });
+    // Finished yesterday → "finishing": listed and openable.
+    job.status = "complete";
+    job.completedAt = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    let list = await call({ method: "GET", userId: "u_field", role: "electrician" });
+    expect((list.body as { jobs: Array<{ id: string }> }).jobs.map((j) => j.id)).toContain("job-active");
+    let fieldGet = await call({ method: "GET", userId: "u_field", role: "electrician", query: { id: "job-active" } });
+    expect(fieldGet.statusCode).toBe(200);
+
+    // Finished 45 days ago → "closed": out of the default list, still openable by id.
+    job.completedAt = new Date(Date.now() - 45 * 24 * 60 * 60 * 1000).toISOString();
+    list = await call({ method: "GET", userId: "u_field", role: "electrician" });
     expect((list.body as { jobs: Array<{ id: string }> }).jobs.map((j) => j.id)).not.toContain("job-active");
-    const fieldGet = await call({ method: "GET", userId: "u_field", role: "electrician", query: { id: "job-active" } });
-    expect(fieldGet.statusCode).toBe(404);
+    fieldGet = await call({ method: "GET", userId: "u_field", role: "electrician", query: { id: "job-active" } });
+    expect(fieldGet.statusCode).toBe(200);
+
+    // A complete job with NO stamp (status set before stamping existed) reads as closed.
+    delete job.completedAt;
+    list = await call({ method: "GET", userId: "u_field", role: "electrician" });
+    expect((list.body as { jobs: Array<{ id: string }> }).jobs.map((j) => j.id)).not.toContain("job-active");
 
     // Admin: still sees it (with the Complete status) so it stays on admin lists.
     const adminGet = await call({ method: "GET", userId: "u_admin", role: "admin", query: { id: "job-active" } });
@@ -1884,5 +1897,109 @@ describe("GET /api/jobs?summary=1 — admin base list from the summary", () => {
     expect(res.statusCode).toBe(200);
     const active = rows(res).find((j) => j.id === "job-active")!;
     expect(active).toHaveProperty("areaGroups"); // full read ran (flag off)
+  });
+});
+
+describe("job lifecycle (docs/job-lifecycle.md)", () => {
+  function storedJob(id: string) {
+    return (blob.get("jobs.json") as { jobs: Array<Record<string, unknown>> }).jobs.find(
+      (j) => j.id === id,
+    )!;
+  }
+  function journal(): Array<{ action: string; targetId: string; metadata?: Record<string, unknown> }> {
+    const out: Array<{ action: string; targetId: string; metadata?: Record<string, unknown> }> = [];
+    for (const [key, value] of blob.entries()) {
+      if (!key.startsWith("audit/")) continue;
+      for (const e of (value as { entries?: Array<{ action: string; targetId: string; metadata?: Record<string, unknown> }> }).entries ?? []) {
+        out.push(e);
+      }
+    }
+    return out;
+  }
+  const DAY = 24 * 60 * 60 * 1000;
+
+  it("marking a job finished stamps completedAt + who, and journals job.closed", async () => {
+    const before = Date.now();
+    const res = await call({ method: "PUT", userId: "u_admin", role: "admin", body: { id: "job-active", status: "complete" } });
+    expect(res.statusCode).toBe(200);
+    const job = storedJob("job-active");
+    expect(job.status).toBe("complete");
+    expect(typeof job.completedAt).toBe("string");
+    expect(Date.parse(job.completedAt as string)).toBeGreaterThanOrEqual(before);
+    expect(job.completedByUserId).toBe("u_admin");
+    const closed = journal().find((e) => e.action === "job.closed");
+    expect(closed?.targetId).toBe("job-active");
+    expect(closed?.metadata).toMatchObject({ fromStatus: "active", toStatus: "complete" });
+  });
+
+  it("reopening stamps reopenedAt, keeps completedAt (history), journals job.reopened", async () => {
+    await call({ method: "PUT", userId: "u_admin", role: "admin", body: { id: "job-active", status: "complete" } });
+    const finishedAt = storedJob("job-active").completedAt;
+    const res = await call({ method: "PUT", userId: "u_admin", role: "admin", body: { id: "job-active", status: "active" } });
+    expect(res.statusCode).toBe(200);
+    const job = storedJob("job-active");
+    expect(job.status).toBe("active");
+    expect(job.completedAt).toBe(finishedAt);
+    expect(typeof job.reopenedAt).toBe("string");
+    expect(journal().map((e) => e.action)).toEqual(expect.arrayContaining(["job.closed", "job.reopened"]));
+  });
+
+  it("finishing again moves the window forward — the crew's 30 days restart", async () => {
+    const store = storedJob("job-active");
+    store.status = "complete";
+    store.completedAt = new Date(Date.now() - 45 * DAY).toISOString();
+    await call({ method: "PUT", userId: "u_admin", role: "admin", body: { id: "job-active", status: "active" } });
+    await call({ method: "PUT", userId: "u_admin", role: "admin", body: { id: "job-active", status: "complete" } });
+    expect(Date.now() - Date.parse(storedJob("job-active").completedAt as string)).toBeLessThan(60_000);
+  });
+
+  it("a status-less PUT never touches the stamps; a leading hand still can't change status", async () => {
+    await call({ method: "PUT", userId: "u_admin", role: "admin", body: { id: "job-active", status: "complete" } });
+    const stamp = storedJob("job-active").completedAt;
+    await call({ method: "PUT", userId: "u_admin", role: "admin", body: { id: "job-active", siteAddress: "1 New St" } });
+    expect(storedJob("job-active").completedAt).toBe(stamp);
+    const lh = await call({ method: "PUT", userId: "u_lh", role: "leadingHand", body: { id: "job-active", status: "active" } });
+    expect(lh.statusCode).toBe(403);
+    expect(storedJob("job-active").status).toBe("complete");
+  });
+
+  it("?scope=history finds closed jobs by name / IV code / street for the crew — capped, draft/archived never", async () => {
+    const store = (blob.get("jobs.json") as { jobs: Array<Record<string, unknown>> }).jobs;
+    const active = store.find((j) => j.id === "job-active")!;
+    active.status = "complete";
+    active.completedAt = new Date(Date.now() - 90 * DAY).toISOString();
+    active.code = "IV7001";
+    active.siteAddress = "100 Arthur St, Ryde";
+
+    const byName = await call({ method: "GET", userId: "u_field", role: "electrician", query: { scope: "history", q: "acti" } });
+    expect(byName.statusCode).toBe(200);
+    const hits = (byName.body as { jobs: Array<{ id: string; phase?: string }> }).jobs;
+    expect(hits.map((j) => j.id)).toEqual(["job-active"]);
+    expect(hits[0]!.phase).toBe("closed");
+
+    const byCode = await call({ method: "GET", userId: "u_field", role: "electrician", query: { scope: "history", q: "iv7001" } });
+    expect((byCode.body as { jobs: Array<{ id: string }> }).jobs.map((j) => j.id)).toEqual(["job-active"]);
+    const byStreet = await call({ method: "GET", userId: "u_field", role: "electrician", query: { scope: "history", q: "arthur" } });
+    expect((byStreet.body as { jobs: Array<{ id: string }> }).jobs.map((j) => j.id)).toEqual(["job-active"]);
+
+    // Draft / archived are office-only even by search; a 1-char query is nothing.
+    const draft = await call({ method: "GET", userId: "u_field", role: "electrician", query: { scope: "history", q: "draft" } });
+    expect((draft.body as { jobs: unknown[] }).jobs).toEqual([]);
+    const archived = await call({ method: "GET", userId: "u_field", role: "electrician", query: { scope: "history", q: "archiv" } });
+    expect((archived.body as { jobs: unknown[] }).jobs).toEqual([]);
+    const short = await call({ method: "GET", userId: "u_field", role: "electrician", query: { scope: "history", q: "a" } });
+    expect((short.body as { jobs: unknown[] }).jobs).toEqual([]);
+  });
+
+  it("history search caps its answer — a company's whole ledger never ships to a phone", async () => {
+    const store = (blob.get("jobs.json") as { jobs: Array<Record<string, unknown>> }).jobs;
+    for (let i = 0; i < 60; i++) {
+      store.push({ id: `old-${i}`, name: `Old Job ${i}`, status: "complete", completedAt: new Date(Date.now() - 100 * DAY).toISOString() });
+    }
+    const res = await call({ method: "GET", userId: "u_field", role: "electrician", query: { scope: "history", q: "old job" } });
+    expect((res.body as { jobs: unknown[] }).jobs.length).toBe(25);
+    // …and none of them leak into the default list.
+    const list = await call({ method: "GET", userId: "u_field", role: "electrician" });
+    expect((list.body as { jobs: Array<{ id: string }> }).jobs.some((j) => j.id.startsWith("old-"))).toBe(false);
   });
 });

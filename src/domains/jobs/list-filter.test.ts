@@ -7,7 +7,7 @@ import {
   jobsForStatusView,
   parseJobStatusParam,
 } from "./list-filter";
-import { JOB_STATUS_OPTIONS } from "./format";
+import { JOB_PHASE_OPTIONS } from "./lifecycle";
 import type { Job } from "./types";
 
 /**
@@ -30,10 +30,14 @@ const JOBS: ReadonlyArray<Job> = [
 ];
 
 describe("parseJobStatusParam", () => {
-  it("accepts every status format.ts enumerates", () => {
-    for (const s of JOB_STATUS_OPTIONS) {
+  it("accepts every lifecycle phase the pills offer", () => {
+    for (const s of JOB_PHASE_OPTIONS) {
       expect(parseJobStatusParam(s)).toBe(s);
     }
+  });
+
+  it("maps the old 'complete' pill to the closed history view", () => {
+    expect(parseJobStatusParam("complete")).toBe("closed");
   });
 
   it("degrades unknown, empty and missing values to null (all)", () => {
@@ -53,8 +57,18 @@ describe("effectiveJobStatus", () => {
 });
 
 describe("filterJobs", () => {
-  it("returns everything when no filter is set", () => {
-    expect(filterJobs(JOBS, { status: null, query: "" })).toHaveLength(5);
+  it("'All' is the working portfolio — a closed job (complete, no stamp) is history", () => {
+    // j3 is complete with no completedAt → closed → out of "All".
+    expect(filterJobs(JOBS, { status: null, query: "" }).map((j) => j.id)).toEqual(["j1", "j2", "j4", "j5"]);
+    expect(filterJobs(JOBS, { status: "closed", query: "" }).map((j) => j.id)).toEqual(["j3"]);
+  });
+
+  it("a job finished inside the callback window is 'finishing' and still in 'All'", () => {
+    const fresh = job({ id: "j6", name: "Just Done", status: "complete", completedAt: new Date().toISOString() });
+    const all = filterJobs([...JOBS, fresh], { status: null, query: "" }).map((j) => j.id);
+    expect(all).toContain("j6");
+    expect(filterJobs([fresh], { status: "finishing", query: "" })).toHaveLength(1);
+    expect(filterJobs([fresh], { status: "closed", query: "" })).toHaveLength(0);
   });
 
   it("filters by status, including the missing-status→active fallback", () => {
@@ -135,7 +149,7 @@ describe("archived view", () => {
   it("'All' never shows archived rows, even when the loaded list carries them", () => {
     const all = filterJobs(WITH_ARCHIVED, { status: null, query: "" });
     expect(all.map((j) => j.id)).not.toContain("a1");
-    expect(all).toHaveLength(5);
+    expect(all).toHaveLength(4); // j3 (closed) is history too
     expect(filterJobs(WITH_ARCHIVED, { status: null, query: "arthur" })).toHaveLength(0);
   });
 });
@@ -145,7 +159,7 @@ describe("jobStatusCounts", () => {
     const counts = jobStatusCounts(JOBS);
     expect(counts.get("active")).toBe(2);
     expect(counts.get("on_hold")).toBe(1);
-    expect(counts.get("complete")).toBe(1);
+    expect(counts.get("closed")).toBe(1);
     expect(counts.get("draft")).toBe(1);
     expect(counts.get("archived")).toBeUndefined();
   });

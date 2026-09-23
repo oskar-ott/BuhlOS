@@ -155,7 +155,17 @@ export function PhilCaptureLauncher({
       });
       return;
     }
-    const decision = launcherDecision(r.data.jobs);
+    // The FAB tapped on a CLOSED job's page (docs/job-lifecycle.md): that job
+    // is not in the default list, so fetch it by id and offer it — a callback
+    // photo belongs to the job the worker is standing on, not to a guess.
+    // Any miss (404 for draft/archived, network) just leaves the list as is.
+    let jobs = r.data.jobs;
+    if (initialJobId && !jobs.some((j) => j.id === initialJobId)) {
+      const one = await getJobDetail(initialJobId);
+      if (seq !== reqRef.current) return;
+      if (one.ok) jobs = [...jobs, one.data.job];
+    }
+    const decision = launcherDecision(jobs);
     setJobsState({
       v: "ready",
       jobs:
@@ -165,7 +175,7 @@ export function PhilCaptureLauncher({
             ? [decision.job]
             : decision.jobs,
     });
-  }, []);
+  }, [initialJobId]);
 
   // Load jobs whenever the sheet opens; reset transient submit state. The
   // photo tray deliberately SURVIVES a close+reopen — an accidental backdrop

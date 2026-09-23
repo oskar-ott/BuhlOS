@@ -530,10 +530,12 @@ describe("PUT /api/jobs — field name-only fix (owner ruling 2026-08-31)", () =
     expect(rename!.byUserId).toBe("u_field");
   });
 
-  it("flag ON ⇒ an office-only job (draft / archived / complete) stays forbidden — a field worker can't open, or rename, one", async () => {
+  it("flag ON ⇒ an office-only job (draft / archived) stays forbidden — a field worker can't open, or rename, one", async () => {
     process.env.FLAG_PHIL_SHARPENED = "1";
     const store = blob.get("jobs.json") as { jobs: Array<Record<string, unknown>> };
-    for (const status of ["draft", "archived", "complete"] as const) {
+    // `complete` is deliberately NOT here: a finished job stays openable by the
+    // crew for callbacks (docs/job-lifecycle.md), so its name is fixable too.
+    for (const status of ["draft", "archived"] as const) {
       store.jobs.find((j) => j.id === "job-custom")!.status = status;
       const res = await put("u_field", "electrician", { id: "job-custom", name: "Sneaky" });
       expect(res.statusCode, status).toBe(403);

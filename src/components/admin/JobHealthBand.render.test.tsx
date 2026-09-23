@@ -76,7 +76,9 @@ describe("JobHealthBand", () => {
     const html = renderToString(
       createElement(JobHealthBand, { job, canEdit: false, progressPct: null })
     );
-    expect(html).toContain("Complete");
+    // A complete job with no stamp is past its callback window → "Closed".
+    expect(html).toContain("Closed");
     expect(html).not.toContain(">Active<");
+    expect(html).toContain("job-lifecycle-line");
   });
 });

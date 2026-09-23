@@ -18,8 +18,12 @@ const {
   loadCurrentUserInProcess,
   loadWorkerEntriesInProcess,
   loadFieldJobsInProcess,
+  loadFieldJobInProcess,
+  loadFieldJobsByIdInProcess,
   loadIsApprenticeInProcess,
 } = requireFromHere(requireFromHere.resolve("../../../api/_lib/phil-page-data.js")) as {
+  loadFieldJobInProcess: (cookie: string | undefined, jobId: string, deps?: unknown) => Promise<Record<string, unknown> | null>;
+  loadFieldJobsByIdInProcess: (cookie: string | undefined, ids: string[], deps?: unknown) => Promise<Array<{ id: string }>>;
   loadCurrentUserInProcess: (cookie: string | undefined, deps?: unknown) => Promise<unknown>;
   loadWorkerEntriesInProcess: (
     cookie: string | undefined,
@@ -126,14 +130,20 @@ describe("loadFieldJobsInProcess", () => {
     expect(d.readBlob).toHaveBeenCalledWith("jobs.json", { jobs: [] });
   });
 
-  it("non-field role reads the full jobs.json (pages still apply isVisibleToField on top)", async () => {
+  it("non-field role reads the full jobs.json through the same lifecycle rule (draft/closed never reach a log sheet)", async () => {
     const d = deps({
       getCurrentUser: vi.fn(async () => ({ id: "a1", role: "admin" })),
-      readBlob: vi.fn(async () => ({ jobs: [{ id: "j9", name: "Any", status: "draft" }] })),
+      readBlob: vi.fn(async () => ({
+        jobs: [
+          { id: "j9", name: "Any", status: "draft" },
+          { id: "j8", name: "Live", status: "active" },
+          { id: "j7", name: "Old", status: "complete" },
+        ],
+      })),
     });
     const res = await loadFieldJobsInProcess("c", d);
     expect(res.ok).toBe(true);
-    expect(res.jobs).toEqual([{ id: "j9", name: "Any", status: "draft" }]);
+    expect(res.jobs).toEqual([{ id: "j8", name: "Live", status: "active" }]);
     expect(d.readJobsSummary).not.toHaveBeenCalled();
   });
 });
@@ -173,5 +183,47 @@ describe("loadIsApprenticeInProcess", () => {
       }),
     });
     expect(await loadIsApprenticeInProcess("c", broken)).toBe(false);
+  });
+});
+
+/**
+ * Jobs a Phil page must name that are no longer in the default set
+ * (docs/job-lifecycle.md): the `?job=` a callback arrives with and the closed
+ * jobs a worker's own hours reference. Only openable jobs come back.
+ */
+describe("loadFieldJobsByIdInProcess / loadFieldJobInProcess", () => {
+  const records = [
+    { id: "live", name: "Live", status: "active" },
+    { id: "closed", name: "Old Depot", status: "complete", completedAt: "2025-11-02T00:00:00.000Z" },
+    { id: "archived", name: "Gone", status: "archived" },
+    { id: "draft", name: "Unpublished", status: "draft" },
+  ];
+
+  it("returns the openable jobs among the ids — closed yes, archived/draft never", async () => {
+    const d = deps({
+      getCurrentUser: vi.fn(async () => ({ id: "u1", role: "tradie" })),
+      readJobsSummary: vi.fn(async () => ({ records })),
+    });
+    const found = await loadFieldJobsByIdInProcess("c", ["closed", "archived", "draft", "nope"], d);
+    expect(found.map((j) => j.id)).toEqual(["closed"]);
+    expect(await loadFieldJobInProcess("c", "closed", d)).toMatchObject({ id: "closed" });
+    expect(await loadFieldJobInProcess("c", "archived", d)).toBeNull();
+    expect(await loadFieldJobInProcess("c", "nope", d)).toBeNull();
+  });
+
+  it("falls back to jobs.json when the summary read fails; empty ids read nothing", async () => {
+    const d = deps({
+      getCurrentUser: vi.fn(async () => ({ id: "u1", role: "tradie" })),
+      readJobsSummary: vi.fn(async () => { throw new Error("summary down"); }),
+      readBlob: vi.fn(async () => ({ jobs: records })),
+    });
+    expect((await loadFieldJobsByIdInProcess("c", ["closed"], d)).map((j) => j.id)).toEqual(["closed"]);
+    expect(await loadFieldJobsByIdInProcess("c", [], d)).toEqual([]);
+    expect(d.readBlob).toHaveBeenCalledTimes(1);
+  });
+
+  it("no session → nothing, never a throw", async () => {
+    const d = deps({ getCurrentUser: vi.fn(async () => null) });
+    expect(await loadFieldJobsByIdInProcess("c", ["closed"], d)).toEqual([]);
   });
 });

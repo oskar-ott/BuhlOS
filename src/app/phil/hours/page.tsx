@@ -4,6 +4,7 @@ import { isFlagEnabled } from "../../../../api/_lib/feature-flags.js";
 import {
   loadWorkerEntriesInProcess,
   loadFieldJobsInProcess,
+  loadFieldJobsByIdInProcess,
   loadIsApprenticeInProcess,
 } from "../../../../api/_lib/phil-page-data.js";
 import { PhilShell } from "@/components/phil/PhilShell";
@@ -89,7 +90,8 @@ export default async function PhilHoursPage({
 
   // History + the worker's active assigned jobs in parallel — the jobs feed
   // the resubmit form's attribution guard so a fix can't land jobId:null.
-  const [{ entries, fetchError }, assignedJobs, sharpenedFlags, canLogTafe] =
+  const launchJobId = typeof sp.job === "string" && sp.job ? sp.job : null;
+  const [{ entries, fetchError }, loadedJobs, sharpenedFlags, canLogTafe] =
     await Promise.all([
       loadHistory(raw),
       loadAssignedJobs(raw),
@@ -98,6 +100,21 @@ export default async function PhilHoursPage({
       // Apprentice (employee-record role) → the TAFE-day option. Fail-closed.
       loadIsApprenticeInProcess(raw),
     ]);
+  // Jobs this page must NAME that are no longer in the default set
+  // (docs/job-lifecycle.md): the `?job=` the worker came from (a callback on a
+  // closed job lands with its job picked) and any closed job their own recent
+  // hours reference (the week history reads "Old Depot · Closed", not "a job
+  // you're no longer on"). Loaded by id; only openable jobs come back.
+  const listed = new Set(loadedJobs.jobs.map((j) => j.id));
+  const referenced = new Set<string>();
+  if (launchJobId && !listed.has(launchJobId)) referenced.add(launchJobId);
+  for (const e of entries) {
+    for (const a of e.allocations ?? []) {
+      if (a.jobId && !listed.has(a.jobId)) referenced.add(a.jobId);
+    }
+  }
+  const extraRecords = referenced.size > 0 ? await loadFieldJobsByIdInProcess(raw, [...referenced]) : [];
+  const assignedJobs = withExtraJobs(loadedJobs, extraRecords);
 
   // ── Sharpened Hours (phil_sharpened, dark — Wave 2c) ─────────────────────
   // Same data (the full /api/time-entries history + the worker's assigned
@@ -126,7 +143,7 @@ export default async function PhilHoursPage({
               jobsError={assignedJobs.error}
               viewerId={session.userId ?? null}
               canLogTafe={canLogTafe}
-              launchJobId={typeof sp.job === "string" ? sp.job : null}
+              launchJobId={launchJobId}
             />
           )}
         </div>
@@ -302,8 +319,38 @@ async function loadHistory(cookieValue: string | undefined): Promise<{
  * `error: true` on any failure so the resubmit form blocks rather than falling
  * back to an unattributed entry.
  */
+
+type PageJob = AssignableJob & {
+  ref: string | null;
+  address: string | null;
+  completedAt?: string | null;
+  status?: string | null;
+};
+
+/** Append openable jobs the page must name that aren't in the default set. */
+function withExtraJobs(
+  loaded: { jobs: ReadonlyArray<PageJob>; error: boolean },
+  records: ReadonlyArray<Record<string, unknown>>
+): { jobs: ReadonlyArray<PageJob>; error: boolean } {
+  if (records.length === 0) return loaded;
+  const parsed = JobListResponseSchema.safeParse({ jobs: records });
+  if (!parsed.success) return loaded;
+  const have = new Set(loaded.jobs.map((j) => j.id));
+  const extra: PageJob[] = parsed.data.jobs
+    .filter((job) => !have.has(job.id))
+    .map((job) => ({
+      id: job.id,
+      name: job.name,
+      ref: job.code ?? job.ref ?? null,
+      address: job.siteAddress ?? null,
+      completedAt: job.completedAt ?? null,
+      status: job.status ?? null,
+    }));
+  return extra.length === 0 ? loaded : { ...loaded, jobs: [...loaded.jobs, ...extra] };
+}
+
 async function loadAssignedJobs(cookieValue: string | undefined): Promise<{
-  jobs: ReadonlyArray<AssignableJob & { ref: string | null; address: string | null }>;
+  jobs: ReadonlyArray<PageJob>;
   error: boolean;
 }> {
   try {
@@ -324,6 +371,8 @@ async function loadAssignedJobs(cookieValue: string | undefined): Promise<{
         ref: j.code ?? j.ref ?? null,
         // Search-only: the log sheet's job picker matches the street too.
         address: j.siteAddress ?? null,
+        completedAt: j.completedAt ?? null,
+        status: j.status ?? null,
       }));
     return { jobs, error: false };
   } catch {

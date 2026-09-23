@@ -7,10 +7,18 @@ const { recordJobsRead } = require('./_lib/job-read-diagnostics');
 const { mirrorJobToPg } = require('./_lib/jobs-mirror');
 const { isFlagOnSync, isFlagEnabled } = require('./_lib/feature-flags');
 const { readJobsSummary, readFieldJobStats, countActiveSnagsV2, countActiveItps } = require('./_lib/jobs-summary');
+// One lifecycle vocabulary for every gate below (docs/job-lifecycle.md): a
+// finished job stays in the crew's lists for GRACE_DAYS ("finishing"), then
+// leaves the default lists but stays openable + searchable ("closed").
+const {
+  jobPhase, isFieldListedByDefault, isFieldOpenable, lifecycleStamps, jobMatchesQuery,
+} = require('./_lib/job-lifecycle');
 const { readJobDetailProjection } = require('./_lib/job-detail-projection');
 const { readAdminJobDetailFromPg, persistAdminExtras } = require('./_lib/job-detail-pg');
 const { recordAdminJobDetailRead } = require('./_lib/admin-job-detail-read-diagnostics');
 
+/** Cap on ?scope=history results — a phone search, not a ledger export. */
+const HISTORY_SEARCH_LIMIT = 25;
 // Canonical job statuses — keep in sync with src/domains/jobs/schema.ts JOB_STATUSES.
 const VALID_JOB_STATUS = new Set(['active', 'complete', 'archived', 'on_hold', 'draft']);
 const { validateAreaGroups, findDuplicateLiveAreaId, validateTasks, validateCustomFields, visibleStructural } = require('./_lib/validation');
@@ -405,15 +413,25 @@ module.exports = async (req, res) => {
     if (isFieldRole(me.role) || isLeadingHandRole(me.role)) {
       try {
         const { records } = await readJobsSummary();
-        // Same per-viewer visibility filter as the full list branch: the worker's
-        // assigned, non-draft, non-archived jobs.
-        // All-jobs access: field/LH see EVERY active job, not just assigned ones.
-        let visible = records.filter(
-          (j) =>
-            j.status !== 'draft' &&
-            j.status !== 'archived' &&
-            j.status !== 'complete' // #349: closed-out jobs are field-invisible
-        );
+        // ?scope=history&q=<text>: the crew's way BACK to a closed job (a
+        // callback weeks later). Every openable job — active, finishing AND
+        // closed — matched by name / IV code / street, capped so a company
+        // with years of history never ships its whole ledger to a phone.
+        // Draft/archived stay office-only. Read-only; nothing is reopened.
+        if (req.query && req.query.scope === 'history') {
+          const q = String(req.query.q || '').trim();
+          if (q.length < 2) return res.status(200).json({ jobs: [] });
+          const hits = records
+            .filter((j) => isFieldOpenable(j) && jobMatchesQuery(j, q))
+            .slice(0, HISTORY_SEARCH_LIMIT)
+            .map((j) => Object.assign({}, redactJobForViewer(j, me.role), { phase: jobPhase(j) }));
+          return res.status(200).json({ jobs: hits });
+        }
+        // Default list = what the crew needs TODAY: every active / on-hold /
+        // finishing (within the callback window) job. Closed jobs are reached
+        // through scope=history above; draft/archived never (office-only).
+        // All-jobs access: field/LH see EVERY such job, not just assigned ones.
+        let visible = records.filter((j) => isFieldListedByDefault(j));
         // ?withStats=1: attach ONLY the two stats /phil/jobs renders
         // (statsSnagsV2Active, statsItpsActive), computed from the per-job
         // data.json + itps.json (the SAME shared counters the full path uses) —
@@ -428,7 +446,9 @@ module.exports = async (req, res) => {
         }
         // Same redaction boundary as the full path (typeName already resolved in
         // the record; money omitted from the record entirely).
-        return res.status(200).json({ jobs: visible.map((j) => redactJobForViewer(j, me.role)) });
+        return res.status(200).json({
+          jobs: visible.map((j) => Object.assign({}, redactJobForViewer(j, me.role), { phase: jobPhase(j) })),
+        });
       } catch (e) {
         console.error('jobs-summary read failed; falling back to full jobs.json', e && e.message);
         // fall through to the full read below
@@ -487,7 +507,7 @@ module.exports = async (req, res) => {
         // Only short-circuit the happy path: the job exists and is live. Draft and
         // archived are office-only (field/LH 404) — defer to the full read so the
         // exact 404/403 semantics live in exactly one place.
-        if (record && record.status !== 'draft' && record.status !== 'archived') {
+        if (record && isFieldOpenable(record)) {
           const cleaned = projectJobStructure(record, { includeArchived: false });
           const projected = { ...cleaned, modules: effectiveModules(record) };
           return res.status(200).json({ job: redactJobForViewer(projected, me.role) });
@@ -649,7 +669,7 @@ module.exports = async (req, res) => {
     // filter that follows is unchanged. Output is provably == Blob (faithful
     // jobs) or pure Blob (drift/new/error). Clients are NOT touched.
     const visibleJobIds = data.jobs
-      .filter(j => (me.assignedJobIds || []).includes(j.id) && j.status !== 'draft' && j.status !== 'archived' && j.status !== 'complete')
+      .filter(j => (me.assignedJobIds || []).includes(j.id) && isFieldListedByDefault(j))
       .map(j => j.id);
     const overlay = await readPhilJobsWithPgOverlay({ blobJobs: data.jobs, visibleJobIds });
     data.jobs = overlay.jobs;
@@ -672,11 +692,12 @@ module.exports = async (req, res) => {
       // just literal 'admin' — previously an office user could edit a draft via
       // PUT (canManageJob) yet 404'd opening it here. Field/LH/clients still
       // never see draft or archived work.
+      // A FINISHED (complete) job stays openable for the crew: that is how a
+      // callback finds its job weeks later (docs/job-lifecycle.md). Only
+      // draft and archived are office-only.
       if (
         (job.status === 'draft' && !canViewDraftJobs(me.role)) ||
-        (job.status === 'archived' && !canViewArchivedJobs(me.role)) ||
-        // #349: a closed-out job is office-only, gated like archived.
-        (job.status === 'complete' && !canViewArchivedJobs(me.role))
+        (job.status === 'archived' && !canViewArchivedJobs(me.role))
       ) {
         return res.status(404).json({ error: 'job not found' });
       }
@@ -725,12 +746,21 @@ module.exports = async (req, res) => {
       visible = data.jobs.filter(j =>
         j.clientUserId === me.id && j.status !== 'draft' && j.status !== 'archived' && j.status !== 'complete'
       );
+    } else if (req.query && req.query.scope === 'history') {
+      // Fallback twin of the summary-path history search (the summary read
+      // failed or is stale): same rule, same cap, same shape.
+      const q = String(req.query.q || '').trim();
+      const hits = q.length < 2
+        ? []
+        : data.jobs
+            .filter((j) => isFieldOpenable(j) && jobMatchesQuery(j, q))
+            .slice(0, HISTORY_SEARCH_LIMIT);
+      return res.status(200).json({
+        jobs: hits.map((j) => Object.assign({}, redactJobForViewer(projectJobStructure(j), me.role), { phase: jobPhase(j) })),
+      });
     } else {
       visible = data.jobs.filter(j =>
-        (me.assignedJobIds || []).includes(j.id) &&
-        j.status !== 'draft' &&
-        j.status !== 'archived' &&
-        j.status !== 'complete' // #349: a closed-out job is field-invisible, like archived
+        (me.assignedJobIds || []).includes(j.id) && isFieldListedByDefault(j)
       );
     }
     // Enrich with human-readable type name (cheap lookup; small list).
@@ -912,6 +942,8 @@ module.exports = async (req, res) => {
     if (!id) return res.status(400).json({ error: 'id required' });
     const job = data.jobs.find(j => j.id === id);
     if (!job) return res.status(404).json({ error: 'job not found' });
+    /** 'job.closed' | 'job.reopened' when this PUT crossed the finish line — journalled after the write. */
+    let lifecycleJournal = null;
 
     // Permission: admin OR leadingHand on this specific job — plus ONE narrow
     // field path. Owner ruling 2026-08-31 ("anyone can add jobs and should be
@@ -935,8 +967,7 @@ module.exports = async (req, res) => {
     // 403s exactly as before).
     let fieldNameOnly = false;
     if (!canManageJob(me, id)) {
-      const fieldVisible =
-        job.status !== 'draft' && job.status !== 'archived' && job.status !== 'complete';
+      const fieldVisible = isFieldOpenable(job);
       const philRenamer =
         isFieldRole(me.role) &&
         fieldVisible &&
@@ -1087,6 +1118,20 @@ module.exports = async (req, res) => {
         return res.status(400).json({
           error: 'status must be one of: ' + [...VALID_JOB_STATUS].join(', '),
         });
+      }
+      // Lifecycle stamps (docs/job-lifecycle.md): finishing a job records
+      // WHEN — that date starts the crew's callback window and is what history
+      // asks first. Reopening records that too. Both are additive; a re-finish
+      // moves completedAt forward (the window restarts) and the journal keeps
+      // every earlier date. Nothing else on the job is touched.
+      const stamps = lifecycleStamps(job, status, new Date().toISOString());
+      if (stamps) {
+        if (stamps.completedAt) {
+          job.completedAt = stamps.completedAt;
+          job.completedByUserId = me.id;
+        }
+        if (stamps.reopenedAt) job.reopenedAt = stamps.reopenedAt;
+        lifecycleJournal = stamps.journal;
       }
       job.status = status;
     }
@@ -1376,6 +1421,31 @@ module.exports = async (req, res) => {
           metadata: {
             handoverDate: _now.handoverDate || null,
             defectPeriodEndsAt: _now.defectPeriodEndsAt || null,
+          },
+        }).catch(() => {});
+      }
+      // Lifecycle verbs in the cross-job journal (the audit actions #349 left
+      // registered): the durable answer to "when was it finished, by whom,
+      // was it reopened?" — queryable by targetId long after the per-job
+      // audit blob has trimmed. Best-effort after the write.
+      if (lifecycleJournal) {
+        const closed = lifecycleJournal === 'job.closed';
+        await appendAuditLog({
+          action: lifecycleJournal,
+          actorId: me.id,
+          actorName: me.username || me.name || '',
+          actorRole: me.role || null,
+          jobId: job.id,
+          targetType: 'job',
+          targetId: job.id,
+          summary: (closed
+            ? `${me.username || 'someone'} marked ${job.name} finished`
+            : `${me.username || 'someone'} reopened ${job.name} (${job.status})`).slice(0, 240),
+          metadata: {
+            fromStatus: _before.status || 'active',
+            toStatus: job.status,
+            completedAt: job.completedAt || null,
+            reopenedAt: job.reopenedAt || null,
           },
         }).catch(() => {});
       }

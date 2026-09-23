@@ -31,7 +31,7 @@ eventual home. Deepening area-owned task arrays is forbidden (anti-creep law).
 |---|---|---|
 | Organisation | `tenants` | single-tenant today; `tenant_id` on every table |
 | Users / Workers / Roles | `user_profiles`, `job_members` | role is a profile attribute; auth stays in `users.json` |
-| Jobs | `jobs` | |
+| Jobs | `jobs` | Lifecycle stamps `completedAt` / `completedByUserId` / `reopenedAt` (docs/job-lifecycle.md) live on the Blob row only today — the PG mirror is structure-only; nullable `completed_at` / `reopened_at` columns are the follow-up when jobs move toward a PG-served read |
 | Areas / groups | `site_area_groups`, `site_areas` | **facets, not task owners** |
 | Stages | `tasks.stage` (column) | correct — stage is a task facet, not a table |
 | Task plan | `job_task_templates` | `site_area_id` null = job default, set = area override |

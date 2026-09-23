@@ -35,3 +35,13 @@ export declare function loadFieldJobsInProcess(
 export declare function loadIsApprenticeInProcess(
   cookieValue: string | undefined
 ): Promise<boolean>;
+
+export declare function loadFieldJobInProcess(
+  cookieValue: string | undefined,
+  jobId: string | null | undefined
+): Promise<Record<string, unknown> | null>;
+
+export declare function loadFieldJobsByIdInProcess(
+  cookieValue: string | undefined,
+  jobIds: ReadonlyArray<string>
+): Promise<Array<Record<string, unknown>>>;

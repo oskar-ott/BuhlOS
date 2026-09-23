@@ -1,7 +1,8 @@
 import { MapPin } from "lucide-react";
 import { Card, CardDescription } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
-import { statusLabel, statusTone, type JobStatusTone } from "@/domains/jobs/format";
+import { type JobStatusTone } from "@/domains/jobs/format";
+import { jobPhase, phaseLabel, phaseTone, fieldLifecycleLine } from "@/domains/jobs/lifecycle";
 import type { Job } from "@/domains/jobs/types";
 
 const STATUS_PILL_TONE: Record<JobStatusTone, "success" | "warning" | "neutral"> = {
@@ -50,12 +51,19 @@ export function PhilJobHero({ job }: Props) {
           ) : null}
         </div>
         <Pill
-          tone={STATUS_PILL_TONE[statusTone(job.status)]}
+          tone={STATUS_PILL_TONE[phaseTone(jobPhase(job))]}
           className="shrink-0"
         >
-          {statusLabel(job.status)}
+          {phaseLabel(jobPhase(job))}
         </Pill>
       </div>
+      {/* A finished / closed / reopened job says so where the worker reads the
+          name (P9 — never behind a tab): hours logged here are a callback. */}
+      {fieldLifecycleLine(job) ? (
+        <p className="mt-2 text-sm text-text-muted" data-testid="phil-job-lifecycle">
+          {fieldLifecycleLine(job)}
+        </p>
+      ) : null}
       {job.siteAddress ? (
         <div className="mt-3 flex items-center gap-1.5 text-sm text-text-muted">
           <MapPin aria-hidden="true" className="h-4 w-4 shrink-0" />

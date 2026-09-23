@@ -8,6 +8,7 @@
 
 const { put, list, del } = require('@vercel/blob');
 const { readBlob, writeBlob, deleteBlob } = require('./blob');
+const { acceptsHours } = require('./job-lifecycle');
 const { mirrorTimeEntry, mirrorTimeEntryDelete } = require('./hours-mirror');
 const { recordMirrorDrift } = require('./mirror-drift'); // DWD-04: surface Blob-ok/PG-fail drift
 const { listUserEntriesFromPgIfEnabled } = require('./hours-read');
@@ -158,8 +159,12 @@ async function inactiveJobAllocationError(allocations) {
   (jobsBlob.jobs || []).forEach((j) => { jobById[j.id] = j; });
   for (const jid of allocJobIds) {
     const job = jobById[jid];
-    const active = job && job.status !== 'archived' && job.status !== 'draft';
-    if (!active) return 'forbidden — hours can only be logged against an active job';
+    // The one lifecycle rule (api/_lib/job-lifecycle.js): active, on-hold and
+    // finished/closed jobs take hours (a callback weeks after the finish is
+    // normal work); draft and archived never do.
+    if (!job || !acceptsHours(job)) {
+      return 'forbidden — hours can only be logged against a job that is live or finished, not archived or draft';
+    }
   }
   return null;
 }
