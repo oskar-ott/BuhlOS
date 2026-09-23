@@ -199,6 +199,21 @@ person unless the auto-booking checks pass on a real invoice.
 - Logs carry counts and stable codes only — no addresses, subjects, secrets
   or content.
 
+### Statement check (owner direction 2026-09-23)
+
+A supplier statement is the supplier's list of what we owe. When one is read
+(`document_type = statement`, still not allocatable), the pipeline parses its
+invoice / credit lines (`api/_lib/invoices/statement.js`: a reference token +
+an amount, dates and IV codes excluded, balance/ageing/payment lines skipped)
+and compares them with **this supplier's captured documents** by invoice
+number (punctuation-insensitive, never fuzzy). The result is stored on the
+statement row as `matchReason.statement` and shown as a "Statement check"
+card: how many listed invoices are captured (linked), which are **not
+captured** (reference, date, amount — ask the supplier to resend, or upload),
+and any amount that differs from what was captured. A statement with
+uncaptured invoices carries the review reason `statement_missing_invoices`.
+Nothing is booked from a statement.
+
 ### External steps still required (none performed by the PR)
 
 1. **Resend:** enable receiving on `buhlos.com` (already a verified sending

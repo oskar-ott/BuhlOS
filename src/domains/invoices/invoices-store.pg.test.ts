@@ -158,4 +158,14 @@ describe.skipIf(!ENABLED)("invoices store — dev Postgres", () => {
     const digest = await store.digestStats(sql, tenantId, { since: new Date(Date.now() - 60_000).toISOString() });
     expect(digest.setAsideCount).toBeGreaterThanOrEqual(1);
   });
+
+  it("lists a supplier's captured documents for the statement check, excluding the statement itself", async () => {
+    const a = await make("c".repeat(64));
+    await store.claimOne(sql, tenantId, a.invoice.id);
+    await store.applyExtraction(sql, tenantId, a.invoice.id, { supplierName: `Statement Co ${marker}`, supplierKey: `statement-co-${marker}`, supplierInvoiceNumber: "SC-1", documentType: "tax_invoice", status: "matched", extractionMethod: "pdf_text", currency: "AUD", matchStatus: "none", reviewReasons: [], subtotalCents: 1000, gstCents: 100, totalCents: 1100 });
+    const st = await make("b".repeat(64));
+    const rows = await store.listSupplierInvoices(sql, tenantId, `statement-co-${marker}`, st.invoice.id);
+    expect(rows).toEqual([{ id: a.invoice.id, supplierInvoiceNumber: "SC-1", status: "matched", documentType: "tax_invoice", subtotalCents: 1000, totalCents: 1100 }]);
+    expect(await store.listSupplierInvoices(sql, tenantId, null, st.invoice.id)).toEqual([]);
+  });
 });

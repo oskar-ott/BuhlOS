@@ -253,6 +253,10 @@ export function createMemoryStore(opts: { tenantId?: string; jobUuids?: Record<s
       store.invoices
         .filter((r) => r.id !== exclude && r.supplierKey === key && String(r.supplierInvoiceNumber ?? "").toUpperCase().replace(/\s+/g, "") === number)
         .map((r) => ({ id: r.id, status: r.status, createdAt: r.createdAt })),
+    listSupplierInvoices: async (_s: unknown, _t: string, key: string, exclude: string) =>
+      store.invoices
+        .filter((r) => r.id !== exclude && r.supplierKey === key && r.supplierInvoiceNumber)
+        .map((r) => ({ id: r.id, supplierInvoiceNumber: r.supplierInvoiceNumber, status: r.status, documentType: r.documentType, subtotalCents: r.subtotalCents ?? null, totalCents: r.totalCents ?? null })),
     claimPending: async (_s: unknown, _t: string, { limit = 3 }: { limit?: number } = {}) => {
       const due = store.invoices.filter((r) => (r.attemptCount as number) < MAX_ATTEMPTS && (r.status === "received" && (!r.nextAttemptAt || (r.nextAttemptAt as string) <= now())));
       const claimed = due.slice(0, limit);

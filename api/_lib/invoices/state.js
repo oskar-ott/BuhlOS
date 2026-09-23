@@ -53,6 +53,7 @@ const REVIEW_REASON_LABELS = {
   missing_subtotal: 'No ex-GST amount could be read',
   unknown_document_type: 'Could not tell what kind of document this is',
   not_allocatable: 'Statements and quotes are never job costs',
+  statement_missing_invoices: 'Invoices on this statement were never captured — see the statement check',
   no_text_layer: 'The PDF has no readable text (scanned image) — enter the details by hand',
   job_inactive: 'The matched job is not active',
   extraction_failed: 'The document could not be read',

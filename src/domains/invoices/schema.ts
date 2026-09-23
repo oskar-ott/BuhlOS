@@ -23,6 +23,21 @@ export type InvoiceStatus = (typeof INVOICE_STATUSES)[number];
 export const DOCUMENT_TYPES = ["invoice", "tax_invoice", "credit_note", "statement", "quote", "delivery_docket", "order_confirmation", "remittance", "purchase_order", "other", "unknown"] as const;
 export type DocumentType = (typeof DOCUMENT_TYPES)[number];
 
+/** The statement check the pipeline stores on a statement row (matchReason.statement). */
+export const StatementCheckSchema = z.object({
+  listed: z.number(),
+  matched: z.array(
+    z.object({ ref: z.string(), invoiceId: z.string(), status: z.string(), documentType: z.string(), amountCents: z.number().nullable(), capturedTotalCents: z.number().nullable() })
+  ),
+  missing: z.array(z.object({ ref: z.string(), kind: z.string(), date: z.string().nullable(), amountCents: z.number().nullable() })),
+  checkedAt: z.string().optional(),
+});
+export type StatementCheck = z.infer<typeof StatementCheckSchema>;
+export function statementCheckOf(matchReason: Record<string, unknown> | null | undefined): StatementCheck | null {
+  const r = matchReason && typeof matchReason === "object" ? StatementCheckSchema.safeParse((matchReason as { statement?: unknown }).statement) : null;
+  return r && r.success ? r.data : null;
+}
+
 export const MATCH_STATUSES = ["none", "exact", "ambiguous", "not_found", "multi_reference", "manual"] as const;
 
 const FieldSchema = z
