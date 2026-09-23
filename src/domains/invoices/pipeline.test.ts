@@ -48,7 +48,7 @@ describe("processInvoice", () => {
     const inv = store.invoices[0];
     expect(inv).toMatchObject({ status: "matched", matchStatus: "exact", matchedJobId: "birdwood", ivReference: "IV0041", ivReferenceRaw: "IV 0041", supplierInvoiceNumber: "SS-88123", subtotalCents: 108000, gstCents: 10800, totalCents: 118800, totalsConsistent: true, extractionMethod: "pdf_text", supplierKey: "sparky supplies" });
     expect(store.allocations).toEqual([]); // nothing costed without a human
-    expect(store.events.map((e) => e.event)).toEqual(["uploaded", "extracted", "matched"]);
+    expect(store.events.map((e) => e.event)).toEqual(["uploaded", "extracted", "lines_read", "matched"]);
     expect(store.attempts[0]).toMatchObject({ outcome: "ok", trigger: "upload", attemptNo: 1 });
   });
 

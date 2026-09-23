@@ -15,6 +15,8 @@
 //   POST   /api/invoices?action=process-pending                        → processes up to 3 received rows
 //   POST   /api/invoices?action=retry&id=X                             → re-runs extraction
 //   PUT    /api/invoices?id=X                  { field corrections }   → re-checks totals + IV match
+//   PUT    /api/invoices?action=line&id=X      { lineNo, category?, description? } → re-files a line item; the category is REMEMBERED for this supplier + product
+//   GET    /api/invoices?action=job-materials&jobId=  a job's materials breakdown by category, line by line (confirmed invoices only)
 //   POST   /api/invoices?action=select-job&id=X   { jobId }
 //   POST   /api/invoices?action=confirm&id=X      { jobId? }           → ONE active allocation (idempotent)
 //   POST   /api/invoices?action=reassign&id=X     { jobId }            → reverse + re-allocate (confirmed only)
@@ -47,6 +49,7 @@ const { storeInvoicePdf, fetchInvoicePdf, sha256Hex } = require('./_lib/invoices
 const { sanitiseFilename, sanitiseFilenameFor, sniffDocument, decodeDataUrl } = require('./_lib/invoices/safe-file');
 const { normaliseIvReference, buildJobCodeIndex, matchJobByIv, nearMissJobs } = require('./_lib/invoices/iv-match');
 const { normaliseSupplierName } = require('./_lib/invoices/supplier-identity');
+const { CATEGORY_LABELS, isCategory, descriptionKey } = require('./_lib/invoices/categories');
 const { reconcileTotals, allocationAmountCents, isCents } = require('./_lib/invoices/money');
 const { canTransition, DOCUMENT_TYPES, ALLOCATABLE_TYPES, STATUSES } = require('./_lib/invoices/state');
 const { ingestReceivedEmail } = require('./_lib/invoices/ingest');
@@ -249,6 +252,30 @@ async function handler(req, res) {
           .slice(0, 50);
         return res.status(200).json({ jobs: rows });
       }
+      if (action === 'job-materials') {
+        const jobId = String(q.jobId || '');
+        if (!jobId) return res.status(400).json({ error: 'jobId required' });
+        const b = await store.jobMaterialsBreakdown(sql, tenant.id, jobId);
+        const byCat = {};
+        const bySupplier = {};
+        let linesCents = 0;
+        for (const l of b.lines) {
+          const c = byCat[l.category] || (byCat[l.category] = { category: l.category, label: CATEGORY_LABELS[l.category] || l.category, cents: 0, lineCount: 0 });
+          c.cents += l.signedCents; c.lineCount += 1; linesCents += l.signedCents;
+          const s = l.supplierName || 'Unknown supplier';
+          bySupplier[s] = (bySupplier[s] || 0) + l.signedCents;
+        }
+        return res.status(200).json({
+          jobId,
+          confirmedCents: b.confirmedCents,
+          invoiceCount: b.invoiceCount,
+          linesCents,
+          byCategory: Object.values(byCat).sort((a, c) => c.cents - a.cents),
+          bySupplier: Object.entries(bySupplier).map(([supplierName, cents]) => ({ supplierName, cents })).sort((a, c) => c.cents - a.cents),
+          lines: b.lines,
+          invoicesWithoutLines: b.invoicesWithoutLines,
+        });
+      }
       if (action === 'job-summary') {
         const jobId = String(q.jobId || '');
         if (!jobId) return res.status(400).json({ error: 'jobId required' });
@@ -297,6 +324,7 @@ async function handler(req, res) {
       return res.status(200).json({ processed });
     }
 
+    if (req.method === 'PUT' && action === 'line' && id) return correctLine(sql, tenant, me, id, body, res);
     if (req.method === 'PUT' && id) return correct(sql, tenant, me, id, body, res);
     if (!id) return res.status(400).json({ error: 'id required' });
     const current = await store.getInvoiceRow(sql, tenant.id, id);
@@ -624,6 +652,36 @@ async function retry(sql, tenant, me, current, res) {
 }
 
 // ── corrections ──────────────────────────────────────────────────────────────
+/** Re-file (or rename) one line item; the category choice is remembered per supplier + product. */
+async function correctLine(sql, tenant, me, id, body, res) {
+  const current = await store.getInvoiceRow(sql, tenant.id, id);
+  if (!current) return res.status(404).json({ error: 'not found' });
+  if (current.status === 'archived') return res.status(409).json({ error: 'invalid_transition', status: current.status });
+  const lineNo = Number(body.lineNo);
+  if (!Number.isInteger(lineNo) || lineNo < 1) return res.status(400).json({ error: 'invalid_input', details: ['lineNo_invalid'] });
+  const patch = {};
+  if (body.category !== undefined) {
+    if (!isCategory(body.category)) return res.status(400).json({ error: 'invalid_input', details: ['category_invalid'] });
+    patch.category = body.category;
+  }
+  if (body.description !== undefined) {
+    const d = String(body.description || '').trim().slice(0, 200);
+    if (!d) return res.status(400).json({ error: 'invalid_input', details: ['description_required'] });
+    patch.description = d;
+    patch.descriptionKey = descriptionKey(d) || 'unknown';
+  }
+  if (!Object.keys(patch).length) return res.status(400).json({ error: 'invalid_input', details: ['nothing_to_change'] });
+  const line = await store.updateInvoiceLine(sql, tenant.id, id, lineNo, patch);
+  if (!line) return res.status(404).json({ error: 'line_not_found' });
+  if (patch.category && body.remember !== false) {
+    await store.rememberCategory(sql, tenant.id, { supplierKey: current.supplierKey, descriptionKey: line.descriptionKey, category: patch.category, actor: actorOf(me) });
+  }
+  await store.insertEvent(sql, tenant.id, id, { event: 'line_corrected', actor: actorOf(me), detail: { lineNo, category: patch.category || null, renamed: !!patch.description, remembered: !!(patch.category && body.remember !== false) } });
+  const detail = await detailWithJob(sql, tenant, id);
+  await journal(me, 'invoice.corrected', detail.invoice, `Re-filed line ${lineNo} of a supplier invoice${patch.category ? ` as ${CATEGORY_LABELS[patch.category]}` : ''}`, { lineNo, category: patch.category || null });
+  return res.status(200).json(detail);
+}
+
 async function correct(sql, tenant, me, id, body, res) {
   const current = await store.getInvoiceRow(sql, tenant.id, id);
   if (!current) return res.status(404).json({ error: 'not found' });

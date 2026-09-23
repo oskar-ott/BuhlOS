@@ -19,6 +19,8 @@ export interface MemoryStore {
   events: Row[];
   attempts: Row[];
   inbound: Row[];
+  lines: Row[];
+  learned: Row[];
   [k: string]: unknown;
 }
 
@@ -36,7 +38,7 @@ function inv(row: Row) {
 
 export function createMemoryStore(opts: { tenantId?: string; jobUuids?: Record<string, string> } = {}): MemoryStore {
   const tenantId = opts.tenantId ?? "11111111-1111-4111-8111-111111111111";
-  const store: MemoryStore = { invoices: [], documents: [], allocations: [], events: [], attempts: [], inbound: [] };
+  const store: MemoryStore = { invoices: [], documents: [], allocations: [], events: [], attempts: [], inbound: [], lines: [], learned: [] };
   const supplierPrefs = new Map<string, { alwaysReview: boolean; setBy: string | null; setAt: string | null }>();
   const MAX_ATTEMPTS = 3;
 
@@ -55,6 +57,7 @@ export function createMemoryStore(opts: { tenantId?: string; jobUuids?: Record<s
       allocations: store.allocations.filter((a) => a.invoiceId === id).map((a) => ({ ...a })),
       events: store.events.filter((e) => e.invoiceId === id).map((e) => ({ ...e })),
       attempts: store.attempts.filter((a) => a.invoiceId === id).map((a) => ({ ...a })),
+      lines: store.lines.filter((l) => l.invoiceId === id).map((l) => ({ ...l })),
     };
   };
 
@@ -101,6 +104,8 @@ export function createMemoryStore(opts: { tenantId?: string; jobUuids?: Record<s
       confirmedAt: null,
       confirmedBy: null,
       excludedReason: null,
+      linesTotalCents: null,
+      linesConsistent: null,
       archivedAt: null,
       autoConfirmEligible: false,
       autoConfirmAt: null,
@@ -194,7 +199,7 @@ export function createMemoryStore(opts: { tenantId?: string; jobUuids?: Record<s
         ivCandidates: p.ivCandidates ?? [], matchedJobId: p.matchedJobId ?? null, matchStatus: p.matchStatus || "none", matchReason: p.matchReason ?? null,
         status: p.status, reviewReasons: p.reviewReasons ?? [], failureCode: p.failureCode ?? null, extractionMethod: p.extractionMethod ?? null,
         fields: p.fields ?? {}, excerpt: p.excerpt ?? null, duplicateOfId: p.duplicateOfId ?? null, duplicateReason: p.duplicateReason ?? null,
-        excludedReason: p.excludedReason ?? null, nextAttemptAt: null, updatedAt: now(),
+        excludedReason: p.excludedReason ?? null, linesTotalCents: p.linesTotalCents ?? null, linesConsistent: p.linesConsistent ?? null, nextAttemptAt: null, updatedAt: now(),
       });
       return { ...r };
     },
@@ -376,6 +381,49 @@ export function createMemoryStore(opts: { tenantId?: string; jobUuids?: Record<s
         lastReceivedAt: store.inbound.length ? (store.inbound[store.inbound.length - 1]!.createdAt as string) : null,
         everReceived: store.inbound.length > 0,
       };
+    },
+    replaceInvoiceLines: async (_s: unknown, _t: string, invoiceId: string, lines: Row[]) => {
+      store.lines = store.lines.filter((l) => l.invoiceId !== invoiceId);
+      for (const l of lines) store.lines.push({ id: uuid(), invoiceId, category: "other", categorySource: "rule", confidence: "medium", unit: null, quantity: null, unitPriceCents: null, lineTotalCents: null, ...l, updatedAt: now() });
+    },
+    listInvoiceLines: async (_s: unknown, _t: string, invoiceId: string) => store.lines.filter((l) => l.invoiceId === invoiceId).map((l) => ({ ...l })),
+    updateInvoiceLine: async (_s: unknown, _t: string, invoiceId: string, lineNo: number, patch: Row) => {
+      const l = store.lines.find((x) => x.invoiceId === invoiceId && x.lineNo === lineNo);
+      if (!l) return null;
+      if (patch.category != null) { l.category = patch.category; l.categorySource = "manual"; }
+      if (patch.description != null) l.description = patch.description;
+      if (patch.descriptionKey != null) l.descriptionKey = patch.descriptionKey;
+      l.updatedAt = now();
+      return { ...l };
+    },
+    learnedCategories: async (_s: unknown, _t: string, supplierKey: string | null, keys: string[]) => {
+      const out: Record<string, string> = {};
+      for (const k of keys) {
+        const own = store.learned.find((r) => r.descriptionKey === k && r.supplierKey === (supplierKey || ""));
+        const any = store.learned.find((r) => r.descriptionKey === k && r.supplierKey === "");
+        const hit = own ?? any;
+        if (hit) out[k] = hit.category as string;
+      }
+      return out;
+    },
+    rememberCategory: async (_s: unknown, _t: string, { supplierKey, descriptionKey, category, actor }: Row) => {
+      const key = (supplierKey as string) || "";
+      const existing = store.learned.find((r) => r.descriptionKey === descriptionKey && r.supplierKey === key);
+      if (existing) Object.assign(existing, { category, setBy: (actor as Row | null)?.name ?? null, setAt: now() });
+      else store.learned.push({ id: uuid(), supplierKey: key, descriptionKey, category, setBy: (actor as Row | null)?.name ?? null, setAt: now() });
+    },
+    jobMaterialsBreakdown: async (_s: unknown, _t: string, jobLegacyId: string) => {
+      const active = store.allocations.filter((a) => a.jobId === jobLegacyId && a.status === "active");
+      const lines: Row[] = [];
+      const withoutLines: Row[] = [];
+      for (const a of active) {
+        const inv = store.invoices.find((r) => r.id === a.invoiceId)!;
+        const ls = store.lines.filter((l) => l.invoiceId === a.invoiceId);
+        if (!ls.length) withoutLines.push({ invoiceId: inv.id, supplierName: inv.supplierName, supplierInvoiceNumber: inv.supplierInvoiceNumber, invoiceDate: inv.invoiceDate, amountCents: a.amountCents });
+        const sign = inv.documentType === "credit_note" ? -1 : 1;
+        for (const l of ls) lines.push({ ...l, supplierName: inv.supplierName, supplierInvoiceNumber: inv.supplierInvoiceNumber, invoiceDate: inv.invoiceDate, documentType: inv.documentType, signedCents: ((l.lineTotalCents as number) || 0) * sign });
+      }
+      return { lines, invoicesWithoutLines: withoutLines, confirmedCents: active.reduce((s, a) => s + (a.amountCents as number), 0), invoiceCount: active.length };
     },
     healthSnapshot: async () => {
       const dayAgo = Date.now() - 86_400_000;

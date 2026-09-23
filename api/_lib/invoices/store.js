@@ -100,6 +100,8 @@ function invoiceRow(r) {
     autoConfirmChecks: json(r.auto_confirm_checks, []),
     heldAt: iso(r.held_at),
     heldBy: r.held_by_name || null,
+    linesTotalCents: cents(r.lines_total_cents),
+    linesConsistent: r.lines_consistent == null ? null : Boolean(r.lines_consistent),
     sourceLinks: json(r.source_links, []),
     sourceTextExcerpt: r.source_text_excerpt || null,
     createdAt: iso(r.created_at),
@@ -204,11 +206,12 @@ async function getInvoiceRow(sql, tenantId, id) {
 async function getInvoiceDetail(sql, tenantId, id) {
   const invoice = await getInvoiceRow(sql, tenantId, id);
   if (!invoice) return null;
-  const [docs, allocs, events, attempts] = await Promise.all([
+  const [docs, allocs, events, attempts, lines] = await Promise.all([
     sql`select * from public.supplier_invoice_documents where invoice_id = ${id} and tenant_id = ${tenantId} order by created_at`,
     sql`select * from public.supplier_invoice_allocations where invoice_id = ${id} and tenant_id = ${tenantId} order by created_at`,
     sql`select * from public.supplier_invoice_events where invoice_id = ${id} and tenant_id = ${tenantId} order by created_at`,
     sql`select * from public.supplier_invoice_attempts where invoice_id = ${id} and tenant_id = ${tenantId} order by attempt_no`,
+    sql`select * from public.supplier_invoice_lines where invoice_id = ${id} and tenant_id = ${tenantId} order by line_no`,
   ]);
   return {
     invoice,
@@ -216,6 +219,7 @@ async function getInvoiceDetail(sql, tenantId, id) {
     allocations: allocs.map(allocationRow),
     events: events.map(eventRow),
     attempts: attempts.map(attemptRow),
+    lines: lines.map(lineRow),
   };
 }
 
@@ -319,6 +323,8 @@ async function applyExtraction(sql, tenantId, id, p) {
       duplicate_of_id = ${p.duplicateOfId == null ? null : p.duplicateOfId},
       duplicate_reason = ${p.duplicateReason == null ? null : p.duplicateReason},
       excluded_reason = ${p.excludedReason == null ? null : p.excludedReason},
+      lines_total_cents = ${p.linesTotalCents === undefined ? null : p.linesTotalCents},
+      lines_consistent = ${p.linesConsistent === undefined ? null : p.linesConsistent},
       next_attempt_at = null
     where id = ${id} and tenant_id = ${tenantId}
     returning *`;
@@ -706,6 +712,104 @@ async function digestStats(sql, tenantId, { since }) {
   };
 }
 
+// ── line items + material categories ────────────────────────────────────────
+function lineRow(r) {
+  return {
+    id: r.id,
+    invoiceId: r.invoice_id,
+    lineNo: Number(r.line_no),
+    description: r.description,
+    descriptionKey: r.description_key,
+    quantity: r.quantity == null ? null : Number(r.quantity),
+    unit: r.unit || null,
+    unitPriceCents: cents(r.unit_price_cents),
+    lineTotalCents: cents(r.line_total_cents),
+    category: r.category,
+    categorySource: r.category_source,
+    confidence: r.confidence,
+    updatedAt: iso(r.updated_at),
+  };
+}
+
+/** Replace an invoice's line items in one transaction (a re-read starts clean). */
+async function replaceInvoiceLines(sql, tenantId, invoiceId, lines) {
+  await sql.begin(async (tx) => {
+    await tx`delete from public.supplier_invoice_lines where invoice_id = ${invoiceId} and tenant_id = ${tenantId}`;
+    for (const l of lines || []) {
+      await tx`
+        insert into public.supplier_invoice_lines
+          (tenant_id, invoice_id, line_no, description, description_key, quantity, unit, unit_price_cents, line_total_cents, category, category_source, confidence)
+        values (${tenantId}, ${invoiceId}, ${l.lineNo}, ${l.description}, ${l.descriptionKey}, ${l.quantity == null ? null : l.quantity}, ${l.unit || null},
+                ${l.unitPriceCents == null ? null : l.unitPriceCents}, ${l.lineTotalCents == null ? null : l.lineTotalCents}, ${l.category || 'other'}, ${l.categorySource || 'rule'}, ${l.confidence || 'medium'})`;
+    }
+  });
+}
+
+async function listInvoiceLines(sql, tenantId, invoiceId) {
+  const rows = await sql`select * from public.supplier_invoice_lines where invoice_id = ${invoiceId} and tenant_id = ${tenantId} order by line_no`;
+  return rows.map(lineRow);
+}
+
+/** The office re-files (or renames) one line. Returns the row, or null. */
+async function updateInvoiceLine(sql, tenantId, invoiceId, lineNo, patch) {
+  const rows = await sql`
+    update public.supplier_invoice_lines set
+      category = coalesce(${patch.category == null ? null : patch.category}, category),
+      category_source = case when ${patch.category == null ? null : patch.category}::text is null then category_source else 'manual' end,
+      description = coalesce(${patch.description == null ? null : patch.description}, description),
+      description_key = coalesce(${patch.descriptionKey == null ? null : patch.descriptionKey}, description_key)
+    where invoice_id = ${invoiceId} and tenant_id = ${tenantId} and line_no = ${lineNo}
+    returning *`;
+  return rows.length ? lineRow(rows[0]) : null;
+}
+
+/** Remembered categories for these description keys — the supplier's own first, then any-supplier. */
+async function learnedCategories(sql, tenantId, supplierKey, keys) {
+  const list = Array.from(new Set((keys || []).filter(Boolean)));
+  if (!list.length) return {};
+  const rows = await sql`
+    select supplier_key, description_key, category from public.supplier_line_categories
+    where tenant_id = ${tenantId} and description_key in ${sql(list)} and supplier_key in (${supplierKey || ''}, '')`;
+  const out = {};
+  for (const r of rows) {
+    if (!out[r.description_key] || r.supplier_key !== '') out[r.description_key] = r.category;
+  }
+  return out;
+}
+
+async function rememberCategory(sql, tenantId, { supplierKey, descriptionKey, category, actor }) {
+  if (!descriptionKey || !category) return;
+  await sql`
+    insert into public.supplier_line_categories (tenant_id, supplier_key, description_key, category, set_by_legacy_id, set_by_name)
+    values (${tenantId}, ${supplierKey || ''}, ${descriptionKey}, ${category}, ${actor ? actor.id : null}, ${actor ? actor.name : null})
+    on conflict (tenant_id, supplier_key, description_key) do update
+      set category = excluded.category, set_by_legacy_id = excluded.set_by_legacy_id, set_by_name = excluded.set_by_name, set_at = now()`;
+}
+
+/**
+ * A job's materials, line by line, through ACTIVE allocations only — credit
+ * notes count negative. Invoices that carry no readable lines are reported as
+ * an uncovered amount so the breakdown never claims more than it knows.
+ */
+async function jobMaterialsBreakdown(sql, tenantId, jobLegacyId) {
+  const rows = await sql`
+    select l.*, i.supplier_name, i.supplier_invoice_number, i.invoice_date, i.document_type,
+           case when i.document_type = 'credit_note' then -1 else 1 end as sign
+    from public.supplier_invoice_allocations a
+    join public.supplier_invoices i on i.id = a.invoice_id
+    join public.supplier_invoice_lines l on l.invoice_id = i.id
+    where a.tenant_id = ${tenantId} and a.job_legacy_id = ${jobLegacyId} and a.status = 'active'
+    order by i.invoice_date nulls last, i.created_at, l.line_no`;
+  const covered = await sql`
+    select a.invoice_id, a.amount_ex_gst_cents as amount, i.supplier_name, i.supplier_invoice_number, i.invoice_date,
+           (select count(*)::int from public.supplier_invoice_lines l where l.invoice_id = a.invoice_id) as n
+    from public.supplier_invoice_allocations a join public.supplier_invoices i on i.id = a.invoice_id
+    where a.tenant_id = ${tenantId} and a.job_legacy_id = ${jobLegacyId} and a.status = 'active'`;
+  const lines = rows.map((r) => ({ ...lineRow(r), supplierName: r.supplier_name, supplierInvoiceNumber: r.supplier_invoice_number, invoiceDate: iso(r.invoice_date), documentType: r.document_type, signedCents: (cents(r.line_total_cents) || 0) * Number(r.sign) }));
+  const withoutLines = covered.filter((c) => Number(c.n) === 0).map((c) => ({ invoiceId: c.invoice_id, supplierName: c.supplier_name, supplierInvoiceNumber: c.supplier_invoice_number, invoiceDate: iso(c.invoice_date), amountCents: cents(c.amount) }));
+  return { lines, invoicesWithoutLines: withoutLines, confirmedCents: covered.reduce((s, c) => s + (cents(c.amount) || 0), 0), invoiceCount: covered.length };
+}
+
 /** What the mid-week alert needs (api/_lib/invoices/alerts.js). */
 async function healthSnapshot(sql, tenantId) {
   const [failed, stuck, quarantinedOld, fwdFailed, last] = await Promise.all([
@@ -822,4 +926,10 @@ module.exports = {
   inboundStats,
   healthSnapshot,
   invoiceIdsForEmail,
+  replaceInvoiceLines,
+  listInvoiceLines,
+  updateInvoiceLine,
+  learnedCategories,
+  rememberCategory,
+  jobMaterialsBreakdown,
 };

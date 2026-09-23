@@ -8,8 +8,10 @@
 // left null; it never decides the IV job match and never auto-confirms.
 //
 // Cost/privacy: one short call per document that needs it (max ~4k input
-// tokens, 400 output). Invoice text is business data — the owner opts in
+// tokens, up to 2000 output when it lists line items). Invoice text is business data — the owner opts in
 // knowingly (docs/invoice-capture.md "AI rung").
+
+const { CATEGORIES, isCategory } = require('./categories');
 
 const AI_MODEL = process.env.INVOICE_AI_MODEL || 'claude-sonnet-4-5';
 const MAX_TEXT_CHARS = 12_000;
@@ -40,6 +42,22 @@ const TOOL = {
       subtotalCents: { type: ['integer', 'null'], description: 'Total excluding GST, integer cents' },
       gstCents: { type: ['integer', 'null'] },
       totalCents: { type: ['integer', 'null'], description: 'Total including GST, integer cents' },
+      lines: {
+        type: 'array',
+        description: 'Every product line printed on the document, in order. Omit subtotal/GST/total rows. Line totals are integer cents EXCLUDING GST as printed.',
+        items: {
+          type: 'object',
+          properties: {
+            description: { type: 'string' },
+            quantity: { type: ['number', 'null'] },
+            unit: { type: ['string', 'null'], description: 'ea, m, roll, pk, box …' },
+            unitPriceCents: { type: ['integer', 'null'] },
+            lineTotalCents: { type: ['integer', 'null'] },
+            category: { type: 'string', enum: CATEGORIES, description: 'Material bucket: cable, conduit (incl. ducting, fittings), fixings (screws, anchors, ties, brackets), switchgear (breakers, RCDs, isolators), boards (switchboards, enclosures), lighting, accessories (power points, switches, plates), data (Cat6, comms), consumables (tape, glue, blades, terminals), tools, testing (test & tag, PPE), freight, other.' },
+          },
+          required: ['description'],
+        },
+      },
       confidence: {
         type: 'object',
         properties: {
@@ -67,6 +85,14 @@ function clean(out) {
     subtotalCents: int(out.subtotalCents),
     gstCents: int(out.gstCents),
     totalCents: int(out.totalCents),
+    lines: (Array.isArray(out.lines) ? out.lines : []).slice(0, 200).map((l) => ({
+      description: str(l && l.description, 200),
+      quantity: l && typeof l.quantity === 'number' && Number.isFinite(l.quantity) ? l.quantity : null,
+      unit: str(l && l.unit, 12),
+      unitPriceCents: l && Number.isInteger(l.unitPriceCents) ? l.unitPriceCents : null,
+      lineTotalCents: l && Number.isInteger(l.lineTotalCents) ? l.lineTotalCents : null,
+      category: l && isCategory(l.category) ? l.category : null,
+    })).filter((l) => l.description),
     confidence: out.confidence && typeof out.confidence === 'object' ? out.confidence : {},
   };
 }
@@ -78,7 +104,7 @@ function clean(out) {
 async function aiExtract(text) {
   const msg = await client().messages.create({
     model: AI_MODEL,
-    max_tokens: 400,
+    max_tokens: 2000,
     tools: [TOOL],
     tool_choice: { type: 'tool', name: TOOL.name },
     messages: [{
@@ -86,7 +112,8 @@ async function aiExtract(text) {
       content:
         'Read this supplier document text and record its fields. Rules: amounts are integer cents; ' +
         'the supplier invoice number is the supplier\'s own document number and must never be an IV#### job code; ' +
-        'use null for anything not printed; do not compute GST unless the document prints it.\n\n' +
+        'use null for anything not printed; do not compute GST unless the document prints it; ' +
+        'list every product line with its quantity, unit price and ex-GST line total, and file each in a material category.\n\n' +
         String(text || '').slice(0, MAX_TEXT_CHARS),
     }],
   });

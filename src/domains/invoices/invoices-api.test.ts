@@ -417,3 +417,54 @@ describe("api/invoices — photos, attach-to-record, Did-you-mean, batch sizes",
     expect((restored.body as { invoice: { status: string } }).invoice.status).toBe("needs_review");
   });
 });
+
+describe("api/invoices — line items, re-filing, and the job materials breakdown (2026-09-24)", () => {
+  const WHOLESALER = [
+    "Wholesale Wires Pty Ltd", "TAX INVOICE", "Invoice No: WW-9", "Invoice Date: 10/09/2026", "Job Number: IV0041",
+    "Code      Description                          Qty    Unit     Price     Total",
+    "CBL2.5T   2.5MM TWIN & EARTH TPS 100M ROLL     3      roll     89.50     268.50",
+    "LED9W     9W LED DOWNLIGHT WARM WHITE          12     ea       11.00     132.00",
+    "FRT       FREIGHT                              1      ea       15.00     15.00",
+    "Sub Total                                                              415.50",
+    "GST 10%                                                                41.55",
+    "TOTAL INC GST                                                         457.05",
+  ].join("\n");
+  type Detail = { invoice: { id: string; status: string; linesConsistent: boolean | null }; lines: Array<{ lineNo: number; category: string; categorySource: string; description: string }> };
+  type Breakdown = { confirmedCents: number; invoiceCount: number; linesCents: number; byCategory: Array<{ category: string; label: string; cents: number; lineCount: number }>; bySupplier: Array<{ supplierName: string; cents: number }>; lines: Array<{ category: string; signedCents: number }>; invoicesWithoutLines: unknown[] };
+
+  it("the detail carries the filed lines; a re-filed line is remembered and an invalid category refused", async () => {
+    const d = (await upload(WHOLESALER)).body as Detail;
+    expect(d.invoice.linesConsistent).toBe(true);
+    expect(d.lines.map((l) => [l.lineNo, l.category])).toEqual([[1, "cable"], [2, "lighting"], [3, "freight"]]);
+    const r = await call({ method: "PUT", query: { action: "line", id: d.invoice.id }, body: { lineNo: 3, category: "consumables" } });
+    expect(r.statusCode).toBe(200);
+    expect((r.body as Detail).lines[2]).toMatchObject({ category: "consumables", categorySource: "manual" });
+    expect(store.learned).toEqual([expect.objectContaining({ supplierKey: "wholesale wires", descriptionKey: "frt freight", category: "consumables" })]);
+    expect(store.events.filter((e) => e.event === "line_corrected")).toHaveLength(1);
+    expect(journal().some((j) => j.action === "invoice.corrected" && j.metadata?.lineNo === 3)).toBe(true);
+    expect((await call({ method: "PUT", query: { action: "line", id: d.invoice.id }, body: { lineNo: 3, category: "stuff" } })).statusCode).toBe(400);
+    expect((await call({ method: "PUT", query: { action: "line", id: d.invoice.id }, body: { lineNo: 9, category: "cable" } })).statusCode).toBe(404);
+    // the next invoice from the same supplier files FREIGHT the remembered way
+    const again = (await upload(WHOLESALER.replace("WW-9", "WW-10"))).body as Detail;
+    expect(again.lines[2]).toMatchObject({ category: "consumables", categorySource: "learned" });
+  });
+  it("the job breakdown sums confirmed lines by category, counts a credit note negative, and lists unitemised invoices", async () => {
+    const d = (await upload(WHOLESALER)).body as Detail;
+    expect((await call({ query: { action: "job-materials", jobId: "birdwood" } })).body).toMatchObject({ confirmedCents: 0, invoiceCount: 0, byCategory: [] }); // nothing until confirmed
+    await call({ method: "POST", query: { action: "confirm", id: d.invoice.id }, body: {} });
+    // the credit-note fixture prints no priced lines → confirmed, counted negative, listed as unitemised
+    const cn = (await upload(F.CREDIT_NOTE_IV0041)).body as Detail;
+    expect(cn.lines).toEqual([]);
+    await call({ method: "POST", query: { action: "confirm", id: cn.invoice.id }, body: {} });
+    const b = (await call({ query: { action: "job-materials", jobId: "birdwood" } })).body as Breakdown;
+    expect(b).toMatchObject({ invoiceCount: 2, confirmedCents: 41550 - 12000, linesCents: 41550 });
+    expect(b.byCategory.map((c) => [c.category, c.label, c.cents, c.lineCount])).toEqual([["cable", "Cable", 26850, 1], ["lighting", "Lighting", 13200, 1], ["freight", "Freight & delivery", 1500, 1]]);
+    expect(b.bySupplier).toEqual([{ supplierName: "Wholesale Wires Pty Ltd", cents: 41550 }]);
+    expect(b.invoicesWithoutLines).toEqual([expect.objectContaining({ invoiceId: cn.invoice.id, amountCents: -12000 })]);
+  });
+  it("refuses to re-file lines on an archived invoice", async () => {
+    const d = (await upload(WHOLESALER)).body as Detail;
+    await call({ method: "POST", query: { action: "archive", id: d.invoice.id }, body: {} });
+    expect((await call({ method: "PUT", query: { action: "line", id: d.invoice.id }, body: { lineNo: 1, category: "other" } })).statusCode).toBe(409);
+  });
+});

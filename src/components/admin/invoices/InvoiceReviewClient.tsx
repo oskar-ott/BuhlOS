@@ -9,6 +9,7 @@ import { StatusChip } from "@/components/ui/StatusChip";
 import { cn } from "@/lib/cn";
 import {
   archiveInvoice,
+  correctInvoiceLine,
   confirmInvoice,
   correctInvoice,
   excludeInvoice,
@@ -24,10 +25,13 @@ import {
   selectInvoiceJob,
   type InvoiceCorrections,
 } from "@/domains/invoices/client";
-import { DOCUMENT_TYPES, statementCheckOf, type InvoiceDetail, type JobSummary } from "@/domains/invoices/schema";
+import { DOCUMENT_TYPES, MATERIAL_CATEGORIES, statementCheckOf, type InvoiceDetail, type JobSummary, type MaterialCategory } from "@/domains/invoices/schema";
 import {
   autoBookCountdown,
+  CATEGORY_SOURCE_LABELS,
+  categoryLabel,
   centsToDollarsInput,
+  formatQuantity,
   confirmBlockerLabel,
   documentTypeLabel,
   dollarsInputToCents,
@@ -689,6 +693,76 @@ export function InvoiceReviewClient({ invoiceId }: { invoiceId: string }) {
           </Card>
         </div>
       </div>
+
+      {/* Line items — what was actually bought (owner pull 2026-09-24) */}
+      {inv.status !== "excluded" && !["statement", "quote", "unknown", "delivery_docket", "order_confirmation", "remittance", "purchase_order", "other"].includes(inv.documentType) ? (
+        <Card data-testid="invoice-lines">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <CardKicker>Line items</CardKicker>
+            <p className="text-xs text-text-muted" data-testid="invoice-lines-check">
+              {detail.lines.length === 0
+                ? "No line items could be read from this document — the total still books; the job's materials breakdown will show it as an unitemised invoice."
+                : inv.linesConsistent === true
+                  ? `${detail.lines.length} ${detail.lines.length === 1 ? "line adds" : "lines add"} up to the ex-GST subtotal.`
+                  : inv.linesConsistent === false
+                    ? `${detail.lines.length} lines read, but they do not add up to the ex-GST subtotal (${formatCentsExact(inv.linesTotalCents)} vs ${formatCentsExact(inv.subtotalCents)}) — the subtotal is what books; check the lines before trusting the breakdown.`
+                    : `${detail.lines.length} lines read.`}
+            </p>
+          </div>
+          {detail.lines.length ? (
+            <div className="mt-2 overflow-x-auto">
+              <table className="w-full text-sm" data-testid="invoice-lines-table">
+                <thead>
+                  <tr className="text-left font-mono text-xs font-medium uppercase tracking-[0.14em] text-text-muted">
+                    <th className="pb-1.5 pr-2 font-medium">Qty</th>
+                    <th className="pb-1.5 pr-2 font-medium">Description</th>
+                    <th className="pb-1.5 pr-2 text-right font-medium">Unit</th>
+                    <th className="pb-1.5 pr-2 text-right font-medium">Total</th>
+                    <th className="pb-1.5 font-medium">Filed under</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {detail.lines.map((l) => (
+                    <tr key={l.id} className="border-t border-border align-top" data-testid={`invoice-line-${l.lineNo}`}>
+                      <td className="whitespace-nowrap py-1.5 pr-2 tabular-nums text-text-muted">{formatQuantity(l.quantity, l.unit)}</td>
+                      <td className="py-1.5 pr-2 text-text">{l.description}</td>
+                      <td className="whitespace-nowrap py-1.5 pr-2 text-right tabular-nums text-text-muted">{l.unitPriceCents == null ? "—" : formatCentsExact(l.unitPriceCents)}</td>
+                      <td className="whitespace-nowrap py-1.5 pr-2 text-right tabular-nums text-text">{l.lineTotalCents == null ? "—" : formatCentsExact(l.lineTotalCents)}</td>
+                      <td className="py-1 whitespace-nowrap">
+                        {inv.status === "archived" ? (
+                          <span>{categoryLabel(l.category)}</span>
+                        ) : (
+                          <select
+                            aria-label={`Category for line ${l.lineNo}`}
+                            className="h-8 rounded-[4px] border border-border bg-surface px-1 text-sm"
+                            value={l.category}
+                            disabled={busy !== null}
+                            data-testid={`invoice-line-category-${l.lineNo}`}
+                            onChange={(e) => {
+                              const category = e.target.value as MaterialCategory;
+                              void run("line", (id) => correctInvoiceLine(id, { lineNo: l.lineNo, category }), `Filed under ${categoryLabel(category)} — remembered for this supplier.`);
+                            }}
+                          >
+                            {MATERIAL_CATEGORIES.map((c) => (
+                              <option key={c} value={c}>
+                                {categoryLabel(c)}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                        <span className="ml-1 text-[11px] text-text-muted">{CATEGORY_SOURCE_LABELS[l.categorySource] ?? l.categorySource}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+          <p className="mt-2 text-xs text-text-muted">
+            Re-file a line and BuhlOS remembers the choice for that product from this supplier. Lines feed the job&rsquo;s materials breakdown once the invoice is confirmed; the ex-GST subtotal is what costs the job.
+          </p>
+        </Card>
+      ) : null}
     </div>
   );
 }

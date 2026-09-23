@@ -27,6 +27,8 @@ const { ALLOCATABLE_TYPES, NON_INVOICE_TYPES } = require('./state');
 const { evaluateAutoConfirm, autoConfirmDeadline } = require('./auto-confirm');
 const { withTimeout } = require('../with-timeout');
 const { extractStatementLines, reconcileStatement } = require('./statement');
+const { extractLineItems } = require('./lines');
+const { categorise, descriptionKey, isCategory } = require('./categories');
 
 const MAX_PDF_BYTES = 10 * 1024 * 1024;
 const PROCESS_TIMEOUT_MS = 40_000;
@@ -137,16 +139,54 @@ async function processInvoice({ sql, tenantId, invoiceId, trigger, deps }) {
 
       let extracted = extractInvoiceFromText(textResult.text);
       let method = 'pdf_text';
-      if (deps.aiExtract && needsAi(extracted)) {
+      // Line items (owner pull 2026-09-24): every printed line with its
+      // quantity, unit price and total, checked against the printed subtotal.
+      const textLines = String(textResult.text).split(/\r?\n/).map((l) => l.replace(/\s+$/, '')).filter((l) => l.trim().length > 0);
+      let lineItems = ALLOCATABLE_TYPES.has(extracted.documentType)
+        ? extractLineItems(textLines, { subtotalCents: extracted.subtotalCents, totalCents: extracted.totalCents })
+        : { lines: [], totalCents: 0, consistent: null, reason: 'not_applicable' };
+      let lineSource = 'rule';
+      let aiLineCategories = {};
+      if (deps.aiExtract && (needsAi(extracted) || (ALLOCATABLE_TYPES.has(extracted.documentType) && lineItems.consistent !== true))) {
         try {
           const ai = await deps.aiExtract(textResult.text, extracted);
-          if (ai) { extracted = mergeAi(extracted, ai); method = 'pdf_text+ai'; }
+          if (ai) {
+            extracted = mergeAi(extracted, ai);
+            method = 'pdf_text+ai';
+            const aiLines = Array.isArray(ai.lines) ? ai.lines : [];
+            if (aiLines.length) {
+              const aiTotal = aiLines.reduce((s, l) => s + (l.lineTotalCents || 0), 0);
+              const sub = extracted.subtotalCents;
+              const aiConsistent = sub != null && Math.abs(aiTotal - sub) <= Math.max(5, aiLines.length, Math.round(Math.abs(sub) * 0.005));
+              // The model's lines replace the rules' only when they add up and the rules' did not.
+              if (aiConsistent && lineItems.consistent !== true) {
+                lineItems = { lines: aiLines.map((l, i) => ({ lineNo: i + 1, description: l.description, quantity: l.quantity, unit: l.unit, unitPriceCents: l.unitPriceCents, lineTotalCents: l.lineTotalCents, confidence: 'medium' })), totalCents: aiTotal, consistent: true, reason: null };
+                lineSource = 'ai';
+              }
+              for (const l of aiLines) if (l.category && isCategory(l.category)) aiLineCategories[descriptionKey(l.description)] = l.category;
+            }
+          }
         } catch {
           // AI is an optional rung; its failure never fails the document.
         }
       }
 
       const supplierKey = normaliseSupplierName(extracted.supplierName);
+      // File every line: a remembered decision for this supplier (or any) wins,
+      // then the keyword rules, then the model's suggestion for what the rules
+      // could not place.
+      const keys = lineItems.lines.map((l) => descriptionKey(l.description));
+      const learned = lineItems.lines.length ? await store.learnedCategories(sql, tenantId, supplierKey, keys) : {};
+      const filedLines = lineItems.lines.map((l, i) => {
+        const key = keys[i];
+        const rule = categorise(l.description);
+        let category = rule.category;
+        let categorySource = lineSource === 'ai' ? 'ai' : 'rule';
+        if (key && learned[key]) { category = learned[key]; categorySource = 'learned'; }
+        else if (rule.category === 'other' && key && aiLineCategories[key]) { category = aiLineCategories[key]; categorySource = 'ai'; }
+        return { ...l, descriptionKey: key || 'unknown', category, categorySource };
+      });
+      await store.replaceInvoiceLines(sql, tenantId, invoiceId, filedLines);
       // The supplier + number rule applies to allocatable documents only: a
       // STATEMENT lists invoice numbers it is not a duplicate of.
       const numberForDedupe = ALLOCATABLE_TYPES.has(extracted.documentType) ? extracted.supplierInvoiceNumber : null;
@@ -207,9 +247,14 @@ async function processInvoice({ sql, tenantId, invoiceId, trigger, deps }) {
         excerpt: extracted.excerpt,
         duplicateOfId: dup.duplicate ? dup.ofId : null,
         duplicateReason: dup.duplicate ? dup.reason : null,
+        linesTotalCents: lineItems.lines.length ? lineItems.totalCents : null,
+        linesConsistent: lineItems.consistent,
       });
       await store.finishAttempt(sql, attempt.id, { outcome: 'ok', extractionMethod: method });
       await store.insertEvent(sql, tenantId, invoiceId, { event: 'extracted', detail: { method, documentType: extracted.documentType, pageCount: textResult.pageCount } });
+      if (lineItems.reason !== 'not_applicable') {
+        await store.insertEvent(sql, tenantId, invoiceId, { event: 'lines_read', detail: { count: filedLines.length, consistent: lineItems.consistent, reason: lineItems.reason, source: lineSource, categories: filedLines.reduce((m, l) => { m[l.category] = (m[l.category] || 0) + 1; return m; }, {}) } });
+      }
       if (dup.duplicate) {
         await store.insertEvent(sql, tenantId, invoiceId, { event: 'duplicate_detected', detail: { ofId: dup.ofId, reason: dup.reason } });
       } else if (setAside) {
