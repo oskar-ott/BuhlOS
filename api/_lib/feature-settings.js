@@ -80,6 +80,16 @@ const SETTINGS_REGISTRY = {
       step: 1,
       unit: 'days',
     },
+    alertQuietDays: {
+      type: 'number',
+      label: 'Alert after this many quiet days',
+      description: 'If no supplier email arrives for this long, the accounts list gets an alert (the forwarding rule or the webhook may have broken). 0 = never.',
+      default: 7,
+      min: 0,
+      max: 60,
+      step: 1,
+      unit: 'days',
+    },
   },
   itp_simple: {
     maxUploadMb: {
