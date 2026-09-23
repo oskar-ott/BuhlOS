@@ -11,7 +11,7 @@
 // Cost: 1 jobs.json read + 1 blob list on users/ + N parallel per-active-job
 // data.json reads. Same cost shape as the digest cron.
 
-const { list } = require('@vercel/blob');
+const { listTimeEntryBlobsForDate } = require('./time-entry-blobs'); // #935: paginated walk
 const { readBlob } = require('./blob');
 const { isAdminRole } = require('./auth');
 
@@ -40,7 +40,6 @@ async function computeDayPulse(viewer, date) {
   const visibleIds = new Set(visible.map(j => j.id));
 
   // ── Hours: walk per-user time-entries for the date ────────────────────
-  const token = process.env.BLOB_READ_WRITE_TOKEN;
   let hours = {
     submittedCount: 0, submittedTotal: 0,
     approvedCount:  0, approvedTotal:  0,
@@ -51,9 +50,7 @@ async function computeDayPulse(viewer, date) {
   const jobsWithHoursToday = new Set();
 
   try {
-    const r = await list({ prefix: 'users/', token, limit: 5000 });
-    const blobs = (r.blobs || []).filter(b =>
-      b.pathname.endsWith(`/time-entries/${date}.json`));
+    const blobs = await listTimeEntryBlobsForDate(date); // #935: never the silent cap
 
     const entries = (await Promise.all(blobs.map(async b => {
       try {

@@ -535,7 +535,22 @@ async function loadExportRows(
         headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
       },
     );
-    if (!res.ok) return { rows: [], error: `Export API returned ${res.status}` };
+    if (!res.ok) {
+      // Say WHAT refused, not just that something did: the row engine's
+      // freshness guard answers with a 503 that names the worker-days it could
+      // not read consistently and tells the office what to do — a bare
+      // "returned 503" threw that away (2026-09-21 payroll block: the office
+      // saw the real reason only on the Send button, never on the page).
+      const detail = await res
+        .json()
+        .then((j: unknown) =>
+          j && typeof j === "object" && typeof (j as { error?: unknown }).error === "string"
+            ? (j as { error: string }).error
+            : null,
+        )
+        .catch(() => null);
+      return { rows: [], error: detail ?? `Export API returned ${res.status}` };
+    }
     return { rows: toPayPeriodRows(await res.json()), error: null };
   } catch (err) {
     return { rows: [], error: err instanceof Error ? err.message : "Network error" };

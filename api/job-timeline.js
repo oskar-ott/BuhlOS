@@ -38,9 +38,9 @@
 // Event types:
 //   snag-opened, snag-closed, hours-logged, photo-snag, photo-dwelling
 
-const { list } = require('@vercel/blob');
 const { readBlob, setNoCache } = require('./_lib/blob');
 const { getCurrentUser, canManageJob, isClientRole } = require('./_lib/auth');
+const { listTimeEntryBlobs } = require('./_lib/time-entry-blobs'); // #935: paginated walk
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_SINCE_DAYS = 30;
@@ -150,11 +150,11 @@ module.exports = async (req, res) => {
   // ── 2. Hours days (skip for clients) ─────────────────────────────────
   if (!isClient) {
     const sinceDate = sinceISO.slice(0, 10);
-    const token = process.env.BLOB_READ_WRITE_TOKEN;
     let blobs = [];
     try {
-      const r = await list({ prefix: 'users/', token, limit: 5000 });
-      blobs = (r.blobs || []).filter(b => {
+      // #935: fully paginated — the capped single page silently dropped hours
+      // days from the feed once the store outgrew it.
+      blobs = (await listTimeEntryBlobs()).filter(b => {
         const m = b.pathname.match(/\/time-entries\/(\d{4}-\d{2}-\d{2})\.json$/);
         return m && m[1] >= sinceDate;
       });

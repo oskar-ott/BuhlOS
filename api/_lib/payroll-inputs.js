@@ -17,13 +17,27 @@
 // freshly-approved days): a just-overwritten day blob can serve its PREVIOUS
 // content from the CDN for a short window even with cache-busting, so a stale
 // read still said status='submitted' and the approved filter dropped real
-// hours WITH NO ERROR. Every entry read here is now verified against the
-// store's own listing metadata: list() reports each blob's last-PUT time
-// (uploadedAt — API-fresh, never CDN-cached), and every mutation stamps the
-// entry (updatedAt/approvedAt/…). Content whose newest stamp predates the
-// last PUT by more than the skew is a SUSPECTED stale read — retried briefly,
-// then the WHOLE collection is REFUSED with a 503 naming the affected days. An
+// hours WITH NO ERROR. Every entry read here is verified against the store's
+// own listing metadata: list() reports each blob's last-PUT time (uploadedAt —
+// API-fresh, never CDN-cached). Content whose own write stamp predates that
+// PUT by more than the skew is a SUSPECTED stale read — retried briefly, then
+// the WHOLE collection is REFUSED with a 503 naming the affected days. An
 // unreadable blob is refused the same way (it used to be silently dropped).
+//
+// WHICH STAMP (2026-09-22 audit, after the second payroll block): the stamp
+// compared against the PUT is the STORAGE LAYER's own `__updatedAt`, which
+// api/_lib/blob-guards applyGuards writes into every document inside
+// writeBlob, immediately before the put. It is set by the same code path that
+// stores the bytes, so no handler can trail it — the 2026-09-21 class of bug
+// (a handler stamping `updatedAt` once before a slow sequential loop, so the
+// tail of the batch stored a stamp a minute behind its own PUT) cannot recur
+// through any writer, present or future. A read-only scan of every production
+// day-file (331 entries, 2026-09-22) measured `__updatedAt` trailing its PUT by
+// at most 3.1s, while the handler stamps trailed by up to 78s and sat within
+// 2s of the 15s skew at the 90th percentile — the old signal was a hair
+// trigger on ORDINARY writes, not just on batches. Handler stamps
+// (updatedAt/approvedAt/…) remain only as the fallback for a legacy document
+// that predates the storage stamp.
 //
 // Suspected, not proven: that gap only means a stale read while the blob is
 // still inside its propagation window. A blob settled for longer than
@@ -41,11 +55,18 @@ const { isLeadingHandRole, isFieldRole } = require('./auth');
 const { prorateAllocations } = require('./payroll-rows');
 
 // ── Freshness-verified entry reads ───────────────────────────────────────────
-// Tolerance between an entry's own write stamp and the blob's last-PUT time:
-// both are Vercel wall clocks; the gap on a genuine write is the request
-// latency (ms–seconds). Beyond this, the fetched content predates the PUT —
-// i.e. the CDN served the pre-overwrite document.
+// Tolerance between the document's storage stamp (`__updatedAt`, written just
+// before the put) and the blob's last-PUT time: both are Vercel wall clocks;
+// the gap on a genuine write is the put's own latency. MEASURED, not reasoned:
+// max 3.1s, p99 2.6s across every production day-file (2026-09-22) — 15s is
+// five times the worst case seen. Beyond it, the fetched content predates the
+// PUT, i.e. the CDN served the pre-overwrite document.
 const FRESHNESS_SKEW_MS = 15_000;
+// A single content fetch may not hang the whole payroll read: a stalled CDN
+// connection used to hold `Promise.all` — and the office's Send button — until
+// the function itself timed out. A timed-out attempt counts as unreadable and
+// is retried like any other.
+const FETCH_TIMEOUT_MS = 8_000;
 // How long after a write the CDN can still plausibly serve the PREVIOUS
 // document. Propagation is a seconds-scale race, so this is deliberately
 // generous. Past it, a blob is SETTLED: whatever we read is the current
@@ -65,17 +86,22 @@ const FRESHNESS_SKEW_MS = 15_000;
 // week, unfixable by retrying, until the two records were rewritten by hand.
 // Recency is what separates them, and the gap alone cannot.
 const STALE_SUSPECT_WINDOW_MS = 5 * 60_000;
-// Bounded retry before refusing (~5s worst case). Tests shrink this so the
+// Bounded retry before refusing (~12s worst case). Vercel documents that an
+// overwritten blob can keep serving its previous content from the CDN for up
+// to ~60s, so this cannot cover every case — it covers the common seconds-scale
+// race without making the office wait a minute on every send, and the refusal
+// that follows says exactly what to do (wait, retry). Tests shrink this so the
 // suite never sleeps.
-let RETRY_DELAYS_MS = [500, 1000, 1500, 2000];
+let RETRY_DELAYS_MS = [1000, 2000, 3000, 3000, 3000];
 function __setFreshnessRetryDelaysForTests(delays) {
   RETRY_DELAYS_MS = Array.isArray(delays) ? delays : [];
 }
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** Newest server-written stamp on an entry, ms epoch — null when the entry
- *  carries none (legacy rows), in which case freshness cannot be judged and
- *  the read is accepted (never invent staleness — P7). */
+/** Newest HANDLER-written stamp on an entry, ms epoch — null when the entry
+ *  carries none. Fallback only (see entryWriteStampMs): a handler stamp is
+ *  taken before the write and can trail the PUT by however long the write
+ *  path took to reach the put. */
 function entryLastWriteMs(entry) {
   let max = 0;
   for (const k of ['updatedAt', 'approvedAt', 'rejectedAt', 'submittedAt', 'amendedAt', 'exportedAt', 'createdAt']) {
@@ -83,6 +109,35 @@ function entryLastWriteMs(entry) {
     if (Number.isFinite(t) && t > max) max = t;
   }
   return max || null;
+}
+
+/** The stamp to hold against the blob's last-PUT time, ms epoch, or null when
+ *  the document carries none (a raw-put legacy row), in which case freshness
+ *  cannot be judged and the read is accepted (never invent staleness — P7).
+ *
+ *  Primary: the storage layer's `__updatedAt` — set inside writeBlob by
+ *  applyGuards immediately before the put, on every document written through
+ *  the app since #157. It is the only stamp no handler can trail.
+ *  Fallback: the handler stamps, for a document that predates it. */
+function entryWriteStampMs(entry) {
+  const storage = Date.parse((entry && entry.__updatedAt) || '');
+  if (Number.isFinite(storage)) return storage;
+  return entryLastWriteMs(entry);
+}
+
+/** One content fetch, bounded by FETCH_TIMEOUT_MS. Resolves the parsed entry
+ *  or null (HTTP error, bad JSON, network failure, timeout). */
+async function fetchEntryOnce(url) {
+  let signal;
+  try { signal = AbortSignal.timeout(FETCH_TIMEOUT_MS); } catch { signal = undefined; }
+  try {
+    const r = await fetch(url, { cache: 'no-store', signal });
+    if (!r.ok) return null;
+    const entry = await r.json();
+    return entry && typeof entry === 'object' ? entry : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -97,14 +152,10 @@ async function fetchEntryVerified(b) {
   let lastContentMs = null;
   for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
     if (attempt > 0) await sleep(RETRY_DELAYS_MS[attempt - 1]);
-    let entry = null;
-    try {
-      const r = await fetch(b.url + '?t=' + Date.now() + '-' + attempt, { cache: 'no-store' });
-      if (r.ok) entry = await r.json();
-    } catch { /* fall through to retry */ }
+    const entry = await fetchEntryOnce(b.url + '?t=' + Date.now() + '-' + attempt);
     if (!entry) { lastProblem = 'unreadable'; continue; }
     if (!Number.isFinite(uploadedMs)) return { entry }; // no listing stamp → cannot verify
-    const contentMs = entryLastWriteMs(entry);
+    const contentMs = entryWriteStampMs(entry);
     if (contentMs == null) return { entry }; // legacy row → cannot verify
     if (uploadedMs - contentMs <= FRESHNESS_SKEW_MS) return { entry };
     // Settled long enough that no propagation window is left — this IS the
@@ -113,7 +164,7 @@ async function fetchEntryVerified(b) {
     // writer is stamping before it stores.
     if (Date.now() - uploadedMs > STALE_SUSPECT_WINDOW_MS) {
       console.warn(
-        'payroll read: accepting settled entry whose own stamp trails its write by ' +
+        'payroll read: accepting settled entry whose write stamp trails its PUT by ' +
         (uploadedMs - contentMs) + 'ms — ' + b.pathname +
         ' (last written ' + Math.round((Date.now() - uploadedMs) / 1000) + 's ago, ' +
         'so no CDN propagation window remains)',
@@ -330,17 +381,27 @@ async function collectRows({ status, userId, jobId, fromDate, toDate }) {
   return { ok: true, fromDate, toDate, status, userId, jobId, rows, entries, userById, jobById };
 }
 
+// Calendar-date arithmetic in UTC end to end: the previous local-midnight +
+// toISOString() shape shifted the emitted date by a day on any non-UTC host
+// (invisible on UTC production, wrong everywhere else — the same bug
+// api/time-entries-overview.js fixed for its missing-day cursor).
 function weekMondayOf(dateStr) {
-  const d = new Date(dateStr + 'T00:00:00');
-  const dow = d.getDay() || 7;
-  const m = new Date(d); m.setDate(d.getDate() - (dow - 1));
-  return m.toISOString().slice(0, 10);
+  const d = new Date(dateStr + 'T00:00:00Z');
+  const dow = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() - (dow - 1));
+  return d.toISOString().slice(0, 10);
 }
 function weekSundayOf(dateStr) {
-  const d = new Date(dateStr + 'T00:00:00');
-  const dow = d.getDay() || 7;
-  const s = new Date(d); s.setDate(d.getDate() + (7 - dow));
-  return s.toISOString().slice(0, 10);
+  const d = new Date(dateStr + 'T00:00:00Z');
+  const dow = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + (7 - dow));
+  return d.toISOString().slice(0, 10);
 }
 
-module.exports = { collectRows, weekMondayOf, weekSundayOf, __setFreshnessRetryDelaysForTests };
+module.exports = {
+  collectRows,
+  weekMondayOf,
+  weekSundayOf,
+  entryWriteStampMs,
+  __setFreshnessRetryDelaysForTests,
+};

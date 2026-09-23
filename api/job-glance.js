@@ -37,9 +37,9 @@
 // Cost: 1 jobs.json read + 1 data.json read + 1 hours blob list +
 //       1 fetch per matching hours entry (one per user, same Sydney day).
 
-const { list } = require('@vercel/blob');
 const { readBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, canWrite, isAdminRole, isClientRole } = require('./_lib/auth');
+const { listTimeEntryBlobsForDate } = require('./_lib/time-entry-blobs'); // #935: paginated walk
 
 function sydneyToday() {
   return new Intl.DateTimeFormat('en-CA', {
@@ -133,11 +133,8 @@ module.exports = async (req, res) => {
       }
     }
 
-    // Crew on site (excluding me)
-    const token = process.env.BLOB_READ_WRITE_TOKEN;
-    const r = await list({ prefix: 'users/', token, limit: 5000 });
-    const blobs = (r.blobs || []).filter(b =>
-      b.pathname.endsWith(`/time-entries/${today}.json`));
+    // Crew on site (excluding me) — paginated walk (#935), never the silent cap.
+    const blobs = await listTimeEntryBlobsForDate(today);
     const others = await Promise.all(blobs.map(async b => {
       // Skip my own blob; we already read it.
       if (b.pathname === `users/${me.id}/time-entries/${today}.json`) return null;

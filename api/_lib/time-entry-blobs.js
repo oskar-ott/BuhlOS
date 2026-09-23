@@ -16,7 +16,12 @@
 // Audit blobs (users/<uid>/time-entries-audit/…) are excluded — they are the
 // hours-audit journal, not entries.
 
-const { list } = require('@vercel/blob');
+// Resolved per call, not at module load: the handler test suites inject a
+// per-test `@vercel/blob` fake through the require cache, and a binding
+// captured here at first load would keep pointing at the first suite's fake.
+function sdk() {
+  return require('@vercel/blob');
+}
 
 function isTimeEntryBlob(b) {
   if (!b || typeof b.pathname !== 'string') return false;
@@ -32,12 +37,21 @@ async function listTimeEntryBlobs() {
   const token = process.env.BLOB_READ_WRITE_TOKEN;
   const out = [];
   let cursor;
+  const { list } = sdk();
   do {
     const r = await list({ prefix: 'users/', token, limit: 1000, cursor });
     for (const b of (r && r.blobs) || []) if (isTimeEntryBlob(b)) out.push(b);
     cursor = r && r.hasMore ? r.cursor : undefined;
   } while (cursor);
   return out;
+}
+
+/** The day-file blobs for ONE calendar date across every user — the walk the
+ *  day-scoped readers (on-site crew, day pulse, daily digest, job glance)
+ *  share. Fully paginated like listTimeEntryBlobs. */
+async function listTimeEntryBlobsForDate(date) {
+  const suffix = `/time-entries/${date}.json`;
+  return (await listTimeEntryBlobs()).filter((b) => b.pathname.endsWith(suffix));
 }
 
 /** Fetch + parse each blob; unreadable ones are dropped (callers that must
@@ -56,4 +70,4 @@ async function fetchTimeEntries(blobs) {
   return entries.filter(Boolean);
 }
 
-module.exports = { listTimeEntryBlobs, fetchTimeEntries, isTimeEntryBlob };
+module.exports = { listTimeEntryBlobs, listTimeEntryBlobsForDate, fetchTimeEntries, isTimeEntryBlob };

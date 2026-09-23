@@ -28,8 +28,8 @@
 //                  "Missing logs" computed for crew assigned to those same jobs.
 //   - everyone else: 403.
 
-const { list } = require('@vercel/blob');
 const { readBlob, setNoCache } = require('./_lib/blob');
+const { listTimeEntryBlobs } = require('./_lib/time-entry-blobs'); // #935: paginated users/ walk
 const { readLeave, approvedLeaveByUserDate } = require('./_lib/leave');
 const { publicHolidaysInRange } = require('./_lib/public-holidays');
 const { requireAuth, isStaffRole, isAdminRole, isHoursTrackedWorker } = require('./_lib/auth');
@@ -101,21 +101,18 @@ module.exports = async (req, res) => {
   });
 
   // ── Walk entries ───────────────────────────────────────────────────
-  const token = process.env.BLOB_READ_WRITE_TOKEN;
-  let blobs = [];
+  // Fully paginated (#935). This overview is what the weekly closeout board,
+  // the pay-period readiness banner and the command centre all derive from,
+  // so the old single `list({ limit: 5000 })` page — which the store caps at
+  // 1000 blobs and which never followed the cursor — would one day have
+  // started silently reporting real logged days as "missing" (2026-09-22
+  // payroll audit: 352 blobs under users/ and growing ~50 a week).
+  let entryBlobs = [];
   try {
-    const r = await list({ prefix: 'users/', token, limit: 5000 });
-    blobs = r.blobs || [];
+    entryBlobs = await listTimeEntryBlobs();
   } catch (e) {
     return res.status(502).json({ error: 'blob list failed: ' + e.message });
   }
-
-  // Path-shape filter (cheap): only time-entry day-files
-  const entryBlobs = blobs.filter(b =>
-    b.pathname.includes('/time-entries/') &&
-    !b.pathname.includes('/time-entries-audit/') &&
-    b.pathname.endsWith('.json')
-  );
 
   // Date-prefix filter (cheap, before fetch): pathname looks like
   //   users/<uid>/time-entries/<date>.json

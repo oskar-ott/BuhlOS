@@ -532,6 +532,74 @@ describe("freshness guarantee — a stale or unreadable day refuses the whole pa
     expect(rows.some((r) => r.date === "2026-06-09")).toBe(true);
   });
 
+  /**
+   * 2026-09-22 audit, after the second payroll block. The stamp held against
+   * the blob's PUT is now the STORAGE layer's `__updatedAt` (written by
+   * applyGuards inside writeBlob, immediately before the put) — not the
+   * handler's `updatedAt`, which is taken before the write and trails the PUT
+   * by however long the write path took. A production scan found handler
+   * stamps trailing by up to 78s (and within 2s of the 15s skew at p90 on
+   * ORDINARY single approvals) while `__updatedAt` never trailed by more than
+   * 3.1s. These pin the storage stamp as the signal.
+   */
+  it("INCLUDES a JUST-written entry whose handler stamp trails its PUT by a minute when the storage stamp is fresh — the 2026-09-21 shape, inside the propagation window", async () => {
+    const key = "users/w1/time-entries/2026-06-09.json";
+    const putAt = Date.now() - 20_000; // written 20s ago — squarely inside the 5-minute suspect window
+    blob.set(
+      key,
+      entry("w1", "2026-06-09", {
+        status: "approved",
+        // A slow batch: the handler's stamp is a minute older than the PUT…
+        updatedAt: new Date(putAt - 60_000).toISOString(),
+        approvedAt: new Date(putAt - 60_000).toISOString(),
+        // …but the storage layer stamped the document ~1s before storing it.
+        __updatedAt: new Date(putAt - 1_000).toISOString(),
+        __rev: 3,
+      }),
+    );
+    listWith({ [key]: new Date(putAt).toISOString() });
+    const res = await call("u_admin", "office", { ...WEEK, dryRun: "1", format: "json", status: "approved" });
+    expect(res.statusCode).toBe(200);
+    const rows = (res.body as { rows: Array<{ date: string }> }).rows;
+    expect(rows.some((r) => r.date === "2026-06-09")).toBe(true);
+  });
+
+  it("REFUSES a just-written blob whose STORAGE stamp predates its PUT — the CDN served the previous document (wk34, with the storage stamp present)", async () => {
+    const key = "users/w1/time-entries/2026-06-09.json";
+    const putAt = Date.now() - 5_000;
+    blob.set(
+      key,
+      entry("w1", "2026-06-09", {
+        status: "submitted",
+        updatedAt: new Date(putAt - 10 * 60_000).toISOString(),
+        __updatedAt: new Date(putAt - 10 * 60_000).toISOString(),
+        __rev: 2,
+      }),
+    );
+    listWith({ [key]: new Date(putAt).toISOString() });
+    const res = await call("u_admin", "office", { ...WEEK, dryRun: "1", format: "json", status: "approved" });
+    expect(res.statusCode).toBe(503);
+    expect((res.body as { error: string }).error).toContain("sparky 2026-06-09 (just changed)");
+  });
+
+  it("the storage stamp stands on its own — a document with NO handler stamps but a fresh __updatedAt is included", async () => {
+    const key = "users/w1/time-entries/2026-06-09.json";
+    const putAt = Date.now() - 3_000;
+    blob.set(
+      key,
+      entry("w1", "2026-06-09", {
+        status: "approved",
+        __updatedAt: new Date(putAt - 800).toISOString(),
+        __rev: 1,
+      }),
+    );
+    listWith({ [key]: new Date(putAt).toISOString() });
+    const res = await call("u_admin", "office", { ...WEEK, dryRun: "1", format: "json", status: "approved" });
+    expect(res.statusCode).toBe(200);
+    const rows = (res.body as { rows: Array<{ date: string }> }).rows;
+    expect(rows.some((r) => r.date === "2026-06-09")).toBe(true);
+  });
+
   it("…but the SAME gap on a just-written blob is still refused — the wk34 protection is untouched", async () => {
     const key = "users/w1/time-entries/2026-06-09.json";
     blob.set(
