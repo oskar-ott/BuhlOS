@@ -58,6 +58,7 @@ export function philJobCommandInputFromListSignals(
     Job,
     "id" | "name" | "status" | "inductionRequired" | "statsSnagsV2Active" | "statsItpsActive"
   >,
+  opts: { logHoursHref?: string } = {},
 ): PhilJobCommandInput {
   const status = job.status ?? "active";
   return {
@@ -77,8 +78,11 @@ export function philJobCommandInputFromListSignals(
     // Real, opt-in list stats — the same active sets the row chips show.
     snags: { kind: "count", value: statCount(job.statsSnagsV2Active) },
     itps: { kind: "count", value: statCount(job.statsItpsActive) },
-    // Hours live on the Day tab — a real capability on another surface.
-    hours: { kind: "elsewhere", href: "/phil/my-day" },
+    // Hours: with a job-aware log surface (the sharpened Hours tab takes
+    // ?job=) the shortcut opens it with THIS job picked; otherwise the Day tab.
+    hours: opts.logHoursHref
+      ? { kind: "available", href: opts.logHoursHref }
+      : { kind: "elsewhere", href: "/phil/my-day" },
     // Everything else the list doesn't fetch: honestly unknown, never a fake 0.
     plans: { kind: "unknown" },
     tags: { kind: "unknown" },

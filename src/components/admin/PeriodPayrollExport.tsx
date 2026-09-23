@@ -31,10 +31,8 @@ export function PeriodPayrollExport({ fromDate, toDate, unexportedApprovedHours,
     <Card>
       <CardTitle>Download for payroll</CardTitle>
       <CardDescription className="mt-1">
-        <strong>Read-only CSV previews — they never mark hours as exported.</strong> To record a
-        payroll run, use the Payroll batch panel on this page: create a batch, validate, lock it,
-        then Export to Xero or download the batch CSV. The locked batch is the single source of a
-        payroll run.
+        <strong>Copies for checking and filing — downloading never marks hours as sent.</strong>{" "}
+        To actually hand the week over, use one of the hand-offs on this page.
       </CardDescription>
 
       {notClosed ? (
@@ -43,7 +41,7 @@ export function PeriodPayrollExport({ fromDate, toDate, unexportedApprovedHours,
           role="status"
         >
           This period isn&rsquo;t closed — totals will change once the undecided days are decided on
-          the weekly board. Preview freely; batch once it&rsquo;s final.
+          the weekly board. Download freely; hand the week over once it&rsquo;s final.
         </p>
       ) : null}
 
@@ -79,8 +77,8 @@ export function PeriodPayrollExport({ fromDate, toDate, unexportedApprovedHours,
         </a>
       </div>
       <p className="mt-2 text-xs text-text-muted">
-        Every download is a dry run — none of them mark hours as exported. The PDF is the printable
-        sheet (summary by worker + day breakdown); the CSVs are for spreadsheets and Xero.
+        The PDF is the printable sheet (summary by worker + day breakdown); the CSVs are for
+        spreadsheets and Xero&rsquo;s import.
       </p>
     </Card>
   );

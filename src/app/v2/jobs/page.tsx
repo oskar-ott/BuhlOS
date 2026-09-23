@@ -9,6 +9,7 @@ import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface, canCreateJob } from "@/lib/auth/permissions";
 import { JobListResponseSchema } from "@/domains/jobs/schema";
 import { isDeletableTestJob } from "@/domains/jobs/test-data";
+import { jobsForStatusView, parseJobStatusParam } from "@/domains/jobs/list-filter";
 import type { Job } from "@/domains/jobs/types";
 
 export const dynamic = "force-dynamic";
@@ -41,7 +42,11 @@ export const dynamic = "force-dynamic";
  *   src/app/v2/jobs/[jobId]/snags/page.tsx — D.5 precedent
  *   docs/rebuild-audit/24-phase-d-jobs-evidence-plan.md §6.2 Admin
  */
-export default async function AdminJobsPage() {
+interface AdminJobsPageProps {
+  searchParams: Promise<{ status?: string | string[] }>;
+}
+
+export default async function AdminJobsPage({ searchParams }: AdminJobsPageProps) {
   const cookieStore = await cookies();
   const raw = cookieStore.get(SESSION_COOKIE)?.value;
   const session = decodeSessionCookie(raw);
@@ -72,10 +77,14 @@ export default async function AdminJobsPage() {
   const { jobs, fetchError } = await loadJobs(raw);
   const cardExtrasPromise = summaryOn ? loadCardExtras(raw) : null;
 
-  // Hide archived rows from the admin index — admins can still reach
-  // archived jobs through legacy /admin/jobs.html when they need to.
-  // Matches the Phil-side filter for behavioural consistency.
-  const visible = jobs.filter((j) => j.status !== "archived");
+  // Hide archived rows from the admin index (matches the Phil-side filter) —
+  // EXCEPT on the Archived view (`?status=archived`), the only place archived
+  // jobs are reachable now that legacy /admin/jobs.html redirects back here.
+  // The list itself keeps "All", the pill counts and the portfolio header to
+  // working jobs even when archived rows are loaded (list-filter.ts).
+  const rawStatus = (await searchParams)?.status;
+  const statusParam = parseJobStatusParam(Array.isArray(rawStatus) ? rawStatus[0] : rawStatus);
+  const visible = jobsForStatusView(jobs, statusParam);
 
   // Parked automated-test jobs (QA-prefixed, not active) accumulate one
   // per smoke run with no other removal path — offer literal admins the

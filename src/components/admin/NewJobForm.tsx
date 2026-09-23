@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Route } from "next";
 import Link from "next/link";
@@ -31,6 +31,37 @@ import { cn } from "@/lib/cn";
  *   src/domains/jobs/client.ts createJob — safeParse + POST
  *   src/app/v2/jobs/[jobId]/builder/page.tsx — where we land next
  */
+/** Server refusals that belong to ONE field, so they render next to it. */
+export interface CreateJobFieldErrors {
+  name?: string;
+  code?: string;
+}
+
+/**
+ * Map a failed POST /api/jobs to the field it is about. createJob answers a
+ * duplicate IV number with a 409 naming the clashing job, and a duplicate name
+ * (the job id is slugified from it) with a 400 "job id already exists". Any
+ * other failure returns null and stays a form-level error.
+ */
+export function createJobFieldError(status: number, body: unknown): CreateJobFieldErrors | null {
+  const serverMsg =
+    body && typeof body === "object" && typeof (body as { error?: unknown }).error === "string"
+      ? (body as { error: string }).error
+      : "";
+  if (status === 409) {
+    const used = /already used by "([^"]+)"/.exec(serverMsg)?.[1];
+    return {
+      code: used
+        ? `That IV number is already used by “${used}” — pick another.`
+        : "That IV number is already in use — pick another.",
+    };
+  }
+  if (status === 400 && /already exists/i.test(serverMsg)) {
+    return { name: "A job with this name already exists — use a different name." };
+  }
+  return null;
+}
+
 export function NewJobForm() {
   const router = useRouter();
   const [name, setName] = useState("");
@@ -40,6 +71,13 @@ export function NewJobForm() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showErrors, setShowErrors] = useState(false);
+  const [serverFieldErrors, setServerFieldErrors] = useState<CreateJobFieldErrors>({});
+  const nameRef = useRef<HTMLInputElement>(null);
+  const codeRef = useRef<HTMLInputElement>(null);
+  // Synchronous in-flight latch: a fast double-Enter fires both keydowns
+  // before React re-renders with `submitting`, so state alone can't stop the
+  // second create.
+  const inFlightRef = useRef(false);
 
   const fieldErrors: Record<string, string | undefined> = { ...validateJobBasics({ name }, { requireName: true }) };
   // The IV number is what every worker gives the wholesaler and what supplier
@@ -47,13 +85,25 @@ export function NewJobForm() {
   const codeTrim = code.trim().toUpperCase();
   if (!codeTrim) fieldErrors.code = "IV number is required";
   else if (!/^IV\d{4}$/.test(codeTrim)) fieldErrors.code = "IV followed by four digits, e.g. IV3232";
-  const canSubmit = Object.keys(fieldErrors).length === 0 && !submitting;
 
   async function submit() {
+    if (inFlightRef.current || submitting) return;
     setShowErrors(true);
-    if (Object.keys(fieldErrors).length > 0) return;
+    // The button stays clickable while the form is invalid: a click reveals
+    // the field errors and moves focus to the first one, instead of a dead
+    // disabled button that never says why.
+    if (fieldErrors.name) {
+      nameRef.current?.focus();
+      return;
+    }
+    if (fieldErrors.code) {
+      codeRef.current?.focus();
+      return;
+    }
+    inFlightRef.current = true;
     setSubmitting(true);
     setError(null);
+    setServerFieldErrors({});
     const res = await createJob(
       buildCreatePayload({
         name,
@@ -63,7 +113,14 @@ export function NewJobForm() {
       })
     );
     if (!res.ok) {
+      inFlightRef.current = false;
       setSubmitting(false);
+      const perField = createJobFieldError(res.error.status, res.error.body);
+      if (perField) {
+        setServerFieldErrors(perField);
+        (perField.code ? codeRef : nameRef).current?.focus();
+        return;
+      }
       setError(res.error.message);
       return;
     }
@@ -71,6 +128,11 @@ export function NewJobForm() {
     // double-fired while the route transition runs.
     router.push(`/v2/jobs/${encodeURIComponent(res.data.job.id)}/builder` as Route);
   }
+
+  // Client validation shows once the user has tried to create; a server
+  // refusal about a field (duplicate IV number / name) shows next to it.
+  const nameError = (showErrors ? fieldErrors.name : undefined) ?? serverFieldErrors.name;
+  const codeError = (showErrors ? fieldErrors.code : undefined) ?? serverFieldErrors.code;
 
   return (
     <Card>
@@ -90,16 +152,21 @@ export function NewJobForm() {
       ) : null}
 
       <div className="mt-4 space-y-3">
-        <Field label="Job name" required error={showErrors ? fieldErrors.name : undefined}>
+        <Field label="Job name" required error={nameError}>
           <input
+            ref={nameRef}
             data-testid="job-name"
             autoFocus
-            className={cn(inputClass, showErrors && fieldErrors.name && "border-rose-400")}
+            aria-invalid={nameError ? true : undefined}
+            className={cn(inputClass, nameError && "border-rose-400")}
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => {
+              setName(e.target.value);
+              if (serverFieldErrors.name) setServerFieldErrors((p) => ({ ...p, name: undefined }));
+            }}
             placeholder="e.g. Magill Rd — Unit 4 fitout"
             onKeyDown={(e) => {
-              if (e.key === "Enter") submit();
+              if (e.key === "Enter") void submit();
             }}
           />
         </Field>
@@ -107,17 +174,22 @@ export function NewJobForm() {
           label="IV number"
           required
           help="The job number workers give the wholesaler — supplier invoices are matched on it."
-          error={showErrors ? fieldErrors.code : undefined}
+          error={codeError}
         >
           <input
+            ref={codeRef}
             data-testid="job-code"
-            className={cn(inputClass, "font-mono uppercase", showErrors && fieldErrors.code && "border-rose-400")}
+            aria-invalid={codeError ? true : undefined}
+            className={cn(inputClass, "font-mono uppercase", codeError && "border-rose-400")}
             value={code}
-            onChange={(e) => setCode(e.target.value)}
+            onChange={(e) => {
+              setCode(e.target.value);
+              if (serverFieldErrors.code) setServerFieldErrors((p) => ({ ...p, code: undefined }));
+            }}
             placeholder="e.g. IV3232"
             maxLength={8}
             onKeyDown={(e) => {
-              if (e.key === "Enter") submit();
+              if (e.key === "Enter") void submit();
             }}
           />
         </Field>
@@ -152,7 +224,7 @@ export function NewJobForm() {
         >
           Cancel
         </Link>
-        <Button data-testid="create-draft" disabled={!canSubmit} onClick={submit}>
+        <Button data-testid="create-draft" disabled={submitting} onClick={() => void submit()}>
           {submitting ? "Creating…" : "Create draft →"}
         </Button>
       </div>

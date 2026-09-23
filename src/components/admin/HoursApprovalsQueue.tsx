@@ -8,6 +8,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Pill } from "@/components/ui/Pill";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { RefreshButton } from "@/components/ui/RefreshButton";
+import { ReasonField } from "@/components/admin/ReasonField";
 import { relativeWhen } from "@/domains/jobs/format";
 import {
   AmendHoursEditor,
@@ -77,6 +78,9 @@ export function HoursApprovalsQueue({
   const [action, setAction] = useState<ActionState>({ kind: "idle" });
   const [rejectTarget, setRejectTarget] = useState<TimeEntry | null>(null);
   const [rejectReason, setRejectReason] = useState("");
+  /** Validation / server error for the open reject dialog — shown INSIDE it. */
+  const [rejectError, setRejectError] = useState<string | null>(null);
+  const [rejectBusy, setRejectBusy] = useState(false);
   /** Entry key whose inline "fix the hours" editor is open (one at a time). */
   const [amendKey, setAmendKey] = useState<string | null>(null);
   const [bulk, setBulk] = useState<BulkOutcome | null>(null);
@@ -223,40 +227,54 @@ export function HoursApprovalsQueue({
   function openReject(entry: TimeEntry) {
     setRejectTarget(entry);
     setRejectReason("");
+    setRejectError(null);
+  }
+
+  function closeReject() {
+    if (rejectBusy) return;
+    setRejectTarget(null);
+    setRejectReason("");
+    setRejectError(null);
   }
 
   async function confirmReject() {
-    if (!rejectTarget) return;
+    if (!rejectTarget || rejectBusy) return;
+    const target = rejectTarget;
     const trimmed = rejectReason.trim();
     if (!trimmed) {
-      setAction({ kind: "error", message: "Rejection reason is required." });
+      setRejectError("Add a reason — the worker sees it on their phone.");
       return;
     }
-    const key = entryKey(rejectTarget);
+    const key = entryKey(target);
+    setRejectError(null);
+    setRejectBusy(true);
     setAction({ kind: "rejecting", entryKey: key });
-    setRejectTarget(null);
     const result = await timesheetsClient.rejectEntry({
-      userId: rejectTarget.userId,
-      date: rejectTarget.date,
+      userId: target.userId,
+      date: target.date,
       reason: trimmed,
     });
+    setRejectBusy(false);
     if (result.ok) {
+      // Only close on success — a failure keeps the dialog (and the typed
+      // reason) open with the server's message inside it.
+      setRejectTarget(null);
+      setRejectReason("");
       setEntries((current) => current.filter((e) => entryKey(e) !== key));
       setAction({
         kind: "success",
         entryKey: key,
-        label: `Rejected ${rejectTarget.userName ?? rejectTarget.userId}'s ${rejectTarget.date}. They'll get a push notification with the reason.`,
+        label: `Rejected ${target.userName ?? target.userId}'s ${formatDateLabel(target.date)}. They'll see the reason and a Fix button in their app.`,
       });
       startTransition(() => router.refresh());
       return;
     }
-    setAction({
-      kind: "error",
-      message:
-        result.error.status === 403
-          ? "You don't have permission to reject this entry — admin only."
-          : result.error.message || "Couldn't reject. Try again.",
-    });
+    setAction({ kind: "idle" });
+    setRejectError(
+      result.error.status === 403
+        ? "You don't have permission to reject this entry — admin only."
+        : result.error.message || "Couldn't reject. Try again.",
+    );
   }
 
   return (
@@ -329,10 +347,7 @@ export function HoursApprovalsQueue({
 
       <Modal
         open={rejectTarget !== null}
-        onClose={() => {
-          setRejectTarget(null);
-          setRejectReason("");
-        }}
+        onClose={closeReject}
         title={
           rejectTarget ? `Reject ${rejectTarget.userName ?? rejectTarget.userId}'s hours` : "Reject"
         }
@@ -342,35 +357,29 @@ export function HoursApprovalsQueue({
             <p className="text-sm text-text-muted">
               {formatHoursLabel(rejectTarget.totalHours)} on{" "}
               <span className="font-medium text-text">{formatDateLabel(rejectTarget.date)}</span>.
-              The reason is shared with the worker in a push notification.
+              The worker sees this reason on their day, with a Fix button.
             </p>
           ) : null}
-          <label className="block text-sm">
-            <span className="mb-1 block font-medium text-text">Reason (required)</span>
-            <textarea
-              autoFocus
-              required
-              aria-required="true"
-              rows={3}
-              maxLength={500}
-              value={rejectReason}
-              onChange={(e) => setRejectReason(e.target.value)}
-              placeholder="e.g. Wrong job — please reallocate to IV-3232"
-              className="block w-full rounded-card border border-border bg-surface px-3 py-2 text-sm focus:border-brand-navy focus:outline-none"
-            />
-          </label>
+          <ReasonField
+            value={rejectReason}
+            onChange={(v) => {
+              setRejectReason(v);
+              if (rejectError) setRejectError(null);
+            }}
+            placeholder="e.g. Wrong job — please reallocate to IV3232"
+            error={rejectError}
+            disabled={rejectBusy}
+          />
           <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setRejectTarget(null);
-                setRejectReason("");
-              }}
-            >
+            <Button variant="ghost" disabled={rejectBusy} onClick={closeReject}>
               Cancel
             </Button>
-            <Button variant="danger" onClick={confirmReject}>
-              Reject with reason
+            <Button
+              variant="danger"
+              disabled={rejectBusy || rejectReason.trim() === ""}
+              onClick={() => void confirmReject()}
+            >
+              {rejectBusy ? "Sending back…" : "Reject with reason"}
             </Button>
           </div>
         </div>

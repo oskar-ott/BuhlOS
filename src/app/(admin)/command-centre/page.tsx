@@ -201,8 +201,15 @@ export default async function CommandCentrePage() {
   const noCrewJobs = exceptions.filter(
     (e) => e.source === "job" && e.severity === "critical",
   ).length;
+  // Rejected days live on the weekly board ("Sent back"), not the approvals
+  // queue — land it on the week of the oldest one so it's actually on screen.
+  const oldestRejectedDate = hoursRejected.reduce<string | null>(
+    (min, e) => (min === null || e.date < min ? e.date : min),
+    null,
+  );
   const needsYou = buildNeedsYouQueue({
     rejected: rejectedHoursCount,
+    ...(oldestRejectedDate ? { rejectedWeekStart: weekStartOf(oldestRejectedDate) } : {}),
     missingDays: missingSummary.total,
     // The chase link lands the weekly board on the week the count covers —
     // the last complete Mon–Sun week (same window loadSnapshot queried).

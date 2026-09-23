@@ -111,7 +111,11 @@ function topJobActions(
   >,
   max = 3,
 ): PhilJobCommandAction[] {
-  const model = buildPhilJobCommandModel(philJobCommandInputFromListSignals(job));
+  const model = buildPhilJobCommandModel(
+    philJobCommandInputFromListSignals(job, {
+      logHoursHref: `/phil/hours?job=${encodeURIComponent(job.id)}`,
+    })
+  );
   const ranked = model.primaryAction
     ? [model.primaryAction, ...model.actions]
     : model.actions;
@@ -122,9 +126,12 @@ interface Props {
   initialJobs: ReadonlyArray<Job>;
   /** Keys the per-worker recent + pinned prefs (#145); "" = no prefs read. */
   userId?: string;
+  /** The jobs read FAILED (the page shows the error notice). An empty list is
+   *  then "couldn't load", never "no jobs" — the empty state stays hidden. */
+  loadFailed?: boolean;
 }
 
-export function PhilJobsSharpened({ initialJobs, userId = "" }: Props) {
+export function PhilJobsSharpened({ initialJobs, userId = "", loadFailed = false }: Props) {
   // Prefs after mount only — SSR paints the stable name-first list, exactly
   // like PhilJobsList (no hydration flash, no fabricated "recent").
   const [prefs, setPrefs] = useState<JobListPrefs>(EMPTY_PREFS);
@@ -192,10 +199,14 @@ export function PhilJobsSharpened({ initialJobs, userId = "" }: Props) {
       </header>
 
       {initialJobs.length === 0 ? (
-        <EmptyState
-          title="No jobs assigned yet"
-          description="When admin or your leading hand puts you on a job, it'll show up here. Ask your PM if you think one is missing."
-        />
+        // A failed read is NOT "no jobs" (P7): the page's notice owns that
+        // state, so the empty state only renders for a list that truly loaded.
+        loadFailed ? null : (
+          <EmptyState
+            title="No jobs yet"
+            description="Tap + New job to add the one you're on, or ask the office to set it up."
+          />
+        )
       ) : (
         <>
           {initialJobs.length > 1 ? (

@@ -4,6 +4,7 @@ import {
   filterJobs,
   jobStatusCounts,
   jobsEmptyStateMessage,
+  jobsForStatusView,
   parseJobStatusParam,
 } from "./list-filter";
 import { JOB_STATUS_OPTIONS } from "./format";
@@ -77,6 +78,24 @@ describe("filterJobs", () => {
     ]);
   });
 
+  it("matches the IV#### job code, case-insensitively, including a partial number", () => {
+    const withCodes = [
+      ...JOBS,
+      job({ id: "j6", name: "Birdwood Reno", status: "active", code: "IV2041" }),
+    ];
+    expect(filterJobs(withCodes, { status: null, query: "IV2041" }).map((j) => j.id)).toEqual([
+      "j6",
+    ]);
+    expect(filterJobs(withCodes, { status: null, query: "iv2041" }).map((j) => j.id)).toEqual([
+      "j6",
+    ]);
+    expect(filterJobs(withCodes, { status: null, query: "2041" }).map((j) => j.id)).toEqual([
+      "j6",
+    ]);
+    // A job with no code never matches a code search (null-safe).
+    expect(filterJobs(withCodes, { status: null, query: "iv9999" })).toHaveLength(0);
+  });
+
   it("applies status and query together", () => {
     expect(
       filterJobs(JOBS, { status: "active", query: "cottage" }).map((j) => j.id)
@@ -88,6 +107,36 @@ describe("filterJobs", () => {
     const input = [...JOBS];
     expect(filterJobs(input, { status: null, query: "  rewire  " })).toHaveLength(1);
     expect(input).toHaveLength(5);
+  });
+});
+
+describe("archived view", () => {
+  const WITH_ARCHIVED: ReadonlyArray<Job> = [
+    ...JOBS,
+    job({ id: "a1", name: "Old Arthur St", status: "archived", code: "IV1001" }),
+  ];
+
+  it("the server ships archived rows ONLY for ?status=archived", () => {
+    expect(jobsForStatusView(WITH_ARCHIVED, null).map((j) => j.id)).not.toContain("a1");
+    expect(jobsForStatusView(WITH_ARCHIVED, "active").map((j) => j.id)).not.toContain("a1");
+    expect(jobsForStatusView(WITH_ARCHIVED, "archived").map((j) => j.id)).toContain("a1");
+    expect(jobsForStatusView(WITH_ARCHIVED, "archived")).toHaveLength(6);
+  });
+
+  it("the Archived filter lists archived jobs (it used to be permanently empty)", () => {
+    expect(filterJobs(WITH_ARCHIVED, { status: "archived", query: "" }).map((j) => j.id)).toEqual([
+      "a1",
+    ]);
+    expect(
+      filterJobs(WITH_ARCHIVED, { status: "archived", query: "iv1001" }).map((j) => j.id)
+    ).toEqual(["a1"]);
+  });
+
+  it("'All' never shows archived rows, even when the loaded list carries them", () => {
+    const all = filterJobs(WITH_ARCHIVED, { status: null, query: "" });
+    expect(all.map((j) => j.id)).not.toContain("a1");
+    expect(all).toHaveLength(5);
+    expect(filterJobs(WITH_ARCHIVED, { status: null, query: "arthur" })).toHaveLength(0);
   });
 });
 

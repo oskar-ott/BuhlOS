@@ -529,6 +529,7 @@ export function buildPhilJobCommandModel(input: PhilJobCommandInput): PhilJobCom
         label: "Log hours",
         href: input.hours.href,
         status: "ready",
+        reason: "Opens Hours with this job already picked.",
       });
       break;
     case "elsewhere":
@@ -537,7 +538,7 @@ export function buildPhilJobCommandModel(input: PhilJobCommandInput): PhilJobCom
         label: "Log hours",
         href: input.hours.href,
         status: "ready",
-        reason: "Opens your Day tab — hours aren’t logged per job.",
+        reason: "Opens your Today tab — pick this job there.",
       });
       break;
     case "unavailable":
@@ -636,13 +637,11 @@ export function buildPhilJobCommandModel(input: PhilJobCommandInput): PhilJobCom
   }
 
   // -- Materials (today: no in-app flow) --
-  if (input.materials.kind === "unavailable") {
-    limitations.push({
-      id: "materials-off-app",
-      label: "Material requests aren’t in the app yet",
-      reason: input.materials.reason ?? "Call your PM to request materials.",
-    });
-  } else if (input.materials.kind === "unknown") {
+  // `unavailable` is deliberately silent: material requests are not part of
+  // the lean product, and the lean reset's rule is that a feature that isn't
+  // built leaves no trace — no "not in the app yet" line on a kept surface
+  // (docs/product/02-lean-reset.md; P10 — the slot goes, not a placeholder).
+  if (input.materials.kind === "unknown") {
     limitations.push({
       id: "materials-unknown",
       label: "Couldn’t tell if material requests are available",

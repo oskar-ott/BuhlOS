@@ -133,7 +133,7 @@ describe("LogHoursSheet — job attribution", () => {
     });
     expect(html).toContain('role="radiogroup"');
     expect(html).toContain("Search your jobs");
-    expect(html).toContain("Find a job by name or address");
+    expect(html).toContain("Find a job — name, IV number or street");
   });
 
   it("renders the multi-job picker as the spinning dial, radios intact (owner-directed 2026-08-02)", () => {

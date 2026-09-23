@@ -69,7 +69,6 @@ export function SendDraftDayButton({ entry }: { entry: TimeEntry }) {
       {state.kind === "error" ? (
         <PhilNotice tone="danger" role="alert" title="Didn’t go">
           {state.message}
-          {state.status ? <span className="ml-1 text-xs">(HTTP {state.status})</span> : null}
         </PhilNotice>
       ) : null}
     </div>

@@ -22,7 +22,7 @@ import type { Job, JobStatus } from "./types";
 export interface JobsListFilter {
   /** null = all statuses (no `?status=` param). */
   status: JobStatus | null;
-  /** Trimmed contains-match over name / address / ref. "" = no search. */
+  /** Trimmed contains-match over name / address / ref / IV code. "" = no search. */
   query: string;
 }
 
@@ -47,10 +47,37 @@ function matchesQuery(job: Job, q: string): boolean {
   const name = job.name.toLowerCase();
   const address = (job.siteAddress ?? "").toLowerCase();
   const ref = (job.ref ?? "").toLowerCase();
-  return name.includes(q) || address.includes(q) || ref.includes(q);
+  // The IV#### job code is how the office and crew actually name a job
+  // ("IV2041") — searching it must find the job even when name/ref don't carry it.
+  const code = (job.code ?? "").toLowerCase();
+  return name.includes(q) || address.includes(q) || ref.includes(q) || code.includes(q);
 }
 
-/** Apply status + search together. Pure; never mutates the input array. */
+/** Archived jobs are out of the working portfolio — only the Archived view shows them. */
+export function isArchivedJob(job: Pick<Job, "status">): boolean {
+  return effectiveJobStatus(job) === "archived";
+}
+
+/**
+ * Server-side trim for /v2/jobs: archived rows are only shipped to the list
+ * when the request asks for the Archived view (`?status=archived`). Every
+ * other view gets the working portfolio only, so archived jobs never leak into
+ * "All", the pill counts or the portfolio header.
+ */
+export function jobsForStatusView(
+  jobs: ReadonlyArray<Job>,
+  status: JobStatus | null
+): ReadonlyArray<Job> {
+  if (status === "archived") return jobs;
+  return jobs.filter((j) => !isArchivedJob(j));
+}
+
+/**
+ * Apply status + search together. Pure; never mutates the input array.
+ * "All" (status null) means all WORKING jobs — archived rows only appear under
+ * the explicit Archived filter, even when the loaded list carries them (the
+ * archived view's pills switch client-side without a refetch).
+ */
 export function filterJobs(
   jobs: ReadonlyArray<Job>,
   filter: JobsListFilter
@@ -58,6 +85,7 @@ export function filterJobs(
   const q = filter.query.trim().toLowerCase();
   return jobs.filter((job) => {
     if (filter.status && effectiveJobStatus(job) !== filter.status) return false;
+    if (!filter.status && isArchivedJob(job)) return false;
     if (q && !matchesQuery(job, q)) return false;
     return true;
   });

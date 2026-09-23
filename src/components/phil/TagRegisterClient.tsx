@@ -232,6 +232,13 @@ export function TagRegisterClient({ jobId, initialTags, fetchError }: Props) {
           <p className="text-sm text-text-muted">
             Photograph the test tag sticker — the fields fill themselves in for you to check.
           </p>
+          {/* Upload / read progress lives in the sheet the worker is looking
+              at — on the page it sat hidden under this full-screen sheet. */}
+          {busy ? (
+            <PhilNotice tone="info" role="status">
+              {busy}
+            </PhilNotice>
+          ) : null}
           <label className="block">
             <span className="sr-only">Take a photo of the tag</span>
             <input
@@ -239,14 +246,20 @@ export function TagRegisterClient({ jobId, initialTags, fetchError }: Props) {
               accept="image/*"
               capture="environment"
               className="hidden"
+              disabled={busy !== null}
               data-testid="tag-photo-input"
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 if (file) void startPhotoFlow(file);
               }}
             />
-            <span className="flex h-12 w-full cursor-pointer items-center justify-center rounded-card bg-brand-navy text-sm font-medium text-white">
-              Take a photo
+            <span
+              aria-disabled={busy !== null}
+              className={`flex h-12 w-full items-center justify-center rounded-card bg-brand-navy text-sm font-medium text-white ${
+                busy !== null ? "pointer-events-none opacity-60" : "cursor-pointer"
+              }`}
+            >
+              {busy !== null ? "Working on it…" : "Take a photo"}
             </span>
           </label>
           <Button
@@ -266,6 +279,7 @@ export function TagRegisterClient({ jobId, initialTags, fetchError }: Props) {
         <TagForm
           sheet={sheet}
           isPending={isPending}
+          error={errorMessage}
           onClose={() => setSheet(null)}
           onSave={save}
           onDelete={
@@ -285,6 +299,11 @@ export function TagRegisterClient({ jobId, initialTags, fetchError }: Props) {
             Removes {tagDisplayName(sheet.tag)} from this job&rsquo;s register. There&rsquo;s no
             undo.
           </p>
+          {errorMessage ? (
+            <PhilNotice tone="danger" role="alert">
+              {errorMessage}
+            </PhilNotice>
+          ) : null}
           <div className="flex gap-2">
             <Button
               variant="secondary"
@@ -370,12 +389,16 @@ const FIELD_LABELS: Record<(typeof OCR_FIELDS)[number], string> = {
 function TagForm({
   sheet,
   isPending,
+  error,
   onClose,
   onSave,
   onDelete,
 }: {
   sheet: Extract<NonNullable<Sheet>, { kind: "form" }>;
   isPending: boolean;
+  /** A failed save — shown INSIDE the sheet the worker is looking at (the
+   *  page-level notice sits under the full-screen sheet, P7/P9). */
+  error?: string | null;
   onClose: () => void;
   onSave: (draft: DraftState) => void;
   onDelete?: () => void;
@@ -396,6 +419,11 @@ function TagForm({
       title={sheet.mode === "edit" ? "Edit tag" : "Check the tag details"}
       onClose={onClose}
     >
+      {error ? (
+        <PhilNotice tone="danger" role="alert" title="Didn’t save">
+          {error} Your details are still here — try Save again.
+        </PhilNotice>
+      ) : null}
       {sheet.ocrFailed ? (
         <PhilNotice tone="warning" role="status">
           Couldn&rsquo;t read the sticker — fill the fields in yourself. The photo stays attached.

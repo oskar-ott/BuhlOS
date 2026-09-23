@@ -52,7 +52,10 @@ describe("WeeklyCloseoutSendFinale", () => {
     expect(html).toContain("Week reviewed");
     expect(html).toContain('data-testid="wha-send-accounts"');
     expect(html).toContain("Send to Tia");
-    expect(html).toContain("Tia · accounts");
+    // The recipient line is the REAL Settings list, read after mount — the
+    // first paint names accounts generically, never a hard-coded person.
+    expect(html).toContain('data-testid="wha-send-recipients"');
+    expect(html).not.toContain("Tia · accounts");
     expect(html).toContain("Mon 10 Aug – Sun 16 Aug");
   });
 

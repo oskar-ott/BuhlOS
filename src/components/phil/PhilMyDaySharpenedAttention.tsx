@@ -23,14 +23,17 @@ export async function PhilMyDaySharpenedAttention({
   cookieValue,
   viewerId,
   entries,
+  entriesFailed = false,
 }: {
   cookieValue: string | undefined;
   viewerId: string | null;
   entries: ReadonlyArray<TimeEntry>;
+  /** The entries read failed — rejected days are unknown, not absent. */
+  entriesFailed?: boolean;
 }) {
   const calibrations = await loadHeldCalibrations(cookieValue);
   const items = buildPhilNeedsYou({ viewerId, entries, calibrations });
-  return <PhilMyDayDoThisNow items={items} />;
+  return <PhilMyDayDoThisNow items={items} incomplete={entriesFailed} />;
 }
 
 /** Honest loading shimmer: a hero-sized block + two faint rows. Never implies

@@ -108,10 +108,16 @@ export function PayrollBatchExportSection({
   batchId,
   batchStatus,
   exportEnabled,
+  onBatchChanged,
 }: {
   batchId: string;
   batchStatus: string;
   exportEnabled: boolean;
+  /** Re-read the parent's batch list after an export/retry/reconcile, so the
+   *  row's status (and which buttons it offers) can't sit on "Locked" after the
+   *  batch was exported (2026-09-23 audit — Export stayed enabled, Retry and
+   *  Reconcile stayed hidden until a manual reload). */
+  onBatchChanged?: () => void | Promise<void>;
 }) {
   const [state, setState] = useState<ExportState | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
@@ -161,9 +167,15 @@ export function PayrollBatchExportSection({
         setPreview(null);
         setConfirmExport(false);
         await refreshState();
+        await onBatchChanged?.();
       }
     } catch {
-      setError("Network error — nothing was sent to Xero.");
+      // The request may have reached Xero before the connection dropped —
+      // re-read the batch instead of claiming nothing was sent.
+      setError(
+        "Lost the connection mid-request, so we can't tell if Xero got it. The batch status above has been re-checked — look at it before trying again.",
+      );
+      await onBatchChanged?.();
     } finally {
       setBusy(null);
     }

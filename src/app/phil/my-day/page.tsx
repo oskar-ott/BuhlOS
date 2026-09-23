@@ -43,7 +43,6 @@ import { PhilMyDayHero } from "@/components/phil/PhilMyDayHero";
 import { buildPhilGreeting, hourInTimeZone } from "@/domains/phil/greeting";
 import { philOnSiteSince, philSharpenedFlags } from "@/lib/phil/sharpened";
 import {
-  PhilMyDayHonestyNote,
   PhilMyDayLogHoursBanner,
   PhilMyDayOnJobCard,
   PhilMyDayQuickGrid,
@@ -255,7 +254,23 @@ export default async function MyDayPage({
               viewerId feed the client-side saved-entries journal gate — a
               just-saved day the store hasn't served back yet also clears
               the banner (2026-08-06). */}
-          {todayEntry === null ? (
+          {/* A failed entries read leads the screen (P9 — critical state on
+              the surface, not below the fold): what's logged and what was
+              sent back are unknown, so no week count and no all-clear is
+              claimed below it. */}
+          {fetchError ? (
+            <PhilNotice tone="warning" title="Couldn’t load your hours" role="alert">
+              <p>
+                What&rsquo;s logged this week and anything sent back may be missing. You can
+                still log hours on the Hours tab.
+              </p>
+              <div className="mt-3">
+                <RefreshButton />
+              </div>
+            </PhilNotice>
+          ) : null}
+
+          {todayEntry === null && !fetchError ? (
             <PhilMyDayLogHoursBanner
               todayISO={todayISO}
               viewerId={session.userId ?? null}
@@ -303,6 +318,7 @@ export default async function MyDayPage({
               cookieValue={raw}
               viewerId={session.userId ?? null}
               entries={recentEntries}
+              entriesFailed={Boolean(fetchError)}
             />
           </Suspense>
 
@@ -321,19 +337,6 @@ export default async function MyDayPage({
             viewerId={session.userId ?? null}
           />
 
-          <PhilMyDayHonestyNote />
-
-          {fetchError ? (
-            <PhilNotice tone="warning" title="Couldn’t load recent entries" role="alert">
-              <p>
-                {fetchError}. Alerts for this week may be incomplete — you can still log
-                hours from the Hours tab.
-              </p>
-              <div className="mt-3">
-                <RefreshButton />
-              </div>
-            </PhilNotice>
-          ) : null}
         </div>
       </PhilShell>
     );

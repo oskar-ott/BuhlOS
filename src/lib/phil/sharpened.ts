@@ -18,6 +18,15 @@ import { isFlagEnabled } from "../../../api/_lib/feature-flags.js";
  *
  * The phil_* flags are dark launch-gates; flipping either is a governed
  * change to the ratified Phil package (P15 — docs/phil-governance.md §3).
+ *
+ * jobRooms currently ALWAYS resolves false (2026-09-23 usability audit): the
+ * four-rooms view that registers the in-job bar left with #916 (lean reset
+ * step 5), but phil_job_rooms stayed ON in production, so every job screen
+ * rendered Now · Work · Proof · Site as the pending stand-in — four buttons
+ * that did nothing, with Today / Jobs / Hours / Gear gone (P9, P12). With no
+ * view to drive, the honest resolution is "rooms off": the job screen keeps
+ * the global sharpened bar. Restore the flag read here together with the
+ * rooms view (git history of PhilJobRoomsView) — never one without the other.
  */
 export interface PhilSharpenedFlags {
   sharpened: boolean;
@@ -29,10 +38,9 @@ type Viewer = { role?: string | null } | null | undefined;
 
 export async function philSharpenedFlags(session: Viewer): Promise<PhilSharpenedFlags> {
   const sharpened = await isFlagEnabled("phil_sharpened", session ?? null);
-  const jobRooms = sharpened
-    ? await isFlagEnabled("phil_job_rooms", session ?? null)
-    : false;
-  return { sharpened, jobRooms };
+  // No rooms view exists to register the in-job bar (see header), so the flag
+  // is not consulted — a room bar here would be dead controls.
+  return { sharpened, jobRooms: false };
 }
 
 /**

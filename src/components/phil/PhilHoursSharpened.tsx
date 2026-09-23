@@ -87,6 +87,11 @@ interface Props {
   /** Apprentice only (server-resolved, fail-closed) — shows the TAFE-day
    *  option on the mounted log sheet. */
   canLogTafe?: boolean;
+  /** The job the worker came from (`?job=` — the job screen's "Log hours"):
+   *  preselected on the log sheet when it is one of their jobs, so the job
+   *  they were standing in isn't rediscovered on a dial (P13/P14). Ignored
+   *  when unknown — never a guessed job. */
+  launchJobId?: string | null;
 }
 
 type SendState =
@@ -143,6 +148,7 @@ export function PhilHoursSharpened({
   jobsError,
   viewerId,
   canLogTafe = false,
+  launchJobId = null,
 }: Props) {
   const router = useRouter();
 
@@ -247,6 +253,16 @@ export function PhilHoursSharpened({
     [mergedEntries, assignedJobs]
   );
   const soleJobId = assignedJobs.length === 1 ? assignedJobs[0]!.id : null;
+  const launchJob =
+    launchJobId && assignedJobs.some((j) => j.id === launchJobId) ? launchJobId : null;
+  // Arriving from a job's "Log hours" is a request to log — land on the form
+  // (with that job picked), not the top of the history. Once, on arrival.
+  const launchScrolled = useRef(false);
+  useEffect(() => {
+    if (!launchJob || launchScrolled.current) return;
+    launchScrolled.current = true;
+    logSheetRef.current?.scrollIntoView({ block: "start" });
+  }, [launchJob]);
   const initialTodayEntry = mergedEntries.find((e) => e.date === todayISO) ?? null;
 
   return (
@@ -289,9 +305,9 @@ export function PhilHoursSharpened({
                   initialTodayEntry={initialTodayEntry}
                   recentEntries={mergedEntries}
                   onSaved={recordSaved}
-                  assignedJobs={assignedJobs.map((j) => ({ id: j.id, name: j.name }))}
+                  assignedJobs={assignedJobs}
                   jobsError={jobsError}
-                  initialJobId={soleJobId}
+                  initialJobId={launchJob ?? soleJobId}
                   lastLoggedJobId={lastLogged?.jobId ?? null}
                   lastLoggedDate={lastLogged?.date ?? null}
                   initialDate={logDate}

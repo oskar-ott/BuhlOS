@@ -59,8 +59,8 @@ export default async function HoursApprovalsPage() {
         <Card>
           <CardTitle>Submitted entries</CardTitle>
           <CardDescription>
-            Grouped by worker. Approve to push to payroll prep, or reject with a reason — the worker
-            gets a push notification with the reason in it.
+            Grouped by worker. Approve, or send a day back with a reason — the worker sees the
+            reason in their app and fixes the day there.
           </CardDescription>
         </Card>
 

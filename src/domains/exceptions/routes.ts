@@ -63,6 +63,14 @@ export const ACTION_ROUTES = {
     defaultLabel: "Review approvals",
     perJob: false,
   },
+  // The weekly board is where the office sees a rejected (sent-back) day —
+  // /hours/approvals only lists SUBMITTED entries. Callers pass `?week=`.
+  hoursWeekly: {
+    build: () => "/hours/weekly",
+    sourceFile: "src/app/(admin)/hours/weekly/page.tsx",
+    defaultLabel: "Open week",
+    perJob: false,
+  },
   jobHub: {
     build: (p) => `/v2/jobs/${encodeSegment(p.jobId!)}`,
     sourceFile: "src/app/v2/jobs/[jobId]/page.tsx",

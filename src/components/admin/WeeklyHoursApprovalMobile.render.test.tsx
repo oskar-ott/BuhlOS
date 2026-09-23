@@ -7,8 +7,9 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: () => {}, refresh: () => {} }),
 }));
 
-import { WeeklyHoursApprovalMobile } from "./WeeklyHoursApprovalMobile";
+import { WeeklyHoursApprovalMobile, liveApprovalTile } from "./WeeklyHoursApprovalMobile";
 import { buildWeeklyHoursCloseout } from "@/domains/timesheets/weekly-closeout";
+import { partitionMobileWorkers } from "@/domains/timesheets/weekly-review";
 import type { MissingLog, TimeEntry } from "@/domains/timesheets/types";
 
 // Pinned week: Monday 2024-05-20 … Sunday 2024-05-26; today = Friday 2024-05-24.
@@ -112,7 +113,7 @@ describe("WeeklyHoursApprovalMobile (render)", () => {
     expect(html).toContain("Pay run");
     // Summary progress: 1 of 2 weeks ready (u1 approved, u2 submitted) = 50%.
     expect(html).toContain('aria-valuenow="50"');
-    expect(html).toContain("of 2 approved");
+    expect(html).toContain("of 2 crew approved");
     // Segment labels.
     expect(html).toContain("Logged");
     expect(html).toContain("Overtime");
@@ -332,5 +333,56 @@ describe("WeeklyHoursApprovalMobile (render)", () => {
     );
     expect(html).toContain("Couldn");
     expect(html).toContain("API returned 500");
+  });
+});
+
+describe("liveApprovalTile — the navy tile follows the list", () => {
+  // Field report: after Approve the list read "1 of 2 approved" but the tile
+  // stayed on "0/3 approved · 2 to review" (it read the server snapshot only).
+  const closeout = buildWeeklyHoursCloseout({
+    entries: [
+      entry({ userId: "u1", date: "2024-05-20", userName: "Ari Boland", status: "submitted" }),
+      entry({ userId: "u2", date: "2024-05-20", userName: "Rhys Kelly", status: "submitted" }),
+      // u3 is in the run but waiting on the worker — nothing to approve here.
+      entry({ userId: "u3", date: "2024-05-20", userName: "Sam Nguyen", status: "rejected", rejectedReason: "Wrong job" }),
+    ],
+    missing: [],
+    weekStart: WEEK_START,
+    todayISO: TODAY,
+  });
+  const bands = partitionMobileWorkers(closeout);
+
+  it("starts from the server bands", () => {
+    const t = liveApprovalTile(bands, {});
+    expect(t).toMatchObject({ approvedCount: 0, toReviewCount: 2, crewCount: 3 });
+    expect(t.crewCount).toBe(bands.toApprove.length + bands.approved.length + bands.waiting.length);
+  });
+
+  it("counts a week approved this session, and un-counts it on undo", () => {
+    const approved = liveApprovalTile(bands, { u1: { status: "approved", undo: [] } });
+    expect(approved.approvedCount).toBe(1);
+    expect(approved.toReviewCount).toBe(1);
+    expect(approved.progressPct).toBe(Math.round((1 / approved.crewCount) * 100));
+    // Undo deletes the overlay entry → back to the server figures.
+    expect(liveApprovalTile(bands, {}).approvedCount).toBe(0);
+  });
+
+  it("moves a week sent back this session from to-review to waiting", () => {
+    const before = liveApprovalTile(bands, {});
+    const t = liveApprovalTile(bands, { u2: { status: "queried", undo: [] } });
+    expect(t.toReviewCount).toBe(1);
+    expect(t.waitingCount).toBe(before.waitingCount + 1);
+    expect(t.approvedCount).toBe(0);
+  });
+
+  it("ignores overlay for a worker the server has already settled", () => {
+    const settled = buildWeeklyHoursCloseout({
+      entries: [entry({ userId: "u1", date: "2024-05-20", userName: "Ari Boland", status: "approved" })],
+      missing: [],
+      weekStart: WEEK_START,
+      todayISO: TODAY,
+    });
+    const t = liveApprovalTile(partitionMobileWorkers(settled), { u1: { status: "approved", undo: [] } });
+    expect(t.approvedCount).toBe(1); // not double-counted
   });
 });

@@ -40,6 +40,8 @@ export interface HoursJobRef {
   id: string;
   name: string;
   ref?: string | null;
+  /** Site address — lets the log sheet's job search match "oak st". */
+  address?: string | null;
 }
 
 /** One row of the per-job week breakdown. */
