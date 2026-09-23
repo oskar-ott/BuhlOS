@@ -1,4 +1,4 @@
-import type { DocumentType, Invoice, InvoiceStatus } from "./schema";
+import type { DocumentType, Invoice, InvoiceStatus, MaterialCategory } from "./schema";
 import type { StatusTone } from "@/components/ui/StatusChip";
 
 /** Office wording for statuses (the inbox filter chips use the same words). */
@@ -152,10 +152,45 @@ export function autoBookCountdown(autoConfirmAt: string | null | undefined, now:
   return `Books itself in ${h > 0 ? `${h}h ` : ""}${m}m unless held`;
 }
 
+/** Mirrors CATEGORY_LABELS in api/_lib/invoices/categories.js. */
+export const CATEGORY_LABELS: Record<MaterialCategory, string> = {
+  cable: "Cable",
+  conduit: "Conduit & ducting",
+  fixings: "Fixings & fasteners",
+  switchgear: "Switchgear & protection",
+  boards: "Boards & enclosures",
+  lighting: "Lighting",
+  accessories: "Power points & switches",
+  data: "Data & comms",
+  consumables: "Consumables",
+  tools: "Tools",
+  testing: "Testing & safety",
+  freight: "Freight & delivery",
+  other: "Other",
+};
+export function categoryLabel(c: string): string {
+  return (CATEGORY_LABELS as Record<string, string>)[c] ?? c;
+}
+export const CATEGORY_SOURCE_LABELS: Record<string, string> = {
+  rule: "filed by keyword",
+  learned: "filed as you did last time",
+  ai: "filed by AI",
+  manual: "filed by the office",
+};
+
+/** "12 × ea" / "3 roll" — a quantity with its unit, or "—". */
+export function formatQuantity(q: number | null | undefined, unit: string | null | undefined): string {
+  if (q == null) return "—";
+  const n = Number.isInteger(q) ? String(q) : q.toFixed(2).replace(/\.?0+$/, "");
+  return unit ? `${n} ${unit}` : n;
+}
+
 export const EVENT_LABELS: Record<string, string> = {
   received: "Received by email",
   uploaded: "Uploaded",
   extracted: "Details read from the PDF",
+  lines_read: "Line items read",
+  line_corrected: "A line was re-filed",
   matched: "IV reference matched a job",
   review_required: "Sent to review",
   duplicate_detected: "Flagged as a duplicate",

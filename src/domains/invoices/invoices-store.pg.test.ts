@@ -183,4 +183,29 @@ describe.skipIf(!ENABLED)("invoices store — dev Postgres", () => {
     expect(typeof snap.stuckCount).toBe("number");
     expect(typeof snap.quarantinedOldCount).toBe("number");
   });
+
+  it("stores line items, re-files one with a remembered category, and builds the job breakdown through active allocations", async () => {
+    const inv = await make("e".repeat(64));
+    await store.claimOne(sql, tenantId, inv.invoice.id);
+    await store.applyExtraction(sql, tenantId, inv.invoice.id, { supplierName: `Lines Co ${marker}`, supplierKey: `lines-co-${marker}`, supplierInvoiceNumber: "LC-1", documentType: "tax_invoice", status: "matched", extractionMethod: "pdf_text", currency: "AUD", matchStatus: "exact", reviewReasons: [], subtotalCents: 3000, gstCents: 300, totalCents: 3300, linesTotalCents: 3000, linesConsistent: true });
+    await store.replaceInvoiceLines(sql, tenantId, inv.invoice.id, [
+      { lineNo: 1, description: "2.5mm TPS 100m", descriptionKey: "2 5mm tps 100m", quantity: 2, unit: "roll", unitPriceCents: 1000, lineTotalCents: 2000, category: "cable", categorySource: "rule", confidence: "high" },
+      { lineNo: 2, description: "Freight", descriptionKey: "freight", quantity: 1, unit: null, unitPriceCents: 1000, lineTotalCents: 1000, category: "freight", categorySource: "rule", confidence: "medium" },
+    ]);
+    const detail = await store.getInvoiceDetail(sql, tenantId, inv.invoice.id);
+    expect(detail.invoice).toMatchObject({ linesTotalCents: 3000, linesConsistent: true });
+    expect(detail.lines.map((l: { lineNo: number; category: string; quantity: number | null }) => [l.lineNo, l.category, l.quantity])).toEqual([[1, "cable", 2], [2, "freight", 1]]);
+    const refiled = await store.updateInvoiceLine(sql, tenantId, inv.invoice.id, 2, { category: "other" });
+    expect(refiled).toMatchObject({ category: "other", categorySource: "manual" });
+    await store.rememberCategory(sql, tenantId, { supplierKey: `lines-co-${marker}`, descriptionKey: "freight", category: "other", actor });
+    await store.rememberCategory(sql, tenantId, { supplierKey: `lines-co-${marker}`, descriptionKey: "freight", category: "consumables", actor }); // upsert
+    expect(await store.learnedCategories(sql, tenantId, `lines-co-${marker}`, ["freight", "nothing"])).toEqual({ freight: "consumables" });
+    expect(await store.learnedCategories(sql, tenantId, "someone-else", ["freight"])).toEqual({}); // no any-supplier fallback stored
+    const job = `job-lines-${marker}`;
+    await store.confirmAllocation(sql, tenantId, inv.invoice.id, { jobLegacyId: job, jobUuid: null, amountCents: 3000, gstCents: 300, totalCents: 3300, matchStatus: "exact", actor });
+    const b = await store.jobMaterialsBreakdown(sql, tenantId, job);
+    expect(b).toMatchObject({ confirmedCents: 3000, invoiceCount: 1, invoicesWithoutLines: [] });
+    expect(b.lines.map((l: { category: string; signedCents: number; supplierName: string }) => [l.category, l.signedCents])).toEqual([["cable", 2000], ["other", 1000]]);
+    await sql`delete from public.supplier_line_categories where tenant_id = ${tenantId} and supplier_key = ${`lines-co-${marker}`}`;
+  });
 });

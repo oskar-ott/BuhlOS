@@ -14,7 +14,7 @@ import { NAV_GROUPS, visibleNavGroups } from "../nav";
 describe("supplier-invoice surfaces — initial render", () => {
   it("the hub card renders its anchor and a skeleton, never a $ figure", () => {
     const html = renderToString(createElement(JobSupplierInvoicesCard, { jobId: "job-a" }));
-    expect(html).toContain("Supplier invoices");
+    expect(html).toContain("Materials used");
     expect(html).toContain('id="supplier-invoices"');
     expect(html).toContain("supplier-invoices-skeleton");
     expect(html).not.toContain("$");

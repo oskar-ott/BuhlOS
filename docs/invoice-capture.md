@@ -49,7 +49,7 @@ They are separate columns, separate fields, separate labels everywhere.
 | --- | --- | --- |
 | Inbox | `/invoices` (`src/app/(admin)/invoices/page.tsx`, `InvoiceInboxClient`) | admin tier + flag (404 off) |
 | Review | `/invoices/[invoiceId]` (`InvoiceReviewClient`) | admin tier + flag |
-| Job hub card | `JobSupplierInvoicesCard` on `/v2/jobs/[jobId]` | rendered only when the flag is on for the viewer — no card, no fetch otherwise |
+| Job hub card | `JobSupplierInvoicesCard` ("Materials used": category breakdown + lines) on `/v2/jobs/[jobId]` | rendered only when the flag is on for the viewer — no card, no fetch otherwise |
 | Money card | `api/job-profitability.js` adds the job's confirmed allocations to the Materials figure (`supplierInvoices` in the response; `materialSource` `'invoices'` when only invoices carry it) — owner direction 2026-09-23 | flag on for the viewer; off ⇒ `supplierInvoices: null`, no store read |
 | Nav item | `Invoices` in the Jobs group (`src/components/admin/nav.ts`) | hidden by `AdminShell` while off |
 | Office API | `api/invoices.js` | admin tier + flag (404 off); every mutation audited |
@@ -198,6 +198,44 @@ person unless the auto-booking checks pass on a real invoice.
   overhead); attachment ≤10 MB; ≤40 pages read.
 - Logs carry counts and stable codes only — no addresses, subjects, secrets
   or content.
+
+### Line items and the materials breakdown (owner pull 2026-09-24)
+
+"See all the materials used on a job and a breakdown — cable, fixings,
+lights; when an invoice comes in a lot of detail is pulled, not just the
+number and the total."
+
+- **Reading** (`api/_lib/invoices/lines.js`, pure): on invoices, tax invoices
+  and credit notes, every printed row that ends in money between the column
+  header (or the heading) and the totals block becomes a line — quantity and
+  unit (first cell, a middle cell pair after a product code, or the last
+  cell), unit price (the money cell before the total, else derived), line
+  total, and wrapped descriptions folded in. The sum is checked against the
+  printed ex-GST subtotal: `lines_consistent` true / false (`lines_include_gst`
+  when they add up to the inc-GST total instead / `lines_do_not_add_up`). The
+  **subtotal is still what books**; lines are the breakdown, never the cost.
+- **AI rung** (opt-in as before): now also returns lines with categories. The
+  model's lines replace the rules' **only** when the rules' do not add up and
+  the model's do; its category fills a line the rules left `other`.
+- **Filing** (`api/_lib/invoices/categories.js`): a fixed site-language
+  taxonomy — cable, conduit & ducting, fixings & fasteners, switchgear &
+  protection, boards & enclosures, lighting, power points & switches, data &
+  comms, consumables, tools, testing & safety, freight & delivery, other —
+  by keyword rules in priority order (a cable tie is a fixing; a conduit
+  saddle is conduit). Sources: `rule` / `learned` / `ai` / `manual`.
+- **Learning**: the office re-files a line on the review screen
+  (`PUT ?action=line`); the choice is stored in `supplier_line_categories`
+  per supplier + description key and wins on every later invoice
+  (`learned`). An any-supplier fallback (`supplier_key ''`) is supported.
+- **Surfaces**: review screen "Line items" card (qty, description, unit,
+  total, category select, the add-up check); job hub "Materials used" card
+  (`GET ?action=job-materials`) — total from confirmed invoices, a bar per
+  category with the lines behind it, by-supplier line, and the invoices whose
+  lines could not be read listed as **unitemised** so the breakdown never
+  claims more than it knows. Credit notes count negative.
+- **Data**: migration `20260924100000_supplier_invoice_lines` —
+  `supplier_invoice_lines`, `supplier_line_categories`,
+  `supplier_invoices.lines_total_cents / lines_consistent`. RLS on.
 
 ### Statement check (owner direction 2026-09-23)
 

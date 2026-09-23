@@ -4,6 +4,9 @@ import {
   InvoiceListSchema,
   InvoiceSetupSchema,
   JobInvoiceSummarySchema,
+  JobMaterialsBreakdownSchema,
+  type JobMaterialsBreakdown,
+  type MaterialCategory,
   JobPickerSchema,
   ProcessPendingSchema,
   type InvoiceDetail,
@@ -70,6 +73,15 @@ export function invoiceSetup(): Promise<HttpResult<InvoiceSetup>> {
 
 export function searchJobs(q: string): Promise<HttpResult<{ jobs: JobSummary[] }>> {
   return httpGet(`${BASE}${qs({ action: "jobs", q })}`, { schema: JobPickerSchema });
+}
+
+export function jobMaterialsBreakdown(jobId: string): Promise<HttpResult<JobMaterialsBreakdown>> {
+  return httpGet(`${BASE}${qs({ action: "job-materials", jobId })}`, { schema: JobMaterialsBreakdownSchema });
+}
+
+/** Re-file (or rename) one line item; the category is remembered for this supplier + product. */
+export function correctInvoiceLine(id: string, patch: { lineNo: number; category?: MaterialCategory; description?: string; remember?: boolean }): Promise<HttpResult<InvoiceDetail>> {
+  return httpPut(`${BASE}${qs({ action: "line", id })}`, patch, { schema: InvoiceDetailSchema, timeoutMs: 20_000 });
 }
 
 export function jobInvoiceSummary(jobId: string): Promise<HttpResult<JobInvoiceSummary>> {

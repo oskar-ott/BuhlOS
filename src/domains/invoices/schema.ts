@@ -23,6 +23,48 @@ export type InvoiceStatus = (typeof INVOICE_STATUSES)[number];
 export const DOCUMENT_TYPES = ["invoice", "tax_invoice", "credit_note", "statement", "quote", "delivery_docket", "order_confirmation", "remittance", "purchase_order", "other", "unknown"] as const;
 export type DocumentType = (typeof DOCUMENT_TYPES)[number];
 
+/** Material categories for line items — mirrors api/_lib/invoices/categories.js. */
+export const MATERIAL_CATEGORIES = ["cable", "conduit", "fixings", "switchgear", "boards", "lighting", "accessories", "data", "consumables", "tools", "testing", "freight", "other"] as const;
+export type MaterialCategory = (typeof MATERIAL_CATEGORIES)[number];
+
+export const InvoiceLineSchema = z
+  .object({
+    id: z.string(),
+    invoiceId: z.string(),
+    lineNo: z.number(),
+    description: z.string(),
+    descriptionKey: z.string().nullable().optional(),
+    quantity: z.number().nullable(),
+    unit: z.string().nullable(),
+    unitPriceCents: z.number().nullable(),
+    lineTotalCents: z.number().nullable(),
+    category: z.enum(MATERIAL_CATEGORIES),
+    categorySource: z.enum(["rule", "learned", "ai", "manual"]),
+    confidence: z.string(),
+  })
+  .passthrough();
+export type InvoiceLine = z.infer<typeof InvoiceLineSchema>;
+
+export const JobMaterialsBreakdownSchema = z.object({
+  jobId: z.string(),
+  confirmedCents: z.number(),
+  invoiceCount: z.number(),
+  linesCents: z.number(),
+  byCategory: z.array(z.object({ category: z.enum(MATERIAL_CATEGORIES), label: z.string(), cents: z.number(), lineCount: z.number() })),
+  bySupplier: z.array(z.object({ supplierName: z.string(), cents: z.number() })),
+  lines: z.array(
+    InvoiceLineSchema.extend({
+      supplierName: z.string().nullable(),
+      supplierInvoiceNumber: z.string().nullable(),
+      invoiceDate: z.string().nullable(),
+      documentType: z.string(),
+      signedCents: z.number(),
+    })
+  ),
+  invoicesWithoutLines: z.array(z.object({ invoiceId: z.string(), supplierName: z.string().nullable(), supplierInvoiceNumber: z.string().nullable(), invoiceDate: z.string().nullable(), amountCents: z.number().nullable() })),
+});
+export type JobMaterialsBreakdown = z.infer<typeof JobMaterialsBreakdownSchema>;
+
 /** The statement check the pipeline stores on a statement row (matchReason.statement). */
 export const StatementCheckSchema = z.object({
   listed: z.number(),
@@ -84,6 +126,8 @@ export const InvoiceSchema = z
     sourceEmailId: z.string().nullable(),
     sourceSubject: z.string().nullable(),
     /** https links found in an email that carried no usable attachment (bounded). */
+    linesTotalCents: z.number().nullable().default(null),
+    linesConsistent: z.boolean().nullable().default(null),
     sourceLinks: z.array(z.string()).default([]),
     sourceTextExcerpt: z.string().nullable().default(null),
     sourceFrom: z.string().nullable(),
@@ -170,6 +214,7 @@ export const InvoiceDetailSchema = z
     allocations: z.array(AllocationSchema),
     events: z.array(InvoiceEventSchema),
     attempts: z.array(z.record(z.unknown())).default([]),
+    lines: z.array(InvoiceLineSchema).default([]),
     job: JobSummarySchema.nullable(),
     duplicateOf: z
       .object({
