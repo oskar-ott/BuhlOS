@@ -168,4 +168,19 @@ describe.skipIf(!ENABLED)("invoices store — dev Postgres", () => {
     expect(rows).toEqual([{ id: a.invoice.id, supplierInvoiceNumber: "SC-1", status: "matched", documentType: "tax_invoice", subtotalCents: 1000, totalCents: 1100 }]);
     expect(await store.listSupplierInvoices(sql, tenantId, null, st.invoice.id)).toEqual([]);
   });
+
+  it("records forwarded stray replies and reads the health snapshot the mid-week alert needs", async () => {
+    const r = await store.recordInboundEvent(sql, { svixId: `${marker}-fwd`, tenantId, emailId: "e-fwd", toMatched: false, status: "forwarded", attachmentCount: 0 });
+    expect(r.inserted).toBe(true);
+    await store.finishInboundEvent(sql, `${marker}-fwd`, { status: "forwarded" });
+    await store.recordInboundEvent(sql, { svixId: `${marker}-fwd2`, tenantId, emailId: "e-fwd2", toMatched: false, status: "ignored", failureCode: "forward_failed:no_recipients", attachmentCount: 0 });
+    const stats = await store.inboundStats(sql);
+    expect(stats.forwarded).toBeGreaterThanOrEqual(1);
+    const snap = await store.healthSnapshot(sql, tenantId);
+    expect(snap).toMatchObject({ everReceived: true });
+    expect(snap.forwardFailedCount).toBeGreaterThanOrEqual(1);
+    expect(typeof snap.failedCount).toBe("number");
+    expect(typeof snap.stuckCount).toBe("number");
+    expect(typeof snap.quarantinedOldCount).toBe("number");
+  });
 });

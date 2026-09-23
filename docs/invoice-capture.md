@@ -213,6 +213,32 @@ captured** (reference, date, amount — ask the supplier to resend, or upload),
 and any amount that differs from what was captured. A statement with
 uncaptured invoices carries the review reason `statement_missing_invoices`.
 Nothing is booked from a statement.
+### Stray replies (owner direction 2026-09-23)
+
+Resend receiving takes **every** email for `buhlos.com`, so a reply to
+`timesheets@buhlos.com` (or `office@`, `pay@`, `onboarding@`, `noreply@` —
+`INBOUND_FORWARD_LOCAL_PARTS` overrides the list) used to be recorded
+`ignored` and never seen. The webhook now **forwards** such emails — body,
+attachments (≤10, ≤5 MB each, ≤8 MB total), the original sender as reply-to —
+to the accounts recipient list (the same list the pay-run and the digest go
+to), from `INBOUND_FORWARD_FROM` (default `EMAIL_FROM`), and records the
+receipt `forwarded` (migration `20260923100000_supplier_invoice_inbound_forwarded`).
+A failed forward is recorded `ignored` with `failure_code forward_failed:<why>`
+and counted by the mid-week alert. Anything else addressed to the domain stays
+`ignored` — nobody has a mailbox there. `api/_lib/invoices/forward.js`.
+
+### Alerts between Mondays (owner direction 2026-09-23)
+
+Every 15-minute sweep evaluates a health snapshot (`store.healthSnapshot`) and
+emails the accounts list when a person is needed — **at most once a day per
+condition set** (state in blob `invoices/alert-state.json`, so a redeploy never
+re-alerts; a cleared condition set resets it so the next new problem alerts at
+once). Conditions (`api/_lib/invoices/alerts.js`): the Resend key rejected
+(`provider_auth` during re-ingest), documents `failed` after three attempts,
+documents waiting more than two hours to be read, quarantined emails older than
+a day, failed forwards in the last day, and **quiet**: no supplier email for
+`alertQuietDays` days (owner knob, default 7, 0 = never) after the first one
+ever arrived. The Monday digest is unchanged.
 
 ### External steps still required (none performed by the PR)
 

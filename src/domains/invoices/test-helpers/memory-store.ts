@@ -377,6 +377,18 @@ export function createMemoryStore(opts: { tenantId?: string; jobUuids?: Record<s
         everReceived: store.inbound.length > 0,
       };
     },
+    healthSnapshot: async () => {
+      const dayAgo = Date.now() - 86_400_000;
+      const twoHoursAgo = Date.now() - 2 * 3_600_000;
+      return {
+        failedCount: store.invoices.filter((r) => r.status === "failed").length,
+        stuckCount: store.invoices.filter((r) => ["received", "processing"].includes(r.status as string) && Date.parse(r.createdAt as string) < twoHoursAgo).length,
+        quarantinedOldCount: store.inbound.filter((x) => x.status === "quarantined" && Date.parse(x.createdAt as string) < dayAgo).length,
+        forwardFailedCount: store.inbound.filter((x) => x.status === "ignored" && String(x.failureCode ?? "").startsWith("forward_failed:") && Date.parse(x.createdAt as string) >= dayAgo).length,
+        lastReceivedAt: store.inbound.length ? (store.inbound[store.inbound.length - 1]!.createdAt as string) : null,
+        everReceived: store.inbound.length > 0,
+      };
+    },
     recordInboundEvent: async (_s: unknown, e: Row) => {
       if (store.inbound.some((x) => x.svixId === e.svixId)) return { inserted: false };
       const row = { id: uuid(), svixId: e.svixId, emailId: e.emailId ?? null, toMatched: !!e.toMatched, from: e.from ?? null, subject: e.subject ?? null, attachmentCount: e.attachmentCount ?? 0, status: e.status, failureCode: e.failureCode ?? null, createdAt: now(), processedAt: null };

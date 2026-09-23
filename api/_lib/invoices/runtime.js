@@ -15,6 +15,9 @@ const { extractPdfText } = require('./pdf-text');
 const { readBlob } = require('../blob');
 const { getSettings } = require('../feature-settings');
 const aiExtract = require('./ai-extract');
+const { forwardStrayEmail } = require('./forward');
+const { sendEmail } = require('../email');
+const { readTimesheetRecipients } = require('../timesheet-email-settings');
 
 function webhookDeps() {
   return {
@@ -25,6 +28,10 @@ function webhookDeps() {
     resend,
     storePdf: storeInvoicePdf,
     sha256: sha256Hex,
+    forward: async ({ emailId, address, env }) => forwardStrayEmail({
+      emailId, address,
+      deps: { resend, apiKey: env.RESEND_API_KEY, sendEmail, recipients: await readTimesheetRecipients(), from: env.INBOUND_FORWARD_FROM || env.EMAIL_FROM || null },
+    }),
     processOne: async ({ sql, tenant, invoiceId }) => {
       let autoConfirm = { enabled: false, capCents: 0, graceHours: 12, lookbackDays: 90 };
       try {

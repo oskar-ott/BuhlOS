@@ -706,6 +706,25 @@ async function digestStats(sql, tenantId, { since }) {
   };
 }
 
+/** What the mid-week alert needs (api/_lib/invoices/alerts.js). */
+async function healthSnapshot(sql, tenantId) {
+  const [failed, stuck, quarantinedOld, fwdFailed, last] = await Promise.all([
+    sql`select count(*)::int as n from public.supplier_invoices where tenant_id = ${tenantId} and status = 'failed'`,
+    sql`select count(*)::int as n from public.supplier_invoices where tenant_id = ${tenantId} and status in ('received','processing') and created_at < now() - interval '2 hours'`,
+    sql`select count(*)::int as n from public.supplier_invoice_inbound_events where tenant_id = ${tenantId} and status = 'quarantined' and created_at < now() - interval '1 day'`,
+    sql`select count(*)::int as n from public.supplier_invoice_inbound_events where tenant_id = ${tenantId} and status = 'ignored' and failure_code like 'forward_failed:%' and created_at >= now() - interval '1 day'`,
+    sql`select max(created_at) as last, count(*)::int as n from public.supplier_invoice_inbound_events where tenant_id = ${tenantId} and status in ('received','processed','quarantined')`,
+  ]);
+  return {
+    failedCount: Number(failed[0].n),
+    stuckCount: Number(stuck[0].n),
+    quarantinedOldCount: Number(quarantinedOld[0].n),
+    forwardFailedCount: Number(fwdFailed[0].n),
+    lastReceivedAt: iso(last[0].last),
+    everReceived: Number(last[0].n) > 0,
+  };
+}
+
 // ── events ──────────────────────────────────────────────────────────────────
 async function insertEvent(sql, tenantId, invoiceId, { event, actor, detail }) {
   await sql`
@@ -801,5 +820,6 @@ module.exports = {
   finishInboundEvent,
   listQuarantined,
   inboundStats,
+  healthSnapshot,
   invoiceIdsForEmail,
 };

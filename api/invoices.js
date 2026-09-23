@@ -56,6 +56,10 @@ const { getSettings } = require('./_lib/feature-settings');
 const { sendEmail } = require('./_lib/email');
 const { readTimesheetRecipients } = require('./_lib/timesheet-email-settings');
 const { AUTO_ACTOR, buildDigest } = require('./_lib/invoices/auto-confirm');
+const { evaluateAlerts, alertKey, shouldSend, buildAlertEmail } = require('./_lib/invoices/alerts');
+const { writeBlob } = require('./_lib/blob');
+
+const ALERT_STATE_KEY = 'invoices/alert-state.json';
 
 const MAX_UPLOAD_BYTES = 3 * 1024 * 1024; // the serverless JSON body cap (~4.5 MB) minus base64 overhead
 const SWEEP_BUDGET_MS = 45_000;
@@ -476,8 +480,43 @@ async function sweep(req, res) {
   const processed = await processPending(sql, tenant, 'sweep', SWEEP_BATCH, SWEEP_BUDGET_MS - (Date.now() - started));
   // 3. clean invoices whose grace window has passed book themselves
   const booked = await bookDueInvoices(sql, tenant);
-  console.log('[invoices] sweep', { reingested: reingested.length, processed: processed.length, booked: booked.length });
-  return res.status(200).json({ reingested, processed, booked, ms: Date.now() - started });
+  // 4. anything a person must know before Monday
+  const alert = await maybeAlert(sql, tenant, { providerAuthFailed: reingested.some((r) => r.error === 'provider_auth') });
+  console.log('[invoices] sweep', { reingested: reingested.length, processed: processed.length, booked: booked.length, alert: alert.key || null, alertSent: alert.sent });
+  return res.status(200).json({ reingested, processed, booked, alert, ms: Date.now() - started });
+}
+
+/**
+ * Mid-week alert (docs/invoice-capture.md "Alerts"): evaluate the health
+ * snapshot every sweep; email the accounts list at most once a day per
+ * condition set. State lives in a small blob so a redeploy never re-alerts.
+ */
+async function maybeAlert(sql, tenant, { providerAuthFailed }) {
+  try {
+    const [snap, settings, state] = await Promise.all([
+      store.healthSnapshot(sql, tenant.id),
+      getSettings('invoice_capture').catch(() => ({})),
+      readBlob(ALERT_STATE_KEY, { key: '', sentAt: null }),
+    ]);
+    const conditions = evaluateAlerts(snap, { quietDays: Number(settings.alertQuietDays), providerAuthFailed });
+    const key = alertKey(conditions);
+    const now = Date.now();
+    if (!key) {
+      if (state.key) await writeBlob(ALERT_STATE_KEY, { key: '', sentAt: null, clearedAt: new Date(now).toISOString() });
+      return { key: '', sent: false };
+    }
+    if (!shouldSend(state, key, now)) return { key, sent: false };
+    const recipients = await readTimesheetRecipients();
+    if (!recipients.length) return { key, sent: false, reason: 'no_recipients' };
+    const base = process.env.APP_BASE_URL || 'https://buhlos.com';
+    const msg = buildAlertEmail(conditions, { inboxUrl: `${base}/invoices` });
+    const sent = await sendEmail({ to: recipients, subject: msg.subject, html: msg.html, text: msg.text });
+    if (sent.ok) await writeBlob(ALERT_STATE_KEY, { key, sentAt: new Date(now).toISOString() });
+    return { key, sent: !!sent.ok, reason: sent.ok ? undefined : sent.reason };
+  } catch (e) {
+    console.error('[invoices] alert evaluation failed', { code: (e && e.code) || 'error' });
+    return { key: '', sent: false, reason: 'alert_failed' };
+  }
 }
 
 /**

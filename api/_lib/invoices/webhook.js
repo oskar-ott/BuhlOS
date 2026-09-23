@@ -10,7 +10,10 @@
 //   1. signature  — RESEND_INBOUND_WEBHOOK_SECRET unset → 503; invalid → 401
 //   2. shape      — not email.received → 200 { ignored } (verified, irrelevant)
 //   3. replay     — one row per svix id; a repeat → 200 { replay }
-//   4. address    — recipient must be invoices+<token>@… → else 200 { ignored }
+//   4. address    — recipient must be invoices+<token>@… → else: a reply to one
+//                   of the app's own sender addresses (timesheets@ …) is
+//                   FORWARDED to the accounts list (forward.js), anything else
+//                   200 { ignored }
 //   5. flag       — invoice_capture OFF → 200 { quarantined }: the receipt row
 //                   (email id only) is kept, NOTHING is fetched, nothing lost;
 //                   the sweep re-ingests it once the flag is on
@@ -22,8 +25,10 @@
 
 const { verifySvixSignature, parseReceivedEvent, matchInboundAddress } = require('./resend-inbound');
 const { withTimeout } = require('../with-timeout');
+const { matchStrayAddress, forwardLocalParts } = require('./forward');
 
 const INGEST_BUDGET_MS = 20_000;
+const FORWARD_BUDGET_MS = 20_000;
 const INLINE_PROCESS_BUDGET_MS = 25_000;
 
 function inboundExpected(env) {
@@ -57,9 +62,13 @@ async function handleInboundWebhook({ rawBody, headers, env = process.env, deps 
   }
   if (!tenant) return { status: 503, body: { error: 'store_unprovisioned' } };
 
-  const toMatched = matchInboundAddress([...event.to, ...event.receivedFor], inboundExpected(env));
+  const recipients = [...event.to, ...event.receivedFor];
+  const toMatched = matchInboundAddress(recipients, inboundExpected(env));
+  const strayAddress = !toMatched && typeof deps.forward === 'function'
+    ? matchStrayAddress(recipients, { domain: env.INVOICE_INBOUND_DOMAIN || null, localParts: forwardLocalParts(env) })
+    : null;
   const flagOn = toMatched ? await deps.isFlagOn('invoice_capture') : false;
-  const status = !toMatched ? 'ignored' : !flagOn ? 'quarantined' : 'received';
+  const status = !toMatched ? (strayAddress ? 'forwarded' : 'ignored') : !flagOn ? 'quarantined' : 'received';
 
   const receipt = await deps.store.recordInboundEvent(sql, {
     svixId: sig.id,
@@ -73,6 +82,24 @@ async function handleInboundWebhook({ rawBody, headers, env = process.env, deps 
   });
   if (!receipt.inserted) return { status: 200, body: { replay: true } };
   if (status === 'ignored') return { status: 200, body: { ignored: true } };
+  if (status === 'forwarded') {
+    // A reply to timesheets@ / office@ …: nobody reads that mailbox, so hand it
+    // to the accounts list. Failure is recorded (the sweep alerts on it) and
+    // still acked — the provider must not retry a forward.
+    try {
+      const fwd = await withTimeout(deps.forward({ emailId: event.emailId, address: strayAddress, env }), FORWARD_BUDGET_MS, 'stray forward');
+      if (fwd && fwd.ok) {
+        await deps.store.finishInboundEvent(sql, sig.id, { status: 'forwarded' });
+        console.log('[invoices] stray reply forwarded', { attachments: fwd.attachments });
+        return { status: 200, body: { forwarded: true } };
+      }
+      await deps.store.finishInboundEvent(sql, sig.id, { status: 'ignored', failureCode: `forward_failed:${String((fwd && fwd.reason) || 'send_failed').slice(0, 30)}` });
+    } catch (e) {
+      await deps.store.finishInboundEvent(sql, sig.id, { status: 'ignored', failureCode: `forward_failed:${String((e && e.code) || 'error').slice(0, 30)}` });
+    }
+    console.error('[invoices] stray reply forward failed');
+    return { status: 200, body: { forwarded: false } };
+  }
   if (status === 'quarantined') return { status: 200, body: { quarantined: true } };
 
   try {
@@ -104,4 +131,4 @@ async function handleInboundWebhook({ rawBody, headers, env = process.env, deps 
   }
 }
 
-module.exports = { handleInboundWebhook, INGEST_BUDGET_MS, INLINE_PROCESS_BUDGET_MS };
+module.exports = { handleInboundWebhook, INGEST_BUDGET_MS, INLINE_PROCESS_BUDGET_MS, FORWARD_BUDGET_MS };

@@ -278,3 +278,49 @@ describe("the Monday digest", () => {
     expect(sent).toEqual([]);
   });
 });
+
+describe("mid-week alerts from the sweep (2026-09-23)", () => {
+  const alertsSent = () => sent.filter((m) => m.subject.startsWith("BuhlOS invoices need attention"));
+  it("a healthy inbox sends nothing and leaves no state", async () => {
+    const r = await sweep();
+    expect((r.body as { alert: { key: string; sent: boolean } }).alert).toEqual({ key: "", sent: false });
+    expect(alertsSent()).toEqual([]);
+    expect(blob.has("invoices/alert-state.json")).toBe(false);
+  });
+  it("a failed document alerts the accounts list once, not again on the next sweep, again after a day, and clears when fixed", async () => {
+    store.invoices.push({ ...(await (store.createInvoice as (...a: unknown[]) => Promise<Record<string, unknown>>)(null, "t", { source: "upload" })), status: "failed" } as never);
+    // createInvoice already pushed the row; keep only the failed copy
+    store.invoices.splice(store.invoices.length - 2, 1);
+    let r = await sweep();
+    expect((r.body as { alert: { key: string; sent: boolean } }).alert).toEqual({ key: "failed", sent: true });
+    expect(alertsSent()).toHaveLength(1);
+    expect(alertsSent()[0]!.to).toEqual(["accounts@example.com"]);
+    expect(alertsSent()[0]!.text).toContain("could not be read after three attempts");
+    r = await sweep();
+    expect((r.body as { alert: { sent: boolean } }).alert.sent).toBe(false);
+    expect(alertsSent()).toHaveLength(1);
+    vi.setSystemTime(new Date("2026-09-23T01:00:00Z"));
+    r = await sweep();
+    expect((r.body as { alert: { sent: boolean } }).alert.sent).toBe(true);
+    expect(alertsSent()).toHaveLength(2);
+    // fixed by a person → the state clears, so a NEW problem later alerts at once
+    store.invoices[0]!.status = "archived";
+    r = await sweep();
+    expect((r.body as { alert: { key: string } }).alert.key).toBe("");
+    expect(blob.get("invoices/alert-state.json")).toMatchObject({ key: "" });
+    store.invoices[0]!.status = "failed";
+    r = await sweep();
+    expect((r.body as { alert: { sent: boolean } }).alert.sent).toBe(true);
+  });
+  it("a long silence alerts according to the owner knob; 0 turns it off", async () => {
+    store.inbound.push({ id: "i1", svixId: "old", emailId: "e", toMatched: true, status: "processed", createdAt: "2026-09-10T00:00:00Z", processedAt: null } as never);
+    settings({ alertQuietDays: 7 });
+    let r = await sweep();
+    expect((r.body as { alert: { key: string; sent: boolean } }).alert).toEqual({ key: "quiet", sent: true });
+    expect(alertsSent()[0]!.text).toContain("No supplier email has arrived for 12 days");
+    settings({ alertQuietDays: 0 });
+    blob.delete("invoices/alert-state.json");
+    r = await sweep();
+    expect((r.body as { alert: { key: string } }).alert.key).toBe("");
+  });
+});
