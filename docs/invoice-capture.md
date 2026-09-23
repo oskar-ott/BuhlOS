@@ -227,12 +227,24 @@ number and the total."
   (`PUT ?action=line`); the choice is stored in `supplier_line_categories`
   per supplier + description key and wins on every later invoice
   (`learned`). An any-supplier fallback (`supplier_key ''`) is supported.
-- **Surfaces**: review screen "Line items" card (qty, description, unit,
-  total, category select, the add-up check); job hub "Materials used" card
-  (`GET ?action=job-materials`) — total from confirmed invoices, a bar per
-  category with the lines behind it, by-supplier line, and the invoices whose
-  lines could not be read listed as **unitemised** so the breakdown never
-  claims more than it knows. Credit notes count negative.
+- **Measures** (`api/_lib/invoices/measure.js`, pure; owner follow-up
+  2026-09-24 "click on cable and see exactly how much cable"): a line's
+  quantity × the length or pack size printed in its description becomes a
+  measure — metres (`3 roll` of `… 100M ROLL` = 300 m; `50 m` stays 50 m) or
+  pieces (`5 pk` of `… PK100` = 500 pcs) — with the working shown. Only an
+  explicit token counts (100M, 2.5 mtr, PK100, Box 50, x100); a millimetre
+  size or a dimension (`200MM`, `10x75`) never does. Lines without one are
+  reported as unmeasured, not guessed.
+- **Surfaces**: review screen "Line items" card (qty with its measure,
+  description, unit, total, category select, the add-up check); job hub
+  "Materials used" card (`GET ?action=job-materials`) — total from confirmed
+  invoices, a bar per category, then **click a category** for "450 m of cable
+  across 2 products" and a product per line (same supplier + description
+  key: cost, printed quantities, measure, invoice count), then **click a
+  product** for the invoice lines behind it (date, qty = measure, supplier,
+  amount linked to the invoice). By-supplier line; invoices whose lines could
+  not be read listed as **unitemised** so the breakdown never claims more
+  than it knows. Credit notes count negative.
 - **Data**: migration `20260924100000_supplier_invoice_lines` —
   `supplier_invoice_lines`, `supplier_line_categories`,
   `supplier_invoices.lines_total_cents / lines_consistent`. RLS on.

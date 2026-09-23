@@ -724,7 +724,10 @@ export function InvoiceReviewClient({ invoiceId }: { invoiceId: string }) {
                 <tbody>
                   {detail.lines.map((l) => (
                     <tr key={l.id} className="border-t border-border align-top" data-testid={`invoice-line-${l.lineNo}`}>
-                      <td className="whitespace-nowrap py-1.5 pr-2 tabular-nums text-text-muted">{formatQuantity(l.quantity, l.unit)}</td>
+                      <td className="whitespace-nowrap py-1.5 pr-2 tabular-nums text-text-muted">
+                        {formatQuantity(l.quantity, l.unit)}
+                        {l.measure.explain ? <span className="block text-[11px]">= {l.measure.amount} {l.measure.unit}</span> : null}
+                      </td>
                       <td className="py-1.5 pr-2 text-text">{l.description}</td>
                       <td className="whitespace-nowrap py-1.5 pr-2 text-right tabular-nums text-text-muted">{l.unitPriceCents == null ? "—" : formatCentsExact(l.unitPriceCents)}</td>
                       <td className="whitespace-nowrap py-1.5 pr-2 text-right tabular-nums text-text">{l.lineTotalCents == null ? "—" : formatCentsExact(l.lineTotalCents)}</td>

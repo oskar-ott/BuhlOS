@@ -27,6 +27,9 @@ export type DocumentType = (typeof DOCUMENT_TYPES)[number];
 export const MATERIAL_CATEGORIES = ["cable", "conduit", "fixings", "switchgear", "boards", "lighting", "accessories", "data", "consumables", "tools", "testing", "freight", "other"] as const;
 export type MaterialCategory = (typeof MATERIAL_CATEGORIES)[number];
 
+export const MeasureSchema = z.object({ amount: z.number().nullable(), unit: z.string().nullable(), explain: z.string().nullable() });
+export type Measure = z.infer<typeof MeasureSchema>;
+
 export const InvoiceLineSchema = z
   .object({
     id: z.string(),
@@ -41,6 +44,8 @@ export const InvoiceLineSchema = z
     category: z.enum(MATERIAL_CATEGORIES),
     categorySource: z.enum(["rule", "learned", "ai", "manual"]),
     confidence: z.string(),
+    /** Metres / pieces worked out from qty × the length or pack size in the description. */
+    measure: MeasureSchema.default({ amount: null, unit: null, explain: null }),
   })
   .passthrough();
 export type InvoiceLine = z.infer<typeof InvoiceLineSchema>;
@@ -50,7 +55,33 @@ export const JobMaterialsBreakdownSchema = z.object({
   confirmedCents: z.number(),
   invoiceCount: z.number(),
   linesCents: z.number(),
-  byCategory: z.array(z.object({ category: z.enum(MATERIAL_CATEGORIES), label: z.string(), cents: z.number(), lineCount: z.number() })),
+  byCategory: z.array(
+    z.object({
+      category: z.enum(MATERIAL_CATEGORIES),
+      label: z.string(),
+      cents: z.number(),
+      lineCount: z.number(),
+      /** e.g. { m: 450 } or { pcs: 128, m: 50 } — summed per measure unit, credit notes negative. */
+      measure: z.record(z.number()).default({}),
+      measuredLines: z.number().default(0),
+      unmeasuredLines: z.number().default(0),
+      products: z
+        .array(
+          z.object({
+            key: z.string(),
+            description: z.string(),
+            supplierName: z.string().nullable(),
+            cents: z.number(),
+            lineCount: z.number(),
+            invoiceCount: z.number(),
+            quantities: z.record(z.number()),
+            measures: z.record(z.number()),
+            lineIds: z.array(z.string()),
+          })
+        )
+        .default([]),
+    })
+  ),
   bySupplier: z.array(z.object({ supplierName: z.string(), cents: z.number() })),
   lines: z.array(
     InvoiceLineSchema.extend({
