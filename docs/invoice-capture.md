@@ -50,6 +50,7 @@ They are separate columns, separate fields, separate labels everywhere.
 | Inbox | `/invoices` (`src/app/(admin)/invoices/page.tsx`, `InvoiceInboxClient`) | admin tier + flag (404 off) |
 | Review | `/invoices/[invoiceId]` (`InvoiceReviewClient`) | admin tier + flag |
 | Job hub card | `JobSupplierInvoicesCard` on `/v2/jobs/[jobId]` | rendered only when the flag is on for the viewer — no card, no fetch otherwise |
+| Money card | `api/job-profitability.js` adds the job's confirmed allocations to the Materials figure (`supplierInvoices` in the response; `materialSource` `'invoices'` when only invoices carry it) — owner direction 2026-09-23 | flag on for the viewer; off ⇒ `supplierInvoices: null`, no store read |
 | Nav item | `Invoices` in the Jobs group (`src/components/admin/nav.ts`) | hidden by `AdminShell` while off |
 | Office API | `api/invoices.js` | admin tier + flag (404 off); every mutation audited |
 | Inbound webhook | `POST /api/inbound/invoices` (`src/app/api/inbound/invoices/route.ts` → `api/_lib/invoices/webhook.js`) | Svix signature; flag off ⇒ **quarantine** (see below) |

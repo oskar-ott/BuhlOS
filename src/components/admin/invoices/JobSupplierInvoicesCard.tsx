@@ -54,7 +54,7 @@ export function JobSupplierInvoicesCard({ jobId }: { jobId: string }) {
           <p className="mt-1 text-sm text-text-muted">
             {data.confirmedCount === 0
               ? "No confirmed supplier invoices yet."
-              : `Cost excluding GST from ${data.confirmedCount} confirmed ${data.confirmedCount === 1 ? "invoice" : "invoices"}.`}
+              : `Cost excluding GST from ${data.confirmedCount} confirmed ${data.confirmedCount === 1 ? "invoice" : "invoices"} — counted in the Money card's Materials figure.`}
             {data.awaitingCount > 0
               ? ` ${data.awaitingCount} awaiting review (not in the figure).`
               : ""}

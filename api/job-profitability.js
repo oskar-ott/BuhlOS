@@ -17,10 +17,17 @@
 //
 // Material (owner pull 2026-08-23): the per-job materials SPEND ledger
 // (api/_lib/job-materials.js) when the job_materials_spend flag is on for the
-// viewer and the job has lines → materialSource 'ledger'. Otherwise the legacy
-// received-materials rollup (jobs/<id>/materials-list.json — written by a tool
-// the 2026-07 gut deleted, so present on no current job) as a labelled proxy,
-// else 'none'. Never a fabricated $0.
+// viewer and the job has lines → materialSource 'ledger'. Since 2026-09-23
+// (owner direction: "cost must reach the job's money figures") CONFIRMED
+// supplier-invoice allocations (invoice_capture, Supabase
+// supplier_invoice_allocations, active rows only — credit notes negative) are
+// added to the same Materials figure: materialSource stays 'ledger' when the
+// ledger has lines, is 'invoices' when only invoices carry the figure, and the
+// response names the invoice share (`supplierInvoices`) so the card can say
+// what the number is made of. Otherwise the legacy received-materials rollup
+// (jobs/<id>/materials-list.json — written by a tool the 2026-07 gut deleted,
+// so present on no current job) as a labelled proxy, else 'none'. Never a
+// fabricated $0; an unreadable invoice store is reported, not silently 0.
 //
 // Walks the per-user time-entry blobs through the fully paginated helper
 // (api/_lib/time-entry-blobs.js, #935) — there is no per-job hours index.
@@ -37,6 +44,8 @@ const { computeJobProfitability, buildBudgetLines } = require('./_lib/job-profit
 const { listTimeEntryBlobs, fetchTimeEntries } = require('./_lib/time-entry-blobs');
 const { isFlagEnabled } = require('./_lib/feature-flags');
 const { readLedger, summariseLedger } = require('./_lib/job-materials');
+const { getDb } = require('./_lib/supabase-db');
+const invoiceStore = require('./_lib/invoices/store');
 
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
@@ -58,12 +67,13 @@ module.exports = async (req, res) => {
   const job = (jobsBlob.jobs || []).find((j) => j.id === jobId);
   if (!job) return res.status(404).json({ error: 'job not found' });
 
-  const [usersBlob, employeesBlob, ratesData, matsList, ledgerOn] = await Promise.all([
+  const [usersBlob, employeesBlob, ratesData, matsList, ledgerOn, invoicesOn] = await Promise.all([
     readBlob('users.json', { users: [] }),
     readBlob('employees.json', { employees: [] }),
     readCostRates(),
     readBlob(`jobs/${jobId}/materials-list.json`, null),
     isFlagEnabled('job_materials_spend', me),
+    isFlagEnabled('invoice_capture', me),
   ]);
   const userById = {};
   (usersBlob.users || []).forEach((u) => { userById[u.id] = u; });
@@ -121,19 +131,42 @@ module.exports = async (req, res) => {
   unratedWorkerRefs.sort((a, b) => a.name.localeCompare(b.name));
   const unratedWorkers = unratedWorkerRefs.map((w) => w.name);
 
-  // ── Materials: the spend ledger when lit, else the legacy proxy, else none ─
+  // ── Supplier invoices: confirmed allocations (invoice_capture) ─────────────
+  // null = the feature is off for this viewer (no trace). `unavailable` = the
+  // store could not be read; the card says so rather than showing a quiet 0.
+  let supplierInvoices = null;
+  if (invoicesOn) {
+    try {
+      const sql = getDb({ mode: 'read' });
+      const tenant = await invoiceStore.resolveTenant(sql);
+      if (tenant) {
+        const s = await invoiceStore.jobSummary(sql, tenant.id, jobId);
+        supplierInvoices = { confirmedCents: s.confirmedCents, confirmedCount: s.confirmedCount, awaitingCount: s.awaitingCount, unavailable: false };
+      }
+    } catch (err) {
+      console.error('job-profitability: supplier-invoice read failed', { code: (err && err.code) || 'db' });
+      supplierInvoices = { confirmedCents: 0, confirmedCount: 0, awaitingCount: 0, unavailable: true };
+    }
+  }
+
+  // ── Materials: spend ledger + confirmed supplier invoices, else the legacy proxy, else none ─
   let materialCostCents = null;
   let materialSource = 'none';
+  let ledgerCents = 0;
+  let ledgerCount = 0;
   if (ledgerOn) {
     try {
       const ledger = summariseLedger(await readLedger(jobId));
-      if (ledger.count > 0) {
-        materialCostCents = ledger.totalCents;
-        materialSource = 'ledger';
-      }
+      ledgerCents = ledger.totalCents;
+      ledgerCount = ledger.count;
     } catch (err) {
       console.error('job-profitability: materials ledger read failed', err && err.message);
     }
+  }
+  const invoiceCount = supplierInvoices ? supplierInvoices.confirmedCount : 0;
+  if (ledgerCount > 0 || invoiceCount > 0) {
+    materialCostCents = ledgerCents + (invoiceCount > 0 ? supplierInvoices.confirmedCents : 0);
+    materialSource = ledgerCount > 0 ? 'ledger' : 'invoices';
   }
   if (materialSource === 'none' && matsList && matsList.costRollup) {
     const dollars = Number(matsList.costRollup.receivedExGst) ||
@@ -176,6 +209,7 @@ module.exports = async (req, res) => {
     jobId,
     ...result,
     unratedWorkerRefs,
+    supplierInvoices,
     labourChargeOutCents: chargeOutHours > 0 ? chargeOutCents : null,
     chargeOutHours: round2(chargeOutHours),
     budget,

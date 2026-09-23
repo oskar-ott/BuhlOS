@@ -18,4 +18,8 @@ describe("JobMaterialsCard — initial render", () => {
     expect(html).not.toContain("$");
     expect(html).not.toContain("Add spend");
   });
+  it("accepts the invoicesEnabled prop without changing the skeleton", () => {
+    const html = renderToString(createElement(JobMaterialsCard, { jobId: "job-a", invoicesEnabled: true }));
+    expect(html).toContain("materials-skeleton");
+  });
 });
