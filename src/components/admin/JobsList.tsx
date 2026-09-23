@@ -8,14 +8,12 @@ import { Archive, Plus, Search, X } from "lucide-react";
 import { Pill } from "@/components/ui/Pill";
 import { EmptyState } from "@/components/ui/EmptyState";
 import {
-  JOB_STATUS_OPTIONS,
   lastActivityCaption,
-  statusLabel,
-  statusTone,
 } from "@/domains/jobs/format";
 import {
   filterJobs,
-  isArchivedJob,
+  JOB_LIST_PHASE_OPTIONS,
+  isHistoryJob,
   jobStatusCounts,
   jobsEmptyStateMessage,
   parseJobStatusParam,
@@ -34,7 +32,8 @@ import {
   formatContractValue,
   type JobCardMeta,
 } from "@/domains/jobs/portfolio";
-import type { Job, JobStatus } from "@/domains/jobs/types";
+import type { Job } from "@/domains/jobs/types";
+import { jobPhase, phaseLabel, phaseTone, type JobPhase } from "@/domains/jobs/lifecycle";
 import {
   clearRememberedFilters,
   writeRememberedFilters,
@@ -154,7 +153,7 @@ export function JobsList({ jobs, canBuild = false, newJobHref, cardExtrasPromise
    * window.location.search at call time (interaction handlers only) so a
    * debounced search write can't resurrect a status changed while pending.
    */
-  const writeFilters = (next: { status: JobStatus | null; query: string }) => {
+  const writeFilters = (next: { status: JobPhase | null; query: string }) => {
     const params = new URLSearchParams(window.location.search);
     if (next.status) params.set("status", next.status);
     else params.delete("status");
@@ -170,7 +169,7 @@ export function JobsList({ jobs, canBuild = false, newJobHref, cardExtrasPromise
     writeRememberedFilters(JOBS_FILTERS_STORAGE_KEY, { status: next.status, q });
   };
 
-  const handleStatusClick = (next: JobStatus | null) => {
+  const handleStatusClick = (next: JobPhase | null) => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     writeFilters({ status: next, query });
   };
@@ -238,9 +237,10 @@ export function JobsList({ jobs, canBuild = false, newJobHref, cardExtrasPromise
   // total-contract readout. Computed over the WHOLE loaded list (not the current
   // filter) so the header reads the portfolio, not the view — and folds in the
   // streamed contractValue so the total fills in with the cards.
-  // Archived rows are only loaded on the Archived view; they are never part of
-  // the working portfolio, so the header and the "All" count exclude them.
-  const workingJobs = useMemo(() => jobs.filter((j) => !isArchivedJob(j)), [jobs]);
+  // History (closed + archived) is never part of the working portfolio, so the
+  // header and the "All" count exclude it — a closed job's stale tags must
+  // not keep "need attention" lit forever (docs/job-lifecycle.md).
+  const workingJobs = useMemo(() => jobs.filter((j) => !isHistoryJob(j)), [jobs]);
   const portfolio = useMemo(() => {
     const enriched = workingJobs.map((j) => withStreamedValue(j, streamedExtras[j.id]));
     return buildPortfolioSummary({
@@ -253,7 +253,7 @@ export function JobsList({ jobs, canBuild = false, newJobHref, cardExtrasPromise
   // Statuses with zero jobs stay hidden (the page only ships archived rows for
   // ?status=archived, so the Archived pill counts real rows there) UNLESS the URL deep-links to one, in which case the pill
   // renders so the active filter is visible and clearable.
-  const statusOptions = JOB_STATUS_OPTIONS.filter((s) => (counts.get(s) ?? 0) > 0 || status === s);
+  const statusOptions = JOB_LIST_PHASE_OPTIONS.filter((s) => (counts.get(s) ?? 0) > 0 || status === s);
 
   const filtersActive = status !== null || query.trim() !== "" || health !== null;
 
@@ -363,7 +363,7 @@ export function JobsList({ jobs, canBuild = false, newJobHref, cardExtrasPromise
           {statusOptions.map((s) => (
             <FilterPill
               key={s}
-              label={statusLabel(s)}
+              label={phaseLabel(s)}
               count={counts.get(s) ?? 0}
               selected={status === s}
               onClick={() => handleStatusClick(s)}
@@ -555,8 +555,8 @@ function JobCard({
             >
               {job.name}
             </Link>
-            <Pill dot tone={statusTone(job.status)}>
-              {statusLabel(job.status)}
+            <Pill dot tone={phaseTone(jobPhase(job))}>
+              {phaseLabel(jobPhase(job))}
             </Pill>
             {isQaTestJobName(job.name) ? <Pill tone="neutral">Test data</Pill> : null}
           </div>

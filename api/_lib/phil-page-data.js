@@ -28,6 +28,7 @@ const {
   isLeadingHandRole,
 } = require('./auth');
 const { listUserEntries, entryView } = require('./time-entries');
+const { isFieldListedByDefault, isFieldOpenable } = require('./job-lifecycle');
 const { readJobsSummary } = require('./jobs-summary');
 const { readBlob } = require('./blob');
 
@@ -91,11 +92,11 @@ async function loadFieldJobsInProcess(cookieValue, deps = realDeps()) {
   if (deps.isFieldRole(user.role) || deps.isLeadingHandRole(user.role)) {
     try {
       const { records } = await deps.readJobsSummary();
+      // The crew's default set (docs/job-lifecycle.md): active / on-hold /
+      // finishing. Closed jobs are reached through the history search only.
       return {
         ok: true,
-        jobs: (records || []).filter(
-          (j) => j.status !== 'draft' && j.status !== 'archived' && j.status !== 'complete'
-        ),
+        jobs: (records || []).filter((j) => isFieldListedByDefault(j)),
       };
     } catch (e) {
       console.error('phil-page-data: jobs-summary read failed; falling back to jobs.json', e && e.message);
@@ -103,7 +104,9 @@ async function loadFieldJobsInProcess(cookieValue, deps = realDeps()) {
     }
   }
   const blob = await deps.readBlob('jobs.json', { jobs: [] });
-  return { ok: true, jobs: blob.jobs || [] };
+  // Same lifecycle rule on the fallback read — the summary failing must not
+  // widen what the log sheet offers (it used to hand back every job).
+  return { ok: true, jobs: (blob.jobs || []).filter((j) => isFieldListedByDefault(j)) };
 }
 
 /**
@@ -132,7 +135,46 @@ async function loadIsApprenticeInProcess(cookieValue, deps = realDeps()) {
   }
 }
 
+/**
+ * ONE job by id for a Phil page that arrived with a job in hand (the job
+ * screen's "Log hours" → /phil/hours?job=<id>). A closed job is not in the
+ * default list, so the log sheet must be handed it explicitly — that is the
+ * whole callback path (docs/job-lifecycle.md). Null when the job doesn't
+ * exist or the crew may not open it (draft/archived); never throws.
+ */
+async function loadFieldJobInProcess(cookieValue, jobId, deps = realDeps()) {
+  const found = await loadFieldJobsByIdInProcess(cookieValue, [jobId], deps);
+  return found[0] || null;
+}
+
+/**
+ * Several jobs by id — the jobs a worker's OWN hours reference that are no
+ * longer in the default set (closed jobs they did a callback on). Lets the
+ * week history name "Old Depot · Closed" instead of "A job you're no longer
+ * on". Only openable jobs come back; unknown ids are simply absent. Never
+ * throws; a storage error yields [] (the pages already say "couldn't load").
+ */
+async function loadFieldJobsByIdInProcess(cookieValue, jobIds, deps = realDeps()) {
+  try {
+    const wanted = new Set((jobIds || []).filter(Boolean));
+    if (wanted.size === 0) return [];
+    const user = await deps.getCurrentUser(reqFromCookieValue(cookieValue));
+    if (!user) return [];
+    let records = null;
+    try {
+      records = (await deps.readJobsSummary()).records;
+    } catch {
+      records = (await deps.readBlob('jobs.json', { jobs: [] })).jobs;
+    }
+    return (records || []).filter((j) => j && wanted.has(j.id) && isFieldOpenable(j));
+  } catch {
+    return [];
+  }
+}
+
 module.exports = {
+  loadFieldJobInProcess,
+  loadFieldJobsByIdInProcess,
   loadCurrentUserInProcess,
   loadWorkerEntriesInProcess,
   loadFieldJobsInProcess,

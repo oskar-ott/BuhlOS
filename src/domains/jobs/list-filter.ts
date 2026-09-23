@@ -1,4 +1,10 @@
-import { JOB_STATUS_OPTIONS, statusLabel } from "./format";
+import {
+  JOB_PHASE_OPTIONS,
+  jobPhase,
+  parseJobPhaseParam,
+  phaseLabel,
+  type JobPhase,
+} from "./lifecycle";
 import type { Job, JobStatus } from "./types";
 
 /**
@@ -9,10 +15,10 @@ import type { Job, JobStatus } from "./types";
  * (`?status=` + `?q=`) instead of ad-hoc component state, and so the filter
  * matrix is unit-testable without rendering.
  *
- * Status semantics mirror src/domains/jobs/format.ts exactly: a legacy job
- * with no `status` field displays as "Active" (statusLabel fallback), so the
- * filter MUST treat it as active too — otherwise a row labelled Active would
- * vanish under the Active pill.
+ * The pills filter by lifecycle PHASE (src/domains/jobs/lifecycle.ts), not the
+ * raw status: a `complete` job is "Finished" inside its callback window and
+ * "Closed" after, and the office needs those apart. A legacy job with no
+ * `status` field is active (the same fallback the labels use).
  *
  * Cross-ref:
  *   src/components/admin/JobsList.tsx — the consumer
@@ -20,8 +26,9 @@ import type { Job, JobStatus } from "./types";
  */
 
 export interface JobsListFilter {
-  /** null = all statuses (no `?status=` param). */
-  status: JobStatus | null;
+  /** null = the working portfolio (no `?status=` param): active, on hold,
+   *  finishing and draft — never closed or archived history. */
+  status: JobPhase | null;
   /** Trimmed contains-match over name / address / ref / IV code. "" = no search. */
   query: string;
 }
@@ -31,11 +38,11 @@ export interface JobsListFilter {
  * status set from format.ts. Anything unknown → null (treated as "all"),
  * so stale deep links and stale stored defaults degrade silently.
  */
-export function parseJobStatusParam(raw: string | null | undefined): JobStatus | null {
-  if (!raw) return null;
-  return (JOB_STATUS_OPTIONS as ReadonlyArray<string>).includes(raw)
-    ? (raw as JobStatus)
-    : null;
+export function parseJobStatusParam(raw: string | null | undefined): JobPhase | null {
+  // "complete" was a pill before the lifecycle split it in two; an old
+  // bookmark or remembered filter lands on the closed history view.
+  if (raw === "complete") return "closed";
+  return parseJobPhaseParam(raw);
 }
 
 /** The status a job filters under — format.ts's "no status displays Active" rule. */
@@ -58,6 +65,13 @@ export function isArchivedJob(job: Pick<Job, "status">): boolean {
   return effectiveJobStatus(job) === "archived";
 }
 
+/** History = closed (finished, callback window over) or archived. Out of the
+ *  working portfolio: not under "All", not in the header counts. */
+export function isHistoryJob(job: Pick<Job, "status" | "completedAt">, now?: Date | string): boolean {
+  const phase = jobPhase(job, now);
+  return phase === "closed" || phase === "archived";
+}
+
 /**
  * Server-side trim for /v2/jobs: archived rows are only shipped to the list
  * when the request asks for the Archived view (`?status=archived`). Every
@@ -66,7 +80,7 @@ export function isArchivedJob(job: Pick<Job, "status">): boolean {
  */
 export function jobsForStatusView(
   jobs: ReadonlyArray<Job>,
-  status: JobStatus | null
+  status: JobPhase | null
 ): ReadonlyArray<Job> {
   if (status === "archived") return jobs;
   return jobs.filter((j) => !isArchivedJob(j));
@@ -84,8 +98,8 @@ export function filterJobs(
 ): ReadonlyArray<Job> {
   const q = filter.query.trim().toLowerCase();
   return jobs.filter((job) => {
-    if (filter.status && effectiveJobStatus(job) !== filter.status) return false;
-    if (!filter.status && isArchivedJob(job)) return false;
+    if (filter.status && jobPhase(job) !== filter.status) return false;
+    if (!filter.status && isHistoryJob(job)) return false;
     if (q && !matchesQuery(job, q)) return false;
     return true;
   });
@@ -96,14 +110,17 @@ export function filterJobs(
  * with zero jobs stay hidden unless deep-linked — a permanently-empty pill
  * would imply data this page deliberately excludes, e.g. archived rows).
  */
-export function jobStatusCounts(jobs: ReadonlyArray<Job>): ReadonlyMap<JobStatus, number> {
-  const counts = new Map<JobStatus, number>();
+export function jobStatusCounts(jobs: ReadonlyArray<Job>): ReadonlyMap<JobPhase, number> {
+  const counts = new Map<JobPhase, number>();
   for (const job of jobs) {
-    const s = effectiveJobStatus(job);
+    const s = jobPhase(job);
     counts.set(s, (counts.get(s) ?? 0) + 1);
   }
   return counts;
 }
+
+/** The pills, in display order — phases, so Finished and Closed are apart. */
+export const JOB_LIST_PHASE_OPTIONS = JOB_PHASE_OPTIONS;
 
 /**
  * Filter-aware empty-state copy — names the active narrowing instead of a
@@ -112,7 +129,7 @@ export function jobStatusCounts(jobs: ReadonlyArray<Job>): ReadonlyMap<JobStatus
  */
 export function jobsEmptyStateMessage(filter: JobsListFilter): string {
   const q = filter.query.trim();
-  const statusPart = filter.status ? statusLabel(filter.status).toLowerCase() : null;
+  const statusPart = filter.status ? phaseLabel(filter.status).toLowerCase() : null;
   if (statusPart && q) {
     return `No ${statusPart} jobs match “${q}”. Try a different search or status.`;
   }

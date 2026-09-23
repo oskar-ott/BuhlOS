@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -24,6 +24,8 @@ import { cn } from "@/lib/cn";
 import { SplitDaySheet } from "./SplitDaySheet";
 import { DialPicker } from "./DialPicker";
 import { DayDialPicker } from "./DayDialPicker";
+import { useJobHistorySearch } from "./useJobHistorySearch";
+import { fieldPhaseChip } from "@/domains/jobs/lifecycle";
 import styles from "./myDay.module.css";
 import { timesheetsClient } from "@/domains/timesheets/client";
 import { useSubmissionKey } from "@/domains/timesheets/useSubmissionKey";
@@ -232,6 +234,21 @@ export function LogHoursSheet({
   // as yesterday" default) → the sole assigned job. Only a worker with several
   // jobs AND no usable default is left to pick explicitly. Every candidate is
   // validated against the active assigned jobs so a stale id never sticks.
+  // Closed jobs the worker found through the picker's history search (a
+  // callback weeks after the job finished — docs/job-lifecycle.md). They join
+  // the pickable set for this sheet only; the server still gates the write.
+  const [historyJobs, setHistoryJobs] = useState<ReadonlyArray<PickableJob>>([]);
+  const pickableJobs = useMemo<ReadonlyArray<PickableJob>>(() => {
+    const have = new Set(assignedJobs.map((j) => j.id));
+    return [...assignedJobs, ...historyJobs.filter((j) => !have.has(j.id))];
+  }, [assignedJobs, historyJobs]);
+  const discoverJobs = useCallback((found: ReadonlyArray<PickableJob>) => {
+    setHistoryJobs((prev) => {
+      const have = new Set(prev.map((j) => j.id));
+      const add = found.filter((j) => !have.has(j.id));
+      return add.length > 0 ? [...prev, ...add] : prev;
+    });
+  }, []);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(() => {
     if (initialJobId && assignedJobs.some((j) => j.id === initialJobId)) return initialJobId;
     if (lastLoggedJobId && assignedJobs.some((j) => j.id === lastLoggedJobId)) {
@@ -241,7 +258,7 @@ export function LogHoursSheet({
   });
 
   const hasJobs = assignedJobs.length > 0;
-  const selectedJob = assignedJobs.find((j) => j.id === selectedJobId) ?? null;
+  const selectedJob = pickableJobs.find((j) => j.id === selectedJobId) ?? null;
   // A job-less day type (owner-directed 2026-08-10): sick / holiday for
   // everyone, TAFE for apprentices (canLogTafe). While selected, the day
   // belongs to NO job: attribution names the type, the job guard stands
@@ -559,7 +576,8 @@ export function LogHoursSheet({
               </div>
             ) : (
               <JobAttribution
-                jobs={assignedJobs}
+                jobs={pickableJobs}
+                onDiscoverJobs={discoverJobs}
                 selectedJobId={selectedJobId}
                 onSelect={(id) => {
                   setSelectedJobId(id);
@@ -685,7 +703,7 @@ export function LogHoursSheet({
         )}
       </div>
 
-      <FeedbackBanner state={state} jobs={assignedJobs} />
+      <FeedbackBanner state={state} jobs={pickableJobs} />
 
       <Modal
         open={customOpen}
@@ -931,6 +949,10 @@ export interface PickableJob {
   name: string;
   ref?: string | null;
   address?: string | null;
+  /** Lifecycle stamp — set on jobs found through the history search so the
+   *  dial row and the picked line can say "Closed 14 Aug" (a callback). */
+  completedAt?: string | null;
+  status?: string | null;
 }
 
 /**
@@ -947,10 +969,12 @@ export function jobDialRows(
   query: string
 ): { rows: Array<{ id: string; label: string }>; jobMatches: number } {
   const q = query.trim().toLowerCase();
-  const jobRows = (q ? jobs.filter((j) => jobMatchesQuery(j, q)) : jobs).map((j) => ({
-    id: j.id,
-    label: j.name,
-  }));
+  const jobRows = (q ? jobs.filter((j) => jobMatchesQuery(j, q)) : jobs).map((j) => {
+    // A finished/closed job reads as such on the drum — the row itself
+    // says this is a callback, so it can't be mistaken for a live namesake.
+    const chip = fieldPhaseChip(j);
+    return { id: j.id, label: chip ? `${j.name} · ${chip}` : j.name };
+  });
   if (!q) return { rows: [...dayTypes, ...jobRows], jobMatches: jobRows.length };
   const dayRows = dayTypes.filter((t) => t.label.toLowerCase().includes(q));
   return { rows: [...jobRows, ...dayRows], jobMatches: jobRows.length };
@@ -964,6 +988,7 @@ function jobMatchesQuery(job: PickableJob, q: string): boolean {
 
 function JobAttribution({
   jobs,
+  onDiscoverJobs,
   selectedJobId,
   onSelect,
   lastLoggedJobId,
@@ -974,6 +999,9 @@ function JobAttribution({
   onSelectDayType,
 }: {
   jobs: ReadonlyArray<PickableJob>;
+  /** Closed jobs the history search turned up — the parent adds them to the
+   *  pickable set so a pick resolves to a real job (name on the receipt). */
+  onDiscoverJobs: (jobs: ReadonlyArray<PickableJob>) => void;
   selectedJobId: string | null;
   onSelect: (id: string) => void;
   lastLoggedJobId: string | null;
@@ -990,6 +1018,23 @@ function JobAttribution({
   // rules of hooks.
   const [pickerOpen, setPickerOpen] = useState<boolean>(!selectedJobId);
   const [query, setQuery] = useState<string>("");
+  // History search (docs/job-lifecycle.md): a closed job isn't in `jobs`, so
+  // two typed characters also ask the server. Results are labelled as closed
+  // in the dial and on the picked line — a callback is never a quiet pick.
+  const history = useJobHistorySearch(query, pickerOpen && jobs.length > 0);
+  useEffect(() => {
+    if (history.kind !== "ready" || history.jobs.length === 0) return;
+    onDiscoverJobs(
+      history.jobs.map((j) => ({
+        id: j.id,
+        name: j.name,
+        ref: j.code ?? j.ref ?? null,
+        address: j.siteAddress ?? null,
+        completedAt: j.completedAt ?? null,
+        status: j.status ?? null,
+      }))
+    );
+  }, [history, onDiscoverJobs]);
   const label = (
     <p className="font-display text-xs uppercase tracking-widest text-text-muted">Job</p>
   );
@@ -1094,9 +1139,11 @@ function JobAttribution({
                 last-logged default, name it (with the real date); otherwise the
                 plain "Job" label. */}
             <span className={styles.jobLineCaption}>
-              {selected.id === lastLoggedJobId && lastLoggedDate
-                ? `Your last job · logged ${formatShortDateLabel(lastLoggedDate)}`
-                : "Job"}
+              {fieldPhaseChip(selected)
+                ? `${fieldPhaseChip(selected)} — these hours are a callback`
+                : selected.id === lastLoggedJobId && lastLoggedDate
+                  ? `Your last job · logged ${formatShortDateLabel(lastLoggedDate)}`
+                  : "Job"}
             </span>
           </span>
         </div>
@@ -1198,8 +1245,11 @@ function JobAttribution({
       ) : null}
       {q && jobMatches === 0 ? (
         <p className="px-1 py-2 text-sm text-text-muted" role="status">
-          No job matches “{query.trim()}”. Check the name, IV number or street — or add the
-          job from the Jobs tab.
+          {history.kind === "searching"
+            ? "Checking finished jobs…"
+            : history.kind === "failed"
+              ? `No job here matches “${query.trim()}” and finished jobs couldn’t be checked — try again.`
+              : `No job matches “${query.trim()}”. Check the name, IV number or street — or add the job from the Jobs tab.`}
         </p>
       ) : null}
       {/* #424: this picker logs a single job. With >1 assigned job the worker

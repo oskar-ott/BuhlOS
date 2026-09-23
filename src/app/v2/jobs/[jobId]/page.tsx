@@ -36,6 +36,7 @@ import {
 } from "@/domains/jobs/job-interface-data";
 import { hoursOnJob } from "@/domains/jobs/job-hours";
 import { hasSiteContext } from "@/domains/jobs/format";
+import { jobPhase } from "@/domains/jobs/lifecycle";
 import { isVisibleToField } from "@/domains/jobs/builder";
 import { progressPct as canonicalProgressPct } from "@/domains/jobs/progress";
 import { readEstimatedHours } from "@/domains/analytics/job-estimate";
@@ -251,10 +252,20 @@ function JobBuildCard({ job, canBuild }: { job: Job; canBuild: boolean }) {
   // Lean reset (#916): structure stats left with the strip — lean jobs
   // deliberately have no structure; publish state is the card's whole job.
   const fieldVisible = isVisibleToField(job);
+  const phase = jobPhase(job);
   return (
     <Card>
       <CardKicker>Build &amp; publish</CardKicker>
-      {fieldVisible ? (
+      {fieldVisible && (phase === "finishing" || phase === "closed") ? (
+        // A finished job is still open to the crew, but no longer "published"
+        // in the live sense — say what actually happens (docs/job-lifecycle.md).
+        <p className="mt-3 flex items-center gap-1.5 text-sm text-text-muted">
+          <Eye aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+          {phase === "finishing"
+            ? "Finished — still in the crew's job list for callback hours."
+            : "Closed — the crew find it by search; it still takes callback hours."}
+        </p>
+      ) : fieldVisible ? (
         <p className="mt-3 flex items-center gap-1.5 text-sm text-state-success-subtle-text">
           <Eye aria-hidden="true" className="h-3.5 w-3.5 shrink-0" /> Published — visible to
           assigned field workers.

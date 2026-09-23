@@ -30,3 +30,27 @@ describe("JobStatusControl", () => {
     expect(html).not.toContain("menuitemradio");
   });
 });
+
+describe("JobStatusControl — lifecycle words (docs/job-lifecycle.md)", () => {
+  it("a complete job with no stamp reads Closed; one finished yesterday reads Finished", () => {
+    const closed = renderToString(
+      createElement(JobStatusControl, { job: { id: "j1", status: "complete" }, canEdit: false })
+    );
+    expect(closed).toContain("Closed");
+    const finishing = renderToString(
+      createElement(JobStatusControl, {
+        job: { id: "j1", status: "complete", completedAt: new Date(Date.now() - 86_400_000).toISOString() },
+        canEdit: false,
+      })
+    );
+    expect(finishing).toContain("Finished");
+    expect(finishing).not.toContain("Closed");
+  });
+
+  it("never renders the confirm dialog on first paint", () => {
+    const html = renderToString(
+      createElement(JobStatusControl, { job: { id: "j1", status: "active" }, canEdit: true })
+    );
+    expect(html).not.toContain("job-status-confirm");
+  });
+});

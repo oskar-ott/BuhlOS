@@ -20,7 +20,8 @@ import {
 import { PhilOfflineLink } from "./PhilOfflineLink";
 import { PhilStatusBadge, type PhilStatusTone } from "./ui/PhilStatusBadge";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { statusLabel, statusTone } from "@/domains/jobs/format";
+import { statusTone } from "@/domains/jobs/format";
+import { fieldPhaseChip, jobPhase, phaseLabel, phaseTone } from "@/domains/jobs/lifecycle";
 import { cn } from "@/lib/cn";
 import type { Job } from "@/domains/jobs/types";
 import { jobOpenWork, jobOpenWorkSummary } from "./philJobsListSignals";
@@ -31,6 +32,7 @@ import {
 } from "./jobListPrefs";
 import { orderJobList } from "./jobListOrder";
 import { filterJobList } from "./jobListFilter";
+import { useJobHistorySearch } from "./useJobHistorySearch";
 import { useLongPress } from "./useLongPress";
 import { PhilShortcutSheet } from "./PhilShortcutSheet";
 import {
@@ -179,6 +181,16 @@ export function PhilJobsSharpened({ initialJobs, userId = "", loadFailed = false
   // for a single-job worker (nothing to search, P10).
   const [query, setQuery] = useState("");
   const visibleJobs = useMemo(() => filterJobList(registerJobs, query), [registerJobs, query]);
+  // Closed jobs left this list when their callback window ended
+  // (docs/job-lifecycle.md); the same search box reaches them through the
+  // server, shown in their own labelled group so an old job never passes for
+  // a live one. Enters the existing search slot — no new navigation (P10).
+  const history = useJobHistorySearch(query);
+  const historyJobs = useMemo(() => {
+    if (history.kind !== "ready") return [] as ReadonlyArray<Job>;
+    const listed = new Set(registerJobs.map((j) => j.id));
+    return history.jobs.filter((j) => !listed.has(j.id));
+  }, [history, registerJobs]);
 
   return (
     <div className="space-y-4" data-testid="phil-jobs-sharpened">
@@ -259,15 +271,59 @@ export function PhilJobsSharpened({ initialJobs, userId = "", loadFailed = false
                   </li>
                 ))}
               </ul>
-            ) : (
+            ) : historyJobs.length > 0 ? null : (
               <p
                 data-testid="phil-jobs-search-empty"
                 className="rounded-card border border-dashed border-border bg-surface-subtle px-4 py-3 text-sm text-text-muted"
               >
-                Nothing matches &ldquo;{query.trim()}&rdquo;. Check the spelling or clear the
-                search.
+                {history.kind === "searching"
+                  ? "Checking finished jobs…"
+                  : history.kind === "failed"
+                    ? `Nothing here matches “${query.trim()}”, and finished jobs couldn’t be checked — try again.`
+                    : `Nothing matches “${query.trim()}”. Check the spelling or clear the search.`}
               </p>
             )
+          ) : null}
+
+          {historyJobs.length > 0 ? (
+            <section aria-labelledby="phil-jobs-history-heading" className="space-y-1.5">
+              <h2
+                id="phil-jobs-history-heading"
+                className="font-display text-[12px] font-bold uppercase tracking-[0.09em] text-text-muted"
+              >
+                Finished jobs
+              </h2>
+              <ul
+                data-testid="phil-jobs-history"
+                className="divide-y divide-border overflow-hidden rounded-card border border-border bg-surface-raised"
+              >
+                {historyJobs.map((job) => (
+                  <li key={job.id}>
+                    <PhilOfflineLink
+                      href={`/phil/jobs/${encodeURIComponent(job.id)}`}
+                      className="flex min-h-[56px] items-center gap-3 px-4 py-3 active:bg-surface-subtle"
+                    >
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-display text-[17px] font-bold tracking-[-0.014em] text-text">
+                          {job.name}
+                        </span>
+                        {job.siteAddress ? (
+                          <span className="mt-0.5 block truncate text-[13px] text-text-muted">
+                            {job.siteAddress}
+                          </span>
+                        ) : null}
+                      </span>
+                      <PhilStatusBadge
+                        label={fieldPhaseChip(job) ?? phaseLabel(jobPhase(job))}
+                        tone="neutral"
+                        className="shrink-0"
+                      />
+                      <ChevronRight aria-hidden="true" className="h-5 w-5 shrink-0 text-text-muted/60" />
+                    </PhilOfflineLink>
+                  </li>
+                ))}
+              </ul>
+            </section>
           ) : null}
         </>
       )}
@@ -322,8 +378,8 @@ function OnTodayCard({ job }: { job: Job }) {
           ) : null}
         </span>
         <PhilStatusBadge
-          label={statusLabel(job.status)}
-          tone={JOB_BADGE_TONE[statusTone(job.status)]}
+          label={phaseLabel(jobPhase(job))}
+          tone={JOB_BADGE_TONE[phaseTone(jobPhase(job))]}
           className="shrink-0"
         />
         <ChevronRight aria-hidden="true" className="h-5 w-5 shrink-0 text-text-muted" />
@@ -349,7 +405,11 @@ function SharpJobRow({
   // Real, opt-in (?withStats=1) signals only — absent stats = no line, never
   // a fabricated "all clear" (same contract as philJobsListSignals).
   const summary = jobOpenWorkSummary(jobOpenWork(job));
-  const statusLine = [address, summary].filter(Boolean).join(" · ");
+  // A finished job says so twice, honestly sized for a phone: the short badge
+  // ("Finished") and the callback window on the secondary line — a long badge
+  // crushed the job name to two letters (2026-09-24 walk).
+  const phaseDetail = jobPhase(job) === "finishing" ? fieldPhaseChip(job)?.replace(/^Finished · /, "") ?? null : null;
+  const statusLine = [address, summary, phaseDetail].filter(Boolean).join(" · ");
   // Code chip: real `code` (IV####, Wave 2b) first, legacy `ref` fallback.
   const chip = job.code ?? job.ref;
 
@@ -394,8 +454,8 @@ function SharpJobRow({
           </span>
 
           <PhilStatusBadge
-            label={statusLabel(job.status)}
-            tone={JOB_BADGE_TONE[statusTone(job.status)]}
+            label={phaseLabel(jobPhase(job))}
+            tone={JOB_BADGE_TONE[phaseTone(jobPhase(job))]}
             className="shrink-0"
           />
           <ChevronRight aria-hidden="true" className="h-5 w-5 shrink-0 text-text-muted/60" />

@@ -167,6 +167,29 @@ describe("POST /api/time-entries — field job attribution", () => {
     expect(res.statusCode).toBe(403);
   });
 
+  it("accepts a FINISHED job — inside and after its callback window (docs/job-lifecycle.md)", async () => {
+    const store = blob.get("jobs.json") as { jobs: Array<Record<string, unknown>> };
+    const job = store.jobs.find((j) => j.id === "job-active")!;
+    job.status = "complete";
+    job.completedAt = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+    let res = await post("u_field", "electrician", entryFor("job-active"));
+    expect(res.statusCode).toBe(201);
+
+    blob.delete(`users/u_field/time-entries/${TODAY}.json`);
+    job.completedAt = new Date(Date.now() - 200 * 24 * 60 * 60 * 1000).toISOString();
+    res = await post("u_field", "electrician", entryFor("job-active"));
+    expect(res.statusCode).toBe(201);
+  });
+
+  it("an archived job refuses hours even if it was finished first", async () => {
+    const store = blob.get("jobs.json") as { jobs: Array<Record<string, unknown>> };
+    const job = store.jobs.find((j) => j.id === "job-active")!;
+    job.status = "archived";
+    job.completedAt = new Date().toISOString();
+    const res = await post("u_field", "electrician", entryFor("job-active"));
+    expect(res.statusCode).toBe(403);
+  });
+
   it("now accepts any active job the worker is NOT assigned to (all-jobs access)", async () => {
     const res = await post("u_field", "electrician", entryFor("job-unassigned"));
     expect(res.statusCode).toBe(201);

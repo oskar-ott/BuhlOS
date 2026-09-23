@@ -96,7 +96,7 @@ describe("PhilJobsSharpened", () => {
 
   it("a lone NON-ACTIVE job is never framed 'On today' — it lists plainly with its truthful badge", () => {
     for (const [status, badge] of [
-      ["complete", ">Complete<"],
+      ["complete", ">Closed<"],
       ["on_hold", ">On hold<"],
     ] as const) {
       const html = renderToString(

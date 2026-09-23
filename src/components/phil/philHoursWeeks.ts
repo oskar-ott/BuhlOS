@@ -42,6 +42,10 @@ export interface HoursJobRef {
   ref?: string | null;
   /** Site address — lets the log sheet's job search match "oak st". */
   address?: string | null;
+  /** Lifecycle stamps — a finished/closed job is named as a callback on the
+   *  picked line (docs/job-lifecycle.md). */
+  completedAt?: string | null;
+  status?: string | null;
 }
 
 /** One row of the per-job week breakdown. */

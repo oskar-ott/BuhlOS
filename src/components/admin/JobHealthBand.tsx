@@ -3,6 +3,7 @@ import type { Route } from "next";
 import { ArrowRight, MapPin } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { JobCrewNames } from "@/components/admin/JobCrewNames";
+import { lifecycleLine } from "@/domains/jobs/lifecycle";
 import { JobStatusControl } from "@/components/admin/JobStatusControl";
 import { deriveJobHealth, type JobHealthLevel } from "@/domains/jobs/job-health";
 import { healthLabel } from "@/domains/jobs/job-health-list";
@@ -93,6 +94,14 @@ export function JobHealthBand({
             <JobStatusControl job={job} canEdit={canEdit} />
           </div>
         </div>
+        {/* The lifecycle fact in one line — when it finished, how long the
+            crew can still log to it, whether it was reopened. Nothing for a
+            plain active job (docs/job-lifecycle.md). */}
+        {lifecycleLine(job) ? (
+          <p className="mt-2 text-sm text-text-muted" data-testid="job-lifecycle-line">
+            {lifecycleLine(job)}
+          </p>
+        ) : null}
 
         <div className="mt-2 flex items-start justify-between gap-3">
           <h1 className="min-w-0 font-display text-[26px] font-bold leading-[1.08] tracking-tight text-text sm:text-[36px] sm:leading-[1.05]">

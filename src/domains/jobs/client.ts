@@ -46,6 +46,24 @@ export function listJobs(): Promise<HttpResult<JobListResponse>> {
   });
 }
 
+/**
+ * The crew's way back to a finished job (docs/job-lifecycle.md): every job
+ * they may open — active, finishing and CLOSED — matched by name, IV code or
+ * street, server-capped. Read-only; picking a result never reopens the job.
+ * Under 2 characters the server answers an empty list, so callers can fire
+ * on every keystroke without a debounce dance.
+ */
+export function searchJobHistory(query: string): Promise<HttpResult<JobListResponse>> {
+  const q = query.trim();
+  return httpGet<JobListResponse>(
+    `/api/jobs?scope=history&q=${encodeURIComponent(q)}`,
+    {
+      schema: JobListResponseSchema,
+      init: { cache: "no-store", credentials: "same-origin" },
+    }
+  );
+}
+
 export function getJobDetail(jobId: string): Promise<HttpResult<JobDetailResponse>> {
   return httpGet<JobDetailResponse>(
     `/api/jobs?id=${encodeURIComponent(jobId)}`,
@@ -217,6 +235,7 @@ export function captureStructurePreset(input: {
 
 export const jobsClient = {
   listJobs,
+  searchJobHistory,
   getJobDetail,
   getJobForEdit,
   createJob,

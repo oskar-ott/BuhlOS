@@ -25,6 +25,24 @@
 //   - Results are sorted by score within type, then merged.
 
 const { readBlob, setNoCache } = require('./_lib/blob');
+const { jobPhase } = require('./_lib/job-lifecycle');
+
+/** "Active" / "Finished 14 Aug" / "Closed 14 Aug" / "On hold" / "Draft" / "Archived". */
+function phaseSubtitle(job) {
+  const phase = jobPhase(job);
+  const when = job.completedAt ? new Date(job.completedAt) : null;
+  const day = when && !Number.isNaN(when.getTime())
+    ? ' ' + when.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })
+    : '';
+  switch (phase) {
+    case 'finishing': return 'Finished' + day;
+    case 'closed': return 'Closed' + day;
+    case 'on_hold': return 'On hold';
+    case 'draft': return 'Draft';
+    case 'archived': return 'Archived';
+    default: return 'Active';
+  }
+}
 const { requireAuth, isStaffRole, isAdminRole, isLeadingHandRole, isClientRole } = require('./_lib/auth');
 const { isFlagEnabled } = require('./_lib/feature-flags');
 
@@ -92,7 +110,9 @@ module.exports = async (req, res) => {
           type: 'job',
           id: j.id,
           label: j.name,
-          sub: (j.status || 'active'),
+          // Lifecycle phase in plain words ("Finished 14 Aug", "Closed",
+          // "Active") — an old job must read as old beside a live namesake.
+          sub: phaseSubtitle(j),
           url: '/v2/jobs/' + j.id,
           _score: s,
         });

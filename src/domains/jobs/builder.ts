@@ -4,6 +4,7 @@ import {
   statusLabel,
   visibleAreaGroups,
 } from "./format";
+import { isFieldOpenable } from "./lifecycle";
 import type {
   Job,
   JobAreaGroupInput,
@@ -105,8 +106,9 @@ export function isPublished(job: Pick<Job, "status">): boolean {
  * pending.
  */
 export function isVisibleToField(job: Pick<Job, "status">): boolean {
-  const s: JobStatus = job.status ?? "active";
-  return s !== "draft" && s !== "archived";
+  // The lifecycle rule (docs/job-lifecycle.md): a finished job stays openable
+  // by the crew (callbacks); only draft and archived are office-only.
+  return isFieldOpenable(job);
 }
 
 /* ---------------------------------------------------------------------

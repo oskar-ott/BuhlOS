@@ -192,6 +192,14 @@ export const JobSchema = z
     // legacy writes but not all. We treat them as best-effort for display.
     createdAt: z.string().optional(),
     updatedAt: z.string().optional(),
+    // Lifecycle stamps (docs/job-lifecycle.md) — written by the jobs PUT when
+    // the status crosses complete. Absent on every job that was never
+    // finished (all of production today). Read by src/domains/jobs/lifecycle.
+    completedAt: z.string().nullable().optional(),
+    completedByUserId: z.string().nullable().optional(),
+    reopenedAt: z.string().nullable().optional(),
+    /** Field list/history reads carry the server-derived phase for the row. */
+    phase: z.string().optional(),
 
     // Optional `?withStats=1` enrichment — only present when the list
     // endpoint is called with `?withStats=1` (used by the admin jobs
