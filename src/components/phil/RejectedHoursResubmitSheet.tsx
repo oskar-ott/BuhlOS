@@ -491,7 +491,6 @@ export function RejectedHoursResubmitSheet({
           title={editingSubmitted ? "Couldn’t send the fix" : "Couldn’t resubmit"}
         >
           {state.message}
-          {state.status ? <span className="ml-1 text-xs">(HTTP {state.status})</span> : null}
         </PhilNotice>
       ) : null}
 

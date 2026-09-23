@@ -18,8 +18,19 @@ const mk = (id: string, name: string, extra: Partial<Job> = {}) =>
 describe("PhilJobsSharpened", () => {
   it("renders an honest empty state when there are no jobs", () => {
     const html = renderToString(createElement(PhilJobsSharpened, { initialJobs: [] }));
-    expect(html).toContain("No jobs assigned yet");
+    expect(html).toContain("No jobs yet");
+    // Points at the way out: the worker can add the job they're on.
+    expect(html).toContain("+ New job");
     expect(html).not.toContain("phil-jobs-on-today");
+  });
+
+  it("never says 'no jobs' when the jobs read failed (the page notice owns it)", () => {
+    const html = renderToString(
+      createElement(PhilJobsSharpened, { initialJobs: [], loadFailed: true }),
+    );
+    expect(html).not.toContain("No jobs yet");
+    // Creating a job still works while the list is down.
+    expect(html).toContain('data-testid="phil-new-job-open"');
   });
 
   it("shows the navy '+ New job' header button (Wave 2b) with the sheet closed", () => {
@@ -36,7 +47,7 @@ describe("PhilJobsSharpened", () => {
   it("keeps '+ New job' available on the honest empty state (first job is a create)", () => {
     const html = renderToString(createElement(PhilJobsSharpened, { initialJobs: [] }));
     expect(html).toContain('data-testid="phil-new-job-open"');
-    expect(html).toContain("No jobs assigned yet");
+    expect(html).toContain("No jobs yet");
   });
 
   it("chips the real `code` field, falling back to legacy `ref` (unchanged rows)", () => {

@@ -115,6 +115,25 @@ describe("philJobCommandInputFromJobData — standing capabilities", () => {
     expect(inp.hours).toEqual({ kind: "elsewhere", href: "/phil/my-day" });
     expect(inp.materials.kind).toBe("unavailable");
   });
+
+  it("with a job-aware log surface, 'Log hours' opens it with THIS job picked", () => {
+    const inp = philJobCommandInputFromJobData({
+      job: job(),
+      logHoursHref: "/phil/hours?job=job-1",
+    });
+    expect(inp.hours).toEqual({ kind: "available", href: "/phil/hours?job=job-1" });
+    const model = buildPhilJobCommandModel(inp);
+    const logHours = [model.primaryAction, ...model.actions].find((a) => a?.id === "log_hours");
+    expect(logHours?.href).toBe("/phil/hours?job=job-1");
+    // No false "hours aren't logged per job" line.
+    expect(logHours?.reason ?? "").not.toMatch(/aren.t logged per job/);
+  });
+
+  it("material requests leave no 'not in the app yet' trace (lean reset no-trace rule)", () => {
+    const model = buildPhilJobCommandModel(philJobCommandInputFromJobData({ job: job() }));
+    expect(model.limitations.map((l) => l.id)).not.toContain("materials-off-app");
+    expect(JSON.stringify(model)).not.toMatch(/in the app yet/);
+  });
 });
 
 describe("bridge + model end to end", () => {

@@ -12,7 +12,6 @@ import {
 import { PhilOfflineLink } from "./PhilOfflineLink";
 import { PhilStatusBadge, type PhilStatusTone } from "./ui/PhilStatusBadge";
 import { useOnline } from "./useOnline";
-import { cn } from "@/lib/cn";
 import type { PhilNeedsYouItem } from "@/domains/phil/needs-you";
 import { STANDARD_DAY_HOURS } from "@/domains/timesheets/service";
 import { formatHoursLabel } from "@/domains/timesheets/format";
@@ -210,14 +209,30 @@ export function philNeedsYouBadge(item: PhilNeedsYouItem): {
 
 export function PhilMyDayDoThisNow({
   items,
+  incomplete = false,
 }: {
   /** The FULL needs-you list (buildPhilNeedsYou output, already sorted most
    *  urgent first). items[0] is the hero; the rest are the list. */
   items: ReadonlyArray<PhilNeedsYouItem>;
+  /** The worker's entries failed to load, so rejected days can't be known —
+   *  an empty list is then NOT an all-clear (P7). */
+  incomplete?: boolean;
 }) {
   // "Not yet" — client state only. The hero drops into the list below so the
   // item stays visible and actionable; nothing is dismissed server-side.
   const [heroDismissed, setHeroDismissed] = useState(false);
+
+  if (items.length === 0 && incomplete) {
+    // Couldn't check: never dress a failed read up as "nothing chasing you".
+    return (
+      <p
+        data-testid="phil-my-day-unchecked"
+        className="rounded-card border border-border bg-surface-raised px-4 py-4 text-center text-sm text-text-muted"
+      >
+        Couldn&rsquo;t check what&rsquo;s waiting on you — see the note above.
+      </p>
+    );
+  }
 
   if (items.length === 0) {
     // Honest all-clear — site voice, no fake urgency, no invented card.
@@ -415,20 +430,3 @@ export function PhilMyDayQuickGrid({
   );
 }
 
-/* ── Honesty note (truth over theatre) ─────────────────────────────────── */
-
-export function PhilMyDayHonestyNote({ className }: { className?: string }) {
-  return (
-    <div
-      className={cn(
-        "rounded-card border border-dashed border-border bg-surface-subtle px-4 py-3",
-        className,
-      )}
-    >
-      <p className="text-sm text-text-muted">
-        Materials &amp; job history aren&rsquo;t connected yet — so BuhlOS doesn&rsquo;t show
-        them.
-      </p>
-    </div>
-  );
-}

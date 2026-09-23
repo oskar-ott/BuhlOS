@@ -70,10 +70,18 @@
   white-space: nowrap;
 }
 
-/* The row sitting in the selection band reads as the dial's current value. */
+/* The row sitting in the band while nothing else is picked (browse focus),
+   or the pick itself when it sits in the band. */
 .itemCentered {
   color: var(--text);
   font-weight: 600;
+}
+
+/* The PICKED row (aria-checked) — always reads as chosen, wherever it sits on
+   the drum, so a spin never makes a different row look picked. */
+.itemPicked {
+  color: var(--text);
+  font-weight: 700;
 }
 
 .itemTick {
@@ -97,8 +105,13 @@
     inset 0 -1px 0 color-mix(in srgb, var(--brand-navy) 22%, transparent);
 }
 
-/* Yellow notch on the band's left edge — the brand accent marking "this one". */
+/* Yellow notch on the band's left edge — the brand accent marking "this one".
+   Shown ONLY while the row in the band IS the pick (data-band="picked"): the
+   band follows the spin, the pick follows taps, and a yellow notch on a row
+   that was never tapped read as chosen (2026-09-23 audit — a job search left
+   "Sick day" in the notched band and a tap there logged sick leave). */
 .band::before {
+  display: none;
   content: "";
   position: absolute;
   left: 10px;
@@ -110,11 +123,15 @@
   background: var(--accent-yellow);
 }
 
+.wrap[data-band="picked"] .band::before {
+  display: block;
+}
+
 /* Count caption under the wheel — orients the worker in a long list. */
 .count {
   margin-top: 4px;
   text-align: center;
-  font-size: 11px;
+  font-size: 12px; /* field type floor (P8 — 12px minimum) */
   color: var(--text-muted);
 }
 

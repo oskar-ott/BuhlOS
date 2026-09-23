@@ -15,6 +15,7 @@ import {
 } from "@/domains/jobs/format";
 import {
   filterJobs,
+  isArchivedJob,
   jobStatusCounts,
   jobsEmptyStateMessage,
   parseJobStatusParam,
@@ -237,17 +238,20 @@ export function JobsList({ jobs, canBuild = false, newJobHref, cardExtrasPromise
   // total-contract readout. Computed over the WHOLE loaded list (not the current
   // filter) so the header reads the portfolio, not the view — and folds in the
   // streamed contractValue so the total fills in with the cards.
+  // Archived rows are only loaded on the Archived view; they are never part of
+  // the working portfolio, so the header and the "All" count exclude them.
+  const workingJobs = useMemo(() => jobs.filter((j) => !isArchivedJob(j)), [jobs]);
   const portfolio = useMemo(() => {
-    const enriched = jobs.map((j) => withStreamedValue(j, streamedExtras[j.id]));
+    const enriched = workingJobs.map((j) => withStreamedValue(j, streamedExtras[j.id]));
     return buildPortfolioSummary({
       jobs: enriched,
       healthByIndex: enriched.map((j) => deriveJobHealth(j)),
     });
-  }, [jobs, streamedExtras]);
+  }, [workingJobs, streamedExtras]);
 
   const counts = useMemo(() => jobStatusCounts(jobs), [jobs]);
-  // Statuses with zero jobs stay hidden (this page excludes archived rows
-  // server-side) UNLESS the URL deep-links to one, in which case the pill
+  // Statuses with zero jobs stay hidden (the page only ships archived rows for
+  // ?status=archived, so the Archived pill counts real rows there) UNLESS the URL deep-links to one, in which case the pill
   // renders so the active filter is visible and clearable.
   const statusOptions = JOB_STATUS_OPTIONS.filter((s) => (counts.get(s) ?? 0) > 0 || status === s);
 
@@ -311,9 +315,9 @@ export function JobsList({ jobs, canBuild = false, newJobHref, cardExtrasPromise
           ) : null}
           {/* Cross-job bulk archive has no API today (api/jobs-bulk-edit.js is
               intra-job: areas / groups / tasks only). Archiving a job is a
-              per-job status change on the hub, so the portfolio offers the
-              honest entry point to that flow rather than a multi-select that
-              can't write. */}
+              per-job status change on the hub. This link is a real navigation
+              (not a pill) because the server only loads archived rows for
+              ?status=archived — see src/app/v2/jobs/page.tsx. */}
           <Link
             href={"/v2/jobs?status=archived" as Route}
             className="inline-flex items-center gap-1.5 rounded-card border border-border bg-surface px-3 py-2 text-sm font-medium text-text transition-colors hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-brand-navy"
@@ -339,7 +343,7 @@ export function JobsList({ jobs, canBuild = false, newJobHref, cardExtrasPromise
             type="search"
             value={query}
             onChange={(e) => handleQueryChange(e.target.value)}
-            placeholder="Filter by name, address, or ref"
+            placeholder="Search name, IV number or address"
             aria-label="Filter jobs"
             className="w-full bg-transparent text-text outline-none placeholder:text-text-muted"
           />
@@ -352,7 +356,7 @@ export function JobsList({ jobs, canBuild = false, newJobHref, cardExtrasPromise
         >
           <FilterPill
             label="All"
-            count={jobs.length}
+            count={workingJobs.length}
             selected={status === null}
             onClick={() => handleStatusClick(null)}
           />

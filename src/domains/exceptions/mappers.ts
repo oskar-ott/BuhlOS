@@ -1,4 +1,6 @@
 import type { TimeEntry } from "@/domains/timesheets/types";
+import { formatShortDateLabel } from "@/domains/timesheets/format";
+import { weekStartOf } from "@/domains/timesheets/service";
 import type { Job } from "@/domains/jobs/types";
 import { resolveAction, jobHubHref, type ResolvedAction } from "./routes";
 import type { ExceptionItem, ExceptionSeverity } from "./types";
@@ -43,7 +45,7 @@ export function hoursExceptions(
       source: "hours",
       sourceId: e.id,
       jobId: singleAllocationJobId(e),
-      title: `Hours from ${e.userName ?? "a worker"} (${e.date}) awaiting approval`,
+      title: `Hours from ${e.userName ?? "a worker"} (${formatShortDateLabel(e.date)}) awaiting approval`,
       summary: `${e.totalHours}h submitted — approve or reject in the hours queue.`,
       severity: "warning",
       status: "waiting",
@@ -60,7 +62,7 @@ export function hoursExceptions(
       source: "hours",
       sourceId: e.id,
       jobId: singleAllocationJobId(e),
-      title: `Rejected hours from ${e.userName ?? "a worker"} (${e.date}) need correction`,
+      title: `Rejected hours from ${e.userName ?? "a worker"} (${formatShortDateLabel(e.date)}) need correction`,
       summary: e.rejectedReason
         ? `Reason: ${e.rejectedReason} — review and nudge the worker to resubmit.`
         : "Worker needs to fix and resubmit — review the rejection.",
@@ -68,7 +70,11 @@ export function hoursExceptions(
       status: "blocked",
       ownerRole: "office",
       createdAt: e.rejectedAt ?? e.submittedAt ?? e.createdAt,
-      ...withAction(resolveAction("hoursApprovals", {}, { label: "Review rejections" })),
+      // Rejected days never appear on /hours/approvals (submitted only) — they
+      // show as "Sent back" on the weekly board for the day's week.
+      ...withAction(
+        resolveAction("hoursWeekly", {}, { label: "Review rejections", query: { week: weekStartOf(e.date) } }),
+      ),
       tags: ["hours", "rejected"],
     });
   }

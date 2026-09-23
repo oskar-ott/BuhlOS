@@ -68,7 +68,7 @@ export const dynamic = "force-dynamic";
 export default async function PhilHoursPage({
   searchParams,
 }: {
-  searchParams: Promise<{ week?: string }>;
+  searchParams: Promise<{ week?: string; job?: string }>;
 }) {
   const cookieStore = await cookies();
   const raw = cookieStore.get(SESSION_COOKIE)?.value;
@@ -126,6 +126,7 @@ export default async function PhilHoursPage({
               jobsError={assignedJobs.error}
               viewerId={session.userId ?? null}
               canLogTafe={canLogTafe}
+              launchJobId={typeof sp.job === "string" ? sp.job : null}
             />
           )}
         </div>
@@ -302,7 +303,7 @@ async function loadHistory(cookieValue: string | undefined): Promise<{
  * back to an unattributed entry.
  */
 async function loadAssignedJobs(cookieValue: string | undefined): Promise<{
-  jobs: ReadonlyArray<AssignableJob & { ref: string | null }>;
+  jobs: ReadonlyArray<AssignableJob & { ref: string | null; address: string | null }>;
   error: boolean;
 }> {
   try {
@@ -317,7 +318,13 @@ async function loadAssignedJobs(cookieValue: string | undefined): Promise<{
       // A real job code rides along for the sharpened code chips (the W2b
       // IV#### `code` when set, else the free-text `ref`, else an honestly
       // absent chip) — AssignableJob consumers ignore the extra field.
-      .map((j) => ({ id: j.id, name: j.name, ref: j.code ?? j.ref ?? null }));
+      .map((j) => ({
+        id: j.id,
+        name: j.name,
+        ref: j.code ?? j.ref ?? null,
+        // Search-only: the log sheet's job picker matches the street too.
+        address: j.siteAddress ?? null,
+      }));
     return { jobs, error: false };
   } catch {
     return { jobs: [], error: true };

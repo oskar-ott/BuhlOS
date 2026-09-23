@@ -79,14 +79,14 @@ export default async function PhilJobsPage() {
         <div className="space-y-4">
           {fetchError ? (
             <PhilNotice tone="warning" title="Couldn’t load your jobs" role="alert">
-              <p>{fetchError}. If it keeps failing, ask the office to check the API.</p>
+              <p>Check your signal and try again. If it keeps happening, tell the office.</p>
               <div className="mt-3">
                 <RefreshButton />
               </div>
             </PhilNotice>
           ) : null}
 
-          <PhilJobsSharpened initialJobs={visible} userId={viewerId} />
+          <PhilJobsSharpened initialJobs={visible} userId={viewerId} loadFailed={Boolean(fetchError)} />
         </div>
       </PhilShell>
     );

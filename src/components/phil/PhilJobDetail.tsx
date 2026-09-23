@@ -128,6 +128,9 @@ interface Props {
    *  server-side, same gate as "+ New job"); renders the bottom-of-page
    *  "Wrong job name? Fix it" row. False/absent = no trace (dark-safe). */
   canFixName?: boolean;
+  /** Where the "Log hours" quick action goes when the log surface takes this
+   *  job as launch context (sharpened Hours, `?job=`); absent → the Today tab. */
+  logHoursHref?: string;
 }
 
 /**
@@ -194,6 +197,7 @@ export function PhilJobDetail({
   photosGalleryEnabled = false,
   rooms = false,
   canFixName = false,
+  logHoursHref,
 }: Props) {
   // #332: induction completion is server truth — the tap is NON-optimistic
   // (state flips only after the API confirms; a failed save shows the error
@@ -508,6 +512,7 @@ export function PhilJobDetail({
           taskState: taskStateErr || taskStatePending ? undefined : taskState,
           loadErrors: { documents: documentsError != null, tags: tagsError === true },
           myInduction: myInduction ? { completedAt: myInduction.completedAt } : null,
+          logHoursHref,
         }),
       ),
     [
@@ -520,6 +525,7 @@ export function PhilJobDetail({
       taskStateErr,
       taskStatePending,
       myInduction,
+      logHoursHref,
     ],
   );
 

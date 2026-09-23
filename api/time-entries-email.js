@@ -50,16 +50,73 @@ module.exports = async (req, res) => {
   const me = await requireAuth(req, res, { roles: ['admin'] });
   if (!me) return;
 
-  if (req.method === 'GET') return handleGetRecipients(res);
+  if (req.method === 'GET') return handleGetRecipients(req, res);
   if (req.method === 'PUT') return handlePutRecipients(req, res, me);
   if (req.method === 'POST') return handleSend(req, res, me);
   return res.status(405).json({ error: 'method not allowed' });
 };
 
 // ── GET — the recipient list + provenance (the /settings card's read) ────────
-async function handleGetRecipients(res) {
+// With ?fromDate=&toDate= it ALSO answers "was this period already emailed?"
+// (2026-09-23 usability audit): a send stamps nothing on the hours (ADR #609),
+// so without this the send buttons couldn't tell a boss that Tia already has
+// the week — and a second tap emailed a second copy. The answer comes from the
+// canonical audit journal the send already writes (hours.timesheets_emailed,
+// targetId period:<from>:<to>) — read-only, no new store.
+async function handleGetRecipients(req, res) {
   const doc = await readTimesheetEmailSettings();
-  return res.status(200).json(doc);
+  const q = (req && req.query) || {};
+  const fromDate = String(q.fromDate || '');
+  const toDate = String(q.toDate || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fromDate) || !/^\d{4}-\d{2}-\d{2}$/.test(toDate)) {
+    return res.status(200).json(doc);
+  }
+  try {
+    const lastSent = await findLastPeriodSend(fromDate, toDate, new Date());
+    return res.status(200).json({ ...doc, lastSent });
+  } catch {
+    // Couldn't read the journal — say so; never report "not sent" on a guess.
+    return res.status(200).json({ ...doc, lastSent: null, lastSentUnknown: true });
+  }
+}
+
+// Months a send of [fromDate, toDate] can be journalled in: the period's last
+// month through now, capped at four — a pay week is emailed within days.
+function sendJournalMonths(toDate, now) {
+  const months = [];
+  let y = Number(toDate.slice(0, 4));
+  let m = Number(toDate.slice(5, 7));
+  const endKey = now.toISOString().slice(0, 7);
+  for (let i = 0; i < 4; i++) {
+    const key = `${y}-${String(m).padStart(2, '0')}`;
+    months.push(key);
+    if (key >= endKey) break;
+    m += 1;
+    if (m > 12) { m = 1; y += 1; }
+  }
+  return months;
+}
+
+async function findLastPeriodSend(fromDate, toDate, now) {
+  const targetId = `period:${fromDate}:${toDate}`;
+  let last = null;
+  for (const month of sendJournalMonths(toDate, now)) {
+    const entries = await auditLog.readMonth(month);
+    for (const e of entries) {
+      if (e && e.action === 'hours.timesheets_emailed' && e.targetId === targetId) {
+        if (!last || String(e.ts) > String(last.ts)) last = e;
+      }
+    }
+  }
+  if (!last) return null;
+  const meta = last.metadata || {};
+  return {
+    at: last.ts,
+    byName: last.actorName || null,
+    recipients: Array.isArray(meta.recipients) ? meta.recipients : [],
+    workerCount: Number(meta.workerCount) || 0,
+    totalHours: Number(meta.totalHours) || 0,
+  };
 }
 
 // ── PUT — replace the recipient list (add + remove both land here) ───────────

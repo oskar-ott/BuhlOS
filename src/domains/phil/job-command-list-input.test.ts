@@ -59,6 +59,13 @@ describe("philJobCommandInputFromListSignals — honest list signals", () => {
     expect(inp.hours).toEqual({ kind: "elsewhere", href: "/phil/my-day" });
   });
 
+  it("with a job-aware Hours tab, the row's Log hours opens it with that job picked", () => {
+    const inp = philJobCommandInputFromListSignals(job(), {
+      logHoursHref: "/phil/hours?job=job-1",
+    });
+    expect(inp.hours).toEqual({ kind: "available", href: "/phil/hours?job=job-1" });
+  });
+
   it("reflects on-hold status as a blocker the model can act on", () => {
     const inp = philJobCommandInputFromListSignals(job({ status: "on_hold" }));
     expect(inp.job.kind).toBe("ok");

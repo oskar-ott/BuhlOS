@@ -6,6 +6,7 @@ import { Check, Loader2, Mail } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { formatHoursLabel } from "@/domains/timesheets/format";
+import { formatPeriodSend, usePeriodEmailStatus } from "./usePeriodEmailStatus";
 
 /**
  * Send-to-accounts card (owner pull 2026-08-15) — the pay-run handoff while
@@ -21,7 +22,9 @@ import { formatHoursLabel } from "@/domains/timesheets/format";
  * single misclick can fire it. A not-closed period WARNS inside the confirm
  * (approved hours only go in the PDF) but never blocks — same philosophy as
  * the downloads card. Sending stamps nothing (ADR #609); a re-send just emails
- * the sheet again.
+ * the sheet again — so the card reads the audit journal (usePeriodEmailStatus)
+ * and says, BEFORE the button, whether this period already went and to whom,
+ * and the confirm names the real recipient list, not a hard-coded "Tia".
  */
 
 interface SentReceipt {
@@ -55,6 +58,12 @@ export function SendTimesheetsCard({
   workersNeedingAction,
 }: Props) {
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
+  const { status: emailStatus, refresh: refreshEmailStatus } = usePeriodEmailStatus(
+    fromDate,
+    toDate
+  );
+  const recipients = emailStatus.kind === "loading" ? [] : emailStatus.recipients;
+  const lastSent = emailStatus.kind === "ready" ? emailStatus.lastSent : null;
 
   const send = async () => {
     setPhase({ kind: "sending" });
@@ -82,10 +91,15 @@ export function SendTimesheetsCard({
           totalHours: Number(data?.totalHours) || 0,
         },
       });
+      refreshEmailStatus();
     } catch {
+      // The request may have reached the server before the connection dropped
+      // — don't claim it didn't. Re-read the journal so the card says what's true.
+      refreshEmailStatus();
       setPhase({
         kind: "error",
-        message: "Couldn't reach the server — nothing was emailed. Check the connection and try again.",
+        message:
+          "Lost the connection mid-send, so we can't tell if it went. Check the \u201cAlready emailed\u201d line below before sending again.",
       });
     }
   };
@@ -94,18 +108,37 @@ export function SendTimesheetsCard({
     <Card>
       <CardTitle>Send to Tia</CardTitle>
       <CardDescription className="mt-1">
-        Email the approved-hours PDF for this period straight to Tia at accounts, sent from
-        timesheets@buhlos.com — the pay-run handoff while Xero is out of action. Approved hours
-        only; it&rsquo;s the same sheet as Download PDF below. Add or remove recipient addresses
-        in{" "}
+        Email the approved-hours PDF for this period to accounts from timesheets@buhlos.com.
+        Approved hours only; it&rsquo;s the same sheet as Download PDF below. Recipients:{" "}
+        <b className="font-semibold text-text" data-testid="period-send-recipients">
+          {recipients.length > 0 ? recipients.join(", ") : "—"}
+        </b>{" "}
+        (change them in{" "}
         <Link
           href="/settings"
           className="font-medium text-brand-navy underline underline-offset-2"
         >
           Settings
         </Link>
-        .
+        ).
       </CardDescription>
+
+      {lastSent && phase.kind !== "sent" ? (
+        <p
+          data-testid="period-send-last"
+          className="mt-3 rounded-card border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+          role="status"
+        >
+          Already emailed {formatPeriodSend(lastSent)} to{" "}
+          <b className="font-semibold">{lastSent.recipients.join(", ") || "accounts"}</b> —{" "}
+          {formatHoursLabel(lastSent.totalHours)}. Sending again emails a second copy.
+        </p>
+      ) : null}
+      {emailStatus.kind === "unknown" ? (
+        <p data-testid="period-send-last-unknown" className="mt-3 text-xs text-text-muted">
+          Couldn&rsquo;t check whether this period was already emailed.
+        </p>
+      ) : null}
 
       {phase.kind === "sent" ? (
         <p
@@ -135,7 +168,8 @@ export function SendTimesheetsCard({
       {phase.kind === "confirm" ? (
         <div className="mt-3 rounded-card border border-border bg-surface-subtle p-3">
           <p className="text-sm text-text">
-            Email the approved-hours PDF for <b className="font-semibold">{periodLabel}</b> to Tia?
+            Email the approved-hours PDF for <b className="font-semibold">{periodLabel}</b> to{" "}
+            <b className="font-semibold">{recipients.join(", ") || "the accounts list"}</b>?
           </p>
           {notClosed ? (
             <p className="mt-2 text-xs text-amber-900">
@@ -172,7 +206,7 @@ export function SendTimesheetsCard({
             ) : (
               <>
                 <Mail aria-hidden="true" className="h-4 w-4" />
-                {phase.kind === "sent" ? "Send again" : "Send to Tia"}
+                {phase.kind === "sent" || lastSent ? "Send again" : "Send to Tia"}
               </>
             )}
           </Button>

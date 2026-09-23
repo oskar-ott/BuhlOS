@@ -12,6 +12,7 @@ import {
   summariseExceptions,
 } from "./service";
 import type { TimeEntry } from "@/domains/timesheets/types";
+import { formatShortDateLabel } from "@/domains/timesheets/format";
 import type { Job } from "@/domains/jobs/types";
 import type { ExceptionSources } from "./types";
 
@@ -47,6 +48,31 @@ describe("hoursExceptions", () => {
     expect(items[0]).toMatchObject({ source: "hours", severity: "warning", status: "waiting", actionHref: "/hours/approvals", actionState: "available", jobId: "job-1" });
     expect(items[1]).toMatchObject({ status: "blocked" });
     expect(items[1]!.summary).toContain("Wrong job");
+  });
+
+  it("names the day the way the office UI does, never a raw ISO date", () => {
+    const items = hoursExceptions(
+      [te({ id: "t1", status: "submitted", userName: "Sam Nguyen", date: "2026-09-21" })],
+      [te({ id: "t2", status: "rejected", date: "2026-09-21" })],
+    );
+    // Same helper the rest of the office uses ("Mon 21 Sep"; ICU may add a comma / "Sept").
+    const label = formatShortDateLabel("2026-09-21");
+    expect(label).toMatch(/^Mon,? 21 Sept?$/);
+    expect(items[0]!.title).toBe(`Hours from Sam Nguyen (${label}) awaiting approval`);
+    expect(items[1]!.title).toContain(`(${label})`);
+    expect(items.map((i) => i.title).join(" ")).not.toContain("2026-09-21");
+  });
+
+  it("sends a rejected day to the weekly board for its week (the approvals queue lists submitted only)", () => {
+    const [item] = hoursExceptions(
+      [],
+      [te({ id: "t2", status: "rejected", date: "2026-09-24" })], // Thursday
+    );
+    expect(item).toMatchObject({
+      actionHref: "/hours/weekly?week=2026-09-21",
+      actionLabel: "Review rejections",
+      actionState: "available",
+    });
   });
 
   it("ignores entries whose status does not match the queue", () => {

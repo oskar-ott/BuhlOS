@@ -3,7 +3,6 @@ import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import {
   PhilMyDayDoThisNow,
-  PhilMyDayHonestyNote,
   PhilMyDayLogHoursBanner,
   PhilMyDayOnJobCard,
   PhilMyDayQuickGrid,
@@ -187,11 +186,12 @@ describe("PhilMyDayQuickGrid", () => {
   });
 });
 
-describe("PhilMyDayHonestyNote", () => {
-  it("names the deferred surfaces honestly instead of faking them", () => {
-    const html = renderToString(createElement(PhilMyDayHonestyNote, {}));
-    expect(html).toContain("job history aren");
-    expect(html).toContain("connected yet");
-    expect(html).toContain("border-dashed");
+describe("PhilMyDayDoThisNow — failed entries read", () => {
+  it("never shows the all-clear when the entries couldn't be read", () => {
+    const html = renderToString(
+      createElement(PhilMyDayDoThisNow, { items: [], incomplete: true }),
+    );
+    expect(html).not.toContain("chasing you");
+    expect(html).toContain("phil-my-day-unchecked");
   });
 });

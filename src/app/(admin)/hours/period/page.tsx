@@ -231,9 +231,10 @@ export default async function HoursPeriodPage({
           </form>
 
           <CardDescription className="mt-3">
-            Approved hours only, rolled up for payroll. Ordinary and overtime
-            only — this is the pre-Xero preview; no hours are sent anywhere from
-            here. Decide submitted or missing days on the{" "}
+            Approved hours only, split into ordinary and overtime. Nothing leaves
+            BuhlOS until you use a hand-off below — emailing the sheet to accounts
+            or creating Xero draft timesheets — and pay runs and payslips are
+            finished in Xero. Decide submitted or missing days on the{" "}
             <Link
               href="/hours/weekly"
               className="underline decoration-accent-yellow decoration-2 underline-offset-2"
@@ -309,9 +310,24 @@ export default async function HoursPeriodPage({
                 ) : (
                   "all have a Xero employee id set"
                 )}
-                . &ldquo;Not yet exported&rdquo; = approved hours not in a committed payroll run.
+                . &ldquo;Not yet exported&rdquo; = approved hours not yet in a locked Xero batch
+                (emailing the sheet doesn&rsquo;t change this number).
               </CardDescription>
             </Card>
+
+            {accountsEmailConfigured && xeroBatchesEnabled ? (
+              // Two hand-offs are live at once (the interim email AND the Xero
+              // batch). Each is fine alone; doing both hands the same week to
+              // accounts twice (2026-09-23 audit) — say so where both show.
+              <p
+                data-testid="period-one-handoff"
+                className="rounded-card border border-border bg-surface-subtle px-4 py-3 text-sm text-text"
+              >
+                <b className="font-semibold">Use one hand-off per week.</b> Email the sheet to
+                accounts <i>or</i> create Xero draft timesheets — doing both gives accounts the
+                same hours twice.
+              </p>
+            ) : null}
 
             {accountsEmailConfigured ? (
               <SendTimesheetsCard

@@ -13,6 +13,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Pill } from "@/components/ui/Pill";
 import { RefreshButton } from "@/components/ui/RefreshButton";
 import { pctWidthClass } from "@/components/admin/pct-width";
+import { ReasonField } from "@/components/admin/ReasonField";
 import { timesheetsClient } from "@/domains/timesheets/client";
 import { requestLeave, clearLeave } from "@/domains/timesheets/client";
 import { formatDateLabel, formatHoursLabel, otSplitLabel } from "@/domains/timesheets/format";
@@ -148,6 +149,9 @@ export function WeeklyHoursCloseoutBoard({
     day: WeeklyHoursDay;
   } | null>(null);
   const [rejectReason, setRejectReason] = useState("");
+  /** Validation / server error for the open reject dialog — shown INSIDE it. */
+  const [rejectError, setRejectError] = useState<string | null>(null);
+  const [rejectBusy, setRejectBusy] = useState(false);
   // Reopen (#125): unwind an approved/rejected day with a reason. Exported
   // entries get the endpoint's block message + an explicit force step.
   const [reopenTarget, setReopenTarget] = useState<{
@@ -158,6 +162,8 @@ export function WeeklyHoursCloseoutBoard({
   const [reopenToStatus, setReopenToStatus] = useState<"submitted" | "draft">("submitted");
   const [reopenBlock, setReopenBlock] = useState<string | null>(null);
   const [reopenBusy, setReopenBusy] = useState(false);
+  /** Validation / server error for the open reopen dialog — shown INSIDE it. */
+  const [reopenError, setReopenError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
   const weekLabel = `${formatDateLabel(closeout.weekStart)} – ${formatDateLabel(closeout.weekEnd)}`;
@@ -321,16 +327,18 @@ export function WeeklyHoursCloseoutBoard({
     setReopenReason("");
     setReopenToStatus("submitted");
     setReopenBlock(null);
+    setReopenError(null);
   }
 
   async function confirmReopen(force: boolean) {
     if (!reopenTarget || reopenBusy) return;
     const trimmed = reopenReason.trim();
     if (!trimmed) {
-      setAction({ kind: "error", message: "A reopen reason is required — it's stamped on the entry and the audit trail." });
+      setReopenError("A reopen reason is required — it's stamped on the entry and the audit trail.");
       return;
     }
     const { worker, day } = reopenTarget;
+    setReopenError(null);
     setReopenBusy(true);
     const result = await timesheetsClient.reopenEntry({
       userId: worker.workerId,
@@ -359,14 +367,12 @@ export function WeeklyHoursCloseoutBoard({
       setReopenBlock(result.error.message || "This entry is already in a sent payroll export.");
       return;
     }
-    setReopenTarget(null);
-    setAction({
-      kind: "error",
-      message:
-        result.error.status === 403
-          ? "Reopening needs an office login."
-          : result.error.message || "Couldn't reopen. Try again.",
-    });
+    // Keep the dialog open with the typed reason; the error sits inside it.
+    setReopenError(
+      result.error.status === 403
+        ? "Reopening needs an office login."
+        : result.error.message || "Couldn't reopen. Try again.",
+    );
   }
 
   async function approve(worker: WeeklyWorkerHours, day: WeeklyHoursDay) {
@@ -393,36 +399,48 @@ export function WeeklyHoursCloseoutBoard({
     });
   }
 
+  function closeReject() {
+    if (rejectBusy) return;
+    setRejectTarget(null);
+    setRejectReason("");
+    setRejectError(null);
+  }
+
   async function confirmReject() {
-    if (!rejectTarget) return;
+    if (!rejectTarget || rejectBusy) return;
     const trimmed = rejectReason.trim();
     if (!trimmed) {
-      setAction({ kind: "error", message: "Rejection reason is required." });
+      setRejectError("Add a reason — the worker sees it on their phone.");
       return;
     }
     const { worker, day } = rejectTarget;
+    setRejectError(null);
+    setRejectBusy(true);
     setAction({ kind: "rejecting", key: dayKey(worker.workerId, day.date) });
-    setRejectTarget(null);
     const result = await timesheetsClient.rejectEntry({
       userId: worker.workerId,
       date: day.date,
       reason: trimmed,
     });
+    setRejectBusy(false);
     if (result.ok) {
+      // Only close on success — a failure keeps the dialog (and the typed
+      // reason) open with the server's message inside it.
+      setRejectTarget(null);
+      setRejectReason("");
       setAction({
         kind: "success",
-        label: `Rejected ${worker.workerName}'s ${dayLabel(day)}. They'll get a push with the reason and a one-tap fix link.`,
+        label: `Rejected ${worker.workerName}'s ${dayLabel(day)}. They'll see the reason and a Fix button in their app.`,
       });
       startTransition(() => router.refresh());
       return;
     }
-    setAction({
-      kind: "error",
-      message:
-        result.error.status === 403
-          ? "You don't have permission to reject this entry."
-          : result.error.message || "Couldn't reject. Try again.",
-    });
+    setAction({ kind: "idle" });
+    setRejectError(
+      result.error.status === 403
+        ? "You don't have permission to reject this entry."
+        : result.error.message || "Couldn't reject. Try again.",
+    );
   }
 
   return (
@@ -696,10 +714,7 @@ export function WeeklyHoursCloseoutBoard({
 
       <Modal
         open={rejectTarget !== null}
-        onClose={() => {
-          setRejectTarget(null);
-          setRejectReason("");
-        }}
+        onClose={closeReject}
         title={
           rejectTarget
             ? `Reject ${rejectTarget.worker.workerName}'s ${dayLabel(rejectTarget.day)}`
@@ -710,34 +725,30 @@ export function WeeklyHoursCloseoutBoard({
           {rejectTarget ? (
             <p className="text-sm text-text-muted">
               {formatHoursLabel(rejectTarget.day.hours ?? 0)}
-              {rejectTarget.day.jobLabel ? ` on ${rejectTarget.day.jobLabel}` : ""}. The reason
-              is shared with the worker in a push notification.
+              {rejectTarget.day.jobLabel ? ` on ${rejectTarget.day.jobLabel}` : ""}. The worker sees
+              this reason on their day, with a Fix button.
             </p>
           ) : null}
-          <label className="block text-sm">
-            <span className="mb-1 block font-medium text-text">Reason (required)</span>
-            <textarea
-              autoFocus
-              rows={3}
-              maxLength={500}
-              value={rejectReason}
-              onChange={(e) => setRejectReason(e.target.value)}
-              placeholder="e.g. Wrong job — please reallocate"
-              className="block w-full rounded-card border border-border bg-surface px-3 py-2 text-sm focus:border-brand-navy focus:outline-none"
-            />
-          </label>
+          <ReasonField
+            value={rejectReason}
+            onChange={(v) => {
+              setRejectReason(v);
+              if (rejectError) setRejectError(null);
+            }}
+            placeholder="e.g. Wrong job — please reallocate"
+            error={rejectError}
+            disabled={rejectBusy}
+          />
           <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setRejectTarget(null);
-                setRejectReason("");
-              }}
-            >
+            <Button variant="ghost" disabled={rejectBusy} onClick={closeReject}>
               Cancel
             </Button>
-            <Button variant="danger" onClick={confirmReject}>
-              Reject with reason
+            <Button
+              variant="danger"
+              disabled={rejectBusy || rejectReason.trim() === ""}
+              onClick={() => void confirmReject()}
+            >
+              {rejectBusy ? "Sending back…" : "Reject with reason"}
             </Button>
           </div>
         </div>
@@ -790,6 +801,7 @@ export function WeeklyHoursCloseoutBoard({
           if (reopenBusy) return;
           setReopenTarget(null);
           setReopenBlock(null);
+          setReopenError(null);
         }}
         title={
           reopenTarget
@@ -825,18 +837,16 @@ export function WeeklyHoursCloseoutBoard({
             ))}
           </div>
 
-          <label className="block text-sm">
-            <span className="mb-1 block font-medium text-text">Reason (required)</span>
-            <textarea
-              autoFocus
-              rows={3}
-              maxLength={500}
-              value={reopenReason}
-              onChange={(e) => setReopenReason(e.target.value)}
-              placeholder="e.g. Approved against the wrong job — needs reallocating"
-              className="block w-full rounded-card border border-border bg-surface px-3 py-2 text-sm focus:border-brand-navy focus:outline-none"
-            />
-          </label>
+          <ReasonField
+            value={reopenReason}
+            onChange={(v) => {
+              setReopenReason(v);
+              if (reopenError) setReopenError(null);
+            }}
+            placeholder="e.g. Approved against the wrong job — needs reallocating"
+            error={reopenError}
+            disabled={reopenBusy}
+          />
 
           {reopenBlock ? (
             <div
@@ -858,16 +868,24 @@ export function WeeklyHoursCloseoutBoard({
               onClick={() => {
                 setReopenTarget(null);
                 setReopenBlock(null);
+                setReopenError(null);
               }}
             >
               Cancel
             </Button>
             {reopenBlock ? (
-              <Button variant="danger" disabled={reopenBusy} onClick={() => void confirmReopen(true)}>
+              <Button
+                variant="danger"
+                disabled={reopenBusy || reopenReason.trim() === ""}
+                onClick={() => void confirmReopen(true)}
+              >
                 {reopenBusy ? "Reopening…" : "Reopen anyway (diverges from export)"}
               </Button>
             ) : (
-              <Button disabled={reopenBusy} onClick={() => void confirmReopen(false)}>
+              <Button
+                disabled={reopenBusy || reopenReason.trim() === ""}
+                onClick={() => void confirmReopen(false)}
+              >
                 {reopenBusy ? "Reopening…" : "Reopen"}
               </Button>
             )}

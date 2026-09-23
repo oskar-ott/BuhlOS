@@ -25,10 +25,12 @@ const render = (props: Partial<typeof base> = {}) =>
   renderToString(createElement(PeriodPayrollExport, { ...base, ...props }));
 
 describe("PeriodPayrollExport", () => {
-  it("read-only copy + both dry-run downloads, pointing at the batch flow", () => {
+  it("read-only copy + both dry-run downloads, pointing at the page's hand-offs", () => {
     const html = render();
-    expect(html).toContain("never mark hours as exported");
-    expect(html).toContain("Payroll batch panel");
+    expect(html).toContain("downloading never marks hours as sent");
+    expect(html).toContain("use one of the hand-offs on this page");
+    // Plain words, no payroll-run claims (BuhlOS stops at Xero drafts).
+    expect(html).not.toContain("payroll run");
     expect(html).toContain(
       "/api/time-entries-export?status=approved&amp;fromDate=2026-06-08&amp;toDate=2026-06-14&amp;shape=review&amp;dryRun=1",
     );

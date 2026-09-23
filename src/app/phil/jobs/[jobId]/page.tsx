@@ -124,6 +124,7 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
           // Owner ruling 2026-08-31 — same gate as "+ New job": whoever can
           // add a job can fix its name.
           canFixName: sharpenedFlags.sharpened,
+          sharpened: sharpenedFlags.sharpened,
         })}
       </PhilShell>
     );
@@ -161,6 +162,7 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
           itpSimpleEnabled={itpSimpleEnabled}
           photosGalleryEnabled={photosGalleryEnabled}
           canFixName={sharpenedFlags.sharpened}
+          sharpened={sharpenedFlags.sharpened}
         />
       </Suspense>
     </PhilShell>
@@ -186,6 +188,7 @@ async function PhilJobDetailFull({
   itpSimpleEnabled,
   photosGalleryEnabled,
   canFixName,
+  sharpened,
 }: {
   raw: string | undefined;
   jobId: string;
@@ -202,6 +205,8 @@ async function PhilJobDetailFull({
   /** Owner ruling 2026-08-31 — same phil_sharpened gate as "+ New job":
    *  whoever can add a job can fix its name (bottom-of-page quiet row). */
   canFixName: boolean;
+  /** phil_sharpened — the Hours tab that takes `?job=` as launch context. */
+  sharpened: boolean;
 }) {
   // Lean reset step 5 (#916): the work-to-do machinery left the job page —
   // no task-state read (blocking or streamed), no job-control spine read, no
@@ -258,6 +263,9 @@ async function PhilJobDetailFull({
       itpSimpleEnabled={itpSimpleEnabled}
       photosGalleryEnabled={photosGalleryEnabled}
       canFixName={canFixName}
+      // Sharpened Hours takes the job as launch context, so "Log hours" from
+      // here lands with this job picked (flag off: the Today tab's log form).
+      logHoursHref={sharpened ? `/phil/hours?job=${encodeURIComponent(jobId)}` : undefined}
     />
   );
 }

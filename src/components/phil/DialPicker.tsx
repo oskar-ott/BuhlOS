@@ -29,6 +29,7 @@ export function DialPicker({
   ariaLabel,
   countNoun,
   testId,
+  initialId,
 }: {
   items: ReadonlyArray<{ id: string; label: string }>;
   selectedId: string | null;
@@ -39,13 +40,26 @@ export function DialPicker({
   /** Plural noun for the "N of M <noun>" hint under the drum, e.g. "jobs". */
   countNoun: string;
   testId: string;
+  /** Row to land on when nothing is picked yet (default: the top row) — lets
+   *  a caller open on the most likely choice without pre-picking it. */
+  initialId?: string | null;
 }) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const rowRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const rafRef = useRef<number>(0);
   // The row currently sitting in the selection band (visual emphasis only —
   // selection itself stays tap-driven, aria-checked tracks selectedId).
-  const [centeredIndex, setCenteredIndex] = useState(0);
+  // Starts on the row the drum lands on (the pick, else initialId) so the
+  // first paint already emphasises the right row — never a flash of the top
+  // row (a day type) before the landing effect scrolls.
+  const [centeredIndex, setCenteredIndex] = useState(() =>
+    Math.max(
+      0,
+      items.findIndex((it) => it.id === selectedId) >= 0
+        ? items.findIndex((it) => it.id === selectedId)
+        : items.findIndex((it) => it.id === initialId)
+    )
+  );
 
   /** Paint the drum: tilt/fade each row by its distance from the band. */
   const paint = useCallback(() => {
@@ -75,9 +89,10 @@ export function DialPicker({
     const viewport = viewportRef.current;
     if (!viewport) return;
     rowRefs.current = rowRefs.current.slice(0, items.length);
+    const picked = items.findIndex((it) => it.id === selectedId);
     const idx = Math.max(
       0,
-      items.findIndex((it) => it.id === selectedId)
+      picked >= 0 ? picked : items.findIndex((it) => it.id === initialId)
     );
     viewport.scrollTop = idx * ITEM_H;
     paint();
@@ -92,9 +107,17 @@ export function DialPicker({
   // dead screen (P10). data-rows drives pure-CSS height/spacer/band variants;
   // 1 row renders as just the selection band, 5+ keeps the classic drum.
   const rows = Math.min(items.length, 5);
+  // The band follows the SPIN; the pick follows TAPS. They only agree when the
+  // picked row sits in the band — only then does the band carry the yellow
+  // notch. Spun away from the pick, the caption names what is actually picked
+  // so a highlighted-but-untapped row can never pass for the choice
+  // (2026-09-23 audit: wrong day / "Sick day" logged from the band).
+  const pickedIndex = items.findIndex((it) => it.id === selectedId);
+  const pickedItem = pickedIndex >= 0 ? items[pickedIndex] : undefined;
+  const bandState = !pickedItem ? "empty" : pickedIndex === centeredIndex ? "picked" : "browsing";
 
   return (
-    <div className={styles.wrap} data-rows={rows} data-testid={testId}>
+    <div className={styles.wrap} data-rows={rows} data-band={bandState} data-testid={testId}>
       <div
         ref={viewportRef}
         onScroll={onScroll}
@@ -116,7 +139,11 @@ export function DialPicker({
               aria-checked={active}
               disabled={disabled}
               onClick={() => onSelect(it.id)}
-              className={cn(styles.item, i === centeredIndex && styles.itemCentered)}
+              className={cn(
+                styles.item,
+                i === centeredIndex && bandState !== "browsing" && styles.itemCentered,
+                active && styles.itemPicked
+              )}
             >
               <span className={styles.itemName}>{it.label}</span>
               {active ? (
@@ -130,9 +157,11 @@ export function DialPicker({
         <div className={styles.spacer} aria-hidden="true" />
       </div>
       <div className={styles.band} aria-hidden="true" />
-      {items.length > 1 ? (
-        <p className={styles.count} aria-hidden="true">
-          {centeredIndex + 1} of {items.length} {countNoun} — spin to browse, tap to pick
+      {items.length > 1 || bandState === "browsing" ? (
+        <p className={styles.count} aria-hidden="true" data-testid={`${testId}-caption`}>
+          {bandState === "browsing" && pickedItem
+            ? `Picked: ${pickedItem.label} — tap a row to change`
+            : `${centeredIndex + 1} of ${items.length} ${countNoun} — spin to browse, tap to pick`}
         </p>
       ) : null}
     </div>

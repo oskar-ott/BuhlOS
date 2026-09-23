@@ -55,6 +55,10 @@ export interface PhilJobDataForCommand {
     plans?: boolean;
     tasks?: boolean;
   };
+  /** Where "Log hours" goes when the log surface can take this job as its
+   *  launch context (the sharpened Hours tab, `?job=`). Omitted → the Day tab
+   *  (flag-off Phil, where the log form lives on My Day). */
+  logHoursHref?: string;
   /** Per-job test & tag entries (jobs/<id>/tags.json), when the page loaded them. */
   tags?: TagItem[];
   /** GET /api/plans?jobId — plan/spec documents. */
@@ -200,9 +204,11 @@ export function philJobCommandInputFromJobData(
           ? countTrackedAreaTasks(job, data.taskState) ?? { kind: "list_only", visible: countVisibleTasks(job) }
           : { kind: "list_only", visible: countVisibleTasks(job) },
     rejectedHours,
-    // Hours are logged on the Day tab, not per job — a real capability that
-    // lives on another surface.
-    hours: { kind: "elsewhere", href: "/phil/my-day" },
+    // Hours: the job-aware Hours tab when the page provides it (opens with
+    // this job picked); otherwise the Day tab, a capability on another surface.
+    hours: data.logHoursHref
+      ? { kind: "available", href: data.logHoursHref }
+      : { kind: "elsewhere", href: "/phil/my-day" },
     // No in-app material request flow yet — honestly a limitation, not an action.
     materials: { kind: "unavailable", reason: "Call your PM to request materials." },
   };

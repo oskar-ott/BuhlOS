@@ -80,7 +80,7 @@ interface LogHoursSheetProps {
    * attribution block: hours must be tied to one of these so we never submit
    * jobId: null when the worker has active jobs.
    */
-  assignedJobs: ReadonlyArray<{ id: string; name: string }>;
+  assignedJobs: ReadonlyArray<PickableJob>;
   /**
    * True when the assigned-jobs fetch failed. Submission is blocked (rather
    * than falling back to an unattributed entry) until jobs load.
@@ -429,7 +429,7 @@ export function LogHoursSheet({
     if (result.error.status === 409) {
       setState({
         kind: "error",
-        message: "You already have an entry for that date — its status is shown above.",
+        message: "That day already has hours logged — open it in the week list above to change it.",
         status: 409,
       });
       return;
@@ -685,7 +685,7 @@ export function LogHoursSheet({
         )}
       </div>
 
-      <FeedbackBanner state={state} />
+      <FeedbackBanner state={state} jobs={assignedJobs} />
 
       <Modal
         open={customOpen}
@@ -923,6 +923,45 @@ export function LogHoursSheet({
  * one hands off to onSelectDayType and the parent swaps the attribution.
  * It never lets the worker proceed with no job when active jobs exist.
  */
+/** A job the log sheet can attribute hours to. `ref` (the IV#### code) and
+ *  `address` only feed the picker's search — workers find jobs by number and
+ *  street as often as by name. */
+export interface PickableJob {
+  id: string;
+  name: string;
+  ref?: string | null;
+  address?: string | null;
+}
+
+/**
+ * The picker's rows for a search (pure — exported for tests). With no query:
+ * the day types ride the TOP of the drum (owner-directed 2026-08-10: easy to
+ * find) above every job. With a query: ONLY what matches, jobs FIRST — a job
+ * search used to leave the pinned "Sick day" row in the band, and a tap there
+ * logged sick leave instead of the job (2026-09-23 audit). A day type still
+ * shows when the worker searches for it ("sick", "holiday", "tafe").
+ */
+export function jobDialRows(
+  jobs: ReadonlyArray<PickableJob>,
+  dayTypes: ReadonlyArray<{ id: string; label: string }>,
+  query: string
+): { rows: Array<{ id: string; label: string }>; jobMatches: number } {
+  const q = query.trim().toLowerCase();
+  const jobRows = (q ? jobs.filter((j) => jobMatchesQuery(j, q)) : jobs).map((j) => ({
+    id: j.id,
+    label: j.name,
+  }));
+  if (!q) return { rows: [...dayTypes, ...jobRows], jobMatches: jobRows.length };
+  const dayRows = dayTypes.filter((t) => t.label.toLowerCase().includes(q));
+  return { rows: [...jobRows, ...dayRows], jobMatches: jobRows.length };
+}
+
+function jobMatchesQuery(job: PickableJob, q: string): boolean {
+  return [job.name, job.ref, job.address].some(
+    (field) => typeof field === "string" && field.toLowerCase().includes(q)
+  );
+}
+
 function JobAttribution({
   jobs,
   selectedJobId,
@@ -934,7 +973,7 @@ function JobAttribution({
   dayTypes,
   onSelectDayType,
 }: {
-  jobs: ReadonlyArray<{ id: string; name: string }>;
+  jobs: ReadonlyArray<PickableJob>;
   selectedJobId: string | null;
   onSelect: (id: string) => void;
   lastLoggedJobId: string | null;
@@ -1085,16 +1124,18 @@ function JobAttribution({
     );
   }
 
-  // Reopened (or never-picked) picker. The search field narrows the JOBS on
-  // the dial — the day-type rows stay pinned on top regardless (owner-
-  // directed 2026-08-10: easy to find), and taps stay the way anything is
-  // chosen. A one-job worker gets no search (nothing to narrow).
+  // Reopened (or never-picked) picker. The search field narrows the dial to
+  // what matches — jobs first (jobDialRows); unsearched, the day-type rows sit
+  // on top (owner-directed 2026-08-10: easy to find) but the drum OPENS on the
+  // first job, so the band never starts on "Sick day". Taps stay the way
+  // anything is chosen. A one-job worker gets no search (nothing to narrow).
   const q = query.trim().toLowerCase();
-  const filtered = q ? jobs.filter((j) => j.name.toLowerCase().includes(q)) : jobs;
-  const dialItems = [
-    ...dayTypes.map((t) => ({ id: `daytype:${t}`, label: DAY_TYPE_META[t].dialLabel })),
-    ...filtered.map((j) => ({ id: j.id, label: j.name })),
-  ];
+  const { rows: dialItems, jobMatches } = jobDialRows(
+    jobs,
+    dayTypes.map((t) => ({ id: `daytype:${t}`, label: DAY_TYPE_META[t].dialLabel })),
+    q
+  );
+  const firstJobRow = dialItems.find((it) => !it.id.startsWith("daytype:"));
   return (
     <div>
       <div className="flex items-baseline justify-between gap-2">
@@ -1109,7 +1150,7 @@ function JobAttribution({
             onClick={() => setPickerOpen(false)}
             disabled={disabled}
             aria-expanded
-            className="text-xs font-semibold text-brand-navy underline-offset-2 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+            className="-my-2 min-h-[44px] px-3 text-sm font-semibold text-brand-navy underline-offset-2 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
           >
             Done
           </button>
@@ -1121,7 +1162,7 @@ function JobAttribution({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           disabled={disabled}
-          placeholder="Find a job by name or address…"
+          placeholder="Find a job — name, IV number or street"
           aria-label="Search your jobs"
           className="mt-2 block w-full rounded-card border border-border bg-surface px-3 py-2 text-sm focus:border-brand-navy focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
         />
@@ -1152,20 +1193,22 @@ function JobAttribution({
           }
           countNoun="options"
           testId="job-dial"
+          initialId={firstJobRow?.id ?? null}
         />
       ) : null}
-      {q && filtered.length === 0 ? (
-        <p className="px-1 py-2 text-xs text-text-muted">
-          No assigned job matches “{query.trim()}”.
+      {q && jobMatches === 0 ? (
+        <p className="px-1 py-2 text-sm text-text-muted" role="status">
+          No job matches “{query.trim()}”. Check the name, IV number or street — or add the
+          job from the Jobs tab.
         </p>
       ) : null}
       {/* #424: this picker logs a single job. With >1 assigned job the worker
-          also has the "Split across jobs" action above, so point them at it
+          also has the "Split across jobs" action below, so point them at it
           rather than telling them to log the bigger block (which contradicted
           the split feature). */}
       {jobs.length > 1 ? (
         <p className="mt-2 text-xs text-text-muted">
-          This logs one job. On more than one today? Use “Split across jobs” above.
+          This logs one job. On more than one today? Use “Split across jobs” below.
         </p>
       ) : null}
     </div>
@@ -1267,25 +1310,52 @@ function StatusLine({
   );
 }
 
-function FeedbackBanner({ state }: { state: SubmitState }): ReactNode {
+/**
+ * What a saved entry was booked to, in the words the worker picked it by:
+ * the day type ("Sick day"), else the job name(s). Null when the entry names
+ * no job the sheet knows (never a guessed name — P7).
+ */
+export function savedEntryTarget(
+  entry: Pick<TimeEntry, "dayType" | "allocations">,
+  jobs: ReadonlyArray<PickableJob>
+): string | null {
+  const dayType = entry.dayType as LogDayType | null | undefined;
+  if (dayType && DAY_TYPE_META[dayType]) return DAY_TYPE_META[dayType].label;
+  const names = (entry.allocations ?? [])
+    .map((a) => jobs.find((j) => j.id === a.jobId)?.name)
+    .filter((n): n is string => Boolean(n));
+  return names.length > 0 ? names.join(" + ") : null;
+}
+
+function FeedbackBanner({
+  state,
+  jobs,
+}: {
+  state: SubmitState;
+  jobs: ReadonlyArray<PickableJob>;
+}): ReactNode {
   if (state.kind === "success") {
+    // The receipt names the DAY and the JOB the hours landed on, so a wrong
+    // pick is caught here — not by the office a week later (2026-09-23 audit).
+    // No promise of a push: notifications aren't configured in production.
+    const target = savedEntryTarget(state.entry, jobs);
     return (
       <PhilNotice
         tone="success"
         role="status"
         title={`${formatHoursLabel(state.entry.totalHours)} sent for approval`}
       >
-        Submitted at{" "}
-        {new Date(state.entry.submittedAt ?? state.entry.updatedAt).toLocaleTimeString("en-AU")}.
-        The office will get a push when they review.
+        {formatShortDateLabel(state.entry.date)}
+        {target ? ` · ${target}` : ""}. Waiting on the office. Wrong day or job? Use
+        &ldquo;Change these hours&rdquo; above.
       </PhilNotice>
     );
   }
   if (state.kind === "error") {
     return (
       <PhilNotice tone="danger" role="alert" title="Couldn’t submit">
-        {state.message}
-        {state.status ? <span className="ml-1 text-xs">(HTTP {state.status})</span> : null}
+        {state.message} Your choices are still here — trying again is safe, it won&rsquo;t
+        log the day twice.
       </PhilNotice>
     );
   }

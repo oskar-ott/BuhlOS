@@ -98,11 +98,12 @@ async function call(
   viewerId: string,
   viewerRole: string,
   method: string,
-  body: Record<string, unknown> = {}
+  body: Record<string, unknown> = {},
+  query: Record<string, string> = {}
 ) {
   const res = createRes();
   await handler(
-    { method, query: {}, body, headers: { cookie: cookieFor(viewerId, viewerRole) } },
+    { method, query, body, headers: { cookie: cookieFor(viewerId, viewerRole) } },
     res
   );
   return res;
@@ -324,6 +325,51 @@ describe("recipient list (GET/PUT /api/time-entries-email)", () => {
     expect(send.statusCode).toBe(503);
     expect((send.body as { code: string }).code).toBe("not_configured");
     expect(resendCalls).toHaveLength(0);
+  });
+});
+
+describe("GET ?fromDate&toDate — was this period already emailed?", () => {
+  it("answers null before any send, then the journalled send (who, when, to whom)", async () => {
+    seedRecipients(["tia@example.com"]);
+    seedEntry("u_mick", FROM);
+
+    const before = await call("u_admin", "admin", "GET", {}, { fromDate: FROM, toDate: TO });
+    expect(before.statusCode).toBe(200);
+    expect(before.body).toMatchObject({ recipients: ["tia@example.com"], lastSent: null });
+
+    const sent = await call("u_admin", "admin", "POST", { fromDate: FROM, toDate: TO });
+    expect(sent.statusCode).toBe(200);
+
+    const after = await call("u_admin", "admin", "GET", {}, { fromDate: FROM, toDate: TO });
+    const lastSent = (after.body as { lastSent: Record<string, unknown> | null }).lastSent;
+    expect(lastSent).toMatchObject({
+      byName: "oskar",
+      recipients: ["tia@example.com"],
+      workerCount: 1,
+      totalHours: 7.6,
+    });
+    expect(typeof lastSent!.at).toBe("string");
+  });
+
+  it("is scoped to the exact period — another week's send doesn't count", async () => {
+    seedRecipients(["tia@example.com"]);
+    seedEntry("u_mick", FROM);
+    await call("u_admin", "admin", "POST", { fromDate: FROM, toDate: TO });
+
+    const other = await call(
+      "u_admin",
+      "admin",
+      "GET",
+      {},
+      { fromDate: "2026-08-10", toDate: "2026-08-16" }
+    );
+    expect((other.body as { lastSent: unknown }).lastSent).toBeNull();
+  });
+
+  it("without a range stays the plain recipient read (the /settings contract)", async () => {
+    seedRecipients(["tia@example.com"]);
+    const res = await call("u_admin", "admin", "GET");
+    expect(res.body).not.toHaveProperty("lastSent");
   });
 });
 

@@ -113,6 +113,27 @@ describe("JobsList — status pills (#216)", () => {
   });
 });
 
+describe("JobsList — Archived view", () => {
+  // The page only ships archived rows for ?status=archived (jobsForStatusView).
+  const WITH_ARCHIVED: ReadonlyArray<Job> = [
+    ...JOBS,
+    job({ id: "a1", name: "Old Arthur St", status: "archived" }),
+  ];
+
+  it("?status=archived lists the archived jobs and selects the Archived pill", () => {
+    const html = render("status=archived", WITH_ARCHIVED);
+    expect(html).toContain("Old Arthur St");
+    expect(html).not.toContain("Smith St Rewire");
+    expect(pillPressed(html, "Archived")).toBe(true);
+  });
+
+  it("'All' never shows archived rows even when they are loaded", () => {
+    const html = render("", WITH_ARCHIVED);
+    expect(html).not.toContain("Old Arthur St");
+    expect(html).toContain("Smith St Rewire");
+  });
+});
+
 describe("JobsList — search + combinations (#216)", () => {
   it("?q= filters by name/address and pre-fills the search box", () => {
     const html = render("q=smith");

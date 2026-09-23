@@ -89,12 +89,22 @@ describe("buildNeedsYouQueue", () => {
       evidence: 1,
     });
     expect(rows.map((r) => [r.key, r.cta, r.href])).toEqual([
-      ["rejected", "Approve", "/hours/approvals"],
+      ["rejected", "Review", "/hours/weekly"],
       ["missing", "Hours", "/hours/weekly"],
       ["no-crew", "Jobs", "/v2/jobs"],
       ["pending", "Approve", "/hours/approvals"],
       ["evidence", "Jobs", "/v2/jobs"],
     ]);
+  });
+
+  it("lands rejected days on the weekly board for the oldest rejected day's week", () => {
+    // /hours/approvals lists SUBMITTED entries only — rejected days would not be there.
+    const rows = buildNeedsYouQueue({ ...ZERO, rejected: 2, rejectedWeekStart: "2026-09-14" });
+    expect(rows[0]).toMatchObject({
+      key: "rejected",
+      cta: "Review",
+      href: "/hours/weekly?week=2026-09-14",
+    });
   });
 
   it("pluralises row titles by count", () => {

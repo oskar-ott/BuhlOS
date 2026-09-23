@@ -232,6 +232,9 @@ describe("/command-centre lean-reset board", () => {
     expect(html).toContain('aria-label="Rejected day to re-submit: 1"');
     expect(html).toContain('href="/hours/approvals"');
     expect(html).toContain("Approve");
+    // The rejected row lands on the weekly board for the rejected day's week
+    // (Thu 2026-06-11 → Mon 2026-06-08) — the approvals queue can't show it.
+    expect(html).toContain('href="/hours/weekly?week=2026-06-08"');
     // Zero loops render NO row (the queue shows only what's open).
     expect(html).not.toContain("Photos and tags to review");
     // This-week strip tiles (weekly-first, owner directive 2026-08-08).

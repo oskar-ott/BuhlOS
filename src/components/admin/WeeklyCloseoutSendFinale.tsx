@@ -16,6 +16,7 @@ import {
   ReceiptRow,
   ReviewedMark,
 } from "@/components/admin/WeeklyCloseoutXeroFinale";
+import { formatPeriodSend, usePeriodEmailStatus } from "./usePeriodEmailStatus";
 
 /**
  * WeeklyCloseoutSendFinale (owner pull 2026-08-15) — the closeout's last
@@ -86,6 +87,15 @@ export function WeeklyCloseoutSendFinale({
   const holdsSend = (outstanding?.actionableDays ?? 0) > 0;
   const notInYet = outstanding?.notInYetDays ?? 0;
 
+  // Who the email really goes to + whether this week already went (the audit
+  // journal) — shown before the send, so a second tap isn't a blind re-send.
+  const { status: emailStatus, refresh: refreshEmailStatus } = usePeriodEmailStatus(
+    weekStart,
+    weekEnd
+  );
+  const recipients = emailStatus.kind === "loading" ? [] : emailStatus.recipients;
+  const lastSent = emailStatus.kind === "ready" ? emailStatus.lastSent : null;
+
   const [stage, setStage] = useState<Stage>("review");
   const [error, setError] = useState<string | null>(null);
   const [receipt, setReceipt] = useState<SentReceipt | null>(null);
@@ -125,18 +135,22 @@ export function WeeklyCloseoutSendFinale({
         }),
       });
       setStage("sent");
+      refreshEmailStatus();
     } catch (e) {
       if (!alive.current) return;
+      // A dropped connection can't say whether the send landed — re-read the
+      // journal and say so, never "nothing was emailed" on a guess.
+      refreshEmailStatus();
       setError(
-        e instanceof Error
+        e instanceof Error && !(e instanceof TypeError)
           ? e.message
-          : "Couldn't reach the server — nothing was emailed. Try again.",
+          : "Lost the connection mid-send, so we can't tell if it went. Check whether it shows as already emailed before sending again.",
       );
       setStage("review");
     } finally {
       onBusyChange?.(false);
     }
-  }, [weekStart, weekEnd, onBusyChange]);
+  }, [weekStart, weekEnd, onBusyChange, refreshEmailStatus]);
 
   if (stage === "sending") {
     return (
@@ -150,7 +164,9 @@ export function WeeklyCloseoutSendFinale({
             className="h-10 w-10 animate-spin text-brand-navy motion-reduce:animate-none"
           />
           <p className="font-display text-lg font-bold text-text">Emailing the timesheets…</p>
-          <p className="text-sm text-text-muted">Sending the {periodLabel} PDF to Tia at accounts.</p>
+          <p className="text-sm text-text-muted">
+            Sending the {periodLabel} PDF to {recipients.join(", ") || "accounts"}.
+          </p>
         </div>
       </FinaleShell>
     );
@@ -180,7 +196,7 @@ export function WeeklyCloseoutSendFinale({
             <b className="font-semibold text-text">
               {receipt.recipients.join(", ") || "accounts"}
             </b>
-            . Tia takes the pay run from here.
+            . Accounts finishes the pay run in Xero.
           </p>
         </div>
 
@@ -223,7 +239,7 @@ export function WeeklyCloseoutSendFinale({
               <>
                 <Button className="w-full" data-testid="wha-send-accounts" onClick={send}>
                   <Mail aria-hidden="true" className="h-4 w-4" />
-                  Send to Tia
+                  {lastSent ? "Send a second copy" : "Send to Tia"}
                 </Button>
                 <Button variant="ghost" className="w-full text-text-muted" onClick={onClose}>
                   Not now
@@ -251,6 +267,15 @@ export function WeeklyCloseoutSendFinale({
         <Notice tone="danger" title="The email didn&rsquo;t send">
           {error}
         </Notice>
+      ) : null}
+
+      {lastSent && plan.rows.length > 0 ? (
+        <div data-testid="wha-send-last">
+          <Notice tone="warn" title="This week was already emailed">
+            {formatPeriodSend(lastSent)} to {lastSent.recipients.join(", ") || "accounts"} —{" "}
+            {formatHoursLabel(lastSent.totalHours)}. Only send again if hours changed since.
+          </Notice>
+        </div>
       ) : null}
 
       {holdsSend && outstanding && plan.rows.length > 0 ? (
@@ -290,11 +315,14 @@ export function WeeklyCloseoutSendFinale({
               <Mail aria-hidden="true" className="h-5 w-5" />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="font-mono text-[9px] uppercase tracking-widest text-text-muted">
+              <p className="font-mono text-[11px] uppercase tracking-widest text-text-muted">
                 Sending to
               </p>
-              <p className="truncate font-display text-[15px] font-bold text-text">
-                Tia · accounts
+              <p
+                className="truncate font-display text-[15px] font-bold text-text"
+                data-testid="wha-send-recipients"
+              >
+                {recipients.length > 0 ? recipients.join(", ") : "Accounts"}
               </p>
               <p className="text-xs text-text-muted">Pay period {periodLabel} · emailed as a PDF</p>
             </div>

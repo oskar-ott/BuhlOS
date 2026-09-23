@@ -31,6 +31,11 @@ export interface NeedsYouRow {
 export interface NeedsYouCounts {
   /** Rejected days the worker hasn't re-submitted (/api/time-entries rejected). */
   rejected: number;
+  /** Monday of the week holding the OLDEST rejected day — the row lands the
+   *  weekly board there, where rejected days show as "Sent back" (the
+   *  approvals queue lists submitted days only, so it can't show them).
+   *  Optional; without it the link opens the board's default (current) week. */
+  rejectedWeekStart?: string;
   /** Weekday worker-days never logged in the last COMPLETE Mon–Sun week
    *  (overview missing rollup — the crew logs weekly, so the current week's
    *  gaps are expected and never counted here; owner directive 2026-08-08). */
@@ -60,8 +65,10 @@ export function buildNeedsYouQueue(c: NeedsYouCounts): NeedsYouRow[] {
           ? "Rejected day to re-submit"
           : "Rejected days to re-submit",
       sub: "Sent back to the worker — these hours can’t be paid until they fix and resubmit.",
-      cta: "Approve",
-      href: "/hours/approvals",
+      cta: "Review",
+      href: c.rejectedWeekStart
+        ? `/hours/weekly?week=${c.rejectedWeekStart}`
+        : "/hours/weekly",
     },
     {
       key: "missing",

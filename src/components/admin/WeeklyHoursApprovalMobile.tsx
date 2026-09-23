@@ -43,6 +43,7 @@ import {
   canAmendDay,
   outstandingWeek,
   type MobileQueryReason,
+  type MobileWorkerBands,
   type OutstandingWeek,
 } from "@/domains/timesheets/weekly-review";
 import {
@@ -118,6 +119,55 @@ interface OverlayEntry {
 }
 type Overlay = Record<string, OverlayEntry>;
 
+/** The navy tile's live counts — see liveApprovalTile. */
+export interface LiveApprovalTile {
+  /** Everyone in the run: a worker with any entry this week OR a
+   *  server-flagged missing day (so it includes crew with NO hours logged). */
+  crewCount: number;
+  /** Weeks the office has approved: server payroll-ready, plus to-approve
+   *  weeks approved THIS session (the same overlay the list's "N of M
+   *  approved" counts), so the tile moves the moment Approve lands. */
+  approvedCount: number;
+  /** To-approve weeks not yet resolved this session — same set as the stepper. */
+  toReviewCount: number;
+  /** Waiting on the worker (rejected / draft / missing), incl. weeks sent
+   *  back this session. */
+  waitingCount: number;
+  /** 0..100 = approvedCount / crewCount. */
+  progressPct: number;
+}
+
+/**
+ * Derive the summary tile from the SAME state the list renders — the server
+ * bands plus this session's optimistic overlay — so approve / query / undo move
+ * the tile and the list together (it used to read the server snapshot only and
+ * sat on "0/3 approved" while the list said "1 of 2 approved").
+ *
+ * Populations: the tile's denominator is the whole run (`crewCount`, which can
+ * include a worker with only missing days and no hours); the list's "N of M
+ * approved" is scoped to its own section (the to-approve band). The overlay
+ * only applies while the server still has the worker in to-approve — once a
+ * refresh lands, the server band is the truth.
+ */
+export function liveApprovalTile(bands: MobileWorkerBands, overlay: Overlay): LiveApprovalTile {
+  let approvedFromList = 0;
+  let queriedFromList = 0;
+  for (const w of bands.toApprove) {
+    const st = overlay[w.workerId]?.status;
+    if (st === "approved") approvedFromList += 1;
+    else if (st === "queried") queriedFromList += 1;
+  }
+  const crewCount = bands.toApprove.length + bands.approved.length + bands.waiting.length;
+  const approvedCount = bands.approved.length + approvedFromList;
+  return {
+    crewCount,
+    approvedCount,
+    toReviewCount: bands.toApprove.length - approvedFromList - queriedFromList,
+    waitingCount: bands.waiting.length + queriedFromList,
+    progressPct: crewCount > 0 ? Math.round((approvedCount / crewCount) * 100) : 0,
+  };
+}
+
 /** "done" opens the sheet STRAIGHT at the finale — the re-entry path once
  *  every timesheet is reviewed (2026-08-17: with nothing left to approve the
  *  green card was a dead end, stranding the boss one screen short of Send). */
@@ -185,6 +235,7 @@ export function WeeklyHoursApprovalMobile({
   );
 
   const [overlay, setOverlay] = useState<Overlay>({});
+  const tile = useMemo(() => liveApprovalTile(bands, overlay), [bands, overlay]);
 
   // The send finale's wait-or-send question (owner pull 2026-08-16): what is
   // still to come in across the WHOLE week, session decisions included — so a
@@ -444,7 +495,7 @@ export function WeeklyHoursApprovalMobile({
         </div>
       ) : null}
 
-      <SummaryReadout summary={summary} />
+      <SummaryReadout summary={summary} tile={tile} />
 
       <ReviewCTA
         pendingCount={pending.length}
@@ -656,12 +707,20 @@ function WeekArrow({ week, label, icon }: { week: string; label: string; icon: R
 
 /* ── Summary readout (navy) ──────────────────────────────────────────── */
 
-function SummaryReadout({ summary }: { summary: ReturnType<typeof mobileSummary> }) {
-  const { readyCount, crewCount, loggedHoursShort, overtimeShort, hasOvertime } = summary;
+function SummaryReadout({
+  summary,
+  tile,
+}: {
+  summary: ReturnType<typeof mobileSummary>;
+  /** Live approval counts (server bands + this session's overlay). */
+  tile: LiveApprovalTile;
+}) {
+  const { loggedHoursShort, overtimeShort, hasOvertime } = summary;
+  const { approvedCount, crewCount, toReviewCount, waitingCount, progressPct } = tile;
   return (
     <div className="overflow-hidden rounded-card bg-brand-navy shadow-card">
       <div className="flex items-stretch">
-        <Segment value={`${readyCount}`} unit={`/ ${crewCount}`} label="Approved" />
+        <Segment value={`${approvedCount}`} unit={`/ ${crewCount}`} label="Approved" />
         <Segment value={loggedHoursShort} unit="h" label="Logged" divider />
         <Segment
           value={overtimeShort}
@@ -677,23 +736,26 @@ function SummaryReadout({ summary }: { summary: ReturnType<typeof mobileSummary>
           role="progressbar"
           aria-valuemin={0}
           aria-valuemax={100}
-          aria-valuenow={summary.progressPct}
+          aria-valuenow={progressPct}
           aria-label="Weeks approved"
         >
           <div
             aria-hidden="true"
-            className={cn("h-full rounded-pill bg-accent-yellow transition-[width] motion-reduce:transition-none", progressFillClass(summary.progressPct))}
+            className={cn("h-full rounded-pill bg-accent-yellow transition-[width] motion-reduce:transition-none", progressFillClass(progressPct))}
           />
         </div>
         <div className="mt-2 flex items-center justify-between font-mono text-[10px] tracking-wide text-white/70">
+          {/* "crew" = everyone in the run, including anyone with no hours yet
+              (a flagged missing day), so it's named as such — not the list's
+              "N of M approved", which only counts its to-approve section. */}
           <span>
-            <b className="font-semibold text-text-inverse">{readyCount}</b> of {crewCount} approved
+            <b className="font-semibold text-text-inverse">{approvedCount}</b> of {crewCount} crew approved
           </span>
           <span>
-            {summary.toApproveCount > 0
-              ? `${summary.toApproveCount} to review`
-              : summary.needLookCount > 0
-                ? `${summary.needLookCount} need a look`
+            {toReviewCount > 0
+              ? `${toReviewCount} to review`
+              : waitingCount > 0
+                ? `${waitingCount} waiting on worker`
                 : "all clear"}
           </span>
         </div>

@@ -55,7 +55,7 @@ const BTN_DANGER = "rounded-card border border-state-danger px-3 py-1.5 text-sm 
 const STATUS_COPY: Record<string, string> = {
   blocked: "Blocked — fix the named problems, then recreate",
   ready: "Ready to lock",
-  locked: "Locked — immutable, ready for Xero (#249)",
+  locked: "Locked — ready to create Xero draft timesheets",
   exported: "Exported",
   partially_exported: "Partially exported",
   reconciled: "Reconciled",
@@ -152,7 +152,7 @@ export function PayrollBatchPanel({
   if (state === "loading") {
     return (
       <Card>
-        <CardTitle>Finalise pay run</CardTitle>
+        <CardTitle>Send to Xero as draft timesheets</CardTitle>
         <CardDescription className="mt-1">Checking this period against every payroll rule…</CardDescription>
       </Card>
     );
@@ -160,10 +160,10 @@ export function PayrollBatchPanel({
   if (state === "not_connected") {
     return (
       <Card>
-        <CardTitle>Finalise pay run</CardTitle>
+        <CardTitle>Send to Xero as draft timesheets</CardTitle>
         <CardDescription className="mt-1">
           Xero isn&rsquo;t connected (or no organisation is selected). Connect on the Xero settings
-          page to start batching payroll — the CSV export below keeps working either way.
+          page to send hours as Xero drafts — the downloads above work either way.
         </CardDescription>
       </Card>
     );
@@ -171,7 +171,7 @@ export function PayrollBatchPanel({
   if (state === "error" || !preview) {
     return (
       <Card>
-        <CardTitle>Finalise pay run</CardTitle>
+        <CardTitle>Send to Xero as draft timesheets</CardTitle>
         <CardDescription className="mt-1">
           <span role="alert">Couldn&rsquo;t check this period. Reload to retry.</span>
         </CardDescription>
@@ -186,15 +186,14 @@ export function PayrollBatchPanel({
     <Card>
       <div className="flex items-start justify-between gap-3">
         <div>
-          <CardTitle>Finalise pay run</CardTitle>
+          <CardTitle>Send to Xero as draft timesheets</CardTitle>
           <CardDescription className="mt-1">
-            Commit an immutable payroll run for this period. {fromDate} → {toDate} ·{" "}
-            {v.summary.workerCount} worker{v.summary.workerCount === 1 ? "" : "s"} ·{" "}
-            {v.summary.totalHours}h ({v.summary.ordinaryHours} ordinary + {v.summary.overtimeHours}{" "}
-            overtime). A batch snapshots the approved hours and mappings; once locked it is
-            immutable — the safe source for the Xero draft-timesheet export (#249). Export happens
-            per locked batch below, only after you explicitly confirm; it creates drafts, never a
-            pay run in Xero.
+            Lock this period&rsquo;s approved hours, then send them to Xero as draft timesheets.{" "}
+            {fromDate} → {toDate} · {v.summary.workerCount} worker
+            {v.summary.workerCount === 1 ? "" : "s"} · {v.summary.totalHours}h (
+            {v.summary.ordinaryHours} ordinary + {v.summary.overtimeHours} overtime). Locking
+            freezes the hours so the export can&rsquo;t drift; the export only runs after you
+            confirm, and it creates drafts — the pay run and payslips are done in Xero.
           </CardDescription>
         </div>
         <span
@@ -294,7 +293,7 @@ export function PayrollBatchPanel({
                         </>
                       ) : (
                         <button className={BTN_PRIMARY} onClick={() => setConfirmLock(b.id)} data-testid="payroll-batch-lock">
-                          Lock payroll
+                          Lock hours
                         </button>
                       )
                     ) : null}
@@ -335,7 +334,12 @@ export function PayrollBatchPanel({
                   </div>
                 </div>
                 {["locked", "exporting", "partially_exported", "exported", "reconciled", "correction_required"].includes(b.status) ? (
-                  <PayrollBatchExportSection batchId={b.id} batchStatus={b.status} exportEnabled={exportEnabled} />
+                  <PayrollBatchExportSection
+                    batchId={b.id}
+                    batchStatus={b.status}
+                    exportEnabled={exportEnabled}
+                    onBatchChanged={load}
+                  />
                 ) : null}
               </li>
             ))}

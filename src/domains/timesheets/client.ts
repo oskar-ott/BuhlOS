@@ -255,6 +255,10 @@ export function approveEntry(
   return httpPost<TimeEntryMutationResponse>("/api/time-entries-approve", parsed.data, {
     schema: TimeEntryMutationResponseSchema,
     init: { cache: "no-store", credentials: "same-origin" },
+    // Approvals happen on a phone too — a stalled request must end in an
+    // honest "may not have gone through", never a spinner the boss can't
+    // cancel (2026-09-23 usability audit).
+    timeoutMs: 20000,
   });
 }
 
@@ -279,6 +283,9 @@ export function rejectEntry(
   return httpPost<TimeEntryMutationResponse>("/api/time-entries-reject", parsed.data, {
     schema: TimeEntryMutationResponseSchema,
     init: { cache: "no-store", credentials: "same-origin" },
+    // Same bound as approve: the send-back dialog can't be cancelled while a
+    // request is in flight, so the request itself must end.
+    timeoutMs: 20000,
   });
 }
 
