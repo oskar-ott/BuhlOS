@@ -51,6 +51,7 @@ const EXACT_STORES = [
   'platform/errors.json', // error-event journal (#154) — capped FIFO, still a canonical store
   'pin-resets.json', // self-service login-recovery tokens (bcrypt hashes only, single-use, 60-min expiry, pruned at 24h) — disposable like jobs-summary.json, but written by api/ so it is listed for the guard. Restoring an old snapshot can't revive a link: expiry is checked against the clock and a spent one stays 'used'
   'xero/sync-open.json', // Xero sync recorder open working set (#251) — unresolved finance failures, NEVER trimmed
+  'invoices/alert-state.json', // supplier-invoice mid-week alert rate-limit state (owner direction 2026-09-23) — small, disposable: a lost copy means at most one repeated alert
 ];
 
 /** Multi-document stores (path prefixes; every *.json under them). */
