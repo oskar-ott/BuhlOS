@@ -53,6 +53,7 @@ function prodState(over: Partial<JobProfitabilityResponse> = {}): JobProfitabili
     marginPct: null,
     completeness: { labour: "understated", material: "none", unratedWorkers: ["Jake Preston"] },
     unratedWorkerRefs: [{ userId: "u1", name: "Jake Preston", employeeId: "emp_1" }],
+    supplierInvoices: null,
     labourChargeOutCents: null,
     chargeOutHours: 0,
     badges: ["1 worker unrated", "no material data", "no contract value set"],
@@ -194,5 +195,46 @@ describe("formatMoneyCents", () => {
     expect(formatMoneyCents(4_537_550)).toBe("$45,375.50");
     expect(formatMoneyCents(-30_000)).toBe("-$300");
     expect(formatMoneyCents(null)).toBe("—");
+  });
+});
+
+describe("JobMoneyFigures — confirmed supplier invoices in Materials (2026-09-23)", () => {
+  it("invoices alone: caption counts them, the note says where they came from, awaiting ones are named", () => {
+    const html = figures(
+      prodState({
+        materialCostCents: 108_000,
+        completeness: { labour: "understated", material: "invoices", unratedWorkers: ["Jake Preston"] },
+        supplierInvoices: { confirmedCents: 108_000, confirmedCount: 2, awaitingCount: 1, unavailable: false },
+      }),
+      true
+    );
+    expect(html).toContain("$1,080");
+    expect(html).toContain("2 confirmed supplier invoices");
+    expect(html).toContain("confirmed against this job");
+    expect(html).toContain("1 supplier invoice is awaiting");
+  });
+  it("ledger + invoices: the caption and note name both parts", () => {
+    const html = figures(
+      prodState({
+        materialCostCents: 68_450,
+        completeness: { labour: "complete", material: "ledger", unratedWorkers: [] },
+        unratedWorkerRefs: [],
+        supplierInvoices: { confirmedCents: 50_000, confirmedCount: 1, awaitingCount: 0, unavailable: false },
+      }),
+      true
+    );
+    expect(html).toContain("spend ledger + 1 supplier invoice");
+    expect(html).toContain("plus $500 from 1 supplier invoice confirmed");
+  });
+  it("nothing yet, feature on: says invoices land automatically; an unreadable store is called out", () => {
+    const html = figures(
+      prodState({ supplierInvoices: { confirmedCents: 0, confirmedCount: 0, awaitingCount: 0, unavailable: false } }),
+      true
+    );
+    expect(html).toContain("confirmed supplier invoices land here automatically");
+    const down = figures(
+      prodState({ supplierInvoices: { confirmedCents: 0, confirmedCount: 0, awaitingCount: 0, unavailable: true } })
+    );
+    expect(down).toContain("could not be read just now");
   });
 });

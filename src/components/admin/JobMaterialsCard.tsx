@@ -46,7 +46,15 @@ interface FormState {
   amount: string; // dollars, e.g. "184.50"
 }
 
-export function JobMaterialsCard({ jobId }: { jobId: string }) {
+export function JobMaterialsCard({
+  jobId,
+  invoicesEnabled = false,
+}: {
+  jobId: string;
+  /** invoice_capture on for the viewer: confirmed supplier invoices already
+   *  count in the Money card, so the office must not retype them here. */
+  invoicesEnabled?: boolean;
+}) {
   const ids = useId();
   const [lines, setLines] = useState<MaterialsLine[]>([]);
   const [totalCents, setTotalCents] = useState(0);
@@ -274,8 +282,9 @@ export function JobMaterialsCard({ jobId }: { jobId: string }) {
 
           {lines.length === 0 ? (
             <p className="mt-3 text-sm text-text-muted">
-              Nothing recorded yet. Add each docket or invoice — supplier, date, amount ex GST — and
-              the Money card&rsquo;s Materials figure fills in from this ledger.
+              {invoicesEnabled
+                ? "Nothing typed in yet. Supplier invoices confirmed in the inbox count towards Materials on their own; add only cash-sale dockets and anything that never came by email here."
+                : "Nothing recorded yet. Add each docket or invoice — supplier, date, amount ex GST — and the Money card\u2019s Materials figure fills in from this ledger."}
             </p>
           ) : (
             <div className="mt-4 overflow-x-auto">
@@ -358,6 +367,9 @@ export function JobMaterialsCard({ jobId }: { jobId: string }) {
           <p className="mt-3 text-xs text-text-muted">
             Office-only ledger of what was bought for this job, ex GST. Feeds the Money card&rsquo;s
             Materials figure; removed lines stay on record.
+            {invoicesEnabled
+              ? " Supplier invoices confirmed in the inbox are counted there automatically — don't retype those here."
+              : ""}
           </p>
         </>
       )}

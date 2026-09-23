@@ -185,6 +185,9 @@ export function JobMoneyFigures({
   const labourUnderstated = data.completeness.labour === "understated";
   const materialSource = data.completeness.material;
   const materialNone = materialSource === "none";
+  const inv = data.supplierInvoices;
+  const invoiceCount = inv?.confirmedCount ?? 0;
+  const invoiceWord = invoiceCount === 1 ? "supplier invoice" : "supplier invoices";
   const hasEstimates =
     data.budget.labourEstimateCents != null || data.budget.materialEstimateCents != null;
 
@@ -198,7 +201,11 @@ export function JobMoneyFigures({
 
   const materialCaption =
     materialSource === "ledger"
-      ? "from the spend ledger"
+      ? invoiceCount > 0
+        ? `spend ledger + ${invoiceCount} ${invoiceWord}`
+        : "from the spend ledger"
+      : materialSource === "invoices"
+        ? `${invoiceCount} confirmed ${invoiceWord}`
       : materialSource === "received_proxy"
         ? "supplier orders received · proxy"
         : materialSource === "consumption"
@@ -276,7 +283,16 @@ export function JobMoneyFigures({
         {materialSource === "ledger" ? (
           <p className="text-xs text-text-muted">
             Materials are this job&rsquo;s recorded spend — every docket in the Materials card
-            below.
+            below
+            {invoiceCount > 0
+              ? ` — plus ${formatMoneyCents(inv?.confirmedCents)} from ${invoiceCount} ${invoiceWord} confirmed in the inbox`
+              : ""}
+            .
+          </p>
+        ) : materialSource === "invoices" ? (
+          <p className="text-xs text-text-muted" data-testid="money-invoices-note">
+            Materials are the {invoiceCount} {invoiceWord} confirmed against this job in the
+            inbox. Dockets typed into the Materials card below add to the figure.
           </p>
         ) : materialSource === "received_proxy" ? (
           <p className="text-xs text-text-muted">
@@ -286,8 +302,22 @@ export function JobMoneyFigures({
         ) : materialNone ? (
           <p className="text-xs text-text-muted">
             {materialsLedgerEnabled
-              ? "No materials spend recorded on this job yet — add dockets in the Materials card below."
-              : "Materials spend isn't tracked on this job yet."}
+              ? inv
+                ? "No materials spend recorded on this job yet — confirmed supplier invoices land here automatically; dockets go in the Materials card below."
+                : "No materials spend recorded on this job yet — add dockets in the Materials card below."
+              : inv
+                ? "No supplier invoices confirmed against this job yet — they land here automatically."
+                : "Materials spend isn't tracked on this job yet."}
+          </p>
+        ) : null}
+        {inv && inv.awaitingCount > 0 ? (
+          <p className="text-xs text-text-muted" data-testid="money-invoices-awaiting">
+            {`${inv.awaitingCount} supplier ${inv.awaitingCount === 1 ? "invoice is" : "invoices are"} awaiting review and not in the figure yet.`}
+          </p>
+        ) : null}
+        {inv?.unavailable ? (
+          <p className="text-xs text-state-warning-subtle-text" role="alert" data-testid="money-invoices-unavailable">
+            Supplier-invoice costs could not be read just now, so Materials excludes them.
           </p>
         ) : null}
       </div>

@@ -230,7 +230,7 @@ export default async function AdminJobInterfacePage({ params }: PageParams) {
                 <LabourSection base={base} cookieValue={raw} job={job} progressPct={progressPct} />
               </Suspense>
             ) : null}
-            {materialsEnabled ? <JobMaterialsCard jobId={job.id} /> : null}
+            {materialsEnabled ? <JobMaterialsCard jobId={job.id} invoicesEnabled={invoicesEnabled} /> : null}
             {invoicesEnabled ? <JobSupplierInvoicesCard jobId={job.id} /> : null}
             <Suspense fallback={<EvidenceSkeleton />}>
               <EvidenceSection base={base} cookieValue={raw} jobId={job.id} />

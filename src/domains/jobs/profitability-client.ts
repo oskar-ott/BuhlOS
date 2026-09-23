@@ -7,8 +7,11 @@ import { httpGet, type HttpResult } from "@/lib/http";
  * Money is integer cents — display divides by 100.
  *
  * `completeness.material` names the Materials source: 'ledger' is the per-job
- * spend ledger (owner pull 2026-08-23, api/job-materials.js), 'received_proxy'
- * the legacy received-materials rollup, 'none' nothing recorded.
+ * spend ledger (owner pull 2026-08-23, api/job-materials.js) — plus confirmed
+ * supplier invoices when any exist — 'invoices' means only confirmed supplier
+ * invoices (invoice_capture) carry the figure, 'received_proxy' the legacy
+ * received-materials rollup, 'none' nothing recorded. `supplierInvoices` names
+ * the invoice share (null while the feature is off for the viewer).
  */
 
 /** One budget line (#341): actual vs budget → variance $ and %. */
@@ -29,7 +32,7 @@ export const JobProfitabilityResponseSchema = z.object({
   marginPct: z.number().nullable(),
   completeness: z.object({
     labour: z.enum(["complete", "understated"]),
-    material: z.enum(["consumption", "ledger", "received_proxy", "none"]),
+    material: z.enum(["consumption", "ledger", "invoices", "received_proxy", "none"]),
     unratedWorkers: z.array(z.string()),
   }),
   /** Owner pull 2026-08-23: the unrated workers with the employee record each
@@ -37,6 +40,18 @@ export const JobProfitabilityResponseSchema = z.object({
   unratedWorkerRefs: z
     .array(z.object({ userId: z.string(), name: z.string(), employeeId: z.string().nullable() }))
     .default([]),
+  /** Confirmed supplier-invoice allocations on this job (invoice_capture);
+   *  null when the feature is off for the viewer, `unavailable` when the store
+   *  could not be read (the figure then excludes them and the card says so). */
+  supplierInvoices: z
+    .object({
+      confirmedCents: z.number(),
+      confirmedCount: z.number(),
+      awaitingCount: z.number(),
+      unavailable: z.boolean().default(false),
+    })
+    .nullable()
+    .default(null),
   /** The same approved hours valued at each worker's optional CHARGE-OUT rate —
    *  "what is this labour worth", distinct from cost. null until at least one
    *  worker on the job carries a charge-out rate. */
