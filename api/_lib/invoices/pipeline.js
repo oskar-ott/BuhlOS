@@ -28,6 +28,7 @@ const { evaluateAutoConfirm, autoConfirmDeadline } = require('./auto-confirm');
 const { withTimeout } = require('../with-timeout');
 const { extractStatementLines, reconcileStatement } = require('./statement');
 const { extractLineItems } = require('./lines');
+const { inferPlacement } = require('./placement');
 const { categorise, descriptionKey, isCategory } = require('./categories');
 
 const MAX_PDF_BYTES = 10 * 1024 * 1024;
@@ -69,7 +70,29 @@ function decideMatch(extracted, jobs) {
       matchReason.suggestions = nearMissJobs(sel.normalised, index).slice(0, 3).map((j) => ({ id: j.id, name: j.name || j.id, code: j.code, status: j.status || 'active' }));
     }
   } else {
-    reasons.push('no_iv_reference');
+    // No IV number printed (a boutique supplier): place it from the evidence
+    // the document does print — delivery address, job name, job ref — and
+    // say which (owner direction 2026-09-24). Two candidates = ambiguity,
+    // offered to the reviewer, never guessed.
+    const placed = inferPlacement({ text: extracted.placementText || extracted.excerpt || '', deliveryAddress: extracted.deliveryAddress || null, references: extracted.customerReferences || [] }, jobs);
+    if (placed.outcome === 'placed') {
+      matchStatus = 'inferred';
+      matchedJob = placed.job;
+      matchReason = {
+        source: 'evidence', strength: placed.strength, field: 'site address / job name',
+        evidence: placed.evidence.map((e) => ({ kind: e.kind, detail: e.detail })),
+        deliveryAddress: extracted.deliveryAddress || null, matchCount: 1, warnings: [],
+        jobName: placed.job.name || null, jobStatus: placed.job.status || 'active',
+        candidates: placed.candidates,
+      };
+      if ((placed.job.status || 'active') !== 'active') matchReason.warnings.push(`the job is ${placed.job.status}`);
+    } else {
+      reasons.push('no_iv_reference');
+      if (placed.outcome === 'ambiguous') {
+        matchReason = { source: 'evidence', field: 'site address / job name', matchCount: placed.candidates.length, warnings: [], candidates: placed.candidates,
+          suggestions: placed.candidates.slice(0, 3).map((c) => ({ id: c.id, name: c.name, code: c.code, status: c.status })) };
+      }
+    }
   }
 
   if (extracted.documentType === 'unknown') reasons.push('unknown_document_type');
@@ -218,7 +241,7 @@ async function processInvoice({ sql, tenantId, invoiceId, trigger, deps }) {
       // Paperwork that is never a cost is set aside automatically (visible under
       // Excluded, restorable) — the review queue is for decisions, not dockets.
       const setAside = !dup.duplicate && NON_INVOICE_TYPES.has(extracted.documentType);
-      const status = dup.duplicate ? 'duplicate' : setAside ? 'excluded' : decision.reasons.length === 0 && decision.matchStatus === 'exact' ? 'matched' : 'needs_review';
+      const status = dup.duplicate ? 'duplicate' : setAside ? 'excluded' : decision.reasons.length === 0 && (decision.matchStatus === 'exact' || decision.matchStatus === 'inferred') ? 'matched' : 'needs_review';
       await store.applyExtraction(sql, tenantId, invoiceId, {
         excludedReason: setAside ? `not_an_invoice:${extracted.documentType}` : null,
         supplierName: extracted.supplierName,
@@ -297,6 +320,7 @@ async function scheduleAutoBooking({ sql, tenantId, invoiceId, store, settings, 
       supplierAlwaysReview: pref.alwaysReview,
       supplierConfirmedOnJob: onJob,
       jobStatus,
+      allowInferred: settings.allowInferred === true,
     });
     const at = verdict.eligible && settings.enabled ? autoConfirmDeadline(settings.graceHours) : null;
     await store.scheduleAutoConfirm(sql, tenantId, invoiceId, { eligible: verdict.eligible, checks: verdict.checks, at });
@@ -311,7 +335,8 @@ async function scheduleAutoBooking({ sql, tenantId, invoiceId, store, settings, 
 
 function needsAi(extracted) {
   return extracted.documentType === 'unknown' || extracted.supplierInvoiceNumber == null || extracted.invoiceDate == null
-    || extracted.subtotalCents == null || extracted.totalCents == null || extracted.supplierName == null;
+    || extracted.subtotalCents == null || extracted.totalCents == null || extracted.supplierName == null
+    || (extracted.ivSelection && extracted.ivSelection.outcome === 'none' && !extracted.deliveryAddress);
 }
 
 /** Fill ONLY still-missing fields from the AI result (provenance 'ai'). Never touches the IV selection. Pure. */
@@ -335,6 +360,8 @@ function mergeAi(extracted, ai) {
   take('subtotalCents', 'subtotalCents');
   take('gstCents', 'gstCents');
   take('totalCents', 'totalCents');
+  if (out.deliveryAddress == null && typeof ai.deliveryAddress === 'string' && ai.deliveryAddress.trim()) out.deliveryAddress = ai.deliveryAddress.trim().slice(0, 200);
+  if (Array.isArray(ai.customerReferences) && ai.customerReferences.length) out.customerReferences = Array.from(new Set([...(out.customerReferences || []), ...ai.customerReferences])).slice(0, 8);
   const totals = reconcileTotals({ subtotalCents: out.subtotalCents, gstCents: out.gstCents, totalCents: out.totalCents });
   out.subtotalCents = totals.subtotalCents;
   out.gstCents = totals.gstCents;

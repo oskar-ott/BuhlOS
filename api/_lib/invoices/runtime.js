@@ -33,10 +33,10 @@ function webhookDeps() {
       deps: { resend, apiKey: env.RESEND_API_KEY, sendEmail, recipients: await readTimesheetRecipients(), from: env.INBOUND_FORWARD_FROM || env.EMAIL_FROM || null },
     }),
     processOne: async ({ sql, tenant, invoiceId }) => {
-      let autoConfirm = { enabled: false, capCents: 0, graceHours: 12, lookbackDays: 90 };
+      let autoConfirm = { enabled: false, capCents: 0, graceHours: 12, lookbackDays: 90, allowInferred: false };
       try {
         const s = await getSettings('invoice_capture');
-        autoConfirm = { enabled: s.autoConfirm === true, capCents: Math.round(Number(s.autoConfirmCapDollars) * 100), graceHours: Number(s.autoConfirmGraceHours), lookbackDays: Number(s.autoConfirmLookbackDays) };
+        autoConfirm = { enabled: s.autoConfirm === true, capCents: Math.round(Number(s.autoConfirmCapDollars) * 100), graceHours: Number(s.autoConfirmGraceHours), lookbackDays: Number(s.autoConfirmLookbackDays), allowInferred: s.autoConfirmInferred === true };
       } catch { /* defaults */ }
       await store.claimOne(sql, tenant.id, invoiceId);
       return processInvoice({

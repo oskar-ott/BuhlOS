@@ -111,7 +111,7 @@ export function statementCheckOf(matchReason: Record<string, unknown> | null | u
   return r && r.success ? r.data : null;
 }
 
-export const MATCH_STATUSES = ["none", "exact", "ambiguous", "not_found", "multi_reference", "manual"] as const;
+export const MATCH_STATUSES = ["none", "exact", "ambiguous", "not_found", "multi_reference", "manual", "inferred"] as const;
 
 const FieldSchema = z
   .object({

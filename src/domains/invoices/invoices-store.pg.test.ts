@@ -208,4 +208,12 @@ describe.skipIf(!ENABLED)("invoices store — dev Postgres", () => {
     expect(b.lines.map((l: { category: string; signedCents: number; supplierName: string }) => [l.category, l.signedCents])).toEqual([["cable", 2000], ["other", 1000]]);
     await sql`delete from public.supplier_line_categories where tenant_id = ${tenantId} and supplier_key = ${`lines-co-${marker}`}`;
   });
+
+  it("accepts an evidence placement (match_status inferred) with its evidence in match_reason", async () => {
+    const inv = await make("a1".repeat(32));
+    await store.claimOne(sql, tenantId, inv.invoice.id);
+    const row = await store.applyExtraction(sql, tenantId, inv.invoice.id, { supplierName: `Boutique ${marker}`, supplierKey: `boutique-${marker}`, supplierInvoiceNumber: "B-1", documentType: "tax_invoice", status: "matched", extractionMethod: "pdf_text", currency: "AUD", matchStatus: "inferred", matchedJobId: "birdwood", matchReason: { source: "evidence", strength: "strong", evidence: [{ kind: "address", detail: "delivery address is this job's site" }] }, reviewReasons: [], subtotalCents: 100, gstCents: 10, totalCents: 110 });
+    expect(row).toMatchObject({ matchStatus: "inferred", matchedJobId: "birdwood" });
+    expect(row.matchReason).toMatchObject({ source: "evidence", strength: "strong" });
+  });
 });

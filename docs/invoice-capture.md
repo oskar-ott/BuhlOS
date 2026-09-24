@@ -100,6 +100,32 @@ review. `api/_lib/invoices/state.js` is the transition table.
   line, field, match count, warnings (complete / archived / on-hold / draft
   jobs still match but the reviewer is warned).
 
+### Evidence placement — no IV number printed (owner direction 2026-09-24)
+
+Wholesalers print the IV number; a boutique supplier has nowhere to put one.
+When a document carries **no** IV reference, `api/_lib/invoices/placement.js`
+places it from what it does print, and says which evidence it used
+(`match_status = 'inferred'`, `match_reason.source = 'evidence'`):
+
+| Evidence | Strength | How |
+| --- | --- | --- |
+| Delivery / ship-to / site address is one job's `siteAddress` | **strong** | street number + street name compared after normalising abbreviations, units (`6/10` → 10) and ranges (`494-504` contains 494); the delivery block is read after its label (`Deliver To`, `Ship to`, `Site address`, `Site:` …), billing addresses never count |
+| The job's site address appears anywhere in the text | strong | same key, whole-text |
+| The job's name (≥ 5 chars, not generic) appears in the text or a customer reference | medium | "Your ref: Birdwood level 2" |
+| The job's `ref` appears | medium | |
+
+Rules: an IV number always wins (evidence fills only its absence); deleted
+jobs are never candidates; **one strong candidate** or **one candidate at
+all** = placed; anything else = ambiguity, sent to review with the candidates
+offered as "the document mentions each of these — choose the right one".
+Placed documents land `matched` like an IV match and wait for a person's
+Confirm — unless the owner knob **Book evidence placements too**
+(`autoConfirmInferred`, default off) is on, in which case a **strong** (address)
+placement passes the IV checks and books itself after the grace window like any
+other clean invoice; a name-only placement never books itself. The AI rung (opt-in)
+also returns the delivery address and customer references for this. Migration
+`20260924120000_supplier_invoice_inferred_match` adds the status value.
+
 ## Money (`api/_lib/invoices/money.js`)
 
 Integer cents everywhere. The three printed figures are reconciled: all three
@@ -192,6 +218,7 @@ person unless the auto-booking checks pass on a real invoice.
 | Photo or scan (JPEG/PNG/WebP, not inline signature images under 40 KB) | Captured as a document of `kind = image`, shown on the review screen as a picture, review reason `image_only` — the office enters the details by hand, then Confirm as usual. |
 | Email with no attachment, or only a "view your invoice" link | One review item per email carrying the https links found in the body (≤5) and a text excerpt (≤1500 chars), reason `no_attachment` — but only when the subject/body looks invoice-related (auto-replies and chatter are ignored, recorded `ignored`). The office opens the link, downloads the PDF and **attaches** it on the review screen (`POST ?action=attach`), which reads and matches it straight away. |
 | Outlook "forward as attachment" (.eml), zip, other file types | Same review item, reason `forwarded_as_attachment` / `zip_attachment` / `unsupported_attachment`, with the fix spelled out. |
+| No IV number at all (a boutique supplier) | Placed by evidence — delivery address = a job's site (strong) or the job's name / ref printed (medium) — as `inferred`, evidence shown, a person confirms (or the owner knob lets strong ones book themselves). Two candidates → review with both offered. See "Evidence placement". |
 | A printed IV number that matches no job (typo) | Review as before, plus up to three **"Did you mean…?"** jobs whose code is one digit off (adjacent swap or single-digit change, unique codes only). One click chooses the job; the printed reference is never rewritten. |
 | An office job created without an IV number | Cannot happen for new jobs: the office New-job form requires `IV####` (the server already validates the format and refuses duplicates). Older jobs without a code can still be chosen by hand. |
 - **Limits:** manual upload ≤3 MB (the serverless JSON body cap minus base64
