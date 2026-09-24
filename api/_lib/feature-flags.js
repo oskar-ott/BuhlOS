@@ -410,6 +410,17 @@ const REGISTRY = {
     target: 'admin-tier',
     expires: '2026-12-31',
   },
+  // Receipts from the field (owner pull 2026-09-25): a worker photographs a
+  // card receipt (Bunnings, trade counter) on the phone, picks the job, and
+  // the photo is read (Claude vision) into the supplier-invoice pipeline.
+  // GLOBAL target — field workers see the My Day tile — but it also needs
+  // invoice_capture ON (the office reviews receipts in the invoice inbox).
+  receipt_capture: {
+    description: 'Receipts from the field — My Day "Log a receipt" tile: photo + job on the phone → read by Claude vision → the supplier-invoice inbox → confirmed ex-GST cost on the job (api/invoices ?action=receipt). Needs invoice_capture on. Dark.',
+    default: false,
+    target: 'global',
+    expires: '2027-03-31',
+  },
 
   // job_photos left the hidden list by owner decision (#916 call 2,
   // 2026-07-18): the gallery completes the capture loop, so it is lean-core —
@@ -433,6 +444,7 @@ const FLAG_PRESENTATION = {
   itp_simple: { label: 'Simple ITP builder (Phil)', domain: 'QA & compliance', surface: 'Phil', previewHref: '/phil/jobs' },
   job_materials_spend: { label: 'Job materials spend ledger', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/v2/jobs' },
   invoice_capture: { label: 'Supplier invoice capture', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/invoices' },
+  receipt_capture: { label: 'Receipts from the field', domain: 'Jobs', surface: 'Phil', previewHref: '/phil/my-day' },
   admin_flags_readout: { label: 'Flags readout card', domain: 'Platform', surface: 'BuhlOS', previewHref: '/command-centre' },
   servicem8_sync: { label: 'ServiceM8 job sync', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/command-centre' },
   phil_sharpened: { label: 'Phil sharpened redesign', domain: 'Phil', surface: 'Phil', previewHref: '/phil/my-day' },

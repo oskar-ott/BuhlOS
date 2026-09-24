@@ -28,10 +28,11 @@ const CHECK_LABELS = {
   under_cap: 'Ex-GST amount under the cap',
   credit_has_invoice: 'Credit note: supplier already has a confirmed invoice on this job',
   untouched: 'No person has edited or held it',
+  not_paid_personally: 'Receipt: not paid with a worker\'s own money (those need a person to reimburse)',
 };
 
 function isPrinted(field) {
-  return !!(field && field.provenance === 'pdf_text' && field.value != null);
+  return !!(field && (field.provenance === 'pdf_text' || field.provenance === 'ocr') && field.value != null);
 }
 
 /**
@@ -51,11 +52,18 @@ function evaluateAutoConfirm(inv, ctx) {
   // An evidence placement (no IV printed) may stand in for the IV checks only
   // when the owner allows it AND the evidence is strong (a delivery address).
   const evidenceOk = inv.matchStatus === 'inferred' && reason.source === 'evidence' && reason.strength === 'strong' && ctx.allowInferred === true && !!inv.matchedJobId;
-  add('labelled_iv', (inv.matchStatus === 'exact' && reason.source === 'labelled') || evidenceOk, evidenceOk ? 'evidence: delivery address' : reason.label || reason.source || null);
-  add('exact_match', (inv.matchStatus === 'exact' && !!inv.matchedJobId && Number(reason.matchCount) === 1) || evidenceOk, evidenceOk ? 'evidence: delivery address' : undefined);
+  // A receipt from the field: the worker chose the job at the moment of work;
+  // it stands in for the IV checks only when the owner allows receipts to book.
+  const workerOk = inv.source === 'receipt' && inv.matchStatus === 'manual' && reason.source === 'worker' && ctx.allowReceipts === true && !!inv.matchedJobId;
+  const standIn = evidenceOk ? 'evidence: delivery address' : workerOk ? 'job chosen by the worker' : null;
+  add('labelled_iv', (inv.matchStatus === 'exact' && reason.source === 'labelled') || evidenceOk || workerOk, standIn || reason.label || reason.source || null);
+  add('exact_match', (inv.matchStatus === 'exact' && !!inv.matchedJobId && Number(reason.matchCount) === 1) || evidenceOk || workerOk, standIn || undefined);
   add('job_active', (ctx.jobStatus || 'active') === 'active', ctx.jobStatus || 'active');
   const f = inv.fields || {};
-  add('figures_printed', isPrinted(f.subtotalCents) && isPrinted(f.gstCents) && isPrinted(f.totalCents));
+  // A retail receipt prints the total and "GST included"; ex GST is their
+  // difference (exact arithmetic on two printed figures, not a guess).
+  const receiptFigures = inv.source === 'receipt' && isPrinted(f.gstCents) && isPrinted(f.totalCents) && f.subtotalCents && f.subtotalCents.provenance === 'derived';
+  add('figures_printed', (isPrinted(f.subtotalCents) && isPrinted(f.gstCents) && isPrinted(f.totalCents)) || receiptFigures);
   add('totals_consistent', inv.totalsConsistent === true);
   add('invoice_number', typeof inv.supplierInvoiceNumber === 'string' && inv.supplierInvoiceNumber.trim().length > 0);
   let dateOk = false;
@@ -73,6 +81,7 @@ function evaluateAutoConfirm(inv, ctx) {
   add('under_cap', Number.isInteger(cents) && cents >= 0 && cents < ctx.capCents, `${cents} < ${ctx.capCents} cents`);
   if (inv.documentType === 'credit_note') add('credit_has_invoice', !!ctx.supplierConfirmedOnJob);
   add('untouched', !inv.reviewedAt && !inv.heldAt);
+  if (inv.source === 'receipt') add('not_paid_personally', !inv.paidPersonally);
 
   return { eligible: checks.every((c) => c.ok), checks };
 }

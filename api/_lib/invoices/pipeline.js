@@ -29,6 +29,10 @@ const { withTimeout } = require('../with-timeout');
 const { extractStatementLines, reconcileStatement } = require('./statement');
 const { extractLineItems } = require('./lines');
 const { inferPlacement } = require('./placement');
+const { extractedFromVision, linesFromVision } = require('./receipt');
+
+// Reasons that only mean "no IV number" — irrelevant once a person chose the job.
+const IV_REASONS = new Set(['no_iv_reference', 'iv_not_found', 'iv_ambiguous', 'multi_reference']);
 const { categorise, descriptionKey, isCategory } = require('./categories');
 
 const MAX_PDF_BYTES = 10 * 1024 * 1024;
@@ -134,10 +138,12 @@ async function processInvoice({ sql, tenantId, invoiceId, trigger, deps }) {
     const doc = await store.getDocumentWithBlob(sql, tenantId, invoiceId, null);
     if (!doc) return await fail('no_document', { retryable: false });
 
-    // A photo or scan: nothing to read — straight to a person, image intact.
-    if (doc.kind === 'image') {
+    // A photo or scan with no reader available: straight to a person, image
+    // intact. With the vision reader (receipts, 2026-09-25) photos are read.
+    if (doc.kind === 'image' && typeof deps.visionExtract !== 'function') {
       await store.applyExtraction(sql, tenantId, invoiceId, {
-        status: 'needs_review', reviewReasons: ['image_only'], extractionMethod: 'none', matchStatus: 'none',
+        status: 'needs_review', reviewReasons: ['image_only'], extractionMethod: 'none', matchStatus: current.matchStatus || 'none',
+        matchedJobId: current.matchedJobId || null, matchReason: current.matchReason || null,
         fields: {}, ivCandidates: [], excerpt: null,
       });
       await store.finishAttempt(sql, attempt.id, { outcome: 'ok', extractionMethod: 'none' });
@@ -147,8 +153,25 @@ async function processInvoice({ sql, tenantId, invoiceId, trigger, deps }) {
 
     const run = async () => {
       const bytes = await deps.fetchPdf(doc.blobUrl, MAX_PDF_BYTES);
-      const textResult = await deps.extractText(bytes);
-      await store.updateDocumentText(sql, tenantId, doc.id, { pageCount: textResult.pageCount, hasTextLayer: textResult.hasTextLayer });
+      let vision = null;
+      if (doc.kind === 'image') {
+        vision = await deps.visionExtract({ bytes, contentType: doc.contentType });
+        if (!vision || !vision.legible || vision.totalCents == null) {
+          // Nothing trustworthy read: a person enters it, photo intact.
+          await store.applyExtraction(sql, tenantId, invoiceId, {
+            status: 'needs_review', reviewReasons: ['image_only'], extractionMethod: vision ? 'ocr' : 'none', matchStatus: current.matchStatus || 'none',
+            matchedJobId: current.matchedJobId || null, matchReason: current.matchReason || null,
+            fields: {}, ivCandidates: [], excerpt: null, supplierName: vision ? vision.storeName : null,
+          });
+          await store.finishAttempt(sql, attempt.id, { outcome: 'ok', extractionMethod: vision ? 'ocr' : 'none' });
+          await store.insertEvent(sql, tenantId, invoiceId, { event: 'review_required', detail: { reasons: ['image_only'], unreadable: true } });
+          return { ok: true, status: 'needs_review' };
+        }
+      }
+      const textResult = vision
+        ? { text: extractedFromVision(vision).placementText, pageCount: 1, hasTextLayer: true }
+        : await deps.extractText(bytes);
+      if (!vision) await store.updateDocumentText(sql, tenantId, doc.id, { pageCount: textResult.pageCount, hasTextLayer: textResult.hasTextLayer });
 
       if (!textResult.hasTextLayer) {
         await store.applyExtraction(sql, tenantId, invoiceId, {
@@ -160,17 +183,20 @@ async function processInvoice({ sql, tenantId, invoiceId, trigger, deps }) {
         return { ok: true, status: 'needs_review' };
       }
 
-      let extracted = extractInvoiceFromText(textResult.text);
-      let method = 'pdf_text';
+      let extracted = vision ? extractedFromVision(vision) : extractInvoiceFromText(textResult.text);
+      let method = vision ? 'ocr' : 'pdf_text';
       // Line items (owner pull 2026-09-24): every printed line with its
       // quantity, unit price and total, checked against the printed subtotal.
       const textLines = String(textResult.text).split(/\r?\n/).map((l) => l.replace(/\s+$/, '')).filter((l) => l.trim().length > 0);
-      let lineItems = ALLOCATABLE_TYPES.has(extracted.documentType)
-        ? extractLineItems(textLines, { subtotalCents: extracted.subtotalCents, totalCents: extracted.totalCents })
-        : { lines: [], totalCents: 0, consistent: null, reason: 'not_applicable' };
-      let lineSource = 'rule';
+      let lineItems = !ALLOCATABLE_TYPES.has(extracted.documentType)
+        ? { lines: [], totalCents: 0, consistent: null, reason: 'not_applicable' }
+        : vision
+          ? linesFromVision(vision, extracted)
+          : extractLineItems(textLines, { subtotalCents: extracted.subtotalCents, totalCents: extracted.totalCents });
+      let lineSource = vision ? 'ai' : 'rule';
       let aiLineCategories = {};
-      if (deps.aiExtract && (needsAi(extracted) || (ALLOCATABLE_TYPES.has(extracted.documentType) && lineItems.consistent !== true))) {
+      if (vision) for (const l of vision.lines) aiLineCategories[descriptionKey(l.description)] = l.category;
+      if (!vision && deps.aiExtract && (needsAi(extracted) || (ALLOCATABLE_TYPES.has(extracted.documentType) && lineItems.consistent !== true))) {
         try {
           const ai = await deps.aiExtract(textResult.text, extracted);
           if (ai) {
@@ -224,7 +250,20 @@ async function processInvoice({ sql, tenantId, invoiceId, trigger, deps }) {
       });
 
       const jobs = await deps.readJobs();
-      const decision = decideMatch(extracted, jobs);
+      let decision = decideMatch(extracted, jobs);
+      // A receipt from the field: the worker chose the job on the phone — that
+      // choice stands (a person made it at the moment of work); IV-number
+      // reasons no longer apply.
+      if (current.source === 'receipt' && current.matchedJobId) {
+        const job = jobs.find((j) => j && j.id === current.matchedJobId && !j.deleted) || null;
+        decision = {
+          ...decision,
+          matchStatus: 'manual',
+          matchedJob: job,
+          matchReason: { source: 'worker', field: 'chosen on the phone', chosenBy: current.createdBy || null, jobName: job ? job.name || null : null, jobStatus: job ? job.status || 'active' : null, matchCount: 1, warnings: job && (job.status || 'active') !== 'active' ? [`the job is ${job.status}`] : [] },
+          reasons: decision.reasons.filter((r) => !IV_REASONS.has(r)).concat(job ? [] : ['job_inactive']),
+        };
+      }
       const matchedJobUuid = decision.matchedJob ? await store.resolveJobUuid(sql, tenantId, decision.matchedJob.id) : null;
 
       // A statement is the supplier's list of what we owe: compare it with what
@@ -241,7 +280,7 @@ async function processInvoice({ sql, tenantId, invoiceId, trigger, deps }) {
       // Paperwork that is never a cost is set aside automatically (visible under
       // Excluded, restorable) — the review queue is for decisions, not dockets.
       const setAside = !dup.duplicate && NON_INVOICE_TYPES.has(extracted.documentType);
-      const status = dup.duplicate ? 'duplicate' : setAside ? 'excluded' : decision.reasons.length === 0 && (decision.matchStatus === 'exact' || decision.matchStatus === 'inferred') ? 'matched' : 'needs_review';
+      const status = dup.duplicate ? 'duplicate' : setAside ? 'excluded' : decision.reasons.length === 0 && ['exact', 'inferred', 'manual'].includes(decision.matchStatus) ? 'matched' : 'needs_review';
       await store.applyExtraction(sql, tenantId, invoiceId, {
         excludedReason: setAside ? `not_an_invoice:${extracted.documentType}` : null,
         supplierName: extracted.supplierName,
@@ -321,6 +360,7 @@ async function scheduleAutoBooking({ sql, tenantId, invoiceId, store, settings, 
       supplierConfirmedOnJob: onJob,
       jobStatus,
       allowInferred: settings.allowInferred === true,
+      allowReceipts: settings.allowReceipts === true,
     });
     const at = verdict.eligible && settings.enabled ? autoConfirmDeadline(settings.graceHours) : null;
     await store.scheduleAutoConfirm(sql, tenantId, invoiceId, { eligible: verdict.eligible, checks: verdict.checks, at });

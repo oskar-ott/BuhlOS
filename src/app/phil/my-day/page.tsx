@@ -54,6 +54,7 @@ import {
   PhilMyDaySharpenedAttentionFallback,
 } from "@/components/phil/PhilMyDaySharpenedAttention";
 import styles from "@/components/phil/myDay.module.css";
+import { isFlagEnabled, isFlagOn } from "../../../../api/_lib/feature-flags.js";
 
 export const dynamic = "force-dynamic";
 
@@ -134,12 +135,16 @@ export default async function MyDayPage({
   // The sharpened-chrome flags ride the same parallel wave (cached flags.json
   // reads, not per-page blob round-trips). Resolved server-side; only booleans
   // reach the client (docs/feature-flags.md).
-  const [{ todayEntry, recentEntries, fetchError }, assignedJobs, profile, sharpenedFlags] =
+  const [{ todayEntry, recentEntries, fetchError }, assignedJobs, profile, sharpenedFlags, receiptsOn] =
     await Promise.all([
       loadEntries(raw, fixDate),
       loadAssignedJobs(raw),
       loadWorkerProfile(raw),
       philSharpenedFlags(session),
+      // Receipts from the field: the worker flag AND the office inbox it feeds.
+      Promise.all([isFlagEnabled("receipt_capture", session), isFlagOn("invoice_capture")])
+        .then(([a, b]) => a && b)
+        .catch(() => false),
     ]);
 
   // Hero priority state ("a day was sent back") is driven by REJECTED HOURS,
@@ -335,6 +340,11 @@ export default async function MyDayPage({
             callJobId={soleJobId}
             todayISO={todayISO}
             viewerId={session.userId ?? null}
+            receipts={
+              receiptsOn
+                ? { jobs: jobs.map((j) => ({ id: j.id, name: j.name, code: j.code ?? null })), defaultJobId: soleJobId }
+                : null
+            }
           />
 
         </div>
@@ -528,6 +538,8 @@ async function loadAssignedJobs(cookieValue: string | undefined): Promise<{
     name: string;
     ref: string | null;
     siteAddress: string | null;
+    /** The IV code — the receipt sheet's job picker shows it beside the name. */
+    code: string | null;
   }>;
   error: boolean;
 }> {
@@ -545,6 +557,7 @@ async function loadAssignedJobs(cookieValue: string | undefined): Promise<{
         name: j.name,
         ref: j.ref ?? null,
         siteAddress: j.siteAddress ?? null,
+        code: j.code ?? null,
       }));
     return { jobs, error: false };
   } catch {

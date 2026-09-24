@@ -89,6 +89,9 @@ function invoiceRow(r) {
     sourceSubject: r.source_subject,
     sourceFrom: r.source_from,
     createdBy: r.created_by_name,
+    createdByLegacyId: r.created_by_legacy_id || null,
+    paidPersonally: r.paid_personally === true,
+    workerNote: r.worker_note || null,
     reviewedAt: iso(r.reviewed_at),
     reviewedBy: r.reviewed_by_name,
     confirmedAt: iso(r.confirmed_at),
@@ -157,12 +160,15 @@ async function createInvoice(sql, tenantId, input) {
   const rows = await sql`
     insert into public.supplier_invoices
       (tenant_id, source, status, source_email_id, source_message_id, source_subject, source_from,
-       source_links, source_text_excerpt, review_reasons, created_by_legacy_id, created_by_name)
+       source_links, source_text_excerpt, review_reasons, created_by_legacy_id, created_by_name,
+       matched_job_legacy_id, matched_job_id, match_status, match_reason, paid_personally, worker_note)
     values (${tenantId}, ${input.source}, ${input.status || 'received'},
             ${input.sourceEmailId || null}, ${input.sourceMessageId || null},
             ${input.sourceSubject || null}, ${input.sourceFrom || null},
             ${sql.json(input.sourceLinks || [])}, ${input.sourceTextExcerpt || null}, ${sql.json(input.reviewReasons || [])},
-            ${(input.createdBy && input.createdBy.id) || null}, ${(input.createdBy && input.createdBy.name) || null})
+            ${(input.createdBy && input.createdBy.id) || null}, ${(input.createdBy && input.createdBy.name) || null},
+            ${input.matchedJobId || null}, ${input.matchedJobUuid || null}, ${input.matchStatus || 'none'},
+            ${input.matchReason ? sql.json(input.matchReason) : null}, ${input.paidPersonally === true}, ${input.workerNote || null})
     returning *`;
   return invoiceRow(rows[0]);
 }

@@ -100,6 +100,52 @@ review. `api/_lib/invoices/state.js` is the transition table.
   line, field, match count, warnings (complete / archived / on-hold / draft
   jobs still match but the reviewer is warned).
 
+### Receipts from the field (owner pull 2026-09-25)
+
+"Sometimes we buy stuff at Bunnings and pay by card — no invoice, no email.
+Take a photo of the receipt, have the data extracted, and put it into the
+cost." Flag **`receipt_capture`** (global, dark; also needs `invoice_capture`
+on, because the office reviews receipts in the invoice inbox).
+
+- **Phone** (Phil My Day, sharpened layout): a **Log a receipt** tile in the
+  existing Quick grid (P10 — no new section). The sheet asks for a photo
+  (camera), the job (defaults to the worker's only job), and "I paid with my
+  own money". The photo is downscaled on the phone (≤ 1600 px JPEG).
+- **Server** (`POST /api/invoices?action=receipt`, field + LH + admin roles,
+  not clients): the job must exist and be field-openable; the receipt becomes
+  a supplier-invoice record with `source = 'receipt'`, the worker as creator,
+  and **the worker's job choice as its match** (`match_status manual`,
+  `match_reason.source 'worker'`) — IV-number reasons never apply to it. The
+  photo is read inline and the worker is told plainly what was read ("Bunnings
+  Warehouse · $84.50 · 2 items → IV3232 · Birdwood") or that the office will
+  check it. A resend of the same photo is a duplicate, never counted twice.
+- **Reading photos** (`api/_lib/invoices/vision-extract.js`): Claude **Opus 5**
+  (`INVOICE_VISION_MODEL` overrides) with vision, low effort, a strict JSON
+  schema (store, ABN, receipt number, date, ex-GST / GST / total, whether line
+  prices include GST, an IV number if written, every line with a material
+  category) and the server-side refusal fallback on. Unreadable → null →
+  review with the photo and the job kept. Runs only when `ANTHROPIC_API_KEY`
+  is set **and** `receipt_capture` is on (or `INVOICE_AI_EXTRACTION=1`) — the
+  owner opts in by turning the feature on; it also reads photos uploaded in
+  the office inbox. A few cents a photo.
+- **GST** (`api/_lib/invoices/receipt.js`): retail receipts print the total and
+  "GST included"; ex GST = total − GST (provenance `derived` from two printed
+  figures). GST-inclusive line prices are scaled into ex GST in proportion,
+  the rounding cent on the largest line, so the lines add up to the ex-GST
+  figure exactly — only when the printed lines add up to the printed total.
+- **Office**: receipts show in the inbox as "receipt · <worker>" (and "paid
+  personally"), the review screen says who chose the job and, when the worker
+  paid, "pay them back through payroll — BuhlOS records it, it does not pay
+  anyone". Confirm as usual; the cost, lines and categories flow into the job's
+  Money card and Materials used.
+- **Auto-booking**: new knob **Book receipts from the field too**
+  (`autoConfirmReceipts`, default off) lets the worker's job choice stand in for
+  the IV checks; every other check still applies (figures read, under the cap,
+  a store the office has confirmed before). Receipts paid with the worker's own
+  money never book themselves (`not_paid_personally`).
+- **Data**: migration `20260925100000_supplier_invoice_receipts` (source
+  `receipt`, `paid_personally`, `worker_note`).
+
 ### Evidence placement — no IV number printed (owner direction 2026-09-24)
 
 Wholesalers print the IV number; a boutique supplier has nowhere to put one.

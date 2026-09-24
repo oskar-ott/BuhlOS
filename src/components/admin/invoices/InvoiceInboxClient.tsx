@@ -366,6 +366,12 @@ function InvoiceTable({ invoices, jobsById }: { invoices: Invoice[]; jobsById: I
                 <Link href={`/invoices/${encodeURIComponent(inv.id)}` as Route} className="font-medium text-text underline-offset-2 hover:underline">
                   {inv.supplierName ?? <span className="text-text-muted">Unknown supplier</span>}
                 </Link>
+                {inv.source === "receipt" ? (
+                  <span className="ml-2 text-xs text-text-muted" data-testid="invoice-row-receipt">
+                    receipt · {inv.createdBy ?? "field"}
+                    {inv.paidPersonally ? " · paid personally" : ""}
+                  </span>
+                ) : null}
               </td>
               <td className="px-3 py-2 font-mono text-xs">{inv.supplierInvoiceNumber ?? "—"}</td>
               <td className="px-3 py-2 whitespace-nowrap">{formatShortDate(inv.invoiceDate)}</td>
@@ -406,7 +412,10 @@ function InvoiceCards({ invoices, jobsById }: { invoices: Invoice[]; jobsById: I
             className="block rounded-card border border-border bg-surface-raised p-4 shadow-card"
           >
             <div className="flex items-start justify-between gap-2">
-              <span className="font-medium text-text">{inv.supplierName ?? "Unknown supplier"}</span>
+              <span className="font-medium text-text">
+                {inv.supplierName ?? "Unknown supplier"}
+                {inv.source === "receipt" ? <span className="block text-xs font-normal text-text-muted">receipt · {inv.createdBy ?? "field"}{inv.paidPersonally ? " · paid personally" : ""}</span> : null}
+              </span>
               <StatusChip tone={statusTone(inv.status)} uppercase={false}>
                 {inv.status === "confirmed" && inv.confirmedBy === "BuhlOS (auto)" ? "Booked automatically" : statusLabel(inv.status)}
               </StatusChip>

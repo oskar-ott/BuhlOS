@@ -39,6 +39,7 @@ import {
   formatCentsExact,
   formatShortDate,
   excludedReasonLabel,
+  sourceLabel,
   reviewReasonLabel,
   statusLabel,
   statusTone,
@@ -227,7 +228,7 @@ export function InvoiceReviewClient({ invoiceId }: { invoiceId: string }) {
           </h2>
           <p className="mt-1 text-sm text-text-muted">
             Supplier invoice number <span className="font-mono text-text">{inv.supplierInvoiceNumber ?? "—"}</span> · received{" "}
-            {formatShortDate(inv.createdAt)} via {inv.source === "email" ? "email" : "upload"}
+            {formatShortDate(inv.createdAt)} via {sourceLabel(inv.source, inv.createdBy)}
             {inv.sourceSubject ? ` · “${inv.sourceSubject}”` : ""}
           </p>
         </div>
@@ -243,6 +244,18 @@ export function InvoiceReviewClient({ invoiceId }: { invoiceId: string }) {
         >
           {message.text}
         </p>
+      ) : null}
+
+      {inv.source === "receipt" && (inv.paidPersonally || inv.workerNote) ? (
+        <Card className={cn(inv.paidPersonally ? "border-l-4 border-l-accent-yellow" : "")} data-testid="invoice-receipt-worker">
+          <CardKicker>From the field</CardKicker>
+          {inv.paidPersonally ? (
+            <p className="mt-2 text-sm text-text">
+              {inv.createdBy ?? "The worker"} paid for this with their own money — pay them back through payroll. BuhlOS records it; it does not pay anyone.
+            </p>
+          ) : null}
+          {inv.workerNote ? <p className="mt-2 text-sm text-text-muted">“{inv.workerNote}”</p> : null}
+        </Card>
       ) : null}
 
       {inv.status === "excluded" && excludedReasonLabel(inv.excludedReason)?.startsWith("Set aside") ? (
@@ -453,6 +466,8 @@ export function InvoiceReviewClient({ invoiceId }: { invoiceId: string }) {
                 ? `Exact match: “${String(reason.raw ?? reason.normalised)}” read under “${String(reason.label ?? "an unlabelled line")}” → ${String(reason.normalised)} = this job's code (${String(reason.matchCount ?? 1)} job carries it).`
                 : inv.matchStatus === "inferred"
                   ? `No IV number printed — placed by evidence (${String(reason.strength ?? "medium")}): ${(Array.isArray(reason.evidence) ? (reason.evidence as Array<{ detail: string }>) : []).map((e) => e.detail).join("; ")}.`
+                : inv.matchStatus === "manual" && reason.source === "worker"
+                  ? `Chosen on the phone by ${String(reason.chosenBy ?? "the worker")} when they sent the receipt.`
                 : inv.matchStatus === "manual"
                   ? "Chosen by the office."
                   : inv.matchStatus === "ambiguous"

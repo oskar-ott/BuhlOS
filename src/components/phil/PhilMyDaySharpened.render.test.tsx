@@ -179,6 +179,15 @@ describe("PhilMyDayQuickGrid", () => {
     expect(withoutJob).not.toContain("Who to call");
   });
 
+  it("Log a receipt appears only when the server says receipts are on — no trace otherwise", () => {
+    expect(renderGrid({ hoursDue: false, callJobId: null })).not.toContain("Log a receipt");
+    const on = renderGrid({ hoursDue: false, callJobId: null, receipts: { jobs: [{ id: "job-1", name: "Birdwood", code: "IV3232" }], defaultJobId: "job-1" } });
+    expect(on).toContain("Log a receipt");
+    expect(on).toContain("Paid by card? Snap it");
+    expect(on).toContain('data-testid="phil-my-day-receipt"');
+    expect(on).not.toContain("$"); // no figures before anything is sent
+  });
+
   it("adds NO duplicate Capture tile (the FAB is capture)", () => {
     const html = renderGrid({ hoursDue: true, callJobId: "job-1" });
     // Capture stays the tab bar FAB — no lookalike tile in the grid.

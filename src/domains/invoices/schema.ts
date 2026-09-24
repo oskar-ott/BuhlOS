@@ -128,7 +128,7 @@ export const InvoiceSchema = z
   .object({
     id: z.string(),
     status: z.enum(INVOICE_STATUSES),
-    source: z.enum(["email", "upload"]),
+    source: z.enum(["email", "upload", "receipt"]),
     documentType: z.enum(DOCUMENT_TYPES),
     supplierName: z.string().nullable(),
     supplierKey: z.string().nullable(),
@@ -163,6 +163,9 @@ export const InvoiceSchema = z
     sourceTextExcerpt: z.string().nullable().default(null),
     sourceFrom: z.string().nullable(),
     createdBy: z.string().nullable(),
+    /** Receipts from the field: the worker paid with their own money (the office reimburses through payroll). */
+    paidPersonally: z.boolean().default(false),
+    workerNote: z.string().nullable().default(null),
     reviewedAt: z.string().nullable(),
     reviewedBy: z.string().nullable(),
     confirmedAt: z.string().nullable(),
