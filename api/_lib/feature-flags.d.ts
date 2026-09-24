@@ -32,6 +32,7 @@ export type FlagKey =
   | "itp_simple" // #912 simple mobile ITP builder
   | "job_materials_spend" // owner pull 2026-08-23 — per-job materials spend ledger on the admin job hub
   | "invoice_capture" // supplier-invoice capture — inbound email + upload → exact IV match → confirmed job cost (docs/invoice-capture.md)
+  | "receipt_capture" // receipts from the field — My Day photo + job → vision read → the invoice inbox (needs invoice_capture)
   // #760 owner feature-control kill-switches (LIVE features, default ON).
   // The 2026-07 lean reset + gut left only the lean core here; every other
   // feature's flag was deleted with its code (docs/product/02-lean-reset.md).

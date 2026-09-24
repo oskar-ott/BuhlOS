@@ -216,4 +216,15 @@ describe.skipIf(!ENABLED)("invoices store — dev Postgres", () => {
     expect(row).toMatchObject({ matchStatus: "inferred", matchedJobId: "birdwood" });
     expect(row.matchReason).toMatchObject({ source: "evidence", strength: "strong" });
   });
+
+  it("creates a receipt from the field with the worker's job, the own-money flag and a note", async () => {
+    const r = await store.createInvoice(sql, tenantId, {
+      source: "receipt", createdBy: { id: "u_sparky", name: "Sam Sparky" }, sourceSubject: marker,
+      matchedJobId: "birdwood", matchedJobUuid: null, matchStatus: "manual", matchReason: { source: "worker", chosenBy: "Sam Sparky" },
+      paidPersonally: true, workerNote: "switchboard bits",
+    });
+    created.push(r.id);
+    expect(r).toMatchObject({ source: "receipt", matchedJobId: "birdwood", matchStatus: "manual", paidPersonally: true, workerNote: "switchboard bits", createdBy: "Sam Sparky", createdByLegacyId: "u_sparky" });
+    expect(r.matchReason).toMatchObject({ source: "worker" });
+  });
 });

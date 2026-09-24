@@ -10,6 +10,7 @@ import {
   Phone,
 } from "lucide-react";
 import { PhilOfflineLink } from "./PhilOfflineLink";
+import { PhilReceiptEntry, type PhilReceiptJob } from "./PhilReceiptEntry";
 import { PhilStatusBadge, type PhilStatusTone } from "./ui/PhilStatusBadge";
 import { useOnline } from "./useOnline";
 import type { PhilNeedsYouItem } from "@/domains/phil/needs-you";
@@ -374,7 +375,11 @@ export function PhilMyDayQuickGrid({
   callJobId,
   todayISO,
   viewerId,
+  receipts = null,
 }: {
+  /** Receipts from the field (receipt_capture + invoice_capture, resolved by
+   *  the server page). null = the tile is absent — the feature leaves no trace. */
+  receipts?: { jobs: ReadonlyArray<PhilReceiptJob>; defaultJobId: string | null } | null;
   /** True only when today genuinely has no time entry (the page's real
    *  todayEntry === null) — drives the amber "Due" chip. */
   hoursDue: boolean;
@@ -425,6 +430,10 @@ export function PhilMyDayQuickGrid({
             <span className="text-xs leading-tight text-text-muted">This job&rsquo;s contacts</span>
           </PhilOfflineLink>
         ) : null}
+
+        {/* Log a receipt — a card purchase recorded where it happens (P13).
+            Enters this existing slot; no new section (P10). */}
+        {receipts ? <PhilReceiptEntry jobs={receipts.jobs} defaultJobId={receipts.defaultJobId} tileClassName={tileClass} /> : null}
       </div>
     </section>
   );

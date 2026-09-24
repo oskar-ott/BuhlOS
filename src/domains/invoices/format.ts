@@ -194,9 +194,16 @@ export function formatMeasureMap(m: Record<string, number> | null | undefined): 
   return parts.join(" + ");
 }
 
+/** Where a record came from, in words. */
+export function sourceLabel(source: string, createdBy?: string | null): string {
+  if (source === "receipt") return createdBy ? `receipt from ${createdBy}` : "receipt from the field";
+  return source === "email" ? "email" : "upload";
+}
+
 export const EVENT_LABELS: Record<string, string> = {
   received: "Received by email",
   uploaded: "Uploaded",
+  receipt_submitted: "Receipt sent from the field",
   extracted: "Details read from the PDF",
   lines_read: "Line items read",
   line_corrected: "A line was re-filed",

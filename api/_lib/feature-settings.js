@@ -86,6 +86,12 @@ const SETTINGS_REGISTRY = {
       description: 'A document with no IV number that BuhlOS placed on a job because its DELIVERY ADDRESS is that job\'s site may book itself like an IV-matched one (every other check still applies). Off = evidence placements always wait for a person to confirm. Placements by job name alone never book themselves.',
       default: false,
     },
+    autoConfirmReceipts: {
+      type: 'boolean',
+      label: 'Book receipts from the field too',
+      description: 'A receipt a worker photographed and logged to a job may book itself like an IV-matched invoice when every other check passes (figures read, under the cap, a store the office has confirmed before). Off = every receipt waits for a person. Receipts paid with a worker\'s own money always wait (someone has to reimburse them).',
+      default: false,
+    },
     alertQuietDays: {
       type: 'number',
       label: 'Alert after this many quiet days',

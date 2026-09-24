@@ -15,6 +15,7 @@
 //   POST   /api/invoices?action=process-pending                        → processes up to 3 received rows
 //   POST   /api/invoices?action=retry&id=X                             → re-runs extraction
 //   PUT    /api/invoices?id=X                  { field corrections }   → re-checks totals + IV match
+//   POST   /api/invoices?action=receipt          FIELD: { jobId, filename, dataUrl, paidPersonally?, note? } → a photographed receipt logged to a job, read, and handed to the office (receipt_capture + invoice_capture)
 //   PUT    /api/invoices?action=line&id=X      { lineNo, category?, description? } → re-files a line item; the category is REMEMBERED for this supplier + product
 //   GET    /api/invoices?action=job-materials&jobId=  a job's materials breakdown by category, line by line (confirmed invoices only)
 //   POST   /api/invoices?action=select-job&id=X   { jobId }
@@ -36,7 +37,8 @@
 // and returns { error: <stable code> } on failure — never an exception message.
 
 const { readBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, isAdminRole } = require('./_lib/auth');
+const { requireAuth, isAdminRole, isLeadingHandRole, isFieldRole } = require('./_lib/auth');
+const { isFieldOpenable } = require('./_lib/job-lifecycle');
 const { isFlagEnabled, isFlagOn } = require('./_lib/feature-flags');
 const { requireCron } = require('./_lib/cron-auth');
 const { getDb } = require('./_lib/supabase-db');
@@ -56,6 +58,7 @@ const { canTransition, DOCUMENT_TYPES, ALLOCATABLE_TYPES, STATUSES } = require('
 const { ingestReceivedEmail } = require('./_lib/invoices/ingest');
 const resend = require('./_lib/invoices/resend-inbound');
 const aiExtractModule = require('./_lib/invoices/ai-extract');
+const visionModule = require('./_lib/invoices/vision-extract');
 const { getSettings } = require('./_lib/feature-settings');
 const { sendEmail } = require('./_lib/email');
 const { readTimesheetRecipients } = require('./_lib/timesheet-email-settings');
@@ -99,9 +102,10 @@ async function autoConfirmSettings() {
       graceHours: Number(s.autoConfirmGraceHours),
       lookbackDays: Number(s.autoConfirmLookbackDays),
       allowInferred: s.autoConfirmInferred === true,
+      allowReceipts: s.autoConfirmReceipts === true,
     };
   } catch {
-    return { enabled: false, capCents: 0, graceHours: 12, lookbackDays: 90, allowInferred: false };
+    return { enabled: false, capCents: 0, graceHours: 12, lookbackDays: 90, allowInferred: false, allowReceipts: false };
   }
 }
 
@@ -112,8 +116,17 @@ async function pipelineDeps() {
     extractText: extractPdfText,
     readJobs,
     aiExtract: aiExtractModule.enabled() ? aiExtractModule.aiExtract : null,
+    visionExtract: await visionEnabled() ? visionModule.visionExtract : null,
     autoConfirm: await autoConfirmSettings(),
   };
+}
+
+/** Photos are read by Claude vision only when the key exists AND the owner has
+ *  opted in — receipts from the field on, or the AI rung switched on. */
+async function visionEnabled() {
+  if (!visionModule.enabled()) return false;
+  if (process.env.INVOICE_AI_EXTRACTION === '1') return true;
+  try { return await isFlagOn('receipt_capture'); } catch { return false; }
 }
 
 async function journal(me, action, invoice, summary, metadata) {
@@ -228,6 +241,9 @@ async function handler(req, res) {
 
   const me = await requireAuth(req, res);
   if (!me) return;
+  // Receipts from the field: the one worker-facing action (receipt_capture is
+  // a GLOBAL flag; the office side it feeds must be on too).
+  if (action === 'receipt' && req.method === 'POST') return submitReceipt(req, me, res);
   if (!(await isFlagEnabled('invoice_capture', me))) return res.status(404).json({ error: 'not found' });
   if (!isAdminRole(me.role)) return res.status(403).json({ error: 'admin only' });
 
@@ -452,6 +468,75 @@ async function upload(sql, tenant, me, body, res) {
   const detail = await detailWithJob(sql, tenant, invoice.id);
   await journal(me, 'invoice.uploaded', detail.invoice, `Uploaded supplier document ${file.filename}`, { filename: file.filename, outcome: result.status || result.code });
   return res.status(201).json(detail);
+}
+
+/**
+ * A worker photographs a card receipt and picks the job (owner pull
+ * 2026-09-25). The receipt becomes a supplier-invoice record (source
+ * 'receipt') with the worker's job choice as its match, the photo is read
+ * inline (Claude vision when opted in), and the worker is told plainly what
+ * was read — or that the office will check it. Nothing books here: the office
+ * confirms (or the owner knob lets clean receipts book themselves).
+ */
+async function submitReceipt(req, me, res) {
+  if (!(await isFlagEnabled('receipt_capture', me)) || !(await isFlagOn('invoice_capture'))) return res.status(404).json({ error: 'not found' });
+  if (!(isAdminRole(me.role) || isLeadingHandRole(me.role) || isFieldRole(me.role))) return res.status(403).json({ error: 'forbidden' });
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  const jobId = typeof body.jobId === 'string' ? body.jobId : '';
+  const jobs = await readJobs();
+  const job = liveJob(jobs, jobId);
+  if (!job || !isFieldOpenable(job)) return res.status(400).json({ error: 'job_not_available' });
+  const file = readUpload(body, res);
+  if (!file) return;
+  let sql;
+  let tenant;
+  try {
+    sql = getDb({ mode: 'write' });
+    tenant = await store.resolveTenant(sql);
+  } catch (e) {
+    console.error('[invoices] receipt: store unavailable', { code: (e && e.code) || 'db' });
+    return res.status(503).json({ error: 'store_unavailable' });
+  }
+  if (!tenant) return res.status(503).json({ error: 'store_unprovisioned' });
+  const actor = actorOf(me);
+  const note = typeof body.note === 'string' ? body.note.replace(/\s+/g, ' ').trim().slice(0, 200) : '';
+  const invoice = await store.createInvoice(sql, tenant.id, {
+    source: 'receipt', createdBy: actor,
+    matchedJobId: job.id, matchedJobUuid: await store.resolveJobUuid(sql, tenant.id, job.id), matchStatus: 'manual',
+    matchReason: { source: 'worker', field: 'chosen on the phone', chosenBy: actor.name, jobName: job.name || null, jobStatus: job.status || 'active', matchCount: 1, warnings: [] },
+    paidPersonally: body.paidPersonally === true, workerNote: note || null,
+  });
+  try {
+    await storeDocumentFor(sql, tenant, me, invoice.id, file, 'upload');
+  } catch (e) {
+    await store.setStatus(sql, tenant.id, invoice.id, 'failed', { failureCode: 'storage_failed' });
+    console.error('[invoices] receipt storage failed', { code: (e && e.code) || 'blob' });
+    return res.status(502).json({ error: 'storage_failed' });
+  }
+  await store.insertEvent(sql, tenant.id, invoice.id, { event: 'receipt_submitted', actor, detail: { jobId: job.id, kind: file.kind, byteSize: file.bytes.length, paidPersonally: body.paidPersonally === true } });
+  await store.claimOne(sql, tenant.id, invoice.id);
+  let result = { ok: false };
+  try {
+    result = await processInvoice({ sql, tenantId: tenant.id, invoiceId: invoice.id, trigger: 'receipt', deps: await pipelineDeps() });
+  } catch {
+    // stays received; the sweep reads it
+  }
+  const row = await store.getInvoiceRow(sql, tenant.id, invoice.id);
+  const lines = typeof store.listInvoiceLines === 'function' ? await store.listInvoiceLines(sql, tenant.id, invoice.id) : [];
+  await journal(me, 'invoice.uploaded', { ...row, matchedJobId: job.id }, `Logged a receipt to ${job.code || job.name || job.id}`, { receipt: true, paidPersonally: body.paidPersonally === true });
+  const read = !!(result && result.ok) && row && row.totalCents != null && row.extractionMethod === 'ocr';
+  return res.status(201).json({
+    id: invoice.id,
+    status: row ? row.status : 'received',
+    duplicate: row ? row.status === 'duplicate' : false,
+    read,
+    storeName: row ? row.supplierName : null,
+    totalCents: row ? row.totalCents : null,
+    receiptDate: row ? row.invoiceDate : null,
+    lineCount: lines.length,
+    job: { id: job.id, name: job.name || job.id, code: typeof job.code === 'string' ? job.code : null },
+    paidPersonally: body.paidPersonally === true,
+  });
 }
 
 /** Give a record that arrived without a usable document (link-only email,

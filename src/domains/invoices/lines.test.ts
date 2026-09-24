@@ -81,6 +81,9 @@ describe("categorise — site language buckets, priority order, learned keys", (
     expect(of("Test & tag labels roll")).toBe("testing");
     expect(of("Cordless impact driver 18V")).toBe("tools");
     expect(of("Mystery item 42")).toBe("other");
+    // found by the first live read: a brand is not a category (HPM and Clipsal make cable too)
+    expect(of("HPM 2.5MM TPS CABLE 20M")).toBe("cable");
+    expect(of("CLIPSAL DOUBLE GPO WHITE")).toBe("accessories");
     expect(cats.categorise("").confidence).toBe("low");
   });
   it("description keys collapse case and punctuation so the same product matches next time", () => {
