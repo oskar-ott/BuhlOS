@@ -80,6 +80,12 @@ const SETTINGS_REGISTRY = {
       step: 1,
       unit: 'days',
     },
+    autoConfirmInferred: {
+      type: 'boolean',
+      label: 'Book evidence placements too',
+      description: 'A document with no IV number that BuhlOS placed on a job because its DELIVERY ADDRESS is that job\'s site may book itself like an IV-matched one (every other check still applies). Off = evidence placements always wait for a person to confirm. Placements by job name alone never book themselves.',
+      default: false,
+    },
     alertQuietDays: {
       type: 'number',
       label: 'Alert after this many quiet days',

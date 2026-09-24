@@ -15,8 +15,8 @@ const AUTO_ACTOR = Object.freeze({ id: '__auto__', name: 'BuhlOS (auto)', role: 
 
 const CHECK_LABELS = {
   document_type: 'Tax invoice, invoice or credit note',
-  labelled_iv: 'IV reference read from a labelled field',
-  exact_match: 'Exactly one job carries the IV reference',
+  labelled_iv: 'IV reference read from a labelled field (or a strong evidence placement, when allowed)',
+  exact_match: 'Exactly one job carries the IV reference (or the delivery address is one job\'s site, when allowed)',
   job_active: 'The matched job is active',
   figures_printed: 'Ex-GST, GST and total all printed on the document',
   totals_consistent: 'Ex-GST + GST equals the total',
@@ -48,8 +48,11 @@ function evaluateAutoConfirm(inv, ctx) {
 
   add('document_type', ALLOCATABLE_TYPES.has(inv.documentType), inv.documentType);
   const reason = inv.matchReason || {};
-  add('labelled_iv', inv.matchStatus === 'exact' && reason.source === 'labelled', reason.label || reason.source || null);
-  add('exact_match', inv.matchStatus === 'exact' && !!inv.matchedJobId && Number(reason.matchCount) === 1);
+  // An evidence placement (no IV printed) may stand in for the IV checks only
+  // when the owner allows it AND the evidence is strong (a delivery address).
+  const evidenceOk = inv.matchStatus === 'inferred' && reason.source === 'evidence' && reason.strength === 'strong' && ctx.allowInferred === true && !!inv.matchedJobId;
+  add('labelled_iv', (inv.matchStatus === 'exact' && reason.source === 'labelled') || evidenceOk, evidenceOk ? 'evidence: delivery address' : reason.label || reason.source || null);
+  add('exact_match', (inv.matchStatus === 'exact' && !!inv.matchedJobId && Number(reason.matchCount) === 1) || evidenceOk, evidenceOk ? 'evidence: delivery address' : undefined);
   add('job_active', (ctx.jobStatus || 'active') === 'active', ctx.jobStatus || 'active');
   const f = inv.fields || {};
   add('figures_printed', isPrinted(f.subtotalCents) && isPrinted(f.gstCents) && isPrinted(f.totalCents));

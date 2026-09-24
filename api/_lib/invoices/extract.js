@@ -15,6 +15,7 @@
 // it — see docs/invoice-capture.md "Samples still required".
 
 const { parseMoneyToCents, reconcileTotals } = require('./money');
+const { extractDeliveryAddress } = require('./placement');
 const { extractIvCandidates, selectIvReference, normaliseIvReference } = require('./iv-match');
 const { extractAbn } = require('./supplier-identity');
 
@@ -285,7 +286,25 @@ function extractInvoiceFromText(text) {
     ivSelection,
     fields,
     excerpt: lines.join('\n').slice(0, EXCERPT_CHARS),
+    // evidence for placement when no IV number is printed (placement.js)
+    deliveryAddress: extractDeliveryAddress(lines),
+    customerReferences: extractCustomerReferences(lines),
+    placementText: lines.join('\n'),
   };
+}
+
+const REFERENCE_LABEL = /\b(?:your\s*(?:ref|reference|order)|customer\s*(?:ref|reference|order|po)|order\s*(?:ref|reference|no|number|#)|purchase\s*order|po\s*(?:no|number|#)?|reference|ref|attention|attn|project|site\s*name)\b\s*[:#\-]?\s*/i;
+/** Free-text references a supplier prints back ("Your ref: Birdwood level 2"). Pure. */
+function extractCustomerReferences(lines) {
+  const out = [];
+  for (const line of lines) {
+    const m = REFERENCE_LABEL.exec(line);
+    if (!m) continue;
+    const v = line.slice(m.index + m[0].length).split(/\s{3,}/)[0].trim();
+    if (v && v.length >= 3 && v.length <= 80 && !/^\d{1,2}[\/\-.]\d{1,2}/.test(v)) out.push(v);
+    if (out.length >= 5) break;
+  }
+  return out;
 }
 
 module.exports = {

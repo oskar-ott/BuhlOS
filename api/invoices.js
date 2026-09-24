@@ -98,9 +98,10 @@ async function autoConfirmSettings() {
       capCents: Math.round(Number(s.autoConfirmCapDollars) * 100),
       graceHours: Number(s.autoConfirmGraceHours),
       lookbackDays: Number(s.autoConfirmLookbackDays),
+      allowInferred: s.autoConfirmInferred === true,
     };
   } catch {
-    return { enabled: false, capCents: 0, graceHours: 12, lookbackDays: 90 };
+    return { enabled: false, capCents: 0, graceHours: 12, lookbackDays: 90, allowInferred: false };
   }
 }
 
@@ -149,9 +150,12 @@ async function detailWithJob(sql, tenant, id, jobs) {
   const dupOf = inv.duplicateOfId ? await store.getInvoiceRow(sql, tenant.id, inv.duplicateOfId) : null;
   const supplierPref = inv.supplierKey ? await store.getSupplierPref(sql, tenant.id, inv.supplierKey) : { alwaysReview: false, setBy: null, setAt: null };
   const lines = Array.isArray(detail.lines) ? detail.lines.map((l) => ({ ...l, measure: measureOf(l.description, l.quantity, l.unit) })) : [];
+  const evidenceCandidates = inv.matchStatus === 'none' && inv.matchReason && Array.isArray(inv.matchReason.suggestions)
+    ? inv.matchReason.suggestions.map((c) => all.find((j) => j && j.id === c.id)).filter(Boolean).map(jobSummaryRow)
+    : [];
   const suggestions = inv.matchStatus === 'not_found' && inv.ivReference
     ? nearMissJobs(inv.ivReference, buildJobCodeIndex(all)).slice(0, 3).map(jobSummaryRow)
-    : [];
+    : evidenceCandidates;
   return {
     ...detail,
     lines,
@@ -587,7 +591,7 @@ async function bookDueInvoices(sql, tenant) {
     try {
       const r = await store.confirmAllocation(sql, tenant.id, inv.id, {
         jobLegacyId: job.id, jobUuid: await store.resolveJobUuid(sql, tenant.id, job.id), amountCents,
-        gstCents: inv.gstCents, totalCents: inv.totalCents, matchStatus: 'exact', actor: AUTO_ACTOR,
+        gstCents: inv.gstCents, totalCents: inv.totalCents, matchStatus: inv.matchStatus === 'inferred' ? 'inferred' : 'exact', actor: AUTO_ACTOR,
       });
       if (r.conflict) { out.push({ id: inv.id, booked: false }); continue; }
       await store.insertEvent(sql, tenant.id, inv.id, { event: 'auto_confirmed', actor: AUTO_ACTOR, detail: { jobId: job.id, amountCents, checks: inv.autoConfirmChecks } });
@@ -838,7 +842,7 @@ async function confirm(sql, tenant, me, current, body, res) {
     amountCents,
     gstCents: current.gstCents,
     totalCents: current.totalCents,
-    matchStatus: current.matchStatus === 'exact' ? 'exact' : 'manual',
+    matchStatus: current.matchStatus === 'exact' || current.matchStatus === 'inferred' ? current.matchStatus : 'manual',
     actor: actorOf(me),
   });
   if (r.conflict) return res.status(409).json({ error: 'already_allocated', allocation: r.allocation });

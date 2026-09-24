@@ -451,6 +451,8 @@ export function InvoiceReviewClient({ invoiceId }: { invoiceId: string }) {
             <p className="mt-2 text-xs text-text-muted" data-testid="invoice-match-reason">
               {inv.matchStatus === "exact" && typeof reason.normalised === "string"
                 ? `Exact match: “${String(reason.raw ?? reason.normalised)}” read under “${String(reason.label ?? "an unlabelled line")}” → ${String(reason.normalised)} = this job's code (${String(reason.matchCount ?? 1)} job carries it).`
+                : inv.matchStatus === "inferred"
+                  ? `No IV number printed — placed by evidence (${String(reason.strength ?? "medium")}): ${(Array.isArray(reason.evidence) ? (reason.evidence as Array<{ detail: string }>) : []).map((e) => e.detail).join("; ")}.`
                 : inv.matchStatus === "manual"
                   ? "Chosen by the office."
                   : inv.matchStatus === "ambiguous"
@@ -461,9 +463,13 @@ export function InvoiceReviewClient({ invoiceId }: { invoiceId: string }) {
                         ? `Several different IV references were printed: ${(Array.isArray(reason.distinct) ? (reason.distinct as string[]) : []).join(", ")}.`
                         : "No IV job reference was read from the document."}
             </p>
-            {inv.matchStatus === "not_found" && editable && detail.suggestions.length ? (
+            {(inv.matchStatus === "not_found" || inv.matchStatus === "none") && editable && detail.suggestions.length ? (
               <div className="mt-2" data-testid="invoice-suggestions">
-                <p className="text-xs text-text-muted">Did you mean one of these? (one digit off — check the paperwork before choosing)</p>
+                <p className="text-xs text-text-muted">
+                  {inv.matchStatus === "none"
+                    ? "No IV number printed — the document mentions each of these jobs; choose the right one:"
+                    : "Did you mean one of these? (one digit off — check the paperwork before choosing)"}
+                </p>
                 <div className="mt-1 flex flex-wrap gap-2">
                   {detail.suggestions.map((j) => (
                     <Button

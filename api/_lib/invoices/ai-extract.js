@@ -42,6 +42,8 @@ const TOOL = {
       subtotalCents: { type: ['integer', 'null'], description: 'Total excluding GST, integer cents' },
       gstCents: { type: ['integer', 'null'] },
       totalCents: { type: ['integer', 'null'], description: 'Total including GST, integer cents' },
+      deliveryAddress: { type: ['string', 'null'], description: 'The DELIVERY / ship-to / site address printed on the document (not the billing address), one line.' },
+      customerReferences: { type: 'array', items: { type: 'string' }, description: 'Customer / order / project references the supplier printed back (e.g. "Birdwood level 2").' },
       lines: {
         type: 'array',
         description: 'Every product line printed on the document, in order. Omit subtotal/GST/total rows. Line totals are integer cents EXCLUDING GST as printed.',
@@ -85,6 +87,8 @@ function clean(out) {
     subtotalCents: int(out.subtotalCents),
     gstCents: int(out.gstCents),
     totalCents: int(out.totalCents),
+    deliveryAddress: str(out.deliveryAddress, 200),
+    customerReferences: (Array.isArray(out.customerReferences) ? out.customerReferences : []).map((r) => str(r, 80)).filter(Boolean).slice(0, 8),
     lines: (Array.isArray(out.lines) ? out.lines : []).slice(0, 200).map((l) => ({
       description: str(l && l.description, 200),
       quantity: l && typeof l.quantity === 'number' && Number.isFinite(l.quantity) ? l.quantity : null,
@@ -113,7 +117,8 @@ async function aiExtract(text) {
         'Read this supplier document text and record its fields. Rules: amounts are integer cents; ' +
         'the supplier invoice number is the supplier\'s own document number and must never be an IV#### job code; ' +
         'use null for anything not printed; do not compute GST unless the document prints it; ' +
-        'list every product line with its quantity, unit price and ex-GST line total, and file each in a material category.\n\n' +
+        'list every product line with its quantity, unit price and ex-GST line total, and file each in a material category; ' +
+        'record the delivery/site address (not the billing address) and any customer or project references printed back.\n\n' +
         String(text || '').slice(0, MAX_TEXT_CHARS),
     }],
   });
