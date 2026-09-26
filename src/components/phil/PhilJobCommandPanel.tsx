@@ -89,7 +89,17 @@ function actionTarget(action: PhilJobCommandAction): string | null {
   return action.href ?? IN_PAGE_ANCHOR[action.id] ?? null;
 }
 
-export function PhilJobCommandPanel({ model }: { model: PhilJobCommandModel }) {
+export function PhilJobCommandPanel({
+  model,
+  onCapture,
+}: {
+  model: PhilJobCommandModel;
+  /** When the page can open its CaptureSheet directly, the capture action
+   *  renders as a BUTTON that does so in one tap (P6) instead of an in-page
+   *  jump to a second capture card (removed 2026-09-26). Server render /
+   *  tests without a handler keep the anchor. */
+  onCapture?: () => void;
+}) {
   // The job page resolves load failures (not found / not assigned / error)
   // before rendering, so these states aren't normally reached here — but handle
   // them honestly for safety and so the panel is testable in isolation.
@@ -129,19 +139,25 @@ export function PhilJobCommandPanel({ model }: { model: PhilJobCommandModel }) {
 
       {model.primaryAction ? (
         <div className="mt-3">
-          <CommandAction action={model.primaryAction} variant="primary" />
+          <CommandAction
+            action={model.primaryAction}
+            variant="primary"
+            onClick={model.primaryAction.id === "capture" ? onCapture : undefined}
+          />
         </div>
       ) : model.state === "empty" && blocked.length === 0 ? (
-        <p className="mt-3 text-sm text-text-muted">
-          Nothing flagged to do on this job right now.
-        </p>
+        <p className="mt-3 text-sm text-text-muted">Nothing flagged to do on this job right now.</p>
       ) : null}
 
       {model.actions.length > 0 ? (
         <ul className="mt-3 space-y-2">
           {model.actions.map((a) => (
             <li key={a.id}>
-              <CommandAction action={a} variant="secondary" />
+              <CommandAction
+                action={a}
+                variant="secondary"
+                onClick={a.id === "capture" ? onCapture : undefined}
+              />
             </li>
           ))}
         </ul>
@@ -164,9 +180,12 @@ export function PhilJobCommandPanel({ model }: { model: PhilJobCommandModel }) {
 function CommandAction({
   action,
   variant,
+  onClick,
 }: {
   action: PhilJobCommandAction;
   variant: "primary" | "secondary";
+  /** In-page handler (the capture sheet) — wins over the anchor when set. */
+  onClick?: () => void;
 }) {
   const target = actionTarget(action);
   const Icon = ACTION_ICON[action.id];
@@ -176,16 +195,13 @@ function CommandAction({
     <>
       <Icon
         aria-hidden="true"
-        className={cn(
-          "shrink-0",
-          isPrimary ? "h-5 w-5" : "h-4 w-4 text-text-muted",
-        )}
+        className={cn("shrink-0", isPrimary ? "h-5 w-5" : "h-4 w-4 text-text-muted")}
       />
       <span className="min-w-0 flex-1 text-left">
         <span
           className={cn(
             "block font-display",
-            isPrimary ? "text-base font-semibold" : "text-sm font-medium text-text",
+            isPrimary ? "text-base font-semibold" : "text-sm font-medium text-text"
           )}
         >
           {action.label}
@@ -194,7 +210,7 @@ function CommandAction({
           <span
             className={cn(
               "block",
-              isPrimary ? "text-xs text-text-inverse/80" : "text-xs text-text-muted",
+              isPrimary ? "text-xs text-text-inverse/80" : "text-xs text-text-muted"
             )}
           >
             {action.reason}
@@ -205,7 +221,7 @@ function CommandAction({
         aria-hidden="true"
         className={cn(
           "shrink-0",
-          isPrimary ? "h-5 w-5 text-accent-yellow" : "h-4 w-4 text-text-muted/60",
+          isPrimary ? "h-5 w-5 text-accent-yellow" : "h-4 w-4 text-text-muted/60"
         )}
       />
     </>
@@ -217,9 +233,16 @@ function CommandAction({
     "flex w-full items-center gap-3 rounded-card transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-navy",
     isPrimary
       ? "min-h-[56px] bg-brand-navy px-4 py-3 text-text-inverse hover:brightness-110 active:scale-[0.99]"
-      : "min-h-[44px] border border-border bg-surface px-3 py-2 hover:bg-surface-subtle",
+      : "min-h-[44px] border border-border bg-surface px-3 py-2 hover:bg-surface-subtle"
   );
 
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} className={className}>
+        {body}
+      </button>
+    );
+  }
   if (!target) {
     return <div className={className}>{body}</div>;
   }

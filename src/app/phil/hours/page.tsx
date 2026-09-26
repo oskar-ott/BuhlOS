@@ -85,21 +85,19 @@ export default async function PhilHoursPage({
   // default to the current Sydney week. Same convention as /hours/weekly.
   const sp = await searchParams;
   const todayISO = localDateString(new Date(), BUSINESS_TIMEZONE);
-  const weekAnchorISO =
-    sp.week && /^\d{4}-\d{2}-\d{2}$/.test(sp.week) ? sp.week : todayISO;
+  const weekAnchorISO = sp.week && /^\d{4}-\d{2}-\d{2}$/.test(sp.week) ? sp.week : todayISO;
 
   // History + the worker's active assigned jobs in parallel — the jobs feed
   // the resubmit form's attribution guard so a fix can't land jobId:null.
   const launchJobId = typeof sp.job === "string" && sp.job ? sp.job : null;
-  const [{ entries, fetchError }, loadedJobs, sharpenedFlags, canLogTafe] =
-    await Promise.all([
-      loadHistory(raw),
-      loadAssignedJobs(raw),
-      // Sharpened-chrome flag (cached flags.json read) — server-resolved boolean.
-      philSharpenedFlags(session),
-      // Apprentice (employee-record role) → the TAFE-day option. Fail-closed.
-      loadIsApprenticeInProcess(raw),
-    ]);
+  const [{ entries, fetchError }, loadedJobs, sharpenedFlags, canLogTafe] = await Promise.all([
+    loadHistory(raw),
+    loadAssignedJobs(raw),
+    // Sharpened-chrome flag (cached flags.json read) — server-resolved boolean.
+    philSharpenedFlags(session),
+    // Apprentice (employee-record role) → the TAFE-day option. Fail-closed.
+    loadIsApprenticeInProcess(raw),
+  ]);
   // Jobs this page must NAME that are no longer in the default set
   // (docs/job-lifecycle.md): the `?job=` the worker came from (a callback on a
   // closed job lands with its job picked) and any closed job their own recent
@@ -113,7 +111,8 @@ export default async function PhilHoursPage({
       if (a.jobId && !listed.has(a.jobId)) referenced.add(a.jobId);
     }
   }
-  const extraRecords = referenced.size > 0 ? await loadFieldJobsByIdInProcess(raw, [...referenced]) : [];
+  const extraRecords =
+    referenced.size > 0 ? await loadFieldJobsByIdInProcess(raw, [...referenced]) : [];
   const assignedJobs = withExtraJobs(loadedJobs, extraRecords);
 
   // ── Sharpened Hours (phil_sharpened, dark — Wave 2c) ─────────────────────
@@ -131,21 +130,20 @@ export default async function PhilHoursPage({
         accountInitials={philInitials(session.name ?? session.username)}
       >
         <div className="space-y-4">
-          {fetchError ? (
-            <PhilNotice tone="warning" title="Couldn’t load your hours" role="alert">
-              {fetchError}. Pull to refresh, or ask the office if it keeps happening.
-            </PhilNotice>
-          ) : (
-            <PhilHoursSharpened
-              entries={entries}
-              todayISO={todayISO}
-              assignedJobs={assignedJobs.jobs}
-              jobsError={assignedJobs.error}
-              viewerId={session.userId ?? null}
-              canLogTafe={canLogTafe}
-              launchJobId={launchJobId}
-            />
-          )}
+          {/* A failed history read no longer removes the log form: the
+              component renders the warning and a bare "Log your day" card
+              (2026-09-26 audit — My Day promised "you can still log hours on
+              the Hours tab" while this tab showed only "API returned 500"). */}
+          <PhilHoursSharpened
+            entries={fetchError ? [] : entries}
+            entriesFailed={Boolean(fetchError)}
+            todayISO={todayISO}
+            assignedJobs={assignedJobs.jobs}
+            jobsError={assignedJobs.error}
+            viewerId={session.userId ?? null}
+            canLogTafe={canLogTafe}
+            launchJobId={launchJobId}
+          />
         </div>
       </PhilShell>
     );
@@ -298,7 +296,7 @@ async function loadHistory(cookieValue: string | undefined): Promise<{
     }
     if (parsed.dropped > 0) {
       console.warn(
-        `phil/hours: skipped ${parsed.dropped} malformed time entr${parsed.dropped === 1 ? "y" : "ies"}`,
+        `phil/hours: skipped ${parsed.dropped} malformed time entr${parsed.dropped === 1 ? "y" : "ies"}`
       );
     }
     return { entries: parsed.entries, fetchError: null };

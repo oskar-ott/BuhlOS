@@ -47,11 +47,18 @@ const render = (props: Partial<ComponentProps<typeof WeeklyCloseoutSendFinale>> 
   );
 
 describe("WeeklyCloseoutSendFinale", () => {
-  it("review face: Send to Tia action over the reviewed week", () => {
+  it("review face: the send action over the reviewed week — waiting on the already-emailed check at first paint", () => {
     const html = render();
     expect(html).toContain("Week reviewed");
     expect(html).toContain('data-testid="wha-send-accounts"');
-    expect(html).toContain("Send to Tia");
+    // The already-emailed check (usePeriodEmailStatus) runs after mount, so the
+    // first paint holds the button — "Checking…", disabled — rather than
+    // offering a blind send (2026-09-26 audit). Once the check lands the label
+    // is "Send to Tia" / "Send a second copy"; if it FAILS the boss is told and
+    // must tap "Send anyway" explicitly (mirrors SendTimesheetsCard).
+    expect(html).toContain("Checking…");
+    expect(html).toMatch(/data-testid="wha-send-accounts"[^>]*disabled/);
+    expect(html).not.toContain("Send to Tia</button>");
     // The recipient line is the REAL Settings list, read after mount — the
     // first paint names accounts generically, never a hard-coded person.
     expect(html).toContain('data-testid="wha-send-recipients"');
@@ -98,7 +105,7 @@ describe("WeeklyCloseoutSendFinale — wait-or-send (owner pull 2026-08-16)", ()
     // Send stays findable — a ghost read as "can't send" on the first live
     // pay run (2026-08-17), so it must render as a bordered button.
     expect(html).toContain('data-testid="wha-send-accounts"');
-    expect(html).toContain("Send anyway");
+    // (At first paint the send button reads "Checking…" — see above.)
     expect(html).not.toContain("Send to Tia</button>");
     // The wait button comes FIRST in the footer.
     expect(html.indexOf("wha-send-wait")).toBeLessThan(html.indexOf("wha-send-accounts"));
@@ -124,7 +131,7 @@ describe("WeeklyCloseoutSendFinale — wait-or-send (owner pull 2026-08-16)", ()
         total: 5,
       },
     });
-    expect(html).toContain("Send to Tia");
+    expect(html).toContain('data-testid="wha-send-accounts"');
     expect(html).not.toContain('data-testid="wha-send-wait"');
     expect(html).not.toContain('data-testid="wha-send-outstanding"');
     expect(html).toContain('data-testid="wha-send-fyi"');
@@ -133,7 +140,7 @@ describe("WeeklyCloseoutSendFinale — wait-or-send (owner pull 2026-08-16)", ()
     expect(html).toContain("it sends without them");
   });
 
-  it("a finished week keeps today's layout — Send to Tia leads, no notices", () => {
+  it("a finished week keeps today's layout — the send leads, no notices", () => {
     const html = render({
       outstanding: {
         sentBackDays: 0,
@@ -143,7 +150,7 @@ describe("WeeklyCloseoutSendFinale — wait-or-send (owner pull 2026-08-16)", ()
         total: 0,
       },
     });
-    expect(html).toContain("Send to Tia");
+    expect(html).toContain('data-testid="wha-send-accounts"');
     expect(html).not.toContain('data-testid="wha-send-wait"');
     expect(html).not.toContain('data-testid="wha-send-outstanding"');
     expect(html).not.toContain('data-testid="wha-send-fyi"');
@@ -151,8 +158,17 @@ describe("WeeklyCloseoutSendFinale — wait-or-send (owner pull 2026-08-16)", ()
 
   it("no outstanding prop (desktop caller / older mount) → unchanged send-first face", () => {
     const html = render();
-    expect(html).toContain("Send to Tia");
+    expect(html).toContain('data-testid="wha-send-accounts"');
     expect(html).not.toContain('data-testid="wha-send-wait"');
+  });
+
+  it("the reviewed headline counts only approvals that landed, and names the failures", () => {
+    const ok = render({ reviewedCount: 2, failedCount: 0 });
+    expect(ok).toContain("All 2 weeks reviewed");
+    const partial = render({ reviewedCount: 1, failedCount: 1 });
+    expect(partial).toContain("1 of 2 weeks approved");
+    expect(partial).toContain("1 week couldn’t be approved");
+    expect(partial).not.toContain("All 2 weeks reviewed");
   });
 
   it("nothing approved AND days outstanding → still the honest empty state, never 'Send anyway'", () => {

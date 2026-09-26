@@ -3,9 +3,8 @@
 import { Suspense, use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PhilOfflineLink } from "./PhilOfflineLink";
 import { PhilSkeleton } from "./ui/PhilSkeleton";
-import { Camera, ClipboardList, Images } from "lucide-react";
+import { ClipboardList, Images } from "lucide-react";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
-import { PhilActionButton } from "./ui/PhilActionButton";
 import { PhilNotice } from "./ui/PhilNotice";
 import { moduleEnabled } from "@/domains/jobs/builder";
 import { visibleAreaGroups } from "@/domains/jobs/format";
@@ -203,7 +202,7 @@ export function PhilJobDetail({
   // (state flips only after the API confirms; a failed save shows the error
   // inside the notice, never a phantom "done").
   const [myInduction, setMyInduction] = useState<InductionRecord | null>(
-    initialMyInduction ?? null,
+    initialMyInduction ?? null
   );
   const [inductionSaving, setInductionSaving] = useState(false);
   const [inductionError, setInductionError] = useState<string | null>(null);
@@ -235,9 +234,7 @@ export function PhilJobDetail({
     [groups]
   );
 
-  const [selectedAreaId, setSelectedAreaId] = useState<string | null>(
-    flatAreas[0]?.id ?? null
-  );
+  const [selectedAreaId, setSelectedAreaId] = useState<string | null>(flatAreas[0]?.id ?? null);
   const [stage, setStage] = useState<JobStage>("roughIn");
 
   // ── Four-rooms takeover state (phil_job_rooms — #133; in-page, no routes) ──
@@ -258,12 +255,11 @@ export function PhilJobDetail({
   // the capture fails). We open the SAME CaptureSheet (no new upload path) and
   // stash the resolver here; handleCaptured / handleCaptureFailed / close
   // resolve it. A ref (not state) so resolving it never triggers a re-render.
-  const servicesCaptureResolverRef = useRef<((item: EvidenceItem | null) => void) | null>(
-    null,
-  );
-  const [captureBanner, setCaptureBanner] = useState<
-    { tone: "info" | "success" | "danger"; message: string } | null
-  >(null);
+  const servicesCaptureResolverRef = useRef<((item: EvidenceItem | null) => void) | null>(null);
+  const [captureBanner, setCaptureBanner] = useState<{
+    tone: "info" | "success" | "danger";
+    message: string;
+  } | null>(null);
   // Worker-visible task state (areaId → stage → taskId → state). Seeded from
   // the server-loaded data blob; only ever advanced by a CONFIRMED
   // /api/task-toggle response (never optimistically), so a failed write never
@@ -274,16 +270,12 @@ export function PhilJobDetail({
   // pending, the selected area's task list shows a skeleton rather than a false
   // "to do", so a DONE task is never briefly mis-shown. The promise resolves into
   // this state via a nested <Suspense> + use() (TaskStateHydrator) below.
-  const [taskStatePending, setTaskStatePending] = useState<boolean>(
-    Boolean(taskStatePromise),
-  );
+  const [taskStatePending, setTaskStatePending] = useState<boolean>(Boolean(taskStatePromise));
   // Task-state load error as state (not just a prop) so the streamed resolve can
   // set it. Seeded from the (flag-off) prop; flag-on starts null + pending.
-  const [taskStateErr, setTaskStateErr] = useState<string | null>(
-    taskStateError ?? null,
-  );
+  const [taskStateErr, setTaskStateErr] = useState<string | null>(taskStateError ?? null);
   const [pendingTaskIds, setPendingTaskIds] = useState<ReadonlySet<string>>(
-    () => new Set<string>(),
+    () => new Set<string>()
   );
   const [taskError, setTaskError] = useState<string | null>(null);
   // Seed (does not own) taskState from the streamed read. Toggles still mutate
@@ -294,7 +286,7 @@ export function PhilJobDetail({
       setTaskStateErr(resolved.error ?? null);
       setTaskStatePending(false);
     },
-    [],
+    []
   );
 
   // Deep-linked capture: the global Capture button (PhilTabBar) routes
@@ -321,10 +313,8 @@ export function PhilJobDetail({
   // first load before any stage tap.
   const selectedStages = useMemo(
     () =>
-      selectedArea
-        ? areaStageAvailability(job, selectedArea)
-        : { roughIn: false, fitOff: false },
-    [job, selectedArea],
+      selectedArea ? areaStageAvailability(job, selectedArea) : { roughIn: false, fitOff: false },
+    [job, selectedArea]
   );
   const viewedStage: JobStage = soleStage(selectedStages) ?? stage;
 
@@ -370,7 +360,7 @@ export function PhilJobDetail({
       job.id,
       rooms
         ? { areaId: selectedAreaId, stage: viewedStage, room, areaOpen: roomAreaOpen }
-        : { areaId: selectedAreaId, stage: viewedStage },
+        : { areaId: selectedAreaId, stage: viewedStage }
     );
   }, [job.id, selectedAreaId, viewedStage, rooms, room, roomAreaOpen]);
 
@@ -380,7 +370,7 @@ export function PhilJobDetail({
   // (areaId, stage, taskId) while Phil keeps its area-first view.
   const canonicalTasks = useMemo(
     () => buildCanonicalTaskIndex({ job, taskState }),
-    [job, taskState],
+    [job, taskState]
   );
 
   // Whole-job progress rolled up from the canonical index (#507) — the
@@ -389,16 +379,10 @@ export function PhilJobDetail({
   // shown ONLY when this is a real, loaded 100% (total > 0 && pct === 100). It is
   // gated below on the task-state load flags so a job whose state is still
   // streaming or failed to load NEVER flashes a false 100% (P7).
-  const taskRollup = useMemo(
-    () => rollUpTaskProgress(canonicalTasks),
-    [canonicalTasks],
-  );
+  const taskRollup = useMemo(() => rollUpTaskProgress(canonicalTasks), [canonicalTasks]);
   const jobProgress = taskRollup.job;
   const jobComplete =
-    !taskStatePending &&
-    !taskStateErr &&
-    jobProgress.total > 0 &&
-    jobProgress.pct === 100;
+    !taskStatePending && !taskStateErr && jobProgress.total > 0 && jobProgress.pct === 100;
 
   // Field-visible tasks for the selected area + viewed stage — projected from the
   // canonical index (filter by source coordinate, render the template id). This
@@ -409,7 +393,7 @@ export function PhilJobDetail({
       selectedArea
         ? workerTasksFromCanonicalIndex(canonicalTasks, selectedArea.id, viewedStage)
         : [],
-    [canonicalTasks, selectedArea, viewedStage],
+    [canonicalTasks, selectedArea, viewedStage]
   );
 
   // Per-task readiness (#482 model) for the viewed area+stage, keyed by task id —
@@ -428,7 +412,7 @@ export function PhilJobDetail({
             blockers: [],
           })
         : undefined,
-    [canonicalTasks, selectedArea, viewedStage],
+    [canonicalTasks, selectedArea, viewedStage]
   );
 
   // Per-task scope context (#368) for the viewed area+stage. With no compiled
@@ -443,7 +427,7 @@ export function PhilJobDetail({
             taskIds: workerTasks.map((t) => t.id),
           })
         : undefined,
-    [selectedArea, viewedStage, workerTasks],
+    [selectedArea, viewedStage, workerTasks]
   );
 
   // Mark a task done / not-done via the dedicated fast-path endpoint. Tiny
@@ -469,7 +453,7 @@ export function PhilJobDetail({
       const result = await philWrite(
         `/api/task-toggle?jobId=${encodeURIComponent(job.id)}`,
         { areaId, stage: stageForWrite, taskId, state: next },
-        (raw) => parseTaskToggleResult(raw),
+        (raw) => parseTaskToggleResult(raw)
       );
       setPendingTaskIds((prev) => {
         const set = new Set(prev);
@@ -477,17 +461,14 @@ export function PhilJobDetail({
         return set;
       });
       if (result.ok) {
-        setTaskState((prev) =>
-          applyTaskState(prev, areaId, stageForWrite, taskId, result.data),
-        );
+        setTaskState((prev) => applyTaskState(prev, areaId, stageForWrite, taskId, result.data));
       } else if (result.error.kind !== "cancelled") {
         setTaskError(
-          result.error.message ||
-            "Couldn't save that change. Check your signal and try again.",
+          result.error.message || "Couldn't save that change. Check your signal and try again."
         );
       }
     },
-    [job.id, selectedArea, viewedStage],
+    [job.id, selectedArea, viewedStage]
   );
 
   // "Quick actions" — the model-driven command panel (replaces the old flat
@@ -513,7 +494,7 @@ export function PhilJobDetail({
           loadErrors: { documents: documentsError != null, tags: tagsError === true },
           myInduction: myInduction ? { completedAt: myInduction.completedAt } : null,
           logHoursHref,
-        }),
+        })
       ),
     [
       job,
@@ -526,7 +507,7 @@ export function PhilJobDetail({
       taskStatePending,
       myInduction,
       logHoursHref,
-    ],
+    ]
   );
 
   // Per-area count maps for the work-tree cards. Built once from the real
@@ -536,7 +517,7 @@ export function PhilJobDetail({
   // be fabricated.
   const areaCountMaps = useMemo(
     () => buildAreaCountMaps({ evidence: evidenceItems }),
-    [evidenceItems],
+    [evidenceItems]
   );
 
   // id→name for this job's areas, so a capture's "Target" line can show the
@@ -544,7 +525,7 @@ export function PhilJobDetail({
   // work tree uses — no new data source.
   const areaNames = useMemo(
     () => Object.fromEntries(flatAreas.map((a) => [a.id, a.name] as const)),
-    [flatAreas],
+    [flatAreas]
   );
 
   // ── Rooms derivations (phil_job_rooms — the #133 badge instrumentation) ──
@@ -558,7 +539,7 @@ export function PhilJobDetail({
       rooms
         ? deriveAttention({ job, inductionDone: Boolean(myInduction) })
         : { items: [], total: 0 },
-    [rooms, job, myInduction],
+    [rooms, job, myInduction]
   );
 
   // Selecting a room (or re-selecting the active one) lands on that room's
@@ -583,7 +564,7 @@ export function PhilJobDetail({
       setRoomAreaOpen(true);
       setRoomResetSeq((s) => s + 1);
     },
-    [flatAreas, job],
+    [flatAreas, job]
   );
   const closeRoomArea = useCallback(() => setRoomAreaOpen(false), []);
 
@@ -636,32 +617,34 @@ export function PhilJobDetail({
         });
       });
     },
-    [flatAreas, job],
+    [flatAreas, job]
   );
 
-  const handleCaptured = useCallback(
-    async (item: EvidenceItem) => {
-      setEvidenceItems((prev) => [item, ...prev]);
-      setCaptureBanner({ tone: "success", message: "Evidence captured." });
-      window.setTimeout(() => setCaptureBanner(null), 1500);
+  const handleCaptured = useCallback(async (item: EvidenceItem) => {
+    setEvidenceItems((prev) => [item, ...prev]);
+    setCaptureBanner({ tone: "success", message: "Evidence captured." });
+    window.setTimeout(() => setCaptureBanner(null), 1500);
 
-      // #230: a capture the Services card requested — hand the saved item back to
-      // its waiting promise so it can POST the service-location link. This is a
-      // real capture (already in the strip above); it just isn't proof, so we
-      // return before the proof-link path runs.
-      const servicesResolver = servicesCaptureResolverRef.current;
-      if (servicesResolver) {
-        servicesCaptureResolverRef.current = null;
-        servicesResolver(item);
-        return;
-      }
-
-    },
-    [],
-  );
+    // #230: a capture the Services card requested — hand the saved item back to
+    // its waiting promise so it can POST the service-location link. This is a
+    // real capture (already in the strip above); it just isn't proof, so we
+    // return before the proof-link path runs.
+    const servicesResolver = servicesCaptureResolverRef.current;
+    if (servicesResolver) {
+      servicesCaptureResolverRef.current = null;
+      servicesResolver(item);
+      return;
+    }
+  }, []);
 
   const handleCaptureFailed = useCallback((message: string) => {
     setCaptureBanner({ tone: "danger", message });
+    // The sheet closed on Save (close-on-first-tap); the failed photo lives
+    // only in the sheet's state. Bring it back so the worker sees the error
+    // WITH the photo and Save is the retry — before 2026-09-26 the banner
+    // said "Tap Retry" while no such button existed and the photo was lost
+    // on the next navigation (P7: nothing lost, P9: the failure is in view).
+    setCaptureOpen(true);
     // #230: a failed capture resolves any waiting Services request with null so
     // the card stops "opening camera" and the worker can retry or save text-only.
     const servicesResolver = servicesCaptureResolverRef.current;
@@ -724,7 +707,6 @@ export function PhilJobDetail({
           }
         }}
       />
-
     </>
   );
 
@@ -748,38 +730,32 @@ export function PhilJobDetail({
 
       <PhilJobHero job={job} />
 
-      <PhilJobCommandPanel model={commandModel} />
+      <PhilJobCommandPanel
+        model={commandModel}
+        onCapture={() => {
+          setCaptureBanner(null);
+          setCaptureOpen(true);
+        }}
+      />
 
       <PhilJobAttentionStrip job={job} inductionDone={Boolean(myInduction)} />
 
       {/* Lean reset step 5 (#916): the work-to-do machinery (stage groups,
           area picker, task lists, streamed task state) left the page — lean
           jobs deliberately have no structure. Restore from git if reversed. */}
+      {/* 2026-09-26 audit: the "Capture evidence" card that lived here was the
+          THIRD door to the same camera on one screen (Quick action → scrolled
+          to it; the tab-bar FAB opens the launcher). The Quick action above now
+          opens this job's CaptureSheet in one tap (P6/P10); the section keeps
+          its id + heading for the captures strip and in-page anchors. */}
       <section
         id="phil-job-capture"
         aria-labelledby="phil-job-capture-h"
         className="scroll-mt-16 space-y-4"
       >
-        <Card>
-          <CardTitle>
-            <span id="phil-job-capture-h">Capture evidence</span>
-          </CardTitle>
-          <CardDescription className="mt-1">
-            Take a photo (with an optional note) attached to this job.
-          </CardDescription>
-          <div className="mt-3">
-            <PhilActionButton
-              size="lg"
-              onClick={() => {
-                setCaptureBanner(null);
-                setCaptureOpen(true);
-              }}
-            >
-              <Camera aria-hidden="true" className="h-5 w-5" />
-              Capture evidence
-            </PhilActionButton>
-          </div>
-        </Card>
+        <h2 id="phil-job-capture-h" className="sr-only">
+          Capture evidence
+        </h2>
 
         <TodaysCapturesStrip
           items={evidenceItems}
@@ -788,9 +764,7 @@ export function PhilJobDetail({
           jobId={job.id}
           viewerId={viewer?.id}
           onItemUpdated={(updated) =>
-            setEvidenceItems((prev) =>
-              prev.map((it) => (it.id === updated.id ? updated : it))
-            )
+            setEvidenceItems((prev) => prev.map((it) => (it.id === updated.id ? updated : it)))
           }
         />
       </section>
@@ -803,8 +777,7 @@ export function PhilJobDetail({
           <Card>
             <CardTitle>ITPs</CardTitle>
             <CardDescription className="mt-1">
-              Build an inspection report as you walk — name areas, drop photos
-              in, make the PDF.
+              Build an inspection report as you walk — name areas, drop photos in, make the PDF.
             </CardDescription>
             <div className="mt-3">
               <PhilOfflineLink
@@ -837,8 +810,7 @@ export function PhilJobDetail({
           <Card>
             <CardTitle>Photos</CardTitle>
             <CardDescription className="mt-1">
-              Browse every photo on this job in one place — date-grouped and
-              filterable. Read-only.
+              Browse every photo on this job in one place — date-grouped and filterable. Read-only.
             </CardDescription>
             <div className="mt-3">
               <PhilOfflineLink

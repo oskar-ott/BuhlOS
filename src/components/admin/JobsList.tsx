@@ -7,9 +7,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { Archive, Plus, Search, X } from "lucide-react";
 import { Pill } from "@/components/ui/Pill";
 import { EmptyState } from "@/components/ui/EmptyState";
-import {
-  lastActivityCaption,
-} from "@/domains/jobs/format";
+import { lastActivityCaption } from "@/domains/jobs/format";
 import {
   filterJobs,
   JOB_LIST_PHASE_OPTIONS,
@@ -50,6 +48,9 @@ type CardExtraMap = Record<string, CardExtra>;
 
 interface Props {
   jobs: ReadonlyArray<Job>;
+  /** True when the page's jobs read failed — the empty state must not claim
+   *  "No active jobs" under the page's error alert. */
+  loadFailed?: boolean;
   /** Admin-only: show the per-card "Build" action that opens the Job Builder. */
   canBuild?: boolean;
   /** Literal-admin only: when set, the header shows a "+ New job" entry point to
@@ -107,7 +108,13 @@ const SEARCH_URL_DEBOUNCE_MS = 250;
  *   src/domains/jobs/job-health.ts — the real risk read
  *   src/app/v2/jobs/page.tsx — the server component that hydrates this list
  */
-export function JobsList({ jobs, canBuild = false, newJobHref, cardExtrasPromise }: Props) {
+export function JobsList({
+  jobs,
+  loadFailed = false,
+  canBuild = false,
+  newJobHref,
+  cardExtrasPromise,
+}: Props) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
@@ -253,10 +260,15 @@ export function JobsList({ jobs, canBuild = false, newJobHref, cardExtrasPromise
   // Statuses with zero jobs stay hidden (the page only ships archived rows for
   // ?status=archived, so the Archived pill counts real rows there) UNLESS the URL deep-links to one, in which case the pill
   // renders so the active filter is visible and clearable.
-  const statusOptions = JOB_LIST_PHASE_OPTIONS.filter((s) => (counts.get(s) ?? 0) > 0 || status === s);
+  const statusOptions = JOB_LIST_PHASE_OPTIONS.filter(
+    (s) => (counts.get(s) ?? 0) > 0 || status === s
+  );
 
   const filtersActive = status !== null || query.trim() !== "" || health !== null;
 
+  // A failed read is not "no jobs" — the page's alert owns that state, so no
+  // empty state may claim the list is genuinely empty (2026-09-26 audit).
+  if (jobs.length === 0 && loadFailed) return null;
   if (jobs.length === 0) {
     return (
       <EmptyState

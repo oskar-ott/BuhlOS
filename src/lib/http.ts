@@ -101,6 +101,27 @@ export async function httpDelete<T>(url: string, opts: HttpOptions<T>): Promise<
   return request(url, { ...opts, init: { ...opts.init, method: "DELETE" } });
 }
 
+/**
+ * The message for a non-2xx response. Every api/*.js handler answers a
+ * refusal with `{ error: "<why>" }` — that sentence is the ONLY thing that
+ * tells the worker what went wrong (the day is too far back, the job is
+ * closed, the entry already exists). Over HTTP/2 `res.statusText` is empty,
+ * so before 2026-09-26 the field saw a bare "request failed" for every 400 /
+ * 403 / 409 / 5xx. Server text first, status text second, then a plain
+ * status-class fallback — never an empty string.
+ */
+export function httpErrorMessage(status: number, statusText: string, body: unknown): string {
+  if (body && typeof body === "object" && "error" in body) {
+    const err = (body as { error: unknown }).error;
+    if (typeof err === "string" && err.trim()) return err.trim();
+  }
+  if (statusText) return statusText;
+  if (status >= 500) return "The office server had a problem";
+  if (status === 404) return "Not found";
+  if (status === 401 || status === 403) return "Not allowed";
+  return "request failed";
+}
+
 async function request<T>(url: string, opts: HttpOptions<T>): Promise<HttpResult<T>> {
   let init = opts.init;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -169,7 +190,11 @@ async function request<T>(url: string, opts: HttpOptions<T>): Promise<HttpResult
   if (!res.ok) {
     return {
       ok: false,
-      error: { status: res.status, body, message: res.statusText || "request failed" },
+      error: {
+        status: res.status,
+        body,
+        message: httpErrorMessage(res.status, res.statusText, body),
+      },
     };
   }
 

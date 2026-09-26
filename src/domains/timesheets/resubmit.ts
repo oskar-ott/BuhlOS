@@ -1,5 +1,6 @@
 import type { HttpResult } from "@/lib/http";
-import { autoSplitOT, primaryJobId } from "./service";
+import { hoursWriteFailureCopy } from "./error-copy";
+import { MAX_BACKDATE_DAYS, autoSplitOT, primaryJobId } from "./service";
 import type { PatchTimeEntryPayload, TimeEntry, TimeEntryMutationResponse } from "./types";
 
 /**
@@ -35,6 +36,20 @@ export interface AssignableJob {
 }
 
 /**
+ * Can this date still be written from the field? The API's backdate rule
+ * (api/_lib/time-entries.js: at most MAX_BACKDATE_DAYS back, no future) also
+ * applies to a change/fix PATCH, so a "Change" or "Fix" button on an older day
+ * can only ever fail (2026-09-26 audit). The office can still amend it.
+ */
+export function isWithinBackdateWindow(date: string, todayISO: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{4}-\d{2}-\d{2}$/.test(todayISO)) return false;
+  const d = Date.UTC(+date.slice(0, 4), +date.slice(5, 7) - 1, +date.slice(8, 10));
+  const t = Date.UTC(+todayISO.slice(0, 4), +todayISO.slice(5, 7) - 1, +todayISO.slice(8, 10));
+  const diffDays = Math.round((t - d) / 86_400_000);
+  return diffDays <= MAX_BACKDATE_DAYS && diffDays >= -1;
+}
+
+/**
  * Can this entry be fixed-and-resubmitted (or changed-and-resent) from inside
  * Phil?
  *
@@ -52,7 +67,7 @@ export interface AssignableJob {
  * splits here.
  */
 export function canResubmitInPhil(
-  entry: Pick<TimeEntry, "status" | "allocations" | "dayType">,
+  entry: Pick<TimeEntry, "status" | "allocations" | "dayType">
 ): boolean {
   // A day-type day (TAFE / sick / holiday, 2026-08-10) can't go through the
   // fix sheet — that flow REQUIRES attributing the hours to an active job,
@@ -228,22 +243,13 @@ export type ResubmitFeedback =
 export function resubmitFeedback(result: HttpResult<TimeEntryMutationResponse>): ResubmitFeedback {
   if (result.ok) return { kind: "success", entry: result.data.entry };
   const status = result.error.status || 0;
-  if (status === 401) {
-    return { kind: "error", status, message: "Session expired. Sign in again to resubmit." };
-  }
-  if (status === 403) {
-    return {
-      kind: "error",
-      status,
-      message: "You can't edit this entry — ask the office to reopen it.",
-    };
-  }
-  if (status === 404) {
-    return { kind: "error", status, message: "This entry isn't here anymore. Pull to refresh." };
-  }
-  return {
-    kind: "error",
-    status,
-    message: result.error.message || "Couldn't resubmit your hours. Try again in a moment.",
-  };
+  // One mapper for every hours write (log / change / fix / split) so the
+  // worker reads the same site-language sentence for the same refusal —
+  // and a 403 for a closed job says "pick another job", not "ask the office
+  // to reopen it" (2026-09-26 audit).
+  const copy = hoursWriteFailureCopy(
+    { status, message: result.error.message, kind: result.error.kind },
+    "Couldn’t resubmit your hours. Try again in a moment."
+  );
+  return { kind: "error", status, message: copy.message };
 }

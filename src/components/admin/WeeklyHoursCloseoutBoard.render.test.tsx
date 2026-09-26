@@ -112,12 +112,14 @@ describe("WeeklyHoursCloseoutBoard (render)", () => {
     expect(html).toContain("Ready");
   });
 
-  it("gives a submitted day in-place Approve and ghost-red Reject actions", () => {
+  it("gives a submitted day in-place Approve and ghost-red Send back actions", () => {
     const html = render([
       entry({ userId: "u1", date: "2024-05-21", userName: "Jack Smith", status: "submitted" }),
     ]);
     expect(html).toContain("Approve");
-    expect(html).toContain("Reject");
+    // One word for the action across the office surfaces (2026-09-26 audit).
+    expect(html).toContain(">Send back<");
+    expect(html).not.toContain(">Reject<");
     // The single submitted day gets the singular bulk label.
     expect(html).toContain("Approve this day");
   });
@@ -216,6 +218,29 @@ describe("WeeklyHoursCloseoutBoard (render)", () => {
     expect(html).toContain("No hours found for this week");
     // The wizard has nothing to walk — the trigger is disabled.
     expect(html).toMatch(/data-testid="start-weekly-closeout"[^>]*disabled/);
+  });
+
+  it("a failed load is NEVER an empty week — the error card shows, the empty state does not (2026-09-26, P7)", () => {
+    const closeout = buildWeeklyHoursCloseout({
+      entries: [],
+      missing: [],
+      weekStart: WEEK_START,
+      todayISO: TODAY,
+    });
+    const html = clean(
+      renderToString(
+        createElement(WeeklyHoursCloseoutBoard, { closeout, fetchError: "API returned 503" }),
+      ),
+    );
+    expect(html).toContain("API returned 503");
+    expect(html).toContain("load the week");
+    expect(html).not.toContain("No hours found for this week");
+    expect(html).not.toContain("Nothing to close out");
+  });
+
+  it("the pay-period link carries the board's week, so both tabs show ONE week", () => {
+    const html = render([entry({ userId: "u1", date: "2024-05-20", userName: "Tom Brown" })]);
+    expect(html).toContain("/hours/period?period=week&amp;anchor=2024-05-20");
   });
 
   it("never fabricates missing days the server didn't flag", () => {

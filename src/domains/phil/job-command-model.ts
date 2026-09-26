@@ -261,7 +261,7 @@ const STATUS_WEIGHT: Record<PhilJobActionStatus, number> = {
  * randomness — so the same input always yields the same order.
  */
 export function rankPhilJobActions(
-  actions: readonly PhilJobCommandAction[],
+  actions: readonly PhilJobCommandAction[]
 ): PhilJobCommandAction[] {
   return [...actions].sort((a, b) => {
     const byStatus = STATUS_WEIGHT[a.status] - STATUS_WEIGHT[b.status];
@@ -325,7 +325,7 @@ export function buildPhilJobCommandModel(input: PhilJobCommandInput): PhilJobCom
           label: notFound ? "This job isn’t available to you" : "We couldn’t load this job",
           reason: notFound
             ? "It may have been unassigned or archived. Tap back to your job list."
-            : job.message ?? "Check your connection and pull to refresh.",
+            : (job.message ?? "Check your connection and pull to refresh."),
         },
       ],
       limitations: [],
@@ -492,10 +492,10 @@ export function buildPhilJobCommandModel(input: PhilJobCommandInput): PhilJobCom
     case "available":
       actions.push({
         id: "capture",
-        label: "Take a photo or add a note",
+        label: "Capture evidence",
         href: input.capture.href,
         status: "ready",
-        reason: "Capture evidence against this job.",
+        reason: "Take a photo or add a note — it files to this job.",
       });
       break;
     case "elsewhere":
@@ -653,9 +653,7 @@ export function buildPhilJobCommandModel(input: PhilJobCommandInput): PhilJobCom
   const rankedAttention = rankAttention(attention);
   const isBlocked = rankedAttention.some((a) => a.severity === "blocked");
 
-  const actionable = ranked.filter(
-    (a) => a.status === "attention" || a.status === "ready",
-  );
+  const actionable = ranked.filter((a) => a.status === "attention" || a.status === "ready");
   const hasWork = actionable.some((a) => WORK_ACTION_IDS.has(a.id));
   const hasAttention = rankedAttention.length > 0;
 

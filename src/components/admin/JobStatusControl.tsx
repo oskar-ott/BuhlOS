@@ -7,13 +7,7 @@ import { Pill } from "@/components/ui/Pill";
 import { Button } from "@/components/ui/Button";
 import { updateJob } from "@/domains/jobs/client";
 import { statusLabel } from "@/domains/jobs/format";
-import {
-  GRACE_DAYS,
-  jobPhase,
-  phaseLabel,
-  phaseTone,
-  shortDay,
-} from "@/domains/jobs/lifecycle";
+import { GRACE_DAYS, jobPhase, phaseLabel, phaseTone, shortDay } from "@/domains/jobs/lifecycle";
 import type { Job, JobStatus } from "@/domains/jobs/types";
 
 /**
@@ -42,11 +36,19 @@ const STATUS_CHOICES: ReadonlyArray<{ status: JobStatus; hint: string }> = [
 ];
 
 /** Statuses whose pick asks first (an outward-facing change for the crew). */
-const CONFIRMED: ReadonlySet<JobStatus> = new Set(["complete", "archived"]);
+const CONFIRMED: ReadonlySet<JobStatus> = new Set(["complete", "archived", "draft"]);
 
 function confirmCopy(status: JobStatus, from: JobStatus): string {
+  if (status === "draft") {
+    // Draft hides the job from every phone at once and blocks hours against
+    // it — as outward-facing as archiving, so it asks first (2026-09-26).
+    return "Take this job back to draft? The crew lose it from their list straight away and can’t log hours to it until it’s made live again. Nothing is deleted.";
+  }
   if (status === "complete") {
-    const until = shortDay(new Date(Date.now() + GRACE_DAYS * 24 * 60 * 60 * 1000).toISOString(), true);
+    const until = shortDay(
+      new Date(Date.now() + GRACE_DAYS * 24 * 60 * 60 * 1000).toISOString(),
+      true
+    );
     return `Mark this job finished? The crew can keep logging hours to it until ${until}; after that it leaves their list but stays in search, still takes callback hours, and can be reopened any time.`;
   }
   // archived
@@ -114,7 +116,7 @@ export function JobStatusControl({
         disabled={busy}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={`Job status: ${statusLabel(job.status)}. Change status`}
+        aria-label={`Job status: ${phaseLabel(phase)}. Change status`}
         className="inline-flex items-center gap-1 rounded-pill focus:outline-none focus:ring-2 focus:ring-brand-navy disabled:opacity-60"
       >
         {pill}
@@ -151,7 +153,11 @@ export function JobStatusControl({
               >
                 <span className="min-w-0">
                   <span className="block text-sm font-medium text-text">
-                    {status === "active" && current === "complete" ? "Reopen" : statusLabel(status)}
+                    {status === "active" && current === "complete"
+                      ? "Reopen"
+                      : status === "complete"
+                        ? "Mark finished"
+                        : statusLabel(status)}
                   </span>
                   <span className="block text-xs text-text-muted">
                     {status === "active" && current === "complete"
@@ -193,7 +199,9 @@ export function JobStatusControl({
                 ? "Saving…"
                 : confirming === "complete"
                   ? "Yes, mark finished"
-                  : "Yes, archive"}
+                  : confirming === "draft"
+                    ? "Yes, back to draft"
+                    : "Yes, archive"}
             </Button>
           </div>
         </div>

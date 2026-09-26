@@ -13,7 +13,9 @@ describe("PhilOfflineBanner", () => {
   it("the view shows honest offline copy with a status role", () => {
     const html = renderToString(createElement(OfflineBannerView));
     expect(html).toContain("offline");
-    expect(html).toContain("Changes");
+    expect(html).toContain("can&#x27;t send");
+    // Nothing is queued while offline — the copy must not imply a later send.
+    expect(html).toContain("nothing is queued");
     expect(html).toContain('role="status"');
   });
 

@@ -88,52 +88,53 @@ export function CaptureTargetPickers({
         </div>
       </fieldset>
 
-      <fieldset>
-        <legend className="font-display text-sm font-semibold text-text">
-          Area <span className="text-text-muted">(optional)</span>
-        </legend>
-        {flatAreas.length === 0 ? (
-          <p className="mt-2 rounded-card border border-dashed border-border bg-surface-subtle p-3 text-xs text-text-muted">
-            No areas configured for this job. Capture will be job-level.
-          </p>
-        ) : (
-          <ul className="mt-2 space-y-1.5" role="radiogroup" aria-label="Area">
-            {flatAreas.map((a) => {
-              const active = a.id === areaId;
-              return (
-                <li key={a.id}>
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={active}
-                    onClick={() => onAreaChange(active ? null : a.id)}
-                    disabled={busy}
-                    className={cn(
-                      "flex min-h-[48px] w-full items-center justify-between gap-3 rounded-card border px-3 py-2 text-left",
-                      "transition-colors disabled:cursor-not-allowed disabled:opacity-60",
-                      active
-                        ? "border-brand-navy bg-brand-navy text-text-inverse"
-                        : "border-border bg-surface hover:bg-surface-subtle"
-                    )}
-                  >
-                    <span className="min-w-0">
-                      <span className="block truncate text-sm font-semibold">{a.name}</span>
-                      <span
-                        className={cn(
-                          "block truncate text-xs",
-                          active ? "text-text-inverse/80" : "text-text-muted"
-                        )}
-                      >
-                        {a.groupName}
+      {/* Lean jobs have no areas (02-lean-reset): the fieldset only exists
+          when there is something to pick — a "No areas configured" box on
+          every capture was a trace of hidden structure (P10, no-trace rule). */}
+      {flatAreas.length === 0 ? null : (
+        <fieldset>
+          <legend className="font-display text-sm font-semibold text-text">
+            Area <span className="text-text-muted">(optional)</span>
+          </legend>
+          {
+            <ul className="mt-2 space-y-1.5" role="radiogroup" aria-label="Area">
+              {flatAreas.map((a) => {
+                const active = a.id === areaId;
+                return (
+                  <li key={a.id}>
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      onClick={() => onAreaChange(active ? null : a.id)}
+                      disabled={busy}
+                      className={cn(
+                        "flex min-h-[48px] w-full items-center justify-between gap-3 rounded-card border px-3 py-2 text-left",
+                        "transition-colors disabled:cursor-not-allowed disabled:opacity-60",
+                        active
+                          ? "border-brand-navy bg-brand-navy text-text-inverse"
+                          : "border-border bg-surface hover:bg-surface-subtle"
+                      )}
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-semibold">{a.name}</span>
+                        <span
+                          className={cn(
+                            "block truncate text-xs",
+                            active ? "text-text-inverse/80" : "text-text-muted"
+                          )}
+                        >
+                          {a.groupName}
+                        </span>
                       </span>
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </fieldset>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          }
+        </fieldset>
+      )}
 
       {stage && selectedArea ? (
         <fieldset>

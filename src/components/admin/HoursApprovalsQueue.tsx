@@ -21,8 +21,8 @@ import {
   formatDateLabel,
   formatHoursLabel,
   formatTimestamp,
+  officeStatusLabel,
   otSplitLabel,
-  statusLabel,
   statusTone,
 } from "@/domains/timesheets/format";
 import type { TimeEntry } from "@/domains/timesheets/types";
@@ -43,11 +43,13 @@ interface HoursApprovalsQueueProps {
 
 type ActionState =
   | { kind: "idle" }
-  | { kind: "approving"; entryKey: string }
-  | { kind: "rejecting"; entryKey: string }
-  | { kind: "amending"; entryKey: string }
   | { kind: "success"; entryKey: string; label: string }
   | { kind: "error"; message: string };
+
+/** What a row is doing right now — tracked PER ROW (a Set-style map), never a
+ *  single "the approving row" id: with one id, tapping Approve on row B
+ *  re-enabled row A mid-request (2026-09-26 usability audit). */
+type RowInflight = "approving" | "rejecting" | "amending";
 
 function entryKey(entry: Pick<TimeEntry, "userId" | "date">): string {
   return `${entry.userId}:${entry.date}`;
@@ -84,10 +86,27 @@ export function HoursApprovalsQueue({
   /** Entry key whose inline "fix the hours" editor is open (one at a time). */
   const [amendKey, setAmendKey] = useState<string | null>(null);
   const [bulk, setBulk] = useState<BulkOutcome | null>(null);
-  const [bulkBusyWorker, setBulkBusyWorker] = useState<string | null>(null);
   const [undoBusy, setUndoBusy] = useState(false);
   const bulkSeqRef = useRef(0);
   const [, startTransition] = useTransition();
+
+  // Per-row + per-worker in-flight guards. Refs are the synchronous source of
+  // truth (a double-click can't double-fire), mirrored to state so the
+  // buttons can disable — the same pattern as the phone surface's busyRef.
+  const inflightRef = useRef<Map<string, RowInflight>>(new Map());
+  const [inflight, setInflight] = useState<ReadonlyMap<string, RowInflight>>(new Map());
+  const setRowInflight = (key: string, kind: RowInflight | null) => {
+    if (kind) inflightRef.current.set(key, kind);
+    else inflightRef.current.delete(key);
+    setInflight(new Map(inflightRef.current));
+  };
+  const bulkBusyRef = useRef<Set<string>>(new Set());
+  const [bulkBusyWorkers, setBulkBusyWorkers] = useState<ReadonlySet<string>>(new Set());
+  const setBulkBusy = (userId: string, on: boolean) => {
+    if (on) bulkBusyRef.current.add(userId);
+    else bulkBusyRef.current.delete(userId);
+    setBulkBusyWorkers(new Set(bulkBusyRef.current));
+  };
 
   const grouped = useMemo(() => groupByWorker(entries), [entries]);
 
@@ -96,12 +115,12 @@ export function HoursApprovalsQueue({
     // honest remainder note rather than a silent truncation.
     const all = group.entries.map((e) => ({ userId: e.userId, date: e.date }));
     const entriesToSend = all.slice(0, 50);
-    if (entriesToSend.length === 0 || bulkBusyWorker) return;
-    setBulkBusyWorker(group.userId);
+    if (entriesToSend.length === 0 || bulkBusyRef.current.has(group.userId)) return;
+    setBulkBusy(group.userId, true);
     setAction({ kind: "idle" });
     setBulk(null);
     const result = await timesheetsClient.bulkApproveEntries({ entries: entriesToSend });
-    setBulkBusyWorker(null);
+    setBulkBusy(group.userId, false);
     if (!result.ok) {
       setAction({
         kind: "error",
@@ -159,11 +178,13 @@ export function HoursApprovalsQueue({
 
   async function approve(entry: TimeEntry) {
     const key = entryKey(entry);
-    setAction({ kind: "approving", entryKey: key });
+    if (inflightRef.current.has(key)) return;
+    setRowInflight(key, "approving");
     const result = await timesheetsClient.approveEntry({
       userId: entry.userId,
       date: entry.date,
     });
+    setRowInflight(key, null);
     if (result.ok) {
       setEntries((current) => current.filter((e) => entryKey(e) !== key));
       setAction({
@@ -194,7 +215,8 @@ export function HoursApprovalsQueue({
     payload: { totalHours: number; allocations: Array<{ jobId: string | null; hours: number }>; reason: string },
   ) {
     const key = entryKey(entry);
-    setAction({ kind: "amending", entryKey: key });
+    if (inflightRef.current.has(key)) return;
+    setRowInflight(key, "amending");
     const result = await timesheetsClient.amendAndApproveEntry({
       userId: entry.userId,
       date: entry.date,
@@ -202,6 +224,7 @@ export function HoursApprovalsQueue({
       totalHours: payload.totalHours,
       allocations: payload.allocations,
     });
+    setRowInflight(key, null);
     if (result.ok) {
       setAmendKey(null);
       setEntries((current) => current.filter((e) => entryKey(e) !== key));
@@ -248,13 +271,14 @@ export function HoursApprovalsQueue({
     const key = entryKey(target);
     setRejectError(null);
     setRejectBusy(true);
-    setAction({ kind: "rejecting", entryKey: key });
+    setRowInflight(key, "rejecting");
     const result = await timesheetsClient.rejectEntry({
       userId: target.userId,
       date: target.date,
       reason: trimmed,
     });
     setRejectBusy(false);
+    setRowInflight(key, null);
     if (result.ok) {
       // Only close on success — a failure keeps the dialog (and the typed
       // reason) open with the server's message inside it.
@@ -264,16 +288,15 @@ export function HoursApprovalsQueue({
       setAction({
         kind: "success",
         entryKey: key,
-        label: `Rejected ${target.userName ?? target.userId}'s ${formatDateLabel(target.date)}. They'll see the reason and a Fix button in their app.`,
+        label: `Sent ${target.userName ?? target.userId}'s ${formatDateLabel(target.date)} back. They'll see the reason and a Fix button in their app.`,
       });
       startTransition(() => router.refresh());
       return;
     }
-    setAction({ kind: "idle" });
     setRejectError(
       result.error.status === 403
-        ? "You don't have permission to reject this entry — admin only."
-        : result.error.message || "Couldn't reject. Try again.",
+        ? "You don't have permission to send this entry back — admin only."
+        : result.error.message || "Couldn't send it back. Try again.",
     );
   }
 
@@ -319,7 +342,9 @@ export function HoursApprovalsQueue({
         </Card>
       ) : null}
 
-      {entries.length === 0 ? (
+      {/* A failed load is NOT an empty queue — the error card above is the
+          whole story, never "nothing to approve" (2026-09-26 audit, P7). */}
+      {fetchError ? null : entries.length === 0 ? (
         <EmptyState
           title="No entries to approve"
           description="When workers submit hours from /phil/my-day they'll show up here grouped by worker. Leading hands only see entries on their own jobs. Approved something by mistake? Reopen it from the weekly board."
@@ -330,8 +355,8 @@ export function HoursApprovalsQueue({
             <li key={group.userId}>
               <WorkerGroup
                 group={group}
-                action={action}
-                bulkBusy={bulkBusyWorker === group.userId}
+                inflight={inflight}
+                bulkBusy={bulkBusyWorkers.has(group.userId)}
                 canAmend={canAmend}
                 amendKey={amendKey}
                 onApprove={approve}
@@ -349,7 +374,9 @@ export function HoursApprovalsQueue({
         open={rejectTarget !== null}
         onClose={closeReject}
         title={
-          rejectTarget ? `Reject ${rejectTarget.userName ?? rejectTarget.userId}'s hours` : "Reject"
+          rejectTarget
+            ? `Send ${rejectTarget.userName ?? rejectTarget.userId}'s hours back`
+            : "Send back"
         }
       >
         <div className="space-y-4">
@@ -379,7 +406,7 @@ export function HoursApprovalsQueue({
               disabled={rejectBusy || rejectReason.trim() === ""}
               onClick={() => void confirmReject()}
             >
-              {rejectBusy ? "Sending back…" : "Reject with reason"}
+              {rejectBusy ? "Sending back…" : "Send back with reason"}
             </Button>
           </div>
         </div>
@@ -470,7 +497,7 @@ function groupByWorker(entries: ReadonlyArray<TimeEntry>): ReadonlyArray<WorkerG
 
 function WorkerGroup({
   group,
-  action,
+  inflight,
   bulkBusy,
   canAmend,
   amendKey,
@@ -481,7 +508,8 @@ function WorkerGroup({
   onAmend,
 }: {
   group: WorkerGroupShape;
-  action: ActionState;
+  inflight: ReadonlyMap<string, RowInflight>;
+  /** "Approve all" for THIS worker is in flight — every row waits with it. */
   bulkBusy: boolean;
   canAmend: boolean;
   amendKey: string | null;
@@ -522,7 +550,8 @@ function WorkerGroup({
             <li key={entry.id} className="py-3">
               <EntryRow
                 entry={entry}
-                action={action}
+                inflight={inflight.get(entryKey(entry)) ?? null}
+                bulkBusy={bulkBusy}
                 canAmend={canAmend}
                 amendOpen={amendKey === entryKey(entry)}
                 onApprove={onApprove}
@@ -539,7 +568,8 @@ function WorkerGroup({
 
 function EntryRow({
   entry,
-  action,
+  inflight,
+  bulkBusy,
   canAmend,
   amendOpen,
   onApprove,
@@ -548,7 +578,10 @@ function EntryRow({
   onAmend,
 }: {
   entry: TimeEntry;
-  action: ActionState;
+  /** This row's own in-flight action, if any. */
+  inflight: RowInflight | null;
+  /** The worker's "Approve all" is in flight — this row is part of it. */
+  bulkBusy: boolean;
   canAmend: boolean;
   amendOpen: boolean;
   onApprove: (entry: TimeEntry) => void;
@@ -557,16 +590,16 @@ function EntryRow({
   onAmend: (entry: TimeEntry, payload: AmendPayload) => void;
 }): ReactNode {
   const key = entryKey(entry);
-  const approving = action.kind === "approving" && action.entryKey === key;
-  const rejecting = action.kind === "rejecting" && action.entryKey === key;
-  const amending = action.kind === "amending" && action.entryKey === key;
-  const busy = approving || rejecting || amending;
+  const approving = inflight === "approving";
+  const rejecting = inflight === "rejecting";
+  const amending = inflight === "amending";
+  const busy = inflight !== null || bulkBusy;
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_auto]">
       <div className="space-y-2">
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <span className="font-medium text-text">{formatDateLabel(entry.date)}</span>
-          <Pill tone={statusTone(entry.status)}>{statusLabel(entry.status)}</Pill>
+          <Pill tone={statusTone(entry.status)}>{officeStatusLabel(entry.status)}</Pill>
           <span className="text-text-muted">{formatHoursLabel(entry.totalHours)}</span>
           {/* #130: base/OT split, only when the stored entry has overtime —
               ≤8h days render byte-identical (presenter returns null). */}
@@ -626,9 +659,9 @@ function EntryRow({
           size="sm"
           onClick={() => onReject(entry)}
           disabled={busy}
-          aria-label={`Reject ${formatHoursLabel(entry.totalHours)} for ${entry.userName ?? entry.userId} on ${formatDateLabel(entry.date)}`}
+          aria-label={`Send back ${formatHoursLabel(entry.totalHours)} for ${entry.userName ?? entry.userId} on ${formatDateLabel(entry.date)}`}
         >
-          {rejecting ? "Rejecting…" : "Reject"}
+          {rejecting ? "Sending back…" : "Send back"}
         </Button>
       </div>
     </div>

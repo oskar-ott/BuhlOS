@@ -10,14 +10,17 @@ import { HoursTabs } from "./HoursTabs";
 
 /**
  * #415 → lean-reset → weekly-first (owner directive 2026-08-08) — the hours
- * section's in-page tab bar, now This week · Today · Pay period. The crew
- * logs hours weekly, so the section leads with the week: /hours redirects to
+ * section's in-page tab bar, now Weekly · Today · Pay period. The crew logs
+ * hours weekly, so the section leads with the week: /hours redirects to
  * /hours/weekly and the day view moved to /hours/today. Active state is read
  * LIVE from usePathname() (the soft-nav rule, #116→#118); this SSR test
  * drives it by swapping the mocked path per render — all tabs prefix-match.
  *
+ * The first tab is "Weekly", not "This week": the board opens on the last
+ * COMPLETE week, so "This week" lied most days (2026-09-26 audit).
+ *
  * /hours/approvals deliberately has NO tab (redesign) but the route stays
- * live — the strip must simply light nothing there, never 404 it.
+ * live — it is the weekly board's drill-in, so the Weekly tab stays lit there.
  */
 
 function render(path: string): string {
@@ -33,17 +36,19 @@ function activeTab(html: string): string | null {
 }
 
 describe("HoursTabs (#415, weekly-first)", () => {
-  it("renders the three tabs, This week FIRST (the crew's weekly rhythm leads)", () => {
+  it("renders the three tabs, Weekly FIRST (the crew's weekly rhythm leads)", () => {
     const html = render("/hours/weekly");
     expect(html).toContain('data-testid="hours-tabs"');
     expect(html).toContain('href="/hours/weekly"');
     expect(html).toContain('href="/hours/today"');
     expect(html).toContain('href="/hours/period"');
-    for (const label of ["This week", "Today", "Pay period"]) {
+    for (const label of ["Weekly", "Today", "Pay period"]) {
       expect(html).toContain(label);
     }
+    // Never the old promise — the board usually shows LAST week.
+    expect(html).not.toContain(">This week<");
     // Order: the weekly board is the landing tab, the day view a drill-in.
-    expect(html.indexOf(">This week<")).toBeLessThan(html.indexOf(">Today<"));
+    expect(html.indexOf(">Weekly<")).toBeLessThan(html.indexOf(">Today<"));
   });
 
   it("carries NO tab for the section root — /hours itself redirects to the weekly board", () => {
@@ -72,7 +77,7 @@ describe("HoursTabs (#415, weekly-first)", () => {
   });
 
   it("marks exactly one tab active per tab route via aria-current", () => {
-    expect(activeTab(render("/hours/weekly"))).toBe("This week");
+    expect(activeTab(render("/hours/weekly"))).toBe("Weekly");
     expect(activeTab(render("/hours/today"))).toBe("Today");
     expect(activeTab(render("/hours/period"))).toBe("Pay period");
     for (const path of ["/hours/weekly", "/hours/today", "/hours/period"]) {
@@ -80,12 +85,15 @@ describe("HoursTabs (#415, weekly-first)", () => {
     }
   });
 
-  it("lights nothing on /hours/approvals (no tab claims it)", () => {
-    expect(render("/hours/approvals").match(/aria-current="page"/g)).toBeNull();
+  it("lights the Weekly tab on /hours/approvals — the queue is the board's drill-in, never a strip with no active tab", () => {
+    expect(activeTab(render("/hours/approvals"))).toBe("Weekly");
+    expect(render("/hours/approvals").match(/aria-current="page"/g)).toHaveLength(1);
+    // Still no tab of its own.
+    expect(render("/hours/approvals")).not.toContain('href="/hours/approvals"');
   });
 
   it("tabs match by prefix — sub-paths keep their parent tab active, one at a time", () => {
-    expect(activeTab(render("/hours/weekly/anything"))).toBe("This week");
+    expect(activeTab(render("/hours/weekly/anything"))).toBe("Weekly");
     expect(activeTab(render("/hours/period/anything"))).toBe("Pay period");
     expect(activeTab(render("/hours/today/anything"))).toBe("Today");
     expect(render("/hours/weekly").match(/aria-current="page"/g)).toHaveLength(1);
