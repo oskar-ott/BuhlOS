@@ -71,16 +71,21 @@ export function PhilItpReportsList({ jobId }: { jobId: string }) {
   const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false);
 
+  const [loadFailed, setLoadFailed] = useState(false);
   const load = useCallback(async () => {
     setError(null);
+    setLoadFailed(false);
     try {
       const raw = await api(`/api/itp-simple?jobId=${encodeURIComponent(jobId)}`);
       const parsed = ItpListResponseSchema.parse(raw);
       setReports(parsed.reports);
       setJobName(parsed.job.name);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't load the ITPs");
-      setReports([]);
+    } catch {
+      // A failed read is not an empty list (P7): reports stay null, the
+      // skeleton clears, and the copy is plain — the server's reason
+      // ("[supabase-env] MISSING_ENV…") is for logs, not a worker (P11).
+      setError("Couldn’t load the ITPs on this job. Check your signal and pull to refresh.");
+      setLoadFailed(true);
     }
   }, [jobId]);
 
@@ -125,7 +130,9 @@ export function PhilItpReportsList({ jobId }: { jobId: string }) {
       ) : null}
 
       {reports === null ? (
-        <PhilSkeletonCard />
+        loadFailed ? null : (
+          <PhilSkeletonCard />
+        )
       ) : reports.length === 0 ? (
         <p className="text-sm text-text-muted">
           No ITPs on this job yet. Name the first one and get walking.
@@ -143,7 +150,9 @@ export function PhilItpReportsList({ jobId }: { jobId: string }) {
                   {r.areaCount === 1 ? "1 area" : `${r.areaCount} areas`}
                   {" · "}
                   {r.photoCount === 1 ? "1 photo" : `${r.photoCount} photos`}
-                  {r.pdfGeneratedAt ? ` · PDF made ${shortDate(r.pdfGeneratedAt)}` : " · no PDF yet"}
+                  {r.pdfGeneratedAt
+                    ? ` · PDF made ${shortDate(r.pdfGeneratedAt)}`
+                    : " · no PDF yet"}
                 </span>
               </Link>
             </li>
@@ -250,7 +259,10 @@ export function PhilItpReportBuilder({ jobId, reportId }: { jobId: string; repor
     }
     setArmed(null);
     void run(key, async () => {
-      await api(`${base}&action=photo`, { method: "DELETE", body: JSON.stringify({ id: photoId }) });
+      await api(`${base}&action=photo`, {
+        method: "DELETE",
+        body: JSON.stringify({ id: photoId }),
+      });
     });
   }
 
@@ -344,7 +356,9 @@ export function PhilItpReportBuilder({ jobId, reportId }: { jobId: string; repor
                   <button
                     type="button"
                     aria-label={
-                      armed === `del:${p.id}` ? "Tap again to remove this photo" : "Remove this photo"
+                      armed === `del:${p.id}`
+                        ? "Tap again to remove this photo"
+                        : "Remove this photo"
                     }
                     onClick={() => deletePhoto(p.id)}
                     disabled={busy !== null}
@@ -416,7 +430,11 @@ export function PhilItpReportBuilder({ jobId, reportId }: { jobId: string; repor
           </p>
         ) : null}
         <PhilActionButton onClick={makePdf} disabled={busy !== null || photoCount === 0}>
-          {busy === "pdf" ? "Making the PDF…" : report.pdfUrl ? "Make the PDF again" : "Make the PDF"}
+          {busy === "pdf"
+            ? "Making the PDF…"
+            : report.pdfUrl
+              ? "Make the PDF again"
+              : "Make the PDF"}
         </PhilActionButton>
         {photoCount === 0 ? (
           <p className="text-xs text-text-muted">Add at least one photo first.</p>

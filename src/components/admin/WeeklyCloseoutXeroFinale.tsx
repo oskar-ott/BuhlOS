@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import type { Route } from "next";
 import { AlertTriangle, Check, Loader2, RefreshCw, UploadCloud } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
@@ -68,8 +70,10 @@ interface Props {
   weekEnd: string;
   /** Human period label, e.g. "Mon 20 May – Sun 26 May". Display only. */
   periodLabel: string;
-  /** How many workers the boss just stepped through. */
+  /** How many weeks the boss just stepped through AND that landed. */
   reviewedCount: number;
+  /** Weeks whose approval / send-back failed in the stepper — named plainly. */
+  failedCount?: number;
   /** Server-resolved flags + role. Unavailable → the plain reviewed panel. */
   gate: XeroFinaleGate;
   /** Approved hours per worker, already computed for the crew cards. */
@@ -81,11 +85,29 @@ interface Props {
 
 type Batch = { id: string; status: string; revision?: number };
 
+/** Where a worker gets linked to their Xero employee record
+ *  (XeroWorkerMappingPanel on the Xero settings page — NOT Employees). */
+export const XERO_SETTINGS_HREF = "/settings/integrations/xero" as Route;
+
+/** The one link every "no Xero employee" notice ends with. */
+export function XeroSettingsLink({ children = "Link them in Xero settings" }: { children?: React.ReactNode }) {
+  return (
+    <Link
+      href={XERO_SETTINGS_HREF}
+      data-testid="xero-settings-link"
+      className="font-semibold underline underline-offset-2"
+    >
+      {children}
+    </Link>
+  );
+}
+
 export function WeeklyCloseoutXeroFinale({
   weekStart,
   weekEnd,
   periodLabel,
   reviewedCount,
+  failedCount = 0,
   gate,
   candidates,
   onClose,
@@ -251,7 +273,7 @@ export function WeeklyCloseoutXeroFinale({
           </Button>
         }
       >
-        <ReviewedMark count={reviewedCount} />
+        <ReviewedMark count={reviewedCount} failed={failedCount} />
         <p className="rounded-card border border-border bg-surface-subtle p-3 text-xs text-text-muted">
           Payroll export and the full audit trail run in{" "}
           <b className="font-semibold text-text">BuhlOS on desktop</b>. You approve on the move; the
@@ -323,6 +345,7 @@ export function WeeklyCloseoutXeroFinale({
     >
       <ReviewedMark
         count={reviewedCount}
+        failed={failedCount}
         sub={
           access.kind === "ready"
             ? "Approved hours are ready to send to Xero as draft timesheets."
@@ -367,7 +390,7 @@ export function WeeklyCloseoutXeroFinale({
               Xero
             </span>
             <div className="min-w-0 flex-1">
-              <p className="font-mono text-[9px] uppercase tracking-widest text-text-muted">
+              <p className="font-mono text-[10px] uppercase tracking-widest text-text-muted">
                 Sending to
               </p>
               <p className="truncate font-display text-[15px] font-bold text-text">
@@ -521,8 +544,8 @@ function PushedPanel({
           <span className="font-semibold">
             {stillUnmapped.map((i) => i.workerName).join(", ")}
           </span>{" "}
-          still {stillUnmapped.length === 1 ? "needs" : "need"} a Xero employee ID before those hours
-          can go across. Add it in Employees on desktop.
+          still {stillUnmapped.length === 1 ? "needs" : "need"} a Xero employee link before those
+          hours can go across. <XeroSettingsLink />.
         </Notice>
       ) : null}
     </FinaleShell>
@@ -536,7 +559,7 @@ export function PushRowList({ plan }: { plan: ReviewPlan }) {
   if (plan.rows.length === 0) return null;
   return (
     <div>
-      <p className="mb-1.5 font-mono text-[9px] uppercase tracking-widest text-text-muted">
+      <p className="mb-1.5 font-mono text-[10px] uppercase tracking-widest text-text-muted">
         {plan.sendCount} {plan.sendCount === 1 ? "timesheet" : "timesheets"} ·{" "}
         {formatHoursLabel(plan.totalHours)}
       </p>
@@ -577,8 +600,8 @@ function WithheldNotice({ workers }: { workers: ExcludedWorker[] }) {
     <div className="flex gap-2.5 rounded-card border border-amber-200 bg-amber-50 p-3">
       <AlertTriangle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
       <p className="text-xs leading-relaxed text-amber-900">
-        <b className="font-semibold">{names}</b> — no Xero employee ID yet, so those hours stay out
-        of this push. Add the ID in Employees on desktop, then send separately.
+        <b className="font-semibold">{names}</b> — not linked to a Xero employee yet, so those
+        hours stay out of this push. <XeroSettingsLink />, then send separately.
       </p>
     </div>
   );
@@ -598,16 +621,46 @@ export function ReceiptRow({ label, value, last }: { label: string; value: strin
   );
 }
 
-export function ReviewedMark({ count, sub }: { count: number; sub?: string }) {
+/**
+ * The finale's headline, from what REALLY landed: `count` is the weeks that
+ * went through; `failed` names the ones that didn't (2026-09-26 audit — it
+ * used to say "All N weeks reviewed" whatever the server answered).
+ */
+export function ReviewedMark({
+  count,
+  failed = 0,
+  sub,
+}: {
+  count: number;
+  failed?: number;
+  sub?: string;
+}) {
+  const total = count + failed;
+  const weeks = (n: number) => `${n} ${n === 1 ? "week" : "weeks"}`;
   return (
     <div className="flex flex-col items-center gap-3 py-2 text-center">
-      <span className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
-        <Check aria-hidden="true" className="h-6 w-6" />
+      <span
+        className={cn(
+          "flex h-14 w-14 items-center justify-center rounded-full",
+          failed > 0 ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-700",
+        )}
+      >
+        {failed > 0 ? (
+          <AlertTriangle aria-hidden="true" className="h-6 w-6" />
+        ) : (
+          <Check aria-hidden="true" className="h-6 w-6" />
+        )}
       </span>
       <div>
-        <p className="font-display text-lg font-bold text-text">
-          All {count} {count === 1 ? "week" : "weeks"} reviewed
+        <p className="font-display text-lg font-bold text-text" data-testid="wha-reviewed-mark">
+          {failed > 0 ? `${count} of ${weeks(total)} approved` : `All ${weeks(count)} reviewed`}
         </p>
+        {failed > 0 ? (
+          <p className="mx-auto mt-1 max-w-[32ch] text-sm leading-relaxed text-amber-900">
+            {weeks(failed)} couldn&rsquo;t be approved — still waiting for you. Only what
+            landed is counted below.
+          </p>
+        ) : null}
         {sub ? (
           <p className="mx-auto mt-1 max-w-[32ch] text-sm leading-relaxed text-text-muted">{sub}</p>
         ) : null}

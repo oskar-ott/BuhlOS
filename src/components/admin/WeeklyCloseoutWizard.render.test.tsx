@@ -7,7 +7,7 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: () => {}, refresh: () => {} }),
 }));
 
-import { WeeklyCloseoutWizard } from "./WeeklyCloseoutWizard";
+import { WeeklyCloseoutWizard, closeoutDoneSummary } from "./WeeklyCloseoutWizard";
 import { buildWeeklyHoursCloseout } from "@/domains/timesheets/weekly-closeout";
 import type { MissingLog, TimeEntry } from "@/domains/timesheets/types";
 
@@ -101,12 +101,15 @@ describe("WeeklyCloseoutWizard (render)", () => {
     expect(html).toContain("2 days to approve");
   });
 
-  it("footer offers Reject + 'Approve all · Nh' for a week with submitted days", () => {
+  it("footer offers Send back + 'Approve all · Nh' for a week with submitted days", () => {
     const html = render([
       entry({ userId: "u1", date: "2024-05-20", userName: "Jack Smith", totalHours: 8.5 }),
     ]);
     expect(html).toContain('data-testid="closeout-wizard-approve"');
     expect(html).toContain('data-testid="closeout-wizard-reject"');
+    // One word for the action across the office surfaces (2026-09-26 audit).
+    expect(html).toContain(">Send back<");
+    expect(html).not.toContain(">Reject<");
     // Approve names the SUBMITTED hours, never overstating the tap.
     expect(html).toContain("Approve all · 8h 30m");
   });
@@ -129,5 +132,34 @@ describe("WeeklyCloseoutWizard (render)", () => {
       entry({ userId: "u1", date: "2024-05-20", userName: "Jack Smith" }),
     ]);
     expect(html).toContain('aria-valuenow="0"');
+  });
+});
+
+/**
+ * The done screen is unreachable under SSR (it needs the stepper walked), so
+ * its words are pinned as a pure function: it counts only approvals that
+ * LANDED, and a failure is never folded into "every week is cleared"
+ * (2026-09-26 audit — the stepper used to advance before the server answered).
+ */
+describe("closeoutDoneSummary", () => {
+  it("all landed → N of N approved, pointing at the pay period", () => {
+    const s = closeoutDoneSummary({ total: 3, approved: 3, sentBack: 0, failed: 0 });
+    expect(s.headline).toBe("3 of 3 weeks approved");
+    expect(s.failed).toBe(0);
+    expect(s.detail).toContain("pay period");
+  });
+
+  it("names weeks sent back without calling them cleared", () => {
+    const s = closeoutDoneSummary({ total: 3, approved: 2, sentBack: 1, failed: 0 });
+    expect(s.headline).toBe("2 of 3 weeks approved");
+    expect(s.detail).toContain("1 week sent back to the worker");
+  });
+
+  it("a failed approval is said plainly and counted out of the approved figure", () => {
+    const s = closeoutDoneSummary({ total: 2, approved: 1, sentBack: 0, failed: 1 });
+    expect(s.headline).toBe("1 of 2 weeks approved");
+    expect(s.failed).toBe(1);
+    expect(s.detail).toContain("1 week couldn't be approved or sent back");
+    expect(s.detail).not.toContain("Every submitted week");
   });
 });

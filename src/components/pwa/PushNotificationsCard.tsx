@@ -2,11 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
-import {
-  ensurePushSubscription,
-  pushSupported,
-  type PushSetupOutcome,
-} from "@/lib/pwa/push";
+import { ensurePushSubscription, pushSupported, type PushSetupOutcome } from "@/lib/pwa/push";
 
 /**
  * Explicit push-notification opt-in.
@@ -30,6 +26,28 @@ export function PushNotificationsCard({ audience }: { audience: "phil" | "admin"
     }
     if (Notification.permission === "granted") setGranted(true);
     if (Notification.permission === "denied") setState("denied");
+    // Ask the server up front whether push exists at all (the same public-key
+    // read ensurePushSubscription does). Unconfigured → the card leaves the
+    // screen instead of offering a button that can only end in "tell the
+    // office" (P7 — never present an unconfigured channel as working).
+    let cancelled = false;
+    fetch("/api/notifications?action=public-key", { credentials: "same-origin" })
+      .then(async (res) => {
+        if (cancelled) return;
+        if (res.status === 503) {
+          setState("not-configured");
+          return;
+        }
+        if (!res.ok) return; // unknown → keep the button; the tap reports honestly
+        const body = (await res.json().catch(() => null)) as { publicKey?: string } | null;
+        if (!body?.publicKey) setState("not-configured");
+      })
+      .catch(() => {
+        /* offline / transient — keep the card; the enable tap reports honestly */
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   async function onEnable() {
@@ -41,8 +59,16 @@ export function PushNotificationsCard({ audience }: { audience: "phil" | "admin"
 
   const description =
     audience === "phil"
-      ? "Get a nudge to log your hours before knock-off, and a heads-up when a job or snag is assigned to you."
-      : "Get the end-of-day digest, office-inbox items, stale-snag and job-overrun alerts on this device.";
+      ? "Get a nudge to log your hours before knock-off, and a heads-up when your hours are sent back."
+      : "Get the end-of-day digest and hours reminders on this device.";
+
+  // Push is a server-configured channel (VAPID keys). When the server says it
+  // isn't set up, nothing can ever be sent — so the card renders NOTHING
+  // rather than a permanent "tell the office" note on every Command Centre
+  // and My Day visit (lean-reset no-trace rule; the owner sees the real
+  // state at /owner). Discovered on the first enable attempt; until then the
+  // card offers the button as before.
+  if (state === "not-configured") return null;
 
   return (
     <Card className="space-y-3" data-testid="push-notifications-card">
@@ -53,8 +79,8 @@ export function PushNotificationsCard({ audience }: { audience: "phil" | "admin"
 
       {state === "unsupported" ? (
         <p className="text-sm text-text-muted">
-          This browser doesn&rsquo;t support push notifications. On iPhone, add the app to your
-          Home Screen first, then turn notifications on from there.
+          This browser doesn&rsquo;t support push notifications. On iPhone, add the app to your Home
+          Screen first, then turn notifications on from there.
         </p>
       ) : state === "denied" ? (
         <p className="text-sm text-text-muted">
@@ -64,10 +90,6 @@ export function PushNotificationsCard({ audience }: { audience: "phil" | "admin"
       ) : state === "subscribed" ? (
         <p className="text-sm font-semibold text-text" role="status">
           Notifications are on for this device.
-        </p>
-      ) : state === "not-configured" ? (
-        <p className="text-sm text-text-muted">
-          Push isn&rsquo;t configured on the server yet, so nothing can be sent. Tell the office.
         </p>
       ) : (
         <div className="space-y-2">

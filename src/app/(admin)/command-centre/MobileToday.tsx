@@ -51,6 +51,8 @@ interface MobileTodayProps {
   weekHoursLabel: string | null;
   /** Hours submitted and awaiting approval (the weekly payroll closeout). */
   pendingHours: number;
+  /** Monday of the week holding the oldest waiting day — the card links there. */
+  pendingWeekStart?: string | null;
   /** The ranked exception list (already built + age-decorated by the page). */
   exceptions: ExceptionItem[];
   anySourceError: boolean;
@@ -85,6 +87,7 @@ export function MobileToday(props: MobileTodayProps) {
     weekWorkersLogged,
     weekHoursLabel,
     pendingHours,
+    pendingWeekStart = null,
     exceptions,
     anySourceError,
     errorMessage,
@@ -159,13 +162,13 @@ export function MobileToday(props: MobileTodayProps) {
                   onClick={() => setSelected(item)}
                   className={cn(
                     "flex w-full items-start gap-3 border-l-[3px] border-t border-border px-4 py-3 text-left first:border-t-0 hover:bg-surface-subtle",
-                    SEVERITY_RAIL[item.severity],
+                    SEVERITY_RAIL[item.severity]
                   )}
                 >
                   <span
                     className={cn(
                       "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-card",
-                      SEVERITY_ICON_WRAP[item.severity],
+                      SEVERITY_ICON_WRAP[item.severity]
                     )}
                   >
                     <Icon aria-hidden="true" className="h-4 w-4" />
@@ -208,15 +211,17 @@ export function MobileToday(props: MobileTodayProps) {
       {/* Waiting on you — the weekly hours closeout. */}
       {pendingHours > 0 ? (
         <section>
-          <SectionLabel meta={`${pendingHours} to action`}>
-            Waiting on you
-          </SectionLabel>
+          <SectionLabel meta={`${pendingHours} to action`}>Waiting on you</SectionLabel>
           <div className="mt-2 space-y-2">
             <StripCard
-              href={"/hours/weekly" as Route}
+              href={
+                (pendingWeekStart
+                  ? `/hours/weekly?week=${encodeURIComponent(pendingWeekStart)}`
+                  : "/hours/weekly") as Route
+              }
               icon={<Calendar aria-hidden="true" className="h-5 w-5" />}
               title="Hours for payroll"
-              sub={`${pendingHours} timesheet${pendingHours === 1 ? "" : "s"} awaiting weekly approval`}
+              sub={`${pendingHours} day${pendingHours === 1 ? "" : "s"} waiting for your approval`}
               count={pendingHours}
               tone="yellow"
             />
@@ -274,12 +279,12 @@ export function MobileToday(props: MobileTodayProps) {
           <div className="space-y-4">
             <Pill tone={SEVERITY_TONE[selected.severity]}>{selected.severity}</Pill>
             {selected.summary ? (
-              <p className="rounded-card bg-surface-subtle p-3 text-sm text-text">{selected.summary}</p>
+              <p className="rounded-card bg-surface-subtle p-3 text-sm text-text">
+                {selected.summary}
+              </p>
             ) : null}
             <dl className="grid grid-cols-2 gap-3 text-sm">
-              {selected.jobName ? (
-                <Field label="Job">{selected.jobName}</Field>
-              ) : null}
+              {selected.jobName ? <Field label="Job">{selected.jobName}</Field> : null}
               {selected.ageLabel ? <Field label="Age">{selected.ageLabel}</Field> : null}
             </dl>
             {!isActionable(selected) && selected.actionReason ? (
@@ -292,15 +297,7 @@ export function MobileToday(props: MobileTodayProps) {
   );
 }
 
-function PulseSegment({
-  href,
-  value,
-  label,
-}: {
-  href: Route;
-  value: string;
-  label: string;
-}) {
+function PulseSegment({ href, value, label }: { href: Route; value: string; label: string }) {
   return (
     <Link
       href={href}
@@ -335,7 +332,9 @@ function StripCard({
         <span
           className={cn(
             "flex h-10 w-10 shrink-0 items-center justify-center rounded-card",
-            tone === "yellow" ? "bg-accent-yellow text-brand-navy" : "bg-brand-navy text-accent-yellow",
+            tone === "yellow"
+              ? "bg-accent-yellow text-brand-navy"
+              : "bg-brand-navy text-accent-yellow"
           )}
         >
           {icon}

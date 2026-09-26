@@ -75,8 +75,8 @@ describe("isSplitResubmit", () => {
             { jobId: "job-a", hours: 4, notes: null },
             { jobId: "job-b", hours: 3.6, notes: null },
           ],
-        }),
-      ),
+        })
+      )
     ).toBe(true);
   });
 });
@@ -161,9 +161,9 @@ describe("buildSplitResubmitPayload", () => {
 
 describe("resubmitInitialJobId", () => {
   it("preserves the original job when still assigned", () => {
-    expect(resubmitInitialJobId(te({ allocations: [{ jobId: "job-b", hours: 7.6, notes: null }] }), JOBS)).toBe(
-      "job-b",
-    );
+    expect(
+      resubmitInitialJobId(te({ allocations: [{ jobId: "job-b", hours: 7.6, notes: null }] }), JOBS)
+    ).toBe("job-b");
   });
   it("auto-selects the sole assigned job when the original is null", () => {
     const nullJob = te({ allocations: [{ jobId: null, hours: 7.6, notes: null }] });
@@ -182,31 +182,41 @@ describe("resubmitInitialJobId", () => {
 
 describe("resolveResubmitJob", () => {
   it("blocks when jobs failed to load (never falls back to null)", () => {
-    expect(resolveResubmitJob({ assignedJobs: JOBS, selectedJobId: "job-a", jobsError: true })).toEqual({
+    expect(
+      resolveResubmitJob({ assignedJobs: JOBS, selectedJobId: "job-a", jobsError: true })
+    ).toEqual({
       ok: false,
       reason: "jobs_error",
     });
   });
   it("blocks when there are no active assigned jobs", () => {
-    expect(resolveResubmitJob({ assignedJobs: [], selectedJobId: null, jobsError: false })).toEqual({
-      ok: false,
-      reason: "no_jobs",
-    });
+    expect(resolveResubmitJob({ assignedJobs: [], selectedJobId: null, jobsError: false })).toEqual(
+      {
+        ok: false,
+        reason: "no_jobs",
+      }
+    );
   });
   it("blocks when multiple jobs exist and none is selected", () => {
-    expect(resolveResubmitJob({ assignedJobs: JOBS, selectedJobId: null, jobsError: false })).toEqual({
+    expect(
+      resolveResubmitJob({ assignedJobs: JOBS, selectedJobId: null, jobsError: false })
+    ).toEqual({
       ok: false,
       reason: "no_selection",
     });
   });
   it("blocks when the selection is not an assigned job", () => {
-    expect(resolveResubmitJob({ assignedJobs: JOBS, selectedJobId: "job-z", jobsError: false })).toEqual({
+    expect(
+      resolveResubmitJob({ assignedJobs: JOBS, selectedJobId: "job-z", jobsError: false })
+    ).toEqual({
       ok: false,
       reason: "no_selection",
     });
   });
   it("resolves to the selected job when valid", () => {
-    expect(resolveResubmitJob({ assignedJobs: JOBS, selectedJobId: "job-b", jobsError: false })).toEqual({
+    expect(
+      resolveResubmitJob({ assignedJobs: JOBS, selectedJobId: "job-b", jobsError: false })
+    ).toEqual({
       ok: true,
       jobId: "job-b",
     });
@@ -246,14 +256,35 @@ describe("resubmitFeedback", () => {
     const f403 = resubmitFeedback({ ok: false, error: { status: 403, message: "x", body: null } });
     const f404 = resubmitFeedback({ ok: false, error: { status: 404, message: "x", body: null } });
     expect(f401).toMatchObject({ kind: "error", status: 401 });
-    expect(f403.kind === "error" && /reopen/i.test(f403.message)).toBe(true);
+    // A bare 403 (no server reason) says "ask the office" — never a false
+    // "reopen it" when the real fix might be picking another job.
+    expect(f403.kind === "error" && /ask the office/i.test(f403.message)).toBe(true);
     expect(f404.kind === "error" && /refresh/i.test(f404.message)).toBe(true);
   });
-  it("falls back to the server message for other errors", () => {
+  it("a closed-job 403 says pick another job (2026-09-26 — not 'ask the office to reopen it')", () => {
+    const f = resubmitFeedback({
+      ok: false,
+      error: {
+        status: 403,
+        message: "forbidden — hours can only be logged against a job that is live or finished",
+        body: null,
+      },
+    });
+    expect(f.kind === "error" && /pick another job/i.test(f.message)).toBe(true);
+  });
+  it("turns the server's split-validation sentence into site language", () => {
     const fb = resubmitFeedback({
       ok: false,
-      error: { status: 400, message: "Allocation hours must sum", body: null },
+      error: { status: 400, message: "allocation hours must sum to totalHours", body: null },
     });
-    expect(fb).toEqual({ kind: "error", status: 400, message: "Allocation hours must sum" });
+    expect(fb).toMatchObject({ kind: "error", status: 400 });
+    expect(fb.kind === "error" && /doesn’t add up/.test(fb.message)).toBe(true);
+  });
+  it("keeps an unrecognised server sentence verbatim (the best truth we have)", () => {
+    const fb = resubmitFeedback({
+      ok: false,
+      error: { status: 400, message: "notes too long", body: null },
+    });
+    expect(fb).toEqual({ kind: "error", status: 400, message: "notes too long" });
   });
 });

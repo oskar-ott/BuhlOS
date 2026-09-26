@@ -57,6 +57,15 @@ describe("PeriodPayrollExport", () => {
     expect(render({ unexportedApprovedHours: 0 })).not.toContain("aren’t in a locked batch yet");
   });
 
+  it("names workers not linked to Xero, with the link to fix it — and stays quiet when all are linked", () => {
+    const html = render({ eligibleWorkerCount: 3, unmappedEligibleWorkerCount: 2 });
+    expect(html).toContain('data-testid="period-unmapped-workers"');
+    expect(html.replace(/<!-- -->/g, "")).toContain("2 of 3 workers not linked to Xero yet");
+    expect(html).toContain('href="/settings/integrations/xero"');
+    expect(html).toContain("Link them in Xero settings");
+    expect(render()).not.toContain('data-testid="period-unmapped-workers"');
+  });
+
   it("surfaces the not-closed warning without blocking the downloads", () => {
     const html = render({ notClosed: true });
     expect(html).toContain("isn’t closed");

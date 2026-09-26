@@ -11,7 +11,8 @@ import { useOnline } from "./useOnline";
 export function OfflineBannerView() {
   return (
     <PhilNotice tone="warning" role="status" title="You're offline" className="mb-3">
-      Showing your last loaded data. Changes won&apos;t send until you&apos;re back on signal.
+      Showing your last loaded data. Hours and photos can&apos;t send until you&apos;ve got signal —
+      nothing is queued, so try again once you&apos;re back on.
     </PhilNotice>
   );
 }

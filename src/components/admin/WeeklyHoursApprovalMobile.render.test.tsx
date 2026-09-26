@@ -209,7 +209,10 @@ describe("WeeklyHoursApprovalMobile (render)", () => {
     ]);
     expect(html).toContain("To approve");
     expect(html).toContain("Approve");
-    expect(html).toContain("Query");
+    // The action is "Send back" everywhere on the office surfaces (the chip
+    // for a rejected week reads "Sent back") — no "Query"/"Reject" synonyms.
+    expect(html).toContain("Send back");
+    expect(html).not.toContain("Query");
     expect(html).toContain("Rhys Kelly");
   });
 
@@ -305,7 +308,7 @@ describe("WeeklyHoursApprovalMobile (render)", () => {
     expect(html).not.toContain("amend-editor");
     // The card's real actions are untouched.
     expect(html).toContain("Approve");
-    expect(html).toContain("Query");
+    expect(html).toContain("Send back");
   });
 
   it("is honestly empty when the week has no entries and no missing days", () => {
@@ -333,6 +336,40 @@ describe("WeeklyHoursApprovalMobile (render)", () => {
     );
     expect(html).toContain("Couldn");
     expect(html).toContain("API returned 500");
+  });
+
+  it("a failed load is NEVER an all-clear week — no readout, no green card, no empty state (2026-09-26, P7)", () => {
+    // With the overview unreadable the closeout is empty, and the surface
+    // used to render "0 of 0 crew approved · all clear" plus the green
+    // "Nothing to review" card under the error. Only the error may show.
+    const closeout = buildWeeklyHoursCloseout({
+      entries: [],
+      missing: [],
+      weekStart: WEEK_START,
+      todayISO: TODAY,
+    });
+    const html = strip(
+      renderToString(
+        createElement(WeeklyHoursApprovalMobile, {
+          closeout,
+          weekNav: WEEK_NAV,
+          canUndo: true,
+          fetchError: "API returned 500",
+          xeroGate: { isAdmin: true, connectionFlag: false, exportFlag: false, accountsConfigured: true },
+        }),
+      ),
+    );
+    expect(html).toContain("API returned 500");
+    expect(html).not.toContain("all clear");
+    expect(html).not.toContain("crew approved");
+    expect(html).not.toContain("Nothing to review");
+    expect(html).not.toContain("Week reviewed");
+    expect(html).not.toContain("No hours this week");
+    expect(html).not.toContain("Nothing to close out");
+    expect(html).not.toContain('data-testid="wha-review-each"');
+    expect(html).not.toContain('data-testid="wha-open-finale"');
+    // Refresh is the one way forward.
+    expect(html).toContain("Refresh");
   });
 });
 
