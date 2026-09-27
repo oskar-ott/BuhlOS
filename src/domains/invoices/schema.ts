@@ -261,6 +261,8 @@ export const InvoiceDetailSchema = z
       .nullable(),
     canConfirm: z.boolean(),
     confirmBlockers: z.array(z.string()).default([]),
+    /** Task E (2026-09-27): the distinct IV codes printed on the document when there are several — split allocation required. */
+    multiReferences: z.array(z.string()).default([]),
     /** Near-miss job codes when the printed IV number matches nothing ("Did you mean…?"). */
     suggestions: z.array(JobSummarySchema).default([]),
     supplierPref: z.object({ alwaysReview: z.boolean(), setBy: z.string().nullable(), setAt: z.string().nullable() }).default({ alwaysReview: false, setBy: null, setAt: null }),

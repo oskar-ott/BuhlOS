@@ -249,6 +249,7 @@ const VALID_ACTIONS = new Set([
   'invoice.confirmed',
   'invoice.reassigned',
   'invoice.marked_duplicate',
+  'invoice.multi_reference_override',
   'invoice.excluded',
   'invoice.archived',
   'invoice.restored',
