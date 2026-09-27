@@ -12,6 +12,11 @@ Every flag declares a description, a `default`, a target, and
 an **expiry date** — flags are temporary by default, and
 `npm run check:flag-expiry` (CI) fails the build once a flag outlives its
 date: delete it (and the dead branch it guarded) or consciously extend it.
+`npm run check:flag-docs` (CI) keeps the registry, the `.d.ts` `FlagKey`
+union and the table below in step: a registry flag with no row here, a row
+for a flag that no longer exists, or a Kind / Target / Expires cell that
+disagrees with the registry fails the build. The table is therefore the
+complete, current set — kill-switches included.
 
 The `default` is **`false`** for the usual *launch-gate* flag (dark until
 turned on). The one exception is a *kill-switch* flag — `killSwitch: true`
@@ -20,33 +25,75 @@ can turn it **off** without a revert. See [Two flag kinds](#two-flag-kinds).
 Non-protected feature flags also carry presentation metadata (`label`, `domain`,
 `surface`) that drives the Owner Console's feature board (`FLAG_PRESENTATION`).
 
-| Flag | Target | Expires | What it gates |
-|---|---|---|---|
-| `supabase_dual_write` | global | 2026-09-30 | Mirror blob writes into Supabase per migrated domain (#152) |
-| `admin_flags_readout` | admin-tier | 2026-09-30 | The active-flags readout card on /command-centre |
-| `signup_link` | global | 2027-06-30 | Crew sign-up link — shareable `/onboarding/<code>` for the group chat; public `api/signup.js` (resolve/submit), admin link + review queue on `/employees` (`api/employees.js?action=signup*`). A submission is pending until an admin approves (approval = account + welcome email E5); default OFF |
-| `itp_simple` | global | 2026-12-31 | Simple mobile ITP builder in Phil (#912, lean-reset step 6) — job-scoped areas + photos rendered to a plain PDF at `/phil/jobs/[jobId]/itp-reports` + `api/itp-simple`. Metadata Supabase-first, binaries in Blob; default OFF |
-| `job_materials_spend` | admin-tier | 2026-11-30 | Per-job **materials spend ledger** on the admin job hub (owner pull 2026-08-23): date / supplier / amount ex GST typed by the office, feeding the Money card's Materials figure through `api/job-profitability` (`materialSource: 'ledger'`). `api/job-materials.js` + the hub Materials card (`docs/job-materials-spend.md`); default OFF |
-| `invoice_capture` | admin-tier | 2026-12-31 | **Supplier-invoice capture** — dark, unproven, NOT lean core: inbound email (Resend Inbound, Svix-verified, quarantined while off) + manual upload → original PDF kept in Blob, metadata Supabase-first → the wholesaler's printed IV job reference matched **exactly** against `jobs.json` `code` → office confirms → ex-GST cost on the job (`/invoices`, `api/invoices.js`, `/api/inbound/invoices`, hub card, sweep cron). `docs/invoice-capture.md`; default OFF |
-| `supabase_read_health` | global | 2026-12-31 | `GET /api/supabase-health` — the read-only Supabase connectivity proving slice (#533) |
-| `supabase_read_hours` | global | 2026-12-31 | Serve the hours display read (`listUserEntries`) from Postgres with a Blob fallback (#152) |
-| `supabase_dual_write_jobs` | global | 2026-12-31 | Mirror one job's `jobs.json` structure write into Postgres, best-effort, Blob authoritative (#152, J8) |
-| `supabase_dual_write_tasks` | global | 2026-12-31 | Reconcile task status from `data.json` into Postgres (cron, off request path), Blob authoritative (#152, J9) |
-| `supabase_dual_write_evidence` | global | 2026-12-31 | Reconcile evidence metadata from `data.json` into Postgres evidence_files/links (cron, off request path), Blob authoritative (#152) |
-| `supabase_read_jobs` | global | 2026-12-31 | Serve the ADMIN jobs read from Postgres, per-job parity-gated, with a Blob fallback (#152, J5/J6) |
-| `supabase_read_job_detail` | global | 2026-12-31 | Serve the ADMIN single-job GET (`/api/jobs?id=`) from Postgres structure + a per-job `admin-extras.json` projection, freshness+parity-gated, with a full Blob fallback — skips the `jobs.json` monolith (#152) |
-| `supabase_read_phil_jobs` | global | 2026-12-31 | Serve the FIELD/Phil jobs read from Postgres, per-job parity-gated, visible-scoped, with a Blob fallback (#152, J7) |
-| `supabase_read_phil_tasks` | global | 2026-12-31 | Serve the FIELD task-status read (`/api/data`) from Postgres, per-job parity-gated, with a Blob fallback (#152, J10) |
-| `supabase_source_tasks` | global | 2026-12-31 | Write task status to Postgres with CAS at request time (`/api/task-toggle`) + Blob write-through; parity-gated read (#152, PG-as-source Stage A) |
-| `supabase_read_admin_tasks` | global | 2026-12-31 | Serve the ADMIN task-status read (`/api/data`) from Postgres, per-job parity-gated, with a Blob fallback (#152, J11) |
-| `supabase_read_admin_evidence` | global | 2026-12-31 | Serve the ADMIN evidence-metadata read (`/api/data`) from Postgres, per-job parity-gated, with a Blob fallback (#152) |
-| `supabase_read_phil_evidence` | global | 2026-12-31 | Serve the FIELD/Phil evidence-metadata read (`/api/data`) from Postgres, per-job parity-gated, with a Blob fallback (#152) |
-| `phil_sharpened` | global | 2026-12-31 | Phil field-surface redesign ("sharpened"): 5-slot global nav (Today·Jobs·Capture·Hours·Gear, account on the header avatar) + screen re-skins. Behavioural change to the ratified Phil package — flips only via governance (P15) |
-| `phil_job_rooms` | global | 2026-12-31 | In-job four-rooms navigation (Now·Work·Proof·Site + Capture) on `/phil/jobs/[jobId]` — the #133 tabbed-job experiment, judged by the tabs criterion. Requires `phil_sharpened` |
-| `xero_connection` | admin-tier | 2026-12-31 | The Xero payroll foundation — connection, reference sync, worker + work-type mappings, immutable payroll batches on `/hours/period` (#247/#610/#248/#611/#893/#894). No Xero write exists behind this flag; the timesheet push (#249) gets its own independent gate |
-| `servicem8_sync` | admin-tier | 2027-06-30 | Daily ServiceM8 → BuhlOS job sync (auto-create missing Work Orders) + the Command Centre card. Needs `SERVICEM8_API_KEY` |
-| `phil_jobs_summary_read` | global | 2026-12-31 | Serve the FIELD job LIST read (`/api/jobs`) from the derived `jobs-summary.json` projection, freshness-gated with a full `jobs.json` fallback (Phil LCP). Protected; env-only |
-| `xero_payroll_export` | admin-tier | 2026-12-31 | The first Xero WRITE — export a LOCKED payroll batch to Xero Payroll AU as DRAFT timesheets with per-worker readback reconciliation (#249). Independent of `xero_connection`; default OFF. DRAFT timesheets only — no pay runs / approval / STP / tax / super / payslips (payroll-boundary ADR #609). Gates the Preview/Export/Retry/Reconcile controls on `/hours/period`; the batch-CSV download stays available without it |
+| Flag | Kind | Target | Expires | What it gates |
+|---|---|---|---|---|
+| `supabase_dual_write` | launch-gate | global | 2026-09-30 | Mirror blob writes into Supabase per migrated domain (#152) |
+| `admin_flags_readout` | launch-gate | admin-tier | 2026-09-30 | The active-flags readout card on /command-centre |
+| `signup_link` | launch-gate | global | 2027-06-30 | Crew sign-up link — shareable `/onboarding/<code>` for the group chat; public `api/signup.js` (resolve/submit), admin link + review queue on `/employees` (`api/employees.js?action=signup*`). A submission is pending until an admin approves (approval = account + welcome email E5); default OFF |
+| `itp_simple` | launch-gate | global | 2026-12-31 | Simple mobile ITP builder in Phil (#912, lean-reset step 6) — job-scoped areas + photos rendered to a plain PDF at `/phil/jobs/[jobId]/itp-reports` + `api/itp-simple`. Metadata Supabase-first, binaries in Blob; default OFF |
+| `job_materials_spend` | launch-gate | admin-tier | 2026-11-30 | Per-job **materials spend ledger** on the admin job hub (owner pull 2026-08-23): date / supplier / amount ex GST typed by the office, feeding the Money card's Materials figure through `api/job-profitability` (`materialSource: 'ledger'`). `api/job-materials.js` + the hub Materials card (`docs/job-materials-spend.md`); default OFF |
+| `invoice_capture` | launch-gate | admin-tier | 2026-12-31 | **Supplier-invoice capture** — dark, unproven, NOT lean core: inbound email (Resend Inbound, Svix-verified, quarantined while off) + manual upload → original PDF kept in Blob, metadata Supabase-first → the wholesaler's printed IV job reference matched **exactly** against `jobs.json` `code` → office confirms → ex-GST cost on the job (`/invoices`, `api/invoices.js`, `/api/inbound/invoices`, hub card, sweep cron). `docs/invoice-capture.md`; default OFF |
+| `receipt_capture` | launch-gate | global | 2027-03-31 | **Receipts from the field** — the My Day "Log a receipt" tile: photo + job on the phone → read by Claude vision → the supplier-invoice inbox → confirmed ex-GST cost on the job (`api/invoices.js?action=receipt`). Global target so field workers see the tile; needs `invoice_capture` on as well (the office reviews receipts in the invoice inbox) and `ANTHROPIC_API_KEY` for the photo read. Default OFF; `docs/invoice-capture.md` |
+| `supabase_read_health` | launch-gate | global | 2026-12-31 | `GET /api/supabase-health` — the read-only Supabase connectivity proving slice (#533) |
+| `supabase_read_hours` | launch-gate | global | 2026-12-31 | Serve the hours display read (`listUserEntries`) from Postgres with a Blob fallback (#152) |
+| `supabase_dual_write_jobs` | launch-gate | global | 2026-12-31 | Mirror one job's `jobs.json` structure write into Postgres, best-effort, Blob authoritative (#152, J8) |
+| `supabase_dual_write_tasks` | launch-gate | global | 2026-12-31 | Reconcile task status from `data.json` into Postgres (cron, off request path), Blob authoritative (#152, J9) |
+| `supabase_dual_write_evidence` | launch-gate | global | 2026-12-31 | Reconcile evidence metadata from `data.json` into Postgres evidence_files/links (cron, off request path), Blob authoritative (#152) |
+| `supabase_read_jobs` | launch-gate | global | 2026-12-31 | Serve the ADMIN jobs read from Postgres, per-job parity-gated, with a Blob fallback (#152, J5/J6) |
+| `supabase_read_job_detail` | launch-gate | global | 2026-12-31 | Serve the ADMIN single-job GET (`/api/jobs?id=`) from Postgres structure + a per-job `admin-extras.json` projection, freshness+parity-gated, with a full Blob fallback — skips the `jobs.json` monolith (#152) |
+| `supabase_read_phil_jobs` | launch-gate | global | 2026-12-31 | Serve the FIELD/Phil jobs read from Postgres, per-job parity-gated, visible-scoped, with a Blob fallback (#152, J7) |
+| `supabase_read_phil_tasks` | launch-gate | global | 2026-12-31 | Serve the FIELD task-status read (`/api/data`) from Postgres, per-job parity-gated, with a Blob fallback (#152, J10) |
+| `supabase_source_tasks` | launch-gate | global | 2026-12-31 | Write task status to Postgres with CAS at request time (`/api/task-toggle`) + Blob write-through; parity-gated read (#152, PG-as-source Stage A) |
+| `supabase_source_hours` | launch-gate | global | 2026-12-31 | Designate the synchronous hours mirror as the source-authoritative Postgres write (with `supabase_dual_write`), Blob write-through, parity-gated read (#152, PG-as-source Stage A). Protected; env-only; default OFF |
+| `supabase_read_admin_tasks` | launch-gate | global | 2026-12-31 | Serve the ADMIN task-status read (`/api/data`) from Postgres, per-job parity-gated, with a Blob fallback (#152, J11) |
+| `supabase_read_admin_evidence` | launch-gate | global | 2026-12-31 | Serve the ADMIN evidence-metadata read (`/api/data`) from Postgres, per-job parity-gated, with a Blob fallback (#152) |
+| `supabase_read_phil_evidence` | launch-gate | global | 2026-12-31 | Serve the FIELD/Phil evidence-metadata read (`/api/data`) from Postgres, per-job parity-gated, with a Blob fallback (#152) |
+| `phil_sharpened` | launch-gate | global | 2026-12-31 | Phil field-surface redesign ("sharpened"): 5-slot global nav (Today·Jobs·Capture·Hours·Gear, account on the header avatar) + screen re-skins. Behavioural change to the ratified Phil package — flips only via governance (P15) |
+| `phil_job_rooms` | launch-gate | global | 2026-12-31 | In-job four-rooms navigation (Now·Work·Proof·Site + Capture) on `/phil/jobs/[jobId]` — the #133 tabbed-job experiment, judged by the tabs criterion. Requires `phil_sharpened` |
+| `xero_connection` | launch-gate | admin-tier | 2026-12-31 | The Xero payroll foundation — connection, reference sync, worker + work-type mappings, immutable payroll batches on `/hours/period` (#247/#610/#248/#611/#893/#894). No Xero write exists behind this flag; the timesheet push (#249) gets its own independent gate |
+| `servicem8_sync` | launch-gate | admin-tier | 2027-06-30 | Daily ServiceM8 → BuhlOS job sync (auto-create missing Work Orders) + the Command Centre card. Needs `SERVICEM8_API_KEY` |
+| `phil_jobs_summary_read` | launch-gate | global | 2026-12-31 | Serve the FIELD job LIST read (`/api/jobs`) from the derived `jobs-summary.json` projection, freshness-gated with a full `jobs.json` fallback (Phil LCP). Protected; env-only |
+| `xero_payroll_export` | launch-gate | admin-tier | 2026-12-31 | The first Xero WRITE — export a LOCKED payroll batch to Xero Payroll AU as DRAFT timesheets with per-worker readback reconciliation (#249). Independent of `xero_connection`; default OFF. DRAFT timesheets only — no pay runs / approval / STP / tax / super / payslips (payroll-boundary ADR #609). Gates the Preview/Export/Retry/Reconcile controls on `/hours/period`; the batch-CSV download stays available without it |
+| `jobs` | kill-switch | global | 2027-06-30 | **CORE.** The jobs list + job hub (`/v2/jobs`, `api/jobs.js`) and, under the same flag, the office Job Builder (`/v2/jobs/[jobId]/builder`: areas, stages, task generation, build readiness, blueprints, publish). Default ON; turning it off at `/owner` hides the whole Jobs surface |
+| `hours` | kill-switch | global | 2027-06-30 | **CORE.** The hours workflow — `/hours` (weekly, approvals, today, period) + the time-entry APIs. Default ON; owner kill-switch |
+| `evidence` | kill-switch | global | 2027-06-30 | **CORE.** Per-job evidence capture + admin review — `/v2/jobs/[jobId]/evidence` + `api/evidence.js`. Default ON; owner kill-switch |
+| `employees` | kill-switch | global | 2027-06-30 | The employees / People admin surface — `/employees`. Default ON; owner kill-switch |
+| `gear` | kill-switch | global | 2027-06-30 | The gear / test-and-tag register — `/gear`. Default ON; owner kill-switch |
+| `job_photos` | kill-switch | global | 2027-06-30 | The per-job photos gallery — restored to the lean core by owner decision 2026-07-18 (#916): the gallery completes the capture loop. Default ON; owner kill-switch |
+
+## What a flag proves — and what the repository cannot
+
+"Live" has been used across this repo, the wiki and AI working memory to mean
+five different things. They are not the same, and a status claim must say
+which one it means. A 2026-09 audit found status being asserted from memory
+and from the registry alone; this section is the rule that stops that.
+
+| State | Meaning | Where it is established |
+|---|---|---|
+| **Built** | The code is on `main` behind the flag: routes, handlers, tests, a registry row. | The repository. |
+| **Registry default** | What the flag resolves to with no env var and no `flags.json` override — `false` for a launch-gate, `true` for a kill-switch. | `api/_lib/feature-flags.js` and the table above (CI-checked by `check:flag-docs`). |
+| **Effectively enabled** | What the flag resolves to in a given deployment for a given viewer: env `FLAG_*` › `flags.json` override › registry default, then targeting (see [Flipping a flag](#flipping-a-flag)). | Only the running deployment can say. `/owner` shows every flag's resolved state **and its source**. The repository cannot: an env var or a runtime override can differ from the default in either direction, and neither is in git. |
+| **Externally configured** | Everything outside the code that the feature needs before it can do its job: DNS/MX records, provider webhooks and secrets, mailbox rules, OAuth connections, migrations applied to the right database. | Provider dashboards, Vercel project settings, the Supabase migration list — checked by a person and stamped with a date and a name in the feature's own doc. A flag being on implies none of these. |
+| **Operationally proven** | Real users have run the loop on real data and someone checked the result. | Field evidence ([phil-field-validation.md](phil-field-validation.md), the weekly closeout in [product/03-lean-startup-loop.md](product/03-lean-startup-loop.md)), dated, with who checked and what they saw. |
+
+Rules for writing status anywhere — docs, PR descriptions, issues, the wiki,
+AI memory:
+
+- Do not write **"live"** unless you mean *operationally proven*, and say when
+  and by whom. For code on `main` behind a flag write **"built, dark"** or
+  **"built, default off"**.
+- For effective state write **"enabled in production (source: env / runtime
+  override), read at `/owner` on YYYY-MM-DD"** — never from memory, never from
+  the registry alone.
+- Name outstanding **external configuration** explicitly, with its status and
+  date (for example "email intake needs the mailbox forwarding rule — not
+  configured as of 2026-09-27").
+- A feature doc that claims any of the last three states without a date and a
+  source is wrong by construction: fix the doc, not the claim.
+
+CI (`npm run check:flag-docs`) proves only the first two states — that the
+registry, the `FlagKey` union and the table above agree. Nothing in CI, and
+nothing an agent can read from the repository, establishes the other three.
 
 ## Flipping a flag
 
@@ -156,8 +203,8 @@ Every shipped feature carries a flag the owner can control from `/owner`.
 **jobs, hours, evidence, employees, gear, job_photos**. The reset hid every
 other shipped feature by reclassifying its kill-switch to a dark launch-gate;
 the gut then **deleted those features' code and their flags** — the registry
-went from 66 flags to 30. There is no `/owner` dial for a gutted feature any
-more; restoring one means restoring from the `pre-gut-archive` tag.
+went from 66 flags to 30 (the table above is the current, CI-checked set).
+There is no `/owner` dial for a gutted feature any more; restoring one means restoring from the `pre-gut-archive` tag.
 Each kill-switch flag gates its feature at **three layers**, so
 turning it off removes the feature everywhere — not just visually:
 

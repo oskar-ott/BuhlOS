@@ -44,6 +44,7 @@ const STEPS = [
   'check:backup-manifest',
   'check:role-literals',
   'check:flag-expiry',
+  'check:flag-docs',
   'check:read-flags-protected',
   'check:model-ids',
   'smoke:admin-routes',

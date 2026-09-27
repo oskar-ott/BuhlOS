@@ -43,6 +43,7 @@ jobs:
           npm run check:backup-manifest
           npm run check:role-literals
           npm run check:flag-expiry
+          npm run check:flag-docs
           npm run check:read-flags-protected
           npm run check:model-ids
           npm run smoke:admin-routes

@@ -36,6 +36,13 @@ design-partner model that this document gates.
 
 ## 2 · Verified live product boundary (2026-08-24)
 
+> **Vocabulary note (2026-09-27):** "Live" in this section means *effectively
+> enabled in production on 2026-08-24*, as read from the running deployment
+> that day — not *operationally proven*. The five states and the rule for
+> using them are in [docs/feature-flags.md](../feature-flags.md) ("What a flag
+> proves"). This list is a dated snapshot; re-read `/owner` before relying on
+> it.
+
 Feature-flag resolution in production (env override > blob override > registry
 default), not the registry defaults:
 
