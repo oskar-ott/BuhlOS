@@ -495,6 +495,34 @@ unread for a day, no supplier mail for 14 days). No recipients → no email.
 
 Rollout: review-only for two weeks, then knob on with a low cap, then raise.
 
+## Remembered filing — list and forget (2026-09-27)
+
+A re-filed line item is remembered **per supplier + product key**
+(`supplier_line_categories`) and applied on the next read of that supplier's
+invoices (`category_source = learned`). Since 2026-09-27 the office can see
+and undo that memory, and one way of creating a bad rule is closed:
+
+- **Card "Remembered filing"** on the inbox (collapsed; fetched when opened):
+  every rule with the supplier (or *Any supplier*), the product key, the
+  category, who set it and when, and how many line items it files **right
+  now** (re-reads re-file, so this is a current count, not a lifetime one).
+  `GET /api/invoices?action=learned-categories`.
+- **Forget** (two-step): `POST ?action=forget-category { ruleId }` deletes the
+  rule and journals `invoice.learned_category_removed` (target
+  `supplier_line_category`) with a full copy — supplier key, product key,
+  category, who set it, when. Invoices already read keep their filing; the
+  next read files by keyword again (or by a newer re-file, which recreates the
+  rule — the natural undo of an undo). Delete, not disable: a rule is one
+  person's choice and the audit keeps the copy; no migration.
+- **No supplier, no rule.** A re-file on a document whose supplier was never
+  read used to create an *any-supplier* rule that overrode keyword filing for
+  every wholesaler from one uncertain read. Now the line is filed, nothing is
+  remembered, the history says `notRemembered: no_supplier`, and the review
+  page says so. Rules created that way before this date show as *Any
+  supplier* in the card — forget them.
+- Only a person's re-file creates a rule; the pipeline and the AI rung never
+  write one (tested).
+
 ## Security
 
 Admin tier on every read and write (`requireAuth` + `isAdminRole`); flag 404s

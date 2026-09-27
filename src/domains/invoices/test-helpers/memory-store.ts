@@ -415,6 +415,24 @@ export function createMemoryStore(opts: { tenantId?: string; jobUuids?: Record<s
       if (existing) Object.assign(existing, { category, setBy: (actor as Row | null)?.name ?? null, setAt: now() });
       else store.learned.push({ id: uuid(), supplierKey: key, descriptionKey, category, setBy: (actor as Row | null)?.name ?? null, setAt: now() });
     },
+    listLearnedCategories: async (_s: unknown, _t: string, { limit = 200 }: { limit?: number } = {}) => {
+      const rules = store.learned
+        .slice()
+        .sort((a, b) => String(b.setAt).localeCompare(String(a.setAt)))
+        .slice(0, limit)
+        .map((r) => {
+          const inv = store.invoices.find((i) => i.supplierKey === r.supplierKey);
+          const linesFiledNow = store.lines.filter((l) => l.categorySource === "learned" && l.descriptionKey === r.descriptionKey && l.category === r.category && (r.supplierKey === "" || store.invoices.find((i) => i.id === l.invoiceId)?.supplierKey === r.supplierKey)).length;
+          return { id: r.id, supplierKey: r.supplierKey, supplierName: inv?.supplierName ?? null, descriptionKey: r.descriptionKey, category: r.category, setBy: r.setBy ?? null, setAt: r.setAt, linesFiledNow };
+        });
+      return { rules, total: store.learned.length };
+    },
+    forgetLearnedCategory: async (_s: unknown, _t: string, id: string) => {
+      const idx = store.learned.findIndex((r) => r.id === id);
+      if (idx < 0) return null;
+      const [r] = store.learned.splice(idx, 1);
+      return { id: r!.id, supplierKey: r!.supplierKey, descriptionKey: r!.descriptionKey, category: r!.category, setBy: r!.setBy ?? null, setAt: r!.setAt };
+    },
     jobMaterialsBreakdown: async (_s: unknown, _t: string, jobLegacyId: string) => {
       const active = store.allocations.filter((a) => a.jobId === jobLegacyId && a.status === "active");
       const lines: Row[] = [];

@@ -220,6 +220,8 @@ describe("AuditLogEntrySchema", () => {
       "invoice.excluded",
       "invoice.held",
       "invoice.job_selected",
+      // Task I (2026-09-27): a remembered filing rule forgotten by the office.
+      "invoice.learned_category_removed",
       "invoice.marked_duplicate",
       "invoice.reassigned",
       "invoice.received",
@@ -393,6 +395,7 @@ describe("AuditLogEntrySchema", () => {
       "snag",
       // Supplier-invoice capture (sorts between snag and system).
       "supplier_invoice",
+      "supplier_line_category",
       // #151: platform-level events (backup runs).
       "system",
       // #390: timesheet day records.

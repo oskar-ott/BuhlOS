@@ -246,6 +246,7 @@ const VALID_ACTIONS = new Set([
   'invoice.received',
   'invoice.corrected',
   'invoice.job_selected',
+  'invoice.learned_category_removed',
   'invoice.confirmed',
   'invoice.reassigned',
   'invoice.marked_duplicate',
@@ -496,6 +497,8 @@ const VALID_TARGET_TYPES = new Set([
   'xero_sync_item',
   // Supplier-invoice capture: targetId = public.supplier_invoices.id.
   'supplier_invoice',
+  // Task I: targetId = public.supplier_line_categories.id (a remembered filing rule).
+  'supplier_line_category',
 ]);
 
 const MAX_ENTRIES_PER_MONTH = 5000;

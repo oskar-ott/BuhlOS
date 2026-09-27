@@ -319,3 +319,22 @@ export const JobPickerSchema = z.object({ jobs: z.array(JobSummarySchema) });
 export const ProcessPendingSchema = z.object({
   processed: z.array(z.object({ id: z.string(), status: z.string(), code: z.string().nullable().optional() })),
 });
+
+// ── Task I (2026-09-27): remembered filing (learned product categories) ──────
+export const LearnedCategorySchema = z
+  .object({
+    id: z.string(),
+    /** '' = applies to every supplier (a rule saved before a supplier was read). */
+    supplierKey: z.string(),
+    supplierName: z.string().nullable(),
+    descriptionKey: z.string(),
+    category: z.string(),
+    setBy: z.string().nullable(),
+    setAt: z.string().nullable(),
+    /** Line items currently filed by this rule (re-reads re-file, so this is "now", not a lifetime count). */
+    linesFiledNow: z.number().int(),
+  })
+  .passthrough();
+export type LearnedCategory = z.infer<typeof LearnedCategorySchema>;
+export const LearnedCategoryListSchema = z.object({ rules: z.array(LearnedCategorySchema), total: z.number().int() }).passthrough();
+export type LearnedCategoryList = z.infer<typeof LearnedCategoryListSchema>;

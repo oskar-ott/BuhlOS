@@ -14,6 +14,8 @@ import {
   type InvoiceSetup,
   type JobInvoiceSummary,
   type JobSummary,
+  LearnedCategoryListSchema,
+  type LearnedCategoryList,
 } from "./schema";
 
 /**
@@ -134,3 +136,10 @@ export const holdInvoice = (id: string) => act("hold", id);
 export const attachInvoiceDocument = (id: string, input: { filename: string; dataUrl: string }) =>
   act("attach", id, input, 60_000);
 export const setSupplierAlwaysReview = (id: string, alwaysReview: boolean) => act("supplier-pref", id, { alwaysReview });
+
+/** Task I: the remembered filing rules (supplier + product → category). */
+export const listLearnedCategories = () =>
+  httpGet<LearnedCategoryList>(`${BASE}?action=learned-categories`, { schema: LearnedCategoryListSchema, timeoutMs: 20_000 });
+/** Task I: forget one rule; answers the refreshed list. Invoices already read keep their filing. */
+export const forgetLearnedCategory = (ruleId: string) =>
+  httpPost<LearnedCategoryList>(`${BASE}?action=forget-category`, { ruleId }, { schema: LearnedCategoryListSchema, timeoutMs: 20_000 });
