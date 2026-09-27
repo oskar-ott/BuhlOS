@@ -590,9 +590,11 @@ async function sweep(req, res) {
   const reingested = [];
   // 1. deliveries quarantined while the flag was off, or whose inline ingest died
   if (resend.inboundConfigured()) {
-    const waiting = await store.listQuarantined(sql, { limit: 5 });
+    // Catch-up sized (2026-09-27): a bulk forward that outran the provider's
+    // rate limit leaves receipts `received`; drain them 15 + 15 a sweep.
+    const waiting = await store.listQuarantined(sql, { limit: 15 });
     const stale = await sql`select svix_message_id, provider_email_id from public.supplier_invoice_inbound_events
-                            where status = 'received' and processed_at is null and created_at < now() - interval '5 minutes' order by created_at limit 5`;
+                            where status = 'received' and processed_at is null and created_at < now() - interval '5 minutes' order by created_at limit 15`;
     const targets = [...waiting.map((w) => ({ svixId: w.svixId, emailId: w.emailId })), ...stale.map((s) => ({ svixId: s.svix_message_id, emailId: s.provider_email_id }))];
     for (const t of targets) {
       if (!t.emailId || Date.now() - started > SWEEP_BUDGET_MS / 2) break;
