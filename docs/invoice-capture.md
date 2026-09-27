@@ -418,6 +418,8 @@ Forwarding a backlog is the expected first use. What happens, and the numbers:
 
 ### External steps still required (none performed by the PR)
 
+> Step-by-step, with stamps: [runbooks/invoice-mailbox-activation.md](runbooks/invoice-mailbox-activation.md); then [runbooks/supplier-pilot-checklist.md](runbooks/supplier-pilot-checklist.md) and the weekly [runbooks/auto-booking-shadow-review.md](runbooks/auto-booking-shadow-review.md).
+
 > **Status is kept by a person, not by the repository.** None of these steps
 > can be verified from git; a green CI proves nothing about them. As of
 > 2026-09-27: step 4 (the mailbox forwarding rule) is **known outstanding**

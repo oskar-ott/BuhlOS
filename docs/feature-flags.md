@@ -91,6 +91,9 @@ AI memory:
 - A feature doc that claims any of the last three states without a date and a
   source is wrong by construction: fix the doc, not the claim.
 
+How to establish the other three for a real flag, with a stamp table:
+[runbooks/production-flag-verification.md](runbooks/production-flag-verification.md).
+
 CI (`npm run check:flag-docs`) proves only the first two states — that the
 registry, the `FlagKey` union and the table above agree. Nothing in CI, and
 nothing an agent can read from the repository, establishes the other three.

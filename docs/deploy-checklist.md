@@ -93,6 +93,8 @@ an eye-test until equivalent smokes are written.
 
 ## Rollback
 
+> The cross-feature stop / undo / severity table lives in [runbooks/rollback-and-incident.md](runbooks/rollback-and-incident.md).
+
 `vercel promote <previous-deployment-url>` brings the previous deploy
 back online without rebuilding. The dashboard at vercel.com shows the
 last 30 deploys with promote buttons. Used at least once before (see
