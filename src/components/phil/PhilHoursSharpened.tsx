@@ -18,7 +18,7 @@ import {
   otSplitLabel,
 } from "@/domains/timesheets/format";
 import { STATUS_WORDS } from "@/domains/timesheets/status-words";
-import { canResubmitInPhil } from "@/domains/timesheets/resubmit";
+import { canResubmitInPhil, isWithinBackdateWindow } from "@/domains/timesheets/resubmit";
 import { STANDARD_DAY_HOURS, lastLoggedJobFor } from "@/domains/timesheets/service";
 import type { TimeEntry, TimeEntryAllocation } from "@/domains/timesheets/types";
 import {
@@ -92,6 +92,11 @@ interface Props {
    *  they were standing in isn't rediscovered on a dial (P13/P14). Ignored
    *  when unknown — never a guessed job. */
   launchJobId?: string | null;
+  /** True when the page's entries read failed. The week cards can't be shown
+   *  honestly (every day would read "Not logged"), but logging must still
+   *  work — the server's 409 guards duplicates (2026-09-26 audit; P5/P13:
+   *  capture is never blocked). */
+  entriesFailed?: boolean;
 }
 
 type SendState =
@@ -149,6 +154,7 @@ export function PhilHoursSharpened({
   viewerId,
   canLogTafe = false,
   launchJobId = null,
+  entriesFailed = false,
 }: Props) {
   const router = useRouter();
 
@@ -264,6 +270,42 @@ export function PhilHoursSharpened({
     logSheetRef.current?.scrollIntoView({ block: "start" });
   }, [launchJob]);
   const initialTodayEntry = mergedEntries.find((e) => e.date === todayISO) ?? null;
+
+  if (entriesFailed) {
+    return (
+      <div className="space-y-4" data-testid="phil-hours-sharpened">
+        <header className="flex items-baseline justify-between gap-3">
+          <h1 className="font-display text-2xl font-extrabold tracking-[-0.02em] text-text">
+            Hours
+          </h1>
+        </header>
+        <PhilNotice tone="warning" title="Couldn’t load your hours" role="alert">
+          Your week history isn’t showing right now. Pull to refresh, or ask the office if it keeps
+          happening. You can still log a day below — a day that’s already logged is refused, never
+          doubled.
+        </PhilNotice>
+        <div
+          ref={logSheetRef}
+          className="space-y-2 rounded-card border border-border bg-surface-raised p-4 shadow-card"
+        >
+          <SectionLabel>Log your day</SectionLabel>
+          <LogHoursSheet
+            key={logDate ?? "today"}
+            initialTodayEntry={null}
+            recentEntries={mergedEntries}
+            onSaved={recordSaved}
+            assignedJobs={assignedJobs}
+            jobsError={jobsError}
+            initialJobId={launchJob ?? soleJobId}
+            lastLoggedJobId={lastLogged?.jobId ?? null}
+            lastLoggedDate={lastLogged?.date ?? null}
+            initialDate={logDate}
+            canLogTafe={canLogTafe}
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4" data-testid="phil-hours-sharpened">
@@ -559,7 +601,10 @@ function EntryRow({
   // compact pill in the row's action slot (same slot the Log pill uses), not a
   // full-width bar under every submitted day. The sheet body only mounts below
   // the row while it's open.
-  const changeable = entry.status === "submitted" && canResubmitInPhil(entry);
+  // Outside the server's backdate window a change PATCH is refused too, so
+  // the pill would be a dead end (P7/P12) — the office amends those.
+  const inWindow = isWithinBackdateWindow(date, todayISO);
+  const changeable = entry.status === "submitted" && canResubmitInPhil(entry) && inWindow;
   const [changeOpen, setChangeOpen] = useState(false);
   // The office fixed this day's hours at approval time. ONE line, in the row
   // that already exists (P10 — no new section), saying the real before → after
@@ -638,12 +683,18 @@ function EntryRow({
           ) : null}
           {/* The EXISTING fix-and-resubmit flow — same component and endpoint
               as the current screen; nothing reimplemented. */}
-          <RejectedHoursResubmitSheet
-            entry={entry}
-            assignedJobs={assignedJobs.map((j) => ({ id: j.id, name: j.name }))}
-            jobsError={jobsError}
-            onSaved={onSaved}
-          />
+          {inWindow ? (
+            <RejectedHoursResubmitSheet
+              entry={entry}
+              assignedJobs={assignedJobs.map((j) => ({ id: j.id, name: j.name }))}
+              jobsError={jobsError}
+              onSaved={onSaved}
+            />
+          ) : (
+            <p className="text-[13px] text-text-muted" data-testid="phil-fix-too-old">
+              Too far back to fix from your phone — ask the office to fix this day.
+            </p>
+          )}
         </div>
       ) : null}
 

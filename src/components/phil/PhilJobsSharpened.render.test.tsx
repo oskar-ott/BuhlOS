@@ -18,7 +18,7 @@ const mk = (id: string, name: string, extra: Partial<Job> = {}) =>
 describe("PhilJobsSharpened", () => {
   it("renders an honest empty state when there are no jobs", () => {
     const html = renderToString(createElement(PhilJobsSharpened, { initialJobs: [] }));
-    expect(html).toContain("No jobs yet");
+    expect(html).toContain("No live jobs");
     // Points at the way out: the worker can add the job they're on.
     expect(html).toContain("+ New job");
     expect(html).not.toContain("phil-jobs-on-today");
@@ -26,16 +26,16 @@ describe("PhilJobsSharpened", () => {
 
   it("never says 'no jobs' when the jobs read failed (the page notice owns it)", () => {
     const html = renderToString(
-      createElement(PhilJobsSharpened, { initialJobs: [], loadFailed: true }),
+      createElement(PhilJobsSharpened, { initialJobs: [], loadFailed: true })
     );
-    expect(html).not.toContain("No jobs yet");
+    expect(html).not.toContain("No live jobs");
     // Creating a job still works while the list is down.
     expect(html).toContain('data-testid="phil-new-job-open"');
   });
 
   it("shows the navy '+ New job' header button (Wave 2b) with the sheet closed", () => {
     const html = renderToString(
-      createElement(PhilJobsSharpened, { initialJobs: [mk("a", "Alpha")] }),
+      createElement(PhilJobsSharpened, { initialJobs: [mk("a", "Alpha")] })
     );
     expect(html).toContain('data-testid="phil-new-job-open"');
     expect(html).toContain("New job");
@@ -47,7 +47,7 @@ describe("PhilJobsSharpened", () => {
   it("keeps '+ New job' available on the honest empty state (first job is a create)", () => {
     const html = renderToString(createElement(PhilJobsSharpened, { initialJobs: [] }));
     expect(html).toContain('data-testid="phil-new-job-open"');
-    expect(html).toContain("No jobs yet");
+    expect(html).toContain("No live jobs");
   });
 
   it("chips the real `code` field, falling back to legacy `ref` (unchanged rows)", () => {
@@ -58,7 +58,7 @@ describe("PhilJobsSharpened", () => {
           mk("b", "Ref only", { ref: "IV0038" } as Partial<Job>),
           mk("c", "Bare"),
         ],
-      }),
+      })
     );
     expect(html).toContain("IV7001"); // code wins over ref
     expect(html).not.toContain("OLD-REF");
@@ -74,7 +74,7 @@ describe("PhilJobsSharpened", () => {
             siteAddress: "12 Birdwood Rd",
           } as Partial<Job>),
         ],
-      }),
+      })
     );
     expect(one).toContain('data-testid="phil-jobs-on-today"');
     expect(one).toContain("On today");
@@ -87,7 +87,7 @@ describe("PhilJobsSharpened", () => {
     const many = renderToString(
       createElement(PhilJobsSharpened, {
         initialJobs: [mk("a", "Alpha"), mk("b", "Beta")],
-      }),
+      })
     );
     // With 2+ jobs there is no active-job signal — the hero is honestly absent.
     expect(many).not.toContain("phil-jobs-on-today");
@@ -102,7 +102,7 @@ describe("PhilJobsSharpened", () => {
       const html = renderToString(
         createElement(PhilJobsSharpened, {
           initialJobs: [mk("a", "Wrapped Up Estate", { status } as Partial<Job>)],
-        }),
+        })
       );
       // No hero, no yellow active rule — the job isn't on today (P7).
       expect(html, status).not.toContain("phil-jobs-on-today");
@@ -121,22 +121,22 @@ describe("PhilJobsSharpened", () => {
       createElement(PhilJobsSharpened, {
         initialJobs: [mk("a", "Birdwood Estate")],
         userId: "u1",
-      }),
+      })
     );
     expect(html).toContain('data-testid="phil-jobs-on-today"');
     // Exactly one rendered entry for the job.
     expect(html.match(/Birdwood Estate/g)).toHaveLength(1);
     // The flat list (the OTHERS) is empty → it drops entirely, and there's
-    // nothing to search either (P10).
     expect(html).not.toContain('data-testid="phil-jobs-all"');
-    expect(html).not.toContain('data-testid="phil-jobs-search"');
+    // The search stays: it is the one door to finished jobs (2026-09-26).
+    expect(html).toContain('data-testid="phil-jobs-search"');
   });
 
   it("renders ONE flat list — no Recent group, no 'Your jobs' heading (owner call 2026-07-30)", () => {
     const html = renderToString(
       createElement(PhilJobsSharpened, {
         initialJobs: [mk("a", "Zebra"), mk("b", "Apple"), mk("c", "Mango")],
-      }),
+      })
     );
     expect(html).toContain('data-testid="phil-jobs-all"');
     expect(html).toContain("Zebra");
@@ -148,11 +148,11 @@ describe("PhilJobsSharpened", () => {
     expect(html).not.toContain("phil-jobs-recent");
   });
 
-  it("shows the search box once a worker has 2+ jobs, hides it for one job", () => {
+  it("shows the search box whenever the list loaded — it is the door to finished jobs (docs/job-lifecycle.md)", () => {
     const many = renderToString(
       createElement(PhilJobsSharpened, {
         initialJobs: [mk("a", "Alpha"), mk("b", "Beta")],
-      }),
+      })
     );
     expect(many).toContain('data-testid="phil-jobs-search"');
     expect(many).toContain('aria-label="Search jobs"');
@@ -161,9 +161,16 @@ describe("PhilJobsSharpened", () => {
     expect(many).not.toContain("phil-jobs-search-empty");
 
     const one = renderToString(
-      createElement(PhilJobsSharpened, { initialJobs: [mk("a", "Alpha")] }),
+      createElement(PhilJobsSharpened, { initialJobs: [mk("a", "Alpha")] })
     );
-    expect(one).not.toContain("phil-jobs-search");
+    expect(one).toContain("phil-jobs-search");
+    const none = renderToString(createElement(PhilJobsSharpened, { initialJobs: [] }));
+    expect(none).toContain("phil-jobs-search");
+    // …but never on a failed read (the page's notice owns that state).
+    const failed = renderToString(
+      createElement(PhilJobsSharpened, { initialJobs: [], loadFailed: true })
+    );
+    expect(failed).not.toContain("phil-jobs-search");
   });
 
   it("keeps rows honest: real withStats signals when present, nothing when absent", () => {
@@ -173,13 +180,13 @@ describe("PhilJobsSharpened", () => {
           mk("a", "Alpha", { statsSnagsV2Active: 2, statsItpsActive: 1 } as Partial<Job>),
           mk("b", "Beta"),
         ],
-      }),
+      })
     );
     expect(withStats).toContain("2 snags");
     expect(withStats).toContain("1 ITP");
 
     const noStats = renderToString(
-      createElement(PhilJobsSharpened, { initialJobs: [mk("a", "Alpha"), mk("b", "Beta")] }),
+      createElement(PhilJobsSharpened, { initialJobs: [mk("a", "Alpha"), mk("b", "Beta")] })
     );
     expect(noStats).not.toContain("snag");
     expect(noStats).not.toContain("ITP");
@@ -189,7 +196,7 @@ describe("PhilJobsSharpened", () => {
     const html = renderToString(
       createElement(PhilJobsSharpened, {
         initialJobs: [mk("a", "Alpha", { status: "on_hold" } as Partial<Job>), mk("b", "Beta")],
-      }),
+      })
     );
     expect(html).toContain(">On hold<");
   });
@@ -199,7 +206,7 @@ describe("PhilJobsSharpened", () => {
       createElement(PhilJobsSharpened, {
         initialJobs: [mk("a", "Alpha"), mk("b", "Beta")],
         userId: "user-1",
-      }),
+      })
     );
     expect(html).toContain('data-testid="phil-job-pin-a"');
     expect(html).toContain("min-h-[44px]");
@@ -211,7 +218,7 @@ describe("PhilJobsSharpened", () => {
     const html = renderToString(
       createElement(PhilJobsSharpened, {
         initialJobs: [mk("a", "A"), mk("b", "B"), mk("c", "C"), mk("d", "D")],
-      }),
+      })
     );
     // Recency ordering is post-mount + prefs-gated (no fabricated "recent").
     expect(html).not.toContain("phil-job-pin-");

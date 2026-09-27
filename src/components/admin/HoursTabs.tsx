@@ -13,23 +13,41 @@ interface HoursTab {
 
 /**
  * Weekly-first (owner directive 2026-08-08): the crew logs hours weekly, so
- * the section leads with This week — /hours itself now redirects there and
- * the day view moved to /hours/today. Tab order mirrors the operating
+ * the section leads with the Weekly board — /hours itself now redirects there
+ * and the day view moved to /hours/today. Tab order mirrors the operating
  * rhythm: the week you're closing out, the drill-in day view, the pay
  * period. The Approvals ROUTE stays fully live (deep links, the day view's
  * "Review N pending" CTA and the mobile tab bar all still land on
- * /hours/approvals) — it just doesn't occupy a tab slot.
+ * /hours/approvals) — it just doesn't occupy a tab slot; the Weekly tab
+ * stays lit there.
  */
 const TABS: ReadonlyArray<HoursTab> = [
   // `as Route` — typedRoutes' generated map is from the previous build
   // (same pattern as AdminSidebar's newer entries); validated by `next build`.
-  { label: "This week", href: "/hours/weekly" as Route },
+  // "Weekly", not "This week": the board opens on the last COMPLETE week (the
+  // closeout runs after a week ends), so a "This week" label lied four days
+  // out of five (2026-09-26 usability audit).
+  { label: "Weekly", href: "/hours/weekly" as Route },
   { label: "Today", href: "/hours/today" as Route },
   { label: "Pay period", href: "/hours/period" as Route },
 ];
 
+/** Routes that light a tab without being its href — the approvals queue is
+ *  the weekly board's drill-in, so the Weekly tab stays lit there rather than
+ *  leaving the strip with no active tab at all. */
+const TAB_ALIASES: Readonly<Record<string, string>> = {
+  "/hours/approvals": "/hours/weekly",
+};
+
 function isActiveTab(pathname: string, tab: HoursTab): boolean {
-  return pathname === tab.href || pathname.startsWith(`${tab.href}/`);
+  const matches = (path: string) => path === tab.href || path.startsWith(`${tab.href}/`);
+  if (matches(pathname)) return true;
+  for (const [alias, target] of Object.entries(TAB_ALIASES)) {
+    if (target === tab.href && (pathname === alias || pathname.startsWith(`${alias}/`))) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**

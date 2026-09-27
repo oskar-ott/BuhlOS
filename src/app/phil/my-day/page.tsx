@@ -5,6 +5,7 @@ import { cookies } from "next/headers";
 import {
   loadCurrentUserInProcess,
   loadWorkerEntriesInProcess,
+  loadFieldJobsByIdInProcess,
   loadFieldJobsInProcess,
 } from "../../../../api/_lib/phil-page-data.js";
 import { PhilShell } from "@/components/phil/PhilShell";
@@ -55,6 +56,8 @@ import {
 } from "@/components/phil/PhilMyDaySharpenedAttention";
 import styles from "@/components/phil/myDay.module.css";
 import { isFlagEnabled, isFlagOn } from "../../../../api/_lib/feature-flags.js";
+import { publicHolidaysInRange } from "../../../../api/_lib/public-holidays.js";
+import { addDays, isWeekendDate, weekStartOf } from "@/domains/timesheets/service";
 
 export const dynamic = "force-dynamic";
 
@@ -135,17 +138,22 @@ export default async function MyDayPage({
   // The sharpened-chrome flags ride the same parallel wave (cached flags.json
   // reads, not per-page blob round-trips). Resolved server-side; only booleans
   // reach the client (docs/feature-flags.md).
-  const [{ todayEntry, recentEntries, fetchError }, assignedJobs, profile, sharpenedFlags, receiptsOn] =
-    await Promise.all([
-      loadEntries(raw, fixDate),
-      loadAssignedJobs(raw),
-      loadWorkerProfile(raw),
-      philSharpenedFlags(session),
-      // Receipts from the field: the worker flag AND the office inbox it feeds.
-      Promise.all([isFlagEnabled("receipt_capture", session), isFlagOn("invoice_capture")])
-        .then(([a, b]) => a && b)
-        .catch(() => false),
-    ]);
+  const [
+    { todayEntry, recentEntries, fetchError },
+    assignedJobs,
+    profile,
+    sharpenedFlags,
+    receiptsOn,
+  ] = await Promise.all([
+    loadEntries(raw, fixDate),
+    loadAssignedJobs(raw),
+    loadWorkerProfile(raw),
+    philSharpenedFlags(session),
+    // Receipts from the field: the worker flag AND the office inbox it feeds.
+    Promise.all([isFlagEnabled("receipt_capture", session), isFlagOn("invoice_capture")])
+      .then(([a, b]) => a && b)
+      .catch(() => false),
+  ]);
 
   // Hero priority state ("a day was sent back") is driven by REJECTED HOURS,
   // which buildPhilNeedsYou derives purely from the time entries already loaded
@@ -216,13 +224,27 @@ export default async function MyDayPage({
   if (sharpenedFlags.sharpened) {
     // "on site since {t}" only when today's REAL entry carries a start time.
     const onSiteSince = philOnSiteSince(todayEntry?.startTime ?? null);
-    const sharpSubline = onSiteSince
-      ? `${dateLabel} · on site since ${onSiteSince}`
-      : dateLabel;
+    const sharpSubline = onSiteSince ? `${dateLabel} · on site since ${onSiteSince}` : dateLabel;
     // Week progress for the banner subline (weekly-first, owner directive
     // 2026-08-08) — real entries in the current Mon–Sun week vs weekdays
     // elapsed; the 7-day entries window always covers Monday→today.
-    const weekProgress = weekLoggedProgress(recentEntries, todayISO);
+    // Public holidays are not work days — the office's missing-days check
+    // already exempts them (api/time-entries-overview), so the banner's
+    // "N of M days" and the Due chip must agree with it (P7).
+    const holidays = new Set(
+      publicHolidaysInRange(weekStartOf(todayISO), addDays(todayISO, 1)).map((h) => h.date)
+    );
+    const weekProgress = weekLoggedProgress(recentEntries, todayISO, { holidays });
+    // Weekly-first (owner directive 2026-08-08, "no daily nag"): a Saturday,
+    // Sunday or public holiday with nothing logged is not a missed day. The
+    // banner shows when a WORK day is still unlogged (today, or an earlier
+    // weekday this week); the Due chip only on an unlogged work day.
+    const todayIsWorkday = !isWeekendDate(todayISO) && !holidays.has(todayISO);
+    const hoursDue = todayEntry === null && todayIsWorkday;
+    const showLogBanner =
+      todayEntry === null &&
+      !fetchError &&
+      (todayIsWorkday || weekProgress.logged < weekProgress.expected);
     // ?fixDate= deep link (push notifications, needs-you rows — both point at
     // REJECTED days): the Hours tab (W2c) is the logging home now, so this
     // screen no longer mounts the week strip / day-logger — but the one-tap
@@ -238,6 +260,10 @@ export default async function MyDayPage({
     // Hours tab / LogHoursSheet instead.
     const showFixCard =
       fixEntry !== null && fixEntry.status === "rejected" && canResubmitInPhil(fixEntry);
+    // #1060: a sent-back day on a job that has since CLOSED (a callback) must
+    // be re-sendable to that same job — the default list holds only live jobs,
+    // so the entry's own jobs are loaded by id and named as closed.
+    const fixJobs = showFixCard ? await withEntryJobs(raw, jobs, fixEntry) : jobs;
     return (
       <PhilShell
         title="My day"
@@ -247,7 +273,11 @@ export default async function MyDayPage({
         accountInitials={initials}
       >
         <div className="flex flex-col gap-3" data-testid="phil-my-day-sharpened">
-          <PhilMyDaySharpenedHeader heading={heading} subline={sharpSubline} />
+          <PhilMyDaySharpenedHeader
+            heading={heading}
+            subline={sharpSubline}
+            entriesFailed={Boolean(fetchError)}
+          />
 
           {/* The design's primary hours action — the yellow banner directly
               under the header, pointing at the Hours tab (the one logging
@@ -266,8 +296,8 @@ export default async function MyDayPage({
           {fetchError ? (
             <PhilNotice tone="warning" title="Couldn’t load your hours" role="alert">
               <p>
-                What&rsquo;s logged this week and anything sent back may be missing. You can
-                still log hours on the Hours tab.
+                What&rsquo;s logged this week and anything sent back may be missing. You can still
+                log hours on the Hours tab.
               </p>
               <div className="mt-3">
                 <RefreshButton />
@@ -275,7 +305,7 @@ export default async function MyDayPage({
             </PhilNotice>
           ) : null}
 
-          {todayEntry === null && !fetchError ? (
+          {showLogBanner ? (
             <PhilMyDayLogHoursBanner
               todayISO={todayISO}
               viewerId={session.userId ?? null}
@@ -285,10 +315,7 @@ export default async function MyDayPage({
           ) : null}
 
           {showFixCard ? (
-            <section
-              aria-labelledby="phil-my-day-fix-heading"
-              data-testid="phil-my-day-fix-card"
-            >
+            <section aria-labelledby="phil-my-day-fix-heading" data-testid="phil-my-day-fix-card">
               <h2
                 id="phil-my-day-fix-heading"
                 className="mb-2 font-display text-[12px] font-bold uppercase tracking-[0.09em] text-text-muted"
@@ -307,7 +334,7 @@ export default async function MyDayPage({
                 <RejectedHoursResubmitSheet
                   key={fixEntry.id}
                   entry={fixEntry}
-                  assignedJobs={jobs}
+                  assignedJobs={fixJobs}
                   jobsError={assignedJobs.error}
                   defaultOpen
                 />
@@ -336,17 +363,19 @@ export default async function MyDayPage({
               affordance here. The old week strip + day-logger are gone from
               this screen — one logging home, not three competing forms. */}
           <PhilMyDayQuickGrid
-            hoursDue={todayEntry === null}
+            hoursDue={hoursDue}
             callJobId={soleJobId}
             todayISO={todayISO}
             viewerId={session.userId ?? null}
             receipts={
               receiptsOn
-                ? { jobs: jobs.map((j) => ({ id: j.id, name: j.name, code: j.code ?? null })), defaultJobId: soleJobId }
+                ? {
+                    jobs: jobs.map((j) => ({ id: j.id, name: j.name, code: j.code ?? null })),
+                    defaultJobId: soleJobId,
+                  }
                 : null
             }
           />
-
         </div>
       </PhilShell>
     );
@@ -375,12 +404,9 @@ export default async function MyDayPage({
 
         <PhilMyDayHero
           hero={buildMyDayHero({
-            todayStatus: (todayEntry?.status as
-              | "draft"
-              | "submitted"
-              | "approved"
-              | "rejected"
-              | undefined) ?? null,
+            todayStatus:
+              (todayEntry?.status as "draft" | "submitted" | "approved" | "rejected" | undefined) ??
+              null,
             needsYouItems: heroNeedsYou,
             soleJob: soleJob ? { id: soleJob.id, name: soleJob.name } : null,
           })}
@@ -411,8 +437,8 @@ export default async function MyDayPage({
         {fetchError ? (
           <PhilNotice tone="warning" title="Couldn’t load recent entries" role="alert">
             <p>
-              {fetchError}. You can still submit a new entry — it’ll appear here once
-              we’re back online.
+              {fetchError}. You can still submit a new entry — it’ll appear here once we’re back
+              online.
             </p>
             <div className="mt-3">
               <RefreshButton />
@@ -439,9 +465,7 @@ export default async function MyDayPage({
  * that knows what this worker is called. Fails soft to null on any error —
  * the greeting degrades to the impersonal form rather than blocking the page.
  */
-async function loadWorkerProfile(
-  cookieValue: string | undefined
-): Promise<SessionPayload | null> {
+async function loadWorkerProfile(cookieValue: string | undefined): Promise<SessionPayload | null> {
   if (!cookieValue) return null;
   // In-process read (2026-08-03): same authoritative getCurrentUser the
   // /api/auth?action=me hop ran, without invoking a second serverless
@@ -452,6 +476,10 @@ async function loadWorkerProfile(
     return null; // fail-soft, same as verifyViaApi — the greeting degrades
   }
 }
+
+/** Entries window for My Day (days back from today). Covers a full month of
+ *  send-backs; see loadEntries. */
+const RECENT_ENTRIES_DAYS = 28;
 
 async function loadEntries(
   cookieValue: string | undefined,
@@ -470,8 +498,13 @@ async function loadEntries(
   // be up to 14 days back), so the range stretches to include it — otherwise
   // the worker would land on the right day but never see the entry to fix.
   const today = localDateString(new Date(), BUSINESS_TIMEZONE);
+  // Four weeks back, not seven days (2026-09-26 audit): the office rejects by
+  // the week, often after the week has rolled over, and a day sent back more
+  // than 7 days ago vanished from this screen — "Nothing's chasing you" with
+  // a rejection outstanding (P9/P7). One read either way; the week strip and
+  // "last logged" derivations filter by date themselves.
   const sevenDaysAgo = localDateString(
-    new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+    new Date(Date.now() - RECENT_ENTRIES_DAYS * 24 * 60 * 60 * 1000),
     BUSINESS_TIMEZONE
   );
   const fromDate = fixDate && fixDate < sevenDaysAgo ? fixDate : sevenDaysAgo;
@@ -499,7 +532,7 @@ async function loadEntries(
     }
     if (parsed.dropped > 0) {
       console.warn(
-        `phil/my-day: skipped ${parsed.dropped} malformed time entr${parsed.dropped === 1 ? "y" : "ies"}`,
+        `phil/my-day: skipped ${parsed.dropped} malformed time entr${parsed.dropped === 1 ? "y" : "ies"}`
       );
     }
     const todayEntry = parsed.entries.find((e) => e.date === today) ?? null;
@@ -529,6 +562,36 @@ async function loadEntries(
  * unattributed entry. Feeds both the LogHoursSheet attribution and the
  * greeting's "on {job}" line (shown only for a single assigned job).
  */
+/** The default job list plus any job this entry names that is no longer in
+ *  it (closed since), loaded by id — only openable jobs come back. */
+async function withEntryJobs<J extends { id: string; name: string }>(
+  cookieValue: string | undefined,
+  jobs: ReadonlyArray<J>,
+  entry: TimeEntry
+): Promise<ReadonlyArray<J | { id: string; name: string }>> {
+  const have = new Set(jobs.map((j) => j.id));
+  const missing = [
+    ...new Set(
+      (entry.allocations ?? [])
+        .map((a) => a.jobId)
+        .filter((id): id is string => typeof id === "string" && id !== "" && !have.has(id))
+    ),
+  ];
+  if (missing.length === 0) return jobs;
+  try {
+    const records = await loadFieldJobsByIdInProcess(cookieValue, missing);
+    const parsed = JobListResponseSchema.safeParse({ jobs: records });
+    if (!parsed.success) return jobs;
+    const extra = parsed.data.jobs.map((j) => ({
+      id: j.id,
+      name: j.completedAt ? `${j.name} · Closed` : j.name,
+    }));
+    return [...jobs, ...extra];
+  } catch {
+    return jobs;
+  }
+}
+
 async function loadAssignedJobs(cookieValue: string | undefined): Promise<{
   /** ref/siteAddress ride along for the sharpened "On the job" card — the
    *  same single /api/jobs read, no extra call. Consumers that only need

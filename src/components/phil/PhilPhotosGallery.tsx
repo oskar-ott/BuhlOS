@@ -72,7 +72,7 @@ export function PhilPhotosGallery({
 }: Props) {
   const allPhotos = useMemo(
     () => buildGalleryPhotos({ evidence, catalog, areaNameById }),
-    [evidence, catalog, areaNameById],
+    [evidence, catalog, areaNameById]
   );
 
   const [filter, setFilter] = useState<GalleryFilter>(EMPTY_GALLERY_FILTER);
@@ -80,7 +80,7 @@ export function PhilPhotosGallery({
 
   const visible = useMemo(
     () => allPhotos.filter((p) => matchesGalleryFilter(p, filter)),
-    [allPhotos, filter],
+    [allPhotos, filter]
   );
   const groups = useMemo(() => groupPhotosByDay(visible), [visible]);
   const uploaders = useMemo(() => galleryUploaders(allPhotos), [allPhotos]);
@@ -102,14 +102,13 @@ export function PhilPhotosGallery({
         </PhilNotice>
       ) : null}
 
-      {catalogError ? (
-        <PhilNotice tone="warning" title="Couldn’t load snag & ITP photos" role="alert">
+      {/* The snag / ITP-dwelling catalog is an office-side source; a tradie
+          never has it. Telling them about it on every visit was a trace of
+          hidden features (02-lean-reset no-trace rule) — so only a REAL load
+          failure of a source this viewer has is reported. */}
+      {catalogAvailable && catalogError ? (
+        <PhilNotice tone="warning" title="Couldn’t load the office photos" role="alert">
           {catalogError}. They’re missing from the gallery — pull to refresh.
-        </PhilNotice>
-      ) : !catalogAvailable ? (
-        <PhilNotice tone="info" title="Snag & ITP photos are office-side" role="status">
-          This gallery shows the photos you’ve captured. Snag and ITP / dwelling
-          photos are viewed by your leading hand or the office.
         </PhilNotice>
       ) : null}
 
@@ -121,10 +120,14 @@ export function PhilPhotosGallery({
         visibleCount={visible.length}
         isDefault={isDefault}
         asBuiltCount={asBuiltCount}
+        showSource={catalogAvailable}
       />
 
       {visible.length === 0 ? (
-        <PhilNotice tone="neutral" title={allPhotos.length === 0 ? "No photos yet" : "Nothing matches"}>
+        <PhilNotice
+          tone="neutral"
+          title={allPhotos.length === 0 ? "No photos yet" : "Nothing matches"}
+        >
           {allPhotos.length === 0
             ? "Photos on this job will show up here as they’re taken."
             : "Adjust the filters above or clear them to see everything."}
@@ -152,27 +155,19 @@ export function PhilPhotosGallery({
         </div>
       )}
 
-      {lightbox ? (
-        <PhilLightbox photo={lightbox} onClose={() => setLightbox(null)} />
-      ) : null}
+      {lightbox ? <PhilLightbox photo={lightbox} onClose={() => setLightbox(null)} /> : null}
     </div>
   );
 }
 
-function PhilPhotoTile({
-  photo,
-  onOpen,
-}: {
-  photo: GalleryPhoto;
-  onOpen: () => void;
-}) {
+function PhilPhotoTile({ photo, onOpen }: { photo: GalleryPhoto; onOpen: () => void }) {
   return (
     <button
       type="button"
       onClick={onOpen}
       className={cn(
         "group flex w-full flex-col overflow-hidden rounded-card border border-border bg-surface text-left",
-        "focus:outline-none focus:ring-2 focus:ring-brand-navy",
+        "focus:outline-none focus:ring-2 focus:ring-brand-navy"
       )}
       aria-label={`${sourceKindLabel(photo.sourceKind)} — ${photo.provenance}`}
     >
@@ -220,13 +215,7 @@ function PhilPhotoTile({
   );
 }
 
-function PhilLightbox({
-  photo,
-  onClose,
-}: {
-  photo: GalleryPhoto;
-  onClose: () => void;
-}) {
+function PhilLightbox({ photo, onClose }: { photo: GalleryPhoto; onClose: () => void }) {
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();
@@ -288,6 +277,9 @@ interface FilterBarProps {
   isDefault: boolean;
   /** #233 — as-built-flagged count; the chip hides when 0 (P7). */
   asBuiltCount: number;
+  /** Category (evidence / snag / ITP) only means something for a viewer who
+   *  has the office catalog; a tradie's gallery is all evidence. */
+  showSource: boolean;
 }
 
 function PhilGalleryFilterBar({
@@ -298,6 +290,7 @@ function PhilGalleryFilterBar({
   visibleCount,
   isDefault,
   asBuiltCount,
+  showSource,
 }: FilterBarProps) {
   return (
     <div className="rounded-card border border-border bg-surface-raised p-3">
@@ -348,27 +341,28 @@ function PhilGalleryFilterBar({
             ))}
           </select>
         </label>
-        <label className="block">
-          <span className="block font-display text-xs uppercase tracking-wider text-text-muted">
-            Category
-          </span>
-          <select
-            value={value.sourceKind ?? ""}
-            onChange={(e) =>
-              onChange({
-                ...value,
-                sourceKind:
-                  e.target.value === "" ? null : (e.target.value as GallerySourceKind),
-              })
-            }
-            className="mt-1 block h-11 w-full rounded-card border border-border bg-surface px-3 text-sm focus:border-brand-navy focus:outline-none"
-          >
-            <option value="">All</option>
-            <option value="evidence">Evidence</option>
-            <option value="snag">Snag</option>
-            <option value="itp">ITP / dwelling</option>
-          </select>
-        </label>
+        {showSource ? (
+          <label className="block">
+            <span className="block font-display text-xs uppercase tracking-wider text-text-muted">
+              Category
+            </span>
+            <select
+              value={value.sourceKind ?? ""}
+              onChange={(e) =>
+                onChange({
+                  ...value,
+                  sourceKind: e.target.value === "" ? null : (e.target.value as GallerySourceKind),
+                })
+              }
+              className="mt-1 block h-11 w-full rounded-card border border-border bg-surface px-3 text-sm focus:border-brand-navy focus:outline-none"
+            >
+              <option value="">All</option>
+              <option value="evidence">Evidence</option>
+              <option value="snag">Snag</option>
+              <option value="itp">ITP / dwelling</option>
+            </select>
+          </label>
+        ) : null}
       </div>
 
       {/* #233 — as-built chip. HIDDEN when nothing in this (own-captures) view
@@ -383,7 +377,7 @@ function PhilGalleryFilterBar({
             "mt-3 inline-flex h-11 items-center gap-1 rounded-card border px-3 text-sm font-medium",
             value.asBuilt === true
               ? "border-amber-300 bg-amber-50 text-amber-900"
-              : "border-border bg-surface text-text",
+              : "border-border bg-surface text-text"
           )}
         >
           <Stamp aria-hidden="true" className="h-4 w-4" />

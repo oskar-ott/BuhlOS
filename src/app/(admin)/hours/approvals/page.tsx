@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
@@ -41,18 +40,11 @@ export default async function HoursApprovalsPage() {
 
   const { entries, fetchError } = await loadPendingQueue(raw);
 
+  // No "← Hours overview" breadcrumb: /hours redirects straight back to the
+  // weekly board, so it was a self-link that reset the week (2026-09-26 audit).
+  // The tab strip below is the section's navigation.
   return (
-    <AdminShell
-      title="Hours · approvals"
-      breadcrumb={
-        <Link
-          href="/hours"
-          className="underline decoration-accent-yellow decoration-2 underline-offset-2"
-        >
-          ← Hours overview
-        </Link>
-      }
-    >
+    <AdminShell title="Hours · approvals">
       {/* Section tabs (#415) — navigation chrome only, above all content. */}
       <HoursTabs />
       <div className="mx-auto max-w-4xl space-y-4">

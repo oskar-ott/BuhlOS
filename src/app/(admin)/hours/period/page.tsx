@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { Route } from "next";
 import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { ArrowLeft, ArrowRight } from "lucide-react";
@@ -19,6 +20,7 @@ import { isAdminRole } from "@/lib/auth/roles";
 import { TimeEntryOverviewResponseSchema } from "@/domains/timesheets/schema";
 import {
   BUSINESS_TIMEZONE,
+  addDays,
   localDateString,
   weekEndOf,
   weekStartOf,
@@ -44,6 +46,11 @@ import {
 export const dynamic = "force-dynamic";
 
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
+
+// Where a worker gets linked to their Xero employee record
+// (XeroWorkerMappingPanel). `as Route` — typedRoutes' generated map is from
+// the previous build (same pattern as AdminSidebar's newer entries).
+const XERO_SETTINGS = "/settings/integrations/xero" as Route;
 
 /**
  * /hours/period — the Xero-ready payroll preview across a pay period (#131).
@@ -98,16 +105,23 @@ export default async function HoursPeriodPage({
 
   const sp = await searchParams;
   const today = localDateString(new Date(), BUSINESS_TIMEZONE);
+  const thisWeekStart = weekStartOf(today);
 
   // Resolve the period. Custom needs a valid ordered range, else we fall back
   // to a week and say so. Week/fortnight anchor on a date in the last week.
   // Default is a WEEK — pay runs weekly (owner-corrected 2026-08-10; the
   // original fortnight default never matched the real pay cycle). Fortnight
   // stays as an opt-in look-back toggle.
+  //
+  // ONE week everywhere (2026-09-26 audit): with no `?anchor=` this page opens
+  // on the SAME week the weekly board opens on — the last complete week — so
+  // stepping from Weekly to Pay period never silently changes the week under
+  // the office. The "This week" button below still reaches the current week.
   const requestedCustom = sp.period === "custom";
   const customValid = requestedCustom && isValidRange(sp.from ?? "", sp.to ?? "");
   const kind: PayPeriodKind = sp.period === "fortnight" ? "fortnight" : "week";
-  const anchorParam = sp.anchor && ISO.test(sp.anchor) ? sp.anchor : today;
+  const anchorParam =
+    sp.anchor && ISO.test(sp.anchor) ? sp.anchor : addDays(thisWeekStart, -7);
 
   let range: PayPeriodRange;
   let mode: "week" | "fortnight" | "custom";
@@ -150,18 +164,14 @@ export default async function HoursPeriodPage({
   const eligibleWorkerCount = eligibleWorkers.length;
   const unmappedEligibleWorkerCount = eligibleWorkers.filter((w) => !w.xeroMapped).length;
 
+  // Every link back to the weekly board carries THIS period's week, so the two
+  // tabs never disagree about which week is on the table.
+  const weeklyBoardHref = { pathname: "/hours/weekly", query: { week: range.fromDate } };
+
+  // No "← Hours overview" breadcrumb — /hours redirects to the weekly board,
+  // so it was a self-link that reset the week. The tab strip is the navigation.
   return (
-    <AdminShell
-      title="Hours · pay period"
-      breadcrumb={
-        <Link
-          href="/hours"
-          className="underline decoration-accent-yellow decoration-2 underline-offset-2"
-        >
-          ← Hours overview
-        </Link>
-      }
-    >
+    <AdminShell title="Hours · pay period">
       <HoursTabs />
       <div className="mx-auto max-w-4xl space-y-4">
         <Card>
@@ -185,7 +195,7 @@ export default async function HoursPeriodPage({
                 icon={<ArrowLeft aria-hidden="true" className="h-4 w-4" />}
               />
               <Link
-                href={{ pathname: "/hours/period", query: { period: mode } }}
+                href={{ pathname: "/hours/period", query: { period: mode, anchor: thisWeekStart } }}
                 className="rounded-card border border-border px-3 py-2 text-xs font-medium text-text hover:border-brand-navy"
               >
                 {mode === "week" ? "This week" : "This fortnight"}
@@ -236,7 +246,7 @@ export default async function HoursPeriodPage({
             or creating Xero draft timesheets — and pay runs and payslips are
             finished in Xero. Decide submitted or missing days on the{" "}
             <Link
-              href="/hours/weekly"
+              href={weeklyBoardHref}
               className="underline decoration-accent-yellow decoration-2 underline-offset-2"
             >
               weekly closeout board
@@ -267,7 +277,7 @@ export default async function HoursPeriodPage({
             }
             action={
               <Link
-                href="/hours/weekly"
+                href={weeklyBoardHref}
                 className="rounded-card border border-border px-3 py-2 text-sm font-medium text-text hover:border-brand-navy"
               >
                 Open weekly closeout
@@ -284,7 +294,7 @@ export default async function HoursPeriodPage({
                 description="Approved totals below will change once those days are decided."
                 cta={
                   <Link
-                    href="/hours/weekly"
+                    href={weeklyBoardHref}
                     className="underline decoration-accent-yellow decoration-2 underline-offset-2"
                   >
                     Open the weekly closeout board →
@@ -305,10 +315,14 @@ export default async function HoursPeriodPage({
                 {rollup.summary.workerCount} worker(s) ·{" "}
                 {rollup.summary.unmappedWorkerCount > 0 ? (
                   <span className="text-amber-900">
-                    {rollup.summary.unmappedWorkerCount} without a Xero employee id
+                    {rollup.summary.unmappedWorkerCount} not linked to Xero yet (
+                    <Link href={XERO_SETTINGS} className="underline underline-offset-2">
+                      link them in Xero settings
+                    </Link>
+                    )
                   </span>
                 ) : (
-                  "all have a Xero employee id set"
+                  "all linked to a Xero employee"
                 )}
                 . &ldquo;Not yet exported&rdquo; = approved hours not yet in a locked Xero batch
                 (emailing the sheet doesn&rsquo;t change this number).
@@ -359,7 +373,7 @@ export default async function HoursPeriodPage({
             <Card className="overflow-x-auto p-0">
               <table className="w-full min-w-[40rem] text-left text-sm">
                 <thead>
-                  <tr className="border-b border-border bg-surface-subtle font-mono text-[10px] uppercase tracking-[.08em] text-text-muted">
+                  <tr className="border-b border-border bg-surface-subtle font-mono text-xs uppercase tracking-[.08em] text-text-muted">
                     <th className="px-4 py-3 font-medium">Worker</th>
                     <th className="px-2 py-3 text-right font-medium">Approved</th>
                     <th className="px-2 py-3 text-right font-medium">Ord</th>
@@ -411,13 +425,18 @@ export default async function HoursPeriodPage({
                               set
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1.5 text-xs text-amber-900">
+                            /* The link is the fix: worker ↔ Xero employee mapping
+                               lives on the Xero settings page, not in Employees. */
+                            <Link
+                              href={XERO_SETTINGS}
+                              className="inline-flex items-center gap-1.5 text-xs text-amber-900 underline decoration-amber-300 underline-offset-2 hover:decoration-amber-900"
+                            >
                               <span
                                 aria-hidden="true"
                                 className="h-2 w-2 rounded-full bg-state-warning"
                               />
-                              No Xero id
-                            </span>
+                              Not linked — link in Xero settings
+                            </Link>
                           )}
                         </td>
                         <td className="px-4 py-3">

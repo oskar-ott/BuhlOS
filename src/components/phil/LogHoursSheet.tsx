@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { hoursWriteFailureCopy } from "@/domains/timesheets/error-copy";
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -170,7 +171,7 @@ type SubmitState =
   | { kind: "idle" }
   | { kind: "submitting" }
   | { kind: "success"; entry: TimeEntry; mode: Mode }
-  | { kind: "error"; message: string; status: number };
+  | { kind: "error"; message: string; status: number; retrySafe?: boolean };
 
 /**
  * The capture surface a tradie sees on /phil/my-day. Field-first per
@@ -443,26 +444,22 @@ export function LogHoursSheet({
       router.refresh();
       return;
     }
-    if (result.error.status === 409) {
-      setState({
-        kind: "error",
-        message: "That day already has hours logged — open it in the week list above to change it.",
-        status: 409,
-      });
-      return;
-    }
-    if (result.error.status === 401) {
-      setState({
-        kind: "error",
-        message: "Session expired. Sign in again to log hours.",
-        status: 401,
-      });
-      return;
-    }
+    // Site-language copy for the refusal (P11) and an HONEST "trying again is
+    // safe" line only where a retry can succeed (P7 — 2026-09-26 audit: every
+    // 400/403/409 read as "request failed … trying again is safe").
+    const copy = hoursWriteFailureCopy(
+      {
+        status: result.error.status || 0,
+        message: result.error.message,
+        kind: result.error.kind,
+      },
+      "Couldn’t submit your hours. Try again in a moment."
+    );
     setState({
       kind: "error",
-      message: result.error.message || "Couldn't submit your hours. Try again in a moment.",
+      message: copy.message,
       status: result.error.status || 0,
+      retrySafe: copy.retrySafe,
     });
   }
 
@@ -491,7 +488,7 @@ export function LogHoursSheet({
             <RejectedHoursResubmitSheet
               key={statusEntry.id}
               entry={statusEntry}
-              assignedJobs={assignedJobs}
+              assignedJobs={pickableJobs}
               jobsError={jobsError}
               defaultOpen={autoOpenFix}
               onSaved={onSaved}
@@ -535,7 +532,7 @@ export function LogHoursSheet({
           // approved day names its absence (P7) — locked for pay, no button.
           <LockedDayStatus
             entry={statusEntry}
-            assignedJobs={assignedJobs}
+            assignedJobs={pickableJobs}
             jobsError={jobsError}
             onSaved={onSaved}
           />
@@ -550,9 +547,7 @@ export function LogHoursSheet({
                     {DAY_TYPE_META[dayTypeActive].icon}
                   </span>
                   <span className={styles.jobLineText}>
-                    <span className={styles.jobLineName}>
-                      {DAY_TYPE_META[dayTypeActive].label}
-                    </span>
+                    <span className={styles.jobLineName}>{DAY_TYPE_META[dayTypeActive].label}</span>
                     <span className={styles.jobLineCaption}>
                       {DAY_TYPE_META[dayTypeActive].caption}
                     </span>
@@ -595,7 +590,7 @@ export function LogHoursSheet({
             {/* Weekend rule (owner-directed 2026-08-10): Sat/Sun hours book as
                 all overtime — one muted fact line (P10: no new control, no
                 alarm tone; the pay split below shows the same truth). */}
-            {isWeekendDate(date) ? (
+            {isWeekendDate(date) && !dayTypeActive ? (
               <p className="text-sm text-text-muted">
                 {`Weekend day — all hours count as overtime.`}
               </p>
@@ -913,7 +908,10 @@ export function LogHoursSheet({
       <SplitDaySheet
         open={splitOpen}
         onClose={() => setSplitOpen(false)}
-        assignedJobs={assignedJobs}
+        // The SAME discovered set the dial uses (#1060): a closed job found
+        // through the history search can be split against, not just the
+        // default live list.
+        assignedJobs={pickableJobs}
         submitting={submitting}
         onSubmit={submitSplit}
         // User-toggled split (not the ?fixDate= resubmit path) → opt into
@@ -1396,16 +1394,20 @@ function FeedbackBanner({
         title={`${formatHoursLabel(state.entry.totalHours)} sent for approval`}
       >
         {formatShortDateLabel(state.entry.date)}
-        {target ? ` · ${target}` : ""}. Waiting on the office. Wrong day or job? Use
-        &ldquo;Change these hours&rdquo; above.
+        {target ? ` · ${target}` : ""}. Waiting on the office.
+        {state.entry.dayType
+          ? " Logged the wrong day? Ask the office to change it."
+          : " Wrong day or job? Use “Change these hours” above."}
       </PhilNotice>
     );
   }
   if (state.kind === "error") {
     return (
       <PhilNotice tone="danger" role="alert" title="Couldn’t submit">
-        {state.message} Your choices are still here — trying again is safe, it won&rsquo;t
-        log the day twice.
+        {state.message}
+        {state.retrySafe
+          ? " Your choices are still here — trying again is safe, it won’t log the day twice."
+          : " Your choices are still here."}
       </PhilNotice>
     );
   }

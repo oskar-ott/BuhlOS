@@ -410,3 +410,18 @@ describe("hoursDayRows (weekend backfill, 2026-08-24 field evidence)", () => {
     expect(rows.some((r) => r.date === "2026-08-23")).toBe(false); // Sunday still future
   });
 });
+
+describe("defaultOpenWeeks — a sent-back day opens its week (2026-09-26, P9)", () => {
+  it("opens a past week whose dot is danger, keeps other past weeks folded", () => {
+    const weeks = [
+      { weekStart: "2026-09-21", isCurrent: true, dot: "neutral" as const },
+      { weekStart: "2026-09-14", isCurrent: false, dot: "danger" as const },
+      { weekStart: "2026-09-07", isCurrent: false, dot: "success" as const },
+    ];
+    expect(defaultOpenWeeks(weeks)).toEqual({
+      "2026-09-21": true,
+      "2026-09-14": true,
+      "2026-09-07": false,
+    });
+  });
+});

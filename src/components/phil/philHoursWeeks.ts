@@ -360,10 +360,12 @@ export function hoursDayLabel(dateISO: string, todayISO: string): string {
  * without a DOM (the repo's vitest runs in the node env).
  */
 export function defaultOpenWeeks(
-  weeks: ReadonlyArray<Pick<HoursWeek, "weekStart" | "isCurrent">>
+  weeks: ReadonlyArray<Pick<HoursWeek, "weekStart" | "isCurrent"> & Partial<Pick<HoursWeek, "dot">>>
 ): Record<string, boolean> {
   const open: Record<string, boolean> = {};
-  for (const w of weeks) open[w.weekStart] = w.isCurrent;
+  // A past week holding a SENT-BACK day opens too (P9 — a rejection must
+  // never hide behind a fold; before 2026-09-26 the only sign was a 6px dot).
+  for (const w of weeks) open[w.weekStart] = w.isCurrent || w.dot === "danger";
   return open;
 }
 

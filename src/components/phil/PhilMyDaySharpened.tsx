@@ -2,13 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { Route } from "next";
-import {
-  ArrowRight,
-  ChevronRight,
-  Clock,
-  MapPin,
-  Phone,
-} from "lucide-react";
+import { ArrowRight, ChevronRight, Clock, MapPin, Phone } from "lucide-react";
 import { PhilOfflineLink } from "./PhilOfflineLink";
 import { PhilReceiptEntry, type PhilReceiptJob } from "./PhilReceiptEntry";
 import { PhilStatusBadge, type PhilStatusTone } from "./ui/PhilStatusBadge";
@@ -29,7 +23,7 @@ import { hasSavedEntryForDate } from "@/domains/timesheets/saved-entries-journal
  */
 function useJournalConfirmedDay(
   date: string | null | undefined,
-  viewerId: string | null | undefined,
+  viewerId: string | null | undefined
 ): boolean {
   const [confirmed, setConfirmed] = useState(false);
   useEffect(() => {
@@ -86,7 +80,11 @@ function SectionLabel({ children, id }: { children: string; id?: string }) {
 export function PhilMyDaySharpenedHeader({
   heading,
   subline,
+  entriesFailed = false,
 }: {
+  /** True when the page's hours read failed — the "Synced" pill would be a
+   *  lie next to "Couldn't load your hours", so no pill renders (P7). */
+  entriesFailed?: boolean;
   /** "Arvo, Sam" — from buildPhilGreeting (real name or impersonal). */
   heading: string;
   /** Real date, plus "· on site since {t}" only when today's entry has a
@@ -107,10 +105,10 @@ export function PhilMyDaySharpenedHeader({
         </h1>
         <p className="mt-1 truncate text-[13px] font-medium text-text-muted">{subline}</p>
       </div>
-      {online ? (
-        <PhilStatusBadge label="Synced" tone="success" className="shrink-0" />
-      ) : (
+      {!online ? (
         <PhilStatusBadge label="Offline" className="shrink-0" />
+      ) : entriesFailed ? null : (
+        <PhilStatusBadge label="Synced" tone="success" className="shrink-0" />
       )}
     </header>
   );
@@ -433,9 +431,14 @@ export function PhilMyDayQuickGrid({
 
         {/* Log a receipt — a card purchase recorded where it happens (P13).
             Enters this existing slot; no new section (P10). */}
-        {receipts ? <PhilReceiptEntry jobs={receipts.jobs} defaultJobId={receipts.defaultJobId} tileClassName={tileClass} /> : null}
+        {receipts ? (
+          <PhilReceiptEntry
+            jobs={receipts.jobs}
+            defaultJobId={receipts.defaultJobId}
+            tileClassName={tileClass}
+          />
+        ) : null}
       </div>
     </section>
   );
 }
-

@@ -95,9 +95,9 @@ describe("philJobCommandInputFromJobData — failed loads become unknown, not fa
 });
 
 describe("philJobCommandInputFromJobData — rejected hours upgrade hook", () => {
-  it("is unknown on the job screen by default (hours aren't fetched here)", () => {
+  it("is not configured on the job screen by default (hours live on the Hours tab, 2026-09-26)", () => {
     const inp = philJobCommandInputFromJobData({ job: job() });
-    expect(inp.rejectedHours.kind).toBe("unknown");
+    expect(inp.rejectedHours.kind).toBe("not_configured");
   });
 
   it("becomes a real count when the caller supplies per-job rejected hours", () => {
@@ -105,7 +105,9 @@ describe("philJobCommandInputFromJobData — rejected hours upgrade hook", () =>
     expect(inp.rejectedHours).toEqual({ kind: "count", value: 2 });
     // ...and the decision layer lights up fix_rejected_hours with no model change
     const model = buildPhilJobCommandModel(inp);
-    expect([model.primaryAction, ...model.actions].some((a) => a?.id === "fix_rejected_hours")).toBe(true);
+    expect(
+      [model.primaryAction, ...model.actions].some((a) => a?.id === "fix_rejected_hours")
+    ).toBe(true);
   });
 });
 
@@ -142,14 +144,17 @@ describe("bridge + model end to end", () => {
       philJobCommandInputFromJobData({
         job: job({ roughInTasks: [{ id: "t1", name: "Rough in" }] }),
         documents: [doc("current"), doc("current")],
-      }),
+      })
     );
     expect(model.state).toBe("ready");
     expect(model.jobName).toBe("Birdwood IV3232");
     const ids = [model.primaryAction, ...model.actions].map((a) => a?.id);
-    expect(ids).toEqual(expect.arrayContaining(["capture", "view_plans", "continue_tasks", "log_hours"]));
+    expect(ids).toEqual(
+      expect.arrayContaining(["capture", "view_plans", "continue_tasks", "log_hours"])
+    );
     // rejected hours surface as an honest limitation
-    expect(model.limitations.some((l) => l.id === "rejected-hours-unknown")).toBe(true);
+    // No permanent "rejected hours aren't shown here" line (2026-09-26 audit).
+    expect(model.limitations.some((l) => l.id === "rejected-hours-unknown")).toBe(false);
   });
 
   it("derives no snag/ITP action or attention — the registers are gone (#915)", () => {
@@ -157,26 +162,28 @@ describe("bridge + model end to end", () => {
       philJobCommandInputFromJobData({
         job: job({ roughInTasks: [{ id: "t1", name: "Rough in" }] }),
         documents: [doc("current")],
-      }),
+      })
     );
     const ids = [model.primaryAction, ...model.actions].map((a) => a?.id);
     expect(ids).not.toContain("report_issue");
     expect(ids).not.toContain("complete_checks");
     expect(model.attention.some((a) => a.id === "open-snags")).toBe(false);
     // The kept core still works: capture / plans / tasks / hours are untouched.
-    expect(ids).toEqual(expect.arrayContaining(["capture", "view_plans", "continue_tasks", "log_hours"]));
+    expect(ids).toEqual(
+      expect.arrayContaining(["capture", "view_plans", "continue_tasks", "log_hours"])
+    );
   });
 
   it("routes a draft job to office-only through the bridge", () => {
     const model = buildPhilJobCommandModel(
-      philJobCommandInputFromJobData({ job: job({ status: "draft" }) }),
+      philJobCommandInputFromJobData({ job: job({ status: "draft" }) })
     );
     expect(model.state).toBe("office_only");
   });
 
   it("routes a load failure to the error state with job context preserved", () => {
     const model = buildPhilJobCommandModel(
-      philJobCommandLoadFailureInput({ kind: "error", jobId: "job-7", message: "API returned 503" }),
+      philJobCommandLoadFailureInput({ kind: "error", jobId: "job-7", message: "API returned 503" })
     );
     expect(model.state).toBe("error");
     expect(model.jobId).toBe("job-7");

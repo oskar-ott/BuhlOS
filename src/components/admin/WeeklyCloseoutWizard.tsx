@@ -13,8 +13,8 @@ import { pctWidthClass } from "@/components/admin/pct-width";
 import { timesheetsClient } from "@/domains/timesheets/client";
 import { formatHoursLabel } from "@/domains/timesheets/format";
 import {
+  officeDayStatusLabel,
   submittedWeekSelection,
-  weeklyDayStatusLabel,
   type WeeklyDayStatus,
   type WeeklyHoursCloseout,
   type WeeklyWorkerHours,
@@ -45,13 +45,15 @@ import {
  *   - Undo → POST /api/time-entries-reopen back to submitted (admin tier only,
  *     30s window — same contract as the board and the phone).
  *
- * SPEED + HONESTY (P7), ported from the mobile surface: actions apply to a
- * local overlay and the stepper advances immediately; a debounced
- * router.refresh() reconciles against persisted state. The overlay is only set
- * on a FULL success — a partial or failed write surfaces in the wizard's
- * notice line and the worker stays actionable, never shown as done when it
- * isn't. Busy state is PER WORKER so a slow write on one week never blocks
- * reviewing the next.
+ * HONESTY (P7), ported from the mobile surface: actions apply to a local
+ * overlay; a debounced router.refresh() reconciles against persisted state.
+ * The overlay is only set on a FULL success — a partial or failed write
+ * surfaces in the wizard's notice line and the worker stays actionable, never
+ * shown as done when it isn't. The stepper WAITS for the approval before it
+ * advances (2026-09-26 audit: firing-and-advancing meant a double-click
+ * approved the NEXT worker) — the button reads "Approving…" meanwhile, and a
+ * failure keeps the boss on that worker with the error in view. Busy state is
+ * PER WORKER so a slow write on one week never blocks another.
  */
 
 interface OverlayEntry {
@@ -107,6 +109,17 @@ export function WeeklyCloseoutWizard({
   const [note, setNote] = useState("");
   const [overlay, setOverlay] = useState<Overlay>({});
   const [notice, setNotice] = useState<Notice | null>(null);
+  // Weeks whose approval / send-back FAILED this session — the done screen
+  // counts only what actually landed, and names these plainly.
+  const [failedIds, setFailedIds] = useState<ReadonlySet<string>>(new Set());
+  const markFailed = (id: string, failed: boolean) =>
+    setFailedIds((cur) => {
+      if (cur.has(id) === failed) return cur;
+      const next = new Set(cur);
+      if (failed) next.add(id);
+      else next.delete(id);
+      return next;
+    });
 
   // Per-worker in-flight guard — ref as synchronous source of truth (a rapid
   // stepper can't double-fire the SAME worker), mirrored to state for the
@@ -164,10 +177,12 @@ export function WeeklyCloseoutWizard({
     return () => window.removeEventListener("keydown", onKey);
   }, [close]);
 
+  /** Resolves true when the whole week landed as approved; false (with the
+   *  reason in the notice line) when it didn't — the caller stays put. */
   const approveWorker = useCallback(
-    async (worker: WeeklyWorkerHours) => {
+    async (worker: WeeklyWorkerHours): Promise<boolean> => {
       const entries = submittedWeekSelection(worker);
-      if (entries.length === 0 || busyRef.current.has(worker.workerId)) return;
+      if (entries.length === 0 || busyRef.current.has(worker.workerId)) return false;
       setBusy(worker.workerId, true);
       const res = await timesheetsClient.bulkApproveEntries({ entries });
       setBusy(worker.workerId, false);
@@ -179,22 +194,25 @@ export function WeeklyCloseoutWizard({
               ? `Couldn't approve ${firstName(worker.workerName)} — office login needed`
               : `Couldn't approve ${firstName(worker.workerName)} — try again`,
         });
-        return;
+        markFailed(worker.workerId, true);
+        return false;
       }
       const { approvedCount, failed } = res.data;
       // HONESTY (P7): only claim "approved" on a FULL success.
       if (approvedCount === 0) {
         setNotice({ tone: "warn", msg: `Couldn't approve ${firstName(worker.workerName)} — try again` });
+        markFailed(worker.workerId, true);
         scheduleRefresh();
-        return;
+        return false;
       }
       if (failed.length > 0) {
         setNotice({
           tone: "warn",
           msg: `Approved ${approvedCount} of ${approvedCount + failed.length} days · ${firstName(worker.workerName)} — ${failed.length} need a look`,
         });
+        markFailed(worker.workerId, true);
         scheduleRefresh();
-        return;
+        return false;
       }
       const undo = canUndo ? res.data.approved.map((a) => ({ userId: a.userId, date: a.date })) : [];
       setOverlay((o) => ({ ...o, [worker.workerId]: { status: "approved", undo } }));
@@ -202,16 +220,18 @@ export function WeeklyCloseoutWizard({
         tone: "ok",
         msg: `Approved ${formatHoursLabel(submittedHoursOf(worker))} · ${firstName(worker.workerName)}`,
       });
+      markFailed(worker.workerId, false);
       scheduleUndoExpiry(worker.workerId, undo);
       scheduleRefresh();
+      return true;
     },
     [canUndo, scheduleRefresh, scheduleUndoExpiry, setBusy],
   );
 
   const rejectWorker = useCallback(
-    async (worker: WeeklyWorkerHours, noteText: string) => {
+    async (worker: WeeklyWorkerHours, noteText: string): Promise<boolean> => {
       const days = submittedWeekSelection(worker);
-      if (days.length === 0 || busyRef.current.has(worker.workerId)) return;
+      if (days.length === 0 || busyRef.current.has(worker.workerId)) return false;
       const reason = closeoutRejectReason(noteText);
       setBusy(worker.workerId, true);
       let failed = 0;
@@ -227,22 +247,26 @@ export function WeeklyCloseoutWizard({
       const succeeded = days.length - failed;
       if (succeeded === 0) {
         setNotice({ tone: "warn", msg: "Couldn't send it back — try again" });
+        markFailed(worker.workerId, true);
         scheduleRefresh();
-        return;
+        return false;
       }
       if (failed > 0) {
         setNotice({
           tone: "warn",
           msg: `Sent ${succeeded} of ${days.length} days back · ${firstName(worker.workerName)} — ${failed} didn't send`,
         });
+        markFailed(worker.workerId, true);
         scheduleRefresh();
-        return;
+        return false;
       }
       const undo = canUndo ? days.map((d) => ({ userId: d.userId, date: d.date })) : [];
       setOverlay((o) => ({ ...o, [worker.workerId]: { status: "queried", undo } }));
       setNotice({ tone: "ok", msg: `Sent back to ${firstName(worker.workerName)} with your note` });
+      markFailed(worker.workerId, false);
       scheduleUndoExpiry(worker.workerId, undo);
       scheduleRefresh();
+      return true;
     },
     [canUndo, scheduleRefresh, scheduleUndoExpiry, setBusy],
   );
@@ -298,6 +322,27 @@ export function WeeklyCloseoutWizard({
   const hasSubmitted = worker != null && !resolved && worker.submittedCount > 0;
   const busy = worker != null && busyIds.includes(worker.workerId);
   const undoable = worker != null && canUndo && (overlay[worker.workerId]?.undo.length ?? 0) > 0;
+
+  // Wait for the write, THEN step — never advance on a promise.
+  const approveAndAdvance = async () => {
+    if (!worker || busy) return;
+    if (await approveWorker(worker)) advance();
+  };
+  const sendBackAndAdvance = async () => {
+    if (!worker || busy) return;
+    if (await rejectWorker(worker, note)) advance();
+  };
+
+  const summary = closeoutDoneSummary({
+    total: count,
+    approved: queue.filter(
+      (id) =>
+        overlay[id]?.status === "approved" ||
+        (!overlay[id] && workerById.get(id)?.readiness === "payroll-ready"),
+    ).length,
+    sentBack: queue.filter((id) => overlay[id]?.status === "queried").length,
+    failed: queue.filter((id) => failedIds.has(id)).length,
+  });
 
   return (
     <div
@@ -373,7 +418,7 @@ export function WeeklyCloseoutWizard({
         ) : null}
 
         {done || !worker ? (
-          <DonePanel onClose={close} />
+          <DonePanel onClose={close} summary={summary} weekStart={closeout.weekStart} />
         ) : (
           <>
             {/* Scrollable body */}
@@ -444,7 +489,7 @@ export function WeeklyCloseoutWizard({
                         </div>
                         {DAY_PILL_TONE[day.status] ? (
                           <Pill tone={DAY_PILL_TONE[day.status]!} className="shrink-0">
-                            {weeklyDayStatusLabel(day.status)}
+                            {officeDayStatusLabel(day.status)}
                           </Pill>
                         ) : null}
                       </>
@@ -510,12 +555,9 @@ export function WeeklyCloseoutWizard({
                       variant="danger"
                       data-testid="closeout-wizard-send-back"
                       disabled={busy}
-                      onClick={() => {
-                        void rejectWorker(worker, note);
-                        advance();
-                      }}
+                      onClick={() => void sendBackAndAdvance()}
                     >
-                      Send back with note →
+                      {busy ? "Sending back…" : "Send back with note →"}
                     </Button>
                   </div>
                 </>
@@ -546,18 +588,17 @@ export function WeeklyCloseoutWizard({
                           onClick={() => setRejecting(true)}
                           className="h-10 rounded-card border border-rose-200 bg-rose-50 px-4 text-sm font-semibold text-rose-800 hover:border-rose-300 disabled:opacity-60"
                         >
-                          Reject
+                          Send back
                         </button>
                         <Button
                           data-testid="closeout-wizard-approve"
                           disabled={busy}
-                          onClick={() => {
-                            void approveWorker(worker);
-                            advance();
-                          }}
+                          onClick={() => void approveAndAdvance()}
                         >
                           <Check aria-hidden="true" className="h-4 w-4" />
-                          Approve all · {formatHoursLabel(submittedHoursOf(worker))}
+                          {busy
+                            ? "Approving…"
+                            : `Approve all · ${formatHoursLabel(submittedHoursOf(worker))}`}
                         </Button>
                       </>
                     ) : (
@@ -661,21 +702,78 @@ function ResolvedNote({ tone, label }: { tone: "ok" | "warn"; label: string }): 
   );
 }
 
-function DonePanel({ onClose }: { onClose: () => void }): ReactNode {
+export interface CloseoutDoneSummary {
+  /** "4 of 5 weeks approved" — counts only approvals that actually landed. */
+  headline: string;
+  /** Plain follow-up: what didn't land (if anything) or where to go next. */
+  detail: string;
+  failed: number;
+}
+
+/**
+ * The done screen's words, from what REALLY happened — a failed approval is
+ * never folded into "every week is cleared" (2026-09-26 audit, P7). Pure so it
+ * can be pinned in a node test (the panel itself is unreachable under SSR).
+ */
+export function closeoutDoneSummary(counts: {
+  total: number;
+  approved: number;
+  sentBack: number;
+  failed: number;
+}): CloseoutDoneSummary {
+  const { total, approved, sentBack, failed } = counts;
+  const weeks = (n: number) => `${n} ${n === 1 ? "week" : "weeks"}`;
+  const headline = `${approved} of ${weeks(total)} approved`;
+  if (failed > 0) {
+    return {
+      headline,
+      detail: `${weeks(failed)} couldn't be ${failed === 1 ? "approved or sent back — it's" : "approved or sent back — they're"} still waiting on the board. Try again there before handing the week over.`,
+      failed,
+    };
+  }
+  const sentBackPart = sentBack > 0 ? `${weeks(sentBack)} sent back to the worker. ` : "";
+  return {
+    headline,
+    detail: `${sentBackPart}Open the pay period to hand the approved hours to accounts.`,
+    failed: 0,
+  };
+}
+
+function DonePanel({
+  onClose,
+  summary,
+  weekStart,
+}: {
+  onClose: () => void;
+  summary: CloseoutDoneSummary;
+  /** ISO Monday — the pay-period link carries it so both tabs show ONE week. */
+  weekStart: string;
+}): ReactNode {
+  const ok = summary.failed === 0;
   return (
-    <div className="px-6 py-9 text-center">
-      <span className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 text-emerald-700">
-        <Check aria-hidden="true" className="h-7 w-7" />
+    <div className="px-6 py-9 text-center" data-testid="closeout-wizard-done">
+      <span
+        className={cn(
+          "inline-flex h-14 w-14 items-center justify-center rounded-full",
+          ok ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800",
+        )}
+      >
+        {ok ? (
+          <Check aria-hidden="true" className="h-7 w-7" />
+        ) : (
+          <TriangleAlert aria-hidden="true" className="h-7 w-7" />
+        )}
       </span>
-      <h3 className="mt-4 font-display text-xl font-semibold text-text">Week reviewed</h3>
+      <h3 className="mt-4 font-display text-xl font-semibold text-text">
+        {ok ? "Week reviewed" : "Not every week landed"}
+      </h3>
       <p className="mx-auto mt-2 max-w-[34ch] text-sm text-text-muted">
-        Every submitted week is cleared for the payroll run. Take it to the pay
-        period tab to roll it up for Xero.
+        <b className="font-semibold text-text">{summary.headline}.</b> {summary.detail}
       </p>
       <div className="mt-5 flex justify-center gap-2">
         <Button onClick={onClose}>Done</Button>
         <Link
-          href={HOURS_PERIOD}
+          href={{ pathname: HOURS_PERIOD, query: { period: "week", anchor: weekStart } }}
           className="inline-flex items-center rounded-card border border-border px-4 py-2 text-sm font-semibold text-text hover:border-brand-navy"
         >
           Open pay period →

@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 
-import { WeeklyCloseoutXeroFinale, type XeroFinaleGate } from "./WeeklyCloseoutXeroFinale";
+import {
+  ReviewedMark,
+  WeeklyCloseoutXeroFinale,
+  XeroSettingsLink,
+  type XeroFinaleGate,
+} from "./WeeklyCloseoutXeroFinale";
 import type { ReviewCandidate } from "@/domains/timesheets/xero-closeout";
 
 /**
@@ -94,5 +99,28 @@ describe("WeeklyCloseoutXeroFinale — open gate, first paint", () => {
     const html = render(OPEN_GATE, []);
     expect(html).toContain("Week reviewed");
     expect(html).not.toContain("wha-xero-push");
+  });
+});
+
+describe("ReviewedMark — counts only what landed (2026-09-26)", () => {
+  it("no failures → 'All N weeks reviewed'", () => {
+    const html = strip(renderToString(createElement(ReviewedMark, { count: 3 })));
+    expect(html).toContain("All 3 weeks reviewed");
+  });
+
+  it("a failed approval → 'N of M weeks approved' and the failure named plainly", () => {
+    const html = strip(renderToString(createElement(ReviewedMark, { count: 2, failed: 1 })));
+    expect(html).toContain("2 of 3 weeks approved");
+    expect(html).toContain("1 week couldn’t be approved");
+    expect(html).not.toContain("All 3 weeks reviewed");
+  });
+});
+
+describe("XeroSettingsLink — where an unlinked worker gets fixed", () => {
+  it("points at the Xero settings page (the mapping panel), not Employees", () => {
+    const html = renderToString(createElement(XeroSettingsLink));
+    expect(html).toContain('href="/settings/integrations/xero"');
+    expect(html).toContain("Link them in Xero settings");
+    expect(html).not.toContain("Employees");
   });
 });

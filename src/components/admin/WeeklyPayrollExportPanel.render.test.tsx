@@ -32,10 +32,15 @@ const base = {
 };
 
 describe("WeeklyPayrollExportPanel", () => {
-  it("read-only: points at the batch flow, no export link or commit action", () => {
+  it("read-only: one plain sentence linking to the Pay period tab FOR THIS WEEK, no export link or commit action", () => {
     const html = renderToString(createElement(WeeklyPayrollExportPanel, base));
-    expect(html).toContain("Hours → Payroll period");
-    expect(html).toContain("no longer stamps hours");
+    expect(html).toContain('data-testid="weekly-runs-open-period"');
+    expect(html).toContain("Pay period tab for this week");
+    // The link carries the week, so the two tabs never disagree about the week.
+    expect(html).toContain("/hours/period?period=week&amp;anchor=2026-06-08");
+    // No dev-speak (2026-09-26 audit).
+    expect(html).not.toContain("immutable");
+    expect(html).not.toContain("stamps");
     // no mutating GET as a hyperlink, and no preview/commit action
     expect(html).not.toContain('href="/api/time-entries-export');
     expect(html).not.toContain("Preview this week");

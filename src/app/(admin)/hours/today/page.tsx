@@ -31,7 +31,7 @@ import {
 import {
   formatDateLabel,
   formatHoursLabel,
-  statusLabel,
+  officeStatusLabel,
   statusTone,
 } from "@/domains/timesheets/format";
 import {
@@ -127,6 +127,7 @@ export default async function HoursOverviewPage({
     pending,
     approved,
     rejected,
+    queueErrors,
     overview,
     exportPreview,
     pulse,
@@ -179,8 +180,9 @@ export default async function HoursOverviewPage({
         {/* ── The design's four stat tiles — live pulse + queue depth. */}
         <DayStatTiles
           pulse={pulse}
-          pendingCount={pending.length}
-          rejectedCount={rejected.length}
+          // A queue that failed to load is "—", never a confident 0 (P7).
+          pendingCount={queueErrors.pending ? null : pending.length}
+          rejectedCount={queueErrors.rejected ? null : rejected.length}
         />
 
         {/* ── End-of-day closeout (today) ───────────────────────────── */}
@@ -195,6 +197,7 @@ export default async function HoursOverviewPage({
           weekStart={weekStart}
           weekEnd={weekEnd}
           isCurrentWeek={isCurrentWeek}
+          incomplete={queueErrors.pending || queueErrors.approved || queueErrors.rejected}
         />
 
         {/* ── Filters (#216) — the bar writes ?status=/?person=; this
@@ -217,20 +220,20 @@ export default async function HoursOverviewPage({
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <QueueCard
             label="Pending approval"
-            count={pending.length}
+            count={queueErrors.pending ? null : pending.length}
             tone="info"
             href="/hours/approvals"
             description="Worker entries waiting for an admin or leading-hand decision."
           />
           <QueueCard
             label="Approved (this view)"
-            count={approved.length}
+            count={queueErrors.approved ? null : approved.length}
             tone="success"
             description="Already-approved entries returned by the approver queue."
           />
           <QueueCard
-            label="Rejected (this view)"
-            count={rejected.length}
+            label="Sent back (this view)"
+            count={queueErrors.rejected ? null : rejected.length}
             tone="danger"
             description="Workers see the reason in the field app and can edit + resubmit."
           />
@@ -359,11 +362,12 @@ function todayHeading(isoDate: string): string {
 
 /**
  * The design's four stat tiles: ON THE CLOCK · LOGGED TODAY (live pulse) ·
- * AWAITING APPROVAL (amber) · REJECTED DAYS (red) — the last two from the
- * approver queues. HONESTY: a missing pulse renders "—", never a 0. "Logged
- * today" sums the pulse's submitted + approved hour totals — drafts are
- * counted (draftCount) but the pulse carries no draft hours, so they are
- * deliberately not guessed into the figure.
+ * AWAITING APPROVAL (amber) · SENT BACK (red) — the last two from the
+ * approver queues. HONESTY: a missing pulse renders "—", never a 0, and so
+ * does a queue that failed to load (null count). "Logged today" sums the
+ * pulse's submitted + approved hour totals — drafts are counted (draftCount)
+ * but the pulse carries no draft hours, so they are deliberately not guessed
+ * into the figure.
  */
 function DayStatTiles({
   pulse,
@@ -371,8 +375,9 @@ function DayStatTiles({
   rejectedCount,
 }: {
   pulse: TodayPulseResponse | null;
-  pendingCount: number;
-  rejectedCount: number;
+  /** null = the queue didn't load — shown as "—". */
+  pendingCount: number | null;
+  rejectedCount: number | null;
 }) {
   const h = pulse?.hours ?? null;
   const loggedToday = h ? formatHoursLabel(h.submittedTotal + h.approvedTotal) : "—";
@@ -382,10 +387,14 @@ function DayStatTiles({
     { label: "Logged today", value: loggedToday, tone: "neutral" },
     {
       label: "Awaiting approval",
-      value: String(pendingCount),
-      tone: pendingCount > 0 ? "warning" : "neutral",
+      value: pendingCount == null ? "—" : String(pendingCount),
+      tone: pendingCount != null && pendingCount > 0 ? "warning" : "neutral",
     },
-    { label: "Rejected days", value: String(rejectedCount), tone: "danger" },
+    {
+      label: "Sent back",
+      value: rejectedCount == null ? "—" : String(rejectedCount),
+      tone: rejectedCount != null && rejectedCount > 0 ? "danger" : "neutral",
+    },
   ];
 
   return (
@@ -432,6 +441,7 @@ function RecentActivityCard({
   weekStart,
   weekEnd,
   isCurrentWeek,
+  incomplete,
 }: {
   pending: ReadonlyArray<TimeEntry>;
   approved: ReadonlyArray<TimeEntry>;
@@ -439,6 +449,8 @@ function RecentActivityCard({
   weekStart: string;
   weekEnd: string;
   isCurrentWeek: boolean;
+  /** At least one queue failed to load — the list may be missing entries. */
+  incomplete: boolean;
 }) {
   const entries = [...pending, ...approved, ...rejected]
     .filter((e) => e.date >= weekStart && e.date <= weekEnd)
@@ -451,10 +463,18 @@ function RecentActivityCard({
         Every entry the crew has logged {isCurrentWeek ? "this week" : "in this week"}, newest
         first.
       </CardDescription>
-      {entries.length === 0 ? (
-        <p className="mt-3 rounded-card bg-surface-subtle px-3 py-2 text-sm text-text-muted">
-          Nothing logged {isCurrentWeek ? "this week" : "in this week"} yet.
+      {incomplete ? (
+        <p className="mt-3 rounded-card border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          Some entries couldn&rsquo;t be loaded, so this list is unavailable or incomplete —
+          reload to try again.
         </p>
+      ) : null}
+      {entries.length === 0 ? (
+        incomplete ? null : (
+          <p className="mt-3 rounded-card bg-surface-subtle px-3 py-2 text-sm text-text-muted">
+            Nothing logged {isCurrentWeek ? "this week" : "in this week"} yet.
+          </p>
+        )
       ) : (
         <ul className="mt-3 divide-y divide-border rounded-card border border-border">
           {entries.map((e) => (
@@ -472,7 +492,7 @@ function RecentActivityCard({
                 {formatHoursLabel(e.totalHours)}
               </div>
               <Pill tone={statusTone(e.status)} className="shrink-0">
-                {statusLabel(e.status)}
+                {officeStatusLabel(e.status)}
               </Pill>
             </li>
           ))}
@@ -714,7 +734,7 @@ function FilteredEntriesCard({
   const totalHours = entries.reduce((sum, e) => sum + e.totalHours, 0);
 
   const headline = [
-    filter.status ? `${statusLabel(filter.status)} entries` : "All queue entries",
+    filter.status ? `${officeStatusLabel(filter.status)} entries` : "All queue entries",
     personName ? `for ${personName}` : null,
   ]
     .filter(Boolean)
@@ -749,7 +769,7 @@ function FilteredEntriesCard({
               className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-3 py-2 text-sm"
             >
               <span className="flex min-w-0 flex-wrap items-center gap-2">
-                <Pill tone={statusTone(e.status)}>{statusLabel(e.status)}</Pill>
+                <Pill tone={statusTone(e.status)}>{officeStatusLabel(e.status)}</Pill>
                 <span className="font-medium text-text">{e.userName ?? e.userId}</span>
                 <span className="text-text-muted">{formatDateLabel(e.date)}</span>
               </span>
@@ -995,7 +1015,8 @@ function QueueCard({
   href,
 }: {
   label: string;
-  count: number;
+  /** null = the queue didn't load — the pill reads "—", never a confident 0. */
+  count: number | null;
   tone: "info" | "success" | "danger";
   description: string;
   href?: string;
@@ -1006,7 +1027,7 @@ function QueueCard({
         <span className="font-display text-xs uppercase tracking-widest text-text-muted">
           {label}
         </span>
-        <Pill tone={tone}>{count}</Pill>
+        <Pill tone={count == null ? "neutral" : tone}>{count == null ? "—" : count}</Pill>
       </div>
       <CardDescription className="mt-3">{description}</CardDescription>
     </Card>
@@ -1025,6 +1046,8 @@ interface LoadResult {
   pending: ReadonlyArray<TimeEntry>;
   approved: ReadonlyArray<TimeEntry>;
   rejected: ReadonlyArray<TimeEntry>;
+  /** Which approver queues failed to load — their counts render as "—". */
+  queueErrors: { pending: boolean; approved: boolean; rejected: boolean };
   overview: TimeEntryOverviewResponse | null;
   exportPreview: PayrollExportPreviewResponse | null;
   pulse: TodayPulseResponse | null;
@@ -1088,6 +1111,11 @@ async function loadHours(
     pending: pendingRes.entries,
     approved: approvedRes.entries,
     rejected: rejectedRes.entries,
+    queueErrors: {
+      pending: pendingRes.error !== null,
+      approved: approvedRes.error !== null,
+      rejected: rejectedRes.error !== null,
+    },
     overview: overviewRes.overview,
     exportPreview: exportRes.preview,
     pulse: pulseRes.pulse,

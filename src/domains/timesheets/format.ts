@@ -170,6 +170,16 @@ export function statusLabel(status: TimeEntryStatus): string {
 }
 
 /**
+ * The OFFICE word for a status — the same as statusLabel except a rejected
+ * entry reads "Sent back": on the office surfaces the action is "Send back"
+ * (the day bounces to the worker's phone), so the state chip says the same
+ * thing (2026-09-26 usability audit). The API field stays `rejected`.
+ */
+export function officeStatusLabel(status: TimeEntryStatus): string {
+  return status === "rejected" ? "Sent back" : statusLabel(status);
+}
+
+/**
  * Tone mapping for the rebuild's StatusBadge / Pill. Matches doc 13
  * §Visual tokens.
  */

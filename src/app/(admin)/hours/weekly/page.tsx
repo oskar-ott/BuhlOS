@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
@@ -133,18 +132,17 @@ export default async function HoursWeeklyCloseoutPage({
     costRatesByWorker,
   });
 
+  // Title honesty: the board usually opens on LAST week, so the head names the
+  // week actually shown. No "← Hours overview" breadcrumb — /hours redirects
+  // straight back here, so it was a self-link that reset the week.
+  const title = isCurrentWeek
+    ? "Hours · this week"
+    : weekStart === lastCompleteWeekStart
+      ? "Hours · last week"
+      : `Hours · week of ${shortDayMonth(weekStart)}`;
+
   return (
-    <AdminShell
-      title="Hours · this week"
-      breadcrumb={
-        <Link
-          href="/hours"
-          className="underline decoration-accent-yellow decoration-2 underline-offset-2"
-        >
-          ← Hours overview
-        </Link>
-      }
-    >
+    <AdminShell title={title}>
       {/* Section tabs (#415) — navigation chrome only, above all content. */}
       <HoursTabs />
 
@@ -200,6 +198,15 @@ export default async function HoursWeeklyCloseoutPage({
       </div>
     </AdminShell>
   );
+}
+
+/** "15 Sep" — the head's week-of label, UTC-parsed like every other date label. */
+function shortDayMonth(isoDate: string): string {
+  return new Date(isoDate + "T00:00:00Z").toLocaleDateString("en-AU", {
+    day: "numeric",
+    month: "short",
+    timeZone: "UTC",
+  });
 }
 
 /** The committed-run log for the panel — fail-soft to an error string. */

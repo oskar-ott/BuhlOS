@@ -531,6 +531,15 @@ export function readinessLabel(readiness: WorkerWeekReadiness): string {
 }
 
 /** Boss-facing label for one day. */
+/**
+ * The OFFICE word for a day's status — weeklyDayStatusLabel except a rejected
+ * day reads "Sent back", matching the office's "Send back" action (2026-09-26
+ * usability audit). The WeeklyDayStatus value itself is unchanged.
+ */
+export function officeDayStatusLabel(status: WeeklyDayStatus): string {
+  return status === "rejected" ? "Sent back" : weeklyDayStatusLabel(status);
+}
+
 export function weeklyDayStatusLabel(status: WeeklyDayStatus): string {
   switch (status) {
     case "approved":

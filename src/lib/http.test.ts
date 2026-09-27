@@ -48,7 +48,10 @@ describe("http timeout", () => {
   });
 
   it("does not abort a fast request and parses normally", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => okResponse({ ok: true })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => okResponse({ ok: true }))
+    );
     const res = await httpPost("/api/x", {}, { schema, timeoutMs: 5000 });
     expect(res).toEqual({ ok: true, data: { ok: true } });
   });
@@ -109,5 +112,21 @@ describe("http timeout", () => {
     await httpGet("/api/x", { schema });
     const init = fetchImpl.mock.calls[0]?.[1];
     expect(init?.signal).toBeUndefined();
+  });
+});
+
+describe("http error message (2026-09-26)", () => {
+  it("surfaces the server's `error` sentence for a refusal instead of a bare 'request failed'", async () => {
+    const { httpErrorMessage } = await import("./http");
+    expect(httpErrorMessage(400, "", { error: "cannot log more than 14 days in the past" })).toBe(
+      "cannot log more than 14 days in the past"
+    );
+  });
+  it("falls back to statusText, then a plain status-class sentence — never an empty string", async () => {
+    const { httpErrorMessage } = await import("./http");
+    expect(httpErrorMessage(403, "Forbidden", null)).toBe("Forbidden");
+    expect(httpErrorMessage(503, "", null)).toBe("The office server had a problem");
+    expect(httpErrorMessage(404, "", "not json")).toBe("Not found");
+    expect(httpErrorMessage(422, "", { error: 42 })).toBe("request failed");
   });
 });

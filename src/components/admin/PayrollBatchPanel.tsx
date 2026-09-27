@@ -1,17 +1,22 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
+import { formatDateLabel } from "@/domains/timesheets/format";
 import { PayrollBatchExportSection } from "./PayrollBatchExportSection";
+import { XERO_SETTINGS_HREF } from "./WeeklyCloseoutXeroFinale";
 
 /**
  * PayrollBatchPanel (#893/#894) — the payroll review surface on /hours/period.
  *
- * One glance answers "can this period be paid?": the validation engine's
- * errors (blockers) and warnings, per-worker totals, then Create batch →
- * Lock. A locked batch is immutable — the panel says so and offers only the
- * sanctioned paths (unlock, correction batch). Nothing here writes to Xero;
- * the CSV export beside this panel keeps working unchanged.
+ * One glance answers "can this period be sent to Xero?": the validation
+ * engine's errors (blockers) and warnings, per-worker totals, then Create
+ * batch → Lock. A locked batch is frozen — the panel says so and offers only
+ * the sanctioned paths (unlock, correction batch), each behind the same
+ * two-step confirm as Lock (2026-09-26 audit: Delete and Unlock fired on one
+ * click). Nothing here writes to Xero; the CSV export beside this panel keeps
+ * working unchanged.
  */
 
 type Finding = { code: string; message: string };
@@ -56,6 +61,7 @@ const STATUS_COPY: Record<string, string> = {
   blocked: "Blocked — fix the named problems, then recreate",
   ready: "Ready to lock",
   locked: "Locked — ready to create Xero draft timesheets",
+  exporting: "Sending to Xero…",
   exported: "Exported",
   partially_exported: "Partially exported",
   reconciled: "Reconciled",
@@ -64,6 +70,25 @@ const STATUS_COPY: Record<string, string> = {
 
 function n(v: string | number): number {
   return Math.round(Number(v) * 100) / 100;
+}
+
+/** An `unmapped_*` finding names the fix: the worker ↔ Xero employee link
+ *  lives on the Xero settings page, so the finding links straight there. */
+function FindingFixLink({ code }: { code: string }) {
+  if (!code.startsWith("unmapped_")) return null;
+  return (
+    <>
+      {" "}
+      <Link
+        href={XERO_SETTINGS_HREF}
+        data-testid="xero-settings-link"
+        className="font-medium underline underline-offset-2"
+      >
+        Link them in Xero settings
+      </Link>
+      .
+    </>
+  );
 }
 
 export function PayrollBatchPanel({
@@ -83,7 +108,11 @@ export function PayrollBatchPanel({
   const [busy, setBusy] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [confirmLock, setConfirmLock] = useState<string | null>(null);
+  /** The one batch action currently awaiting its second click. Lock, Unlock
+   *  and Delete all go through it — none fires on a single click. */
+  const [confirm, setConfirm] = useState<{ id: string; action: "lock" | "unlock" | "delete" } | null>(null);
+  const isConfirming = (id: string, action: "lock" | "unlock" | "delete") =>
+    confirm?.id === id && confirm.action === action;
 
   const load = useCallback(async () => {
     try {
@@ -137,16 +166,30 @@ export function PayrollBatchPanel({
         return;
       }
       setBanner(okMsg);
-      setConfirmLock(null);
+      setConfirm(null);
       await load();
+    } catch {
+      // The request never got an answer. Don't guess what the server did —
+      // say what this page knows and re-read the batch list.
+      setError("Couldn't reach the server — nothing changed on this page. Reload to check the batch.");
+      void load();
     } finally {
       setBusy(null);
     }
   }
 
   async function openDetail(id: string) {
-    const res = await fetch(`/api/xero/payroll-batches?id=${id}`, { cache: "no-store" });
-    if (res.ok) setDetail((await res.json()) as { batch: Batch; items: Item[]; events: BatchEvent[] });
+    setError(null);
+    try {
+      const res = await fetch(`/api/xero/payroll-batches?id=${id}`, { cache: "no-store" });
+      if (!res.ok) {
+        setError("Couldn't load that batch's detail — try again.");
+        return;
+      }
+      setDetail((await res.json()) as { batch: Batch; items: Item[]; events: BatchEvent[] });
+    } catch {
+      setError("Couldn't reach the server to load that batch's detail — try again.");
+    }
   }
 
   if (state === "loading") {
@@ -162,8 +205,14 @@ export function PayrollBatchPanel({
       <Card>
         <CardTitle>Send to Xero as draft timesheets</CardTitle>
         <CardDescription className="mt-1">
-          Xero isn&rsquo;t connected (or no organisation is selected). Connect on the Xero settings
-          page to send hours as Xero drafts — the downloads above work either way.
+          Xero isn&rsquo;t connected (or no organisation is selected).{" "}
+          <Link
+            href={XERO_SETTINGS_HREF}
+            className="font-medium text-brand-navy underline underline-offset-2"
+          >
+            Connect it in Xero settings
+          </Link>{" "}
+          to send hours as Xero drafts — the downloads above work either way.
         </CardDescription>
       </Card>
     );
@@ -189,7 +238,7 @@ export function PayrollBatchPanel({
           <CardTitle>Send to Xero as draft timesheets</CardTitle>
           <CardDescription className="mt-1">
             Lock this period&rsquo;s approved hours, then send them to Xero as draft timesheets.{" "}
-            {fromDate} → {toDate} · {v.summary.workerCount} worker
+            {formatDateLabel(fromDate)} – {formatDateLabel(toDate)} · {v.summary.workerCount} worker
             {v.summary.workerCount === 1 ? "" : "s"} · {v.summary.totalHours}h (
             {v.summary.ordinaryHours} ordinary + {v.summary.overtimeHours} overtime). Locking
             freezes the hours so the export can&rsquo;t drift; the export only runs after you
@@ -222,6 +271,7 @@ export function PayrollBatchPanel({
           {v.errors.map((e) => (
             <li key={e.code} className="rounded-card border border-state-danger px-3 py-2 text-sm text-state-danger">
               {e.message}
+              <FindingFixLink code={e.code} />
             </li>
           ))}
         </ul>
@@ -231,6 +281,7 @@ export function PayrollBatchPanel({
           {v.warnings.map((w) => (
             <li key={w.code} className="rounded-card border border-state-warning px-3 py-2 text-sm text-state-warning">
               {w.message}
+              <FindingFixLink code={w.code} />
             </li>
           ))}
         </ul>
@@ -277,44 +328,77 @@ export function PayrollBatchPanel({
                       {detail?.batch.id === b.id ? "Refresh detail" : "View detail"}
                     </button>
                     {b.status === "ready" ? (
-                      confirmLock === b.id ? (
+                      isConfirming(b.id, "lock") ? (
                         <>
                           <button
                             className={BTN_PRIMARY}
                             disabled={busy !== null}
-                            onClick={() => void post({ action: "lock", id: b.id }, "Batch locked — it is now immutable.", "lock")}
+                            onClick={() => void post({ action: "lock", id: b.id }, "Batch locked — the hours are frozen for the export.", "lock")}
                             data-testid="payroll-batch-lock-confirm"
                           >
                             {busy === "lock" ? "Locking…" : "Yes, lock it"}
                           </button>
-                          <button className={BTN} onClick={() => setConfirmLock(null)}>
+                          <button className={BTN} onClick={() => setConfirm(null)}>
                             Cancel
                           </button>
                         </>
                       ) : (
-                        <button className={BTN_PRIMARY} onClick={() => setConfirmLock(b.id)} data-testid="payroll-batch-lock">
+                        <button className={BTN_PRIMARY} onClick={() => setConfirm({ id: b.id, action: "lock" })} data-testid="payroll-batch-lock">
                           Lock hours
                         </button>
                       )
                     ) : null}
                     {b.status === "ready" || b.status === "blocked" ? (
-                      <button
-                        className={BTN_DANGER}
-                        disabled={busy !== null}
-                        onClick={() => void post({ action: "delete", id: b.id }, "Batch deleted.", "delete")}
-                      >
-                        Delete
-                      </button>
+                      isConfirming(b.id, "delete") ? (
+                        <>
+                          <button
+                            className={BTN_DANGER}
+                            disabled={busy !== null}
+                            onClick={() => void post({ action: "delete", id: b.id }, "Batch deleted.", "delete")}
+                            data-testid="payroll-batch-delete-confirm"
+                          >
+                            {busy === "delete" ? "Deleting…" : "Yes, delete it"}
+                          </button>
+                          <button className={BTN} onClick={() => setConfirm(null)}>
+                            Cancel
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          className={BTN_DANGER}
+                          disabled={busy !== null}
+                          onClick={() => setConfirm({ id: b.id, action: "delete" })}
+                          data-testid="payroll-batch-delete"
+                        >
+                          Delete
+                        </button>
+                      )
                     ) : null}
                     {b.status === "locked" ? (
-                      <button
-                        className={BTN}
-                        disabled={busy !== null}
-                        onClick={() => void post({ action: "unlock", id: b.id }, "Batch unlocked — it can be revalidated or deleted.", "unlock")}
-                        data-testid="payroll-batch-unlock"
-                      >
-                        Unlock
-                      </button>
+                      isConfirming(b.id, "unlock") ? (
+                        <>
+                          <button
+                            className={BTN_DANGER}
+                            disabled={busy !== null}
+                            onClick={() => void post({ action: "unlock", id: b.id }, "Batch unlocked — check it again or delete it.", "unlock")}
+                            data-testid="payroll-batch-unlock-confirm"
+                          >
+                            {busy === "unlock" ? "Unlocking…" : "Yes, unlock it"}
+                          </button>
+                          <button className={BTN} onClick={() => setConfirm(null)}>
+                            Cancel
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          className={BTN}
+                          disabled={busy !== null}
+                          onClick={() => setConfirm({ id: b.id, action: "unlock" })}
+                          data-testid="payroll-batch-unlock"
+                        >
+                          Unlock
+                        </button>
+                      )
                     ) : null}
                     {["exported", "partially_exported", "reconciled", "correction_required"].includes(b.status) ? (
                       <button

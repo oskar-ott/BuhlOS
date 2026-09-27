@@ -1,10 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  buildPhilWeek,
-  isoWeekNumber,
-  isWeekSquaredAway,
-  weekLoggedProgress,
-} from "./philWeek";
+import { buildPhilWeek, isoWeekNumber, isWeekSquaredAway, weekLoggedProgress } from "./philWeek";
 
 // A pinned week: Monday 2024-05-20 … Sunday 2024-05-26, with today = Friday
 // 2024-05-24. This is ISO week 21 (Monday of week 21 of 2024 is 2024-05-20).
@@ -37,7 +32,12 @@ describe("buildPhilWeek", () => {
     expect(w.days[0]).toMatchObject({ state: "logged", hours: 7.6, statusWord: "logged" });
     expect(w.days[2]).toMatchObject({ state: "logged", hours: 8.2 });
     // Friday is today, not yet logged → prompts a log.
-    expect(w.days[4]).toMatchObject({ date: TODAY, state: "today", hours: null, statusWord: "log now" });
+    expect(w.days[4]).toMatchObject({
+      date: TODAY,
+      state: "today",
+      hours: null,
+      statusWord: "log now",
+    });
     // Weekend still ahead of today (Friday) → upcoming, like any future day.
     expect(w.days[5]).toMatchObject({ state: "upcoming", hours: null });
     expect(w.days[6]).toMatchObject({ state: "upcoming", hours: null });
@@ -48,7 +48,10 @@ describe("buildPhilWeek", () => {
 
   it("marks a PAST weekday with no entry as missing (a soft nudge, not fake)", () => {
     // Drop Wednesday — a past weekday this week.
-    const w = buildPhilWeek(WEEK.filter((e) => e.date !== "2024-05-22"), { todayISO: TODAY });
+    const w = buildPhilWeek(
+      WEEK.filter((e) => e.date !== "2024-05-22"),
+      { todayISO: TODAY }
+    );
     expect(w.days[2]).toMatchObject({ state: "miss", hours: null, statusWord: "not logged" });
   });
 
@@ -87,14 +90,13 @@ describe("buildPhilWeek — entry status awareness (#113 weekly view)", () => {
   it("shows a rejected day as FIX (red), never a calm green logged — even today", () => {
     const w = buildPhilWeek(
       [{ date: "2024-05-22", totalHours: 7.6, status: "rejected" as const }],
-      { todayISO: TODAY },
+      { todayISO: TODAY }
     );
     expect(w.days[2]).toMatchObject({ state: "fix", statusWord: "fix", hours: 7.6 });
 
-    const today = buildPhilWeek(
-      [{ date: TODAY, totalHours: 7.6, status: "rejected" as const }],
-      { todayISO: TODAY },
-    );
+    const today = buildPhilWeek([{ date: TODAY, totalHours: 7.6, status: "rejected" as const }], {
+      todayISO: TODAY,
+    });
     expect(today.days[4]).toMatchObject({ state: "fix", statusWord: "fix" });
   });
 
@@ -105,7 +107,7 @@ describe("buildPhilWeek — entry status awareness (#113 weekly view)", () => {
         { date: "2024-05-21", totalHours: 7.6, status: "submitted" as const },
         { date: "2024-05-22", totalHours: 7.6, status: "draft" as const },
       ],
-      { todayISO: TODAY },
+      { todayISO: TODAY }
     );
     expect(w.days[0]).toMatchObject({ state: "logged", statusWord: "approved" });
     expect(w.days[1]).toMatchObject({ state: "logged", statusWord: "waiting" });
@@ -128,7 +130,7 @@ describe("buildPhilWeek — entry status awareness (#113 weekly view)", () => {
         { date: "2024-05-22", totalHours: 7.6, status: "submitted" as const },
         { date: "2024-05-23", totalHours: 7.6, status: "rejected" as const },
       ],
-      { todayISO: TODAY },
+      { todayISO: TODAY }
     );
     // Mon+Tue approved; Wed waiting; Thu fix; Fri (today) is NOT missed.
     expect(w.counts).toEqual({ approvedHours: 15.6, waiting: 1, fix: 1, draft: 0, missed: 0 });
@@ -169,7 +171,7 @@ describe("isWeekSquaredAway (#427 calm completion predicate)", () => {
         { date: "2024-05-23", totalHours: 7.6, status: "approved" as const },
         { date: TODAY, totalHours: 7.6, status: "approved" as const },
       ],
-      { todayISO: TODAY },
+      { todayISO: TODAY }
     );
     expect(isWeekSquaredAway(w.counts)).toBe(true);
 
@@ -179,7 +181,7 @@ describe("isWeekSquaredAway (#427 calm completion predicate)", () => {
         { date: "2024-05-20", totalHours: 7.6, status: "approved" as const },
         { date: TODAY, totalHours: 7.6, status: "submitted" as const },
       ],
-      { todayISO: TODAY },
+      { todayISO: TODAY }
     );
     expect(isWeekSquaredAway(waiting.counts)).toBe(false);
   });
@@ -214,7 +216,7 @@ describe("weekLoggedProgress (weekly-first banner, owner directive 2026-08-08)",
   it("counts distinct real entry dates in the current Mon–Sun week vs weekdays elapsed", () => {
     const p = weekLoggedProgress(
       [{ date: "2024-05-20" }, { date: "2024-05-21" }, { date: "2024-05-13" }],
-      TODAY,
+      TODAY
     );
     expect(p).toEqual({ logged: 2, expected: 5 }); // last week's entry never counts
   });
@@ -227,7 +229,7 @@ describe("weekLoggedProgress (weekly-first banner, owner directive 2026-08-08)",
   it("a weekend today expects the full 5, and a worked Saturday counts as logged", () => {
     const p = weekLoggedProgress(
       [{ date: "2024-05-20" }, { date: "2024-05-25" }],
-      "2024-05-25", // Saturday
+      "2024-05-25" // Saturday
     );
     expect(p).toEqual({ logged: 2, expected: 5 });
   });
@@ -235,15 +237,35 @@ describe("weekLoggedProgress (weekly-first banner, owner directive 2026-08-08)",
   it("never reads 'more than expected': expected floors at the logged count", () => {
     const p = weekLoggedProgress(
       [{ date: "2024-05-20" }, { date: "2024-05-25" }, { date: "2024-05-26" }],
-      "2024-05-26", // a 5-weekday week + both weekend days worked… still ≥
+      "2024-05-26" // a 5-weekday week + both weekend days worked… still ≥
     );
     expect(p.expected).toBeGreaterThanOrEqual(p.logged);
   });
 
   it("duplicate entries on one date count once; empty Monday is 0 of 1", () => {
     expect(
-      weekLoggedProgress([{ date: "2024-05-20" }, { date: "2024-05-20" }], "2024-05-21"),
+      weekLoggedProgress([{ date: "2024-05-20" }, { date: "2024-05-20" }], "2024-05-21")
     ).toEqual({ logged: 1, expected: 2 });
     expect(weekLoggedProgress([], "2024-05-20")).toEqual({ logged: 0, expected: 1 });
+  });
+});
+
+describe("weekLoggedProgress — public holidays (2026-09-26)", () => {
+  it("does not expect a public holiday, so a full week reads N of N", async () => {
+    const { weekLoggedProgress } = await import("./philWeek");
+    // Fri 2026-10-09; Mon 2026-10-05 is Labour Day (NSW).
+    const holidays = new Set(["2026-10-05"]);
+    const entries = [
+      { date: "2026-10-06" },
+      { date: "2026-10-07" },
+      { date: "2026-10-08" },
+      { date: "2026-10-09" },
+    ];
+    expect(weekLoggedProgress(entries, "2026-10-09", { holidays })).toEqual({
+      logged: 4,
+      expected: 4,
+    });
+    // Without the holiday fact the same week reads 4 of 5 — the nag case.
+    expect(weekLoggedProgress(entries, "2026-10-09")).toEqual({ logged: 4, expected: 5 });
   });
 });

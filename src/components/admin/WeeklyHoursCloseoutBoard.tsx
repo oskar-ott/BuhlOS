@@ -18,8 +18,8 @@ import { timesheetsClient } from "@/domains/timesheets/client";
 import { requestLeave, clearLeave } from "@/domains/timesheets/client";
 import { formatDateLabel, formatHoursLabel, otSplitLabel } from "@/domains/timesheets/format";
 import {
+  officeDayStatusLabel,
   submittedWeekSelection,
-  weeklyDayStatusLabel,
   type WeeklyHoursCloseout,
   type WeeklyHoursDay,
   type WeeklyWorkerHours,
@@ -73,10 +73,13 @@ interface WeeklyHoursCloseoutBoardProps {
 
 type ActionState =
   | { kind: "idle" }
-  | { kind: "approving"; key: string }
-  | { kind: "rejecting"; key: string }
   | { kind: "success"; label: string }
   | { kind: "error"; message: string };
+
+/** What a submitted-day row is doing right now — tracked PER ROW, never as a
+ *  single "the approving row" id: with one id, tapping Approve on row B
+ *  re-enabled row A mid-request (2026-09-26 usability audit). */
+type RowInflight = "approving" | "rejecting";
 
 /** Result of one "Approve all N days" call — per-day truth, never a rollup lie. */
 interface BulkOutcome {
@@ -130,7 +133,23 @@ export function WeeklyHoursCloseoutBoard({
   const payRun = buildPayRun(closeout);
   const [action, setAction] = useState<ActionState>({ kind: "idle" });
   const [bulk, setBulk] = useState<BulkOutcome | null>(null);
-  const [bulkBusyWorker, setBulkBusyWorker] = useState<string | null>(null);
+  // Per-row + per-worker in-flight guards — refs are the synchronous source of
+  // truth (no double-fire), mirrored to state so the buttons can disable. Same
+  // pattern as the phone surface's busyRef.
+  const inflightRef = useRef<Map<string, RowInflight>>(new Map());
+  const [inflight, setInflight] = useState<ReadonlyMap<string, RowInflight>>(new Map());
+  const setRowInflight = (key: string, kind: RowInflight | null) => {
+    if (kind) inflightRef.current.set(key, kind);
+    else inflightRef.current.delete(key);
+    setInflight(new Map(inflightRef.current));
+  };
+  const bulkBusyRef = useRef<Set<string>>(new Set());
+  const [bulkBusyWorkers, setBulkBusyWorkers] = useState<ReadonlySet<string>>(new Set());
+  const setBulkBusy = (workerId: string, on: boolean) => {
+    if (on) bulkBusyRef.current.add(workerId);
+    else bulkBusyRef.current.delete(workerId);
+    setBulkBusyWorkers(new Set(bulkBusyRef.current));
+  };
   // "Approve all clean" runs across workers, so it is tracked separately from
   // the per-worker bulk busy flag.
   const [cleanSweepBusy, setCleanSweepBusy] = useState(false);
@@ -216,12 +235,12 @@ export function WeeklyHoursCloseoutBoard({
 
   async function approveWeek(worker: WeeklyWorkerHours) {
     const entries = submittedWeekSelection(worker);
-    if (entries.length === 0 || bulkBusyWorker) return;
-    setBulkBusyWorker(worker.workerId);
+    if (entries.length === 0 || bulkBusyRef.current.has(worker.workerId)) return;
+    setBulkBusy(worker.workerId, true);
     setAction({ kind: "idle" });
     setBulk(null);
     const result = await timesheetsClient.bulkApproveEntries({ entries });
-    setBulkBusyWorker(null);
+    setBulkBusy(worker.workerId, false);
     if (!result.ok) {
       setAction({
         kind: "error",
@@ -261,7 +280,7 @@ export function WeeklyHoursCloseoutBoard({
    */
   async function approveAllClean() {
     const entries = [...payRun.cleanApproval];
-    if (entries.length === 0 || cleanSweepBusy || bulkBusyWorker) return;
+    if (entries.length === 0 || cleanSweepBusy || bulkBusyRef.current.size > 0) return;
     setCleanSweepBusy(true);
     setAction({ kind: "idle" });
     setBulk(null);
@@ -377,11 +396,13 @@ export function WeeklyHoursCloseoutBoard({
 
   async function approve(worker: WeeklyWorkerHours, day: WeeklyHoursDay) {
     const key = dayKey(worker.workerId, day.date);
-    setAction({ kind: "approving", key });
+    if (inflightRef.current.has(key)) return;
+    setRowInflight(key, "approving");
     const result = await timesheetsClient.approveEntry({
       userId: worker.workerId,
       date: day.date,
     });
+    setRowInflight(key, null);
     if (result.ok) {
       setAction({
         kind: "success",
@@ -414,15 +435,17 @@ export function WeeklyHoursCloseoutBoard({
       return;
     }
     const { worker, day } = rejectTarget;
+    const key = dayKey(worker.workerId, day.date);
     setRejectError(null);
     setRejectBusy(true);
-    setAction({ kind: "rejecting", key: dayKey(worker.workerId, day.date) });
+    setRowInflight(key, "rejecting");
     const result = await timesheetsClient.rejectEntry({
       userId: worker.workerId,
       date: day.date,
       reason: trimmed,
     });
     setRejectBusy(false);
+    setRowInflight(key, null);
     if (result.ok) {
       // Only close on success — a failure keeps the dialog (and the typed
       // reason) open with the server's message inside it.
@@ -430,16 +453,15 @@ export function WeeklyHoursCloseoutBoard({
       setRejectReason("");
       setAction({
         kind: "success",
-        label: `Rejected ${worker.workerName}'s ${dayLabel(day)}. They'll see the reason and a Fix button in their app.`,
+        label: `Sent ${worker.workerName}'s ${dayLabel(day)} back. They'll see the reason and a Fix button in their app.`,
       });
       startTransition(() => router.refresh());
       return;
     }
-    setAction({ kind: "idle" });
     setRejectError(
       result.error.status === 403
-        ? "You don't have permission to reject this entry."
-        : result.error.message || "Couldn't reject. Try again.",
+        ? "You don't have permission to send this entry back."
+        : result.error.message || "Couldn't send it back. Try again.",
     );
   }
 
@@ -504,8 +526,8 @@ export function WeeklyHoursCloseoutBoard({
         </div>
         <CardDescription className="mt-3">
           Hours are approved once a week, here. Submitted days sit under each
-          worker — approve them in place, or reject with a reason and the day
-          bounces back to that worker&rsquo;s phone.
+          worker — approve them in place, or send a day back with a reason and
+          it bounces back to that worker&rsquo;s phone.
         </CardDescription>
 
         {payRun.hero.crewCount > 0 ? (
@@ -557,7 +579,7 @@ export function WeeklyHoursCloseoutBoard({
                     )}
                   />
                 </div>
-                <p className="font-mono text-[10px] uppercase tracking-widest text-text-muted">
+                <p className="font-mono text-xs uppercase tracking-widest text-text-muted">
                   {payRun.hero.readyCount} of {payRun.hero.crewCount} approved
                 </p>
               </div>
@@ -608,7 +630,9 @@ export function WeeklyHoursCloseoutBoard({
         </Card>
       ) : null}
 
-      {closeout.workers.length === 0 ? (
+      {/* A failed load is NOT an empty week — the error card above is the
+          whole story, never "nothing to close out" (2026-09-26 audit, P7). */}
+      {fetchError ? null : closeout.workers.length === 0 ? (
         <EmptyState
           title="No hours found for this week"
           description="No worker logged hours and the server flagged no missing days in this range. Nothing to close out."
@@ -624,8 +648,8 @@ export function WeeklyHoursCloseoutBoard({
               <WorkerRow
                 key={w.workerId}
                 worker={w}
-                action={action}
-                bulkBusy={bulkBusyWorker === w.workerId}
+                inflight={inflight}
+                bulkBusy={bulkBusyWorkers.has(w.workerId)}
                 canReopen={canUndo}
                 onApprove={approve}
                 onApproveWeek={approveWeek}
@@ -688,8 +712,13 @@ export function WeeklyHoursCloseoutBoard({
           </p>
         ) : null}
         <div className="mt-3.5">
+          {/* Carries THIS week, so the Pay period tab opens on the week the
+              office just closed — never a different week under their feet. */}
           <Link
-            href={HOURS_PERIOD}
+            href={{
+              pathname: HOURS_PERIOD,
+              query: { period: "week", anchor: closeout.weekStart },
+            }}
             className="inline-flex items-center rounded-card border border-border px-4 py-2 text-sm font-semibold text-text hover:border-brand-navy"
           >
             Open pay period →
@@ -698,9 +727,9 @@ export function WeeklyHoursCloseoutBoard({
       </Card>
 
       <p className="text-xs text-text-muted">
-        Approving a week sends it to the payroll rollup. Workers can still see
-        their hours in the field app; only the office approves. Rejecting a day
-        bounces it back to the worker on their phone with your reason.
+        Approving a week readies it for the pay period. Workers can still see
+        their hours in the field app; only the office approves. Sending a day
+        back bounces it to the worker on their phone with your reason.
       </p>
 
       {wizardOpen ? (
@@ -717,8 +746,8 @@ export function WeeklyHoursCloseoutBoard({
         onClose={closeReject}
         title={
           rejectTarget
-            ? `Reject ${rejectTarget.worker.workerName}'s ${dayLabel(rejectTarget.day)}`
-            : "Reject"
+            ? `Send ${rejectTarget.worker.workerName}'s ${dayLabel(rejectTarget.day)} back`
+            : "Send back"
         }
       >
         <div className="space-y-4">
@@ -748,7 +777,7 @@ export function WeeklyHoursCloseoutBoard({
               disabled={rejectBusy || rejectReason.trim() === ""}
               onClick={() => void confirmReject()}
             >
-              {rejectBusy ? "Sending back…" : "Reject with reason"}
+              {rejectBusy ? "Sending back…" : "Send back with reason"}
             </Button>
           </div>
         </div>
@@ -943,7 +972,7 @@ function workerSubLine(worker: WeeklyWorkerHours): string {
  */
 function WorkerRow({
   worker,
-  action,
+  inflight,
   bulkBusy,
   canReopen,
   onApprove,
@@ -954,7 +983,8 @@ function WorkerRow({
   onUndoLeave,
 }: {
   worker: WeeklyWorkerHours;
-  action: ActionState;
+  inflight: ReadonlyMap<string, RowInflight>;
+  /** "Approve all N days" for THIS worker is in flight — every row waits. */
   bulkBusy: boolean;
   canReopen: boolean;
   onApprove: (worker: WeeklyWorkerHours, day: WeeklyHoursDay) => void;
@@ -996,9 +1026,7 @@ function WorkerRow({
           <div className="truncate font-display text-[15px] font-semibold text-text">
             {worker.workerName}
           </div>
-          <div className="truncate font-mono text-[10px] uppercase tracking-wide text-text-muted">
-            {workerSubLine(worker)}
-          </div>
+          <div className="truncate text-xs text-text-muted">{workerSubLine(worker)}</div>
         </div>
         <div className="flex shrink-0 items-center gap-2.5">
           <span className="font-mono text-[11px] text-text-muted tabular-nums">
@@ -1060,7 +1088,8 @@ function WorkerRow({
               key={day.date}
               worker={worker}
               day={day}
-              action={action}
+              inflight={inflight.get(dayKey(worker.workerId, day.date)) ?? null}
+              bulkBusy={bulkBusy}
               onApprove={onApprove}
               onReject={onReject}
             />
@@ -1100,20 +1129,23 @@ function WorkerRow({
 function SubmittedDayRow({
   worker,
   day,
-  action,
+  inflight,
+  bulkBusy,
   onApprove,
   onReject,
 }: {
   worker: WeeklyWorkerHours;
   day: WeeklyHoursDay;
-  action: ActionState;
+  /** This row's own in-flight action, if any. */
+  inflight: RowInflight | null;
+  /** The worker's bulk approve is in flight — this day is part of it. */
+  bulkBusy: boolean;
   onApprove: (worker: WeeklyWorkerHours, day: WeeklyHoursDay) => void;
   onReject: (worker: WeeklyWorkerHours, day: WeeklyHoursDay) => void;
 }): ReactNode {
-  const key = dayKey(worker.workerId, day.date);
-  const approving = action.kind === "approving" && action.key === key;
-  const rejecting = action.kind === "rejecting" && action.key === key;
-  const busy = approving || rejecting;
+  const approving = inflight === "approving";
+  const rejecting = inflight === "rejecting";
+  const busy = inflight !== null || bulkBusy;
   const otLabel =
     day.overtimeHours != null &&
     day.overtimeHours > 0 &&
@@ -1161,7 +1193,7 @@ function SubmittedDayRow({
           onClick={() => onReject(worker, day)}
           className="h-11 rounded-card border border-rose-200 bg-rose-50 px-3 text-sm font-semibold text-rose-800 hover:border-rose-300 disabled:opacity-60 sm:h-8"
         >
-          {rejecting ? "Rejecting…" : "Reject"}
+          {rejecting ? "Sending back…" : "Send back"}
         </button>
       </span>
       {day.note ? (
@@ -1202,7 +1234,7 @@ function AttentionDayRow({
       <div>
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <span className="w-14 font-medium text-text">{dayLabel(day)}</span>
-          <Pill tone={tone}>{weeklyDayStatusLabel(day.status)}</Pill>
+          <Pill tone={tone}>{officeDayStatusLabel(day.status)}</Pill>
           {day.hours != null ? (
             <span className="text-text-muted">{formatHoursLabel(day.hours)}</span>
           ) : null}

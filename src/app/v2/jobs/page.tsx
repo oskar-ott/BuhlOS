@@ -73,7 +73,9 @@ export default async function AdminJobsPage({ searchParams }: AdminJobsPageProps
   // is absent) and STREAM the task-progress in behind it. When the flag is off the
   // statsOnly URL falls through to the full withStats read, so the jobs already
   // carry task counts and no stream is needed (byte-identical to before).
-  const summaryOn = /^(1|true|on)$/.test((process.env.FLAG_PHIL_JOBS_SUMMARY_READ ?? "").toLowerCase());
+  const summaryOn = /^(1|true|on)$/.test(
+    (process.env.FLAG_PHIL_JOBS_SUMMARY_READ ?? "").toLowerCase()
+  );
   const { jobs, fetchError } = await loadJobs(raw);
   const cardExtrasPromise = summaryOn ? loadCardExtras(raw) : null;
 
@@ -110,6 +112,7 @@ export default async function AdminJobsPage({ searchParams }: AdminJobsPageProps
 
         <JobsList
           jobs={visible}
+          loadFailed={Boolean(fetchError)}
           canBuild={canBuild}
           newJobHref={canCreate ? "/v2/jobs/new" : undefined}
           cardExtrasPromise={cardExtrasPromise ?? undefined}
@@ -165,7 +168,9 @@ async function loadJobs(cookieValue: string | undefined): Promise<{
  */
 async function loadCardExtras(
   cookieValue: string | undefined
-): Promise<Record<string, { tasksTotal?: number; tasksComplete?: number; contractValue?: number }>> {
+): Promise<
+  Record<string, { tasksTotal?: number; tasksComplete?: number; contractValue?: number }>
+> {
   const h = await headers();
   const host = h.get("x-forwarded-host") ?? h.get("host");
   const proto = h.get("x-forwarded-proto") ?? "http";

@@ -25,11 +25,7 @@ import { fieldPhaseChip, jobPhase, phaseLabel, phaseTone } from "@/domains/jobs/
 import { cn } from "@/lib/cn";
 import type { Job } from "@/domains/jobs/types";
 import { jobOpenWork, jobOpenWorkSummary } from "./philJobsListSignals";
-import {
-  readJobListPrefs,
-  togglePin as togglePinPref,
-  type JobListPrefs,
-} from "./jobListPrefs";
+import { readJobListPrefs, togglePin as togglePinPref, type JobListPrefs } from "./jobListPrefs";
 import { orderJobList } from "./jobListOrder";
 import { filterJobList } from "./jobListFilter";
 import { useJobHistorySearch } from "./useJobHistorySearch";
@@ -111,16 +107,14 @@ function topJobActions(
     Job,
     "id" | "name" | "status" | "inductionRequired" | "statsSnagsV2Active" | "statsItpsActive"
   >,
-  max = 3,
+  max = 3
 ): PhilJobCommandAction[] {
   const model = buildPhilJobCommandModel(
     philJobCommandInputFromListSignals(job, {
       logHoursHref: `/phil/hours?job=${encodeURIComponent(job.id)}`,
     })
   );
-  const ranked = model.primaryAction
-    ? [model.primaryAction, ...model.actions]
-    : model.actions;
+  const ranked = model.primaryAction ? [model.primaryAction, ...model.actions] : model.actions;
   return ranked.slice(0, max);
 }
 
@@ -148,7 +142,7 @@ export function PhilJobsSharpened({ initialJobs, userId = "", loadFailed = false
       if (!userId) return;
       setPrefs(togglePinPref(userId, jobId));
     },
-    [userId],
+    [userId]
   );
 
   const { fullList } = useMemo(() => orderJobList(initialJobs, prefs), [initialJobs, prefs]);
@@ -169,12 +163,10 @@ export function PhilJobsSharpened({ initialJobs, userId = "", loadFailed = false
   // ("Your jobs" counts the OTHERS), so with a hero and nothing else the
   // register section drops entirely: one job, shown once.
   const heroJob =
-    initialJobs.length === 1 && initialJobs[0]!.status === "active"
-      ? initialJobs[0]!
-      : null;
+    initialJobs.length === 1 && initialJobs[0]!.status === "active" ? initialJobs[0]! : null;
   const registerJobs = useMemo(
     () => (heroJob ? fullList.filter((j) => j.id !== heroJob.id) : fullList),
-    [heroJob, fullList],
+    [heroJob, fullList]
   );
 
   // Search — client-only filter over the SAME recency-ordered list. Hidden
@@ -196,9 +188,7 @@ export function PhilJobsSharpened({ initialJobs, userId = "", loadFailed = false
     <div className="space-y-4" data-testid="phil-jobs-sharpened">
       {/* Header: title + navy "+ New job" (Wave 2b — prototype §2.2). */}
       <header className="flex items-center justify-between gap-3">
-        <h1 className="font-display text-2xl font-extrabold tracking-[-0.02em] text-text">
-          Jobs
-        </h1>
+        <h1 className="font-display text-2xl font-extrabold tracking-[-0.02em] text-text">Jobs</h1>
         <button
           type="button"
           onClick={() => setNewJobOpen(true)}
@@ -210,18 +200,20 @@ export function PhilJobsSharpened({ initialJobs, userId = "", loadFailed = false
         </button>
       </header>
 
-      {initialJobs.length === 0 ? (
-        // A failed read is NOT "no jobs" (P7): the page's notice owns that
-        // state, so the empty state only renders for a list that truly loaded.
-        loadFailed ? null : (
-          <EmptyState
-            title="No jobs yet"
-            description="Tap + New job to add the one you're on, or ask the office to set it up."
-          />
-        )
-      ) : (
+      {/* A failed read is NOT "no jobs" (P7): the page's notice owns that
+          state, so nothing below renders unless the list truly loaded. The
+          search box is ALWAYS there once it did — it is the one door to
+          finished jobs (docs/job-lifecycle.md), and a worker whose only job
+          just closed must still be able to find it (2026-09-26 audit). */}
+      {loadFailed ? null : (
         <>
-          {initialJobs.length > 1 ? (
+          {initialJobs.length === 0 && !query.trim() ? (
+            <EmptyState
+              title="No live jobs"
+              description="Tap + New job to add the one you're on, or search to find a finished job."
+            />
+          ) : null}
+          {
             <div className="relative">
               <Search
                 aria-hidden="true"
@@ -250,11 +242,11 @@ export function PhilJobsSharpened({ initialJobs, userId = "", loadFailed = false
                 </button>
               ) : null}
             </div>
-          ) : null}
+          }
 
           {heroJob ? <OnTodayCard job={heroJob} /> : null}
 
-          {registerJobs.length > 0 ? (
+          {registerJobs.length > 0 || query.trim() ? (
             visibleJobs.length > 0 ? (
               <ul
                 data-testid="phil-jobs-all"
@@ -318,7 +310,10 @@ export function PhilJobsSharpened({ initialJobs, userId = "", loadFailed = false
                         tone="neutral"
                         className="shrink-0"
                       />
-                      <ChevronRight aria-hidden="true" className="h-5 w-5 shrink-0 text-text-muted/60" />
+                      <ChevronRight
+                        aria-hidden="true"
+                        className="h-5 w-5 shrink-0 text-text-muted/60"
+                      />
                     </PhilOfflineLink>
                   </li>
                 ))}
@@ -331,11 +326,7 @@ export function PhilJobsSharpened({ initialJobs, userId = "", loadFailed = false
       {/* Mounted only while open: the sheet reads the router, and a closed
           create form shouldn't cost the list anything. */}
       {newJobOpen ? (
-        <PhilNewJobSheet
-          open
-          onClose={() => setNewJobOpen(false)}
-          jobs={initialJobs}
-        />
+        <PhilNewJobSheet open onClose={() => setNewJobOpen(false)} jobs={initialJobs} />
       ) : null}
     </div>
   );
@@ -408,7 +399,10 @@ function SharpJobRow({
   // A finished job says so twice, honestly sized for a phone: the short badge
   // ("Finished") and the callback window on the secondary line — a long badge
   // crushed the job name to two letters (2026-09-24 walk).
-  const phaseDetail = jobPhase(job) === "finishing" ? fieldPhaseChip(job)?.replace(/^Finished · /, "") ?? null : null;
+  const phaseDetail =
+    jobPhase(job) === "finishing"
+      ? (fieldPhaseChip(job)?.replace(/^Finished · /, "") ?? null)
+      : null;
   const statusLine = [address, summary, phaseDetail].filter(Boolean).join(" · ");
   // Code chip: real `code` (IV####, Wave 2b) first, legacy `ref` fallback.
   const chip = job.code ?? job.ref;
@@ -474,14 +468,10 @@ function SharpJobRow({
               "flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center self-center",
               "rounded-card text-text-muted transition hover:bg-surface-subtle active:scale-95",
               "focus-visible:outline-brand-navy",
-              pinned && "text-accent-yellow",
+              pinned && "text-accent-yellow"
             )}
           >
-            <Star
-              aria-hidden="true"
-              className="h-5 w-5"
-              fill={pinned ? "currentColor" : "none"}
-            />
+            <Star aria-hidden="true" className="h-5 w-5" fill={pinned ? "currentColor" : "none"} />
           </button>
         ) : null}
       </div>

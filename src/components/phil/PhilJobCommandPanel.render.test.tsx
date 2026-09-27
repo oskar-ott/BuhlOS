@@ -18,10 +18,7 @@ import type { Document } from "@/domains/documents/types";
  * the repo's other Phil render tests.
  */
 function render(model: PhilJobCommandModel): string {
-  return renderToString(createElement(PhilJobCommandPanel, { model })).replace(
-    /<!-- -->/g,
-    "",
-  );
+  return renderToString(createElement(PhilJobCommandPanel, { model })).replace(/<!-- -->/g, "");
 }
 
 const BASE: PhilJobCommandModel = {
@@ -40,7 +37,7 @@ describe("PhilJobCommandPanel — rendering each state", () => {
       ...BASE,
       primaryAction: {
         id: "capture",
-        label: "Take a photo or add a note",
+        label: "Capture evidence",
         status: "ready",
         reason: "Capture evidence against this job.",
       },
@@ -57,7 +54,7 @@ describe("PhilJobCommandPanel — rendering each state", () => {
     });
     expect(html).toContain("Quick actions");
     // primary
-    expect(html).toContain("Take a photo or add a note");
+    expect(html).toContain("Capture evidence");
     // in-page action → anchor on the job page itself (model leaves href unset)
     expect(html).toContain('href="#phil-job-capture"');
     expect(html).toContain('href="#phil-job-plans"');
@@ -74,7 +71,7 @@ describe("PhilJobCommandPanel — rendering each state", () => {
       ...BASE,
       primaryAction: { id: "continue_tasks", label: "View your tasks", status: "ready" },
       actions: [
-        { id: "capture", label: "Take a photo or add a note", status: "ready" },
+        { id: "capture", label: "Capture evidence", status: "ready" },
         { id: "complete_checks", label: "Complete 2 checks", status: "attention" },
         { id: "view_plans", label: "View plans & docs (2)", status: "ready" },
         { id: "report_issue", label: "Report an issue", status: "ready" },
@@ -100,7 +97,7 @@ describe("PhilJobCommandPanel — rendering each state", () => {
   it("renders limitations as honest notes", () => {
     const html = render({
       ...BASE,
-      primaryAction: { id: "capture", label: "Take a photo or add a note", status: "ready" },
+      primaryAction: { id: "capture", label: "Capture evidence", status: "ready" },
       limitations: [
         {
           id: "rejected-hours-unknown",
@@ -137,9 +134,14 @@ describe("PhilJobCommandPanel — rendering each state", () => {
   it("does NOT render info/warning attention (the attention strip owns that)", () => {
     const html = render({
       ...BASE,
-      primaryAction: { id: "capture", label: "Take a photo or add a note", status: "ready" },
+      primaryAction: { id: "capture", label: "Capture evidence", status: "ready" },
       attention: [
-        { id: "open-snags", severity: "info", label: "2 open snags on this job", actionId: "report_issue" },
+        {
+          id: "open-snags",
+          severity: "info",
+          label: "2 open snags on this job",
+          actionId: "report_issue",
+        },
         { id: "induction-required", severity: "warning", label: "Site induction required" },
       ],
     });
@@ -174,12 +176,20 @@ describe("PhilJobCommandPanel — rendering each state", () => {
         reason: "Your office sent these back — fix and resubmit.",
       },
       actions: [
-        { id: "capture", label: "Take a photo or add a note", status: "ready" },
+        { id: "capture", label: "Capture evidence", status: "ready" },
         { id: "log_hours", label: "Log hours", href: "/phil/my-day", status: "ready" },
       ],
       limitations: [{ id: "materials-off-app", label: "Material requests aren’t in the app yet" }],
     }).toLowerCase();
-    for (const banned of ["payroll", "xero", "dashboard", "command centre", "workflow", "registry", "artifact"]) {
+    for (const banned of [
+      "payroll",
+      "xero",
+      "dashboard",
+      "command centre",
+      "workflow",
+      "registry",
+      "artifact",
+    ]) {
       expect(html).not.toContain(banned);
     }
   });
@@ -219,14 +229,15 @@ describe("PhilJobCommandPanel — from the real bridge", () => {
         job: jobFixture(),
         documents: [currentDoc, currentDoc],
         // no taskState → tasks stay list_only ("View your tasks"), never a faked count
-      }),
+      })
     );
     const html = render(model);
     expect(html).toContain("Quick actions");
     expect(html).toContain("View your tasks"); // list_only, honest
     expect(html).toContain("View plans"); // "View plans & docs (N)" — & is entity-encoded
-    // rejected hours isn't fetched on the job page → honest limitation, not a fake card
-    expect(html).toContain("Rejected hours aren’t shown on the job screen");
+    // rejected hours aren't fetched on the job page → NOT CONFIGURED here, so no
+    // permanent explainer line on every job (2026-09-26; they live on Hours).
+    expect(html).not.toContain("Rejected hours aren’t shown on the job screen");
   });
 
   it("renders tracked task progress only when real task state is supplied", () => {
@@ -236,7 +247,7 @@ describe("PhilJobCommandPanel — from the real bridge", () => {
         taskState: {
           a1: { roughIn: { t1: "complete" }, fitOff: {} },
         },
-      }),
+      })
     );
     const html = render(model);
     expect(html).not.toContain("View your tasks");
@@ -248,7 +259,7 @@ describe("PhilJobCommandPanel — from the real bridge", () => {
 
   it("renders an honest office-only notice for a draft job", () => {
     const model = buildPhilJobCommandModel(
-      philJobCommandInputFromJobData({ job: jobFixture({ status: "draft" }) }),
+      philJobCommandInputFromJobData({ job: jobFixture({ status: "draft" }) })
     );
     const html = render(model);
     expect(html).toContain("isn’t released to the field yet");

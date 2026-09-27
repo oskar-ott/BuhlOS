@@ -29,11 +29,7 @@ import {
   weekStartOf,
 } from "@/domains/timesheets/service";
 import { JobListResponseSchema } from "@/domains/jobs/schema";
-import type {
-  MissingLog,
-  TimeEntry,
-  TodayPulseResponse,
-} from "@/domains/timesheets/types";
+import type { MissingLog, TimeEntry, TodayPulseResponse } from "@/domains/timesheets/types";
 import type { Job } from "@/domains/jobs/types";
 import { buildExceptions, decorateAges } from "@/domains/exceptions/service";
 import {
@@ -106,10 +102,7 @@ export default async function CommandCentrePage() {
   // untouched either way.
   const todayStrip = summariseTodayStrip(todayPulse);
 
-  const evidencePending = jobs.reduce(
-    (sum, j) => sum + (j.statsEvidenceV2Pending ?? 0),
-    0
-  );
+  const evidencePending = jobs.reduce((sum, j) => sum + (j.statsEvidenceV2Pending ?? 0), 0);
 
   // #155 pilot: the flags readout is itself flag-gated + admin-tier targeted
   // — dark for everyone (incl. this page) until FLAG_ADMIN_FLAGS_READOUT or
@@ -147,12 +140,12 @@ export default async function CommandCentrePage() {
       hoursRejected,
       jobs,
     }),
-    Date.now(),
+    Date.now()
   );
-  const anySourceError =
-    !!(hoursError ||
-      hoursRejectedError ||
-      jobsError);
+  // Every "needs you" source counts — including missing days (the biggest
+  // pay blocker), which was left out before 2026-09-26 and let the page say
+  // "All clear" while that read had failed.
+  const anySourceError = !!(hoursError || hoursRejectedError || jobsError || hoursMissingError);
 
   // Mobile "Today" — a simpler projection of the SAME data for the < md home.
   // Greeting: the cookie carries no name, so it's resolved from /api/auth?action=me
@@ -178,10 +171,7 @@ export default async function CommandCentrePage() {
     timeZone: BUSINESS_TIMEZONE,
   });
   const mobileAllClear =
-    exceptions.length === 0 &&
-    hoursPending.length === 0 &&
-    !anySourceError &&
-    !todayPulseError;
+    exceptions.length === 0 && hoursPending.length === 0 && !anySourceError && !todayPulseError;
 
   // ── Lean-reset desktop view-model (design: replica command-centre frame) —
   //    the summary sentence, the "Needs you" queue and the "Right now" strip,
@@ -199,14 +189,18 @@ export default async function CommandCentrePage() {
   // mobile home ranks (source "job" emits critical only for no-crew; draft
   // jobs are info) — one judgement, one number.
   const noCrewJobs = exceptions.filter(
-    (e) => e.source === "job" && e.severity === "critical",
+    (e) => e.source === "job" && e.severity === "critical"
   ).length;
   // Rejected days live on the weekly board ("Sent back"), not the approvals
   // queue — land it on the week of the oldest one so it's actually on screen.
   const oldestRejectedDate = hoursRejected.reduce<string | null>(
     (min, e) => (min === null || e.date < min ? e.date : min),
-    null,
+    null
   );
+  // The phone "Hours for payroll" card opens the week that actually holds the
+  // oldest waiting day — the board defaults to LAST week, so a mid-week tap
+  // used to land on "Nothing to review" (2026-09-26 audit).
+  const oldestPendingDate = hoursPending.map((e) => e.date).sort()[0] ?? null;
   const needsYou = buildNeedsYouQueue({
     rejected: rejectedHoursCount,
     ...(oldestRejectedDate ? { rejectedWeekStart: weekStartOf(oldestRejectedDate) } : {}),
@@ -255,6 +249,7 @@ export default async function CommandCentrePage() {
           weekWorkersLogged={weekTotals ? weekTotals.workers : null}
           weekHoursLabel={weekTotals ? formatHoursLabel(weekTotals.hours) : null}
           pendingHours={hoursPending.length}
+          pendingWeekStart={oldestPendingDate ? weekStartOf(oldestPendingDate) : null}
           exceptions={exceptions}
           anySourceError={anySourceError}
           errorMessage={hoursError ?? hoursRejectedError ?? jobsError}
@@ -277,7 +272,10 @@ export default async function CommandCentrePage() {
           >
             <span className="font-semibold uppercase tracking-wider">Feature flags</span>{" "}
             {flagStates
-              .map((f) => `${f.key}: ${f.on ? "ON" : "off"}${f.target === "admin-tier" ? " (admin tier)" : ""}`)
+              .map(
+                (f) =>
+                  `${f.key}: ${f.on ? "ON" : "off"}${f.target === "admin-tier" ? " (admin tier)" : ""}`
+              )
               .join(" · ")}{" "}
             — flip via FLAG_* env or the flags.json override (docs/feature-flags.md).
           </section>
@@ -296,11 +294,8 @@ export default async function CommandCentrePage() {
           <Card className="border-amber-200 bg-amber-50" role="alert">
             <CardTitle>Couldn&rsquo;t load every signal</CardTitle>
             <CardDescription className="text-amber-900">
-              {hoursError ??
-                hoursRejectedError ??
-                hoursMissingError ??
-                jobsError}
-              . The queue below may be incomplete.
+              {hoursError ?? hoursRejectedError ?? hoursMissingError ?? jobsError}. The queue below
+              may be incomplete.
             </CardDescription>
             <div className="mt-3">
               <RefreshButton />
@@ -321,15 +316,22 @@ export default async function CommandCentrePage() {
               what blocks pay, first
             </span>
           </div>
-          {needsYou.length === 0 ? (
+          {needsYou.length === 0 && anySourceError ? (
+            <Card className="mt-3" role="status">
+              <CardTitle>Can’t say yet</CardTitle>
+              <CardDescription>
+                One of the signals didn’t load, so this list may be missing items. Refresh to check
+                again.
+              </CardDescription>
+            </Card>
+          ) : needsYou.length === 0 ? (
             <Card
               className="mt-3 border-state-success-subtle-border bg-state-success-subtle-bg"
               role="status"
             >
               <CardTitle className="text-state-success-subtle-text">All clear</CardTitle>
               <CardDescription className="text-state-success-subtle-text">
-                Nothing is holding up pay or waiting on you. New items land here
-                as they come in.
+                Nothing is holding up pay or waiting on you. New items land here as they come in.
               </CardDescription>
             </Card>
           ) : (
@@ -342,13 +344,13 @@ export default async function CommandCentrePage() {
                   className={cn(
                     "grid w-full grid-cols-[52px_1fr_auto] items-center gap-4 border-l-[3px] px-5 py-5 text-left transition-colors hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-navy",
                     i > 0 ? "border-t border-t-border" : "",
-                    toneAccent[row.tone],
+                    toneAccent[row.tone]
                   )}
                 >
                   <span
                     className={cn(
                       "font-display text-[26px] font-semibold leading-none tabular-nums",
-                      toneCount[row.tone],
+                      toneCount[row.tone]
                     )}
                   >
                     {row.count}
@@ -357,9 +359,7 @@ export default async function CommandCentrePage() {
                     <span className="font-display text-[15px] font-semibold text-text">
                       {row.title}
                     </span>
-                    <span className="text-[13px] leading-snug text-text-muted">
-                      {row.sub}
-                    </span>
+                    <span className="text-[13px] leading-snug text-text-muted">{row.sub}</span>
                   </span>
                   <span className="flex items-center gap-1.5 whitespace-nowrap font-mono text-[11px] font-semibold uppercase tracking-wider text-text-muted">
                     {row.cta}
@@ -385,15 +385,13 @@ export default async function CommandCentrePage() {
                 key={tile.key}
                 className={cn(
                   "flex flex-col gap-1.5 pr-7",
-                  i > 0 ? "border-l border-border pl-7" : "",
+                  i > 0 ? "border-l border-border pl-7" : ""
                 )}
               >
                 <span className="font-display text-[26px] font-semibold leading-none tabular-nums text-text">
                   {tile.value}
                   {tile.suffix ? (
-                    <span className="text-sm font-normal text-text-muted">
-                      {tile.suffix}
-                    </span>
+                    <span className="text-sm font-normal text-text-muted">{tile.suffix}</span>
                   ) : null}
                 </span>
                 <span className="text-xs text-text-muted">{tile.label}</span>
@@ -416,17 +414,17 @@ export default async function CommandCentrePage() {
               <Card className="mt-3 border-border bg-surface-raised" role="status">
                 <CardTitle>No sync has run yet</CardTitle>
                 <CardDescription>
-                  The daily check runs each morning once SERVICEM8_API_KEY is
-                  configured. It compares active ServiceM8 work orders against
-                  BuhlOS jobs and creates any that are missing.
+                  The daily check runs each morning once SERVICEM8_API_KEY is configured. It
+                  compares active ServiceM8 work orders against BuhlOS jobs and creates any that are
+                  missing.
                 </CardDescription>
               </Card>
             ) : sm8Report.status === "skipped" ? (
               <Card className="mt-3 border-amber-200 bg-amber-50" role="alert">
                 <CardTitle>ServiceM8 sync isn&rsquo;t connected</CardTitle>
                 <CardDescription className="text-amber-900">
-                  {sm8Report.reason ?? "SERVICEM8_API_KEY is not configured"} —
-                  jobs booked in ServiceM8 are not being checked against BuhlOS.
+                  {sm8Report.reason ?? "SERVICEM8_API_KEY is not configured"} — jobs booked in
+                  ServiceM8 are not being checked against BuhlOS.
                 </CardDescription>
               </Card>
             ) : (
@@ -436,9 +434,8 @@ export default async function CommandCentrePage() {
                     <CardTitle>Couldn&rsquo;t reach ServiceM8</CardTitle>
                     <CardDescription className="text-amber-900">
                       Last attempt {formatSyncTime(sm8Report.lastRun)} failed
-                      {sm8Report.error ? ` — ${sm8Report.error}` : ""}. New
-                      ServiceM8 jobs may be missing from BuhlOS until the next
-                      successful run.
+                      {sm8Report.error ? ` — ${sm8Report.error}` : ""}. New ServiceM8 jobs may be
+                      missing from BuhlOS until the next successful run.
                     </CardDescription>
                   </Card>
                 ) : null}
@@ -446,12 +443,12 @@ export default async function CommandCentrePage() {
                   <Card className="mt-3 border-amber-200 bg-amber-50" role="alert">
                     <CardTitle className="text-amber-900">
                       {sm8Report.needsAssignment!.length} job
-                      {sm8Report.needsAssignment!.length === 1 ? "" : "s"} from
-                      ServiceM8 with no crew assigned
+                      {sm8Report.needsAssignment!.length === 1 ? "" : "s"} from ServiceM8 with no
+                      crew assigned
                     </CardTitle>
                     <CardDescription className="text-amber-900">
-                      These were created from ServiceM8 but nobody can log hours
-                      to them until workers are assigned.
+                      These were created from ServiceM8 but nobody can log hours to them until
+                      workers are assigned.
                     </CardDescription>
                     <ul className="mt-2 space-y-1">
                       {sm8Report.needsAssignment!.slice(0, 8).map((j) => (
@@ -471,13 +468,11 @@ export default async function CommandCentrePage() {
                   <Card className="mt-3 border-border bg-surface-raised" role="status">
                     <CardTitle>
                       {sm8Report.created!.length} job
-                      {sm8Report.created!.length === 1 ? "" : "s"} created from
-                      ServiceM8
+                      {sm8Report.created!.length === 1 ? "" : "s"} created from ServiceM8
                     </CardTitle>
                     <CardDescription>
-                      Found in ServiceM8 ({formatSyncTime(sm8Report.lastRun)})
-                      without a matching BuhlOS job, so they were created
-                      automatically.
+                      Found in ServiceM8 ({formatSyncTime(sm8Report.lastRun)}) without a matching
+                      BuhlOS job, so they were created automatically.
                     </CardDescription>
                     <ul className="mt-2 space-y-1">
                       {sm8Report.created!.slice(0, 8).map((j) => (
@@ -502,8 +497,7 @@ export default async function CommandCentrePage() {
                   <Card className="mt-3 border-amber-200 bg-amber-50" role="alert">
                     <CardTitle>
                       {sm8Report.failed!.length} ServiceM8 job
-                      {sm8Report.failed!.length === 1 ? "" : "s"} couldn&rsquo;t
-                      be created
+                      {sm8Report.failed!.length === 1 ? "" : "s"} couldn&rsquo;t be created
                     </CardTitle>
                     <CardDescription className="text-amber-900">
                       {sm8Report
@@ -522,8 +516,8 @@ export default async function CommandCentrePage() {
                       All {sm8Report.sm8Count ?? 0} ServiceM8 work orders matched
                     </CardTitle>
                     <CardDescription className="text-emerald-900">
-                      Checked {formatSyncTime(sm8Report.lastRun)} — every active
-                      ServiceM8 work order has a BuhlOS job.
+                      Checked {formatSyncTime(sm8Report.lastRun)} — every active ServiceM8 work
+                      order has a BuhlOS job.
                     </CardDescription>
                   </Card>
                 ) : null}
@@ -553,9 +547,7 @@ function formatSyncTime(iso?: string): string {
   });
 }
 
-async function loadSnapshot(
-  cookieValue: string | undefined,
-): Promise<{
+async function loadSnapshot(cookieValue: string | undefined): Promise<{
   hoursPending: ReadonlyArray<TimeEntry>;
   hoursRejected: ReadonlyArray<TimeEntry>;
   hoursMissing: ReadonlyArray<MissingLog>;
@@ -578,9 +570,7 @@ async function loadSnapshot(
   const host = h.get("x-forwarded-host") ?? h.get("host");
   const proto = h.get("x-forwarded-proto") ?? "http";
   const base = host ? `${proto}://${host}` : "http://localhost:3000";
-  const headersInit = cookieValue
-    ? { cookie: `${SESSION_COOKIE}=${cookieValue}` }
-    : undefined;
+  const headersInit = cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined;
 
   // Missing-hours window: the last COMPLETE Mon–Sun week. The crew logs
   // hours weekly — often the whole week at its end (owner directive
@@ -616,8 +606,7 @@ async function loadSnapshot(
     cookieValue ? verifyViaApi(`${SESSION_COOKIE}=${cookieValue}`, base) : Promise.resolve(null),
   ]);
 
-  const displayName =
-    profile?.name?.trim() || profile?.username?.trim() || null;
+  const displayName = profile?.name?.trim() || profile?.username?.trim() || null;
 
   return {
     hoursPending: hoursResult.entries,
@@ -692,7 +681,8 @@ async function loadRosterTotal(
     if (!res.ok) return null;
     const body: unknown = await res.json();
     const root = body && typeof body === "object" ? (body as Record<string, unknown>) : null;
-    const users = root && typeof root.users === "object" ? (root.users as Record<string, unknown>) : null;
+    const users =
+      root && typeof root.users === "object" ? (root.users as Record<string, unknown>) : null;
     const byRole =
       users && typeof users.byRole === "object" ? (users.byRole as Record<string, unknown>) : null;
     if (!byRole) return null;
@@ -764,10 +754,10 @@ async function loadHoursByStatus(
   status: "submitted" | "rejected"
 ): Promise<{ entries: ReadonlyArray<TimeEntry>; error: string | null }> {
   try {
-    const res = await fetch(
-      `${base}/api/time-entries?scope=approver&status=${status}`,
-      { cache: "no-store", headers: headersInit }
-    );
+    const res = await fetch(`${base}/api/time-entries?scope=approver&status=${status}`, {
+      cache: "no-store",
+      headers: headersInit,
+    });
     if (!res.ok) {
       return { entries: [], error: `Hours API returned ${res.status} (${status})` };
     }

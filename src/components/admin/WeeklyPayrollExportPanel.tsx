@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import type { Route } from "next";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
 import type { PayrollRun } from "@/domains/timesheets/types";
@@ -7,12 +9,13 @@ import type { PayrollRun } from "@/domains/timesheets/types";
 /**
  * Weekly payroll runs (#126 / #895) — READ-ONLY.
  *
- * The committed run from the weekly board is retired: recording a payroll run
- * is now the immutable batch flow (Hours → Payroll period → Create batch →
- * Validate → Lock → Export to Xero / Download batch CSV), the single export
- * source (payroll-boundary ADR #609). This panel keeps the historical run log
- * for reference; it no longer previews, stamps entries or writes a run — so
- * there is no mutating GET the browser could prefetch, bookmark or retry.
+ * The committed run from the weekly board is retired: handing hours to
+ * accounts happens on the Pay period tab (email the sheet, or lock a batch and
+ * create Xero draft timesheets — payroll-boundary ADR #609). This panel keeps
+ * the historical run log for reference; it no longer previews, stamps entries
+ * or writes a run — so there is no mutating GET the browser could prefetch,
+ * bookmark or retry. The one sentence of copy links to the Pay period tab FOR
+ * THIS WEEK (2026-09-26 audit: the old paragraph was dev-speak with no link).
  */
 
 interface Props {
@@ -25,7 +28,7 @@ interface Props {
   runsError: string | null;
 }
 
-export function WeeklyPayrollExportPanel({ weekLabel, initialRuns, runsError }: Props) {
+export function WeeklyPayrollExportPanel({ weekStart, weekLabel, initialRuns, runsError }: Props) {
   const runs = initialRuns;
 
   return (
@@ -35,9 +38,15 @@ export function WeeklyPayrollExportPanel({ weekLabel, initialRuns, runsError }: 
         <Pill tone="neutral">Read-only</Pill>
       </div>
       <CardDescription className="mt-1">
-        Recording a payroll run for {weekLabel} now happens on Hours → Payroll period: create a
-        batch, validate it, lock it, then Export to Xero or download the batch CSV. The locked
-        batch is the single, immutable source of a payroll run — this board no longer stamps hours.
+        Hand the approved hours for {weekLabel} to accounts from the{" "}
+        <Link
+          href={{ pathname: "/hours/period" as Route, query: { period: "week", anchor: weekStart } }}
+          data-testid="weekly-runs-open-period"
+          className="font-medium text-brand-navy underline underline-offset-2"
+        >
+          Pay period tab for this week
+        </Link>
+        .
       </CardDescription>
 
       <div className="mt-4">

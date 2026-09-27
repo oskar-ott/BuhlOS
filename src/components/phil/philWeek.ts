@@ -95,6 +95,11 @@ const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as cons
 export function weekLoggedProgress(
   entries: ReadonlyArray<Pick<TimeEntry, "date">>,
   todayISO: string,
+  opts: {
+    /** Public holidays (ISO dates) — not expected work days, the same truth
+     *  the office's missing-days check uses (api/_lib/public-holidays). */
+    holidays?: ReadonlySet<string>;
+  } = {}
 ): { logged: number; expected: number } {
   const weekStart = weekStartOf(todayISO);
   const dates = new Set<string>();
@@ -105,7 +110,7 @@ export function weekLoggedProgress(
   for (let i = 0; i < 7; i++) {
     const date = addDays(weekStart, i);
     if (date > todayISO) break;
-    if (i < 5) expected += 1; // Mon–Fri only
+    if (i < 5 && !opts.holidays?.has(date)) expected += 1; // Mon–Fri, minus public holidays
   }
   expected = Math.max(1, expected, dates.size);
   return { logged: dates.size, expected };
@@ -167,7 +172,7 @@ export function buildPhilWeek(
       overtimeHours?: number;
     }
   >,
-  opts: { todayISO: string; weekAnchorISO?: string },
+  opts: { todayISO: string; weekAnchorISO?: string }
 ): PhilWeek {
   const { todayISO } = opts;
   // The rendered week is the one containing `weekAnchorISO` (any date inside

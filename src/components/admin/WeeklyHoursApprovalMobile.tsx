@@ -12,6 +12,7 @@ import {
   ClipboardCheck,
   RotateCcw,
   TriangleAlert,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/Button";
@@ -23,8 +24,8 @@ import { timesheetsClient } from "@/domains/timesheets/client";
 import { formatHoursLabel } from "@/domains/timesheets/format";
 import { workerStrip } from "@/domains/timesheets/pay-run";
 import {
+  officeDayStatusLabel,
   submittedWeekSelection,
-  weeklyDayStatusLabel,
   type WeeklyDayStatus,
   type WeeklyHoursCloseout,
   type WeeklyHoursDay,
@@ -73,11 +74,13 @@ import type { ReviewCandidate } from "@/domains/timesheets/xero-closeout";
  *     faked query thread (P7).
  *   - Undo → POST /api/time-entries-reopen back to submitted (admin tier only).
  *
- * SPEED: actions apply optimistically to a local overlay and toast immediately;
- * a debounced router.refresh() reconciles the list against persisted state so
- * the boss never waits on a round-trip mid-review. HONESTY (P7): the overlay is
- * only set on a FULL success — a partial or failed write is surfaced (toast) and
- * the worker stays actionable, never shown as done when it isn't.
+ * SPEED: actions apply to a local overlay and toast immediately; a debounced
+ * router.refresh() reconciles the list against persisted state. HONESTY (P7):
+ * the overlay is only set on a FULL success — a partial or failed write is
+ * surfaced (toast) and the worker stays actionable, never shown as done when
+ * it isn't. The review stepper WAITS for the write before it advances
+ * (2026-09-26 audit: fire-and-advance meant a double-tap approved the NEXT
+ * worker); a failure keeps the boss on that worker with the error in view.
  */
 
 interface WeekNav {
@@ -304,10 +307,12 @@ export function WeeklyHoursApprovalMobile({
     [],
   );
 
+  /** Resolves true only when the WHOLE week landed as approved; false (with
+   *  the reason toasted) otherwise — the stepper stays put on false. */
   const approveWorker = useCallback(
-    async (worker: WeeklyWorkerHours) => {
+    async (worker: WeeklyWorkerHours): Promise<boolean> => {
       const entries = submittedWeekSelection(worker);
-      if (entries.length === 0 || busyRef.current.has(worker.workerId)) return;
+      if (entries.length === 0 || busyRef.current.has(worker.workerId)) return false;
       setBusy(worker.workerId, true);
       const res = await timesheetsClient.bulkApproveEntries({ entries });
       setBusy(worker.workerId, false);
@@ -318,7 +323,7 @@ export function WeeklyHoursApprovalMobile({
             : "Couldn't approve — try again",
           "warn",
         );
-        return;
+        return false;
       }
       const { approvedCount, failed } = res.data;
       // HONESTY (P7): only claim "approved" on a FULL success. A partial or empty
@@ -326,7 +331,7 @@ export function WeeklyHoursApprovalMobile({
       if (approvedCount === 0) {
         toast(`Couldn't approve ${firstName(worker.workerName)} — try again`, "warn");
         scheduleRefresh();
-        return;
+        return false;
       }
       if (failed.length > 0) {
         toast(
@@ -334,22 +339,23 @@ export function WeeklyHoursApprovalMobile({
           "warn",
         );
         scheduleRefresh();
-        return;
+        return false;
       }
       const undo = canUndo ? res.data.approved.map((a) => ({ userId: a.userId, date: a.date })) : [];
       setOverlay((o) => ({ ...o, [worker.workerId]: { status: "approved", undo } }));
       toast(`Approved ${formatHoursLabel(submittedHoursOf(worker))} · ${firstName(worker.workerName)}`);
       scheduleUndoExpiry(worker.workerId, undo);
       scheduleRefresh();
+      return true;
     },
     [canUndo, toast, scheduleRefresh, scheduleUndoExpiry, setBusy],
   );
 
   const queryWorker = useCallback(
-    async (worker: WeeklyWorkerHours, reason: MobileQueryReason, note: string) => {
+    async (worker: WeeklyWorkerHours, reason: MobileQueryReason, note: string): Promise<boolean> => {
       const days = submittedWeekSelection(worker);
       const reasonText = buildQueryReason(reason, note);
-      if (days.length === 0 || !reasonText || busyRef.current.has(worker.workerId)) return;
+      if (days.length === 0 || !reasonText || busyRef.current.has(worker.workerId)) return false;
       setBusy(worker.workerId, true);
       let failed = 0;
       for (const d of days) {
@@ -365,7 +371,7 @@ export function WeeklyHoursApprovalMobile({
       if (succeeded === 0) {
         toast(`Couldn't send it back — try again`, "warn");
         scheduleRefresh();
-        return;
+        return false;
       }
       if (failed > 0) {
         toast(
@@ -373,13 +379,14 @@ export function WeeklyHoursApprovalMobile({
           "warn",
         );
         scheduleRefresh();
-        return;
+        return false;
       }
       const undo = canUndo ? days.map((d) => ({ userId: d.userId, date: d.date })) : [];
       setOverlay((o) => ({ ...o, [worker.workerId]: { status: "queried", undo } }));
       toast(`Sent back to ${firstName(worker.workerName)} · ${reason}`);
       scheduleUndoExpiry(worker.workerId, undo);
       scheduleRefresh();
+      return true;
     },
     [canUndo, toast, scheduleRefresh, scheduleUndoExpiry, setBusy],
   );
@@ -495,25 +502,33 @@ export function WeeklyHoursApprovalMobile({
         </div>
       ) : null}
 
-      <SummaryReadout summary={summary} tile={tile} />
+      {/* A failed load is NOT an all-clear week: the readout ("0 of 0 crew
+          approved · all clear") and the green "nothing to review" card would
+          both lie, so the error notice above is the whole story (2026-09-26
+          audit, P7). */}
+      {fetchError ? null : (
+        <>
+          <SummaryReadout summary={summary} tile={tile} />
 
-      <ReviewCTA
-        pendingCount={pending.length}
-        allReady={summary.allReady}
-        crewCount={summary.crewCount}
-        onStart={() => openReview(pending.map((w) => w.workerId), pending[0]!.workerId, false)}
-        onOpenFinale={
-          xeroCandidates.length > 0 && (accountsMode || xeroPushable)
-            ? () =>
-                openReview(
-                  xeroCandidates.map((c) => c.workerId),
-                  xeroCandidates[0]!.workerId,
-                  false,
-                  "done",
-                )
-            : undefined
-        }
-      />
+          <ReviewCTA
+            pendingCount={pending.length}
+            allReady={summary.allReady}
+            crewCount={summary.crewCount}
+            onStart={() => openReview(pending.map((w) => w.workerId), pending[0]!.workerId, false)}
+            onOpenFinale={
+              xeroCandidates.length > 0 && (accountsMode || xeroPushable)
+                ? () =>
+                    openReview(
+                      xeroCandidates.map((c) => c.workerId),
+                      xeroCandidates[0]!.workerId,
+                      false,
+                      "done",
+                    )
+                : undefined
+            }
+          />
+        </>
+      )}
 
       {/* To approve — the actionable weeks. */}
       {bands.toApprove.length > 0 ? (
@@ -573,7 +588,10 @@ export function WeeklyHoursApprovalMobile({
         </div>
       ) : null}
 
-      {bands.toApprove.length === 0 && bands.approved.length === 0 && bands.waiting.length === 0 ? (
+      {!fetchError &&
+      bands.toApprove.length === 0 &&
+      bands.approved.length === 0 &&
+      bands.waiting.length === 0 ? (
         <div className="rounded-card border border-dashed border-border bg-surface-subtle p-8 text-center">
           <p className="font-display text-base text-text">No hours this week</p>
           <p className="mt-1 text-sm text-text-muted">
@@ -744,7 +762,7 @@ function SummaryReadout({
             className={cn("h-full rounded-pill bg-accent-yellow transition-[width] motion-reduce:transition-none", progressFillClass(progressPct))}
           />
         </div>
-        <div className="mt-2 flex items-center justify-between font-mono text-[10px] tracking-wide text-white/70">
+        <div className="mt-2 flex items-center justify-between font-mono text-xs tracking-wide text-white/70">
           {/* "crew" = everyone in the run, including anyone with no hours yet
               (a flagged missing day), so it's named as such — not the list's
               "N of M approved", which only counts its to-approve section. */}
@@ -783,7 +801,7 @@ function Segment({
         <span className={accent ? "text-accent-yellow" : "text-text-inverse"}>{value}</span>
         <span className="ml-0.5 text-xs font-semibold text-white/60">{unit}</span>
       </span>
-      <span className="font-mono text-[9px] uppercase tracking-widest text-white/70">
+      <span className="font-mono text-[10px] uppercase tracking-widest text-white/70">
         {label}
       </span>
     </div>
@@ -886,7 +904,7 @@ interface CardActions {
   overlay: Overlay;
   busyIds: string[];
   canUndo: boolean;
-  approveWorker: (worker: WeeklyWorkerHours) => void;
+  approveWorker: (worker: WeeklyWorkerHours) => Promise<boolean>;
   undoWorker: (worker: WeeklyWorkerHours) => void;
 }
 
@@ -929,7 +947,7 @@ function WorkerCard({
                 {split.overtime} OT
               </span>
             ) : (
-              <span className="mt-1 block font-mono text-[10px] text-text-muted">no OT</span>
+              <span className="mt-1 block font-mono text-xs text-text-muted">no OT</span>
             )}
           </div>
         </button>
@@ -964,13 +982,13 @@ function WorkerCard({
               onClick={() => onOpen("query")}
             >
               <RotateCcw aria-hidden="true" className="h-4 w-4" />
-              Query
+              Send back
             </Button>
             <Button
               size="sm"
               className="flex-1"
               disabled={busy}
-              onClick={() => approveWorker(worker)}
+              onClick={() => void approveWorker(worker)}
             >
               <Check aria-hidden="true" className="h-4 w-4" />
               {busy ? "Approving…" : "Approve"}
@@ -1020,7 +1038,7 @@ function ResolvedBar({
           type="button"
           onClick={onUndo}
           disabled={busy}
-          className="ml-auto font-display text-[13px] font-semibold text-text-muted underline decoration-border underline-offset-2 disabled:opacity-50"
+          className="ml-auto inline-flex min-h-11 items-center px-3 font-display text-[13px] font-semibold text-text-muted underline decoration-border underline-offset-2 disabled:opacity-50"
         >
           {busy ? "…" : "Undo"}
         </button>
@@ -1058,7 +1076,7 @@ function SettledRow({
           type="button"
           onClick={onUndo}
           disabled={busy}
-          className="font-display text-[13px] font-semibold text-text-muted underline decoration-border underline-offset-2 disabled:opacity-50"
+          className="inline-flex min-h-11 items-center px-3 font-display text-[13px] font-semibold text-text-muted underline decoration-border underline-offset-2 disabled:opacity-50"
         >
           {busy ? "…" : "Undo"}
         </button>
@@ -1110,7 +1128,7 @@ function WaitingCard({
         </ul>
       ) : null}
       <div className="mt-2 flex items-center justify-between gap-2">
-        <p className="font-mono text-[10px] text-text-muted">
+        <p className="text-xs text-text-muted">
           Waiting on {firstName(worker.workerName)} — nothing to approve here yet.
         </p>
         {undoable ? (
@@ -1118,7 +1136,7 @@ function WaitingCard({
             type="button"
             onClick={onUndo}
             disabled={busy}
-            className="shrink-0 font-display text-[13px] font-semibold text-text-muted underline decoration-border underline-offset-2 disabled:opacity-50"
+            className="inline-flex min-h-11 shrink-0 items-center px-3 font-display text-[13px] font-semibold text-text-muted underline decoration-border underline-offset-2 disabled:opacity-50"
           >
             {busy ? "…" : "Undo send-back"}
           </button>
@@ -1240,8 +1258,8 @@ function ReviewSheet({
   canUndo: boolean;
   canAmend: boolean;
   busyIds: string[];
-  onApprove: (worker: WeeklyWorkerHours) => void;
-  onQuery: (worker: WeeklyWorkerHours, reason: MobileQueryReason, note: string) => void;
+  onApprove: (worker: WeeklyWorkerHours) => Promise<boolean>;
+  onQuery: (worker: WeeklyWorkerHours, reason: MobileQueryReason, note: string) => Promise<boolean>;
   onUndo: (worker: WeeklyWorkerHours) => void;
   onAmendDay: (
     worker: WeeklyWorkerHours,
@@ -1277,6 +1295,24 @@ function ReviewSheet({
     if (finaleBusy) return;
     onClose();
   };
+  // A stray tap on the dimmed backdrop must not throw away a half-typed
+  // send-back note — the X button and Escape still close deliberately.
+  const backdropClose = () => {
+    if (mode === "query" && note.trim() !== "") return;
+    guardedClose();
+  };
+
+  // Weeks whose approval / send-back FAILED in this sheet — the finale counts
+  // only what landed and names these plainly (2026-09-26 audit, P7).
+  const [failedIds, setFailedIds] = useState<ReadonlySet<string>>(new Set());
+  const markFailed = (workerId: string, failed: boolean) =>
+    setFailedIds((cur) => {
+      if (cur.has(workerId) === failed) return cur;
+      const next = new Set(cur);
+      if (failed) next.add(workerId);
+      else next.delete(workerId);
+      return next;
+    });
 
   // Close on Escape (backdrop click handled below).
   useEffect(() => {
@@ -1307,17 +1343,25 @@ function ReviewSheet({
       setMode("done");
     }
   };
-  const approve = () => {
-    if (worker) onApprove(worker);
-    advance();
+  const busy = worker != null && busyIds.includes(worker.workerId);
+  // Wait for the write, THEN step. A failure keeps the boss on this worker —
+  // the toast names it and the buttons come back for another go.
+  const approve = async () => {
+    if (!worker || busy) return;
+    const ok = await onApprove(worker);
+    markFailed(worker.workerId, !ok);
+    if (ok) advance();
   };
-  const sendBack = () => {
-    if (worker && reason) onQuery(worker, reason, note);
-    advance();
+  const sendBack = async () => {
+    if (!worker || !reason || busy) return;
+    const ok = await onQuery(worker, reason, note);
+    markFailed(worker.workerId, !ok);
+    if (ok) advance();
   };
 
   const alreadyResolved = worker ? overlay[worker.workerId]?.status : undefined;
   const canSendBack = reason != null && buildQueryReason(reason, note) != null;
+  const failedCount = ids.filter((x) => failedIds.has(x)).length;
 
   return (
     <div
@@ -1325,7 +1369,7 @@ function ReviewSheet({
       aria-modal="true"
       aria-label="Review week"
       className="fixed inset-0 z-[60] flex flex-col justify-end bg-accent-ink/40"
-      onClick={guardedClose}
+      onClick={backdropClose}
     >
       <div
         ref={panelRef}
@@ -1336,8 +1380,20 @@ function ReviewSheet({
           shown ? "translate-y-0" : "translate-y-full",
         )}
       >
-        <div className="flex justify-center pt-2.5">
+        <div className="relative flex justify-center pt-2.5">
           <span aria-hidden="true" className="h-1 w-10 rounded-pill bg-border" />
+          {/* A visible way out (≥44px): the drag handle and backdrop tap were
+              the only closes, and a backdrop tap is ignored mid-note. */}
+          <button
+            type="button"
+            aria-label="Close"
+            data-testid="wha-review-close"
+            disabled={finaleBusy}
+            onClick={guardedClose}
+            className="absolute right-2 top-1 flex h-11 w-11 items-center justify-center rounded-card text-text-muted hover:text-text disabled:opacity-40"
+          >
+            <X aria-hidden="true" className="h-5 w-5" />
+          </button>
         </div>
 
         {mode === "done" || !worker ? (
@@ -1346,7 +1402,8 @@ function ReviewSheet({
                ends by emailing the week to accounts — TIMESHEETS_EMAIL_TO set
                means the send finale owns this slot. */
             <WeeklyCloseoutSendFinale
-              reviewedCount={ids.length}
+              reviewedCount={ids.length - failedCount}
+              failedCount={failedCount}
               weekStart={weekStart}
               weekEnd={weekEnd}
               periodLabel={periodLabel}
@@ -1357,7 +1414,8 @@ function ReviewSheet({
             />
           ) : (
             <WeeklyCloseoutXeroFinale
-              reviewedCount={ids.length}
+              reviewedCount={ids.length - failedCount}
+              failedCount={failedCount}
               weekStart={weekStart}
               weekEnd={weekEnd}
               periodLabel={periodLabel}
@@ -1383,7 +1441,7 @@ function ReviewSheet({
                       />
                     ))}
                   </div>
-                  <span className="font-mono text-[10px] tracking-wide text-text-muted">
+                  <span className="font-mono text-xs tracking-wide text-text-muted">
                     {cursor + 1} of {ids.length}
                   </span>
                 </div>
@@ -1399,7 +1457,7 @@ function ReviewSheet({
                     {worker.loggedHours}
                     <span className="ml-0.5 text-sm font-semibold text-text-muted">h</span>
                   </div>
-                  <div className="mt-1 font-mono text-[9px] uppercase tracking-widest text-text-muted">This week</div>
+                  <div className="mt-1 font-mono text-[10px] uppercase tracking-widest text-text-muted">This week</div>
                 </div>
               </div>
             </div>
@@ -1427,11 +1485,11 @@ function ReviewSheet({
                   <Button
                     variant="danger"
                     className="flex-1"
-                    disabled={!canSendBack}
-                    onClick={sendBack}
+                    disabled={!canSendBack || busy}
+                    onClick={() => void sendBack()}
                   >
                     <RotateCcw aria-hidden="true" className="h-4 w-4" />
-                    Send back
+                    {busy ? "Sending back…" : "Send back"}
                   </Button>
                 </>
               ) : alreadyResolved === "approved" ? (
@@ -1454,17 +1512,18 @@ function ReviewSheet({
                 </>
               ) : (
                 <>
-                  <Button variant="secondary" className="flex-1" onClick={() => setMode("query")}>
-                    <RotateCcw aria-hidden="true" className="h-4 w-4" />
-                    Query
-                  </Button>
                   <Button
+                    variant="secondary"
                     className="flex-1"
-                    disabled={busyIds.includes(worker.workerId)}
-                    onClick={approve}
+                    disabled={busy}
+                    onClick={() => setMode("query")}
                   >
+                    <RotateCcw aria-hidden="true" className="h-4 w-4" />
+                    Send back
+                  </Button>
+                  <Button className="flex-1" disabled={busy} onClick={() => void approve()}>
                     <Check aria-hidden="true" className="h-4 w-4" />
-                    Approve {formatHoursLabel(submittedHoursOf(worker))}
+                    {busy ? "Approving…" : `Approve ${formatHoursLabel(submittedHoursOf(worker))}`}
                   </Button>
                 </>
               )}
@@ -1583,7 +1642,7 @@ function SplitBlock({ label, value, hot }: { label: string; value: number; hot?:
     >
       <div
         className={cn(
-          "font-mono text-[9px] uppercase tracking-widest",
+          "font-mono text-[10px] uppercase tracking-widest",
           hot ? "text-amber-700" : "text-text-muted",
         )}
       >
@@ -1630,7 +1689,7 @@ function DaySheetRow({
       <div className="flex items-center gap-3 px-3 py-2.5">
         <div className="w-10 shrink-0">
           <div className="font-display text-[13px] font-bold text-text">{day.weekday}</div>
-          <div className="font-mono text-[10px] text-text-muted">{num}</div>
+          <div className="font-mono text-xs text-text-muted">{num}</div>
         </div>
         <div className="min-w-0 flex-1">
           {logged ? (
@@ -1639,7 +1698,7 @@ function DaySheetRow({
                 {day.jobLabel ?? "No job"}
                 {tone ? (
                   <Pill tone={tone} className="ml-1.5 align-middle">
-                    {weeklyDayStatusLabel(day.status)}
+                    {officeDayStatusLabel(day.status)}
                   </Pill>
                 ) : null}
               </div>
@@ -1666,7 +1725,7 @@ function DaySheetRow({
             disabled={busy}
             data-testid={`wha-amend-open-${day.date}`}
             aria-label={`Fix the hours for ${day.weekday}`}
-            className="shrink-0 rounded-pill border border-border px-3 py-1.5 font-display text-[12px] font-semibold text-text-muted disabled:opacity-50"
+            className="inline-flex min-h-11 shrink-0 items-center rounded-pill border border-border px-3 font-display text-xs font-semibold text-text-muted disabled:opacity-50"
           >
             Fix
           </button>
@@ -1676,7 +1735,7 @@ function DaySheetRow({
             <>
               <span className="font-display text-[15px] font-bold tabular-nums text-text">{day.hours}</span>
               {long ? (
-                <span className="block font-mono text-[9px] font-semibold uppercase tracking-wide text-amber-700">
+                <span className="block font-mono text-[10px] font-semibold uppercase tracking-wide text-amber-700">
                   long day
                 </span>
               ) : null}

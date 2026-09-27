@@ -108,6 +108,31 @@ describe("Overtime split display (#130)", () => {
   });
 });
 
+describe("Failed load ≠ empty queue (2026-09-26, P7)", () => {
+  it("renders the error card and NOT 'No entries to approve' when the fetch failed", () => {
+    const html = render({ initialEntries: [], fetchError: "API returned 500" });
+    expect(html).toContain("API returned 500");
+    expect(html).toContain("load the queue");
+    expect(html).not.toContain("No entries to approve");
+  });
+
+  it("still renders the honest empty state when the fetch succeeded with nothing pending", () => {
+    const html = render({ initialEntries: [], fetchError: null });
+    expect(html).toContain("No entries to approve");
+  });
+});
+
+describe("Status words (2026-09-26)", () => {
+  it("the per-entry action reads 'Send back', never 'Reject'", () => {
+    const html = render({
+      initialEntries: [entry("a", "Sparky", [{ jobId: "job-1", jobName: "Smith St Rewire", hours: 8 }])],
+      fetchError: null,
+    });
+    expect(html).toContain(">Send back<");
+    expect(html).not.toContain(">Reject<");
+  });
+});
+
 describe("Approve all (#124)", () => {
   it("offers a per-worker Approve all naming the batch size", () => {
     const a = entry("e1", "Sam", [{ jobId: "j1", jobName: "100 Arthur", hours: 8 }]);
@@ -142,15 +167,15 @@ describe("amend at approval time — 'Fix the hours'", () => {
   it("never shows it to a leading hand — changing pay is the office's call", () => {
     const html = render({ initialEntries: [SUBMITTED], fetchError: null });
     expect(html).not.toContain("Fix the hours");
-    // Approve / Reject are untouched for them.
+    // Approve / Send back are untouched for them.
     expect(html).toContain("Approve");
-    expect(html).toContain("Reject");
+    expect(html).toContain("Send back");
   });
 
-  it("keeps Approve and Reject alongside it — the fix is an addition, not a swap", () => {
+  it("keeps Approve and Send back alongside it — the fix is an addition, not a swap", () => {
     const html = render({ initialEntries: [SUBMITTED], fetchError: null, canAmend: true });
     expect(html).toContain(">Approve<");
-    expect(html).toContain(">Reject<");
+    expect(html).toContain(">Send back<");
   });
 });
 
@@ -234,7 +259,7 @@ describe("approve/reject button accessibility (H7/H27)", () => {
     });
     // H27: screen reader hears WHO + WHEN, not a bare "Approve"/"Reject".
     expect(html).toContain('aria-label="Approve 8h for Sparky on');
-    expect(html).toContain('aria-label="Reject 8h for Sparky on');
+    expect(html).toContain('aria-label="Send back 8h for Sparky on');
     // H7: size="sm" gives the 44px phone touch floor (h-11).
     expect(html).toContain("h-11");
   });

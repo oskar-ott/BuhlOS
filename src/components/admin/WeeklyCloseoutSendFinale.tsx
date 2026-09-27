@@ -49,8 +49,10 @@ interface Props {
   weekEnd: string;
   /** Human period label, e.g. "Mon 20 May – Sun 26 May". Display only. */
   periodLabel: string;
-  /** How many workers the boss just stepped through. */
+  /** How many weeks the boss just stepped through AND that landed. */
   reviewedCount: number;
+  /** Weeks whose approval / send-back failed in the stepper — named plainly. */
+  failedCount?: number;
   /** Approved hours per worker, already computed for the crew cards. */
   candidates: ReviewCandidate[];
   /**
@@ -74,6 +76,7 @@ export function WeeklyCloseoutSendFinale({
   weekEnd,
   periodLabel,
   reviewedCount,
+  failedCount = 0,
   candidates,
   outstanding,
   onClose,
@@ -95,6 +98,13 @@ export function WeeklyCloseoutSendFinale({
   );
   const recipients = emailStatus.kind === "loading" ? [] : emailStatus.recipients;
   const lastSent = emailStatus.kind === "ready" ? emailStatus.lastSent : null;
+  // The "already emailed?" check gates the button (2026-09-26 audit): while
+  // it's loading the send waits ("Checking…"); when it FAILED the boss is told
+  // and must tap a second, explicit "Send anyway" — never a blind re-send.
+  // Mirrors the desktop SendTimesheetsCard's unknown-state line.
+  const checking = emailStatus.kind === "loading";
+  const checkUnknown = emailStatus.kind === "unknown";
+  const [sendAnywayArmed, setSendAnywayArmed] = useState(false);
 
   const [stage, setStage] = useState<Stage>("review");
   const [error, setError] = useState<string | null>(null);
@@ -151,6 +161,19 @@ export function WeeklyCloseoutSendFinale({
       onBusyChange?.(false);
     }
   }, [weekStart, weekEnd, onBusyChange, refreshEmailStatus]);
+
+  /** One tap sends — unless the already-emailed check failed, in which case
+   *  the first tap only arms "Send anyway" and the second sends. */
+  const onSendTap = () => {
+    if (checking) return;
+    if (checkUnknown && !sendAnywayArmed) {
+      setSendAnywayArmed(true);
+      return;
+    }
+    void send();
+  };
+  const sendLabel = (idle: string) =>
+    checking ? "Checking…" : checkUnknown && sendAnywayArmed ? "Send anyway" : idle;
 
   if (stage === "sending") {
     return (
@@ -229,17 +252,23 @@ export function WeeklyCloseoutSendFinale({
                   variant="secondary"
                   className="w-full"
                   data-testid="wha-send-accounts"
-                  onClick={send}
+                  disabled={checking}
+                  onClick={onSendTap}
                 >
                   <Mail aria-hidden="true" className="h-4 w-4" />
-                  Send anyway
+                  {sendLabel("Send anyway")}
                 </Button>
               </>
             ) : (
               <>
-                <Button className="w-full" data-testid="wha-send-accounts" onClick={send}>
+                <Button
+                  className="w-full"
+                  data-testid="wha-send-accounts"
+                  disabled={checking}
+                  onClick={onSendTap}
+                >
                   <Mail aria-hidden="true" className="h-4 w-4" />
-                  {lastSent ? "Send a second copy" : "Send to Tia"}
+                  {sendLabel(lastSent ? "Send a second copy" : "Send to Tia")}
                 </Button>
                 <Button variant="ghost" className="w-full text-text-muted" onClick={onClose}>
                   Not now
@@ -256,6 +285,7 @@ export function WeeklyCloseoutSendFinale({
     >
       <ReviewedMark
         count={reviewedCount}
+        failed={failedCount}
         sub={
           plan.rows.length > 0
             ? "Approved hours are ready to email to Tia at accounts."
@@ -267,6 +297,16 @@ export function WeeklyCloseoutSendFinale({
         <Notice tone="danger" title="The email didn&rsquo;t send">
           {error}
         </Notice>
+      ) : null}
+
+      {checkUnknown && plan.rows.length > 0 ? (
+        <div data-testid="wha-send-last-unknown">
+          <Notice tone="warn" title="Couldn&rsquo;t check whether this week was already emailed">
+            {sendAnywayArmed
+              ? "If accounts already has this week, sending again gives them a second copy. Send anyway emails it regardless."
+              : "If accounts already has this week, sending again gives them a second copy. Tap Send once — it turns into Send anyway — and tap again to email it."}
+          </Notice>
+        </div>
       ) : null}
 
       {lastSent && plan.rows.length > 0 ? (

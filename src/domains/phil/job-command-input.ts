@@ -111,7 +111,7 @@ function countVisibleTasks(job: Job): number {
   const preview = buildPhilPreview(job);
   const areaTasks = preview.areas.reduce(
     (n, a) => n + a.roughInTasks.length + a.fitOffTasks.length,
-    0,
+    0
   );
   if (areaTasks > 0) return areaTasks;
   return preview.stages.reduce((n, s) => n + s.jobLevelTaskCount, 0);
@@ -119,7 +119,7 @@ function countVisibleTasks(job: Job): number {
 
 function countTrackedAreaTasks(
   job: Job,
-  taskState: JobTaskState,
+  taskState: JobTaskState
 ): PhilJobCommandInput["tasks"] | null {
   let visible = 0;
   let incomplete = 0;
@@ -149,9 +149,7 @@ function countTagsNeedingRetest(tags: TagItem[]): number {
   return counts.expired + counts.expiring;
 }
 
-export function philJobCommandInputFromJobData(
-  data: PhilJobDataForCommand,
-): PhilJobCommandInput {
+export function philJobCommandInputFromJobData(data: PhilJobDataForCommand): PhilJobCommandInput {
   const { job } = data;
   const errors = data.loadErrors ?? {};
 
@@ -159,11 +157,12 @@ export function philJobCommandInputFromJobData(
     ? { kind: "available" }
     : { kind: "unavailable", reason: "Photo capture is turned off for this job." };
 
-  const plans: PhilJobCommandInput["plans"] = data.features?.plans === false || !moduleEnabled(job, "plans")
-    ? { kind: "not_configured" }
-    : errors.documents
-      ? { kind: "unknown" }
-      : { kind: "count", value: countCurrentDocuments(data.documents ?? []) };
+  const plans: PhilJobCommandInput["plans"] =
+    data.features?.plans === false || !moduleEnabled(job, "plans")
+      ? { kind: "not_configured" }
+      : errors.documents
+        ? { kind: "unknown" }
+        : { kind: "count", value: countCurrentDocuments(data.documents ?? []) };
 
   // Snags + ITPs were deleted with the lean reset: their register, API and
   // job sections are gone, so the signals are permanently `not_configured` —
@@ -177,10 +176,16 @@ export function philJobCommandInputFromJobData(
       ? { kind: "unknown" }
       : { kind: "count", value: countTagsNeedingRetest(data.tags ?? []) };
 
+  // Rejected hours live on the Hours tab / My Day (P9 — they are never hidden
+  // there). The job page's data load does not carry them, so when the caller
+  // passes no count the fact is NOT CONFIGURED here — not "unknown", which
+  // printed "Rejected hours aren't shown on the job screen…" on every job
+  // (2026-09-26 audit; P11: explanatory prose only where there is nothing
+  // else to show).
   const rejectedHours: PhilJobCommandInput["rejectedHours"] =
     typeof data.rejectedHoursForJob === "number"
       ? { kind: "count", value: Math.max(0, Math.trunc(data.rejectedHoursForJob)) }
-      : { kind: "unknown" };
+      : { kind: "not_configured" };
 
   return {
     job: {
@@ -201,7 +206,10 @@ export function philJobCommandInputFromJobData(
       data.features?.tasks === false
         ? { kind: "not_configured" }
         : data.taskState
-          ? countTrackedAreaTasks(job, data.taskState) ?? { kind: "list_only", visible: countVisibleTasks(job) }
+          ? (countTrackedAreaTasks(job, data.taskState) ?? {
+              kind: "list_only",
+              visible: countVisibleTasks(job),
+            })
           : { kind: "list_only", visible: countVisibleTasks(job) },
     rejectedHours,
     // Hours: the job-aware Hours tab when the page provides it (opens with

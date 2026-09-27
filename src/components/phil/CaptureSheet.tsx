@@ -3,17 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronUp, Tag, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import {
-  createEvidence,
-  uploadEvidencePhoto,
-} from "@/domains/evidence/client";
+import { createEvidence, uploadEvidencePhoto } from "@/domains/evidence/client";
 import { EVIDENCE_NOTE_MAX } from "@/domains/evidence/schema";
 import { resizeImageWithMeta } from "@/domains/evidence/service";
 import { isLowLight } from "@/domains/evidence/luma";
-import type {
-  CreateEvidencePayload,
-  EvidenceItem,
-} from "@/domains/evidence/types";
+import type { CreateEvidencePayload, EvidenceItem } from "@/domains/evidence/types";
 import { effectiveTasks, stageLabel, visibleAreaGroups } from "@/domains/jobs/format";
 import type { Job, JobStage } from "@/domains/jobs/types";
 import { CapturePhotoPicker } from "./CapturePhotoPicker";
@@ -179,15 +173,13 @@ export function CaptureSheet({
   // stage/area), while the full picker list stays one tap away. Resolved from
   // the real job; never invented.
   const selectedAreaName = useMemo(
-    () => (areaId ? flatAreas.find((a) => a.id === areaId)?.name ?? null : null),
-    [areaId, flatAreas],
+    () => (areaId ? (flatAreas.find((a) => a.id === areaId)?.name ?? null) : null),
+    [areaId, flatAreas]
   );
   const selectedTaskName = useMemo(() => {
     if (!taskId || !areaId || !stage) return null;
     const area =
-      (job.areaGroups ?? [])
-        .flatMap((g) => g.areas ?? [])
-        .find((a) => a.id === areaId) ?? null;
+      (job.areaGroups ?? []).flatMap((g) => g.areas ?? []).find((a) => a.id === areaId) ?? null;
     if (!area) return null;
     return effectiveTasks(job, area, stage).find((t) => t.id === taskId)?.name ?? null;
   }, [job, taskId, areaId, stage]);
@@ -244,7 +236,10 @@ export function CaptureSheet({
       const photo = await uploadEvidencePhoto(captureJobId, captureDataUrl);
       if (mySignal !== submitSignalRef.current) return;
       if (!photo.ok) {
-        const msg = `Couldn't upload photo (${photo.error.status || "network"}).`;
+        const msg =
+          photo.error.status && photo.error.status >= 400 && photo.error.status < 500
+            ? `The office refused the photo: ${photo.error.message}. It’s still here — check the job and try again.`
+            : "Couldn’t send the photo — check your signal. It’s still here: tap Save again.";
         setPhase({ kind: "failed", message: msg });
         onFailed?.(msg);
         return;
@@ -270,7 +265,8 @@ export function CaptureSheet({
       const created = await createEvidence(captureJobId, payload);
       if (mySignal !== submitSignalRef.current) return;
       if (!created.ok) {
-        const msg = `Photo uploaded but evidence didn't save (${created.error.status || "network"}). Tap Retry.`;
+        const msg =
+          "The photo went up but didn’t file to the job. Tap Save again — it won’t be filed twice.";
         setPhase({ kind: "failed", message: msg });
         onFailed?.(msg);
         return;
@@ -364,8 +360,8 @@ export function CaptureSheet({
               measured luminance (P7). Shown once the resize has a reading. */}
           {dataUrl && isLowLight(avgLuma) ? (
             <PhilNotice tone="warning" role="status" title="Bit dark — try the flash">
-              This photo looks dark. It&rsquo;ll still save — retake with the flash on if you
-              want the office to see more.
+              This photo looks dark. It&rsquo;ll still save — retake with the flash on if you want
+              the office to see more.
             </PhilNotice>
           ) : null}
 

@@ -1,6 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
+import { XERO_SETTINGS_HREF } from "./WeeklyCloseoutXeroFinale";
 
 /**
  * Pay-period payroll DOWNLOADS (#131 / #895) — read-only CSV previews.
@@ -18,13 +20,22 @@ interface Props {
   toDate: string;
   /** Approved hours not yet in a locked batch — shown as context. */
   unexportedApprovedHours: number;
+  /** Workers with approved hours not yet in a locked batch … */
   eligibleWorkerCount: number;
+  /** … and how many of them have no Xero employee link yet. */
   unmappedEligibleWorkerCount: number;
   /** The period still has undecided days — a warning, not a block. */
   notClosed: boolean;
 }
 
-export function PeriodPayrollExport({ fromDate, toDate, unexportedApprovedHours, notClosed }: Props) {
+export function PeriodPayrollExport({
+  fromDate,
+  toDate,
+  unexportedApprovedHours,
+  eligibleWorkerCount,
+  unmappedEligibleWorkerCount,
+  notClosed,
+}: Props) {
   const dryRunBase = `/api/time-entries-export?status=approved&fromDate=${fromDate}&toDate=${toDate}`;
 
   return (
@@ -48,6 +59,26 @@ export function PeriodPayrollExport({ fromDate, toDate, unexportedApprovedHours,
       {unexportedApprovedHours > 0 ? (
         <p className="mt-2 text-xs text-text-muted">
           {unexportedApprovedHours} approved hour(s) in this period aren&rsquo;t in a locked batch yet.
+        </p>
+      ) : null}
+
+      {unmappedEligibleWorkerCount > 0 ? (
+        <p
+          className="mt-2 rounded-card border border-state-warning px-3 py-2 text-xs text-state-warning"
+          role="status"
+          data-testid="period-unmapped-workers"
+        >
+          {unmappedEligibleWorkerCount} of {eligibleWorkerCount}{" "}
+          {eligibleWorkerCount === 1 ? "worker" : "workers"} not linked to Xero yet — the
+          Xero-ready CSV and draft timesheets need the link.{" "}
+          <Link
+            href={XERO_SETTINGS_HREF}
+            data-testid="xero-settings-link"
+            className="font-medium underline underline-offset-2"
+          >
+            Link them in Xero settings
+          </Link>
+          .
         </p>
       ) : null}
 
