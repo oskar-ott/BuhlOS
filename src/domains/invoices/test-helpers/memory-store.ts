@@ -446,6 +446,7 @@ export function createMemoryStore(opts: { tenantId?: string; jobUuids?: Record<s
       store.inbound.push(row);
       return { inserted: true, id: row.id };
     },
+    hasInboundEvent: async (_s: unknown, svixId: string) => store.inbound.some((x) => x.svixId === svixId),
     finishInboundEvent: async (_s: unknown, svixId: string, { status, failureCode }: Row) => {
       const r = store.inbound.find((x) => x.svixId === svixId);
       if (r) Object.assign(r, { status, failureCode: failureCode ?? null, processedAt: now() });

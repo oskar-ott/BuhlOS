@@ -13,11 +13,17 @@ export interface InboundWebhookDeps {
   processOne?: (input: { sql: unknown; tenant: unknown; invoiceId: string }) => Promise<unknown>;
   forward?: (input: { emailId: string; address: string; env: Record<string, string | undefined> }) => Promise<{ ok: boolean; reason?: string; attachments: number }>;
   nowSec?: number;
+  /** Task H: the owner-configured burst limiter for this delivery, or null when off. */
+  burst?: () => Promise<{ limiter: { isLimited: (key: string, now?: number) => boolean; record: (key: string, now?: number) => void; retryAfterSec: (key: string, now?: number) => number }; key: string } | null>;
+  /** Tests: the clock the burst limiter uses (ms). */
+  nowMs?: number;
 }
 
 export interface InboundWebhookResult {
   status: number;
   body: Record<string, unknown>;
+  /** Extra response headers (e.g. `retry-after` on a 429). */
+  headers?: Record<string, string>;
 }
 
 export declare function handleInboundWebhook(input: {

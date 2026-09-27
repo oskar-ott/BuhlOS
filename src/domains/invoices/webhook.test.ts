@@ -202,3 +202,83 @@ describe("inbound webhook — robustness", () => {
     expect(r.status).toBe(400);
   });
 });
+
+describe("inbound webhook — burst limit (Task H, 2026-09-27; off unless the owner sets it)", () => {
+  const { createRateLimiter } = requireFromHere("../../../api/_lib/rate-limit.js");
+  const T0 = 1_700_000_000_000;
+  function limited(max = 2, windowMs = 60_000) {
+    const limiter = createRateLimiter({ windowMs, max });
+    return { burst: async () => ({ limiter, key: "inbound:invoices" }) };
+  }
+  async function deliver(id: string, extra: Record<string, unknown>, nowMs: number) {
+    const body = event({ id: `email_${id}` });
+    return handleInboundWebhook({ rawBody: body, headers: sign(body, `msg_${id}`), env, deps: deps({ ...extra, nowMs }) });
+  }
+
+  it("with no limit configured nothing changes: three deliveries, three receipts", async () => {
+    for (const id of ["a", "b", "c"]) expect((await deliver(id, {}, T0)).status).toBe(200);
+    expect(store.inbound).toHaveLength(3);
+  });
+
+  it("over the limit a NEW delivery is told to retry later (429 + Retry-After), nothing is recorded and nothing fetched", async () => {
+    const l = limited(2);
+    expect((await deliver("a", l, T0)).status).toBe(200);
+    expect((await deliver("b", l, T0 + 1000)).status).toBe(200);
+    const callsBefore = resendCalls.length;
+    const r = await deliver("c", l, T0 + 2000);
+    expect(r.status).toBe(429);
+    expect(r.body).toMatchObject({ error: "rate_limited", retryAfterSec: expect.any(Number) });
+    expect(r.headers).toEqual({ "retry-after": String((r.body as { retryAfterSec: number }).retryAfterSec) });
+    expect(store.inbound).toHaveLength(2);
+    expect(resendCalls.length).toBe(callsBefore);
+  });
+
+  it("a provider retry of a delivery already recorded still answers 200 replay while limited — nothing is lost", async () => {
+    const l = limited(2);
+    await deliver("a", l, T0);
+    await deliver("b", l, T0 + 1000);
+    const r = await deliver("a", l, T0 + 2000);
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ replay: true });
+    expect(store.inbound).toHaveLength(2);
+  });
+
+  it("after the window the throttled delivery lands (the provider's later retry)", async () => {
+    const l = limited(2, 60_000);
+    await deliver("a", l, T0);
+    await deliver("b", l, T0 + 1000);
+    expect((await deliver("c", l, T0 + 2000)).status).toBe(429);
+    const r = await deliver("c", l, T0 + 61_000);
+    expect(r.status).toBe(200);
+    expect(store.inbound).toHaveLength(3);
+  });
+
+  it("unsigned noise never spends quota, and replays never feed the limiter", async () => {
+    const l = limited(2);
+    const body = event({ id: "email_x" });
+    for (let i = 0; i < 5; i++) {
+      const bad = await handleInboundWebhook({ rawBody: body, headers: { ...sign(body, "msg_x"), "svix-signature": "v1,bogus" }, env, deps: deps({ ...l, nowMs: T0 }) });
+      expect(bad.status).toBe(401);
+    }
+    expect((await deliver("a", l, T0)).status).toBe(200);
+    for (let i = 0; i < 5; i++) expect((await deliver("a", l, T0 + 10)).body).toEqual({ replay: true });
+    expect((await deliver("b", l, T0 + 20)).status).toBe(200);
+    expect(store.inbound).toHaveLength(2);
+  });
+
+  it("quarantined deliveries (flag off) are not counted — they cost one insert and are re-ingested by the sweep", async () => {
+    flagOn = false;
+    const l = limited(1);
+    for (const id of ["a", "b", "c"]) {
+      const r = await deliver(id, l, T0);
+      expect(r.status).toBe(200);
+      expect(r.body).toEqual({ quarantined: true });
+    }
+    expect(store.inbound).toHaveLength(3);
+  });
+
+  it("a broken settings read fails open (no limit), never closed", async () => {
+    const r = await deliver("a", { burst: async () => { throw new Error("settings down"); } }, T0);
+    expect(r.status).toBe(200);
+  });
+});
