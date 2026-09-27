@@ -196,16 +196,50 @@ function apiHeaders(apiKey) {
   return { Authorization: `Bearer ${apiKey}` };
 }
 
-async function apiGet(path, { apiKey, fetchImpl }) {
-  const f = fetchImpl || fetch;
-  const res = await withTimeout(f(`${RESEND_API}${path}`, { headers: apiHeaders(apiKey) }), API_TIMEOUT_MS, 'resend api');
-  if (!res.ok) {
-    const err = new Error(`resend api ${res.status}`);
-    err.code = res.status === 404 ? 'provider_not_found' : res.status === 401 || res.status === 403 ? 'provider_auth' : 'provider_error';
-    err.status = res.status;
-    throw err;
+// Resend allows 10 requests a second per team and answers a burst with 429 +
+// retry-after. A catch-up (forty forwards in a minute) is exactly such a
+// burst, so provider calls retry briefly with backoff instead of failing the
+// whole webhook and leaving the receipt for the 15-minute sweep. Bounded so a
+// webhook still finishes inside its ingest budget.
+const RETRY = { attempts: 3, baseMs: 400, maxWaitMs: 3000 };
+
+function retryable(e) {
+  return !!e && (e.status === 429 || (e.status >= 500 && e.status < 600) || e.code === 'timeout');
+}
+
+async function withRetry(fn, opts = {}) {
+  const attempts = opts.attempts || RETRY.attempts;
+  const baseMs = opts.baseMs == null ? RETRY.baseMs : opts.baseMs;
+  const sleep = opts.sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
+  let last;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      last = e;
+      if (!retryable(e) || i === attempts - 1) throw e;
+      const hinted = Number(e.retryAfterMs) || 0;
+      const wait = Math.min(RETRY.maxWaitMs, Math.max(hinted, baseMs * 2 ** i + Math.floor(Math.random() * 150)));
+      await sleep(wait);
+    }
   }
-  return res.json();
+  throw last;
+}
+
+async function apiGet(path, { apiKey, fetchImpl, retry }) {
+  const f = fetchImpl || fetch;
+  return withRetry(async () => {
+    const res = await withTimeout(f(`${RESEND_API}${path}`, { headers: apiHeaders(apiKey) }), API_TIMEOUT_MS, 'resend api');
+    if (!res.ok) {
+      const err = new Error(`resend api ${res.status}`);
+      err.code = res.status === 404 ? 'provider_not_found' : res.status === 401 || res.status === 403 ? 'provider_auth' : res.status === 429 ? 'provider_rate_limited' : 'provider_error';
+      err.status = res.status;
+      const ra = res.headers && typeof res.headers.get === 'function' ? Number(res.headers.get('retry-after')) : NaN;
+      if (Number.isFinite(ra) && ra > 0) err.retryAfterMs = ra * 1000;
+      throw err;
+    }
+    return res.json();
+  }, retry);
 }
 
 /** GET /emails/receiving/{id} — the full received email (metadata + text). */
@@ -223,13 +257,16 @@ function fetchAttachmentMeta(emailId, attachmentId, deps) {
  * byte-capped while streaming). The URL comes from the authenticated API
  * response above — never from the webhook body.
  */
-async function downloadAttachment(downloadUrl, { maxBytes, fetchImpl }) {
+async function downloadAttachment(downloadUrl, { maxBytes, fetchImpl, retry }) {
   let u;
   try { u = new URL(String(downloadUrl)); } catch { const e = new Error('bad download url'); e.code = 'provider_error'; throw e; }
   if (u.protocol !== 'https:') { const e = new Error('download url must be https'); e.code = 'provider_error'; throw e; }
   const f = fetchImpl || fetch;
-  const res = await withTimeout(f(u.toString()), API_TIMEOUT_MS, 'attachment download');
-  if (!res.ok) { const e = new Error(`attachment download ${res.status}`); e.code = 'provider_error'; throw e; }
+  const res = await withRetry(async () => {
+    const r = await withTimeout(f(u.toString()), API_TIMEOUT_MS, 'attachment download');
+    if (!r.ok) { const e = new Error(`attachment download ${r.status}`); e.code = r.status === 429 ? 'provider_rate_limited' : 'provider_error'; e.status = r.status; throw e; }
+    return r;
+  }, retry);
   const declared = Number(res.headers && typeof res.headers.get === 'function' ? res.headers.get('content-length') : 0);
   if (declared && declared > maxBytes) { const e = new Error('attachment too large'); e.code = 'attachment_too_large'; throw e; }
   const chunks = [];
@@ -264,6 +301,8 @@ function inboundConfigured(env = process.env) {
 }
 
 module.exports = {
+  withRetry,
+  RETRY,
   verifySvixSignature,
   parseReceivedEvent,
   matchInboundAddress,

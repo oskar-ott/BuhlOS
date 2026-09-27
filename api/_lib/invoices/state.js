@@ -60,7 +60,7 @@ const REVIEW_REASON_LABELS = {
   negative_amounts: 'The amounts are negative — is this a credit note?',
   image_only: 'This is a photo or scan — enter the details by hand',
   no_attachment: 'The email had no PDF attached — open the link, download the invoice and attach it',
-  forwarded_as_attachment: 'The email was forwarded as an attachment (.eml) — set the mailbox rule to forward normally, then attach the PDF',
+  forwarded_as_attachment: 'The email was forwarded as an attachment (.eml) and nothing usable was inside it — attach the PDF',
   zip_attachment: 'The attachment was a zip — open it and attach the PDF',
   unsupported_attachment: 'The attachment type is not supported — attach the PDF',
   attachment_unreadable: 'The attachment could not be downloaded or read (too large, corrupt, or not really a PDF) — attach the invoice by hand',

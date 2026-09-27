@@ -363,6 +363,38 @@ a day, failed forwards in the last day, and **quiet**: no supplier email for
 `alertQuietDays` days (owner knob, default 7, 0 = never) after the first one
 ever arrived. The Monday digest is unchanged.
 
+### Catching up on past emails (2026-09-27)
+
+Forwarding a backlog is the expected first use. What happens, and the numbers:
+
+- **Turn `invoice_capture` on first.** Deliveries that arrive while it is off
+  are quarantined (nothing fetched) and drained by the sweep 15 per 15 minutes.
+- **Forward normally, one email per forward, or forward-as-attachment.** A
+  plain forward carries the PDF; Outlook's "Forward as attachment" (and
+  selecting several emails and forwarding them together) wraps each original
+  as a `.eml` — the ingest now **unpacks** those (`api/_lib/invoices/eml.js`):
+  every PDF or photo inside becomes its own record with the original subject
+  and sender, keyed `<attachment id>#<n>` so a replay is a no-op. Zips are
+  still a review item.
+- **Speed.** Each email is one webhook: signature check, fetch, download,
+  store, and — for a one-document email — read and matched inline, typically
+  5–15 s, all inside the 60 s route budget. Emails arrive in parallel.
+- **Bursts.** Resend allows 10 API requests a second per team and answers a
+  burst with 429 + `retry-after`; each email costs about three requests. Provider
+  calls retry with backoff (≤ 3 tries, ≤ 3 s waits) so ~20 emails in the same
+  minute still land; beyond that the webhook acks and leaves the receipt
+  `received`, and the sweep re-ingests **15 + 15 every 15 minutes** and reads
+  20 per run. A hundred emails forwarded at once therefore finish within the
+  hour; nothing is lost either way.
+- **Old invoices.** Auto-booking has a lookback (`autoConfirmLookbackDays`,
+  default 90): older invoices never book themselves and wait for a person.
+  Anything already typed into a job's materials ledger will be counted twice
+  once its invoice is confirmed — check the ledger first.
+- **What to expect in the inbox.** Statements, dockets and confirmations sort
+  themselves (set aside / statement check); invoices from a supplier the office
+  has never confirmed wait for the first human Confirm, then that supplier is
+  trusted.
+
 ### External steps still required (none performed by the PR)
 
 1. **Resend:** enable receiving on `buhlos.com` (already a verified sending

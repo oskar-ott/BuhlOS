@@ -70,7 +70,7 @@ export const REVIEW_REASON_LABELS: Record<string, string> = {
   negative_amounts: "The amounts are negative — is this a credit note?",
   image_only: "This is a photo or scan — enter the details by hand",
   no_attachment: "The email had no attachment — the invoice may be behind a link",
-  forwarded_as_attachment: "The email was forwarded as an attachment (.eml) — open it and forward the PDF itself",
+  forwarded_as_attachment: "The email was forwarded as an attachment (.eml) and nothing usable was inside it — attach the PDF",
   zip_attachment: "The attachment is a zip — unpack it and upload the PDF",
   unsupported_attachment: "The attachment is not a PDF or a photo — upload the invoice itself",
   attachment_unreadable: "The attachment could not be downloaded or read (too large, corrupt, or not really a PDF) — attach the invoice by hand",

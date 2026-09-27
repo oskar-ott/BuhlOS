@@ -9,7 +9,10 @@
 //   PDF attachment          → captured, read, matched (the normal case)
 //   image attachment        → captured as a document of kind image → review
 //                             ("photo or scan — enter the details by hand")
-//   .eml (forward-as-attachment), zip, no attachment at all
+//   .eml (forward-as-attachment) → unpacked (eml.js): every PDF / photo inside
+//                             is captured as its own document, keyed
+//                             <attachment id>#<n> so a replay is still a no-op
+//   zip, no attachment at all
 //                           → ONE review item for the email carrying the links
 //                             and an excerpt, with the reason spelled out,
 //                             but only when the email looks like it is about
@@ -21,6 +24,10 @@
 
 const { sanitiseFilenameFor, sniffDocument } = require('./safe-file');
 const { classifyAttachments } = require('./resend-inbound');
+const { parseEml } = require('./eml');
+
+const MAX_EMLS = 10;
+const MAX_PARTS_PER_EML = 10;
 
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 const MAX_LINKS = 5;
@@ -106,13 +113,47 @@ async function ingestReceivedEmail({ sql, tenant, emailId, deps }) {
     }
   }
 
+  // Forwarded-as-attachment emails (Outlook, and "forward several at once"):
+  // unpack each .eml and capture the documents inside it.
+  for (const att of groups.emls.slice(0, MAX_EMLS)) {
+    try {
+      const already = await store.findDocumentByProvider(sql, tenant.id, emailId, `${att.id}#1`);
+      if (already) { skipped.push({ attachmentId: att.id, reason: 'already_captured' }); continue; }
+      const attMeta = await resend.fetchAttachmentMeta(emailId, att.id, { apiKey });
+      if (!attMeta || typeof attMeta.download_url !== 'string') { skipped.push({ attachmentId: att.id, reason: 'no_download_url' }); continue; }
+      const raw = await resend.downloadAttachment(attMeta.download_url, { maxBytes: MAX_ATTACHMENT_BYTES });
+      const inner = parseEml(raw);
+      // the same rule as top-level attachments: inline / tiny images are logos and signatures, not documents
+      const parts = inner.parts.filter((p) => !(/^image\//.test(p.contentType) && (p.inline || p.bytes.length < 40 * 1024))).slice(0, MAX_PARTS_PER_EML);
+      if (!parts.length) { skipped.push({ attachmentId: att.id, reason: 'eml_no_documents' }); continue; }
+      let n = 0;
+      for (const part of parts) {
+        n += 1;
+        const sniff = sniffDocument(part.bytes);
+        if (!sniff) { skipped.push({ attachmentId: `${att.id}#${n}`, reason: 'not_pdf_or_image' }); continue; }
+        const filename = sanitiseFilenameFor(part.filename, sniff.contentType);
+        const digest = sha256(part.bytes);
+        const stored = await storePdf({ tenantSlug: tenant.slug, invoiceId: `email-${att.id}-${n}`, filename, bytes: part.bytes, contentType: sniff.contentType });
+        const result = await store.createInvoiceWithDocument(
+          sql, tenant.id, { ...meta, sourceSubject: inner.subject || subject, sourceFrom: inner.from || from },
+          { source: 'email', kind: sniff.kind, providerEmailId: emailId, providerAttachmentId: `${att.id}#${n}`, filename, contentType: sniff.contentType,
+            byteSize: part.bytes.length, sha256: digest, blobPathname: stored.pathname, blobUrl: stored.url, uploadedBy: null },
+        );
+        if (!result) { skipped.push({ attachmentId: `${att.id}#${n}`, reason: 'already_captured' }); continue; }
+        created.push(result.invoice.id);
+      }
+    } catch (e) {
+      skipped.push({ attachmentId: att.id, reason: String((e && e.code) || 'attachment_failed').slice(0, 40) });
+    }
+  }
+
   // Nothing usable arrived: one review item for the email, if it looks like an invoice.
   let reviewItem = null;
   if (created.length === 0 && !skipped.some((s) => s.reason === 'already_captured')) {
     const links = extractLinks(email.text, email.html);
     const reasons = [];
     if (groups.pdfs.length + groups.images.length > 0) reasons.push('attachment_unreadable');
-    if (groups.emls.length) reasons.push('forwarded_as_attachment');
+    if (groups.emls.length) reasons.push('forwarded_as_attachment'); // unpacked, but nothing usable was inside
     if (groups.zips.length) reasons.push('zip_attachment');
     if (!reasons.length && groups.others.length) reasons.push('unsupported_attachment');
     if (!reasons.length) reasons.push('no_attachment');
@@ -133,7 +174,7 @@ async function ingestReceivedEmail({ sql, tenant, emailId, deps }) {
       skipped.push({ attachmentId: null, reason: 'not_invoice_like' });
     }
   }
-  return { created, skipped, subject, reviewItem, attachmentCount: groups.pdfs.length + groups.images.length };
+  return { created, skipped, subject, reviewItem, attachmentCount: groups.pdfs.length + groups.images.length + groups.emls.length };
 }
 
 module.exports = { ingestReceivedEmail, extractLinks, textExcerpt, looksLikeInvoiceEmail, MAX_ATTACHMENT_BYTES };
