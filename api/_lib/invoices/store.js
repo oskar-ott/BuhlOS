@@ -609,6 +609,64 @@ async function jobSummaries(sql, tenantId, jobLegacyIds) {
   return out;
 }
 
+/** Active, confirmed allocations on ONE job with the invoice facts a manually
+ *  typed ledger line could be duplicating (api/job-materials.js "Possible
+ *  duplicate cost", 2026-09-27). Reversed allocations and invoices that are no
+ *  longer confirmed never appear — they are not a cost. Tenant-scoped, newest
+ *  first, capped so a runaway job cannot stall the check. */
+async function jobActiveAllocations(sql, tenantId, jobLegacyId) {
+  const rows = await sql`
+    select a.invoice_id, a.amount_ex_gst_cents, a.confirmed_at,
+           i.supplier_name, i.supplier_key, i.supplier_invoice_number, i.invoice_date,
+           i.document_type, i.source
+    from public.supplier_invoice_allocations a
+    join public.supplier_invoices i on i.id = a.invoice_id and i.tenant_id = a.tenant_id
+    where a.tenant_id = ${tenantId} and a.job_legacy_id = ${jobLegacyId}
+      and a.status = 'active' and i.status = 'confirmed'
+    order by a.confirmed_at desc
+    limit 500`;
+  return rows.map((r) => ({
+    invoiceId: r.invoice_id,
+    amountCents: cents(r.amount_ex_gst_cents),
+    confirmedAt: iso(r.confirmed_at),
+    supplierName: r.supplier_name,
+    supplierKey: r.supplier_key,
+    supplierInvoiceNumber: r.supplier_invoice_number,
+    invoiceDate: dateOnly(r.invoice_date),
+    documentType: r.document_type,
+    source: r.source,
+  }));
+}
+
+/** Active, confirmed allocations on ONE job with the invoice facts a manually
+ *  typed ledger line could be duplicating (api/job-materials.js "Possible
+ *  duplicate cost", 2026-09-27). Reversed allocations and invoices that are no
+ *  longer confirmed never appear — they are not a cost. Tenant-scoped, newest
+ *  first, capped so a runaway job cannot stall the check. */
+async function jobActiveAllocations(sql, tenantId, jobLegacyId) {
+  const rows = await sql`
+    select a.invoice_id, a.amount_ex_gst_cents, a.confirmed_at,
+           i.supplier_name, i.supplier_key, i.supplier_invoice_number, i.invoice_date,
+           i.document_type, i.source
+    from public.supplier_invoice_allocations a
+    join public.supplier_invoices i on i.id = a.invoice_id and i.tenant_id = a.tenant_id
+    where a.tenant_id = ${tenantId} and a.job_legacy_id = ${jobLegacyId}
+      and a.status = 'active' and i.status = 'confirmed'
+    order by a.confirmed_at desc
+    limit 500`;
+  return rows.map((r) => ({
+    invoiceId: r.invoice_id,
+    amountCents: cents(r.amount_ex_gst_cents),
+    confirmedAt: iso(r.confirmed_at),
+    supplierName: r.supplier_name,
+    supplierKey: r.supplier_key,
+    supplierInvoiceNumber: r.supplier_invoice_number,
+    invoiceDate: dateOnly(r.invoice_date),
+    documentType: r.document_type,
+    source: r.source,
+  }));
+}
+
 // ── automatic booking (docs/invoice-capture.md "Auto-booking") ──────────────
 /** Invoices of this supplier a PERSON confirmed (the trust bootstrap). */
 async function supplierHumanConfirmedCount(sql, tenantId, supplierKey) {
@@ -917,6 +975,8 @@ module.exports = {
   reassignAllocation,
   jobSummary,
   jobSummaries,
+  jobActiveAllocations,
+  jobActiveAllocations,
   insertEvent,
   supplierHumanConfirmedCount,
   supplierConfirmedOnJob,
