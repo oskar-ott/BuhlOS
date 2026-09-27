@@ -7,6 +7,9 @@
 //   GET    /api/invoices                       list (status,supplier,jobId,from,to,q,page,limit)
 //   GET    /api/invoices?id=X                  one invoice (documents, allocation, events, attempts)
 //   GET    /api/invoices?action=setup          inbound configuration + processing state
+//   GET    /api/invoices?action=auto-booking-report&days=90  the automatic-booking SHADOW REPORT: every
+//                                              would-book verdict vs what a person did, per supplier, with the
+//                                              release gate (docs/invoice-capture.md "Automatic booking — shadow report")
 //   GET    /api/invoices?action=jobs&q=        job picker (id, name, code, status)
 //   GET    /api/invoices?action=job-summary&jobId=  a job's confirmed figure + its invoices
 //   GET    /api/invoices?action=document&id=X[&documentId=D]   the original PDF (authed proxy)
@@ -63,6 +66,7 @@ const { getSettings } = require('./_lib/feature-settings');
 const { sendEmail } = require('./_lib/email');
 const { readTimesheetRecipients } = require('./_lib/timesheet-email-settings');
 const { AUTO_ACTOR, buildDigest } = require('./_lib/invoices/auto-confirm');
+const { buildShadowReport, releaseGate } = require('./_lib/invoices/shadow-report');
 const { evaluateAlerts, alertKey, shouldSend, buildAlertEmail } = require('./_lib/invoices/alerts');
 const { writeBlob } = require('./_lib/blob');
 
@@ -310,6 +314,7 @@ async function handler(req, res) {
           invoicesWithoutLines: b.invoicesWithoutLines,
         });
       }
+      if (action === 'auto-booking-report') return res.status(200).json(await autoBookingReport(sql, tenant, q));
       if (action === 'job-summary') {
         const jobId = String(q.jobId || '');
         if (!jobId) return res.status(400).json({ error: 'jobId required' });
@@ -694,6 +699,23 @@ async function bookDueInvoices(sql, tenant) {
 }
 
 /** Monday digest → the accounts recipient list (the same list timesheets go to). */
+/**
+ * Task F (2026-09-27): the automatic-booking shadow comparison for the last
+ * `days` days (7–365, default 90). Read-only; changes no setting. Pure
+ * judging in api/_lib/invoices/shadow-report.js; the gate is a checklist the
+ * owner clears before ever turning the knob on — it never turns it on.
+ */
+async function autoBookingReport(sql, tenant, q) {
+  const days = Math.min(365, Math.max(7, Math.round(Number(q.days)) || 90));
+  const to = new Date();
+  const from = new Date(to.getTime() - days * 86_400_000);
+  const period = { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) };
+  const rows = await store.shadowRows(sql, tenant.id, period);
+  const report = buildShadowReport({ ...rows, ...period, generatedAt: to.toISOString() });
+  const settings = await autoConfirmSettings();
+  return { ...report, days, autoBookingEnabled: settings.enabled === true, gate: releaseGate(report) };
+}
+
 async function digest(req, res) {
   let sql;
   let tenant;
@@ -870,7 +892,10 @@ async function correct(sql, tenant, me, id, body, res) {
   patch.actor = actorOf(me);
   await store.updateInvoiceFields(sql, tenant.id, id, patch);
   const changed = Object.keys(body).filter((k) => ['supplierName', 'supplierInvoiceNumber', 'documentType', 'invoiceDate', 'subtotalCents', 'gstCents', 'totalCents', 'ivReference'].includes(k));
-  await store.insertEvent(sql, tenant.id, id, { event: 'corrected', actor: actorOf(me), detail: { fields: changed, status: patch.status } });
+  // Task F (2026-09-27): keep old → new so the history (and the shadow report) can see what a person changed.
+  const changes = {};
+  for (const k of changed) changes[k] = { from: current[k] === undefined ? null : current[k], to: next[k] === undefined ? null : next[k] };
+  await store.insertEvent(sql, tenant.id, id, { event: 'corrected', actor: actorOf(me), detail: { fields: changed, status: patch.status, changes } });
   const detail = await detailWithJob(sql, tenant, id, jobs);
   await journal(me, 'invoice.corrected', detail.invoice, `Corrected supplier invoice details (${changed.join(', ')})`, { fields: changed });
   return res.status(200).json(detail);

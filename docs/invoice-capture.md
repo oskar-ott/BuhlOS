@@ -495,6 +495,56 @@ unread for a day, no supplier mail for 14 days). No recipients → no email.
 
 Rollout: review-only for two weeks, then knob on with a low cap, then raise.
 
+## Automatic booking — shadow report and release gate (2026-09-27)
+
+Automatic booking stays **off** (owner knob `autoConfirm`, default off). What
+exists instead is evidence: every matched invoice gets a would-book verdict
+(`auto_confirm_eligible` / `auto_confirm_ineligible` / `auto_confirm_scheduled`
+on its history) even in review-only mode, and the **shadow report** compares
+those verdicts with what a person eventually did.
+
+- **Where:** the inbox page, card *"Automatic booking — shadow report"*
+  (`AutoBookingShadowCard`, `GET /api/invoices?action=auto-booking-report&days=30|90|180`,
+  admin tier, read-only — it changes no setting). Pure judging in
+  `api/_lib/invoices/shadow-report.js` (`buildShadowReport`, `releaseGate`);
+  the store supplies the period's invoices, events and allocations
+  (`store.shadowRows`).
+- **What it measures**, per period and per supplier: evaluated (sample size);
+  would-have-booked → agreed / false positives (with reasons: different job,
+  different figures, different supplier, excluded / reversed / marked
+  duplicate / archived by a person) / unresolved; would-have-waited → correct /
+  false negatives (a person booked it **untouched** — the failed check codes
+  are the reason) / unresolved; exact-job, supplier and ex-GST-amount agreement
+  counts (resolved invoices only); human exclusions; human job changes; every
+  disagreement with a link to the invoice; automatic bookings that stood vs
+  were reversed (once the knob is ever on).
+- **Honesty rules:** *no human outcome yet* is **unresolved** — never counted
+  as right or wrong; a verdict recorded before 2026-09-27 carries no snapshot
+  (**legacy**): the job is taken from the `matched` event just before it and
+  the amount from the `under_cap` check when present, anything still unknown
+  is counted as *unknown*, never as agreement; invoices that went straight to
+  review are *never evaluated* and paperwork the reader set aside is *set
+  aside* — both counted apart. From 2026-09-27 the verdict event snapshots
+  the judged job, supplier key and figures, and a `corrected` event records
+  old → new values, so future comparisons are exact.
+- **Release gate** (`releaseGate`, thresholds in `RELEASE_GATE`): a checklist
+  the owner clears before ever turning the knob on — it never turns it on.
+  It requires, over a representative proving period: at least 30 evaluated
+  invoices; at least 80 % with a human outcome; **zero** would-have-booked
+  with a different final job; **zero** with different figures; **zero** false
+  positives and **zero** reversed automatic bookings; verdicts with a snapshot
+  (not only legacy). The sample must include the document kinds the office
+  really receives — invoices, credit notes, receipts from the field and
+  statements — before the numbers mean anything; the card says how many of
+  each kind were never evaluated or set aside.
+- **After the gate:** enable **supplier by supplier** (the card lists the
+  suppliers with ≥ 5 clean, resolved decisions — the evidence for that
+  choice; a per-supplier switch is not built today, only per-supplier "always
+  review"), keep the cap, keep the weekly digest, and re-read this report
+  every week; **rollback is immediate** — the knob off stops every scheduled
+  booking (`bookDueInvoices` re-checks the knob), and any automatic booking is
+  reversible from the invoice (Move / Exclude / Archive reverse the cost).
+
 ## Security
 
 Admin tier on every read and write (`requireAuth` + `isAdminRole`); flag 404s

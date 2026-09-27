@@ -14,6 +14,8 @@ import {
   type InvoiceSetup,
   type JobInvoiceSummary,
   type JobSummary,
+  ShadowReportSchema,
+  type ShadowReport,
 } from "./schema";
 
 /**
@@ -134,3 +136,7 @@ export const holdInvoice = (id: string) => act("hold", id);
 export const attachInvoiceDocument = (id: string, input: { filename: string; dataUrl: string }) =>
   act("attach", id, input, 60_000);
 export const setSupplierAlwaysReview = (id: string, alwaysReview: boolean) => act("supplier-pref", id, { alwaysReview });
+
+/** Task F: the automatic-booking shadow report for the last `days` days (read-only). */
+export const autoBookingReport = (days: number) =>
+  httpGet<ShadowReport>(`${BASE}?action=auto-booking-report&days=${encodeURIComponent(String(days))}`, { schema: ShadowReportSchema, timeoutMs: 30_000 });

@@ -718,6 +718,38 @@ async function digestStats(sql, tenantId, { since }) {
   };
 }
 
+/** Everything the automatic-booking SHADOW REPORT needs for one period
+ *  (remediation Task F, 2026-09-27): the invoices created in it, ALL their
+ *  events and allocations — three bulk, tenant-scoped reads. The judging is
+ *  pure (api/_lib/invoices/shadow-report.js). Capped so a long period cannot
+ *  stall the request; the report says how many invoices it looked at. */
+async function shadowRows(sql, tenantId, { from, to, limit = 2000 }) {
+  const invoices = await sql`
+    select * from public.supplier_invoices
+    where tenant_id = ${tenantId}
+      and created_at >= ${from}::date
+      and created_at < (${to}::date + interval '1 day')
+    order by created_at desc
+    limit ${limit}`;
+  const ids = invoices.map((r) => r.id);
+  if (!ids.length) return { invoices: [], events: [], allocations: [] };
+  const [events, allocations] = await Promise.all([
+    sql`select invoice_id, event, actor_legacy_id, actor_name, actor_role, detail, created_at
+        from public.supplier_invoice_events
+        where tenant_id = ${tenantId} and invoice_id in ${sql(ids)}
+        order by created_at`,
+    sql`select invoice_id, job_legacy_id, amount_ex_gst_cents, status, confirmed_by_legacy_id, confirmed_at, reversal_reason
+        from public.supplier_invoice_allocations
+        where tenant_id = ${tenantId} and invoice_id in ${sql(ids)}
+        order by created_at`,
+  ]);
+  return {
+    invoices: invoices.map(invoiceRow),
+    events: events.map((e) => ({ invoiceId: e.invoice_id, event: e.event, actorId: e.actor_legacy_id, actor: e.actor_name, actorRole: e.actor_role, detail: json(e.detail, {}), at: iso(e.created_at) })),
+    allocations: allocations.map((a) => ({ invoiceId: a.invoice_id, jobId: a.job_legacy_id, amountCents: cents(a.amount_ex_gst_cents), status: a.status, confirmedByLegacyId: a.confirmed_by_legacy_id, confirmedAt: iso(a.confirmed_at), reversalReason: a.reversal_reason })),
+  };
+}
+
 // ── line items + material categories ────────────────────────────────────────
 function lineRow(r) {
   return {
@@ -917,6 +949,7 @@ module.exports = {
   reassignAllocation,
   jobSummary,
   jobSummaries,
+  shadowRows,
   insertEvent,
   supplierHumanConfirmedCount,
   supplierConfirmedOnJob,
