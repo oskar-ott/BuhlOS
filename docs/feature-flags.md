@@ -27,8 +27,8 @@ Non-protected feature flags also carry presentation metadata (`label`, `domain`,
 
 | Flag | Kind | Target | Expires | What it gates |
 |---|---|---|---|---|
-| `supabase_dual_write` | launch-gate | global | 2026-09-30 | Mirror blob writes into Supabase per migrated domain (#152) |
-| `admin_flags_readout` | launch-gate | admin-tier | 2026-09-30 | The active-flags readout card on /command-centre |
+| `supabase_dual_write` | launch-gate | global | 2026-10-31 | Mirror blob writes into Supabase per migrated domain (#152) |
+| `admin_flags_readout` | launch-gate | admin-tier | 2026-10-31 | The active-flags readout card on /command-centre |
 | `signup_link` | launch-gate | global | 2027-06-30 | Crew sign-up link — shareable `/onboarding/<code>` for the group chat; public `api/signup.js` (resolve/submit), admin link + review queue on `/employees` (`api/employees.js?action=signup*`). A submission is pending until an admin approves (approval = account + welcome email E5); default OFF |
 | `itp_simple` | launch-gate | global | 2026-12-31 | Simple mobile ITP builder in Phil (#912, lean-reset step 6) — job-scoped areas + photos rendered to a plain PDF at `/phil/jobs/[jobId]/itp-reports` + `api/itp-simple`. Metadata Supabase-first, binaries in Blob; default OFF |
 | `job_materials_spend` | launch-gate | admin-tier | 2026-11-30 | Per-job **materials spend ledger** on the admin job hub (owner pull 2026-08-23): date / supplier / amount ex GST typed by the office, feeding the Money card's Materials figure through `api/job-profitability` (`materialSource: 'ledger'`). `api/job-materials.js` + the hub Materials card (`docs/job-materials-spend.md`); default OFF |
@@ -149,6 +149,21 @@ raw `flags.json` blob to a client.
 
 Unknown flag names **throw** at runtime and fail typecheck (`FlagKey` union)
 — a typo can't silently resolve to off.
+
+## Expiry decisions due
+
+An expiry is a cleanup nag, not a kill date: the guard fails the build, a
+person decides. Extending one is allowed only with the decision it is waiting
+for written down here.
+
+| Flag | Was | Now | Why not removed yet | Decision needed before the new date |
+|---|---|---|---|---|
+| `supabase_dual_write` | 2026-09-30 | 2026-10-31 | Still load-bearing code, not dead: `api/_lib/hours-mirror.js` (the synchronous hours mirror runs when this OR `supabase_source_hours` is on), `api/_lib/user-mirror.js` (user-profile mirror) and `api/internal/sync-checks/hours.js` all branch on it. Removing it means choosing whether the mirror is always-on or gone — a data-plane decision (`docs/architecture/supabase-served-source-roadmap.md`), and its effective production state cannot be read from the repository. | Owner + data-plane: retire the flag by making the hours/user mirror unconditional (it becomes plain code), or delete the mirror. Either way a runtime PR, reviewed. |
+| `admin_flags_readout` | 2026-09-30 | 2026-10-31 | Gates the active-flags readout card on `/command-centre` (`src/app/(admin)/command-centre/page.tsx`). Since #760 the Owner Console shows every flag's resolved state and source, so the card may be redundant — but deleting it is a user-visible change and the owner has not said whether the command-centre readout is still wanted. | Owner: keep the card (then make it plain code or a kill-switch) or delete the card and the flag together. |
+
+Extended 2026-09-27 (remediation Task B). Neither change touches a default,
+a target or runtime resolution — `expires` is read only by `check:flag-expiry`
+and the Owner Console's expiry classification.
 
 ## Conventions
 
