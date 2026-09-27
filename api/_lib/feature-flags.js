@@ -70,7 +70,7 @@ const REGISTRY = {
     description: 'Mirror blob writes into Supabase per migrated domain (#152).',
     default: false,
     target: 'global',
-    expires: '2026-09-30',
+    expires: '2026-10-31',
   },
   // Jobs/tasks STRUCTURE dual-write (J8): when on, a jobs.json structure write
   // (create / edit / bulk-edit / publish) ALSO mirrors that ONE job's
@@ -285,7 +285,7 @@ const REGISTRY = {
     description: 'Show the active-flags readout card on /command-centre (admin tier only).',
     default: false,
     target: 'admin-tier',
-    expires: '2026-09-30',
+    expires: '2026-10-31',
   },
 
   // Daily ServiceM8 → BuhlOS job sync. A cron pulls the active 'Work Order'
