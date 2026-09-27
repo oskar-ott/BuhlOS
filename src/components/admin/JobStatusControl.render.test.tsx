@@ -39,7 +39,11 @@ describe("JobStatusControl — lifecycle words (docs/job-lifecycle.md)", () => {
     expect(closed).toContain("Closed");
     const finishing = renderToString(
       createElement(JobStatusControl, {
-        job: { id: "j1", status: "complete", completedAt: new Date(Date.now() - 86_400_000).toISOString() },
+        job: {
+          id: "j1",
+          status: "complete",
+          completedAt: new Date(Date.now() - 86_400_000).toISOString(),
+        },
         canEdit: false,
       })
     );
@@ -52,5 +56,33 @@ describe("JobStatusControl — lifecycle words (docs/job-lifecycle.md)", () => {
       createElement(JobStatusControl, { job: { id: "j1", status: "active" }, canEdit: true })
     );
     expect(html).not.toContain("job-status-confirm");
+  });
+});
+
+import { STATUS_PANEL_CLASS } from "./JobStatusControl";
+
+/**
+ * Office on a phone (owner pull 2026-09-27): the dropdown was anchored inside
+ * the hero card's overflow-hidden box, so on a phone the last choices (Draft,
+ * Archived) were clipped off and unreachable. Below `sm` the menu + confirm
+ * step are a fixed bottom sheet (escapes the clip, sits above the tab bar);
+ * `sm`+ keeps the anchored dropdown. The panels only mount on interaction, so
+ * this pins the shared geometry class the two panels render with.
+ */
+describe("JobStatusControl — phone bottom sheet", () => {
+  it("the panels are a fixed bottom sheet on phones and the anchored dropdown from sm up", () => {
+    expect(STATUS_PANEL_CLASS).toContain("fixed inset-x-0 bottom-0 z-50");
+    expect(STATUS_PANEL_CLASS).toContain("sm:absolute");
+    expect(STATUS_PANEL_CLASS).toContain("sm:right-0");
+    // Above the mobile tab bar (z-30) and safe-area padded.
+    expect(STATUS_PANEL_CLASS).toContain("safe-area-inset-bottom");
+  });
+
+  it("the pill trigger carries a 44px hit area on phones without moving the pill", () => {
+    const html = renderToString(
+      createElement(JobStatusControl, { job: { id: "j1", status: "active" }, canEdit: true })
+    );
+    expect(html).toContain("min-h-[44px]");
+    expect(html).toContain("sm:min-h-0");
   });
 });

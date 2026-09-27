@@ -2,9 +2,10 @@
 
 > Status: **engine, real.** Pure derivation in
 > [`src/domains/jobs/job-health.ts`](../src/domains/jobs/job-health.ts)
-> (`deriveJobHealth`). No UI yet — the jobs list / hub badge is a follow-up that
-> renders this. Sibling of [`attention.ts`](../src/domains/jobs/attention.ts):
-> attention LISTS the backlog, health CLASSIFIES it.
+> (`deriveJobHealth`), rendered by the jobs list cards (#227 / Job Detail
+> Variants) and the hub's health band. Sibling of
+> [`attention.ts`](../src/domains/jobs/attention.ts): attention LISTS the
+> backlog, health CLASSIFIES it.
 
 ## Inputs (real signals only)
 
@@ -34,3 +35,27 @@ backlog (evidence + snags + ITPs combined) tips a job from `watch` to `at-risk`
 even with no hard breach. Conservative and named so it tunes in one place — not a
 magic number in a branch. A hard signal trips `at-risk` on its own regardless of
 this value.
+
+## How the jobs list words it (2026-09-27, owner pull: an accurate phone overview)
+
+The level drives the filter pills, the "needs me first" sort and the
+"N need attention" count — unchanged. What the **card line** says is decided
+separately by `jobCardVerdict` in
+[`src/domains/jobs/portfolio.ts`](../src/domains/jobs/portfolio.ts), so the
+list can never contradict the status pill beside it:
+
+| Job | Card line |
+|---|---|
+| any phase with a real backlog | `Watch · 3 evidence to review` (the health word + the top reason) |
+| active, all clear | `On track · nothing needs you` |
+| active, no stat loaded | `No data · health starts when hours or photos come in` |
+| on hold, nothing outstanding | `Paused — nothing to review` |
+| finished, inside the callback window | `Finished 21 Sep · crew can log until 21 Oct` |
+| closed | `Closed 13 Aug · still takes callback hours` |
+| draft | `Not published yet — the crew can't see it` |
+| archived | `Archived — office history only` |
+
+"On track · nothing needs you" on a draft or a paused job was theatre (P7), so
+the health word appears only where health is the read. The phone facts line
+under it (`jobCardFacts`) prints only real facts — contract value, crew,
+task progress when the job has tasks, when it last moved — never a "—".
