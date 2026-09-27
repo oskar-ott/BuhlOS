@@ -5,7 +5,8 @@ import { Card } from "@/components/ui/Card";
 import { JobCrewNames } from "@/components/admin/JobCrewNames";
 import { lifecycleLine } from "@/domains/jobs/lifecycle";
 import { JobStatusControl } from "@/components/admin/JobStatusControl";
-import { deriveJobHealth, type JobHealthLevel } from "@/domains/jobs/job-health";
+import { deriveJobHealth } from "@/domains/jobs/job-health";
+import { jobCardVerdict, type JobCardVerdictTone } from "@/domains/jobs/portfolio";
 import { healthLabel } from "@/domains/jobs/job-health-list";
 import { relativeWhen } from "@/domains/jobs/format";
 import { pctWidthClass } from "@/components/admin/pct-width";
@@ -34,20 +35,23 @@ import type { Job } from "@/domains/jobs/types";
  *   src/components/admin/JobsList.tsx — the list-side rendering of the same read
  */
 
-const VERDICT_CHIP: Record<JobHealthLevel, { chip: string; dot: string }> = {
-  "at-risk": {
+/** Chip + dot per verdict tone. The wording (health word, or the phase
+ *  sentence for a paused / finished / draft job with nothing outstanding) is
+ *  the same jobCardVerdict the list cards use, so list→detail never disagree. */
+const VERDICT_CHIP: Record<JobCardVerdictTone, { chip: string; dot: string }> = {
+  danger: {
     chip: "border-state-danger-subtle-border bg-state-danger-subtle-bg text-state-danger-subtle-text",
     dot: "bg-state-danger-dot",
   },
-  watch: {
+  warning: {
     chip: "border-state-warning-subtle-border bg-state-warning-subtle-bg text-state-warning-subtle-text",
     dot: "bg-state-warning-dot",
   },
-  good: {
+  success: {
     chip: "border-state-success-subtle-border bg-state-success-subtle-bg text-state-success-subtle-text",
     dot: "bg-state-success-dot",
   },
-  unknown: {
+  neutral: {
     chip: "border-state-neutral-subtle-border bg-state-neutral-subtle-bg text-state-neutral-subtle-text",
     dot: "bg-state-neutral-dot",
   },
@@ -67,7 +71,11 @@ export function JobHealthBand({
   const idParts = [job.code, job.ref ? `Ref ${job.ref}` : null, job.typeName].filter(Boolean);
   const address = (job.siteAddress ?? "").trim();
   const crewKnown = typeof job.statsCrewCount === "number";
-  const verdict = VERDICT_CHIP[health.level];
+  // The health word where health is the read (active work, or a real backlog);
+  // otherwise the phase sentence — a draft is "not published yet", not "On
+  // track" (P7; the list card says the same, jobCardVerdict).
+  const verdictWords = jobCardVerdict(job, health);
+  const verdict = VERDICT_CHIP[verdictWords.tone];
 
   const tasksLabel =
     typeof job.statsTasksTotal === "number" && typeof job.statsTasksComplete === "number"
@@ -131,13 +139,20 @@ export function JobHealthBand({
         <div className="mt-5 flex flex-wrap items-center justify-between gap-4 border-t border-border pt-5">
           <div className="flex flex-wrap items-center gap-3">
             <span
+              data-testid="job-verdict-chip"
               className={cn(
-                "inline-flex items-center gap-2 rounded-[6px] border px-4 py-2 font-display text-[19px] font-bold leading-none",
+                "inline-flex items-center gap-2 rounded-[6px] border px-4 py-2 leading-none",
+                verdictWords.label
+                  ? "font-display text-[19px] font-bold"
+                  : "text-sm font-medium leading-snug",
                 verdict.chip
               )}
             >
-              <span aria-hidden="true" className={cn("h-2.5 w-2.5 rounded-pill", verdict.dot)} />
-              {healthLabel(health.level)}
+              <span
+                aria-hidden="true"
+                className={cn("h-2.5 w-2.5 shrink-0 rounded-pill", verdict.dot)}
+              />
+              {verdictWords.label ?? verdictWords.caption ?? healthLabel(health.level)}
             </span>
             {health.reasons.map((reason) => {
               const href =

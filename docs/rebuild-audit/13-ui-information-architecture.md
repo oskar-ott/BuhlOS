@@ -8,7 +8,14 @@
 
 ### BuhlOS Admin
 
-- **Desktop-first.** Minimum supported width 1280px. Mobile layout is "view-only" — admin actions require a real screen.
+- **Desktop-first.** Minimum supported width 1280px. *Amended 2026-09-27
+  (owner pull, "office on a phone"):* the phone layout is no longer view-only.
+  The boss's recurring office jobs — reading the jobs overview, changing a
+  job's status, fixing its name / address / site notes in the builder's Basics
+  tab, approving the week's hours — must work from a phone: whole-card tap
+  targets, bottom sheets instead of dropdowns, the save action pinned in thumb
+  reach, one-row filter strips. Dense build work (structure, scope, plans) stays
+  desktop-first and is reachable, not redesigned, on a phone.
 - **Horizontal top-nav primary nav** *(amended 2026-07-26 by the owner's lean-reset replica; previously "left sidebar primary nav")*: one white top bar — bühl wordmark, nav pills (active = navy pill), search + settings gear + sign-out + a static viewer-initials avatar. No hamburger. Below `md` the bottom tab bar remains the primary nav.
 - **Action / control-centre orientation.** The home is *queues that need a decision*, not vanity cards.
 - **Operational queues, not vanity KPIs.** "Pending hours" is a queue; "% jobs on time" is a vanity chart. Vanity comes in Phase F reports when there's real data.

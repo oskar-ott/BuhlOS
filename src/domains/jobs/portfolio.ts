@@ -1,5 +1,8 @@
 import type { Job } from "./types";
-import { deriveJobHealth, type JobHealth } from "./job-health";
+import { deriveJobHealth, type JobHealth, type JobHealthLevel } from "./job-health";
+import { healthLabel } from "./job-health-list";
+import { graceEndsAt, jobPhase, shortDay } from "./lifecycle";
+import { lastActivityCaption } from "./format";
 
 /**
  * Jobs portfolio view-model (brief §3). Pure projections over the jobs the
@@ -143,10 +146,8 @@ export interface JobCardMeta {
  * A missing signal yields "—" (with the *Known flag false), never a fake 0.
  */
 export function jobCardMeta(job: Job): JobCardMeta {
-  const hasValue =
-    typeof job.contractValue === "number" && Number.isFinite(job.contractValue);
-  const hasCrew =
-    typeof job.statsCrewCount === "number" && Number.isFinite(job.statsCrewCount);
+  const hasValue = typeof job.contractValue === "number" && Number.isFinite(job.contractValue);
+  const hasCrew = typeof job.statsCrewCount === "number" && Number.isFinite(job.statsCrewCount);
   return {
     value: hasValue ? formatContractValue(job.contractValue as number) : "—",
     valueKnown: hasValue,
@@ -173,4 +174,139 @@ export function buildJobCard(job: Job, health: JobHealth): JobCardVM {
 /** Convenience for callers that have only the job (derives health here). */
 export function buildJobCardFromJob(job: Job): JobCardVM {
   return buildJobCard(job, deriveJobHealth(job));
+}
+
+/* ---------------------------------------------------------------------------
+ * The card's one verdict line + the phone facts line (owner pull 2026-09-27:
+ * "an accurate overview of jobs on the phone"). Pure so the wording is
+ * unit-tested; the card only renders what comes back.
+ * ------------------------------------------------------------------------- */
+
+export type JobCardVerdictTone = "danger" | "warning" | "success" | "neutral";
+
+export interface JobCardVerdict {
+  /** The bold health word (At risk / Watch / On track / No data) when health is
+   *  the right read: an ACTIVE job, or any real backlog on any phase. Null for a
+   *  paused / finished / closed / draft / archived job with nothing outstanding
+   *  — the line is then the phase sentence alone, because "On track · nothing
+   *  needs you" on a draft or a paused job is theatre, not truth (P7). */
+  label: string | null;
+  /** Drives the dot: the health tone, or the phase tone for a sentence line. */
+  tone: JobCardVerdictTone;
+  /** The words after the label — or the whole line when `label` is null. */
+  caption: string | null;
+}
+
+const LEVEL_TONE: Record<JobHealthLevel, JobCardVerdictTone> = {
+  "at-risk": "danger",
+  watch: "warning",
+  good: "success",
+  unknown: "neutral",
+};
+
+/**
+ * What the card says under the name. The health derivation is untouched (it
+ * still drives the pills, the sort and the "N need attention" count); this only
+ * decides the WORDS, so the list can't contradict the status pill beside it:
+ *
+ *   backlog on any phase   → "Watch · 3 evidence to review"       (health)
+ *   active, all clear      → "On track · nothing needs you"        (health)
+ *   active, no stat loaded → "No data · health starts when …"      (health)
+ *   on hold                → "Paused — nothing to review"           (sentence)
+ *   finished (in window)   → "Finished 21 Sep · crew can log until 21 Oct"
+ *   closed                 → "Closed 13 Aug · still takes callback hours"
+ *   draft                  → "Not published yet — the crew can't see it"
+ *   archived               → "Archived — office history only"
+ */
+export function jobCardVerdict(
+  job: Pick<Job, "status" | "completedAt">,
+  health: JobHealth,
+  now: Date = new Date()
+): JobCardVerdict {
+  const top = health.reasons[0];
+  if (top) {
+    return {
+      label: healthLabel(health.level),
+      tone: LEVEL_TONE[health.level],
+      caption: `${top.count} ${top.label.toLowerCase()}`,
+    };
+  }
+  const phase = jobPhase(job, now);
+  switch (phase) {
+    case "active": {
+      if (health.level === "unknown") {
+        return {
+          label: healthLabel("unknown"),
+          tone: "neutral",
+          caption: "health starts when hours or photos come in",
+        };
+      }
+      return {
+        label: healthLabel(health.level),
+        tone: LEVEL_TONE[health.level],
+        caption: "nothing needs you",
+      };
+    }
+    case "on_hold":
+      return { label: null, tone: "warning", caption: "Paused — nothing to review" };
+    case "finishing": {
+      const finished = shortDay(job.completedAt);
+      const until = shortDay(graceEndsAt(job));
+      return {
+        label: null,
+        tone: "neutral",
+        caption: `Finished${finished ? ` ${finished}` : ""}${until ? ` · crew can log until ${until}` : ""}`,
+      };
+    }
+    case "closed": {
+      const finished = shortDay(job.completedAt);
+      return {
+        label: null,
+        tone: "neutral",
+        caption: `Closed${finished ? ` ${finished}` : ""} · still takes callback hours`,
+      };
+    }
+    case "draft":
+      return { label: null, tone: "neutral", caption: "Not published yet — the crew can't see it" };
+    case "archived":
+      return { label: null, tone: "neutral", caption: "Archived — office history only" };
+  }
+}
+
+function finite(v: number | null | undefined): number | undefined {
+  return typeof v === "number" && Number.isFinite(v) ? v : undefined;
+}
+
+/**
+ * The phone facts line — only what is real for this job, in reading order:
+ * contract value (admin-tier; the object's own figure, else the streamed one),
+ * crew ("Crew 3", or "No crew" when the count is a real 0), task progress only
+ * when the job has tasks, and when it last moved. An absent fact is simply not
+ * there: a lean job never reads "Tasks —", an unpriced one never "$—" (P7).
+ */
+export function jobCardFacts(
+  job: Pick<
+    Job,
+    | "contractValue"
+    | "statsCrewCount"
+    | "statsTasksTotal"
+    | "statsTasksComplete"
+    | "updatedAt"
+    | "createdAt"
+  >,
+  opts: { contractValue?: number; tasksTotal?: number; tasksComplete?: number; now?: Date } = {}
+): string[] {
+  const facts: string[] = [];
+  const value = finite(job.contractValue) ?? finite(opts.contractValue);
+  if (value !== undefined) facts.push(formatContractValue(value));
+  const crew = finite(job.statsCrewCount);
+  if (crew !== undefined) facts.push(crew > 0 ? `Crew ${crew}` : "No crew");
+  const total = finite(job.statsTasksTotal) ?? finite(opts.tasksTotal);
+  const complete = finite(job.statsTasksComplete) ?? finite(opts.tasksComplete);
+  if (total !== undefined && complete !== undefined && total > 0) {
+    facts.push(`Tasks ${Math.round((complete / total) * 100)}%`);
+  }
+  const when = lastActivityCaption(job, opts.now);
+  if (when) facts.push(when);
+  return facts;
 }

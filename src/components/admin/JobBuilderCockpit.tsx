@@ -1,4 +1,6 @@
-import type { ReactNode } from "react";
+"use client";
+
+import { useEffect, useRef, type ReactNode } from "react";
 import { AlertTriangle, CheckCircle2, ClipboardList } from "lucide-react";
 import type { BuilderReadiness } from "@/domains/jobs/builder";
 import { StatusChip, type StatusTone } from "@/components/ui/StatusChip";
@@ -14,10 +16,17 @@ import { cn } from "@/lib/cn";
  * Presentational only — it owns no builder state. JobBuilderClient passes the
  * real readiness model (buildBuilderReadiness over the SAVED job), the nav with
  * per-section status, the active section node as `canvas`, and the Inspector as
- * `inspector`. Responsive: the rail stacks above the canvas on small screens
- * (its nav wraps like the old tab row); the inspector is a wide-screen companion
- * (xl+) — on narrower screens its content (the publish/readiness detail) is
- * still reachable via the Publish section, so nothing is lost.
+ * `inspector`. Responsive: the rail stacks above the canvas below `lg`; the
+ * inspector is a wide-screen companion (xl+) — on narrower screens its content
+ * (the publish/readiness detail) is still reachable via the Publish section, so
+ * nothing is lost.
+ *
+ * Office on a phone (owner pull 2026-09-27): below `sm` the eleven section
+ * buttons no longer wrap into four rows of chrome above the form — they run as
+ * ONE row that scrolls sideways (the active section scrolled into view on
+ * mount), and the readiness meter collapses from two tiles to one tappable
+ * line. The section itself (the Basics form the boss came to edit) is then on
+ * the first screen. `sm`–`lg` wraps as before; `lg`+ is the column rail.
  */
 
 export type CockpitSectionStatus = "block" | "warn" | "ok" | "none";
@@ -99,6 +108,17 @@ export function JobBuilderCockpit({
   const warnCount = scored.filter((i) => i.status === "warn").length;
   const blockCount = scored.filter((i) => i.status === "block").length;
   const railTone: BarTone = blockCount > 0 ? "danger" : warnCount > 0 ? "warning" : "success";
+  // Phone strip: bring the active section into view once on mount (a hub
+  // deep-link like ?tab=publish lands past the strip's right edge otherwise).
+  // No-op on lg+ where the rail is a column with every section visible.
+  const activeRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    if (typeof window === "undefined" || window.matchMedia("(min-width: 1024px)").matches) return;
+    activeRef.current?.scrollIntoView({ block: "nearest", inline: "center" });
+    // Mount only — later taps are on a visible button by definition.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[15rem_minmax(0,1fr)] xl:grid-cols-[15rem_minmax(0,1fr)_19rem]">
       {/* LEFT — readiness meter + section nav */}
@@ -125,7 +145,20 @@ export function JobBuilderCockpit({
               </p>
             </div>
           ) : null}
-          <div className="mt-3 grid grid-cols-2 gap-2">
+          {/* Phone: the two tiles become one tappable line (same target — the
+              Publish section owns the detail). */}
+          <button
+            type="button"
+            onClick={onMeterClick}
+            data-testid="cockpit-readiness-compact"
+            className="mt-2 flex min-h-[44px] w-full items-center justify-between gap-3 rounded-card border border-border bg-surface-subtle px-3 text-left transition-colors hover:border-border-strong lg:hidden"
+          >
+            <span className="font-mono text-[12px] text-text-muted">
+              {`${plural(readiness.blockingCount, "blocker")} · ${plural(readiness.warningCount, "warning")}`}
+            </span>
+            <span className="shrink-0 text-xs font-medium text-brand-navy">Publish →</span>
+          </button>
+          <div className="mt-3 hidden grid-cols-2 gap-2 lg:grid">
             <button
               type="button"
               onClick={onMeterClick}
@@ -173,14 +206,17 @@ export function JobBuilderCockpit({
                 {reviewCount}
               </span>
             ) : (
-              <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-state-success" aria-label="All triaged" />
+              <CheckCircle2
+                className="h-3.5 w-3.5 shrink-0 text-state-success"
+                aria-label="All triaged"
+              />
             )}
           </button>
         ) : null}
 
         <nav
           aria-label="Job builder sections"
-          className="flex flex-wrap gap-1 rounded-card border border-border bg-surface p-1 lg:flex-col lg:flex-nowrap"
+          className="flex gap-1 overflow-x-auto rounded-card border border-border bg-surface p-1 sm:flex-wrap sm:overflow-visible lg:flex-col lg:flex-nowrap"
         >
           {nav.map((group) => (
             <div key={group.heading} className="contents lg:block">
@@ -190,12 +226,13 @@ export function JobBuilderCockpit({
               {group.items.map((item) => (
                 <button
                   key={item.key}
+                  ref={activeKey === item.key ? activeRef : undefined}
                   type="button"
                   data-testid={item.testId}
                   aria-current={activeKey === item.key ? "page" : undefined}
                   onClick={() => onSelect(item.key)}
                   className={cn(
-                    "flex items-center gap-2 rounded-card px-3 py-1.5 text-left text-sm font-medium transition-colors lg:w-full",
+                    "flex min-h-[44px] shrink-0 items-center gap-2 whitespace-nowrap rounded-card px-3 py-1.5 text-left text-sm font-medium transition-colors sm:min-h-0 sm:shrink sm:whitespace-normal lg:w-full",
                     activeKey === item.key
                       ? "bg-brand-navy text-text-inverse"
                       : "text-text-muted hover:bg-surface-subtle hover:text-text"
