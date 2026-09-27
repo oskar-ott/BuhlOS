@@ -16,7 +16,7 @@ import {
 } from "@/domains/invoices/format";
 
 /**
- * Admin job hub — Materials used (invoice_capture, dark). Owner pull
+ * Admin job hub — Materials cost (invoice_capture, dark). Owner pull
  * 2026-09-24: "see all the materials used on a job and a breakdown — cable,
  * fixings, lights", then "click on cable and see exactly how much cable has
  * been used". Three levels, each a click:
@@ -61,8 +61,13 @@ export function JobSupplierInvoicesCard({ jobId }: { jobId: string }) {
   return (
     <Card id="supplier-invoices" data-testid="job-supplier-invoices-card">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <CardKicker>Materials used</CardKicker>
-        <span className="text-xs text-text-muted">from confirmed supplier invoices · ex GST</span>
+        <CardKicker>Materials cost</CardKicker>
+        <span className="text-xs text-text-muted">confirmed supplier charges · ex GST</span>
+      </div>
+      <div className="mt-1">
+        <span className="text-xs text-text-muted" data-testid="supplier-invoices-honesty">
+          What was bought for this job on confirmed supplier invoices — not what was used on it.
+        </span>
       </div>
       {state === "loading" ? (
         <div
