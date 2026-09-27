@@ -30,6 +30,24 @@ and provable end-to-end** — and everything else is **hidden, not deleted**.
 | **Capture / evidence** | Photo capture into the job (the field loop) stays live. |
 | **Supporting plumbing** | Login, employees/People (workers must exist to log hours + map to Xero), gear register, My Day home, leave, onboarding/invite, settings, Command Centre, Owner Console. |
 
+> **Clarification (2026-09-27, code-verified; the decision above is
+> unchanged).** "Jobs — deliberately basic" describes how a job is *created in
+> the field*: name + number + site address, nothing else asked of the worker.
+> A 2026-09 audit read it as "jobs have no structure anywhere", which is not
+> what shipped. The **office Job Builder** (`/v2/jobs/[jobId]/builder` —
+> `JobBuilderClient`: areas, stages, task generation, build readiness,
+> blueprints, publish) was **not** hidden by this reset and was **not** deleted
+> by the gut: it lives under the core `jobs` kill-switch and is reached from
+> the job hub's "Build & publish" control. What this reset hid, and the gut
+> later deleted, was the **`job_builder_redesign`** flag (the redesigned
+> builder) and the other expansions named in [The gut](#the-gut-2026-07-27) —
+> not the builder itself. A field-created job therefore *starts* basic; the
+> office may add structure afterwards, and that structure is part of the lean
+> core's `jobs` surface. Whether the office builder *should* stay in the lean
+> core is a product decision this clarification does not make (the "pull, not
+> push" rule in [03-lean-startup-loop.md](03-lean-startup-loop.md) governs
+> it).
+
 ### The payslip boundary (unchanged, deliberate)
 
 The system carries approved hours **into Xero as DRAFT timesheets and stops**
@@ -109,7 +127,9 @@ importers, smoke scripts and tests, and finally the flag itself (registry +
 `FLAG_PRESENTATION` + the `FlagKey` union). The registry is down from 66 flags
 to 30. Root one-off migration scripts and `docs/prototype/` went with them.
 
-**What stayed.** The lean core — jobs, hours (incl. the whole Xero/payroll
+**What stayed.** The lean core — jobs (the list, the hub **and the office Job
+Builder** at `/v2/jobs/[jobId]/builder`, all under the `jobs` kill-switch —
+see the clarification above), hours (incl. the whole Xero/payroll
 path), evidence, employees, gear, the per-job tag register, `job_photos`,
 `signup_link`, `itp_simple` — plus the plans surfaces (visible-adjacent,
 deliberately untouched this round) and all Supabase data-plane machinery.

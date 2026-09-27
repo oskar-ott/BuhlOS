@@ -1,11 +1,31 @@
 # Supplier-invoice capture (`invoice_capture`)
 
-> **Status: DARK, UNPROVEN.** Built 2026-09-15 as a complete first vertical
-> slice behind a launch-gate flag (default off, admin-tier). It is **not** part
-> of the ratified lean core ([product/02-lean-reset.md](product/02-lean-reset.md));
-> it earns its place, or not, through the pull-based loop in
-> [product/03-lean-startup-loop.md](product/03-lean-startup-loop.md). Nothing
-> about it is visible anywhere while the flag is off.
+> **Status (2026-09-27): built, dark, not operational.** The five states are
+> defined in [feature-flags.md](feature-flags.md) ("What a flag proves").
+>
+> - **Built:** the full slice is on `main` behind `invoice_capture`
+>   (launch-gate, default off, admin-tier) — first cut 2026-09-15, extended
+>   through 2026-09-27 (auto-booking, inbound coverage, statement check, line
+>   items, evidence placement, field receipts, catch-up throughput).
+> - **Registry default:** off. Nothing about it is visible anywhere while the
+>   flag is off; a correctly signed inbound email is quarantined by id, not lost.
+> - **Effectively enabled:** not provable from this repository — read it at
+>   `/owner` (resolved state + source).
+> - **Externally configured:** **email intake is not operational.** The code
+>   exists, but the office mailbox **forwarding rule to `invoices@buhlos.com`
+>   has not been set up** (owner's own statement, 2026-09-27), and none of the
+>   provider / DNS / secret / migration steps under
+>   [External steps still required](#external-steps-still-required-none-performed-by-the-pr)
+>   can be verified from the repository — check them where they live before
+>   calling intake operational. Manual upload at `/invoices` needs only the
+>   flag.
+> - **Operationally proven:** no. No real supplier email has been processed
+>   end to end, and the rule parser has not yet seen real wholesaler PDFs.
+>
+> It is **not** part of the ratified lean core
+> ([product/02-lean-reset.md](product/02-lean-reset.md)); it earns its place,
+> or not, through the pull-based loop in
+> [product/03-lean-startup-loop.md](product/03-lean-startup-loop.md).
 
 ## What it does
 
@@ -19,8 +39,9 @@ With the flag on:
 
 1. The office mailbox forwards qualifying emails to a BuhlOS inbound address
    (`invoices@<inbound domain>`, or `invoices+<token>@<inbound domain>` when a
-   token is configured; Resend Inbound), or an
-   office user uploads a PDF at `/invoices`.
+   token is configured; Resend Inbound) — **once the forwarding rule exists;
+   it is an external step, not code** (see [External steps still required](#external-steps-still-required-none-performed-by-the-pr)) —
+   or an office user uploads a PDF at `/invoices`.
 2. BuhlOS records a durable receipt, fetches the PDF attachments through the
    Resend API (never from the webhook body), keeps every original in Blob, and
    writes the metadata to Postgres.
@@ -396,6 +417,16 @@ Forwarding a backlog is the expected first use. What happens, and the numbers:
   trusted.
 
 ### External steps still required (none performed by the PR)
+
+> **Status is kept by a person, not by the repository.** None of these steps
+> can be verified from git; a green CI proves nothing about them. As of
+> 2026-09-27: step 4 (the mailbox forwarding rule) is **known outstanding**
+> (owner statement); steps 1, 2, 3 and 5 were carried out in a working
+> session on 2026-09-22 but that is **unverified here** — confirm each where
+> it lives (Resend dashboard, Vercel Production env *names*, the Supabase
+> migration list) and stamp it below with the date and who checked. Until
+> step 4 is done, email intake is **not operational**; upload works with the
+> flag alone.
 
 1. **Resend:** enable receiving on `buhlos.com` (already a verified sending
    domain; it has no MX record today, so nothing else receives mail there) and
