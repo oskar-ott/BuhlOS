@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { isFlagEnabled } from "../../../../api/_lib/feature-flags.js";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { InvoiceInboxClient } from "@/components/admin/invoices/InvoiceInboxClient";
+import { AutoBookingShadowCard } from "@/components/admin/invoices/AutoBookingShadowCard";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 
@@ -58,6 +59,7 @@ export default async function InvoicesPage({
           print. Nothing becomes a job cost until you confirm it.
         </p>
         <InvoiceInboxClient initialJobId={jobId} initialStatus={status} />
+        <AutoBookingShadowCard />
       </div>
     </AdminShell>
   );

@@ -30,6 +30,7 @@ const { extractStatementLines, reconcileStatement } = require('./statement');
 const { extractLineItems } = require('./lines');
 const { inferPlacement } = require('./placement');
 const { extractedFromVision, linesFromVision } = require('./receipt');
+const { allocationAmountCents } = require('./money');
 
 // Reasons that only mean "no IV number" — irrelevant once a person chose the job.
 const IV_REASONS = new Set(['no_iv_reference', 'iv_not_found', 'iv_ambiguous', 'multi_reference']);
@@ -366,7 +367,18 @@ async function scheduleAutoBooking({ sql, tenantId, invoiceId, store, settings, 
     await store.scheduleAutoConfirm(sql, tenantId, invoiceId, { eligible: verdict.eligible, checks: verdict.checks, at });
     await store.insertEvent(sql, tenantId, invoiceId, {
       event: verdict.eligible ? (at ? 'auto_confirm_scheduled' : 'auto_confirm_eligible') : 'auto_confirm_ineligible',
-      detail: { at, failed: verdict.checks.filter((c) => !c.ok).map((c) => c.code) },
+      // Task F (2026-09-27): snapshot what was judged, so the shadow report can
+      // compare the verdict with what a person did — without guessing.
+      detail: {
+        at,
+        failed: verdict.checks.filter((c) => !c.ok).map((c) => c.code),
+        jobId: jobLegacyId || null,
+        supplierKey: supplierKey || null,
+        amountCents: allocationAmountCents(inv.documentType, inv.subtotalCents),
+        subtotalCents: inv.subtotalCents == null ? null : inv.subtotalCents,
+        gstCents: inv.gstCents == null ? null : inv.gstCents,
+        totalCents: inv.totalCents == null ? null : inv.totalCents,
+      },
     });
   } catch (e) {
     console.error('[invoices] auto-booking evaluation failed', { code: (e && e.code) || 'error' });
