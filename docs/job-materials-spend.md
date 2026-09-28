@@ -34,14 +34,53 @@ are worth.* Before this the hub's Materials figure read
   reported (`unavailable`), never a quiet 0.
 - **Audit**: `job.material_spend_added` / `job.material_spend_removed` in the
   canonical journal, **without the amount** (the journal is readable below the
-  admin tier; supplier + date only).
+  admin tier; supplier + date only). Since 2026-09-27 also
+  `job.material_spend_duplicate_override` — see below.
+
+## Possible duplicate cost (2026-09-27)
+
+The Money card sums this ledger **and** the confirmed supplier-invoice
+allocations (`docs/invoice-capture.md`). A docket typed here that an invoice
+already books on the same job would therefore count **twice** — and until
+2026-09-27 the only thing preventing that was a caption asking the office not
+to retype captured invoices. Now the server checks, on **every** `POST`:
+
+- It reads the job's **active** allocations on **confirmed** invoices
+  (`store.jobActiveAllocations` — reversed allocations and excluded / archived /
+  duplicate documents are not a cost and never appear), tenant-scoped.
+- A candidate needs the **same supplier** (by the invoice pipeline's own
+  lookup key, so "L&H", "L & H Group Pty Ltd" and "L&H GROUP PTY. LTD." agree)
+  **and** either the **same supplier invoice number** as the optional
+  *Docket / invoice number* field (strongest — the same once punctuation and
+  case are dropped, "INV-00482" ≙ "inv 00482", or the same trailing number of
+  4+ digits, "INV-001482" ≙ "1482"; a bare "482" does **not** match
+  "INV-00482") or the **same amount within 14 days** of the invoice date. **Equal amounts
+  alone are never a duplicate**; a credit note (negative) never matches a
+  positive docket; a reused number at a different supplier never collides.
+- A match answers **409 `possible_duplicate`** with the candidates (invoice
+  id, supplier, number, date, amount, the reasons) — nothing is saved. The card
+  shows **"Possible duplicate cost"**, links each invoice, and asks *why add
+  it anyway*. Re-posting with `override: { reason }` (3–200 chars, mandatory)
+  saves the line with a `duplicateOverride` stamp (reason, invoice ids,
+  strength, who, when) and journals `job.material_spend_duplicate_override`
+  (invoice ids + reason, **never the amount**). It is a warning with an
+  audited override, not a block.
+- When the invoice store cannot be reached the save proceeds and the response
+  says `duplicateCheck: "unavailable"` — the office is never locked out of its
+  own ledger, but it is told the check did not run. `"clear"` and
+  `"overridden"` are the other answers.
+
+What this does **not** do: it does not compare ledger lines with each other,
+and it cannot see an invoice that has not been captured — the honest scope of
+the data it has.
 
 ## Surfaces
 
 - `api/job-materials.js` — `GET ?jobId=` (lines + total), `POST ?jobId=`
   (add a line), `DELETE ?jobId=&id=` (soft-remove). 404 while the flag is off.
 - `api/_lib/job-materials.js` — pure helpers (`validateLineInput`, `appendLine`,
-  `removeLine`, `summariseLedger`).
+  `removeLine`, `summariseLedger`, and since 2026-09-27 `findPossibleDuplicates`,
+  `referencesMatch`, `parseOverride`).
 - `src/domains/jobs/job-materials-client.ts` — typed client + the
   `buhlos:job-money-changed` window event the Money card listens for.
 - `src/components/admin/JobMaterialsCard.tsx` — the hub card.
