@@ -569,6 +569,23 @@ export function InvoiceReviewClient({ invoiceId }: { invoiceId: string }) {
               <Field id={`${ids}-supplier`} label="Supplier" hint={provenance("supplierName")}>
                 <input id={`${ids}-supplier`} value={form.supplierName} disabled={!editable} onChange={(e) => { setForm({ ...form, supplierName: e.target.value }); setDirty(true); }} className={inputCls} data-testid="invoice-field-supplier" />
               </Field>
+              {inv.purchaserName || inv.purchaserWorkerName ? (
+                <div data-testid="invoice-purchaser">
+                  <p className="text-xs text-text-muted">Picked up / ordered by</p>
+                  <p className="mt-0.5 text-sm text-text">
+                    {inv.purchaserWorkerName ?? inv.purchaserName}
+                    <span className="text-xs text-text-muted">
+                      {inv.purchaserWorkerName
+                        ? inv.source === "receipt"
+                          ? " · sent the receipt"
+                          : inv.purchaserName && inv.purchaserName !== inv.purchaserWorkerName
+                            ? ` · printed as “${inv.purchaserName}”, matched to the employee`
+                            : " · matched to the employee"
+                        : " · as printed — no single employee matches that name"}
+                    </span>
+                  </p>
+                </div>
+              ) : null}
               <Field id={`${ids}-number`} label="Supplier invoice number" hint={provenance("supplierInvoiceNumber")}>
                 <input id={`${ids}-number`} value={form.supplierInvoiceNumber} disabled={!editable} onChange={(e) => { setForm({ ...form, supplierInvoiceNumber: e.target.value }); setDirty(true); }} className={cn(inputCls, "font-mono")} data-testid="invoice-field-number" />
               </Field>

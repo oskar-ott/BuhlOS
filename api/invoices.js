@@ -59,6 +59,8 @@ const { normaliseIvReference, buildJobCodeIndex, matchJobByIv, nearMissJobs } = 
 const { normaliseSupplierName } = require('./_lib/invoices/supplier-identity');
 const { CATEGORY_LABELS, isCategory, descriptionKey } = require('./_lib/invoices/categories');
 const { measureOf, rollUpProducts, measureTotals } = require('./_lib/invoices/measure');
+const { jobsFromEntry } = require('./_lib/invoices/purchaser');
+const { readEntry } = require('./_lib/time-entries');
 const { reconcileTotals, allocationAmountCents, isCents } = require('./_lib/invoices/money');
 const { documentReferences, hasMultipleReferences, parseWholeInvoiceOverride } = require('./_lib/invoices/references');
 const { canTransition, DOCUMENT_TYPES, ALLOCATABLE_TYPES, STATUSES } = require('./_lib/invoices/state');
@@ -117,12 +119,24 @@ async function autoConfirmSettings() {
   }
 }
 
+async function readUsers() {
+  const data = await readBlob('users.json', { users: [] });
+  return Array.isArray(data.users) ? data.users : [];
+}
+
+/** Jobs a worker logged hours on for a date (their day entry). */
+async function workerJobsOn(userId, date) {
+  return jobsFromEntry(await readEntry(userId, date));
+}
+
 async function pipelineDeps() {
   return {
     store,
     fetchPdf: fetchInvoicePdf,
     extractText: extractPdfText,
     readJobs,
+    readUsers,
+    workerJobsOn,
     aiExtract: aiExtractModule.enabled() ? aiExtractModule.aiExtract : null,
     visionExtract: await visionEnabled() ? visionModule.visionExtract : null,
     autoConfirm: await autoConfirmSettings(),

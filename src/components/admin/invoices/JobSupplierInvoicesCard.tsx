@@ -223,6 +223,7 @@ export function JobSupplierInvoicesCard({ jobId }: { jobId: string }) {
                                                 {l.documentType === "credit_note"
                                                   ? " · credit note"
                                                   : ""}
+                                                {l.purchaser ? ` · ${l.purchaser}` : ""}
                                               </td>
                                               <td className="whitespace-nowrap py-1 pr-2 text-right tabular-nums text-text">
                                                 <Link

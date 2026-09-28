@@ -137,6 +137,11 @@ function inferPlacement(doc, jobs) {
         evidence.push({ kind: 'name', strength: 'medium', jobId: j.id, detail: `the customer reference “${r}” names the job “${name}”` });
       }
     }
+    // Who was at the counter: that worker logged hours on this job on the
+    // invoice date (purchaser.js). Medium — a worker can pick up for another job.
+    if (doc.worker && Array.isArray(doc.worker.jobIds) && doc.worker.jobIds.includes(j.id)) {
+      evidence.push({ kind: 'timesheet', strength: 'medium', jobId: j.id, detail: `${doc.worker.name} (named on the invoice) logged hours on this job on ${doc.worker.date}` });
+    }
   }
   const byJob = new Map();
   for (const e of evidence) {

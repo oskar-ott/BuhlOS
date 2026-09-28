@@ -104,6 +104,9 @@ function invoiceRow(r) {
     heldAt: iso(r.held_at),
     heldBy: r.held_by_name || null,
     linesTotalCents: cents(r.lines_total_cents),
+    purchaserName: r.purchaser_name || null,
+    purchaserUserId: r.purchaser_user_id || null,
+    purchaserWorkerName: r.purchaser_worker_name || null,
     linesConsistent: r.lines_consistent == null ? null : Boolean(r.lines_consistent),
     sourceLinks: json(r.source_links, []),
     sourceTextExcerpt: r.source_text_excerpt || null,
@@ -331,6 +334,9 @@ async function applyExtraction(sql, tenantId, id, p) {
       excluded_reason = ${p.excludedReason == null ? null : p.excludedReason},
       lines_total_cents = ${p.linesTotalCents === undefined ? null : p.linesTotalCents},
       lines_consistent = ${p.linesConsistent === undefined ? null : p.linesConsistent},
+      purchaser_name = ${p.purchaserName == null ? null : p.purchaserName},
+      purchaser_user_id = ${p.purchaserUserId == null ? null : p.purchaserUserId},
+      purchaser_worker_name = ${p.purchaserWorkerName == null ? null : p.purchaserWorkerName},
       next_attempt_at = null
     where id = ${id} and tenant_id = ${tenantId}
     returning *`;
@@ -930,6 +936,7 @@ async function forgetLearnedCategory(sql, tenantId, id) {
 async function jobMaterialsBreakdown(sql, tenantId, jobLegacyId) {
   const rows = await sql`
     select l.*, i.supplier_name, i.supplier_invoice_number, i.invoice_date, i.document_type,
+           coalesce(i.purchaser_worker_name, i.purchaser_name) as purchaser,
            case when i.document_type = 'credit_note' then -1 else 1 end as sign
     from public.supplier_invoice_allocations a
     join public.supplier_invoices i on i.id = a.invoice_id
@@ -941,7 +948,7 @@ async function jobMaterialsBreakdown(sql, tenantId, jobLegacyId) {
            (select count(*)::int from public.supplier_invoice_lines l where l.invoice_id = a.invoice_id) as n
     from public.supplier_invoice_allocations a join public.supplier_invoices i on i.id = a.invoice_id
     where a.tenant_id = ${tenantId} and a.job_legacy_id = ${jobLegacyId} and a.status = 'active'`;
-  const lines = rows.map((r) => ({ ...lineRow(r), supplierName: r.supplier_name, supplierInvoiceNumber: r.supplier_invoice_number, invoiceDate: iso(r.invoice_date), documentType: r.document_type, signedCents: (cents(r.line_total_cents) || 0) * Number(r.sign) }));
+  const lines = rows.map((r) => ({ ...lineRow(r), supplierName: r.supplier_name, supplierInvoiceNumber: r.supplier_invoice_number, invoiceDate: iso(r.invoice_date), documentType: r.document_type, purchaser: r.purchaser || null, signedCents: (cents(r.line_total_cents) || 0) * Number(r.sign) }));
   const withoutLines = covered.filter((c) => Number(c.n) === 0).map((c) => ({ invoiceId: c.invoice_id, supplierName: c.supplier_name, supplierInvoiceNumber: c.supplier_invoice_number, invoiceDate: iso(c.invoice_date), amountCents: cents(c.amount) }));
   return { lines, invoicesWithoutLines: withoutLines, confirmedCents: covered.reduce((s, c) => s + (cents(c.amount) || 0), 0), invoiceCount: covered.length };
 }

@@ -30,6 +30,7 @@ const { extractStatementLines, reconcileStatement } = require('./statement');
 const { extractLineItems } = require('./lines');
 const { inferPlacement } = require('./placement');
 const { extractedFromVision, linesFromVision } = require('./receipt');
+const { matchWorker, jobsFromEntry } = require('./purchaser');
 const { allocationAmountCents } = require('./money');
 
 // Reasons that only mean "no IV number" — irrelevant once a person chose the job.
@@ -79,7 +80,7 @@ function decideMatch(extracted, jobs) {
     // the document does print — delivery address, job name, job ref — and
     // say which (owner direction 2026-09-24). Two candidates = ambiguity,
     // offered to the reviewer, never guessed.
-    const placed = inferPlacement({ text: extracted.placementText || extracted.excerpt || '', deliveryAddress: extracted.deliveryAddress || null, references: extracted.customerReferences || [] }, jobs);
+    const placed = inferPlacement({ text: extracted.placementText || extracted.excerpt || '', deliveryAddress: extracted.deliveryAddress || null, references: extracted.customerReferences || [], worker: extracted.purchaserWorker || null }, jobs);
     if (placed.outcome === 'placed') {
       matchStatus = 'inferred';
       matchedJob = placed.job;
@@ -251,6 +252,24 @@ async function processInvoice({ sql, tenantId, invoiceId, trigger, deps }) {
       });
 
       const jobs = await deps.readJobs();
+      // Who was at the counter → an employee → the jobs they logged that day.
+      let purchaser = { name: extracted.purchaserName || null, userId: null, workerName: null };
+      if (current.source === 'receipt' && current.createdByLegacyId) {
+        purchaser = { name: purchaser.name || current.createdBy || null, userId: current.createdByLegacyId, workerName: current.createdBy || null };
+      } else if (purchaser.name && typeof deps.readUsers === 'function') {
+        try {
+          const m = matchWorker(purchaser.name, await deps.readUsers());
+          if (m && !m.ambiguous) {
+            purchaser = { ...purchaser, userId: m.userId, workerName: m.name };
+            if (extracted.ivSelection && extracted.ivSelection.outcome !== 'selected' && extracted.invoiceDate && typeof deps.workerJobsOn === 'function') {
+              const jobIds = await deps.workerJobsOn(m.userId, extracted.invoiceDate);
+              if (jobIds.length) extracted = { ...extracted, purchaserWorker: { name: m.name, date: extracted.invoiceDate, jobIds } };
+            }
+          }
+        } catch {
+          // the name is supporting evidence only; a lookup failure never fails the document
+        }
+      }
       let decision = decideMatch(extracted, jobs);
       // A receipt from the field: the worker chose the job on the phone — that
       // choice stands (a person made it at the moment of work); IV-number
@@ -312,6 +331,9 @@ async function processInvoice({ sql, tenantId, invoiceId, trigger, deps }) {
         duplicateReason: dup.duplicate ? dup.reason : null,
         linesTotalCents: lineItems.lines.length ? lineItems.totalCents : null,
         linesConsistent: lineItems.consistent,
+        purchaserName: purchaser.name,
+        purchaserUserId: purchaser.userId,
+        purchaserWorkerName: purchaser.workerName,
       });
       await store.finishAttempt(sql, attempt.id, { outcome: 'ok', extractionMethod: method });
       await store.insertEvent(sql, tenantId, invoiceId, { event: 'extracted', detail: { method, documentType: extracted.documentType, pageCount: textResult.pageCount } });

@@ -109,6 +109,9 @@ export function createMemoryStore(opts: { tenantId?: string; jobUuids?: Record<s
       excludedReason: null,
       linesTotalCents: null,
       linesConsistent: null,
+      purchaserName: null,
+      purchaserUserId: null,
+      purchaserWorkerName: null,
       archivedAt: null,
       autoConfirmEligible: false,
       autoConfirmAt: null,
@@ -202,7 +205,7 @@ export function createMemoryStore(opts: { tenantId?: string; jobUuids?: Record<s
         ivCandidates: p.ivCandidates ?? [], matchedJobId: p.matchedJobId ?? null, matchStatus: p.matchStatus || "none", matchReason: p.matchReason ?? null,
         status: p.status, reviewReasons: p.reviewReasons ?? [], failureCode: p.failureCode ?? null, extractionMethod: p.extractionMethod ?? null,
         fields: p.fields ?? {}, excerpt: p.excerpt ?? null, duplicateOfId: p.duplicateOfId ?? null, duplicateReason: p.duplicateReason ?? null,
-        excludedReason: p.excludedReason ?? null, linesTotalCents: p.linesTotalCents ?? null, linesConsistent: p.linesConsistent ?? null, nextAttemptAt: null, updatedAt: now(),
+        excludedReason: p.excludedReason ?? null, linesTotalCents: p.linesTotalCents ?? null, linesConsistent: p.linesConsistent ?? null, purchaserName: p.purchaserName ?? null, purchaserUserId: p.purchaserUserId ?? null, purchaserWorkerName: p.purchaserWorkerName ?? null, nextAttemptAt: null, updatedAt: now(),
       });
       return { ...r };
     },
@@ -468,7 +471,7 @@ export function createMemoryStore(opts: { tenantId?: string; jobUuids?: Record<s
         const ls = store.lines.filter((l) => l.invoiceId === a.invoiceId);
         if (!ls.length) withoutLines.push({ invoiceId: inv.id, supplierName: inv.supplierName, supplierInvoiceNumber: inv.supplierInvoiceNumber, invoiceDate: inv.invoiceDate, amountCents: a.amountCents });
         const sign = inv.documentType === "credit_note" ? -1 : 1;
-        for (const l of ls) lines.push({ ...l, supplierName: inv.supplierName, supplierInvoiceNumber: inv.supplierInvoiceNumber, invoiceDate: inv.invoiceDate, documentType: inv.documentType, signedCents: ((l.lineTotalCents as number) || 0) * sign });
+        for (const l of ls) lines.push({ ...l, supplierName: inv.supplierName, supplierInvoiceNumber: inv.supplierInvoiceNumber, invoiceDate: inv.invoiceDate, documentType: inv.documentType, purchaser: inv.purchaserWorkerName ?? inv.purchaserName ?? null, signedCents: ((l.lineTotalCents as number) || 0) * sign });
       }
       return { lines, invoicesWithoutLines: withoutLines, confirmedCents: active.reduce((s, a) => s + (a.amountCents as number), 0), invoiceCount: active.length };
     },
