@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { httpDelete, httpGet, httpPost, type HttpResult } from "@/lib/http";
+import { httpDelete, httpGet, httpPost, type HttpError, type HttpResult } from "@/lib/http";
 
 /**
  * Client for /api/job-materials — the per-job materials SPEND ledger (owner
@@ -18,9 +18,54 @@ export const MaterialsLineSchema = z
     createdBy: z.string(),
     createdByName: z.string(),
     createdAt: z.string(),
+    /** Optional (2026-09-27): the docket / supplier invoice number as typed. */
+    reference: z.string().nullable().optional(),
+    /** Present only when the line was added despite a "Possible duplicate
+     *  cost" warning — who, when, why, and which confirmed invoices it named. */
+    duplicateOverride: z
+      .object({
+        reason: z.string(),
+        invoiceIds: z.array(z.string()),
+        strength: z.string().optional(),
+        checkedAt: z.string(),
+        by: z.string(),
+        byName: z.string(),
+      })
+      .passthrough()
+      .nullable()
+      .optional(),
   })
   .passthrough();
 export type MaterialsLine = z.infer<typeof MaterialsLineSchema>;
+
+/** One confirmed supplier invoice the typed line may duplicate (server-ranked, strongest first). */
+export const DuplicateCandidateSchema = z
+  .object({
+    invoiceId: z.string(),
+    strength: z.enum(["reference", "amount_date"]),
+    supplierName: z.string().nullable(),
+    supplierInvoiceNumber: z.string().nullable(),
+    amountCents: z.number().int(),
+    invoiceDate: z.string().nullable(),
+    reasons: z.array(z.string()),
+  })
+  .passthrough();
+export type DuplicateCandidate = z.infer<typeof DuplicateCandidateSchema>;
+
+const PossibleDuplicateBodySchema = z
+  .object({ error: z.literal("possible_duplicate"), candidates: z.array(DuplicateCandidateSchema) })
+  .passthrough();
+
+/**
+ * A 409 from POST /api/job-materials that means "this looks like a confirmed
+ * supplier invoice already booked on the job" — the caller shows the warning
+ * and may re-submit with `override: { reason }`. Any other error → null.
+ */
+export function parsePossibleDuplicate(error: HttpError): DuplicateCandidate[] | null {
+  if (error.status !== 409) return null;
+  const parsed = PossibleDuplicateBodySchema.safeParse(error.body);
+  return parsed.success ? parsed.data.candidates : null;
+}
 
 export const MaterialsLedgerResponseSchema = z
   .object({
@@ -37,7 +82,11 @@ export interface MaterialsLineInput {
   date: string;
   supplier: string;
   description: string | null;
+  /** Docket / supplier invoice number (optional) — the strongest duplicate signal. */
+  reference?: string | null;
   amountCents: number;
+  /** Add despite a "Possible duplicate cost" warning; the reason is mandatory and audited. */
+  override?: { reason: string } | null;
 }
 
 export function jobMaterials(jobId: string): Promise<HttpResult<MaterialsLedgerResponse>> {

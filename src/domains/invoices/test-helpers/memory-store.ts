@@ -341,6 +341,23 @@ export function createMemoryStore(opts: { tenantId?: string; jobUuids?: Record<s
         allocations: store.allocations.filter((a) => ids.has(a.invoiceId)).map((a) => ({ ...a })),
       };
     },
+    jobActiveAllocations: async (_s: unknown, _t: string, jobId: string) =>
+      store.allocations
+        .filter((x) => x.jobId === jobId && x.status === "active")
+        .map((x) => {
+          const inv = byId(x.invoiceId as string);
+          return {
+            invoiceId: x.invoiceId,
+            amountCents: x.amountCents,
+            confirmedAt: x.confirmedAt ?? null,
+            supplierName: inv?.supplierName ?? null,
+            supplierKey: inv?.supplierKey ?? null,
+            supplierInvoiceNumber: inv?.supplierInvoiceNumber ?? null,
+            invoiceDate: inv?.invoiceDate ?? null,
+            documentType: inv?.documentType ?? null,
+            source: inv?.source ?? null,
+          };
+        }),
     jobSummaries: async (_s: unknown, _t: string, ids: string[]) => {
       const out: Record<string, { confirmedCents: number; confirmedCount: number }> = {};
       for (const id of ids) {
