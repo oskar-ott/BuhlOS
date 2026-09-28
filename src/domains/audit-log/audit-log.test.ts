@@ -246,6 +246,8 @@ describe("AuditLogEntrySchema", () => {
       "job.handover_set",
       // Owner pull 2026-08-23: per-job materials spend ledger (api/job-materials.js).
       "job.material_spend_added",
+      // 2026-09-27: added despite a "Possible duplicate cost" warning (reason kept).
+      "job.material_spend_duplicate_override",
       "job.material_spend_removed",
       "job.reopened",
       "job.tasks_generated",

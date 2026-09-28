@@ -107,6 +107,7 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "hours.timesheets_emailed": "Emailed timesheets to accounts",
   "hours.timesheets_recipients_updated": "Changed timesheet email recipients",
   "job.material_spend_added": "Recorded materials spend",
+  "job.material_spend_duplicate_override": "Added materials spend despite a possible duplicate",
   "job.material_spend_removed": "Removed a materials spend line",
   "invoice.uploaded": "Uploaded a supplier invoice",
   "invoice.received": "Received a supplier invoice by email",

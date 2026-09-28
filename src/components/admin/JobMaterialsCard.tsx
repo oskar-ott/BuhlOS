@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useId, useState } from "react";
+import Link from "next/link";
+import type { Route } from "next";
 import { Card, CardKicker } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
@@ -11,7 +13,9 @@ import {
   addMaterialsLine,
   announceJobMoneyChanged,
   jobMaterials,
+  parsePossibleDuplicate,
   removeMaterialsLine,
+  type DuplicateCandidate,
   type MaterialsLine,
 } from "@/domains/jobs/job-materials-client";
 
@@ -39,11 +43,95 @@ function localToday(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+const DUPLICATE_INPUT_CLASS = "h-9 w-full rounded-card border border-border bg-surface px-2 text-sm text-text focus:outline-none focus:ring-2 focus:ring-brand-navy";
+
 interface FormState {
   date: string;
   supplier: string;
   description: string;
+  /** Docket / supplier invoice number (optional) — the strongest duplicate signal. */
+  reference: string;
   amount: string; // dollars, e.g. "184.50"
+}
+
+/**
+ * "Possible duplicate cost" (2026-09-27): the server found a CONFIRMED
+ * supplier invoice on this job that looks like the docket being typed. The
+ * office decides — with a reason that goes on the audit trail — never a
+ * silent block, never a silent double count. Pure presentational so it can
+ * be rendered and asserted on its own.
+ */
+export function MaterialsDuplicateWarning({
+  candidates,
+  reason,
+  busy,
+  onReasonChange,
+  onConfirm,
+  onCancel,
+}: {
+  candidates: DuplicateCandidate[];
+  reason: string;
+  busy: boolean;
+  onReasonChange: (reason: string) => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div
+      role="alert"
+      className="rounded-card border border-accent-yellow bg-surface-subtle p-3"
+      data-testid="materials-duplicate-warning"
+    >
+      <p className="text-sm font-semibold text-text">Possible duplicate cost</p>
+      <p className="mt-1 text-xs text-text-muted">
+        A supplier invoice confirmed in the inbox already books what looks like this cost on this
+        job. Confirmed invoices already count in the Money card — adding this line would count the
+        cost twice.
+      </p>
+      <ul className="mt-2 space-y-1 text-xs" data-testid="materials-duplicate-candidates">
+        {candidates.map((c) => (
+          <li key={c.invoiceId} className="flex flex-wrap items-baseline gap-x-2">
+            <span className="font-medium text-text">{c.supplierName ?? "Unknown supplier"}</span>
+            <span className="text-text-muted">
+              {c.supplierInvoiceNumber ? `#${c.supplierInvoiceNumber}` : "no invoice number"}
+            </span>
+            <span className="text-text-muted">{c.invoiceDate ? formatDateLabel(c.invoiceDate) : "no date"}</span>
+            <span className="tabular-nums text-text">{formatMoneyCents(c.amountCents)}</span>
+            <span className="text-text-muted">({c.reasons.join(", ")})</span>
+            <Link href={`/invoices/${encodeURIComponent(c.invoiceId)}` as Route} className="underline">
+              Open invoice
+            </Link>
+          </li>
+        ))}
+      </ul>
+      <label className="mt-2 block text-xs text-text-muted">
+        Why add it anyway? (kept on the audit trail)
+        <input
+          type="text"
+          value={reason}
+          onChange={(e) => onReasonChange(e.target.value)}
+          maxLength={200}
+          className={DUPLICATE_INPUT_CLASS}
+          disabled={busy}
+          placeholder="e.g. cash-sale docket, not the emailed invoice"
+          data-testid="materials-duplicate-reason"
+        />
+      </label>
+      <div className="mt-2 flex justify-end gap-2">
+        <Button size="sm" variant="ghost" onClick={onCancel} disabled={busy}>
+          Don&rsquo;t add
+        </Button>
+        <Button
+          size="sm"
+          onClick={onConfirm}
+          disabled={busy || reason.trim().length < 3}
+          data-testid="materials-duplicate-add-anyway"
+        >
+          Add anyway
+        </Button>
+      </div>
+    </div>
+  );
 }
 
 export function JobMaterialsCard({
@@ -62,6 +150,7 @@ export function JobMaterialsCard({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [form, setForm] = useState<FormState | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [duplicate, setDuplicate] = useState<{ candidates: DuplicateCandidate[]; reason: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -93,7 +182,7 @@ export function JobMaterialsCard({
 
   if (state === "hidden") return null;
 
-  async function save() {
+  async function save(override?: { reason: string }) {
     if (!form) return;
     const supplier = form.supplier.trim();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(form.date)) {
@@ -115,13 +204,22 @@ export function JobMaterialsCard({
       date: form.date,
       supplier,
       description: form.description.trim() || null,
+      reference: form.reference.trim() || null,
       amountCents,
+      ...(override ? { override } : {}),
     });
     setBusy(false);
     if (!res.ok) {
+      const candidates = parsePossibleDuplicate(res.error);
+      if (candidates) {
+        // Warn, don't block: the office decides, and the reason is kept.
+        setDuplicate({ candidates, reason: duplicate?.reason ?? "" });
+        return;
+      }
       setFormError(res.error.message || "Couldn't save — try again.");
       return;
     }
+    setDuplicate(null);
     setLines(res.data.lines);
     setTotalCents(res.data.totalCents);
     setForm(null);
@@ -164,8 +262,11 @@ export function JobMaterialsCard({
               variant={form ? "ghost" : "secondary"}
               onClick={() => {
                 setFormError(null);
+                setDuplicate(null);
                 setForm(
-                  form ? null : { date: localToday(), supplier: "", description: "", amount: "" }
+                  form
+                    ? null
+                    : { date: localToday(), supplier: "", description: "", reference: "", amount: "" }
                 );
               }}
               disabled={busy}
@@ -253,6 +354,30 @@ export function JobMaterialsCard({
                   />
                 </label>
               </div>
+              <label htmlFor={`${ids}-ref`} className={labelClass}>
+                Docket / invoice number (optional)
+                <input
+                  id={`${ids}-ref`}
+                  type="text"
+                  value={form.reference}
+                  onChange={(e) => setForm({ ...form, reference: e.target.value })}
+                  placeholder="e.g. INV-48213 — lets BuhlOS spot an invoice already confirmed"
+                  className={inputClass}
+                  disabled={busy}
+                  maxLength={60}
+                  data-testid="materials-reference"
+                />
+              </label>
+              {duplicate ? (
+                <MaterialsDuplicateWarning
+                  candidates={duplicate.candidates}
+                  reason={duplicate.reason}
+                  busy={busy}
+                  onReasonChange={(reason) => setDuplicate({ ...duplicate, reason })}
+                  onConfirm={() => void save({ reason: duplicate.reason.trim() })}
+                  onCancel={() => setDuplicate(null)}
+                />
+              ) : null}
               {formError ? (
                 <p className="text-xs text-state-danger-subtle-text" role="alert">
                   {formError}
@@ -265,7 +390,7 @@ export function JobMaterialsCard({
                 <Button
                   size="sm"
                   onClick={() => void save()}
-                  disabled={busy}
+                  disabled={busy || duplicate !== null}
                   data-testid="materials-save"
                 >
                   Save line
@@ -307,7 +432,19 @@ export function JobMaterialsCard({
                         {formatDateLabel(l.date)}
                       </td>
                       <td className="py-1.5 pr-2 font-medium text-text">{l.supplier}</td>
-                      <td className="py-1.5 pr-2 text-text-muted">{l.description ?? "—"}</td>
+                      <td className="py-1.5 pr-2 text-text-muted">
+                        {l.description ?? "—"}
+                        {l.reference ? <span className="ml-1 text-xs">#{l.reference}</span> : null}
+                        {l.duplicateOverride ? (
+                          <span
+                            className="ml-1 text-xs"
+                            title={`Added despite a possible duplicate — ${l.duplicateOverride.reason}`}
+                            data-testid="materials-override-tag"
+                          >
+                            · added anyway
+                          </span>
+                        ) : null}
+                      </td>
                       <td className="whitespace-nowrap py-1.5 pr-2 text-right tabular-nums text-text">
                         {formatMoneyCents(l.amountCents)}
                       </td>
