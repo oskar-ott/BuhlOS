@@ -534,6 +534,48 @@ unread for a day, no supplier mail for 14 days). No recipients → no email.
 
 Rollout: review-only for two weeks, then knob on with a low cap, then raise.
 
+## Several job references on one document (2026-09-27)
+
+A supplier invoice that prints **several different IV references** (a job
+number *and* a different order number, two job numbers, …) is, by its own
+words, a cost that belongs to more than one job. BuhlOS keeps **one active
+allocation per invoice** and cannot split a cost across jobs (see
+"Deliberately deferred"), so such a document is never booked as one job's
+whole cost by accident:
+
+- The matcher already lands it in review (`match_status multi_reference`,
+  reason `multi_reference`). Since 2026-09-27 the decision is made from the
+  extraction evidence that **survives every later edit** — the distinct
+  normalised codes in `iv_candidates`, judged by the matcher's own selection
+  rule (`api/_lib/invoices/references.js`) — because `match_reason.distinct`
+  is replaced the moment a person chooses a job.
+- **Choosing a job does not make several references one.** The invoice stays
+  in review (`reviewReasonsAfterEdit` keeps `multi_reference`), the detail
+  carries `multiReferences` for the UI, and `confirmBlockers` carries
+  `multi_reference` — the one gate shared by the Confirm button
+  (`canConfirm`), the `confirm` handler and the auto-booking sweep. The
+  evaluator also names it (`single_reference` check), so a verdict can never
+  read "clean" for such a document.
+- The review page shows **Split allocation required** with the printed
+  references, says that BuhlOS cannot divide one invoice between jobs, and
+  offers exactly three ways forward:
+  1. **Allocate the whole invoice to one job** — choose the job, tick "the
+     entire invoice belongs to this job", give a reason (3–200 chars).
+     `POST ?action=confirm { wholeInvoice: true, reason }` — admin tier only,
+     like every invoice write. The invoice history gets a
+     `multi_reference_override` event (references, job, reason, actor) and
+     the audit journal `invoice.multi_reference_override`, then the ordinary
+     `confirmed` allocation. Without `wholeInvoice` the confirm answers
+     **409 `cannot_confirm`** with the references; without a reason,
+     **400 `reason_required`**. The decision passes only this blocker —
+     never a missing subtotal, inconsistent totals or a non-allocatable type.
+  2. **Exclude it from job costing** — a reason is mandatory for such a
+     document (`400 reason_required` otherwise); the document and its
+     history stay, restorable as ever.
+  3. **Leave it unresolved** — it stays in the review queue and touches no
+     job's cost.
+- No amounts are ever spread or invented; a split is still deferred work.
+
 ## Security
 
 Admin tier on every read and write (`requireAuth` + `isAdminRole`); flag 404s
