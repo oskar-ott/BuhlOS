@@ -140,12 +140,18 @@ const CASES: Array<{ name: string; args: () => unknown[] }> = [
   { name: "learnedCategories", args: () => [TENANT, "sparky", ["cable"]] },
   { name: "rememberCategory", args: () => [TENANT, { supplierKey: "sparky", descriptionKey: "cable", category: "cable", actor }] },
   { name: "jobMaterialsBreakdown", args: () => [TENANT, "birdwood"] },
+  // Landed on main during the 2026-09-28 remediation merges (D, F, H, I).
+  { name: "jobActiveAllocations", args: () => [TENANT, "birdwood"] },
+  { name: "shadowRows", args: () => [TENANT, { from: "2026-07-01", to: "2026-09-28" }] },
+  { name: "hasInboundEvent", args: () => ["msg_1"] },
+  { name: "listLearnedCategories", args: () => [TENANT, { limit: 50 }] },
+  { name: "forgetLearnedCategory", args: () => [TENANT, "44444444-4444-4444-8444-444444444444"] },
 ];
 
 const EXEMPT = new Set(["resolveTenant", "finishAttempt", "recordInboundEvent", "finishInboundEvent"]);
 const NOT_QUERIES = new Set(["TENANT_SLUG", "MAX_ATTEMPTS"]);
 /** Functions whose statements may touch only the pre-tenant inbound table. */
-const INBOUND_READERS = new Set(["digestStats", "healthSnapshot", "inboundStats", "listQuarantined"]);
+const INBOUND_READERS = new Set(["digestStats", "healthSnapshot", "inboundStats", "listQuarantined", "hasInboundEvent"]);
 
 async function run(name: string, args: unknown[]): Promise<Frag[]> {
   const fn = store[name] as (...a: unknown[]) => Promise<unknown>;
