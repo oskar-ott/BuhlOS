@@ -7,13 +7,8 @@ import { Pill } from "@/components/ui/Pill";
 import { Button } from "@/components/ui/Button";
 import { updateJob } from "@/domains/jobs/client";
 import { statusLabel } from "@/domains/jobs/format";
-import {
-  GRACE_DAYS,
-  jobPhase,
-  phaseLabel,
-  phaseTone,
-  shortDay,
-} from "@/domains/jobs/lifecycle";
+import { GRACE_DAYS, jobPhase, phaseLabel, phaseTone, shortDay } from "@/domains/jobs/lifecycle";
+import { cn } from "@/lib/cn";
 import type { Job, JobStatus } from "@/domains/jobs/types";
 
 /**
@@ -30,6 +25,13 @@ import type { Job, JobStatus } from "@/domains/jobs/types";
  * in their lists for GRACE_DAYS of callback hours, it stays searchable, and
  * it can be reopened any time. Reopen is just picking Active again. No
  * closeout wizard: closing a job changes its prominence, not its record.
+ *
+ * On a phone (below `sm`) the menu and the confirm step are a BOTTOM SHEET,
+ * not a dropdown (owner pull 2026-09-27, office on a phone): the dropdown was
+ * anchored inside the hero card's overflow-hidden box and the last choices
+ * (Draft, Archived) were clipped off — unreachable on a phone. A fixed sheet
+ * escapes the card's clip, sits above the tab bar, and gives each choice a
+ * 44px row. Desktop keeps the anchored dropdown byte-for-byte.
  */
 
 /** Menu order: the working states first, terminal states last. */
@@ -44,9 +46,22 @@ const STATUS_CHOICES: ReadonlyArray<{ status: JobStatus; hint: string }> = [
 /** Statuses whose pick asks first (an outward-facing change for the crew). */
 const CONFIRMED: ReadonlySet<JobStatus> = new Set(["complete", "archived"]);
 
+/**
+ * The floating-panel geometry, shared by the menu and the confirm step:
+ * phone = bottom sheet (fixed, full-width, above the tab bar, safe-area
+ * padded); `sm`+ = the dropdown anchored under the pill, exactly as before.
+ * Exported so the render test can pin the phone contract — the panels only
+ * mount on interaction, which server rendering can't drive.
+ */
+export const STATUS_PANEL_CLASS =
+  "fixed inset-x-0 bottom-0 z-50 rounded-t-card border-t border-border bg-surface-raised shadow-raised pb-[calc(0.5rem+env(safe-area-inset-bottom))] sm:absolute sm:inset-x-auto sm:bottom-auto sm:right-0 sm:z-20 sm:mt-1.5 sm:rounded-card sm:border sm:pb-0 sm:shadow-card";
+
 function confirmCopy(status: JobStatus, from: JobStatus): string {
   if (status === "complete") {
-    const until = shortDay(new Date(Date.now() + GRACE_DAYS * 24 * 60 * 60 * 1000).toISOString(), true);
+    const until = shortDay(
+      new Date(Date.now() + GRACE_DAYS * 24 * 60 * 60 * 1000).toISOString(),
+      true
+    );
     return `Mark this job finished? The crew can keep logging hours to it until ${until}; after that it leaves their list but stays in search, still takes callback hours, and can be reopened any time.`;
   }
   // archived
@@ -106,8 +121,12 @@ export function JobStatusControl({
     void apply(status);
   }
 
+  const panelOpen = open || confirming !== null;
+
   return (
     <div className="relative">
+      {/* Phone: a 44px hit area around the small pill without moving it
+          (negative vertical margin keeps the band's top row height). */}
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -115,60 +134,70 @@ export function JobStatusControl({
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={`Job status: ${statusLabel(job.status)}. Change status`}
-        className="inline-flex items-center gap-1 rounded-pill focus:outline-none focus:ring-2 focus:ring-brand-navy disabled:opacity-60"
+        className="-my-2.5 inline-flex min-h-[44px] items-center gap-1 rounded-pill focus:outline-none focus:ring-2 focus:ring-brand-navy disabled:opacity-60 sm:my-0 sm:min-h-0"
       >
         {pill}
         <ChevronDown aria-hidden="true" className="h-3.5 w-3.5 text-text-muted" />
       </button>
 
+      {panelOpen ? (
+        // Click-away backdrop — closes the menu without stealing focus styling.
+        // Dimmed on a phone so the sheet reads as a sheet; invisible on desktop.
+        <button
+          type="button"
+          aria-hidden="true"
+          tabIndex={-1}
+          className="fixed inset-0 z-40 cursor-default bg-accent-ink/40 sm:z-10 sm:bg-transparent"
+          onClick={() => {
+            setOpen(false);
+            setConfirming(null);
+          }}
+        />
+      ) : null}
+
       {open ? (
-        <>
-          {/* Click-away backdrop — closes the menu without stealing focus styling. */}
-          <button
-            type="button"
-            aria-hidden="true"
-            tabIndex={-1}
-            className="fixed inset-0 z-10 cursor-default"
-            onClick={() => setOpen(false)}
-          />
-          <div
-            role="menu"
-            aria-label="Change job status"
-            className="absolute right-0 z-20 mt-1.5 w-72 rounded-card border border-border bg-surface-raised p-1 shadow-card"
-          >
-            {STATUS_CHOICES.map(({ status, hint }) => (
-              <button
-                key={status}
-                type="button"
-                role="menuitemradio"
-                aria-checked={status === current}
-                disabled={busy}
-                onClick={() => pick(status)}
-                data-testid={`job-status-pick-${status}`}
-                className={`flex w-full items-start gap-2 rounded-card px-2.5 py-2 text-left transition-colors hover:bg-surface-subtle focus:bg-surface-subtle focus:outline-none disabled:opacity-60 ${
-                  status === current ? "bg-surface-subtle" : ""
-                }`}
-              >
-                <span className="min-w-0">
-                  <span className="block text-sm font-medium text-text">
-                    {status === "active" && current === "complete" ? "Reopen" : statusLabel(status)}
-                  </span>
-                  <span className="block text-xs text-text-muted">
-                    {status === "active" && current === "complete"
-                      ? "Back to live — the crew see it as a normal job again"
-                      : hint}
-                  </span>
+        <div
+          role="menu"
+          aria-label="Change job status"
+          data-testid="job-status-menu"
+          className={cn(STATUS_PANEL_CLASS, "p-2 sm:w-72 sm:p-1")}
+        >
+          <p className="px-2.5 pb-1 pt-2 font-mono text-xs font-medium uppercase tracking-[0.14em] text-text-muted sm:hidden">
+            Change status
+          </p>
+          {STATUS_CHOICES.map(({ status, hint }) => (
+            <button
+              key={status}
+              type="button"
+              role="menuitemradio"
+              aria-checked={status === current}
+              disabled={busy}
+              onClick={() => pick(status)}
+              data-testid={`job-status-pick-${status}`}
+              className={cn(
+                "flex min-h-[44px] w-full items-start gap-2 rounded-card px-2.5 py-2 text-left transition-colors hover:bg-surface-subtle focus:bg-surface-subtle focus:outline-none disabled:opacity-60 sm:min-h-0",
+                status === current ? "bg-surface-subtle" : ""
+              )}
+            >
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-text">
+                  {status === "active" && current === "complete" ? "Reopen" : statusLabel(status)}
                 </span>
-                {status === current ? (
-                  <CheckCircle2
-                    aria-hidden="true"
-                    className="ml-auto mt-0.5 h-4 w-4 shrink-0 text-text-muted"
-                  />
-                ) : null}
-              </button>
-            ))}
-          </div>
-        </>
+                <span className="block text-xs text-text-muted">
+                  {status === "active" && current === "complete"
+                    ? "Back to live — the crew see it as a normal job again"
+                    : hint}
+                </span>
+              </span>
+              {status === current ? (
+                <CheckCircle2
+                  aria-hidden="true"
+                  className="ml-auto mt-0.5 h-4 w-4 shrink-0 text-text-muted"
+                />
+              ) : null}
+            </button>
+          ))}
+        </div>
       ) : null}
 
       {confirming ? (
@@ -176,7 +205,7 @@ export function JobStatusControl({
           role="dialog"
           aria-label={`Confirm: ${statusLabel(confirming)}`}
           data-testid="job-status-confirm"
-          className="absolute right-0 z-20 mt-1.5 w-80 rounded-card border border-border bg-surface-raised p-3 shadow-card"
+          className={cn(STATUS_PANEL_CLASS, "p-4 sm:w-80 sm:p-3")}
         >
           <p className="text-sm text-text">{confirmCopy(confirming, current)}</p>
           <div className="mt-3 flex justify-end gap-2">
@@ -189,11 +218,7 @@ export function JobStatusControl({
               onClick={() => void apply(confirming)}
               data-testid="job-status-confirm-yes"
             >
-              {busy
-                ? "Saving…"
-                : confirming === "complete"
-                  ? "Yes, mark finished"
-                  : "Yes, archive"}
+              {busy ? "Saving…" : confirming === "complete" ? "Yes, mark finished" : "Yes, archive"}
             </Button>
           </div>
         </div>
@@ -201,7 +226,7 @@ export function JobStatusControl({
 
       {error ? (
         <p
-          className="absolute right-0 z-20 mt-1.5 w-56 rounded-card border border-state-danger-subtle-border bg-state-danger-subtle-bg px-2.5 py-1.5 text-xs text-state-danger-subtle-text"
+          className="fixed inset-x-4 bottom-20 z-50 rounded-card border border-state-danger-subtle-border bg-state-danger-subtle-bg px-2.5 py-1.5 text-xs text-state-danger-subtle-text sm:absolute sm:inset-x-auto sm:bottom-auto sm:right-0 sm:z-20 sm:mt-1.5 sm:w-56"
           role="alert"
         >
           {error}

@@ -57,9 +57,7 @@ function renderWith(
 
 /** The pill button for `label`, asserting its pressed state. */
 function pillPressed(html: string, label: string): boolean | null {
-  const match = html.match(
-    new RegExp(`aria-pressed="(true|false)"[^>]*><span>${label}</span>`)
-  );
+  const match = html.match(new RegExp(`aria-pressed="(true|false)"[^>]*><span>${label}</span>`));
   return match ? match[1] === "true" : null;
 }
 
@@ -201,15 +199,19 @@ describe("JobsList — remembered default (storage mocked)", () => {
         q: "x".repeat(201),
       }),
     });
-    expect(readRememberedFilters(JOBS_FILTERS_STORAGE_KEY, JOBS_FILTER_SPEC, storage)).toEqual(
-      {}
-    );
+    expect(readRememberedFilters(JOBS_FILTERS_STORAGE_KEY, JOBS_FILTER_SPEC, storage)).toEqual({});
   });
 });
 
 describe("JobsList — health indicators + filter/sort (#227)", () => {
   const HEALTH_JOBS: ReadonlyArray<Job> = [
-    job({ id: "h_good", name: "Healthy Job", status: "active", statsEvidenceV2Pending: 0, statsExpiredTags: 0 }),
+    job({
+      id: "h_good",
+      name: "Healthy Job",
+      status: "active",
+      statsEvidenceV2Pending: 0,
+      statsExpiredTags: 0,
+    }),
     job({ id: "h_risk", name: "Risky Job", status: "active", statsExpiredTags: 2 }),
     job({ id: "h_watch", name: "Watchful Job", status: "active", statsEvidenceV2Pending: 1 }),
   ];
@@ -239,7 +241,15 @@ describe("JobsList — §3 portfolio card presentation (admin redesign)", () => 
   it("renders the portfolio summary with a need-attention count from real health", () => {
     const jobs: ReadonlyArray<Job> = [
       job({ id: "a", name: "Alpha", status: "active", statsExpiredTags: 1 }), // at-risk
-      job({ id: "b", name: "Bravo", status: "active", statsSnagsV2Active: 0, statsEvidenceV2Pending: 0, statsItpsNeedsReview: 0, statsExpiredTags: 0 }), // good
+      job({
+        id: "b",
+        name: "Bravo",
+        status: "active",
+        statsSnagsV2Active: 0,
+        statsEvidenceV2Pending: 0,
+        statsItpsNeedsReview: 0,
+        statsExpiredTags: 0,
+      }), // good
     ];
     const html = render("", jobs);
     expect(html).toContain("2 jobs · 1 needs attention");
@@ -302,5 +312,88 @@ describe("JobsList — §3 portfolio card presentation (admin redesign)", () => 
     expect(asBuilder).toContain("/v2/jobs/a/builder");
     const asViewer = render("", jobs);
     expect(asViewer).not.toContain("/v2/jobs/a/builder");
+  });
+});
+
+/**
+ * Office on a phone (owner pull 2026-09-27): the list must read true for every
+ * phase, the whole card must be the tap target, the review queue must stay one
+ * tap away, and the filter chrome must not push the first job off the screen.
+ */
+describe("JobsList — office on a phone (2026-09-27)", () => {
+  const clear = { statsEvidenceV2Pending: 0, statsExpiredTags: 0 } as const;
+
+  it("never says 'nothing needs you' on a job that isn't running — draft, paused and finished read their phase truth", () => {
+    const html = render("", [
+      job({ id: "d", name: "Draft Job", status: "draft", ...clear }),
+      job({ id: "h", name: "Held Job", status: "on_hold", ...clear }),
+      job({
+        id: "f",
+        name: "Finished Job",
+        status: "complete",
+        completedAt: new Date(Date.now() - 6 * 86_400_000).toISOString(),
+        ...clear,
+      }),
+    ]);
+    expect(html).not.toContain("nothing needs you");
+    expect(html).toContain("Not published yet");
+    expect(html).toContain("Paused — nothing to review");
+    expect(html).toContain("crew can log until");
+  });
+
+  it("keeps the health verdict for an active job and for any real backlog on any phase", () => {
+    const html = render("", [
+      job({ id: "a", name: "Live Job", status: "active", ...clear }),
+      job({
+        id: "h",
+        name: "Held With Evidence",
+        status: "on_hold",
+        statsEvidenceV2Pending: 2,
+        statsExpiredTags: 0,
+      }),
+    ]);
+    expect(html).toContain("On track");
+    expect(html).toContain("nothing needs you");
+    expect(html).toContain("2 evidence to review");
+  });
+
+  it("the whole card is the tap target: the name link stretches over the card", () => {
+    const html = render("", [job({ id: "a", name: "Alpha", status: "active", ...clear })]);
+    expect(html).toMatch(
+      /data-testid="job-card-link"[^>]*class="[^"]*after:absolute after:inset-0/
+    );
+  });
+
+  it("the phone line carries only real facts — no dashes for what isn't there", () => {
+    const html = render("", [
+      job({ id: "a", name: "Alpha", status: "active", statsCrewCount: 0, ...clear }),
+    ]);
+    expect(html).toContain("No crew");
+    expect(html).not.toContain("Tasks —");
+    expect(html).not.toContain("— · ");
+  });
+
+  it("the review queue stays one tap away on the phone when evidence is waiting", () => {
+    const html = render("", [
+      job({
+        id: "a",
+        name: "Alpha",
+        status: "active",
+        statsEvidenceV2Pending: 3,
+        statsExpiredTags: 0,
+      }),
+    ]);
+    expect(html).toContain("Review 3 →");
+    expect(html).toContain("/v2/jobs/a/evidence");
+  });
+
+  it("filter pills run as sideways strips on phones and the Archived view trails the status strip", () => {
+    const html = render("", JOBS);
+    expect(html).toMatch(/aria-label="Filter jobs by status"[^>]*class="[^"]*overflow-x-auto/);
+    expect(html).toMatch(/aria-label="Filter jobs by health"[^>]*class="[^"]*overflow-x-auto/);
+    // Header button (desktop) + strip pill (phone) — both real navigations.
+    expect(html.match(/href="\/v2\/jobs\?status=archived"/g)?.length).toBe(2);
+    // The ordering note rides the subline on phones.
+    expect(html).toContain("sorted by risk");
   });
 });

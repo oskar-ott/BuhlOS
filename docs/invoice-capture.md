@@ -70,7 +70,7 @@ They are separate columns, separate fields, separate labels everywhere.
 | --- | --- | --- |
 | Inbox | `/invoices` (`src/app/(admin)/invoices/page.tsx`, `InvoiceInboxClient`) | admin tier + flag (404 off) |
 | Review | `/invoices/[invoiceId]` (`InvoiceReviewClient`) | admin tier + flag |
-| Job hub card | `JobSupplierInvoicesCard` ("Materials used": category breakdown + lines) on `/v2/jobs/[jobId]` | rendered only when the flag is on for the viewer — no card, no fetch otherwise |
+| Job hub card | `JobSupplierInvoicesCard` ("Materials cost": category breakdown + lines — confirmed supplier charges, i.e. what was BOUGHT for the job, never proof of what was used) on `/v2/jobs/[jobId]` | rendered only when the flag is on for the viewer — no card, no fetch otherwise |
 | Money card | `api/job-profitability.js` adds the job's confirmed allocations to the Materials figure; since 2026-09-27 a docket typed into the manual ledger that looks like one of those allocations is warned about first (`docs/job-materials-spend.md` "Possible duplicate cost") (`supplierInvoices` in the response; `materialSource` `'invoices'` when only invoices carry it) — owner direction 2026-09-23 | flag on for the viewer; off ⇒ `supplierInvoices: null`, no store read |
 | Nav item | `Invoices` in the Jobs group (`src/components/admin/nav.ts`) | hidden by `AdminShell` while off |
 | Office API | `api/invoices.js` | admin tier + flag (404 off); every mutation audited |
@@ -131,7 +131,13 @@ on, because the office reviews receipts in the invoice inbox).
 - **Phone** (Phil My Day, sharpened layout): a **Log a receipt** tile in the
   existing Quick grid (P10 — no new section). The sheet asks for a photo
   (camera), the job (defaults to the worker's only job), and "I paid with my
-  own money". The photo is downscaled on the phone (≤ 1600 px JPEG).
+  own money". Ticking that shows, and the outcome after sending repeats, the
+  one honest sentence BuhlOS can stand behind (2026-09-27, `PAID_PERSONALLY_NOTE`):
+  *"Recorded for the office. This does not confirm that a payback has been
+  approved or paid."* BuhlOS runs no reimbursement and sends nothing to
+  payroll; the office sees the receipt flagged **paid personally** in the
+  inbox row and on the review page and handles the payback outside BuhlOS.
+  The photo is downscaled on the phone (≤ 1600 px JPEG).
 - **Server** (`POST /api/invoices?action=receipt`, field + LH + admin roles,
   not clients): the job must exist and be field-openable; the receipt becomes
   a supplier-invoice record with `source = 'receipt'`, the worker as creator,
@@ -158,7 +164,7 @@ on, because the office reviews receipts in the invoice inbox).
   personally"), the review screen says who chose the job and, when the worker
   paid, "pay them back through payroll — BuhlOS records it, it does not pay
   anyone". Confirm as usual; the cost, lines and categories flow into the job's
-  Money card and Materials used.
+  Money card and the Materials cost card.
 - **Auto-booking**: new knob **Book receipts from the field too**
   (`autoConfirmReceipts`, default off) lets the worker's job choice stand in for
   the IV checks; every other check still applies (figures read, under the cap,
@@ -331,7 +337,7 @@ number and the total."
   reported as unmeasured, not guessed.
 - **Surfaces**: review screen "Line items" card (qty with its measure,
   description, unit, total, category select, the add-up check); job hub
-  "Materials used" card (`GET ?action=job-materials`) — total from confirmed
+  "Materials cost" card (`GET ?action=job-materials`; renamed from "Materials used" 2026-09-27 — an invoice proves purchase, not use) — total from confirmed
   invoices, a bar per category, then **click a category** for "450 m of cable
   across 2 products" and a product per line (same supplier + description
   key: cost, printed quantities, measure, invoice count), then **click a
