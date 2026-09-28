@@ -887,6 +887,46 @@ async function rememberCategory(sql, tenantId, { supplierKey, descriptionKey, ca
  * notes count negative. Invoices that carry no readable lines are reported as
  * an uncovered amount so the breakdown never claims more than it knows.
  */
+/** Remembered filing (learned product categories), newest first, with the
+ *  supplier's printed name resolved the way listSuppliers does. A rule with
+ *  supplier_key '' applies to every supplier (Task I, 2026-09-27). */
+async function listLearnedCategories(sql, tenantId, { limit = 200 } = {}) {
+  const rows = await sql`
+    select r.id, r.supplier_key, r.description_key, r.category, r.set_by_legacy_id, r.set_by_name, r.set_at,
+           (select min(i.supplier_name) from public.supplier_invoices i where i.tenant_id = r.tenant_id and i.supplier_key = r.supplier_key) as supplier_name,
+           (select count(*)::int from public.supplier_invoice_lines l join public.supplier_invoices i2 on i2.id = l.invoice_id
+              where l.tenant_id = r.tenant_id and l.category_source = 'learned' and l.description_key = r.description_key and l.category = r.category
+                and (r.supplier_key = '' or i2.supplier_key = r.supplier_key)) as lines_filed_now
+    from public.supplier_line_categories r
+    where r.tenant_id = ${tenantId}
+    order by r.set_at desc
+    limit ${limit}`;
+  const [{ n }] = await sql`select count(*)::int as n from public.supplier_line_categories where tenant_id = ${tenantId}`;
+  return {
+    rules: rows.map((r) => ({
+      id: r.id,
+      supplierKey: r.supplier_key || '',
+      supplierName: r.supplier_name || null,
+      descriptionKey: r.description_key,
+      category: r.category,
+      setBy: r.set_by_name || null,
+      setAt: iso(r.set_at),
+      linesFiledNow: Number(r.lines_filed_now) || 0,
+    })),
+    total: Number(n),
+  };
+}
+
+/** Delete one remembered filing; returns the row (for the audit copy) or null. */
+async function forgetLearnedCategory(sql, tenantId, id) {
+  const rows = await sql`
+    delete from public.supplier_line_categories where tenant_id = ${tenantId} and id = ${id}
+    returning id, supplier_key, description_key, category, set_by_legacy_id, set_by_name, set_at`;
+  if (!rows.length) return null;
+  const r = rows[0];
+  return { id: r.id, supplierKey: r.supplier_key || '', descriptionKey: r.description_key, category: r.category, setBy: r.set_by_name || null, setAt: iso(r.set_at) };
+}
+
 async function jobMaterialsBreakdown(sql, tenantId, jobLegacyId) {
   const rows = await sql`
     select l.*, i.supplier_name, i.supplier_invoice_number, i.invoice_date, i.document_type,
@@ -1038,5 +1078,7 @@ module.exports = {
   updateInvoiceLine,
   learnedCategories,
   rememberCategory,
+  listLearnedCategories,
+  forgetLearnedCategory,
   jobMaterialsBreakdown,
 };

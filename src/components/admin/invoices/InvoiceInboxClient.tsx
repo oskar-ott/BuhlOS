@@ -20,6 +20,7 @@ import {
   statusTone,
 } from "@/domains/invoices/format";
 import { InvoiceUploadButton } from "./InvoiceUploadButton";
+import { LearnedFilingCard } from "./LearnedFilingCard";
 
 type Filter = "review" | "soon" | "matched" | "confirmed" | "duplicate" | "failed" | "excluded" | "all";
 
@@ -148,6 +149,7 @@ export function InvoiceInboxClient({
   return (
     <div className="space-y-4" data-testid="invoice-inbox">
       <SetupCard setup={setup} processing={processing} onUploaded={() => void load()} />
+      <LearnedFilingCard />
 
       <Card>
         <div className="flex flex-wrap items-center justify-between gap-3">

@@ -7,6 +7,9 @@
 //   GET    /api/invoices                       list (status,supplier,jobId,from,to,q,page,limit)
 //   GET    /api/invoices?id=X                  one invoice (documents, allocation, events, attempts)
 //   GET    /api/invoices?action=setup          inbound configuration + processing state
+//   GET    /api/invoices?action=learned-categories   remembered filing rules (supplier + product → category), newest first
+//   POST   /api/invoices?action=forget-category { ruleId } forget one rule (audited: invoice.learned_category_removed);
+//                                              invoices already read keep their filing — the next read files by keyword again
 //   GET    /api/invoices?action=auto-booking-report&days=90  the automatic-booking SHADOW REPORT: every
 //                                              would-book verdict vs what a person did, per supplier, with the
 //                                              release gate (docs/invoice-capture.md "Automatic booking — shadow report")
@@ -280,6 +283,7 @@ async function handler(req, res) {
     // ── reads ────────────────────────────────────────────────────────────────
     if (req.method === 'GET') {
       if (action === 'setup') return res.status(200).json(await setupPayload(sql, tenant));
+      if (action === 'learned-categories') return res.status(200).json(await store.listLearnedCategories(sql, tenant.id));
       if (action === 'jobs') {
         const jobs = await readJobs();
         const needle = String(q.q || '').trim().toLowerCase();
@@ -374,6 +378,7 @@ async function handler(req, res) {
       return res.status(200).json({ processed });
     }
 
+    if (req.method === 'POST' && action === 'forget-category') return forgetCategory(sql, tenant, me, body, res);
     if (req.method === 'PUT' && action === 'line' && id) return correctLine(sql, tenant, me, id, body, res);
     if (req.method === 'PUT' && id) return correct(sql, tenant, me, id, body, res);
     if (!id) return res.status(400).json({ error: 'id required' });
@@ -790,6 +795,32 @@ async function retry(sql, tenant, me, current, res) {
 }
 
 // ── corrections ──────────────────────────────────────────────────────────────
+/** Forget one remembered filing rule (Task I, 2026-09-27). Invoices already
+ *  read keep their filing; the next read files by keyword again (or by a
+ *  newer re-file). The audit entry keeps a full copy of the rule. */
+async function forgetCategory(sql, tenant, me, body, res) {
+  const ruleId = String((body && body.ruleId) || '').trim();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ruleId)) return res.status(400).json({ error: 'invalid_input', details: ['ruleId_invalid'] });
+  const rule = await store.forgetLearnedCategory(sql, tenant.id, ruleId);
+  if (!rule) return res.status(404).json({ error: 'not found' });
+  const a = actorOf(me);
+  try {
+    await auditLog.append({
+      action: 'invoice.learned_category_removed',
+      actorId: a.id,
+      actorName: a.name,
+      actorRole: a.role,
+      targetType: 'supplier_line_category',
+      targetId: rule.id,
+      summary: `Forgot the remembered filing “${rule.descriptionKey}” → ${CATEGORY_LABELS[rule.category] || rule.category}${rule.supplierKey ? '' : ' (any supplier)'}`.slice(0, 240),
+      metadata: { supplierKey: rule.supplierKey, descriptionKey: rule.descriptionKey, category: rule.category, setBy: rule.setBy, setAt: rule.setAt },
+    });
+  } catch {
+    // Best-effort, like journal(): the rule is already gone.
+  }
+  return res.status(200).json(await store.listLearnedCategories(sql, tenant.id));
+}
+
 /** Re-file (or rename) one line item; the category choice is remembered per supplier + product. */
 async function correctLine(sql, tenant, me, id, body, res) {
   const current = await store.getInvoiceRow(sql, tenant.id, id);
@@ -811,10 +842,17 @@ async function correctLine(sql, tenant, me, id, body, res) {
   if (!Object.keys(patch).length) return res.status(400).json({ error: 'invalid_input', details: ['nothing_to_change'] });
   const line = await store.updateInvoiceLine(sql, tenant.id, id, lineNo, patch);
   if (!line) return res.status(404).json({ error: 'line_not_found' });
-  if (patch.category && body.remember !== false) {
+  // Task I (2026-09-27): a rule is remembered per SUPPLIER. When no supplier
+  // was read from the document there is nothing to key it on — remembering
+  // it would create an any-supplier rule that overrides keyword filing for
+  // every wholesaler from one uncertain read. So: file the line, remember
+  // nothing, and say so.
+  const canRemember = !!current.supplierKey;
+  const remembered = !!(patch.category && body.remember !== false && canRemember);
+  if (remembered) {
     await store.rememberCategory(sql, tenant.id, { supplierKey: current.supplierKey, descriptionKey: line.descriptionKey, category: patch.category, actor: actorOf(me) });
   }
-  await store.insertEvent(sql, tenant.id, id, { event: 'line_corrected', actor: actorOf(me), detail: { lineNo, category: patch.category || null, renamed: !!patch.description, remembered: !!(patch.category && body.remember !== false) } });
+  await store.insertEvent(sql, tenant.id, id, { event: 'line_corrected', actor: actorOf(me), detail: { lineNo, category: patch.category || null, renamed: !!patch.description, remembered, notRemembered: patch.category && body.remember !== false && !canRemember ? 'no_supplier' : null } });
   const detail = await detailWithJob(sql, tenant, id);
   await journal(me, 'invoice.corrected', detail.invoice, `Re-filed line ${lineNo} of a supplier invoice${patch.category ? ` as ${CATEGORY_LABELS[patch.category]}` : ''}`, { lineNo, category: patch.category || null });
   return res.status(200).json(detail);
