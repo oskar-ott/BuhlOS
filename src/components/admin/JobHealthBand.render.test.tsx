@@ -82,3 +82,40 @@ describe("JobHealthBand", () => {
     expect(html).toContain("job-lifecycle-line");
   });
 });
+
+/**
+ * Same words as the list card (jobCardVerdict): the health word only where
+ * health is the read; a draft or paused job with nothing outstanding gets the
+ * phase sentence, never "On track" (owner pull 2026-09-27).
+ */
+describe("JobHealthBand — verdict words agree with the list", () => {
+  it("a clear draft reads 'Not published yet', not On track", () => {
+    const job = {
+      ...baseJob,
+      status: "draft",
+      statsEvidenceV2Pending: 0,
+      statsExpiredTags: 0,
+    } as Job;
+    const html = renderToString(
+      createElement(JobHealthBand, { job, canEdit: false, progressPct: null })
+    );
+    expect(html).toContain("Not published yet");
+    expect(html).not.toContain("On track");
+  });
+
+  it("a paused job with evidence waiting keeps the health word and its reason chip", () => {
+    const job = {
+      ...baseJob,
+      status: "on_hold",
+      statsEvidenceV2Pending: 2,
+      statsExpiredTags: 0,
+    } as Job;
+    const html = renderToString(
+      createElement(JobHealthBand, { job, canEdit: false, progressPct: null })
+    );
+    expect(html).toContain("Watch");
+    // React SSR splits `{count} {label}` with comment nodes.
+    expect(html).toMatch(/2(<!-- -->)? (<!-- -->)?evidence to review/);
+    expect(html).toContain("/v2/jobs/job-1/evidence");
+  });
+});

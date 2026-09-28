@@ -10,7 +10,12 @@ const readiness: BuilderReadiness = {
   tone: "warning",
   blockers: [],
   warnings: [
-    { code: "no-site-address", message: "No site address.", severity: "warning", source: "publish" },
+    {
+      code: "no-site-address",
+      message: "No site address.",
+      severity: "warning",
+      source: "publish",
+    },
   ],
   blockingCount: 0,
   warningCount: 1,
@@ -147,5 +152,29 @@ describe("JobBuilderCockpit", () => {
     const off = renderToString(createElement(JobBuilderCockpit, base));
     expect(off).not.toContain('data-testid="cockpit-nav-sub"');
     expect(off).not.toContain("3 areas");
+  });
+});
+
+/**
+ * Office on a phone (owner pull 2026-09-27): below `sm` the section nav is one
+ * sideways-scrolling row and the readiness meter is one tappable line, so the
+ * section the boss came to edit sits on the first screen.
+ */
+describe("JobBuilderCockpit — phone rail", () => {
+  it("the section nav scrolls sideways on phones and wraps from sm up", () => {
+    const html = render("basics");
+    expect(html).toMatch(
+      /aria-label="Job builder sections"[^>]*class="[^"]*overflow-x-auto[^"]*sm:flex-wrap[^"]*lg:flex-col/
+    );
+    // Every section button is a 44px, non-wrapping strip item on phones.
+    expect(html).toContain("min-h-[44px] shrink-0 items-center gap-2 whitespace-nowrap");
+  });
+
+  it("collapses the readiness tiles to one honest line on phones (same counts, same target)", () => {
+    const html = render("basics");
+    expect(html).toContain('data-testid="cockpit-readiness-compact"');
+    expect(html).toContain("0 blockers · 1 warning");
+    // The desktop tiles stay (hidden below lg), so the counts never diverge.
+    expect(html).toContain("hidden grid-cols-2 gap-2 lg:grid");
   });
 });

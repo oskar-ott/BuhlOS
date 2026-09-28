@@ -5,7 +5,9 @@ import {
   buildPortfolioSummary,
   formatContractValue,
   formatPortfolioTotal,
+  jobCardFacts,
   jobCardMeta,
+  jobCardVerdict,
   jobNeedsAttention,
 } from "./portfolio";
 import { deriveJobHealth, type JobHealth } from "./job-health";
@@ -46,7 +48,9 @@ describe("portfolio — formatContractValue / formatPortfolioTotal", () => {
 
 describe("portfolio — jobCardMeta (honest omission)", () => {
   it("renders real value + crew when present", () => {
-    const meta = jobCardMeta(job({ id: "j1", name: "A", contractValue: 250000, statsCrewCount: 4 }));
+    const meta = jobCardMeta(
+      job({ id: "j1", name: "A", contractValue: 250000, statsCrewCount: 4 })
+    );
     expect(meta).toEqual({ value: "$250,000", valueKnown: true, crew: "4", crewKnown: true });
   });
 
@@ -129,5 +133,116 @@ describe("portfolio — buildJobCard", () => {
     const vm = buildJobCardFromJob(j);
     expect(vm.health.level).toBe(deriveJobHealth(j).level);
     expect(vm.health.level).toBe("at-risk");
+  });
+});
+
+/**
+ * The card's one verdict line (owner pull 2026-09-27, "an accurate overview of
+ * jobs on the phone"): health words only where health is the read; otherwise
+ * the phase truth in a sentence. The derivation itself is untouched.
+ */
+describe("portfolio — jobCardVerdict (honest per phase)", () => {
+  const now = new Date("2026-09-27T09:00:00+10:00");
+  const verdict = (over: Partial<Job>) => {
+    const j = job({ id: "j", name: "J", ...over });
+    return jobCardVerdict(j, deriveJobHealth(j), now);
+  };
+
+  it("leads with the top backlog reason on ANY phase — a paused job with evidence waiting still reads Watch", () => {
+    expect(verdict({ status: "on_hold", statsEvidenceV2Pending: 3, statsExpiredTags: 0 })).toEqual({
+      label: "Watch",
+      tone: "warning",
+      caption: "3 evidence to review",
+    });
+    expect(verdict({ status: "draft", statsExpiredTags: 1 }).label).toBe("At risk");
+  });
+
+  it("an active job with nothing outstanding is On track · nothing needs you", () => {
+    expect(verdict({ status: "active", statsEvidenceV2Pending: 0, statsExpiredTags: 0 })).toEqual({
+      label: "On track",
+      tone: "success",
+      caption: "nothing needs you",
+    });
+  });
+
+  it("an active job with no stat loaded is No data, never an invented all-clear", () => {
+    const v = verdict({ status: "active" });
+    expect(v.label).toBe("No data");
+    expect(v.tone).toBe("neutral");
+    expect(v.caption).toBe("health starts when hours or photos come in");
+  });
+
+  it("a draft is never 'on track' — it says it isn't published", () => {
+    const v = verdict({ status: "draft", statsEvidenceV2Pending: 0, statsExpiredTags: 0 });
+    expect(v.label).toBeNull();
+    expect(v.tone).toBe("neutral");
+    expect(v.caption).toBe("Not published yet — the crew can't see it");
+  });
+
+  it("a paused job says so in the warning tone, not 'nothing needs you'", () => {
+    const v = verdict({ status: "on_hold", statsEvidenceV2Pending: 0, statsExpiredTags: 0 });
+    expect(v).toEqual({ label: null, tone: "warning", caption: "Paused — nothing to review" });
+  });
+
+  it("a finished job names its callback window; a closed job its close date", () => {
+    const finishing = verdict({
+      status: "complete",
+      completedAt: "2026-09-21T10:00:00Z",
+      statsEvidenceV2Pending: 0,
+      statsExpiredTags: 0,
+    });
+    expect(finishing.label).toBeNull();
+    expect(finishing.caption).toMatch(/^Finished 21 Sept? · crew can log until 21 Oct$/);
+    const closed = verdict({
+      status: "complete",
+      completedAt: "2026-08-13T10:00:00Z",
+      statsEvidenceV2Pending: 0,
+      statsExpiredTags: 0,
+    });
+    expect(closed.caption).toBe("Closed 13 Aug · still takes callback hours");
+    expect(verdict({ status: "archived", statsExpiredTags: 0 }).caption).toBe(
+      "Archived — office history only"
+    );
+  });
+});
+
+describe("portfolio — jobCardFacts (the phone line: real facts only)", () => {
+  const now = new Date("2026-09-27T09:00:00+10:00");
+
+  it("prints every real fact in reading order and skips what isn't there", () => {
+    const j = job({
+      id: "j",
+      name: "J",
+      contractValue: 48500,
+      statsCrewCount: 3,
+      statsTasksTotal: 10,
+      statsTasksComplete: 4,
+      updatedAt: "2026-09-25T09:00:00+10:00",
+    });
+    expect(jobCardFacts(j, { now })).toEqual(["$48,500", "Crew 3", "Tasks 40%", "Updated 2d ago"]);
+  });
+
+  it("a lean, unpriced job with no crew reads just 'No crew' — no '$—', no 'Tasks —'", () => {
+    const j = job({
+      id: "j",
+      name: "J",
+      statsCrewCount: 0,
+      statsTasksTotal: 0,
+      statsTasksComplete: 0,
+    });
+    expect(jobCardFacts(j, { now })).toEqual(["No crew"]);
+  });
+
+  it("nothing loaded at all → an empty line, never dashes", () => {
+    expect(jobCardFacts(job({ id: "j", name: "J" }), { now })).toEqual([]);
+  });
+
+  it("streamed extras fill the statsOnly gaps; the object's own figures win", () => {
+    const j = job({ id: "j", name: "J", contractValue: 1000, statsCrewCount: 1 });
+    expect(jobCardFacts(j, { now, contractValue: 999, tasksTotal: 4, tasksComplete: 1 })).toEqual([
+      "$1,000",
+      "Crew 1",
+      "Tasks 25%",
+    ]);
   });
 });
