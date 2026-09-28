@@ -22,13 +22,17 @@ export const ROLE_DEFS: Record<EmployeeRole, RoleDef> = {
     description:
       "Full access to BuhlOS admin tools. Approves hours. Manages gear, jobs, employees.",
   },
+  // Both surfaces (pull 2026-09-28: the PM needs the jobs overview AND to log
+  // their own hours). Tier permissions were already there — pm is admin tier,
+  // so /v2/jobs + /command-centre and self-submit hours (canSubmitHours) both
+  // work; this makes the card and invite landing say so.
   pm: {
     id: "pm",
     title: "Project manager",
-    appAccess: "buhlos",
-    surfaceChip: "buhlos",
-    surfaceLabel: "Office only",
-    description: "Views and reviews jobs. Approves snags and ITPs. No payroll access.",
+    appAccess: "both",
+    surfaceChip: "both",
+    surfaceLabel: "Office + own hours",
+    description: "Oversees every job. Logs their own hours in the field app. Approves snags and ITPs.",
   },
   office: {
     id: "office",
