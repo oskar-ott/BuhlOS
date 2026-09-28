@@ -18,9 +18,31 @@ const aiExtract = require('./ai-extract');
 const { forwardStrayEmail } = require('./forward');
 const { sendEmail } = require('../email');
 const { readTimesheetRecipients } = require('../timesheet-email-settings');
+const { createRateLimiter } = require('../rate-limit');
+
+// Task H: burst limiters live at MODULE scope (a limiter created inside
+// webhookDeps() would reset on every request). One per (window, max) so a
+// knob change simply starts a fresh window. In-memory = per warm instance =
+// a soft ceiling, never a cluster-wide lockout (api/_lib/rate-limit.js).
+const burstLimiters = new Map();
+function burstLimiterFor(windowMs, max) {
+  const k = `${windowMs}:${max}`;
+  if (!burstLimiters.has(k)) burstLimiters.set(k, createRateLimiter({ windowMs, max }));
+  return burstLimiters.get(k);
+}
+/** The owner's inbound burst setting → { limiter, key } or null when off (max 0). */
+async function inboundBurst() {
+  let s;
+  try { s = await getSettings('invoice_capture'); } catch { return null; }
+  const max = Math.floor(Number(s.inboundBurstMax) || 0);
+  if (max <= 0) return null;
+  const minutes = Math.max(1, Math.floor(Number(s.inboundBurstWindowMinutes) || 5));
+  return { limiter: burstLimiterFor(minutes * 60_000, max), key: 'inbound:invoices' };
+}
 
 function webhookDeps() {
   return {
+    burst: inboundBurst,
     isFlagOn,
     getDb,
     store,

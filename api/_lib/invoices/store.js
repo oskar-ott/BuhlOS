@@ -990,6 +990,13 @@ async function recordInboundEvent(sql, e) {
   }
 }
 
+/** Task H: has this delivery already been recorded? A read-only twin of the
+ *  replay guard, for the burst-limited branch (which must not insert). */
+async function hasInboundEvent(sql, svixId) {
+  const rows = await sql`select 1 from public.supplier_invoice_inbound_events where svix_message_id = ${svixId} limit 1`;
+  return rows.length > 0;
+}
+
 async function finishInboundEvent(sql, svixId, { status, failureCode }) {
   await sql`update public.supplier_invoice_inbound_events set status = ${status}, failure_code = ${failureCode || null}, processed_at = now()
             where svix_message_id = ${svixId}`;
@@ -1060,6 +1067,7 @@ module.exports = {
   claimAutoConfirmDue,
   digestStats,
   recordInboundEvent,
+  hasInboundEvent,
   finishInboundEvent,
   listQuarantined,
   inboundStats,

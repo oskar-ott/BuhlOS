@@ -92,6 +92,29 @@ const SETTINGS_REGISTRY = {
       description: 'A receipt a worker photographed and logged to a job may book itself like an IV-matched invoice when every other check passes (figures read, under the cap, a store the office has confirmed before). Off = every receipt waits for a person. Receipts paid with a worker\'s own money always wait (someone has to reimburse them).',
       default: false,
     },
+    // Task H (2026-09-27): inbound burst limit. OFF by default (0) — the right
+    // threshold is an owner decision (docs/invoice-capture.md "Inbound burst
+    // limit"), not a guess. Soft, per-instance; provider retries continue.
+    inboundBurstMax: {
+      type: 'number',
+      label: 'Inbound burst limit (deliveries per window)',
+      description: 'Most signed webhook deliveries that cost real work (a fetch + a read, or a forward) one warm instance will accept per window; beyond it the provider is told to retry later (429 + Retry-After) and the email is not lost. 0 = no limit. A soft ceiling per instance, not a cluster-wide lockout. Legitimate catch-ups run at ~20–40 a minute.',
+      default: 0,
+      min: 0,
+      max: 1000,
+      step: 10,
+      unit: 'deliveries',
+    },
+    inboundBurstWindowMinutes: {
+      type: 'number',
+      label: 'Inbound burst window (minutes)',
+      description: 'The window the burst limit counts over. Keep it at 5 or under so a throttled real delivery lands on the provider\'s third retry (about 5 minutes after the first).',
+      default: 5,
+      min: 1,
+      max: 60,
+      step: 1,
+      unit: 'min',
+    },
     alertQuietDays: {
       type: 'number',
       label: 'Alert after this many quiet days',

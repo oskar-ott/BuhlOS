@@ -37,8 +37,9 @@ function inboundExpected(env) {
 
 /**
  * @param {{ rawBody: string, headers: Record<string, string|undefined>, env?: Record<string, string|undefined>,
- *           deps: { isFlagOn: Function, getDb: Function, store: any, ingest: Function, resend: any, storePdf: Function, sha256: Function, nowSec?: number } }} input
- * @returns {Promise<{ status: number, body: object }>}
+ *           deps: { isFlagOn: Function, getDb: Function, store: any, ingest: Function, resend: any, storePdf: Function, sha256: Function, nowSec?: number,
+ *                   burst?: () => Promise<{ limiter: any, key: string } | null>, nowMs?: number } }} input
+ * @returns {Promise<{ status: number, body: object, headers?: Record<string, string> }>}
  */
 async function handleInboundWebhook({ rawBody, headers, env = process.env, deps }) {
   const secret = env.RESEND_INBOUND_WEBHOOK_SECRET;
@@ -70,6 +71,31 @@ async function handleInboundWebhook({ rawBody, headers, env = process.env, deps 
   const flagOn = toMatched ? await deps.isFlagOn('invoice_capture') : false;
   const status = !toMatched ? (strayAddress ? 'forwarded' : 'ignored') : !flagOn ? 'quarantined' : 'received';
 
+  // Burst limit (Task H, 2026-09-27). A soft, per-instance ceiling on the
+  // deliveries that cost real work (a fetch + a read, or a forward). OFF
+  // unless the owner sets inboundBurstMax (docs/invoice-capture.md "Inbound
+  // burst limit"). Checked AFTER the signature — unsigned noise never spends
+  // quota — and BEFORE the replay insert, so a provider retry of a delivery
+  // already recorded still answers 200 replay, while a genuinely new delivery
+  // over the limit answers 429 + Retry-After: the provider retries later
+  // (+5 s, +5 min, +30 min …) and the email is not lost. Only counted once
+  // the insert succeeds, so replays never feed the limiter.
+  let burst = null;
+  if ((status === 'received' || status === 'forwarded') && typeof deps.burst === 'function') {
+    try { burst = await deps.burst(); } catch { burst = null; }
+    if (burst && burst.limiter && burst.key) {
+      const nowMs = typeof deps.nowMs === 'number' ? deps.nowMs : Date.now();
+      if (burst.limiter.isLimited(burst.key, nowMs)) {
+        if (await deps.store.hasInboundEvent(sql, sig.id)) return { status: 200, body: { replay: true } };
+        const retryAfterSec = burst.limiter.retryAfterSec(burst.key, nowMs);
+        console.warn('[invoices] inbound burst limited', { retryAfterSec });
+        return { status: 429, body: { error: 'rate_limited', retryAfterSec }, headers: { 'retry-after': String(retryAfterSec) } };
+      }
+    } else {
+      burst = null;
+    }
+  }
+
   const receipt = await deps.store.recordInboundEvent(sql, {
     svixId: sig.id,
     tenantId: tenant.id,
@@ -81,6 +107,7 @@ async function handleInboundWebhook({ rawBody, headers, env = process.env, deps 
     status,
   });
   if (!receipt.inserted) return { status: 200, body: { replay: true } };
+  if (burst) burst.limiter.record(burst.key, typeof deps.nowMs === 'number' ? deps.nowMs : Date.now());
   if (status === 'ignored') return { status: 200, body: { ignored: true } };
   if (status === 'forwarded') {
     // A reply to timesheets@ / office@ …: nobody reads that mailbox, so hand it

@@ -455,6 +455,39 @@ Forwarding a backlog is the expected first use. What happens, and the numbers:
    through the documented workflow.
 6. **Owner Console:** preview the feature (`Preview for me`) before `Live`.
 
+### Inbound burst limit (2026-09-27, off by default — owner decision)
+
+Every signed delivery that reaches the inbox address costs a fetch and a read
+(or a forward); an attacker who learns the address, or a runaway forwarding
+rule, can make the office's function do that work without limit. Two owner
+knobs on `/owner` (`invoice_capture`): **Inbound burst limit** (deliveries
+per window, **0 = off**, the default) and **Inbound burst window** (minutes,
+default 5).
+
+- **Where it sits:** after the Svix signature check (unsigned noise never
+  spends quota) and before the replay insert. A **new** delivery over the
+  limit answers **429 `rate_limited`** with `Retry-After` and records
+  nothing; a provider **retry** of a delivery already recorded still answers
+  200 `replay`. Only a successful insert counts, so replays never feed the
+  limiter. Quarantined (flag off) and ignored deliveries are not counted —
+  they cost one insert each. A failed settings read fails **open**.
+- **Provider behaviour:** Resend/Svix treat anything but 2xx as a failure and
+  retry at +5 s, +5 min, +30 min, +2 h, +5 h, +10 h, +10 h, then mark the
+  message failed (replayable by hand in the Resend dashboard); `Retry-After`
+  is informational — the provider does not document honouring it. Keep the
+  window at 5 minutes or less so a throttled real delivery lands on the third
+  retry.
+- **What it is not:** the limiter is an in-memory sliding window **per warm
+  instance** (`api/_lib/rate-limit.js`) — a soft ceiling that resets on cold
+  start and multiplies by the number of instances, not a cluster-wide
+  lockout. Floods of *unsigned* requests are for a Vercel WAF rule, not this.
+- **Choosing the number (owner):** legitimate catch-ups run at roughly 20–40
+  forwards a minute and a hundred drain within the hour. Candidates: 100 per
+  5 min (one office, one mailbox); 60 per 1 min if bursts are short; a
+  per-sender-domain key is possible but is not a security control (the From
+  address is attacker-controlled). Set it, watch the inbox's *Inbound email*
+  card and the weekly digest for a fortnight, adjust.
+
 ## Auto-booking (owner decision 2026-09-22)
 
 Set-and-forget needs the normal case to book itself and a person to see only
