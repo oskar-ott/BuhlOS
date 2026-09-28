@@ -370,8 +370,8 @@ Resend receiving takes **every** email for `buhlos.com`, so a reply to
 `INBOUND_FORWARD_LOCAL_PARTS` overrides the list) used to be recorded
 `ignored` and never seen. The webhook now **forwards** such emails — body,
 attachments (≤10, ≤5 MB each, ≤8 MB total), the original sender as reply-to —
-to the accounts recipient list (the same list the pay-run and the digest go
-to), from `INBOUND_FORWARD_FROM` (default `EMAIL_FROM`), and records the
+to the invoice recipient list (see "Who gets invoice emails" under the
+digest), from `INBOUND_FORWARD_FROM` (default `EMAIL_FROM`), and records the
 receipt `forwarded` (migration `20260923100000_supplier_invoice_inbound_forwarded`).
 A failed forward is recorded `ignored` with `failure_code forward_failed:<why>`
 and counted by the mid-week alert. Anything else addressed to the domain stays
@@ -528,11 +528,18 @@ exactly like human ones (Move / Exclude / Archive).
 `autoConfirmLookbackDays` (90).
 
 **The digest is the oversight.** Every Monday 07:30 Sydney
-(`GET /api/invoices?action=digest`, cron) the accounts recipient list — the
-same list timesheets go to, managed on `/settings` — gets one email: captured
+(`GET /api/invoices?action=digest`, cron) the invoice recipient list gets
+one email: captured
 / booked automatically / booked by a person / waiting on you / failed, each
 booking with a link, plus a health section (failed reads, documents stuck
 unread for a day, no supplier mail for 14 days). No recipients → no email.
+
+**Who gets invoice emails** (owner pull 2026-09-28). The digest, the mid-week
+alerts and forwarded stray emails go to the owner setting
+`invoice_capture.emailRecipients` (comma-separated, Owner console → settings)
+when it holds at least one valid address; malformed entries are skipped. Blank
+→ the timesheet accounts list managed on `/settings`, as before. Resolved in
+`api/_lib/invoices/recipients.js`.
 
 Rollout: review-only for two weeks, then knob on with a low cap, then raise.
 

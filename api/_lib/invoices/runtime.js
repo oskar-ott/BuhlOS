@@ -17,7 +17,7 @@ const { getSettings } = require('../feature-settings');
 const aiExtract = require('./ai-extract');
 const { forwardStrayEmail } = require('./forward');
 const { sendEmail } = require('../email');
-const { readTimesheetRecipients } = require('../timesheet-email-settings');
+const { readInvoiceRecipients } = require('./recipients');
 const { createRateLimiter } = require('../rate-limit');
 
 // Task H: burst limiters live at MODULE scope (a limiter created inside
@@ -52,7 +52,7 @@ function webhookDeps() {
     sha256: sha256Hex,
     forward: async ({ emailId, address, env }) => forwardStrayEmail({
       emailId, address,
-      deps: { resend, apiKey: env.RESEND_API_KEY, sendEmail, recipients: await readTimesheetRecipients(), from: env.INBOUND_FORWARD_FROM || env.EMAIL_FROM || null },
+      deps: { resend, apiKey: env.RESEND_API_KEY, sendEmail, recipients: await readInvoiceRecipients(), from: env.INBOUND_FORWARD_FROM || env.EMAIL_FROM || null },
     }),
     processOne: async ({ sql, tenant, invoiceId }) => {
       let autoConfirm = { enabled: false, capCents: 0, graceHours: 12, lookbackDays: 90, allowInferred: false, allowReceipts: false };
