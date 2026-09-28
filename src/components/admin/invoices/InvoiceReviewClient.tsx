@@ -255,7 +255,7 @@ export function InvoiceReviewClient({ invoiceId }: { invoiceId: string }) {
           <CardKicker>From the field</CardKicker>
           {inv.paidPersonally ? (
             <p className="mt-2 text-sm text-text">
-              {inv.createdBy ?? "The worker"} paid for this with their own money — pay them back through payroll. BuhlOS records it; it does not pay anyone.
+              {inv.createdBy ?? "The worker"} paid for this with their own money. BuhlOS records that fact for you; it does not reimburse anyone and it does not confirm that a payback has been approved or paid — that happens outside BuhlOS.
             </p>
           ) : null}
           {inv.workerNote ? <p className="mt-2 text-sm text-text-muted">“{inv.workerNote}”</p> : null}

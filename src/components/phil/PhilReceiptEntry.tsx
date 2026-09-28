@@ -5,7 +5,7 @@ import { Camera, ReceiptText, X } from "lucide-react";
 import { PhilActionButton } from "./ui/PhilActionButton";
 import { PhilNotice } from "./ui/PhilNotice";
 import { resizeImageToDataUrl } from "@/domains/evidence/service";
-import { receiptOutcomeText, submitReceipt, type ReceiptResult } from "@/domains/invoices/receipt-client";
+import { PAID_PERSONALLY_NOTE, receiptOutcomeText, submitReceipt, type ReceiptResult } from "@/domains/invoices/receipt-client";
 
 /**
  * My Day — "Log a receipt" (receipt_capture, owner pull 2026-09-25).
@@ -212,6 +212,11 @@ function ReceiptSheet({
             <input type="checkbox" checked={ownMoney} onChange={(e) => setOwnMoney(e.target.checked)} className="h-5 w-5" data-testid="phil-receipt-own-money" />
             <span className="text-sm text-text">I paid with my own money</span>
           </label>
+          {ownMoney ? (
+            <p className="text-xs leading-snug text-text-muted" data-testid="phil-receipt-own-money-note">
+              {PAID_PERSONALLY_NOTE}
+            </p>
+          ) : null}
 
           {error ? (
             <PhilNotice tone="danger" role="alert">
