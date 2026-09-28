@@ -104,9 +104,20 @@ export function JobMoneyCard({
     <Card role="region" aria-label="Money" className="p-0">
       <div className="flex flex-wrap items-baseline justify-between gap-3 px-4 pt-4 sm:px-6 sm:pt-5">
         <CardKicker>Money</CardKicker>
-        <p className="text-xs text-text-muted">
-          All figures ex GST · labour at internal cost rates, office-only
-        </p>
+        <div className="flex flex-wrap items-baseline gap-3">
+          <p className="text-xs text-text-muted">
+            All figures ex GST · labour at internal cost rates, office-only
+          </p>
+          {state === "ready" ? (
+            <a
+              href={`/api/job-profitability?jobId=${encodeURIComponent(jobId)}&format=pdf`}
+              className="text-xs font-medium text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-2"
+              data-testid="money-job-report"
+            >
+              Download job report (PDF)
+            </a>
+          ) : null}
+        </div>
       </div>
 
       {state === "error" ? (

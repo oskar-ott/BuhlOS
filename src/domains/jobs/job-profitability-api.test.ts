@@ -24,6 +24,8 @@ const invoiceStorePath = requireFromHere.resolve("../../../api/_lib/invoices/sto
 /** What the (mocked) supplier-invoice store answers for job-a; a thrown error
  *  simulates an unreachable Postgres. */
 let invoiceSummary: { confirmedCents: number; confirmedCount: number; awaitingCount: number } | Error;
+/** What the (mocked) store's materials breakdown answers for the printable report. */
+let breakdown: Record<string, unknown>;
 
 type Res = ReturnType<typeof createRes>;
 let blob: Map<string, unknown>;
@@ -46,10 +48,14 @@ function createRes() {
       this.body = body;
       return this;
     },
-    setHeader() {
+    headers: {} as Record<string, string>,
+    ended: null as unknown,
+    setHeader(k: string, v: string) {
+      this.headers[k.toLowerCase()] = v;
       return this;
     },
-    end() {
+    end(payload?: unknown) {
+      this.ended = payload ?? null;
       return this;
     },
   };
@@ -155,6 +161,7 @@ beforeEach(() => {
     },
   } as NodeJS.Module;
   invoiceSummary = { confirmedCents: 0, confirmedCount: 0, awaitingCount: 0 };
+  breakdown = { lines: [], invoices: [], invoicesWithoutLines: [], confirmedCents: 0, invoiceCount: 0 };
   requireFromHere.cache[dbPath] = { id: dbPath, filename: dbPath, loaded: true, exports: { getDb: () => ({}) } } as NodeJS.Module;
   requireFromHere.cache[invoiceStorePath] = {
     id: invoiceStorePath,
@@ -166,6 +173,7 @@ beforeEach(() => {
         if (invoiceSummary instanceof Error) throw invoiceSummary;
         return { jobId, ...invoiceSummary };
       },
+      jobMaterialsBreakdown: async () => breakdown,
     },
   } as NodeJS.Module;
   requireFromHere.cache[vercelBlobPath] = {
@@ -475,5 +483,67 @@ describe("GET /api/job-profitability — confirmed supplier invoices reach Mater
     const b = res.body as Body;
     expect(b.supplierInvoices).toEqual({ confirmedCents: 0, confirmedCount: 0, awaitingCount: 0, unavailable: true });
     expect(b.completeness.material).toBe("received_proxy");
+  });
+});
+
+describe("GET /api/job-profitability?format=pdf — the printable job cost report (2026-09-28)", () => {
+  const pdfText = async (res: Res) => {
+    const { extractPdfText } = requireFromHere("../../../api/_lib/invoices/pdf-text.js");
+    return (await extractPdfText(res.ended as Buffer)).text as string;
+  };
+  it("is a PDF attachment for admins, with the same labour the JSON reports, every approved day, and named gaps", async () => {
+    const json = (await call({ role: "admin", query: { jobId: "job-a" } })).body as { labourCostCents: number; hoursTotal: number };
+    const res = await call({ role: "admin", query: { jobId: "job-a", format: "pdf" } });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toBe("application/pdf");
+    expect(res.headers["content-disposition"]).toMatch(/^attachment; filename="buhlos-job-report-job-a-\d{4}-\d{2}-\d{2}\.pdf"$/);
+    expect(Buffer.isBuffer(res.ended)).toBe(true);
+    const text = await pdfText(res);
+    expect(text).toContain("Job cost report");
+    expect(text).toContain("Job A");
+    expect(text).toContain("$120,000.00"); // contract (jobs.json holds dollars)
+    expect(text).toContain("$420.00"); // 8h x $52.50 — the JSON's labour cost
+    expect(json.labourCostCents).toBe(42000);
+    expect(text).toContain("12h approved");
+    expect(text).toContain("8h more have been submitted but not approved"); // the submitted day is named, not counted
+    expect(text).toContain("no cost rate is set for Mate");
+    expect(text).toContain("Mon 01/06/2026");
+    expect(text).toContain("Tue 02/06/2026");
+    expect(text).not.toContain("Thu 04/06/2026"); // the other job's day
+    expect(text).toContain("the older received-materials rollup"); // both material flags off: the legacy proxy is named, not passed off as detail
+  });
+  it("with invoices + the ledger on: categories with quantities, each invoice with its lines and buyer, receipts, typed dockets, the total", async () => {
+    process.env.FLAG_INVOICE_CAPTURE = "true";
+    process.env.FLAG_JOB_MATERIALS_SPEND = "true";
+    invoiceSummary = { confirmedCents: 35000, confirmedCount: 2, awaitingCount: 1 };
+    breakdown = {
+      lines: [
+        { id: "l1", invoiceId: "i1", lineNo: 1, description: "2.5MM TPS 100M ROLL", quantity: 3, unit: "roll", unitPriceCents: 8950, lineTotalCents: 26850, category: "cable", signedCents: 26850 },
+        { id: "l2", invoiceId: "i1", lineNo: 2, description: "CABLE TIES PK100", quantity: 1, unit: "pk", unitPriceCents: 650, lineTotalCents: 650, category: "fixings", signedCents: 650 },
+      ],
+      invoices: [
+        { invoiceId: "i1", supplierName: "Lawrence & Hanson", supplierInvoiceNumber: "LH-1", invoiceDate: "2026-06-01T00:00:00.000Z", documentType: "tax_invoice", source: "email", purchaser: "Dylan Sinclair", amountCents: 27500, lineCount: 2 },
+        { invoiceId: "i2", supplierName: "Bunnings Warehouse", supplierInvoiceNumber: "4471", invoiceDate: "2026-06-02", documentType: "tax_invoice", source: "receipt", purchaser: "Sparky", amountCents: 7500, lineCount: 0 },
+      ],
+      invoicesWithoutLines: [], confirmedCents: 35000, invoiceCount: 2,
+    };
+    blob.set("jobs/job-a/materials-ledger.json", { lines: [{ id: "d1", date: "2026-06-03", supplier: "Cash sale - Middy", description: "Glands", amountCents: 4550, addedBy: "boss", addedAt: "2026-06-03T00:00:00Z" }] });
+    const text = await pdfText(await call({ role: "admin", query: { jobId: "job-a", format: "pdf" } }));
+    expect(text).toContain("By category");
+    expect(text).toContain("Cable");
+    expect(text).toContain("300 m"); // 3 rolls x 100M
+    expect(text).toContain("LH-1");
+    expect(text).toMatch(/Mon 01\/06\/2026\s+Lawrence & Hanson/); // a stored timestamp prints as a date, not "2026-06-01T00:00…"
+    expect(text).not.toContain("T00:00:00");
+    expect(text).toContain("picked up by Dylan Sinclair");
+    expect(text).toContain("2.5MM TPS 100M ROLL");
+    expect(text).toContain("receipt");
+    expect(text).toContain("lines not itemised");
+    expect(text).toContain("Cash sale - Middy");
+    expect(text).toContain("1 supplier invoice is awaiting review and not included");
+    expect(text).toContain("$395.50"); // materials total = ledger 45.50 + invoices 350.00
+  });
+  it("is refused to non-admins like the JSON", async () => {
+    expect((await call({ role: "leadingHand", userId: "u_lh", query: { jobId: "job-a", format: "pdf" } })).statusCode).toBe(403);
   });
 });

@@ -473,7 +473,11 @@ export function createMemoryStore(opts: { tenantId?: string; jobUuids?: Record<s
         const sign = inv.documentType === "credit_note" ? -1 : 1;
         for (const l of ls) lines.push({ ...l, supplierName: inv.supplierName, supplierInvoiceNumber: inv.supplierInvoiceNumber, invoiceDate: inv.invoiceDate, documentType: inv.documentType, purchaser: inv.purchaserWorkerName ?? inv.purchaserName ?? null, signedCents: ((l.lineTotalCents as number) || 0) * sign });
       }
-      return { lines, invoicesWithoutLines: withoutLines, confirmedCents: active.reduce((s, a) => s + (a.amountCents as number), 0), invoiceCount: active.length };
+      const invoices = active.map((a) => {
+        const inv = store.invoices.find((r) => r.id === a.invoiceId)!;
+        return { invoiceId: inv.id, supplierName: inv.supplierName, supplierInvoiceNumber: inv.supplierInvoiceNumber, invoiceDate: inv.invoiceDate, documentType: inv.documentType, source: inv.source, purchaser: inv.purchaserWorkerName ?? inv.purchaserName ?? null, amountCents: a.amountCents, lineCount: store.lines.filter((l) => l.invoiceId === a.invoiceId).length };
+      }).sort((x, y) => String(x.invoiceDate ?? "").localeCompare(String(y.invoiceDate ?? "")));
+      return { lines, invoicesWithoutLines: withoutLines, invoices, confirmedCents: active.reduce((s, a) => s + (a.amountCents as number), 0), invoiceCount: active.length };
     },
     healthSnapshot: async () => {
       const dayAgo = Date.now() - 86_400_000;
