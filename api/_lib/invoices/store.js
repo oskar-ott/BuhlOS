@@ -945,12 +945,16 @@ async function jobMaterialsBreakdown(sql, tenantId, jobLegacyId) {
     order by i.invoice_date nulls last, i.created_at, l.line_no`;
   const covered = await sql`
     select a.invoice_id, a.amount_ex_gst_cents as amount, i.supplier_name, i.supplier_invoice_number, i.invoice_date,
+           i.document_type, i.source, coalesce(i.purchaser_worker_name, i.purchaser_name) as purchaser,
            (select count(*)::int from public.supplier_invoice_lines l where l.invoice_id = a.invoice_id) as n
     from public.supplier_invoice_allocations a join public.supplier_invoices i on i.id = a.invoice_id
     where a.tenant_id = ${tenantId} and a.job_legacy_id = ${jobLegacyId} and a.status = 'active'`;
   const lines = rows.map((r) => ({ ...lineRow(r), supplierName: r.supplier_name, supplierInvoiceNumber: r.supplier_invoice_number, invoiceDate: iso(r.invoice_date), documentType: r.document_type, purchaser: r.purchaser || null, signedCents: (cents(r.line_total_cents) || 0) * Number(r.sign) }));
   const withoutLines = covered.filter((c) => Number(c.n) === 0).map((c) => ({ invoiceId: c.invoice_id, supplierName: c.supplier_name, supplierInvoiceNumber: c.supplier_invoice_number, invoiceDate: iso(c.invoice_date), amountCents: cents(c.amount) }));
-  return { lines, invoicesWithoutLines: withoutLines, confirmedCents: covered.reduce((s, c) => s + (cents(c.amount) || 0), 0), invoiceCount: covered.length };
+  const invoices = covered
+    .map((c) => ({ invoiceId: c.invoice_id, supplierName: c.supplier_name, supplierInvoiceNumber: c.supplier_invoice_number, invoiceDate: iso(c.invoice_date), documentType: c.document_type, source: c.source, purchaser: c.purchaser || null, amountCents: cents(c.amount), lineCount: Number(c.n) }))
+    .sort((a, b) => String(a.invoiceDate || '').localeCompare(String(b.invoiceDate || '')));
+  return { lines, invoicesWithoutLines: withoutLines, invoices, confirmedCents: covered.reduce((s, c) => s + (cents(c.amount) || 0), 0), invoiceCount: covered.length };
 }
 
 /** What the mid-week alert needs (api/_lib/invoices/alerts.js). */

@@ -1,6 +1,9 @@
 // Per-job profitability (#327, Epic 14). ADMIN-TIER ONLY.
 //
 //   GET /api/job-profitability?jobId=<id>
+//   GET /api/job-profitability?jobId=<id>&format=pdf  → the printable job cost report
+//       (api/_lib/job-report-pdf.js): the same figures + every approved day, every
+//       confirmed supplier invoice / receipt with its lines, the typed ledger.
 //     → { jobId, contractValueCents, labourCostCents, materialCostCents,
 //         marginCents, marginPct, completeness, badges, budget, variance,
 //         hoursTotal, labourChargeOutCents, chargeOutHours, unratedWorkerRefs, asOf }
@@ -46,6 +49,10 @@ const { isFlagEnabled } = require('./_lib/feature-flags');
 const { readLedger, summariseLedger } = require('./_lib/job-materials');
 const { getDb } = require('./_lib/supabase-db');
 const invoiceStore = require('./_lib/invoices/store');
+const { buildWorkerLabeller } = require('./_lib/worker-names');
+const { composeJobReportPdf } = require('./_lib/job-report-pdf');
+const { CATEGORY_LABELS } = require('./_lib/invoices/categories');
+const { measureOf, measureTotals } = require('./_lib/invoices/measure');
 
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
@@ -89,17 +96,24 @@ module.exports = async (req, res) => {
   let chargeOutHours = 0;
   const totalHoursByUser = {};
   const costedHoursByUser = {};
+  // Per-day rows for the printable job report (?format=pdf) — the same walk,
+  // the same rates, so the document's labour equals the card's by construction.
+  const labourRows = [];
+  let pendingHours = 0;
   try {
     const entries = await fetchTimeEntries(await listTimeEntryBlobs());
     for (const e of entries) {
-      if (!e || e.status !== 'approved') continue;
+      if (!e || (e.status !== 'approved' && e.status !== 'submitted')) continue;
       const hrs = (e.allocations || [])
         .filter((a) => a && a.jobId === jobId)
         .reduce((s, a) => s + (Number(a.hours) || 0), 0);
       if (!hrs) continue;
+      if (e.status === 'submitted') { pendingHours += hrs; continue; }
       hoursTotal += hrs;
       totalHoursByUser[e.userId] = (totalHoursByUser[e.userId] || 0) + hrs;
       const rate = effectiveCostRate(historyFor(ratesData, e.userId), e.date);
+      const dayCost = rate && rate.costRateCents > 0 ? Math.round(hrs * rate.costRateCents) : null;
+      labourRows.push({ date: e.date, userId: e.userId, userName: e.userName || null, hours: hrs, costCents: dayCost });
       if (rate && rate.costRateCents > 0) {
         labourCostCents += Math.round(hrs * rate.costRateCents);
         costedHoursByUser[e.userId] = (costedHoursByUser[e.userId] || 0) + hrs;
@@ -205,6 +219,10 @@ module.exports = async (req, res) => {
     contractValueCents,
   });
 
+  if (String((req.query && req.query.format) || '') === 'pdf') {
+    return sendJobReport(res, { job, jobId, me, result, labourRows, pendingHours, hoursTotal, unratedWorkers, usersBlob, employeesBlob, ledgerOn, invoicesOn, supplierInvoices });
+  }
+
   return res.status(200).json({
     jobId,
     ...result,
@@ -218,3 +236,78 @@ module.exports = async (req, res) => {
     asOf: new Date().toISOString(),
   });
 };
+
+/**
+ * The printable job cost report (owner pull 2026-09-28). Same figures as the
+ * JSON above; adds the per-day labour rows, every confirmed supplier invoice /
+ * receipt with its lines, and the typed materials ledger.
+ */
+async function sendJobReport(res, ctx) {
+  const { job, jobId, me, result, labourRows, pendingHours, hoursTotal, unratedWorkers, usersBlob, employeesBlob, ledgerOn, invoicesOn, supplierInvoices } = ctx;
+  const labelFor = buildWorkerLabeller({ users: usersBlob && usersBlob.users, employees: employeesBlob && employeesBlob.employees });
+  const days = labourRows
+    .map((r) => ({ date: String(r.date).slice(0, 10), name: labelFor(r.userId, r.userName), hours: round2(r.hours), costCents: r.costCents }))
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)) || a.name.localeCompare(b.name));
+  const byWorker = new Map();
+  for (const d of days) {
+    const w = byWorker.get(d.name) || { name: d.name, dates: new Set(), hours: 0, costCents: 0, uncosted: false };
+    w.dates.add(d.date);
+    w.hours += d.hours;
+    if (d.costCents == null) w.uncosted = true; else w.costCents += d.costCents;
+    byWorker.set(d.name, w);
+  }
+  const workers = Array.from(byWorker.values())
+    .map((w) => ({ name: w.name, days: w.dates.size, hours: round2(w.hours), costCents: w.uncosted && !w.costCents ? null : w.costCents }))
+    .sort((a, b) => b.hours - a.hours);
+
+  const materials = { source: result.completeness ? result.completeness.material : null, invoicesShown: false, ledgerShown: false, categories: [], invoices: [], ledger: [], awaitingCount: supplierInvoices ? supplierInvoices.awaitingCount : 0 };
+  if (invoicesOn) {
+    try {
+      const sql = getDb({ mode: 'read' });
+      const tenant = await invoiceStore.resolveTenant(sql);
+      if (tenant) {
+        const b = await invoiceStore.jobMaterialsBreakdown(sql, tenant.id, jobId);
+        const lines = b.lines.map((l) => ({ ...l, measure: measureOf(l.description, l.quantity, l.unit) }));
+        const cats = new Map();
+        for (const l of lines) {
+          const c = cats.get(l.category) || { label: CATEGORY_LABELS[l.category] || l.category, cents: 0, lines: [] };
+          c.cents += l.signedCents; c.lines.push(l);
+          cats.set(l.category, c);
+        }
+        materials.categories = Array.from(cats.values()).map((c) => ({ label: c.label, cents: c.cents, measure: measureTotals(c.lines).totals })).sort((a, c) => c.cents - a.cents);
+        materials.invoices = (b.invoices || []).map((inv) => ({
+          date: inv.invoiceDate ? String(inv.invoiceDate).slice(0, 10) : null, supplier: inv.supplierName || 'Unknown supplier', number: inv.supplierInvoiceNumber, source: inv.source, documentType: inv.documentType, purchaser: inv.purchaser,
+          amountCents: inv.amountCents,
+          lines: lines.filter((l) => l.invoiceId === inv.invoiceId).map((l) => ({ quantity: l.quantity, unit: l.unit, description: l.description, category: CATEGORY_LABELS[l.category] || l.category, signedCents: l.signedCents })),
+        }));
+        materials.invoicesShown = true;
+      }
+    } catch (err) {
+      console.error('job-report: supplier-invoice read failed', { code: (err && err.code) || 'db' });
+    }
+  }
+  if (ledgerOn) {
+    try {
+      const ledger = summariseLedger(await readLedger(jobId));
+      materials.ledger = ledger.lines.slice().sort((a, c) => String(a.date).localeCompare(String(c.date))).map((l) => ({ date: l.date, supplier: l.supplier, description: l.description || null, amountCents: l.amountCents }));
+      materials.ledgerShown = true;
+    } catch (err) {
+      console.error('job-report: materials ledger read failed', err && err.message);
+    }
+  }
+
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Australia/Sydney' });
+  const pdf = await composeJobReportPdf({
+    job: { id: job.id, name: job.name || job.id, code: typeof job.code === 'string' ? job.code : null, siteAddress: job.siteAddress || null, status: job.status || null, clientName: job.clientName || null },
+    generatedAt: today,
+    money: { contractValueCents: result.contractValueCents, labourCostCents: result.labourCostCents, materialCostCents: result.materialCostCents, marginCents: result.marginCents, marginPct: result.marginPct },
+    labour: { hoursTotal: round2(hoursTotal), pendingHours: round2(pendingHours), unratedWorkers, workers, days },
+    materials,
+  });
+  const slug = `${job.code || ''} ${job.name || job.id}`.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'job';
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="buhlos-job-report-${slug}-${today}.pdf"`);
+  res.setHeader('Cache-Control', 'private, no-store');
+  console.log('[job-report] generated', { by: me && me.id, days: days.length, invoices: materials.invoices.length });
+  return res.status(200).end(Buffer.from(pdf));
+}

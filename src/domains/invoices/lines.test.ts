@@ -84,6 +84,9 @@ describe("categorise — site language buckets, priority order, learned keys", (
     // found by the first live read: a brand is not a category (HPM and Clipsal make cable too)
     expect(of("HPM 2.5MM TPS CABLE 20M")).toBe("cable");
     expect(of("CLIPSAL DOUBLE GPO WHITE")).toBe("accessories");
+    // found by the job-report run: "switches?" never matched a plain "switch"
+    expect(of("SW1 CLIPSAL 1 GANG SWITCH")).toBe("accessories");
+    expect(of("2 GANG SWITCHES")).toBe("accessories");
     expect(cats.categorise("").confidence).toBe("low");
   });
   it("description keys collapse case and punctuation so the same product matches next time", () => {
