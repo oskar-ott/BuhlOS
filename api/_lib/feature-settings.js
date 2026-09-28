@@ -115,6 +115,15 @@ const SETTINGS_REGISTRY = {
       step: 1,
       unit: 'min',
     },
+    // Owner pull 2026-09-28: invoice emails to their own list (Tia gets the
+    // timesheets, not the invoices). '' = the timesheet list, as before.
+    emailRecipients: {
+      type: 'string',
+      label: 'Invoice email recipients',
+      description: 'Who gets the Monday invoice summary, the invoice alerts and forwarded supplier emails — email addresses separated by commas. Leave blank to use the timesheets list.',
+      default: '',
+      maxLength: 500,
+    },
     alertQuietDays: {
       type: 'number',
       label: 'Alert after this many quiet days',

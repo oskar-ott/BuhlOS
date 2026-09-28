@@ -70,7 +70,7 @@ const aiExtractModule = require('./_lib/invoices/ai-extract');
 const visionModule = require('./_lib/invoices/vision-extract');
 const { getSettings } = require('./_lib/feature-settings');
 const { sendEmail } = require('./_lib/email');
-const { readTimesheetRecipients } = require('./_lib/timesheet-email-settings');
+const { readInvoiceRecipients } = require('./_lib/invoices/recipients');
 const { AUTO_ACTOR, buildDigest } = require('./_lib/invoices/auto-confirm');
 const { buildShadowReport, releaseGate } = require('./_lib/invoices/shadow-report');
 const { evaluateAlerts, alertKey, shouldSend, buildAlertEmail } = require('./_lib/invoices/alerts');
@@ -674,7 +674,7 @@ async function maybeAlert(sql, tenant, { providerAuthFailed }) {
       return { key: '', sent: false };
     }
     if (!shouldSend(state, key, now)) return { key, sent: false };
-    const recipients = await readTimesheetRecipients();
+    const recipients = await readInvoiceRecipients();
     if (!recipients.length) return { key, sent: false, reason: 'no_recipients' };
     const base = process.env.APP_BASE_URL || 'https://buhlos.com';
     const msg = buildAlertEmail(conditions, { inboxUrl: `${base}/invoices` });
@@ -728,7 +728,7 @@ async function bookDueInvoices(sql, tenant) {
   return out;
 }
 
-/** Monday digest → the accounts recipient list (the same list timesheets go to). */
+/** Monday digest → the invoice recipient list (api/_lib/invoices/recipients.js). */
 /**
  * Task F (2026-09-27): the automatic-booking shadow comparison for the last
  * `days` days (7–365, default 90). Read-only; changes no setting. Pure
@@ -757,7 +757,7 @@ async function digest(req, res) {
     return res.status(503).json({ error: 'store_unavailable' });
   }
   if (!tenant) return res.status(503).json({ error: 'store_unprovisioned' });
-  const recipients = await readTimesheetRecipients();
+  const recipients = await readInvoiceRecipients();
   if (!recipients.length) return res.status(200).json({ skipped: 'no_recipients' });
   const since = new Date(Date.now() - 7 * 86_400_000).toISOString();
   const stats = await store.digestStats(sql, tenant.id, { since });

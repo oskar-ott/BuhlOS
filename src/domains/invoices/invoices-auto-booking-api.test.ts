@@ -18,6 +18,7 @@ const settingsPath = resolve("../../../api/_lib/feature-settings.js");
 const auditPath = resolve("../../../api/_lib/audit-log.js");
 const emailPath = resolve("../../../api/_lib/email.js");
 const recipientsPath = resolve("../../../api/_lib/timesheet-email-settings.js");
+const invoiceRecipientsPath = resolve("../../../api/_lib/invoices/recipients.js");
 const dbPath = resolve("../../../api/_lib/supabase-db.js");
 const storePath = resolve("../../../api/_lib/invoices/store.js");
 const pdfTextPath = resolve("../../../api/_lib/invoices/pdf-text.js");
@@ -85,7 +86,7 @@ beforeEach(() => {
   store = createMemoryStore();
   docs = new Map();
   sent = [];
-  for (const p of [authPath, flagsPath, settingsPath, auditPath, recipientsPath, pipelinePath, handlerPath]) delete requireFromHere.cache[p];
+  for (const p of [authPath, flagsPath, settingsPath, auditPath, recipientsPath, invoiceRecipientsPath, pipelinePath, handlerPath]) delete requireFromHere.cache[p];
   const mock = (path: string, exports: unknown) => { requireFromHere.cache[path] = { id: path, filename: path, loaded: true, exports } as NodeJS.Module; };
   mock(blobPath, {
     readBlob: vi.fn(async (key: string, fallback: unknown) => (blob.has(key) ? clone(blob.get(key)) : fallback)),
@@ -268,6 +269,12 @@ describe("the Monday digest", () => {
     expect(sent[0]!.text).toContain("SS-88124");
     expect((sent[0] as { html: string }).html).toContain(`/invoices/${second.id}`);
     expect(sent[0]!.text).toContain("IV0041 · Birdwood");
+  });
+  it("goes to the invoice list, not the timesheet list, once the owner sets one (2026-09-28)", async () => {
+    settings({ emailRecipients: "Thomas@example.com, not-an-email; oskar@example.com" });
+    const r = await call({ query: { action: "digest" }, cron: true });
+    expect(r.body).toMatchObject({ sent: true, recipients: 2 });
+    expect(sent[0]!.to).toEqual(["thomas@example.com", "oskar@example.com"]);
   });
   it("sends nothing when there are no recipients, and needs the cron secret", async () => {
     blob.set("timesheet-email-settings.json", { recipients: [], updatedAt: null, updatedBy: null });
