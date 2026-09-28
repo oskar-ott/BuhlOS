@@ -30,10 +30,18 @@
 
 const { readBlob, writeBlob } = require('./blob');
 const { nanoid } = require('./validation');
+const { normaliseSupplierName } = require('./invoices/supplier-identity');
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_AMOUNT_CENTS = 100_000_000_00; // $100,000,000 — an obvious typo guard, not a policy
 const MAX_LINES = 2000;
+// Possible-duplicate check (2026-09-27): a typed docket vs the confirmed
+// supplier invoices already booked on the job. Tunables are deliberate:
+const REFERENCE_MAX = 60;           // a docket / supplier invoice number
+const DUPLICATE_WINDOW_DAYS = 14;   // same supplier + same amount within this many days → possible
+const REFERENCE_DIGITS_MIN = 4;     // trailing digit runs shorter than this only match exactly
+const OVERRIDE_REASON_MIN = 3;
+const OVERRIDE_REASON_MAX = 200;
 
 /** True only for a real calendar date — JS Date silently rolls 2026-02-31 to
  *  3 March, so the round-trip must reproduce the input exactly. */
@@ -97,6 +105,8 @@ function validateLineInput(body) {
   if (!supplier) return { ok: false, error: 'supplier required' };
   const descriptionRaw = b.description == null ? '' : String(b.description).trim();
   if (descriptionRaw.length > 300) return { ok: false, error: 'description too long (300 max)' };
+  const referenceRaw = b.reference == null ? '' : String(b.reference).trim();
+  if (referenceRaw.length > REFERENCE_MAX) return { ok: false, error: `reference too long (${REFERENCE_MAX} max)` };
   const amountCents = Number(b.amountCents);
   if (!Number.isInteger(amountCents) || amountCents <= 0) {
     return { ok: false, error: 'amountCents must be a positive integer (cents)' };
@@ -104,7 +114,7 @@ function validateLineInput(body) {
   if (amountCents > MAX_AMOUNT_CENTS) return { ok: false, error: 'amountCents implausibly large' };
   return {
     ok: true,
-    value: { date, supplier, description: descriptionRaw || null, amountCents },
+    value: { date, supplier, description: descriptionRaw || null, reference: referenceRaw || null, amountCents },
   };
 }
 
@@ -120,6 +130,10 @@ function appendLine(data, value, actor) {
     supplier: value.supplier,
     description: value.description == null ? null : value.description,
     amountCents: value.amountCents,
+    // Optional (2026-09-27): the docket / supplier invoice number, and the
+    // audited override when the line was added despite a possible duplicate.
+    ...(value.reference ? { reference: value.reference } : {}),
+    ...(value.duplicateOverride ? { duplicateOverride: value.duplicateOverride } : {}),
     createdBy: (actor && actor.id) || '',
     createdByName: (actor && (actor.name || actor.username)) || '',
     createdAt: new Date().toISOString(),
@@ -143,7 +157,125 @@ function removeLine(data, lineId, actor) {
   return { data: { lines }, line };
 }
 
+
+// ── Possible duplicate cost ──────────────────────────────────────────────────
+// A docket typed into this ledger that a CONFIRMED supplier invoice already
+// books on the same job would count the cost twice in the Money card
+// (api/job-profitability.js sums ledger + invoice allocations). The check is
+// a warning with an audited override, never a silent block: equal amounts
+// alone are never a duplicate; the supplier must match; a supplier invoice
+// number match is the strongest signal; credit notes (negative) never match
+// a positive docket; reversed/excluded documents are not passed in at all
+// (store.jobActiveAllocations returns active, confirmed rows only).
+
+/** "INV-00123" → "INV00123": upper-case, alphanumerics only. Pure. */
+function normaliseReference(ref) {
+  return String(ref == null ? '' : ref).toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+/** The trailing run of digits with leading zeros dropped ("INV-00123" → "123"), or ''. Pure. */
+function referenceDigits(ref) {
+  const m = /(\d+)$/.exec(normaliseReference(ref));
+  return m ? m[1].replace(/^0+/, '') : '';
+}
+
+/** Same reference: identical once normalised, or the same trailing number
+ *  (≥ REFERENCE_DIGITS_MIN digits) — "INV-00123" ≙ "123", but "12" ≠ "INV-0012"
+ *  unless typed identically. Pure. */
+function referencesMatch(a, b) {
+  const na = normaliseReference(a);
+  const nb = normaliseReference(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  const da = referenceDigits(a);
+  const db = referenceDigits(b);
+  return da.length >= REFERENCE_DIGITS_MIN && da === db;
+}
+
+/** The typed supplier and the invoice's supplier are the same business, by
+ *  the invoice pipeline's own lookup key (suffixes/punctuation ignored). Pure. */
+function supplierMatches(typedSupplier, allocation) {
+  const key = normaliseSupplierName(typedSupplier);
+  if (!key) return false;
+  if (allocation.supplierKey && allocation.supplierKey === key) return true;
+  const other = normaliseSupplierName(allocation.supplierName);
+  return !!other && other === key;
+}
+
+function daysBetween(a, b) {
+  const da = new Date(a + 'T00:00:00Z').getTime();
+  const db = new Date(b + 'T00:00:00Z').getTime();
+  if (!Number.isFinite(da) || !Number.isFinite(db)) return Infinity;
+  return Math.abs(da - db) / 86400000;
+}
+
+/**
+ * Confirmed allocations on the job that the typed line may duplicate,
+ * strongest first. Each candidate names WHY so the office can judge it.
+ *
+ * @param {{ date: string, supplier: string, amountCents: number, reference?: string|null }} input
+ * @param {Array<{ invoiceId: string, amountCents: number, confirmedAt: string|null, supplierName: string|null,
+ *   supplierKey: string|null, supplierInvoiceNumber: string|null, invoiceDate: string|null, documentType: string|null }>} allocations
+ * @param {{ windowDays?: number }} [opts]
+ */
+function findPossibleDuplicates(input, allocations, opts = {}) {
+  const windowDays = Number.isFinite(opts.windowDays) ? opts.windowDays : DUPLICATE_WINDOW_DAYS;
+  const out = [];
+  for (const a of Array.isArray(allocations) ? allocations : []) {
+    if (!a || !a.invoiceId) continue;
+    // A credit note (negative) can never be the same cost as a positive docket.
+    if (!Number.isInteger(a.amountCents) || a.amountCents <= 0 || a.documentType === 'credit_note') continue;
+    if (!supplierMatches(input.supplier, a)) continue;
+    const refMatch = !!(input.reference && a.supplierInvoiceNumber && referencesMatch(input.reference, a.supplierInvoiceNumber));
+    const amountMatch = a.amountCents === input.amountCents;
+    const dateRef = a.invoiceDate || (a.confirmedAt ? String(a.confirmedAt).slice(0, 10) : null);
+    const dayGap = dateRef ? daysBetween(dateRef, input.date) : Infinity;
+    const dateClose = dayGap <= windowDays;
+    let strength = null;
+    const reasons = ['same supplier'];
+    if (refMatch) {
+      strength = 'reference';
+      reasons.push('same invoice number');
+      reasons.push(amountMatch ? 'same amount' : 'different amount');
+    } else if (amountMatch && dateClose) {
+      strength = 'amount_date';
+      reasons.push('same amount');
+      reasons.push(dayGap === 0 ? 'same date' : `${Math.round(dayGap)} days apart`);
+    }
+    if (!strength) continue;
+    out.push({
+      invoiceId: a.invoiceId,
+      strength,
+      supplierName: a.supplierName || null,
+      supplierInvoiceNumber: a.supplierInvoiceNumber || null,
+      amountCents: a.amountCents,
+      invoiceDate: a.invoiceDate || null,
+      reasons,
+    });
+  }
+  const rank = { reference: 0, amount_date: 1 };
+  out.sort((x, y) => rank[x.strength] - rank[y.strength]);
+  return out;
+}
+
+/** body.override → { reason } | null | { error }. A reason is mandatory. Pure. */
+function parseOverride(body) {
+  const o = body && body.override;
+  if (o == null || o === false) return null;
+  if (typeof o !== 'object') return { error: 'override must be an object { reason }' };
+  const reason = String(o.reason == null ? '' : o.reason).trim();
+  if (reason.length < OVERRIDE_REASON_MIN) return { error: 'override.reason required — say why this is not the confirmed invoice' };
+  return { reason: reason.slice(0, OVERRIDE_REASON_MAX) };
+}
+
 module.exports = {
+  normaliseReference,
+  referencesMatch,
+  supplierMatches,
+  findPossibleDuplicates,
+  parseOverride,
+  DUPLICATE_WINDOW_DAYS,
+  REFERENCE_MAX,
   keyFor,
   readLedger,
   writeLedger,

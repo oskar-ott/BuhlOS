@@ -210,6 +210,7 @@ export const AUDIT_ACTIONS = [
   // — a line added / soft-removed; never carries the amount. Kept in sync with
   // api/_lib/audit-log.js.
   "job.material_spend_added",
+  "job.material_spend_duplicate_override",
   "job.material_spend_removed",
   // Supplier-invoice capture (invoice_capture): upload / inbound receipt /
   // office correction / job selection / confirmation / reassignment /

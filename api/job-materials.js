@@ -3,8 +3,15 @@
 // behind the `job_materials_spend` launch-gate (404 while off, like itp_simple).
 //
 //   GET    /api/job-materials?jobId=X          → { jobId, lines, totalCents, count, asOf }
-//   POST   /api/job-materials?jobId=X          body { date, supplier, description?, amountCents }
-//                                              → 201 { jobId, line, lines, totalCents, count }
+//   POST   /api/job-materials?jobId=X          body { date, supplier, description?, reference?, amountCents, override?: { reason } }
+//                                              → 201 { jobId, line, duplicateCheck, lines, totalCents, count }
+//                                              → 409 { error: 'possible_duplicate', candidates } when a CONFIRMED
+//                                                supplier invoice on this job looks like the same cost (same
+//                                                supplier + same invoice number, or same supplier + same amount
+//                                                within 14 days — never amount alone). Re-POST with
+//                                                { override: { reason } } to add it anyway; the override is
+//                                                stored on the line and journalled as
+//                                                job.material_spend_duplicate_override (2026-09-27).
 //   DELETE /api/job-materials?jobId=X&id=<line> → 200 { jobId, lines, totalCents, count }
 //
 // MONEY IS INTEGER CENTS. Store + pure helpers: api/_lib/job-materials.js.
@@ -19,6 +26,8 @@ const { readBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, isAdminRole } = require('./_lib/auth');
 const { isFlagEnabled } = require('./_lib/feature-flags');
 const auditLog = require('./_lib/audit-log');
+const { getDb } = require('./_lib/supabase-db');
+const invoiceStore = require('./_lib/invoices/store');
 const {
   readLedger,
   writeLedger,
@@ -26,13 +35,41 @@ const {
   appendLine,
   removeLine,
   summariseLedger,
+  findPossibleDuplicates,
+  parseOverride,
 } = require('./_lib/job-materials');
 
 function actorName(me) {
   return (me && (me.name || me.username)) || '';
 }
 
-async function journal(me, job, action, line, summary) {
+/**
+ * Confirmed supplier invoices on this job that the typed line may duplicate.
+ * Reads the invoice store (Postgres) in read mode; when that store is not
+ * reachable in this deployment the check is reported as 'unavailable' and the
+ * save goes ahead — a warning must never lock the office out of its own
+ * ledger, but it must say when it could not look. Never throws.
+ */
+async function duplicateCheck(jobId, value) {
+  let sql;
+  try {
+    sql = getDb({ mode: 'read' });
+  } catch {
+    return { status: 'unavailable', candidates: [] };
+  }
+  try {
+    const tenant = await invoiceStore.resolveTenant(sql);
+    if (!tenant) return { status: 'unavailable', candidates: [] };
+    const allocations = await invoiceStore.jobActiveAllocations(sql, tenant.id, jobId);
+    const candidates = findPossibleDuplicates(value, allocations);
+    return { status: candidates.length ? 'possible' : 'clear', candidates };
+  } catch (e) {
+    console.error('[job-materials] duplicate check unavailable', { code: (e && e.code) || 'error' });
+    return { status: 'unavailable', candidates: [] };
+  }
+}
+
+async function journal(me, job, action, line, summary, extra) {
   try {
     await auditLog.append({
       action,
@@ -44,7 +81,7 @@ async function journal(me, job, action, line, summary) {
       targetId: job.id,
       summary: summary.slice(0, 240),
       // Privacy line: supplier + date, never the amount.
-      metadata: { lineId: line.id, date: line.date, supplier: line.supplier },
+      metadata: { lineId: line.id, date: line.date, supplier: line.supplier, ...(extra || {}) },
     });
   } catch {
     // Best-effort — the ledger write has already landed.
@@ -78,8 +115,32 @@ module.exports = async (req, res) => {
   if (req.method === 'POST') {
     const parsed = validateLineInput(req.body || {});
     if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+    const override = parseOverride(req.body || {});
+    if (override && override.error) return res.status(400).json({ error: override.error });
+    // Possible duplicate cost (2026-09-27): a docket typed here that a
+    // confirmed supplier invoice already books on this job would count twice
+    // in the Money card. Warn — never silently block — and let an explicit,
+    // reasoned, audited override add it anyway. Checked on EVERY POST, server
+    // side, so a concurrent or replayed save cannot skip it.
+    const check = await duplicateCheck(jobId, parsed.value);
+    if (check.status === 'possible' && !override) {
+      return res.status(409).json({ error: 'possible_duplicate', jobId, candidates: check.candidates });
+    }
+    const value = { ...parsed.value };
+    const overridden =
+      override && check.candidates.length
+        ? {
+            reason: override.reason,
+            invoiceIds: check.candidates.map((c) => c.invoiceId),
+            strength: check.candidates[0].strength,
+            checkedAt: new Date().toISOString(),
+            by: me.id,
+            byName: actorName(me),
+          }
+        : null;
+    if (overridden) value.duplicateOverride = overridden;
     const data = await readLedger(jobId);
-    const appended = appendLine(data, parsed.value, me);
+    const appended = appendLine(data, value, me);
     if (appended.error) return res.status(409).json({ error: appended.error });
     await writeLedger(jobId, appended.data);
     await journal(
@@ -89,7 +150,22 @@ module.exports = async (req, res) => {
       appended.line,
       `${actorName(me) || 'someone'} recorded materials spend from ${appended.line.supplier} (${appended.line.date}) on ${job.name || job.id}`,
     );
-    return res.status(201).json({ jobId, line: appended.line, ...summariseLedger(appended.data) });
+    if (overridden) {
+      await journal(
+        me,
+        job,
+        'job.material_spend_duplicate_override',
+        appended.line,
+        `${actorName(me) || 'someone'} added materials spend from ${appended.line.supplier} (${appended.line.date}) on ${job.name || job.id} despite a possible duplicate — ${overridden.reason}`,
+        { invoiceIds: overridden.invoiceIds, strength: overridden.strength, reason: overridden.reason },
+      );
+    }
+    return res.status(201).json({
+      jobId,
+      line: appended.line,
+      duplicateCheck: overridden ? 'overridden' : check.status,
+      ...summariseLedger(appended.data),
+    });
   }
 
   if (req.method === 'DELETE') {
