@@ -30,7 +30,7 @@ export async function POST(request: Request): Promise<Response> {
   const result = await handleInboundWebhook({ rawBody, headers, deps: webhookDeps() });
   return NextResponse.json(result.body, {
     status: result.status,
-    headers: { "cache-control": "no-store" },
+    headers: { "cache-control": "no-store", ...(result.headers ?? {}) },
   });
 }
 
