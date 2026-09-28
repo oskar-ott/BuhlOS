@@ -115,8 +115,12 @@ export function RejectedHoursResubmitSheet({
   onOpenChange,
   onSaved,
 }: RejectedHoursResubmitSheetProps) {
+  // Set once a change/fix has been sent from this sheet. The day is then
+  // submitted (undecided) whatever the parent's `entry` prop still says, so a
+  // further change uses the submitted variant's words.
+  const [sentOnce, setSentOnce] = useState(false);
   // The submitted (undecided) variant — same editors, "change & resend" words.
-  const editingSubmitted = entry.status === "submitted";
+  const editingSubmitted = entry.status === "submitted" || sentOnce;
   const [openState, setOpenState] = useState(defaultOpen);
   // Controlled when the parent owns the trigger (compact day-row pill);
   // uncontrolled with the built-in trigger button otherwise.
@@ -219,9 +223,37 @@ export function RejectedHoursResubmitSheet({
     );
   }
 
-  // After a successful resubmit the form is done — the entry is back in the
-  // approval queue. The list around us is server-rendered, so offer a refresh.
+  // Field report 2026-09-27: "I can only change my hours once" — the success
+  // notice used to be terminal, and in controlled mode it also hid the row's
+  // Change pill, so a sent day couldn't be changed again until a reload. The
+  // day is still undecided, so it stays changeable: reseed the form from the
+  // server-confirmed entry and reopen it.
+  function changeAgain(saved: TimeEntry) {
+    setTotalHours(saved.totalHours);
+    setNotes(saved.notes ?? "");
+    setSplitMode(false);
+    setSentOnce(true);
+    setState({ kind: "idle" });
+    setOpen(true);
+  }
+
+  // After a successful resubmit the entry is back in the approval queue. The
+  // list around us is server-rendered, so offer a refresh — and another change.
   if (state.kind === "success") {
+    const saved = state.entry;
+    const actions = (
+      <div className="mt-3 flex flex-wrap gap-2">
+        <RefreshButton label="Refresh status" />
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => changeAgain(saved)}
+          data-testid="phil-change-again"
+        >
+          Change again
+        </Button>
+      </div>
+    );
     if (editingSubmitted) {
       return (
         <div data-testid="phil-edit-submitted-success">
@@ -230,9 +262,7 @@ export function RejectedHoursResubmitSheet({
               {formatHoursLabel(state.entry.totalHours)} sent to the office — the old version is
               replaced.
             </p>
-            <div className="mt-3">
-              <RefreshButton label="Refresh status" />
-            </div>
+            {actions}
           </PhilNotice>
         </div>
       );
@@ -242,9 +272,7 @@ export function RejectedHoursResubmitSheet({
         <p>
           {formatHoursLabel(state.entry.totalHours)} sent back to the office for approval.
         </p>
-        <div className="mt-3">
-          <RefreshButton label="Refresh status" />
-        </div>
+        {actions}
       </PhilNotice>
     );
   }

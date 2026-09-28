@@ -173,3 +173,43 @@ describe("ArchivedStructureSection (#377 read-only rows)", () => {
     expect(html).toBe("");
   });
 });
+
+/**
+ * Office on a phone (owner pull 2026-09-27): the save action must be reachable
+ * from where the fields are. The header cluster (desktop) hides below `sm`;
+ * a bar pinned to the bottom of the scroll region carries the same save.
+ */
+describe("JobBuilderClient — phone save bar", () => {
+  it("renders the sticky phone save bar and hides the header cluster below sm", () => {
+    const html = renderToString(
+      createElement(JobBuilderClient, {
+        job: makeJob({ id: "job-1", name: "Birdwood Tower", status: "draft" }),
+      })
+    );
+    expect(html).toContain('data-testid="builder-save-bar"');
+    expect(html).toContain('data-testid="save-changes-mobile"');
+    expect(html).toMatch(/builder-save-bar"[^>]*class="[^"]*sticky bottom-0[^"]*sm:hidden/);
+    // The desktop cluster keeps its load-bearing testid, just hidden on phones.
+    expect(html).toContain('data-testid="save-changes"');
+    expect(html).toContain("hidden shrink-0 flex-col items-end gap-1 sm:flex");
+  });
+
+  it("shows the read-only job type only when the job has one, and says it isn't editable here", () => {
+    const typed = renderToString(
+      createElement(JobBuilderClient, {
+        job: makeJob({ id: "job-1", name: "Birdwood Tower", status: "draft", typeName: "Rewire" }),
+      })
+    );
+    expect(typed).toContain("Job type");
+    expect(typed).toContain("Rewire");
+    expect(typed).toContain("Not editable here yet.");
+    expect(typed).not.toContain("set when the job is created");
+    // No type on the job → no empty read-only field taking up the form.
+    const untyped = renderToString(
+      createElement(JobBuilderClient, {
+        job: makeJob({ id: "job-1", name: "Birdwood Tower", status: "draft" }),
+      })
+    );
+    expect(untyped).not.toContain("Job type");
+  });
+});

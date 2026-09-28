@@ -46,9 +46,14 @@ export function AddressAutocompleteInput({
   const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([]);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
-  const lastPicked = useRef<string | null>(null);
+  // The value the field MOUNTED with counts as already chosen: a saved address
+  // must not fetch suggestions and pop the list open on page load (it did — the
+  // builder opened with the dropdown covering the date fields, 2026-09-27
+  // phone audit). Suggestions are for what the user is typing now.
+  const lastPicked = useRef<string | null>(value.trim() || null);
   const latestQuery = useRef("");
   const abortRef = useRef<AbortController | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     const q = value.trim();
@@ -69,7 +74,12 @@ export function AddressAutocompleteInput({
         const list = parseAddressSuggestions(await res.json());
         if (latestQuery.current !== q) return; // stale response — a newer query owns the box
         setSuggestions(list);
-        setOpen(list.length > 0);
+        // Only open under a field the user is actually in: a value that changes
+        // while the input is unfocused (a save re-syncing the form, a preset
+        // filling the address) must not raise the list over the fields below.
+        const focused =
+          typeof document !== "undefined" && document.activeElement === inputRef.current;
+        setOpen(list.length > 0 && focused);
         setActive(-1);
       } catch {
         // Aborted or offline — leave the field as a plain text input.
@@ -92,6 +102,7 @@ export function AddressAutocompleteInput({
   return (
     <div className={wrapperClassName}>
       <input
+        ref={inputRef}
         id={id}
         maxLength={maxLength}
         data-testid={testId}

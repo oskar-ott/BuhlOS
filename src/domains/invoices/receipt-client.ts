@@ -29,6 +29,16 @@ export function submitReceipt(input: {
   return httpPost("/api/invoices?action=receipt", input, { schema: ReceiptResultSchema, timeoutMs: 70_000 });
 }
 
+/**
+ * The one honest sentence about a receipt the worker paid for themselves.
+ * BuhlOS records the fact for the office and nothing more: it runs no
+ * reimbursement, sends nothing to payroll, and cannot know whether a payback
+ * was approved or made (P7 — no promise the system can't keep). Shown under
+ * the checkbox while it is ticked and again in the outcome after sending.
+ */
+export const PAID_PERSONALLY_NOTE =
+  "Recorded for the office. This does not confirm that a payback has been approved or paid.";
+
 /** "$84.50" from integer cents (the field never sees floats). */
 export function formatReceiptCents(cents: number | null | undefined): string {
   if (cents == null) return "—";
@@ -45,7 +55,7 @@ export function receiptOutcomeText(r: ReceiptResult): { title: string; body: str
     const bits = [r.storeName, formatReceiptCents(r.totalCents), r.lineCount ? `${r.lineCount} ${r.lineCount === 1 ? "item" : "items"}` : null].filter(Boolean).join(" · ");
     return {
       title: "Receipt logged",
-      body: `${bits} → ${where}.${r.paidPersonally ? " Marked as paid with your own money — the office sorts the payback." : ""}`,
+      body: `${bits} → ${where}.${r.paidPersonally ? ` ${PAID_PERSONALLY_NOTE}` : ""}`,
       tone: "success",
     };
   }

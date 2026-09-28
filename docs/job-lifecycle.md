@@ -84,7 +84,11 @@ Archived — because they change what the crew see.
 - **Jobs list:** pills are phases — Active · On hold · Finished · Closed · Draft ·
   Archived. "All" = the working portfolio (never closed/archived), so a closed
   job's stale tag can't keep "need attention" lit. `?status=complete` from an
-  old bookmark lands on Closed.
+  old bookmark lands on Closed. Each card's verdict line speaks the phase when
+  there is nothing outstanding — "Finished 21 Sep · crew can log until 21 Oct",
+  "Closed 13 Aug · still takes callback hours", "Paused — nothing to review",
+  "Not published yet" — and the health word only where health is the read
+  (see `docs/job-health-thresholds.md`, "How the jobs list words it").
 - **Search (⌘K):** every job, subtitled "Active" / "Finished 14 Aug" /
   "Closed 14 Aug" / "Archived".
 
