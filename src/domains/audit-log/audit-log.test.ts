@@ -221,6 +221,8 @@ describe("AuditLogEntrySchema", () => {
       "invoice.held",
       "invoice.job_selected",
       "invoice.marked_duplicate",
+      // Task E (2026-09-27): whole-invoice override on a multi-reference document.
+      "invoice.multi_reference_override",
       "invoice.reassigned",
       "invoice.received",
       "invoice.restored",

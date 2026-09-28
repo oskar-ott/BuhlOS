@@ -9,6 +9,7 @@
 // check stays human. (docs/invoice-capture.md "Auto-booking".)
 
 const { ALLOCATABLE_TYPES } = require('./state');
+const { documentReferences } = require('./references');
 
 /** The synthetic actor an automatic booking is attributed to. */
 const AUTO_ACTOR = Object.freeze({ id: '__auto__', name: 'BuhlOS (auto)', role: 'system' });
@@ -29,6 +30,7 @@ const CHECK_LABELS = {
   credit_has_invoice: 'Credit note: supplier already has a confirmed invoice on this job',
   untouched: 'No person has edited or held it',
   not_paid_personally: 'Receipt: not paid with a worker\'s own money (those need a person to reimburse)',
+  single_reference: 'One job reference on the document (several → split allocation required, never automatic)',
 };
 
 function isPrinted(field) {
@@ -48,6 +50,10 @@ function evaluateAutoConfirm(inv, ctx) {
   const add = (code, ok, detail) => checks.push({ code, label: CHECK_LABELS[code], ok: !!ok, ...(detail ? { detail } : {}) });
 
   add('document_type', ALLOCATABLE_TYPES.has(inv.documentType), inv.documentType);
+  // Task E (2026-09-27): a document that prints several job references is
+  // never booked automatically, whatever else passes and whoever picked a job.
+  const refs = documentReferences(inv);
+  add('single_reference', refs.length <= 1, refs.length > 1 ? refs.join(', ') : undefined);
   const reason = inv.matchReason || {};
   // An evidence placement (no IV printed) may stand in for the IV checks only
   // when the owner allows it AND the evidence is strong (a delivery address).
