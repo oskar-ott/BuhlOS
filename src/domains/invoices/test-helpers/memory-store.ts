@@ -332,6 +332,15 @@ export function createMemoryStore(opts: { tenantId?: string; jobUuids?: Record<s
         awaitingCount: store.invoices.filter((r) => r.matchedJobId === jobId && ["matched", "needs_review"].includes(r.status as string)).length,
       };
     },
+    shadowRows: async (_s: unknown, _t: string, { from, to }: { from: string; to: string }) => {
+      const inPeriod = store.invoices.filter((r) => { const d = String(r.createdAt).slice(0, 10); return d >= from && d <= to; });
+      const ids = new Set(inPeriod.map((r) => r.id));
+      return {
+        invoices: inPeriod.map((r) => ({ ...r })),
+        events: store.events.filter((e) => ids.has(e.invoiceId)).map((e) => ({ ...e })),
+        allocations: store.allocations.filter((a) => ids.has(a.invoiceId)).map((a) => ({ ...a })),
+      };
+    },
     jobActiveAllocations: async (_s: unknown, _t: string, jobId: string) =>
       store.allocations
         .filter((x) => x.jobId === jobId && x.status === "active")

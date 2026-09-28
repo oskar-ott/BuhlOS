@@ -341,3 +341,67 @@ export const LearnedCategorySchema = z
 export type LearnedCategory = z.infer<typeof LearnedCategorySchema>;
 export const LearnedCategoryListSchema = z.object({ rules: z.array(LearnedCategorySchema), total: z.number().int() }).passthrough();
 export type LearnedCategoryList = z.infer<typeof LearnedCategoryListSchema>;
+// ── Task F (2026-09-27): automatic-booking shadow report ─────────────────────
+const AgreementCountsSchema = z.object({ agree: z.number().int(), differ: z.number().int(), unknown: z.number().int() });
+export const ShadowReportSchema = z
+    period: z.object({ from: z.string(), to: z.string() }),
+    generatedAt: z.string(),
+    days: z.number().int(),
+    autoBookingEnabled: z.boolean(),
+    invoicesInPeriod: z.number().int(),
+    sampleSize: z.number().int(),
+    neverEvaluated: z.number().int(),
+    setAside: z.number().int(),
+    legacyVerdicts: z.number().int(),
+    unresolved: z.number().int(),
+    wouldHaveBooked: z.object({
+      count: z.number().int(),
+      agreed: z.number().int(),
+      falsePositives: z.number().int(),
+      unresolved: z.number().int(),
+      autoBookedStands: z.number().int(),
+      autoBookedThenReversed: z.number().int(),
+      falsePositiveReasons: z.record(z.number()),
+    }),
+    wouldHaveWaited: z.object({
+      count: z.number().int(),
+      correct: z.number().int(),
+      falseNegatives: z.number().int(),
+      unresolved: z.number().int(),
+      falseNegativeReasons: z.record(z.number()),
+    }),
+    agreement: z.object({ job: AgreementCountsSchema, supplier: AgreementCountsSchema, figures: AgreementCountsSchema }),
+    humanExclusions: z.number().int(),
+    humanJobChanges: z.number().int(),
+    disagreements: z.array(
+      z.object({
+        invoiceId: z.string(),
+        supplierName: z.string().nullable(),
+        supplierInvoiceNumber: z.string().nullable(),
+        kind: z.string(),
+        reasons: z.array(z.string()),
+        verdictJob: z.string().nullable(),
+        finalJob: z.string().nullable(),
+      }),
+    ),
+    bySupplier: z.array(
+      z.object({
+        supplierKey: z.string().nullable(),
+        supplierName: z.string().nullable(),
+        sample: z.number().int(),
+        wouldHaveBooked: z.number().int(),
+        agreed: z.number().int(),
+        falsePositives: z.number().int(),
+        falseNegatives: z.number().int(),
+        unresolved: z.number().int(),
+        autoBooked: z.number().int(),
+        autoBookedThenReversed: z.number().int(),
+      }),
+    ),
+    gate: z.object({
+      pass: z.boolean(),
+      checks: z.array(z.object({ code: z.string(), ok: z.boolean(), detail: z.string() })),
+      suppliersReady: z.array(z.string().nullable()),
+      thresholds: z.record(z.number()),
+    }),
+export type ShadowReport = z.infer<typeof ShadowReportSchema>;
