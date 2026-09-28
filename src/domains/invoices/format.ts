@@ -96,6 +96,7 @@ export const CONFIRM_BLOCKER_LABELS: Record<string, string> = {
   missing_subtotal: "Enter the cost excluding GST first",
   totals_inconsistent: "Fix the totals — ex-GST + GST must equal the total",
   iv_ambiguous: "More than one job carries this IV reference — choose the job",
+  multi_reference: "Several job references are printed — split allocation required (see above)",
 };
 
 export function confirmBlockerLabel(code: string): string {
@@ -230,6 +231,7 @@ export const EVENT_LABELS: Record<string, string> = {
   auto_confirm_skipped: "Automatic booking skipped",
   held: "Held for a person",
   supplier_pref_changed: "Supplier review preference changed",
+  multi_reference_override: "Whole invoice allocated to one job although several references are printed (reason kept)",
 };
 
 export function eventLabel(event: string): string {

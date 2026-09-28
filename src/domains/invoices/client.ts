@@ -121,7 +121,22 @@ function act(action: string, id: string, body: unknown = {}, timeoutMs = 20_000)
 }
 
 export const selectInvoiceJob = (id: string, jobId: string) => act("select-job", id, { jobId });
-export const confirmInvoice = (id: string, jobId?: string) => act("confirm", id, jobId ? { jobId } : {});
+export type ConfirmOptions = {
+  jobId?: string;
+  /** Task E: the ENTIRE invoice belongs to this job although several references are printed — reason mandatory, audited. */
+  wholeInvoice?: boolean;
+  reason?: string;
+};
+export const confirmInvoice = (id: string, opts?: string | ConfirmOptions) => {
+  const o: ConfirmOptions = typeof opts === "string" ? { jobId: opts } : opts ?? {};
+  const body: Record<string, unknown> = {};
+  if (o.jobId) body.jobId = o.jobId;
+  if (o.wholeInvoice) {
+    body.wholeInvoice = true;
+    body.reason = o.reason ?? "";
+  }
+  return act("confirm", id, body);
+};
 export const reassignInvoice = (id: string, jobId: string) => act("reassign", id, { jobId });
 export const markInvoiceDuplicate = (id: string, duplicateOfId?: string) =>
   act("mark-duplicate", id, duplicateOfId ? { duplicateOfId } : {});

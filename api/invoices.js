@@ -54,6 +54,7 @@ const { normaliseSupplierName } = require('./_lib/invoices/supplier-identity');
 const { CATEGORY_LABELS, isCategory, descriptionKey } = require('./_lib/invoices/categories');
 const { measureOf, rollUpProducts, measureTotals } = require('./_lib/invoices/measure');
 const { reconcileTotals, allocationAmountCents, isCents } = require('./_lib/invoices/money');
+const { documentReferences, hasMultipleReferences, parseWholeInvoiceOverride } = require('./_lib/invoices/references');
 const { canTransition, DOCUMENT_TYPES, ALLOCATABLE_TYPES, STATUSES } = require('./_lib/invoices/state');
 const { ingestReceivedEmail } = require('./_lib/invoices/ingest');
 const resend = require('./_lib/invoices/resend-inbound');
@@ -178,6 +179,9 @@ async function detailWithJob(sql, tenant, id, jobs) {
     duplicateOf: dupOf ? { id: dupOf.id, supplierName: dupOf.supplierName, supplierInvoiceNumber: dupOf.supplierInvoiceNumber, status: dupOf.status, createdAt: dupOf.createdAt } : null,
     canConfirm: confirmBlockers(inv).length === 0,
     confirmBlockers: confirmBlockers(inv),
+    // Task E (2026-09-27): the distinct IV codes the document itself prints,
+    // from the extraction evidence — survives a job pick, unlike match_reason.
+    multiReferences: hasMultipleReferences(inv) ? documentReferences(inv) : [],
   };
 }
 
@@ -190,6 +194,10 @@ function confirmBlockers(inv) {
   if (!isCents(inv.subtotalCents)) out.push('missing_subtotal');
   if (inv.totalsConsistent === false) out.push('totals_inconsistent');
   if (inv.matchStatus === 'ambiguous') out.push('iv_ambiguous');
+  // Several different IV references printed → split allocation required.
+  // Only an explicit, reasoned, audited whole-invoice override (confirm body
+  // { wholeInvoice: true, reason }) may pass this; the sweep never can.
+  if (hasMultipleReferences(inv)) out.push('multi_reference');
   return out;
 }
 
@@ -201,6 +209,9 @@ function reviewReasonsAfterEdit(inv) {
     else if (inv.matchStatus === 'not_found') reasons.push('iv_not_found');
     else if (inv.matchStatus === 'multi_reference') reasons.push('multi_reference');
     else reasons.push('no_iv_reference');
+  } else if (hasMultipleReferences(inv)) {
+    // Task E: choosing a job does not make several printed references one.
+    reasons.push('multi_reference');
   }
   if (inv.documentType === 'unknown') reasons.push('unknown_document_type');
   else if (!ALLOCATABLE_TYPES.has(inv.documentType)) reasons.push('not_allocatable');
@@ -909,8 +920,20 @@ async function confirm(sql, tenant, me, current, body, res) {
     }
     return res.status(409).json({ error: 'invalid_transition', status: current.status });
   }
-  const blockers = confirmBlockers(current).filter((b) => b !== 'status' && b !== 'no_job');
-  if (blockers.length) return res.status(409).json({ error: 'cannot_confirm', blockers });
+  const allBlockers = confirmBlockers(current).filter((b) => b !== 'status' && b !== 'no_job');
+  const multi = allBlockers.includes('multi_reference');
+  const blockers = allBlockers.filter((b) => b !== 'multi_reference');
+  if (blockers.length) return res.status(409).json({ error: 'cannot_confirm', blockers: allBlockers });
+  // Task E (2026-09-27): several IV references printed → the ordinary confirm
+  // is refused. Only an explicit "the ENTIRE invoice belongs to this job"
+  // decision with a reason passes, and it is recorded on the invoice's own
+  // history and the audit journal with the references it overrode.
+  let wholeInvoice = null;
+  if (multi) {
+    wholeInvoice = parseWholeInvoiceOverride(body);
+    if (!wholeInvoice) return res.status(409).json({ error: 'cannot_confirm', blockers: allBlockers, references: documentReferences(current) });
+    if (wholeInvoice.error) return res.status(400).json({ error: wholeInvoice.error, references: documentReferences(current) });
+  }
   const jobs = await readJobs();
   const jobId = String(body.jobId || current.matchedJobId || '').trim();
   if (!jobId) return res.status(400).json({ error: 'no_job' });
@@ -923,6 +946,15 @@ async function confirm(sql, tenant, me, current, body, res) {
   const amountCents = allocationAmountCents(current.documentType, current.subtotalCents);
   if (amountCents == null) return res.status(409).json({ error: 'cannot_confirm', blockers: ['missing_subtotal'] });
 
+  if (wholeInvoice) {
+    const references = documentReferences(current);
+    await store.insertEvent(sql, tenant.id, current.id, {
+      event: 'multi_reference_override',
+      actor: actorOf(me),
+      detail: { references, jobId: job.id, jobCode: job.code || null, reason: wholeInvoice.reason },
+    });
+    await journal(me, 'invoice.multi_reference_override', current, `Allocated the whole invoice to ${job.code || job.id} although it prints several job references (${references.join(', ')})`, { references, jobId: job.id, reason: wholeInvoice.reason });
+  }
   const r = await store.confirmAllocation(sql, tenant.id, current.id, {
     jobLegacyId: job.id,
     jobUuid: await store.resolveJobUuid(sql, tenant.id, job.id),
@@ -979,6 +1011,9 @@ async function markDuplicate(sql, tenant, me, current, body, res) {
 async function exclude(sql, tenant, me, current, body, res) {
   if (!canTransition(current.status, 'exclude')) return res.status(409).json({ error: 'invalid_transition', status: current.status });
   const reason = body.reason == null ? null : String(body.reason).trim().slice(0, 200) || null;
+  // Task E: excluding a document that prints several job references is a
+  // costing decision — it needs a reason the history can show.
+  if (!reason && hasMultipleReferences(current)) return res.status(400).json({ error: 'reason_required', references: documentReferences(current) });
   const r = await store.transitionWithReversal(sql, tenant.id, current.id, {
     status: 'excluded', actor: actorOf(me), event: 'excluded', detail: { reason, wasConfirmed: current.status === 'confirmed' },
     extra: { excludedReason: reason },
