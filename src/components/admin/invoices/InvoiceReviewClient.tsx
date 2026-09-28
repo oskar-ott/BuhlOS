@@ -821,7 +821,7 @@ export function InvoiceReviewClient({ invoiceId }: { invoiceId: string }) {
                             data-testid={`invoice-line-category-${l.lineNo}`}
                             onChange={(e) => {
                               const category = e.target.value as MaterialCategory;
-                              void run("line", (id) => correctInvoiceLine(id, { lineNo: l.lineNo, category }), `Filed under ${categoryLabel(category)} — remembered for this supplier.`);
+                              void run("line", (id) => correctInvoiceLine(id, { lineNo: l.lineNo, category }), inv.supplierKey ? `Filed under ${categoryLabel(category)} — remembered for this supplier.` : `Filed under ${categoryLabel(category)}. Not remembered: no supplier was read from this document.`);
                             }}
                           >
                             {MATERIAL_CATEGORIES.map((c) => (

@@ -220,6 +220,7 @@ export const AUDIT_ACTIONS = [
   "invoice.received",
   "invoice.corrected",
   "invoice.job_selected",
+  "invoice.learned_category_removed",
   "invoice.confirmed",
   "invoice.reassigned",
   "invoice.marked_duplicate",
@@ -413,6 +414,8 @@ export const AUDIT_TARGET_TYPES = [
   "xero_sync_item",
   // Supplier-invoice capture: targetId = the PG invoice uuid.
   "supplier_invoice",
+  // Task I: targetId = the PG rule uuid (supplier_line_categories).
+  "supplier_line_category",
 ] as const;
 export const AuditTargetTypeSchema = z.enum(AUDIT_TARGET_TYPES);
 
