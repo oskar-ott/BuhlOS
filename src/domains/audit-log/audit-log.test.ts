@@ -223,6 +223,8 @@ describe("AuditLogEntrySchema", () => {
       // Task I (2026-09-27): a remembered filing rule forgotten by the office.
       "invoice.learned_category_removed",
       "invoice.marked_duplicate",
+      // Task E (2026-09-27): whole-invoice override on a multi-reference document.
+      "invoice.multi_reference_override",
       "invoice.reassigned",
       "invoice.received",
       "invoice.restored",

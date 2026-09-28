@@ -104,6 +104,10 @@ export function InvoiceReviewClient({ invoiceId }: { invoiceId: string }) {
   const [jobOptions, setJobOptions] = useState<JobSummary[]>([]);
   const [confirmExclude, setConfirmExclude] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState(false);
+  // Task E (2026-09-27): a document that prints several job references.
+  const [wholeAck, setWholeAck] = useState(false);
+  const [wholeReason, setWholeReason] = useState("");
+  const [excludeReason, setExcludeReason] = useState("");
 
   const apply = useCallback((d: InvoiceDetail) => {
     setDetail(d);
@@ -265,6 +269,10 @@ export function InvoiceReviewClient({ invoiceId }: { invoiceId: string }) {
             {excludedReasonLabel(inv.excludedReason)}. Nothing was booked. If this really is an invoice, restore it and correct the document type.
           </p>
         </Card>
+      ) : null}
+
+      {detail.multiReferences.length > 1 && !["confirmed", "excluded", "archived", "duplicate"].includes(inv.status) ? (
+        <SplitAllocationRequired references={detail.multiReferences} />
       ) : null}
 
       {inv.reviewReasons.length > 0 && !["confirmed", "excluded", "archived", "duplicate"].includes(inv.status) ? (
@@ -635,6 +643,44 @@ export function InvoiceReviewClient({ invoiceId }: { invoiceId: string }) {
                 ) : null}
               </>
             )}
+            {detail.multiReferences.length > 1 && detail.job && ["matched", "needs_review"].includes(inv.status) ? (
+              <div className="mt-3 rounded-card border border-border p-3" data-testid="invoice-whole-invoice">
+                <p className="text-sm font-semibold text-text">Allocate the whole invoice to one job</p>
+                <p className="mt-1 text-xs text-text-muted">
+                  Only if none of it is another job&rsquo;s cost. The printed references ({detail.multiReferences.join(", ")}), the job, you and your reason go on the record.
+                </p>
+                <label className="mt-2 flex items-start gap-2 text-sm text-text">
+                  <input type="checkbox" checked={wholeAck} onChange={(e) => setWholeAck(e.target.checked)} className="mt-0.5 h-4 w-4" data-testid="invoice-whole-invoice-ack" />
+                  <span>
+                    The <strong>entire</strong> invoice belongs to {detail.job.code ? `${detail.job.code} · ${detail.job.name}` : detail.job.name}.
+                  </span>
+                </label>
+                <label className="mt-2 block text-xs text-text-muted">
+                  Why (kept on the record)
+                  <input
+                    type="text"
+                    value={wholeReason}
+                    onChange={(e) => setWholeReason(e.target.value)}
+                    maxLength={200}
+                    placeholder="e.g. the second number is the customer's PO, not a job"
+                    className="mt-1 h-9 w-full rounded-[4px] border border-border bg-surface px-2 text-sm"
+                    data-testid="invoice-whole-invoice-reason"
+                  />
+                </label>
+                <div className="mt-2">
+                  <Button
+                    type="button"
+                    variant="primary"
+                    size="sm"
+                    disabled={!wholeAck || wholeReason.trim().length < 3 || busy !== null || dirty}
+                    data-testid="invoice-whole-invoice-confirm"
+                    onClick={() => void run("confirm", (id) => confirmInvoice(id, { wholeInvoice: true, reason: wholeReason.trim() }), "Confirmed — the whole invoice is now on this job.")}
+                  >
+                    {busy === "confirm" ? "Confirming…" : "Allocate the whole invoice to this job"}
+                  </Button>
+                </div>
+              </div>
+            ) : null}
             <div className="mt-4 flex flex-wrap gap-2">
               {!isConfirmedElsewhere && !["excluded", "archived", "duplicate"].includes(inv.status) ? (
                 <Button type="button" variant="primary" size="sm" disabled={!detail.canConfirm || busy !== null || dirty} data-testid="invoice-confirm" onClick={() => void run("confirm", (id) => confirmInvoice(id), "Confirmed — the cost is now on the job.")}>
@@ -648,9 +694,20 @@ export function InvoiceReviewClient({ invoiceId }: { invoiceId: string }) {
               ) : null}
               {["matched", "needs_review", "failed", "confirmed", "duplicate"].includes(inv.status) ? (
                 confirmExclude ? (
-                  <span className="inline-flex items-center gap-2 text-xs">
+                  <span className="inline-flex flex-wrap items-center gap-2 text-xs">
                     {inv.status === "confirmed" ? "This removes the cost from the job." : "Statements, quotes and unrelated documents belong here."}
-                    <Button type="button" variant="danger" size="sm" disabled={busy !== null} data-testid="invoice-exclude-confirm" onClick={() => { setConfirmExclude(false); void run("exclude", (id) => excludeInvoice(id), "Excluded — it is not a job cost."); }}>
+                    {detail.multiReferences.length > 1 ? (
+                      <input
+                        type="text"
+                        value={excludeReason}
+                        onChange={(e) => setExcludeReason(e.target.value)}
+                        maxLength={200}
+                        placeholder="Why exclude it? (kept on the record)"
+                        className="h-8 min-w-[16rem] rounded-[4px] border border-border bg-surface px-2 text-xs"
+                        data-testid="invoice-exclude-reason"
+                      />
+                    ) : null}
+                    <Button type="button" variant="danger" size="sm" disabled={busy !== null || (detail.multiReferences.length > 1 && excludeReason.trim().length < 3)} data-testid="invoice-exclude-confirm" onClick={() => { setConfirmExclude(false); void run("exclude", (id) => excludeInvoice(id, excludeReason.trim() || undefined), "Excluded — it is not a job cost."); }}>
                       Yes, exclude
                     </Button>
                     <Button type="button" variant="ghost" size="sm" onClick={() => setConfirmExclude(false)}>
@@ -802,5 +859,38 @@ function Field({ id, label, hint, children }: { id: string; label: string; hint:
       <div className="mt-1">{children}</div>
       {hint ? <p className="mt-0.5 text-[11px] text-text-muted">{hint}</p> : null}
     </div>
+  );
+}
+
+/**
+ * Task E (2026-09-27): a document that prints several different job
+ * references is, by its own words, more than one job's cost. BuhlOS cannot
+ * split one invoice across jobs, so it says so plainly and offers only the
+ * three honest ways forward. Pure so it can be rendered and asserted alone.
+ */
+export function SplitAllocationRequired({ references }: { references: string[] }) {
+  return (
+    <Card className="border-l-4 border-l-state-danger" data-testid="invoice-split-required">
+      <CardKicker>Split allocation required</CardKicker>
+      <p className="mt-2 text-sm text-text">
+        This document prints several job references: <strong>{references.join(", ")}</strong>.
+      </p>
+      <p className="mt-1 text-sm text-text-muted">
+        BuhlOS cannot divide one invoice between jobs yet, so it will not book this as one job&rsquo;s cost by itself — not with a click,
+        and never automatically. Three ways forward:
+      </p>
+      <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-text-muted">
+        <li>
+          <strong className="text-text">Allocate the whole invoice to one job</strong> — choose the job below, tick that the entire invoice
+          belongs to it, and say why. The references, the job, you and the reason go on the record.
+        </li>
+        <li>
+          <strong className="text-text">Exclude it from job costing</strong> — with a reason; the document and its history stay.
+        </li>
+        <li>
+          <strong className="text-text">Leave it here</strong> — it stays in review and touches no job&rsquo;s cost.
+        </li>
+      </ul>
+    </Card>
   );
 }

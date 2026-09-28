@@ -117,6 +117,7 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "invoice.reassigned": "Moved a supplier invoice to another job",
   "invoice.marked_duplicate": "Marked a supplier invoice as a duplicate",
   "invoice.learned_category_removed": "Forgot a remembered material filing",
+  "invoice.multi_reference_override": "Allocated a whole invoice to one job although it prints several job references",
   "invoice.excluded": "Excluded a supplier document",
   "invoice.archived": "Archived a supplier invoice",
   "invoice.restored": "Restored a supplier invoice",
