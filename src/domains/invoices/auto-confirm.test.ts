@@ -123,3 +123,20 @@ describe("buildDigest", () => {
     expect(d.html).toContain("&lt;b&gt;Evil&lt;/b&gt;");
   });
 });
+
+describe("evaluateAutoConfirm — several job references (Task E, 2026-09-27)", () => {
+  const cand = (normalised: string, label: string) => ({ raw: normalised, normalised, label, source: "labelled", line: 1 });
+  it("a document printing two different IV references is never eligible, whatever else passes", () => {
+    const inv = cleanInvoice({ ivCandidates: [cand("IV0041", "Job Number"), cand("IV0042", "Order Number")] });
+    const v = evaluateAutoConfirm(inv, ctx());
+    expect(v.eligible).toBe(false);
+    const check = (v.checks as Array<{ code: string; ok: boolean; detail?: string }>).find((c) => c.code === "single_reference");
+    expect(check?.ok).toBe(false);
+    expect(check?.detail).toBe("IV0041, IV0042");
+  });
+  it("one reference printed twice, or a single labelled reference, passes the check", () => {
+    expect(failing(cleanInvoice({ ivCandidates: [cand("IV0041", "Job Number"), cand("IV0041", "Order Number")] }))).not.toContain("single_reference");
+    expect(failing(cleanInvoice({ ivCandidates: [cand("IV0041", "Job Number")] }))).not.toContain("single_reference");
+    expect(failing(cleanInvoice())).not.toContain("single_reference");
+  });
+});
