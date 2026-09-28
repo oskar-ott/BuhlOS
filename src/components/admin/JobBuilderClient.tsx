@@ -562,7 +562,10 @@ export function JobBuilderClient({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <CardTitle className="break-words">{savedJob.name}</CardTitle>
+              {/* The page title already carries the name; on a phone the
+                  header keeps just the status + visibility so the form the
+                  boss came for sits higher. */}
+              <CardTitle className="hidden break-words sm:block">{savedJob.name}</CardTitle>
               <Pill tone={statusTone(savedJob.status)}>{statusLabel(savedJob.status)}</Pill>
             </div>
             <CardDescription className="mt-1">
@@ -578,7 +581,10 @@ export function JobBuilderClient({
               )}
             </CardDescription>
           </div>
-          <div className="flex shrink-0 flex-col items-end gap-1">
+          {/* Desktop save cluster. On a phone the same action rides the bar
+              pinned above the tab bar (below), so it never hides two screens
+              above the field being edited. */}
+          <div className="hidden shrink-0 flex-col items-end gap-1 sm:flex">
             <Button
               data-testid="save-changes"
               onClick={save}
@@ -634,6 +640,37 @@ export function JobBuilderClient({
           />
         }
       />
+
+      {/* Phone save bar (owner pull 2026-09-27, editing on the phone): the
+          Basics form runs a screen and a half long on a phone and the header's
+          Save sat at the top, so every edit ended with a scroll back up to
+          save. This bar sticks to the bottom of the scroll region — thumb
+          reach, above the tab bar — and drives the SAME save() as the header
+          button. Hidden from `sm` up, where the header cluster is visible. */}
+      <div
+        data-testid="builder-save-bar"
+        className="sticky bottom-0 z-20 -mx-4 -mb-4 border-t border-border bg-surface px-4 py-2.5 sm:hidden"
+      >
+        <div className="flex items-center justify-between gap-3">
+          <span
+            data-testid="save-state-mobile"
+            className={cn(
+              "text-[12px] uppercase tracking-wider",
+              dirty ? "font-semibold text-state-warning" : "text-text-muted"
+            )}
+          >
+            {dirty ? "Unsaved changes" : "All changes saved"}
+          </span>
+          <Button
+            data-testid="save-changes-mobile"
+            onClick={save}
+            disabled={!dirty || saving || !basicsValid}
+          >
+            <Save className="h-4 w-4" aria-hidden="true" />
+            {saving ? "Saving…" : dirty ? "Save changes" : savedTick ? "Saved ✓" : "Saved"}
+          </Button>
+        </div>
+      </div>
 
       {/* #192 — save a saved group as a reusable preset */}
       <Modal
@@ -1030,13 +1067,19 @@ export function JobBuilderClient({
               onChange={(e) => set("ref", e.target.value)}
             />
           </Field>
-          <Field label="Job type" help="The job's work type, set when the job is created.">
-            <input
-              className={cn(inputClass, "bg-surface-subtle text-text-muted")}
-              value={savedJob.typeName ?? form.type ?? "—"}
-              readOnly
-            />
-          </Field>
+          {/* Read-only and honest about it: nothing in the product sets or edits
+              a job type yet (the lean create form omits it), so a job WITH a
+              type shows it and says it isn't editable here; a job without one
+              shows no empty field at all. */}
+          {savedJob.typeName || form.type ? (
+            <Field label="Job type" help="Not editable here yet.">
+              <input
+                className={cn(inputClass, "bg-surface-subtle text-text-muted")}
+                value={savedJob.typeName || form.type}
+                readOnly
+              />
+            </Field>
+          ) : null}
           <Field label="Site address" className="sm:col-span-2">
             <AddressAutocompleteInput
               className={inputClass}
