@@ -35,7 +35,7 @@ import type { Employee, EmployeeRole, InvitePublic } from "./types";
 describe("deriveAppAccess", () => {
   const expected: Record<EmployeeRole, ReturnType<typeof deriveAppAccess>> = {
     admin: "both",
-    pm: "buhlos",
+    pm: "both",
     office: "buhlos",
     estimator: "buhlos",
     leadinghand: "phil",

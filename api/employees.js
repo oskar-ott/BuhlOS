@@ -93,7 +93,7 @@ function applyLazyExpiry(invite, nowMs) {
 }
 
 const ROLE_APP_ACCESS = {
-  admin: 'both', pm: 'buhlos', office: 'buhlos', estimator: 'buhlos',
+  admin: 'both', pm: 'both', office: 'buhlos', estimator: 'buhlos',
   leadinghand: 'phil', electrician: 'phil', apprentice: 'phil', labourer: 'phil',
   subcontractor: 'phil', // invoices directly; hours never reach the Xero push
 };
