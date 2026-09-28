@@ -15,6 +15,8 @@ const { extractPdfText } = require('./pdf-text');
 const { readBlob } = require('../blob');
 const { getSettings } = require('../feature-settings');
 const aiExtract = require('./ai-extract');
+const { jobsFromEntry } = require('./purchaser');
+const { readEntry } = require('../time-entries');
 const { forwardStrayEmail } = require('./forward');
 const { sendEmail } = require('../email');
 const { readTimesheetRecipients } = require('../timesheet-email-settings');
@@ -66,6 +68,8 @@ function webhookDeps() {
         deps: {
           store, fetchPdf: fetchInvoicePdf, extractText: extractPdfText,
           readJobs: async () => { const d = await readBlob('jobs.json', { jobs: [] }); return Array.isArray(d.jobs) ? d.jobs : []; },
+          readUsers: async () => { const d = await readBlob('users.json', { users: [] }); return Array.isArray(d.users) ? d.users : []; },
+          workerJobsOn: async (userId, date) => jobsFromEntry(await readEntry(userId, date)),
           aiExtract: aiExtract.enabled() ? aiExtract.aiExtract : null,
           autoConfirm,
         },

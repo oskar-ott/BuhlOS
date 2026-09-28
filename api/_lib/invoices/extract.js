@@ -16,6 +16,7 @@
 
 const { parseMoneyToCents, reconcileTotals } = require('./money');
 const { extractDeliveryAddress } = require('./placement');
+const { extractPurchaserName } = require('./purchaser');
 const { extractIvCandidates, selectIvReference, normaliseIvReference } = require('./iv-match');
 const { extractAbn } = require('./supplier-identity');
 
@@ -290,6 +291,8 @@ function extractInvoiceFromText(text) {
     deliveryAddress: extractDeliveryAddress(lines),
     customerReferences: extractCustomerReferences(lines),
     placementText: lines.join('\n'),
+    // who was at the counter ("Ordered by: Sam") — as printed; matched to an employee in the pipeline
+    purchaserName: extractPurchaserName(lines),
   };
 }
 

@@ -58,6 +58,7 @@ function extractedFromVision(v) {
     },
     excerpt: text.slice(0, 1500),
     deliveryAddress: v.deliveryAddress,
+    purchaserName: v.purchaserName || null,
     customerReferences: [],
     placementText: text,
   };

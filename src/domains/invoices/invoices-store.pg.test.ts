@@ -227,4 +227,11 @@ describe.skipIf(!ENABLED)("invoices store — dev Postgres", () => {
     expect(r).toMatchObject({ source: "receipt", matchedJobId: "birdwood", matchStatus: "manual", paidPersonally: true, workerNote: "switchboard bits", createdBy: "Sam Sparky", createdByLegacyId: "u_sparky" });
     expect(r.matchReason).toMatchObject({ source: "worker" });
   });
+
+  it("stores who was at the counter, as printed and as matched", async () => {
+    const inv = await make("f1".repeat(32));
+    await store.claimOne(sql, tenantId, inv.invoice.id);
+    const row = await store.applyExtraction(sql, tenantId, inv.invoice.id, { supplierName: `Counter ${marker}`, documentType: "tax_invoice", status: "needs_review", extractionMethod: "pdf_text", currency: "AUD", matchStatus: "none", reviewReasons: [], purchaserName: "Dylan S", purchaserUserId: "u_dylan", purchaserWorkerName: "Dylan Sinclair" });
+    expect(row).toMatchObject({ purchaserName: "Dylan S", purchaserUserId: "u_dylan", purchaserWorkerName: "Dylan Sinclair" });
+  });
 });

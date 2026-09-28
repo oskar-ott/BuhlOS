@@ -44,7 +44,7 @@ const nullable = (type, extra = {}) => ({ anyOf: [{ type, ...extra }, { type: 'n
 const SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['legible', 'documentType', 'storeName', 'abn', 'receiptNumber', 'date', 'subtotalExGstCents', 'gstCents', 'totalCents', 'pricesIncludeGst', 'ivReference', 'deliveryAddress', 'lines'],
+  required: ['legible', 'documentType', 'storeName', 'abn', 'receiptNumber', 'date', 'subtotalExGstCents', 'gstCents', 'totalCents', 'pricesIncludeGst', 'ivReference', 'deliveryAddress', 'purchaserName', 'lines'],
   properties: {
     legible: { type: 'boolean', description: 'false when the photo is too blurred, cropped or dark to read the total' },
     documentType: { type: 'string', enum: ['receipt', 'tax_invoice', 'invoice', 'credit_note', 'delivery_docket', 'other'] },
@@ -58,6 +58,7 @@ const SCHEMA = {
     pricesIncludeGst: { type: 'boolean', description: 'true when the line prices include GST (usual on retail receipts)' },
     ivReference: nullable('string', { description: 'an IV job number such as IV3232 if one is written or printed, else null' }),
     deliveryAddress: nullable('string'),
+    purchaserName: nullable('string', { description: 'the customer\'s person printed as ordering or collecting ("Ordered by", "Picked up by", "Contact"), never the store\'s own staff ("Served by")' }),
     lines: {
       type: 'array',
       items: {
@@ -111,6 +112,7 @@ function clean(out) {
     pricesIncludeGst: out.pricesIncludeGst !== false,
     ivReference: str(out.ivReference, 20),
     deliveryAddress: str(out.deliveryAddress, 200),
+    purchaserName: str(out.purchaserName, 40),
     lines: (Array.isArray(out.lines) ? out.lines : []).slice(0, 200).map((l) => ({
       description: str(l && l.description, 200),
       quantity: l && typeof l.quantity === 'number' && Number.isFinite(l.quantity) ? l.quantity : null,

@@ -89,6 +89,7 @@ export const JobMaterialsBreakdownSchema = z.object({
       supplierInvoiceNumber: z.string().nullable(),
       invoiceDate: z.string().nullable(),
       documentType: z.string(),
+      purchaser: z.string().nullable().default(null),
       signedCents: z.number(),
     })
   ),
@@ -159,6 +160,10 @@ export const InvoiceSchema = z
     /** https links found in an email that carried no usable attachment (bounded). */
     linesTotalCents: z.number().nullable().default(null),
     linesConsistent: z.boolean().nullable().default(null),
+    /** Who was at the counter, as printed; the employee it matched (only when unambiguous). */
+    purchaserName: z.string().nullable().default(null),
+    purchaserUserId: z.string().nullable().default(null),
+    purchaserWorkerName: z.string().nullable().default(null),
     sourceLinks: z.array(z.string()).default([]),
     sourceTextExcerpt: z.string().nullable().default(null),
     sourceFrom: z.string().nullable(),

@@ -121,6 +121,33 @@ review. `api/_lib/invoices/state.js` is the transition table.
   line, field, match count, warnings (complete / archived / on-hold / draft
   jobs still match but the reviewer is warned).
 
+### Who was at the counter (owner, 2026-09-28)
+
+"There is sometimes a name added to the invoice for who was at the
+wholesaler." `api/_lib/invoices/purchaser.js`:
+
+- **Read** under "Ordered by", "Picked up by", "Collected by", "Customer
+  contact", "Contact", "Attn", "Requested by", "Received by" (and the vision
+  reader's `purchaserName` for photos). The wholesaler's own staff ("Served
+  by", "Sales rep", "Picker", "Driver") are never read as the buyer; company
+  names, phone numbers and blank signature lines are rejected. Kept exactly
+  as printed (`purchaser_name`).
+- **Matched to one employee or none**: full name, "first + initial"
+  ("DYLAN S"), a first name or preferred name that only one employee has
+  ("Louie" → Louis Kane). Two Stephens is no match; clients are never
+  matched. Stored as `purchaser_user_id` / `purchaser_worker_name`. A receipt's
+  buyer is the worker who sent it.
+- **Placement evidence**, only when no IV number is printed: the jobs that
+  worker logged hours on for the invoice date (their day entry, rejected days
+  ignored) become **medium** evidence — "Dylan Sinclair (named on the invoice)
+  logged hours on this job on 2026-09-15". One job → placed; two jobs → a
+  choice for a person with both offered. Medium evidence never books itself,
+  whatever the knobs say. An IV number always wins; the timesheet is not read.
+- **Shown** on the review screen ("Picked up / ordered by … matched to the
+  employee", or "as printed — no single employee matches that name") and on
+  each line in the job's materials breakdown.
+- Migration `20260928100000_supplier_invoice_purchaser`.
+
 ### Receipts from the field (owner pull 2026-09-25)
 
 "Sometimes we buy stuff at Bunnings and pay by card — no invoice, no email.
