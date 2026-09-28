@@ -234,6 +234,7 @@ const VALID_ACTIONS = new Set([
   // below the admin tier) — metadata carries lineId/date/supplier only. Kept in
   // sync with src/domains/audit-log/schema.ts AUDIT_ACTIONS.
   'job.material_spend_added',
+  'job.material_spend_duplicate_override',
   'job.material_spend_removed',
   // Supplier-invoice capture (invoice_capture, docs/invoice-capture.md).
   // targetType 'supplier_invoice' (targetId = the PG invoice uuid), jobId = the

@@ -48,7 +48,8 @@ describe("validateLineInput", () => {
     });
     expect(r).toEqual({
       ok: true,
-      value: { date: "2026-08-20", supplier: "L&H", description: "2.5mm TPS", amountCents: 18450 },
+      // reference (2026-09-27): optional docket / invoice number, null when not typed.
+      value: { date: "2026-08-20", supplier: "L&H", description: "2.5mm TPS", reference: null, amountCents: 18450 },
     });
   });
 
