@@ -7,9 +7,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { Archive, Plus, Search, X } from "lucide-react";
 import { Pill } from "@/components/ui/Pill";
 import { EmptyState } from "@/components/ui/EmptyState";
-import {
-  lastActivityCaption,
-} from "@/domains/jobs/format";
+import { lastActivityCaption } from "@/domains/jobs/format";
 import {
   filterJobs,
   JOB_LIST_PHASE_OPTIONS,
@@ -30,7 +28,10 @@ import {
 import {
   buildPortfolioSummary,
   formatContractValue,
+  jobCardFacts,
+  jobCardVerdict,
   type JobCardMeta,
+  type JobCardVerdictTone,
 } from "@/domains/jobs/portfolio";
 import type { Job } from "@/domains/jobs/types";
 import { jobPhase, phaseLabel, phaseTone, type JobPhase } from "@/domains/jobs/lifecycle";
@@ -73,6 +74,15 @@ export const JOBS_FILTER_SPEC: RememberedFilterSpec = {
 
 /** How long a search keystroke waits before being mirrored into the URL. */
 const SEARCH_URL_DEBOUNCE_MS = 250;
+
+/**
+ * Filter pill group. Phone (below `sm`): ONE row that scrolls sideways, bled to
+ * the page edges like the office top nav, so the status + health pills cost two
+ * short rows instead of three stacked rows of chrome above the first job (P10 —
+ * the first card is on the first screen). `sm`+: the wrapping row as before.
+ */
+const FILTER_STRIP_CLASS =
+  "-mx-4 flex items-center gap-1.5 overflow-x-auto px-4 py-0.5 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:py-0";
 
 /**
  * Admin jobs portfolio — Phase D6, filters URL-driven since #216, restyled to
@@ -253,7 +263,9 @@ export function JobsList({ jobs, canBuild = false, newJobHref, cardExtrasPromise
   // Statuses with zero jobs stay hidden (the page only ships archived rows for
   // ?status=archived, so the Archived pill counts real rows there) UNLESS the URL deep-links to one, in which case the pill
   // renders so the active filter is visible and clearable.
-  const statusOptions = JOB_LIST_PHASE_OPTIONS.filter((s) => (counts.get(s) ?? 0) > 0 || status === s);
+  const statusOptions = JOB_LIST_PHASE_OPTIONS.filter(
+    (s) => (counts.get(s) ?? 0) > 0 || status === s
+  );
 
   const filtersActive = status !== null || query.trim() !== "" || health !== null;
 
@@ -290,11 +302,15 @@ export function JobsList({ jobs, canBuild = false, newJobHref, cardExtrasPromise
           subline, the honest total-contract readout (admin-only data), and the
           create / archive actions. No card chrome — a plain header row. */}
       <div className="flex flex-wrap items-center justify-between gap-3 px-0.5">
-        <p className="min-w-0 text-sm text-text-muted">{portfolio.subline}</p>
+        <p className="min-w-0 text-sm text-text-muted">
+          {portfolio.subline}
+          {/* Phone: the ordering note rides the subline (its own row is desktop). */}
+          <span className="sm:hidden"> · sorted by risk</span>
+        </p>
         <div className="flex flex-wrap items-center gap-3">
           {portfolio.totalContract ? (
-            <div className="text-right">
-              <div className="flex items-baseline justify-end gap-1.5">
+            <div className="text-left sm:text-right">
+              <div className="flex flex-wrap items-baseline justify-start gap-1.5 sm:justify-end">
                 <span className="font-mono text-xs uppercase tracking-[0.12em] text-text-muted">
                   Total contract
                 </span>
@@ -320,7 +336,7 @@ export function JobsList({ jobs, canBuild = false, newJobHref, cardExtrasPromise
               ?status=archived — see src/app/v2/jobs/page.tsx. */}
           <Link
             href={"/v2/jobs?status=archived" as Route}
-            className="inline-flex items-center gap-1.5 rounded-card border border-border bg-surface px-3 py-2 text-sm font-medium text-text transition-colors hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-brand-navy"
+            className="hidden items-center gap-1.5 rounded-card border border-border bg-surface px-3 py-2 text-sm font-medium text-text transition-colors hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-brand-navy sm:inline-flex"
           >
             <Archive aria-hidden="true" className="h-4 w-4" /> Archived
           </Link>
@@ -328,7 +344,7 @@ export function JobsList({ jobs, canBuild = false, newJobHref, cardExtrasPromise
             <Link
               data-testid="jobs-new-job"
               href={newJobHref as Route}
-              className="inline-flex items-center gap-1.5 rounded-card bg-brand-navy px-3 py-2 text-sm font-medium text-text-inverse transition-colors hover:bg-accent-ink focus:outline-none focus:ring-2 focus:ring-brand-navy"
+              className="hidden items-center gap-1.5 rounded-card bg-brand-navy px-3 py-2 text-sm font-medium text-text-inverse transition-colors hover:bg-accent-ink focus:outline-none focus:ring-2 focus:ring-brand-navy sm:inline-flex"
             >
               <Plus aria-hidden="true" className="h-4 w-4" /> New job
             </Link>
@@ -336,24 +352,34 @@ export function JobsList({ jobs, canBuild = false, newJobHref, cardExtrasPromise
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <label className="flex w-full max-w-md items-center gap-2 rounded-card border border-border bg-surface px-3 py-2 text-sm">
-          <Search aria-hidden="true" className="h-4 w-4 shrink-0 text-text-muted" />
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => handleQueryChange(e.target.value)}
-            placeholder="Search name, IV number or address"
-            aria-label="Filter jobs"
-            className="w-full bg-transparent text-text outline-none placeholder:text-text-muted"
-          />
-        </label>
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-3 sm:gap-y-2">
+        {/* Phone: search and the create entry share one row (the header's
+            New job button is desktop) — one less row above the first job. */}
+        <div className="flex w-full items-stretch gap-2 sm:w-auto sm:max-w-md sm:flex-1">
+          <label className="flex min-h-[44px] min-w-0 flex-1 items-center gap-2 rounded-card border border-border bg-surface px-3 py-2 text-sm sm:min-h-0">
+            <Search aria-hidden="true" className="h-4 w-4 shrink-0 text-text-muted" />
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => handleQueryChange(e.target.value)}
+              placeholder="Search name, IV number or address"
+              aria-label="Filter jobs"
+              className="w-full bg-transparent text-text outline-none placeholder:text-text-muted"
+            />
+          </label>
+          {newJobHref ? (
+            <Link
+              data-testid="jobs-new-job-mobile"
+              href={newJobHref as Route}
+              aria-label="New job"
+              className="inline-flex shrink-0 items-center gap-1 rounded-card bg-brand-navy px-3 text-sm font-medium text-text-inverse transition-colors hover:bg-accent-ink focus:outline-none focus:ring-2 focus:ring-brand-navy sm:hidden"
+            >
+              <Plus aria-hidden="true" className="h-4 w-4" /> New
+            </Link>
+          ) : null}
+        </div>
 
-        <div
-          role="group"
-          aria-label="Filter jobs by status"
-          className="flex flex-wrap items-center gap-1.5"
-        >
+        <div role="group" aria-label="Filter jobs by status" className={FILTER_STRIP_CLASS}>
           <FilterPill
             label="All"
             count={workingJobs.length}
@@ -373,21 +399,26 @@ export function JobsList({ jobs, canBuild = false, newJobHref, cardExtrasPromise
             <button
               type="button"
               onClick={handleReset}
-              className="inline-flex items-center gap-1 rounded-pill px-2.5 py-1 text-xs font-medium text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-2 hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-brand-navy"
+              className="inline-flex min-h-[44px] shrink-0 items-center gap-1 whitespace-nowrap rounded-pill px-2.5 py-1 text-xs font-medium text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-2 hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-brand-navy sm:min-h-0"
             >
               <X aria-hidden="true" className="h-3.5 w-3.5" />
               Reset to all
             </button>
           ) : null}
+          {/* Phone: the Archived view trails the status strip (the header's
+              Archived button is desktop). Still a real navigation — the
+              server only ships archived rows for ?status=archived. */}
+          <Link
+            href={"/v2/jobs?status=archived" as Route}
+            className="inline-flex min-h-[44px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[6px] border border-border bg-surface px-3 py-1.5 text-xs font-semibold text-text-muted transition-colors hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-brand-navy sm:hidden"
+          >
+            <Archive aria-hidden="true" className="h-3.5 w-3.5" /> Archived
+          </Link>
         </div>
 
         {/* #227: health filter — triage the portfolio by risk. Only levels with
             jobs in the current status/search view render a pill. */}
-        <div
-          role="group"
-          aria-label="Filter jobs by health"
-          className="flex flex-wrap items-center gap-1.5"
-        >
+        <div role="group" aria-label="Filter jobs by health" className={FILTER_STRIP_CLASS}>
           {HEALTH_LEVELS.filter((lvl) => healthTally[lvl] > 0 || health === lvl).map((lvl) => (
             <FilterPill
               key={lvl}
@@ -400,7 +431,7 @@ export function JobsList({ jobs, canBuild = false, newJobHref, cardExtrasPromise
         </div>
 
         {/* Job Detail Variants 2a — the list's one ordering, named. */}
-        <p className="ml-auto font-mono text-xs font-medium uppercase tracking-[0.14em] text-text-muted">
+        <p className="ml-auto hidden font-mono text-xs font-medium uppercase tracking-[0.14em] text-text-muted sm:block">
           Sorted by risk
         </p>
       </div>
@@ -463,7 +494,8 @@ function FilterPill({
       onClick={onClick}
       aria-pressed={selected}
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-[6px] border px-3 py-1.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-brand-navy",
+        // 44px tall on phones (a strip item under a thumb), compact from sm up.
+        "inline-flex min-h-[44px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[6px] border px-3 py-1.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-brand-navy sm:min-h-0",
         selected
           ? "border-text bg-brand-navy text-text-inverse"
           : "border-border bg-surface text-text hover:bg-surface-subtle"
@@ -475,13 +507,13 @@ function FilterPill({
   );
 }
 
-/** Verdict dot + meter colours per level — the solid state dots, matching the
- *  hub hero so the verdict travels list→detail in the same voice (2f §06). */
-const HEALTH_DOT: Record<JobHealthLevel, string> = {
-  "at-risk": "bg-state-danger-dot",
-  watch: "bg-state-warning-dot",
-  good: "bg-state-success-dot",
-  unknown: "bg-state-neutral-dot",
+/** Verdict dot colours per tone — the solid state dots, matching the hub hero
+ *  so the verdict travels list→detail in the same voice (2f §06). */
+const VERDICT_DOT: Record<JobCardVerdictTone, string> = {
+  danger: "bg-state-danger-dot",
+  warning: "bg-state-warning-dot",
+  success: "bg-state-success-dot",
+  neutral: "bg-state-neutral-dot",
 };
 
 /** Risk-meter fill — driven by the real health level, not a fabricated 0–100
@@ -506,7 +538,6 @@ function JobCard({
   extra?: CardExtra;
 }) {
   const hubHref = `/v2/jobs/${encodeURIComponent(job.id)}` as Route;
-  const topReason = health.reasons[0] ?? null;
 
   // Task progress: prefer the job object's own counts (full read), else the
   // streamed map. When neither is present the progress line omits.
@@ -525,17 +556,19 @@ function JobCard({
   const idLine = [job.code, job.ref, job.typeName, address].filter(Boolean).join(" · ");
   const evidencePending = job.statsEvidenceV2Pending ?? 0;
 
-  // Verdict sub-caption: the top real reason; for clean/absent reads, a true
-  // sentence about the state — never an invented number (P7).
-  const verdictCaption = topReason
-    ? `${topReason.count} ${topReason.label.toLowerCase()}`
-    : health.level === "good"
-      ? "nothing needs you"
-      : health.level === "unknown"
-        ? job.status === "draft"
-          ? "publish to start tracking"
-          : null
-        : null;
+  // The verdict line — health words when health is the read (active work, or
+  // any real backlog), else the phase truth in one sentence: a draft is "not
+  // published yet", a paused job "paused", a finished job "crew can log until
+  // …" — never "On track · nothing needs you" on a job that isn't running
+  // (P7; 2026-09-27 phone audit). Pure + unit-tested in portfolio.ts.
+  const verdict = jobCardVerdict(job, health);
+  // Phone facts line: only the facts that are real for this job — a lean job
+  // with no structure carries no "Tasks —", an unpriced one no "$—".
+  const facts = jobCardFacts(job, {
+    contractValue: extra?.contractValue,
+    tasksTotal: extra?.tasksTotal,
+    tasksComplete: extra?.tasksComplete,
+  });
 
   const tasksPct =
     typeof tasksTotal === "number" && typeof tasksComplete === "number" && tasksTotal > 0
@@ -549,9 +582,13 @@ function JobCard({
       <div className="flex items-start justify-between gap-4 px-4 pb-5 pt-4 sm:gap-8 sm:px-6 sm:pb-6 sm:pt-5">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            {/* The name is the link — and its ::after covers the whole card, so
+                the card is the tap target (a phone thumb, not a 17px word). The
+                quick links + review chip sit above it (relative z-10). */}
             <Link
               href={hubHref}
-              className="font-display text-[17px] font-bold leading-tight tracking-tight text-text hover:underline hover:decoration-accent-yellow hover:decoration-2 hover:underline-offset-4 focus:outline-none focus:ring-2 focus:ring-brand-navy sm:text-[20px]"
+              data-testid="job-card-link"
+              className="font-display text-[17px] font-bold leading-tight tracking-tight text-text after:absolute after:inset-0 after:content-[''] hover:underline hover:decoration-accent-yellow hover:decoration-2 hover:underline-offset-4 focus:outline-none focus:ring-2 focus:ring-brand-navy sm:text-[20px]"
             >
               {job.name}
             </Link>
@@ -566,16 +603,23 @@ function JobCard({
             </p>
           ) : null}
 
-          {/* The verdict — same dot + label + top reason the hub hero carries. */}
-          <p className="mt-3 flex items-center gap-2.5 text-sm">
+          {/* The verdict — same dot + label + top reason the hub hero carries;
+              a sentence alone when health isn't the read for this phase. */}
+          <p className="mt-3 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-sm">
             <span
               aria-hidden="true"
-              className={cn("h-2.5 w-2.5 shrink-0 rounded-pill", HEALTH_DOT[health.level])}
+              className={cn("h-2.5 w-2.5 shrink-0 rounded-pill", VERDICT_DOT[verdict.tone])}
             />
-            <span className="font-display text-[17px] font-bold leading-none text-text">
-              {healthLabel(health.level)}
-            </span>
-            {verdictCaption ? <span className="text-text-muted">· {verdictCaption}</span> : null}
+            {verdict.label ? (
+              <span className="font-display text-[17px] font-bold leading-none text-text">
+                {verdict.label}
+              </span>
+            ) : null}
+            {verdict.caption ? (
+              <span className={verdict.label ? "text-text-muted" : "font-medium text-text"}>
+                {verdict.label ? `· ${verdict.caption}` : verdict.caption}
+              </span>
+            ) : null}
             {caption ? (
               <span className="hidden text-xs uppercase tracking-wider text-text-muted lg:inline">
                 · {caption}
@@ -583,10 +627,28 @@ function JobCard({
             ) : null}
           </p>
 
-          {/* Phone (2e): the stats collapse to one mono line under the verdict. */}
-          <p className="mt-2.5 font-mono text-xs font-medium uppercase tracking-[0.08em] text-text-muted sm:hidden">
-            {meta.value} · Crew {meta.crew} · Tasks {tasksPct}
-          </p>
+          {/* Phone (2e): the facts collapse to one mono line under the verdict —
+              real facts only, plus when the job last moved. */}
+          {facts.length > 0 ? (
+            <p className="mt-2.5 font-mono text-xs font-medium uppercase tracking-[0.08em] text-text-muted sm:hidden">
+              {facts.join(" · ")}
+            </p>
+          ) : null}
+
+          {/* Phone: the one deep link that carries work — this job's review
+              queue — stays one tap away (desktop has the quick-link row on the
+              right). z-10 lifts it above the card's stretched link. */}
+          {evidencePending > 0 ? (
+            <div className="relative z-10 mt-3 sm:hidden">
+              <QuickLink
+                href={`/v2/jobs/${encodeURIComponent(job.id)}/evidence`}
+                label={`Review ${evidencePending} →`}
+                hot
+                ariaLabel={`Open ${evidencePending} pending evidence for ${job.name}`}
+                className="min-h-[44px] px-4 text-sm"
+              />
+            </div>
+          ) : null}
         </div>
 
         <div className="hidden shrink-0 flex-col items-end gap-3 sm:flex">
@@ -606,8 +668,9 @@ function JobCard({
               }
             />
           </dl>
-          {/* Quick links — deep-link past the hub (power-user one-tap). */}
-          <div className="flex items-center gap-1.5">
+          {/* Quick links — deep-link past the hub (power-user one-tap). Lifted
+              above the card's stretched name link so they stay clickable. */}
+          <div className="relative z-10 flex items-center gap-1.5">
             {canBuild ? (
               <QuickLink
                 href={`/v2/jobs/${encodeURIComponent(job.id)}/builder`}
@@ -698,21 +761,24 @@ function QuickLink({
   label,
   hot,
   ariaLabel,
+  className,
 }: {
   href: string;
   label: string;
   hot?: boolean;
   ariaLabel: string;
+  className?: string;
 }) {
   return (
     <Link
       href={href as Route}
       aria-label={ariaLabel}
       className={cn(
-        "rounded-[4px] border px-2.5 py-1 text-xs font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-brand-navy",
+        "inline-flex items-center rounded-[4px] border px-2.5 py-1 text-xs font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-brand-navy",
         hot
           ? "border-brand-navy bg-brand-navy text-text-inverse hover:bg-accent-ink"
-          : "border-border bg-surface text-text hover:bg-surface-subtle"
+          : "border-border bg-surface text-text hover:bg-surface-subtle",
+        className
       )}
     >
       {label}

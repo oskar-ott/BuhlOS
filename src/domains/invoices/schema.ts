@@ -163,7 +163,8 @@ export const InvoiceSchema = z
     sourceTextExcerpt: z.string().nullable().default(null),
     sourceFrom: z.string().nullable(),
     createdBy: z.string().nullable(),
-    /** Receipts from the field: the worker paid with their own money (the office reimburses through payroll). */
+    /** Receipts from the field: the worker paid with their own money. BuhlOS records
+     *  the fact for the office; it runs no reimbursement and confirms no payback. */
     paidPersonally: z.boolean().default(false),
     workerNote: z.string().nullable().default(null),
     reviewedAt: z.string().nullable(),
