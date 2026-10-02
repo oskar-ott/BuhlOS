@@ -2,7 +2,7 @@
 // Preserves original behaviour: base64 dataUrl upload, per-dwelling index,
 // DELETE by photoId.
 const { put, del } = require('@vercel/blob');
-const { setNoCache } = require('./_lib/blob');
+const { setNoCache, deleteBlob } = require('./_lib/blob');
 const { requireAuth, canWrite } = require('./_lib/auth');
 
 function indexKey(jobId) {
@@ -223,9 +223,23 @@ module.exports = async (req, res) => {
     try {
       const { dwelling, photoId } = req.body;
       const index = await readIndex(jobId);
+      let removed = false;
       if (index[dwelling]) {
+        const before = index[dwelling].length;
         index[dwelling] = index[dwelling].filter(p => p.id !== photoId);
+        removed = index[dwelling].length < before;
         await writeIndex(jobId, index);
+      }
+      // FILE-02: this is a genuine HARD removal — the photos-index entry is the
+      // only reference to jobs/<jobId>/photos/<photoId>.jpg, and it is NOT
+      // restorable (no soft-delete/deleted_at here). Without reclaiming the
+      // bytes, every dwelling-photo delete orphaned a blob forever. Reclaim
+      // best-effort AFTER the index write commits, and only when we actually
+      // removed the reference — a Blob failure must never fail the delete
+      // (deleteBlob swallows its own errors). Only-on-genuine-removal keeps this
+      // safe against a no-op delete (wrong id/dwelling) touching bytes.
+      if (removed && photoId) {
+        await deleteBlob(`jobs/${jobId}/photos/${photoId}.jpg`);
       }
       return res.status(200).json({ ok: true });
     } catch (e) {
