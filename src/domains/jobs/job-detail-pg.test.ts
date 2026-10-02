@@ -404,6 +404,26 @@ describe("persistAdminExtras", () => {
   });
 });
 
+describe("persistAdminExtras — CDN-stale source content (2026-10-02)", () => {
+  const PUT = "2026-10-01T10:48:17.000Z";
+  it("refuses to stamp a job read from a jobs.json that predates the upload", async () => {
+    const job = blobJob();
+    const writeBlob = vi.fn(async () => undefined);
+    const sourceDoc = { __updatedAt: "2026-09-30T04:56:33.209Z", jobs: [job] };
+    const out = await persistAdminExtras(job.id, job, PUT, { writeBlob, sourceDoc, now: () => Date.parse(PUT) + 20_000 });
+    expect(out.persisted).toBe(false);
+    expect(writeBlob).not.toHaveBeenCalled();
+  });
+
+  it("stamps when the source document is that upload", async () => {
+    const job = blobJob();
+    const writeBlob = vi.fn(async () => undefined);
+    const sourceDoc = { __updatedAt: "2026-10-01T10:48:15.425Z", jobs: [job] };
+    const out = await persistAdminExtras(job.id, job, PUT, { writeBlob, sourceDoc, now: () => Date.parse(PUT) + 20_000 });
+    expect(out.persisted).toBe(true);
+  });
+});
+
 describe("probeAdminJobDetailParity", () => {
   it("classifies faithful / drifted / unavailable across a sample and proves byte equality", async () => {
     const faithful = blobJob();

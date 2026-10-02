@@ -712,7 +712,7 @@ module.exports = async (req, res) => {
       // (race degrades to an extra fallback, never to stale data), so the
       // NEXT admin read skips the monolith.
       if (adminExtrasRebuild && isAdminRole(me.role)) {
-        await persistAdminExtras(id, job, adminExtrasRebuild.uploadedAt);
+        await persistAdminExtras(id, job, adminExtrasRebuild.uploadedAt, { sourceDoc: data });
       }
       // Hydrate modules + filter archived structural items unless the
       // caller passes ?includeArchived=1 (admin editor only). Mobile +
