@@ -29,6 +29,11 @@
 const SUMMARY_KEY = 'jobs-summary.json';
 const SUMMARY_SOURCE_KEY = 'jobs.json';
 
+// Rebuild retry while the CDN still serves the pre-overwrite jobs.json — see
+// api/_lib/source-freshness.js (the 2026-10-02 missing-job incident).
+const { sourceContentIsCurrent } = require('./source-freshness');
+const RETRY_DELAYS_MS = [1000, 2000, 3000];
+
 // Heavy / commercial fields excluded from every summary record.
 const DROP_FIELDS = new Set([
   // structure (the bulk of jobs.json; no field LIST consumer reads it)
@@ -110,14 +115,33 @@ async function readJobsSummary(deps = realDeps()) {
 
   // Miss / stale / can't-confirm-freshness → rebuild from the authoritative
   // monolith, read FRESH so the records can't predate the stamped uploadedAt.
-  const jobsDoc = await readSourceFresh(SUMMARY_SOURCE_KEY, { jobs: [] });
+  // The fresh read still goes through Blob's CDN, which can hand back the
+  // pre-overwrite jobs.json right after a write — retry briefly while the
+  // content's storage stamp predates the PUT.
+  const now = deps.now || Date.now;
+  const sleep = deps.sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
+  const delays = deps.retryDelaysMs || RETRY_DELAYS_MS;
+  let jobsDoc = await readSourceFresh(SUMMARY_SOURCE_KEY, { jobs: [] });
+  let sourceCurrent = sourceContentIsCurrent(jobsDoc, uploadedAt, now());
+  for (let i = 0; !sourceCurrent && i < delays.length; i++) {
+    await sleep(delays[i]);
+    jobsDoc = await readSourceFresh(SUMMARY_SOURCE_KEY, { jobs: [] });
+    sourceCurrent = sourceContentIsCurrent(jobsDoc, uploadedAt, now());
+  }
   const jobTypesDoc = await readBlob('job-types.json', { jobTypes: [] });
   const records = buildJobsSummary(jobsDoc.jobs || [], jobTypesDoc.jobTypes || []);
 
   // Best-effort persist so the next read is fast. Only stamp when we actually
-  // confirmed the source's uploadedAt (else a future read can't validate it and
-  // will simply rebuild again — correct, never stale).
-  if (uploadedAt != null) {
+  // confirmed the source's uploadedAt AND the content we built from is that
+  // upload (else a future read can't validate it and will simply rebuild
+  // again — correct, never stale). A still-stale read serves this request's
+  // records but is NEVER persisted: stamping it is what hid the job for a day.
+  if (!sourceCurrent) {
+    console.error('[jobs-summary] jobs.json content predates its upload (CDN-stale) — not persisting the summary', {
+      uploadedAt, contentUpdatedAt: jobsDoc && jobsDoc.__updatedAt,
+    });
+  }
+  if (uploadedAt != null && sourceCurrent) {
     try {
       await writeBlob(SUMMARY_KEY, { builtFromUploadedAt: uploadedAt, records });
     } catch {

@@ -35,6 +35,7 @@
 
 const { FIELD_AUDIENCE } = require('./job-redaction');
 
+const { sourceContentIsCurrent } = require('./source-freshness');
 const DETAIL_SOURCE_KEY = 'jobs.json';
 
 /** Per-job projection blob key (under the manifest-covered `jobs/` prefix). */
@@ -112,9 +113,11 @@ async function readJobDetailProjection(jobId, deps = realDeps()) {
   const record = buildJobDetailRecord(job);
 
   // Best-effort persist so the next read of this job is fast. Only stamp when we
-  // actually confirmed the source's uploadedAt (else a future read can't validate
-  // it and will simply rebuild again — correct, never stale).
-  if (uploadedAt != null) {
+  // actually confirmed the source's uploadedAt AND the content is that upload —
+  // a CDN-stale jobs.json stamped with the new uploadedAt would be served as
+  // fresh until the next write (api/_lib/source-freshness.js). Otherwise a
+  // future read can't validate it and will simply rebuild again.
+  if (uploadedAt != null && sourceContentIsCurrent(jobsDoc, uploadedAt, (deps.now || Date.now)())) {
     try {
       await writeBlob(detailKey(jobId), { builtFromUploadedAt: uploadedAt, record });
     } catch {

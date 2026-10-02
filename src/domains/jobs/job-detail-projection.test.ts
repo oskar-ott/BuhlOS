@@ -24,6 +24,7 @@ const mod = requireFromHere("../../../api/_lib/job-detail-projection.js") as {
       readBlob: (key: string, fallback: unknown) => Promise<unknown>;
       writeBlob: (key: string, data: unknown) => Promise<unknown>;
       blobUploadedAt: (key: string) => Promise<string | null>;
+      now?: () => number;
     }
   ) => Promise<{ record: Record<string, unknown> | null; source: string }>;
 };
@@ -186,5 +187,27 @@ describe("readJobDetailProjection — freshness + fallback", () => {
     const out = await readJobDetailProjection("a", deps);
     expect(out.source).toBe("rebuilt");
     expect(out.record).toEqual({ id: "a", name: "A" });
+  });
+});
+
+describe("readJobDetailProjection — CDN-stale source content (2026-10-02)", () => {
+  const PUT = "2026-10-01T10:48:17.000Z";
+  it("never stamps a jobs.json whose storage stamp predates its upload (served, not persisted)", async () => {
+    const store = new Map<string, unknown>([
+      [DETAIL_SOURCE_KEY, { __updatedAt: "2026-09-30T04:56:33.209Z", jobs: [{ id: "a", name: "Before edit" }] }],
+    ]);
+    const deps = makeDeps({ store, uploadedAt: PUT });
+    const out = await readJobDetailProjection("a", { ...deps, now: () => Date.parse(PUT) + 20_000 });
+    expect(out.record).toEqual({ id: "a", name: "Before edit" });
+    expect(deps.writeBlob).not.toHaveBeenCalled();
+  });
+
+  it("stamps when the content is that upload", async () => {
+    const store = new Map<string, unknown>([
+      [DETAIL_SOURCE_KEY, { __updatedAt: "2026-10-01T10:48:15.425Z", jobs: [{ id: "a", name: "After edit" }] }],
+    ]);
+    const deps = makeDeps({ store, uploadedAt: PUT });
+    await readJobDetailProjection("a", { ...deps, now: () => Date.parse(PUT) + 20_000 });
+    expect(deps.writeBlob).toHaveBeenCalledTimes(1);
   });
 });

@@ -19,6 +19,9 @@ const mod = requireFromHere("../../../api/_lib/jobs-summary.js") as {
     readBlobFresh?: (key: string, fallback: unknown) => Promise<unknown>;
     writeBlob: (key: string, data: unknown) => Promise<unknown>;
     blobUploadedAt: (key: string) => Promise<string | null>;
+    now?: () => number;
+    sleep?: (ms: number) => Promise<void>;
+    retryDelaysMs?: number[];
   }) => Promise<{ records: Array<Record<string, unknown>>; source: string }>;
   countActiveSnagsV2: (dataDoc: unknown) => number;
   countActiveItps: (itpsDoc: unknown) => number;
@@ -192,6 +195,52 @@ describe("readJobsSummary — freshness + fallback", () => {
     const out = await readJobsSummary(deps);
     expect(out.records).toEqual([]); // fallback {jobs:[]}
     expect(deps.writeBlob).not.toHaveBeenCalled(); // can't validate freshness → don't persist a stamp
+  });
+});
+
+describe("readJobsSummary — CDN-stale source content (2026-10-02 missing-job incident)", () => {
+  // A job created at 10:48:15 (jobs.json PUT 10:48:17) was missing from the admin
+  // list for a day: the rebuild read a CDN-stale jobs.json (previous write) and
+  // stamped it with the NEW uploadedAt, so every later read served it as fresh.
+  const PUT = "2026-10-01T10:48:17.000Z";
+  const putMs = Date.parse(PUT);
+  const staleDoc = { __updatedAt: "2026-09-30T04:56:33.209Z", jobs: [{ id: "old", name: "Old" }] };
+  const currentDoc = {
+    __updatedAt: "2026-10-01T10:48:15.425Z",
+    jobs: [{ id: "old", name: "Old" }, { id: "new", name: "New" }],
+  };
+
+  it("retries while the content predates its upload, then builds from — and stamps — the current document", async () => {
+    const deps = makeDeps({ store: new Map(), uploadedAt: PUT });
+    let n = 0;
+    deps.readBlobFresh.mockImplementation(async () => (n++ < 2 ? staleDoc : currentDoc));
+    const sleep = vi.fn(async () => {});
+    const out = await readJobsSummary({ ...deps, now: () => putMs + 22_000, sleep, retryDelaysMs: [1, 1, 1] });
+    expect(out.records.map((r) => r.id)).toEqual(["old", "new"]);
+    expect(sleep).toHaveBeenCalledTimes(2);
+    const persisted = deps.store.get(SUMMARY_KEY) as { builtFromUploadedAt: string; records: unknown[] };
+    expect(persisted.builtFromUploadedAt).toBe(PUT);
+    expect(persisted.records).toHaveLength(2);
+  });
+
+  it("content still stale after the retries → serves the request but NEVER persists the stamp", async () => {
+    const deps = makeDeps({ store: new Map(), uploadedAt: PUT });
+    deps.readBlobFresh.mockImplementation(async () => staleDoc);
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const out = await readJobsSummary({ ...deps, now: () => putMs + 22_000, sleep: async () => {}, retryDelaysMs: [1, 1] });
+    errSpy.mockRestore();
+    expect(out.records.map((r) => r.id)).toEqual(["old"]);
+    expect(deps.readBlobFresh).toHaveBeenCalledTimes(3);
+    expect(deps.writeBlob).not.toHaveBeenCalled(); // the next read rebuilds again
+  });
+
+  it("a blob settled past the window is current by definition — an old stamp there is not a stale read", async () => {
+    const deps = makeDeps({ store: new Map(), uploadedAt: PUT });
+    deps.readBlobFresh.mockImplementation(async () => staleDoc);
+    const sleep = vi.fn(async () => {});
+    await readJobsSummary({ ...deps, now: () => putMs + 10 * 60_000, sleep, retryDelaysMs: [1] });
+    expect(sleep).not.toHaveBeenCalled();
+    expect(deps.writeBlob).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -66,6 +66,7 @@ const {
   migratedFieldsHash,
   deepCanonOrdered,
 } = require('./job-read-projection');
+const { sourceContentIsCurrent } = require('./source-freshness');
 
 const FLAG_KEY = 'supabase_read_job_detail';
 const SOURCE_KEY = 'jobs.json';
@@ -263,6 +264,11 @@ async function readAdminJobDetailFromPg(jobId, deps = {}) {
  */
 async function persistAdminExtras(jobId, job, uploadedAt, deps = {}) {
   if (!jobId || !job || typeof uploadedAt !== 'string') return { persisted: false };
+  // `sourceDoc` = the jobs.json document `job` came from: content the CDN served
+  // from BEFORE that upload must not be stamped with it (source-freshness.js).
+  if (deps.sourceDoc && !sourceContentIsCurrent(deps.sourceDoc, uploadedAt, (deps.now || Date.now)())) {
+    return { persisted: false };
+  }
   const { writeBlob = realDeps().writeBlob } = deps;
   try {
     await writeBlob(adminExtrasKey(jobId), {
