@@ -75,6 +75,7 @@ function buildDuplicatePayload(source) {
   // Site basics — the field-needed facts that genuinely repeat across
   // duplicated work. Only copied when present (create validates them).
   for (const k of [
+    'builderName',
     'siteAddress',
     'accessNotes',
     'parkingNotes',

@@ -110,6 +110,18 @@ describe("filterJobs", () => {
     expect(filterJobs(withCodes, { status: null, query: "iv9999" })).toHaveLength(0);
   });
 
+  it("finds every job for a builder by its name (owner pull 2026-10-03)", () => {
+    const withBuilder = [
+      ...JOBS,
+      job({ id: "b1", name: "Tower L3", status: "active", builderName: "Hutchinson Builders" }),
+      job({ id: "b2", name: "Tower L4", status: "active", builderName: "Hutchinson Builders" }),
+    ];
+    expect(filterJobs(withBuilder, { status: null, query: "hutchinson" }).map((j) => j.id)).toEqual([
+      "b1",
+      "b2",
+    ]);
+  });
+
   it("applies status and query together", () => {
     expect(
       filterJobs(JOBS, { status: "active", query: "cottage" }).map((j) => j.id)

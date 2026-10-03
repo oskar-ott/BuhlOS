@@ -47,6 +47,20 @@ export function listJobs(): Promise<HttpResult<JobListResponse>> {
 }
 
 /**
+ * Admin-only light list (`?summary=1`): every job's base fields from the
+ * small derived jobs-summary — no structure, no money, no stats. Used for
+ * pickers that only need names (e.g. the builder-name suggestions), so they
+ * never pay for the jobs.json monolith read. Non-admin callers get the
+ * normal list (the server ignores the knob for them).
+ */
+export function listJobsSummary(): Promise<HttpResult<JobListResponse>> {
+  return httpGet<JobListResponse>("/api/jobs?summary=1", {
+    schema: JobListResponseSchema,
+    init: { cache: "no-store", credentials: "same-origin" },
+  });
+}
+
+/**
  * The crew's way back to a finished job (docs/job-lifecycle.md): every job
  * they may open — active, finishing and CLOSED — matched by name, IV code or
  * street, server-capped. Read-only; picking a result never reopens the job.

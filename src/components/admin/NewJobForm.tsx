@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { Route } from "next";
 import Link from "next/link";
 import { AddressAutocompleteInput } from "@/components/ui/AddressAutocompleteInput";
+import { BuilderNameInput } from "@/components/admin/BuilderNameInput";
 import { Button } from "@/components/ui/Button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { createJob } from "@/domains/jobs/client";
@@ -68,6 +69,7 @@ export function NewJobForm() {
   const [code, setCode] = useState("");
   const [ref, setRef] = useState("");
   const [siteAddress, setSiteAddress] = useState("");
+  const [builderName, setBuilderName] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showErrors, setShowErrors] = useState(false);
@@ -110,6 +112,7 @@ export function NewJobForm() {
         code: codeTrim,
         ref: ref.trim() || undefined,
         siteAddress: siteAddress.trim() || undefined,
+        builderName: builderName.trim() || undefined,
       })
     );
     if (!res.ok) {
@@ -168,6 +171,14 @@ export function NewJobForm() {
             onKeyDown={(e) => {
               if (e.key === "Enter") void submit();
             }}
+          />
+        </Field>
+        <Field label="Builder" help="Optional — who the job is for. Pick one you've used or type a new one.">
+          <BuilderNameInput
+            data-testid="job-builder-name"
+            className={inputClass}
+            value={builderName}
+            onChange={setBuilderName}
           />
         </Field>
         <Field

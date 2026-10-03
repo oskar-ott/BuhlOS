@@ -60,6 +60,10 @@ const BASIC_TEXT = {
   parkingNotes:      { max: 240 },
   siteContactName:   { max: 120 },
   safetyNotes:       { max: 1000 },
+  // The building company the job is for (owner pull 2026-10-03) — free text,
+  // picked from the names already used on other jobs so spellings stay
+  // consistent. Not redacted: it's site language, not a money figure.
+  builderName:       { max: 120 },
 };
 function validateJobBasics(body) {
   const patch = {};

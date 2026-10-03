@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { Route } from "next";
-import { ArrowRight, MapPin } from "lucide-react";
+import { ArrowRight, Building2, MapPin } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { JobCrewNames } from "@/components/admin/JobCrewNames";
 import { lifecycleLine } from "@/domains/jobs/lifecycle";
@@ -129,6 +129,14 @@ export function JobHealthBand({
             </Link>
           ) : null}
         </div>
+        {/* Who the job is for (owner pull 2026-10-03) — set on create or in
+            the builder's Basics tab; absent on jobs that don't have one. */}
+        {job.builderName?.trim() ? (
+          <p className="mt-2 flex items-center gap-1.5 text-sm font-medium text-text" data-testid="job-builder-name">
+            <Building2 aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-text-muted" />
+            <span className="min-w-0 break-words">{job.builderName.trim()}</span>
+          </p>
+        ) : null}
         {address ? (
           <p className="mt-2 flex items-center gap-1.5 text-sm text-text-muted">
             <MapPin aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
