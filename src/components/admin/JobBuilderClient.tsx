@@ -29,6 +29,7 @@ import {
 import { Button } from "@/components/ui/Button";
 import { ScopeOfWorkSection } from "./ScopeOfWorkSection";
 import { AddressAutocompleteInput } from "@/components/ui/AddressAutocompleteInput";
+import { ClientNameInput } from "@/components/admin/ClientNameInput";
 import { ClientContractSection } from "./ClientContractSection";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
@@ -1067,6 +1068,14 @@ export function JobBuilderClient({
               onChange={(e) => set("ref", e.target.value)}
             />
           </Field>
+          <Field label="Client" help="Who the job is for, usually the builder — pick one you've used or type a new one.">
+            <ClientNameInput
+              data-testid="client-name"
+              className={inputClass}
+              value={form.clientName}
+              onChange={(v) => set("clientName", v)}
+            />
+          </Field>
           {/* Read-only and honest about it: nothing in the product sets or edits
               a job type yet (the lean create form omits it), so a job WITH a
               type shows it and says it isn't editable here; a job without one
@@ -1847,6 +1856,7 @@ function jobToForm(job: Job): JobBuilderForm {
     type: job.type ?? "",
     status: job.status ?? "active",
     clientUserId: job.clientUserId ?? "",
+    clientName: job.clientName ?? "",
     siteAddress: job.siteAddress ?? "",
     siteContactName: job.siteContactName ?? "",
     siteContactPhone: job.siteContactPhone ?? "",

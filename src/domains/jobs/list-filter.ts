@@ -57,7 +57,15 @@ function matchesQuery(job: Job, q: string): boolean {
   // The IV#### job code is how the office and crew actually name a job
   // ("IV2041") — searching it must find the job even when name/ref don't carry it.
   const code = (job.code ?? "").toLowerCase();
-  return name.includes(q) || address.includes(q) || ref.includes(q) || code.includes(q);
+  // The client ("all the Hutchinson jobs") — owner pull 2026-10-03.
+  const client = (job.clientName ?? "").toLowerCase();
+  return (
+    name.includes(q) ||
+    address.includes(q) ||
+    ref.includes(q) ||
+    code.includes(q) ||
+    client.includes(q)
+  );
 }
 
 /** Archived jobs are out of the working portfolio — only the Archived view shows them. */
