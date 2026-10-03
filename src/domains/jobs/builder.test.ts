@@ -29,7 +29,7 @@ function fullForm(over: Partial<JobBuilderForm> = {}): JobBuilderForm {
     type: "",
     status: "draft",
     clientUserId: "",
-    builderName: "",
+    clientName: "",
     siteAddress: "",
     siteContactName: "",
     siteContactPhone: "",
@@ -113,21 +113,21 @@ describe("buildCreatePayload", () => {
   });
 });
 
-describe("builder name (owner pull 2026-10-03)", () => {
-  it("create carries the builder trimmed, and omits it when blank", () => {
-    expect(buildCreatePayload({ name: "J", builderName: "  Hutchinson Builders " })).toEqual({
+describe("client name (owner pull 2026-10-03)", () => {
+  it("create carries the client trimmed, and omits it when blank", () => {
+    expect(buildCreatePayload({ name: "J", clientName: "  Hutchinson Builders " })).toEqual({
       name: "J",
       status: "draft",
-      builderName: "Hutchinson Builders",
+      clientName: "Hutchinson Builders",
     });
-    expect(buildCreatePayload({ name: "J", builderName: "   " })).toEqual({ name: "J", status: "draft" });
+    expect(buildCreatePayload({ name: "J", clientName: "   " })).toEqual({ name: "J", status: "draft" });
   });
 
-  it("update always sends the builder (blank clears it)", () => {
-    expect(buildUpdatePayload("j", fullForm({ builderName: " Built Pty Ltd " })).builderName).toBe(
+  it("update always sends the client (blank clears it)", () => {
+    expect(buildUpdatePayload("j", fullForm({ clientName: " Built Pty Ltd " })).clientName).toBe(
       "Built Pty Ltd"
     );
-    expect(buildUpdatePayload("j", fullForm({ builderName: "" })).builderName).toBe("");
+    expect(buildUpdatePayload("j", fullForm({ clientName: "" })).clientName).toBe("");
   });
 });
 

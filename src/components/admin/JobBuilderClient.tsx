@@ -29,7 +29,7 @@ import {
 import { Button } from "@/components/ui/Button";
 import { ScopeOfWorkSection } from "./ScopeOfWorkSection";
 import { AddressAutocompleteInput } from "@/components/ui/AddressAutocompleteInput";
-import { BuilderNameInput } from "@/components/admin/BuilderNameInput";
+import { ClientNameInput } from "@/components/admin/ClientNameInput";
 import { ClientContractSection } from "./ClientContractSection";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/Pill";
@@ -1068,12 +1068,12 @@ export function JobBuilderClient({
               onChange={(e) => set("ref", e.target.value)}
             />
           </Field>
-          <Field label="Builder" help="Who the job is for — pick one you've used or type a new one.">
-            <BuilderNameInput
-              data-testid="builder-name"
+          <Field label="Client" help="Who the job is for, usually the builder — pick one you've used or type a new one.">
+            <ClientNameInput
+              data-testid="client-name"
               className={inputClass}
-              value={form.builderName}
-              onChange={(v) => set("builderName", v)}
+              value={form.clientName}
+              onChange={(v) => set("clientName", v)}
             />
           </Field>
           {/* Read-only and honest about it: nothing in the product sets or edits
@@ -1856,7 +1856,7 @@ function jobToForm(job: Job): JobBuilderForm {
     type: job.type ?? "",
     status: job.status ?? "active",
     clientUserId: job.clientUserId ?? "",
-    builderName: job.builderName ?? "",
+    clientName: job.clientName ?? "",
     siteAddress: job.siteAddress ?? "",
     siteContactName: job.siteContactName ?? "",
     siteContactPhone: job.siteContactPhone ?? "",

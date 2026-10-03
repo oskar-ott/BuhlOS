@@ -1001,7 +1001,7 @@ module.exports = async (req, res) => {
       // Basics — tracked so the audit can show "address changed" etc.
       basicsJson: JSON.stringify({
         ref: job.ref || '', siteAddress: job.siteAddress || '',
-        builderName: job.builderName || '',
+        clientName: job.clientName || '',
         startDate: job.startDate || '', dueDate: job.dueDate || '',
         siteContactName: job.siteContactName || '',
         siteContactPhone: job.siteContactPhone || '',
@@ -1341,7 +1341,7 @@ module.exports = async (req, res) => {
         fitOffTasksCount:  (job.fitOffTasks  || []).length,
         basicsJson: JSON.stringify({
           ref: job.ref || '', siteAddress: job.siteAddress || '',
-          builderName: job.builderName || '',
+          clientName: job.clientName || '',
           startDate: job.startDate || '', dueDate: job.dueDate || '',
           siteContactName: job.siteContactName || '',
           siteContactPhone: job.siteContactPhone || '',
@@ -1386,7 +1386,7 @@ module.exports = async (req, res) => {
       if (_before.basicsJson !== _now.basicsJson) {
         audits.push({
           kind: 'basics',
-          summary: 'Updated job basics (builder / address / dates / contact / safety)',
+          summary: 'Updated job basics (client / address / dates / contact / safety)',
           before: JSON.parse(_before.basicsJson),
           after: JSON.parse(_now.basicsJson),
         });

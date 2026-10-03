@@ -129,12 +129,13 @@ export function JobHealthBand({
             </Link>
           ) : null}
         </div>
-        {/* Who the job is for (owner pull 2026-10-03) — set on create or in
-            the builder's Basics tab; absent on jobs that don't have one. */}
-        {job.builderName?.trim() ? (
-          <p className="mt-2 flex items-center gap-1.5 text-sm font-medium text-text" data-testid="job-builder-name">
+        {/* The client — who the job is for, usually the builder (owner pull
+            2026-10-03). Set on create or in the builder's Basics tab; absent
+            on jobs that don't have one. */}
+        {job.clientName?.trim() ? (
+          <p className="mt-2 flex items-center gap-1.5 text-sm font-medium text-text" data-testid="job-client-name">
             <Building2 aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-text-muted" />
-            <span className="min-w-0 break-words">{job.builderName.trim()}</span>
+            <span className="min-w-0 break-words">{job.clientName.trim()}</span>
           </p>
         ) : null}
         {address ? (

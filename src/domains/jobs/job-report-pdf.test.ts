@@ -22,6 +22,14 @@ describe("composeJobReportPdf", () => {
     expect(text).toContain("Materials are not tracked on this job yet");
     expect(text).toContain("needs a contract value");
   });
+  it("prints the job's client when set (owner pull 2026-10-03), and nothing when not", async () => {
+    const withClient = await extractPdfText(
+      Buffer.from(await composeJobReportPdf({ ...base, job: { ...base.job, clientName: "Hutchinson Builders" } }))
+    );
+    expect(withClient.text).toContain("Client: Hutchinson Builders");
+    const without = await extractPdfText(Buffer.from(await composeJobReportPdf(base)));
+    expect(without.text).not.toContain("Client:");
+  });
   it("a long job paginates with the header repeated and a page x of y footer", async () => {
     const days = Array.from({ length: 150 }, (_, i) => ({ date: `2026-0${1 + Math.floor(i / 28)}-${String(1 + (i % 28)).padStart(2, "0")}`, name: "Dylan Sinclair", hours: 7.6, costCents: 39520 }));
     const bytes = await composeJobReportPdf({ ...base, labour: { hoursTotal: 1140, pendingHours: 0, unratedWorkers: [], workers: [{ name: "Dylan Sinclair", days: 150, hours: 1140, costCents: 5928000 }], days } });

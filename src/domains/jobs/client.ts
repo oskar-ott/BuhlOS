@@ -49,7 +49,7 @@ export function listJobs(): Promise<HttpResult<JobListResponse>> {
 /**
  * Admin-only light list (`?summary=1`): every job's base fields from the
  * small derived jobs-summary — no structure, no money, no stats. Used for
- * pickers that only need names (e.g. the builder-name suggestions), so they
+ * pickers that only need names (e.g. the client-name suggestions), so they
  * never pay for the jobs.json monolith read. Non-admin callers get the
  * normal list (the server ignores the knob for them).
  */

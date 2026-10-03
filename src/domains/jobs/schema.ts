@@ -143,9 +143,10 @@ export const JobSchema = z
     code: z.string().nullable().optional(),
 
     clientUserId: z.string().nullable().optional(),
-    /** The building company the job is for (owner pull 2026-10-03). Free
-     *  text, suggested from names already used; absent on older jobs. */
-    builderName: z.string().nullable().optional(),
+    /** The client the job is for — usually the builder (owner pull
+     *  2026-10-03). Free text, suggested from names already used; absent on
+     *  older jobs. Not clientUserId (portal login) / clientReference (PO). */
+    clientName: z.string().nullable().optional(),
     type: z.string().nullable().optional(),
     typeName: z.string().nullable().optional(),
     serviceM8JobId: z.string().nullable().optional(),
@@ -375,7 +376,7 @@ const JobWritableFieldsSchema = z.object({
   ref: z.string().nullable().optional(),
   type: z.string().nullable().optional(),
   clientUserId: z.string().nullable().optional(),
-  builderName: z.string().nullable().optional(),
+  clientName: z.string().nullable().optional(),
 
   siteAddress: z.string().nullable().optional(),
   siteContactName: z.string().nullable().optional(),

@@ -986,45 +986,45 @@ describe("POST and PUT /api/jobs", () => {
     }
   });
 
-  it("stores the job's builder on create, changes it on PUT, clears it with blank, and reads it back (owner pull 2026-10-03)", async () => {
+  it("stores the job's client on create, changes it on PUT, clears it with blank, and reads it back (owner pull 2026-10-03)", async () => {
     const created = await call({
       method: "POST",
       userId: "u_admin",
       role: "admin",
-      body: { name: "SMOKE_TEST_builder_job", status: "draft", builderName: "  Hutchinson Builders " },
+      body: { name: "SMOKE_TEST_client_job", status: "draft", clientName: "  Hutchinson Builders " },
     });
     expect(created.statusCode).toBe(200);
-    expect((created.body as { job: { builderName: string } }).job.builderName).toBe("Hutchinson Builders");
+    expect((created.body as { job: { clientName: string } }).job.clientName).toBe("Hutchinson Builders");
 
     const changed = await call({
       method: "PUT",
       userId: "u_admin",
       role: "admin",
-      body: { id: "smoke-test-builder-job", builderName: "Kane Constructions" },
+      body: { id: "smoke-test-client-job", clientName: "Kane Constructions" },
     });
     expect(changed.statusCode).toBe(200);
-    expect((changed.body as { job: { builderName: string } }).job.builderName).toBe("Kane Constructions");
+    expect((changed.body as { job: { clientName: string } }).job.clientName).toBe("Kane Constructions");
 
     // Round-trips through the stored jobs.json the reads are built from.
-    const stored = (blob.get("jobs.json") as { jobs: Array<{ id: string; builderName?: string }> }).jobs.find(
-      (j) => j.id === "smoke-test-builder-job"
+    const stored = (blob.get("jobs.json") as { jobs: Array<{ id: string; clientName?: string }> }).jobs.find(
+      (j) => j.id === "smoke-test-client-job"
     );
-    expect(stored?.builderName).toBe("Kane Constructions");
+    expect(stored?.clientName).toBe("Kane Constructions");
 
     const cleared = await call({
       method: "PUT",
       userId: "u_admin",
       role: "admin",
-      body: { id: "smoke-test-builder-job", builderName: "" },
+      body: { id: "smoke-test-client-job", clientName: "" },
     });
     expect(cleared.statusCode).toBe(200);
-    expect((cleared.body as { job: { builderName: string } }).job.builderName).toBe("");
+    expect((cleared.body as { job: { clientName: string } }).job.clientName).toBe("");
 
     const notText = await call({
       method: "PUT",
       userId: "u_admin",
       role: "admin",
-      body: { id: "smoke-test-builder-job", builderName: 42 },
+      body: { id: "smoke-test-client-job", clientName: 42 },
     });
     expect(notText.statusCode).toBe(400);
   });

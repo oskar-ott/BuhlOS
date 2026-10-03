@@ -57,14 +57,14 @@ function matchesQuery(job: Job, q: string): boolean {
   // The IV#### job code is how the office and crew actually name a job
   // ("IV2041") — searching it must find the job even when name/ref don't carry it.
   const code = (job.code ?? "").toLowerCase();
-  // The builder ("all the Hutchinson jobs") — owner pull 2026-10-03.
-  const builder = (job.builderName ?? "").toLowerCase();
+  // The client ("all the Hutchinson jobs") — owner pull 2026-10-03.
+  const client = (job.clientName ?? "").toLowerCase();
   return (
     name.includes(q) ||
     address.includes(q) ||
     ref.includes(q) ||
     code.includes(q) ||
-    builder.includes(q)
+    client.includes(q)
   );
 }
 
