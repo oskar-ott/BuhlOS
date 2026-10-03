@@ -173,14 +173,6 @@ export function NewJobForm() {
             }}
           />
         </Field>
-        <Field label="Client" help="Optional — who the job is for, usually the builder. Pick one you've used or type a new one.">
-          <ClientNameInput
-            data-testid="job-client-name"
-            className={inputClass}
-            value={clientName}
-            onChange={setClientName}
-          />
-        </Field>
         <Field
           label="IV number"
           required
@@ -202,6 +194,14 @@ export function NewJobForm() {
             onKeyDown={(e) => {
               if (e.key === "Enter") void submit();
             }}
+          />
+        </Field>
+        <Field label="Client" help="Optional — who the job is for, usually the builder. Pick one you've used or type a new one.">
+          <ClientNameInput
+            data-testid="job-client-name"
+            className={inputClass}
+            value={clientName}
+            onChange={setClientName}
           />
         </Field>
         <Field label="Reference" help="Optional — your job number or ServiceM8 ref.">
