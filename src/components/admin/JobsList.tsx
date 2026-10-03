@@ -515,13 +515,6 @@ const VERDICT_DOT: Record<JobCardVerdictTone, string> = {
   neutral: "bg-state-neutral-dot",
 };
 
-/** Hover-capable pointers (a desk mouse) see the quiet deep links only on
- *  hover / keyboard focus, so seven cards don't repeat seven button rows;
- *  touch screens (no hover) always see them. Opacity, not display, so the
- *  row never jumps. */
-const REVEAL_ON_HOVER =
-  "[@media(hover:hover)]:opacity-0 [@media(hover:hover)]:transition-opacity [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:opacity-100";
-
 function JobCard({
   job,
   health,
@@ -551,8 +544,8 @@ function JobCard({
 
   const updated = job.updatedAt ? relativeWhen(job.updatedAt) : "";
   // Identity line: the job number in mono (it's typed, read out, searched),
-  // then type + address in plain words — one line, truncated, never wrapped
-  // into a second uppercase row on a phone.
+  // then type + address in plain words (sentence case reads shorter than the
+  // old all-caps mono line). Wraps, never truncates — the full address stays.
   const numberPart = [job.code, job.ref].filter(Boolean).join(" · ");
   const wordsPart = [job.typeName, (job.siteAddress ?? "").trim()].filter(Boolean).join(" · ");
   const evidencePending = job.statsEvidenceV2Pending ?? 0;
@@ -580,7 +573,7 @@ function JobCard({
   const needsYou = verdict.label !== null && (verdict.tone === "danger" || verdict.tone === "warning");
 
   return (
-    <div className="group relative overflow-hidden rounded-[4px] border border-border bg-surface-raised transition-shadow hover:shadow-raised">
+    <div className="relative overflow-hidden rounded-[4px] border border-border bg-surface-raised transition-shadow hover:shadow-raised">
       <div className="px-4 pb-4 pt-4 sm:grid sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start sm:gap-8 sm:px-6 sm:pb-5 sm:pt-5">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -602,7 +595,7 @@ function JobCard({
             {isQaTestJobName(job.name) ? <Pill tone="neutral">Test data</Pill> : null}
           </div>
           {numberPart || wordsPart ? (
-            <p className="mt-1 truncate text-[13px] text-text-muted">
+            <p className="mt-1 break-words text-[13px] text-text-muted">
               {numberPart ? (
                 <span className="font-mono text-xs font-medium tracking-[0.06em]">{numberPart}</span>
               ) : null}
@@ -664,9 +657,10 @@ function JobCard({
             <MetaCell label="Crew" value={meta.crew} muted={!meta.crewKnown} className="w-16" />
             <MetaCell
               label="Tasks"
-              value={hasTasks ? `${tasksComplete}/${tasksTotal}` : "—"}
+              value={hasTasks ? `${Math.round(((tasksComplete as number) / (tasksTotal as number)) * 100)}%` : "—"}
+              sub={hasTasks ? `${tasksComplete}/${tasksTotal}` : undefined}
               muted={!hasTasks}
-              className="w-20"
+              className="w-24"
             />
             <MetaCell
               label="Updated"
@@ -677,22 +671,19 @@ function JobCard({
             />
           </dl>
           {/* Quick links — deep-link past the hub (power-user one-tap). Lifted
-              above the card's stretched name link so they stay clickable. The
-              evidence link carries work, so it never hides. */}
+              above the card's stretched name link so they stay clickable. */}
           <div className="relative z-10 flex items-center gap-1.5">
             {canBuild ? (
               <QuickLink
                 href={`/v2/jobs/${encodeURIComponent(job.id)}/builder`}
                 label="Builder"
                 ariaLabel={`Open the builder for ${job.name}`}
-                className={REVEAL_ON_HOVER}
               />
             ) : null}
             <QuickLink
               href={`/v2/jobs/${encodeURIComponent(job.id)}/photos`}
               label="Photos"
               ariaLabel={`Open the photo wall for ${job.name}`}
-              className={REVEAL_ON_HOVER}
             />
             {evidencePending > 0 ? (
               <QuickLink
@@ -739,16 +730,19 @@ function cardMetaWithStream(job: Job, extra?: CardExtra): JobCardMeta {
 
 /** Right-column stat (2a): mono label over a bold tabular display figure.
  *  `small` is for a quiet, non-figure value (when the job last moved) — it
- *  keeps the figure's line height so the row stays level. */
+ *  keeps the figure's line height so the row stays level. `sub` is a quiet
+ *  detail after the figure (tasks done/total beside the percentage). */
 function MetaCell({
   label,
   value,
+  sub,
   muted,
   small,
   className,
 }: {
   label: string;
   value: string;
+  sub?: string;
   muted?: boolean;
   small?: boolean;
   className?: string;
@@ -768,6 +762,9 @@ function MetaCell({
         )}
       >
         {value}
+        {sub ? (
+          <span className="ml-1.5 font-sans text-xs font-medium text-text-muted">{sub}</span>
+        ) : null}
       </dd>
     </div>
   );

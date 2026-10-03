@@ -310,12 +310,26 @@ describe("JobsList — §3 portfolio card presentation (admin redesign)", () => 
     expect(html.slice(html.indexOf(">Bravo<"))).toContain("On hold");
   });
 
-  it("lines the desktop stats up as fixed columns, with tasks as done/total", () => {
+  it("lines the desktop stats up as fixed columns — tasks keep the % AND gain done/total", () => {
     const html = render("", [
       job({ id: "a", name: "Alpha", status: "active", statsTasksTotal: 62, statsTasksComplete: 41 }),
     ]);
+    expect(html).toContain("66%");
     expect(html).toContain(">41/62<");
     expect(html).toContain(">Updated<");
+  });
+
+  it("takes nothing away: Builder + Photos always visible, the full address never truncated", () => {
+    const html = renderWith(
+      "",
+      [job({ id: "a", name: "Alpha", status: "active", siteAddress: "48 Parramatta Rd, Annandale NSW 2038" })],
+      { canBuild: true }
+    );
+    expect(html).toContain("/v2/jobs/a/builder");
+    expect(html).toContain("/v2/jobs/a/photos");
+    expect(html).not.toMatch(/opacity-0/);
+    expect(html).toContain("48 Parramatta Rd, Annandale NSW 2038");
+    expect(html).not.toMatch(/truncate[^"]*text-\[13px\]/);
   });
 
   it("shows the +New job entry point only when a newJobHref is given (literal admin)", () => {

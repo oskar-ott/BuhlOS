@@ -67,9 +67,10 @@ Draft…) keeps its pill. The red/amber rule along a card's foot appears only
 when the verdict is the health read AND it's At risk / Watch — a calm, paused
 or finished job carries none, so the jobs that need you stand out down the
 list. A single reason reads in the singular (`1 expired gear tag`). On
-desktop, Value / Crew / Tasks (`done/total`) / Updated are fixed-width
-columns that line up across cards; the Builder / Photos deep links show on
-hover or keyboard focus (always on touch screens), and the Evidence link —
-the one that carries work — never hides. The field jobs list
+desktop, Value / Crew / Tasks (% plus `done/total`) / Updated are
+fixed-width columns that line up across cards; the Builder / Photos /
+Evidence deep links stay where they were. Nothing the card showed before is
+gone: the identity line wraps rather than truncating, so the full address
+stays visible. The field jobs list
 (`PhilJobsSharpened`) follows the same rule: no Active badge, open snags /
 ITPs on their own line under the address.
