@@ -288,6 +288,50 @@ describe("JobsList — §3 portfolio card presentation (admin redesign)", () => 
     expect(html).not.toMatch(/Risk<\/span>[^<]*<span[^>]*>\d{1,3}<\/span>/);
   });
 
+  it("draws the attention rule only on jobs that need you — a calm or paused job carries none", () => {
+    const calm = render("", [
+      job({ id: "a", name: "Alpha", status: "active", statsExpiredTags: 0, statsEvidenceV2Pending: 0 }),
+      job({ id: "b", name: "Bravo", status: "on_hold", statsExpiredTags: 0, statsEvidenceV2Pending: 0 }),
+    ]);
+    expect(calm).not.toContain("Risk:");
+    const watch = render("", [
+      job({ id: "a", name: "Alpha", status: "active", statsEvidenceV2Pending: 2, statsExpiredTags: 0 }),
+    ]);
+    expect(watch).toContain("Risk: Watch");
+  });
+
+  it("an active job wears no phase pill (the verdict says how it's going); other phases do", () => {
+    const html = render("", [
+      job({ id: "a", name: "Alpha", status: "active" }),
+      job({ id: "b", name: "Bravo", status: "on_hold" }),
+    ]);
+    const alpha = html.slice(html.indexOf(">Alpha<"), html.indexOf(">Bravo<"));
+    expect(alpha).not.toContain(">Active<");
+    expect(html.slice(html.indexOf(">Bravo<"))).toContain("On hold");
+  });
+
+  it("lines the desktop stats up as fixed columns — tasks keep the % AND gain done/total", () => {
+    const html = render("", [
+      job({ id: "a", name: "Alpha", status: "active", statsTasksTotal: 62, statsTasksComplete: 41 }),
+    ]);
+    expect(html).toContain("66%");
+    expect(html).toContain(">41/62<");
+    expect(html).toContain(">Updated<");
+  });
+
+  it("takes nothing away: Builder + Photos always visible, the full address never truncated", () => {
+    const html = renderWith(
+      "",
+      [job({ id: "a", name: "Alpha", status: "active", siteAddress: "48 Parramatta Rd, Annandale NSW 2038" })],
+      { canBuild: true }
+    );
+    expect(html).toContain("/v2/jobs/a/builder");
+    expect(html).toContain("/v2/jobs/a/photos");
+    expect(html).not.toMatch(/opacity-0/);
+    expect(html).toContain("48 Parramatta Rd, Annandale NSW 2038");
+    expect(html).not.toMatch(/truncate[^"]*text-\[13px\]/);
+  });
+
   it("shows the +New job entry point only when a newJobHref is given (literal admin)", () => {
     const jobs: ReadonlyArray<Job> = [job({ id: "a", name: "Alpha", status: "active" })];
     const withCreate = renderWith("", jobs, { newJobHref: "/v2/jobs/new" });

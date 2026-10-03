@@ -81,8 +81,9 @@ describe("PhilJobsSharpened", () => {
     expect(one).toContain("IV0041");
     expect(one).toContain("12 Birdwood Rd");
     expect(one).toContain("border-l-accent-yellow");
-    // Real job status, badge language — never an invented task state.
-    expect(one).toContain(">Active<");
+    // The hero exists only for an ACTIVE job and "On today" says so — no
+    // redundant Active badge squeezing the name (2026-10-03 cleanup, P10).
+    expect(one).not.toContain(">Active<");
 
     const many = renderToString(
       createElement(PhilJobsSharpened, {
@@ -183,6 +184,27 @@ describe("PhilJobsSharpened", () => {
     );
     expect(noStats).not.toContain("snag");
     expect(noStats).not.toContain("ITP");
+  });
+
+  it("active rows wear no badge; open work gets its own line, not the tail of the address", () => {
+    const html = renderToString(
+      createElement(PhilJobsSharpened, {
+        initialJobs: [
+          mk("a", "Alpha", {
+            status: "active",
+            siteAddress: "48 Parramatta Rd, Annandale NSW 2038",
+            statsSnagsV2Active: 2,
+          } as Partial<Job>),
+          mk("b", "Beta", { status: "active" } as Partial<Job>),
+        ],
+      }),
+    );
+    expect(html).not.toContain(">Active<");
+    expect(html).toContain(">48 Parramatta Rd, Annandale NSW 2038<");
+    expect(html).toContain(">2 snags<");
+    // The row link can shrink, so a long name/address never pushes the
+    // pin star off the edge of a phone.
+    expect(html).toMatch(/min-h-\[72px\] min-w-0 flex-1/);
   });
 
   it("shows the real job-status badge (On hold → warning wording, not a task state)", () => {

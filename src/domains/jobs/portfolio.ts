@@ -204,6 +204,13 @@ const LEVEL_TONE: Record<JobHealthLevel, JobCardVerdictTone> = {
   unknown: "neutral",
 };
 
+/** "1 expired gear tag", "3 expired gear tags" — the reason labels are
+ *  plural headings, so a count of one drops the trailing plural. */
+function reasonCaption(count: number, label: string): string {
+  const words = label.toLowerCase();
+  return `${count} ${count === 1 ? words.replace(/tags$/, "tag") : words}`;
+}
+
 /**
  * What the card says under the name. The health derivation is untouched (it
  * still drives the pills, the sort and the "N need attention" count); this only
@@ -228,7 +235,7 @@ export function jobCardVerdict(
     return {
       label: healthLabel(health.level),
       tone: LEVEL_TONE[health.level],
-      caption: `${top.count} ${top.label.toLowerCase()}`,
+      caption: reasonCaption(top.count, top.label),
     };
   }
   const phase = jobPhase(job, now);

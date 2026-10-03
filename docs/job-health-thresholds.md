@@ -59,3 +59,18 @@ list can never contradict the status pill beside it:
 the health word appears only where health is the read. The phone facts line
 under it (`jobCardFacts`) prints only real facts — contract value, crew,
 task progress when the job has tasks, when it last moved — never a "—".
+
+**Card layout (2026-10-03 cleanup — owner: "too busy, hard to scan").** An
+active job wears no phase pill: active is the normal state and the verdict
+line already says how it's going; every other phase (On hold, Finished,
+Draft…) keeps its pill. The red/amber rule along a card's foot appears only
+when the verdict is the health read AND it's At risk / Watch — a calm, paused
+or finished job carries none, so the jobs that need you stand out down the
+list. A single reason reads in the singular (`1 expired gear tag`). On
+desktop, Value / Crew / Tasks (% plus `done/total`) / Updated are
+fixed-width columns that line up across cards; the Builder / Photos /
+Evidence deep links stay where they were. Nothing the card showed before is
+gone: the identity line wraps rather than truncating, so the full address
+stays visible. The field jobs list
+(`PhilJobsSharpened`) follows the same rule: no Active badge, open snags /
+ITPs on their own line under the address.
