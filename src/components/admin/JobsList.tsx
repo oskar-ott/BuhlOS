@@ -7,7 +7,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { Archive, Plus, Search, X } from "lucide-react";
 import { Pill } from "@/components/ui/Pill";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { lastActivityCaption } from "@/domains/jobs/format";
+import { relativeWhen } from "@/domains/jobs/format";
 import {
   filterJobs,
   JOB_LIST_PHASE_OPTIONS,
@@ -41,7 +41,6 @@ import {
   type RememberedFilterSpec,
 } from "@/lib/storage/remembered-filters";
 import { useApplyRememberedFiltersOnce } from "@/lib/storage/use-remembered-filters";
-import { pctWidthClass } from "@/components/admin/pct-width";
 import { cn } from "@/lib/cn";
 
 /** Streamed per-job extras (full ?withStats read): task progress + the admin-tier
@@ -443,7 +442,7 @@ export function JobsList({ jobs, canBuild = false, newJobHref, cardExtrasPromise
           </div>
         </Card>
       ) : (
-        <ul className="grid gap-3">
+        <ul className="grid grid-cols-1 gap-3">
           {visible.map(({ job, health: jobHealth }) => (
             <li key={job.id}>
               <JobCard
@@ -516,14 +515,12 @@ const VERDICT_DOT: Record<JobCardVerdictTone, string> = {
   neutral: "bg-state-neutral-dot",
 };
 
-/** Risk-meter fill — driven by the real health level, not a fabricated 0–100
- *  score. Widths come off the pctWidthClass ladder (inline styles are banned). */
-const RISK_BAR: Record<JobHealthLevel, { width: string; bar: string }> = {
-  "at-risk": { width: pctWidthClass(100, 100), bar: "bg-state-danger-dot" },
-  watch: { width: pctWidthClass(66, 100), bar: "bg-state-warning-dot" },
-  good: { width: pctWidthClass(25, 100), bar: "bg-state-success-dot" },
-  unknown: { width: pctWidthClass(0, 100), bar: "bg-border" },
-};
+/** Hover-capable pointers (a desk mouse) see the quiet deep links only on
+ *  hover / keyboard focus, so seven cards don't repeat seven button rows;
+ *  touch screens (no hover) always see them. Opacity, not display, so the
+ *  row never jumps. */
+const REVEAL_ON_HOVER =
+  "[@media(hover:hover)]:opacity-0 [@media(hover:hover)]:transition-opacity [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:opacity-100";
 
 function JobCard({
   job,
@@ -540,20 +537,24 @@ function JobCard({
   const hubHref = `/v2/jobs/${encodeURIComponent(job.id)}` as Route;
 
   // Task progress: prefer the job object's own counts (full read), else the
-  // streamed map. When neither is present the progress line omits.
+  // streamed map. When neither is present the progress cell reads "—".
   const tasksTotal =
     typeof job.statsTasksTotal === "number" ? job.statsTasksTotal : extra?.tasksTotal;
   const tasksComplete =
     typeof job.statsTasksComplete === "number" ? job.statsTasksComplete : extra?.tasksComplete;
+  const hasTasks =
+    typeof tasksTotal === "number" && typeof tasksComplete === "number" && tasksTotal > 0;
 
   // Value: the object's value (full read), else the streamed value. Crew is on
   // both reads. Honest "—" when absent (LH redaction / not loaded), never 0.
   const meta = cardMetaWithStream(job, extra);
 
-  const caption = lastActivityCaption(job);
-  const address = (job.siteAddress ?? "").trim();
-  // Mono identity line, 2a: code · ref · type · address — real parts only.
-  const idLine = [job.code, job.ref, job.typeName, address].filter(Boolean).join(" · ");
+  const updated = job.updatedAt ? relativeWhen(job.updatedAt) : "";
+  // Identity line: the job number in mono (it's typed, read out, searched),
+  // then type + address in plain words — one line, truncated, never wrapped
+  // into a second uppercase row on a phone.
+  const numberPart = [job.code, job.ref].filter(Boolean).join(" · ");
+  const wordsPart = [job.typeName, (job.siteAddress ?? "").trim()].filter(Boolean).join(" · ");
   const evidencePending = job.statsEvidenceV2Pending ?? 0;
 
   // The verdict line — health words when health is the read (active work, or
@@ -570,16 +571,17 @@ function JobCard({
     tasksComplete: extra?.tasksComplete,
   });
 
-  const tasksPct =
-    typeof tasksTotal === "number" && typeof tasksComplete === "number" && tasksTotal > 0
-      ? `${Math.round((tasksComplete / tasksTotal) * 100)}%`
-      : "—";
-
-  const risk = RISK_BAR[health.level];
+  // Active is the normal state, so it wears no pill — the verdict line already
+  // says how running work is going. Every other phase is tagged by the name.
+  const phase = jobPhase(job);
+  // The attention rule along the card's foot marks only the jobs that need
+  // you (health is the read AND it's at-risk/watch). A calm job carries no
+  // bar, so the red/amber ones stand out down the list.
+  const needsYou = verdict.label !== null && (verdict.tone === "danger" || verdict.tone === "warning");
 
   return (
-    <div className="relative overflow-hidden rounded-[4px] border border-border bg-surface-raised transition-shadow hover:shadow-raised">
-      <div className="flex items-start justify-between gap-4 px-4 pb-5 pt-4 sm:gap-8 sm:px-6 sm:pb-6 sm:pt-5">
+    <div className="group relative overflow-hidden rounded-[4px] border border-border bg-surface-raised transition-shadow hover:shadow-raised">
+      <div className="px-4 pb-4 pt-4 sm:grid sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start sm:gap-8 sm:px-6 sm:pb-5 sm:pt-5">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             {/* The name is the link — and its ::after covers the whole card, so
@@ -588,49 +590,52 @@ function JobCard({
             <Link
               href={hubHref}
               data-testid="job-card-link"
-              className="font-display text-[17px] font-bold leading-tight tracking-tight text-text after:absolute after:inset-0 after:content-[''] hover:underline hover:decoration-accent-yellow hover:decoration-2 hover:underline-offset-4 focus:outline-none focus:ring-2 focus:ring-brand-navy sm:text-[20px]"
+              className="min-w-0 font-display text-[17px] font-bold leading-tight tracking-tight text-text after:absolute after:inset-0 after:content-[''] hover:underline hover:decoration-accent-yellow hover:decoration-2 hover:underline-offset-4 focus:outline-none focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-brand-navy sm:text-[19px]"
             >
               {job.name}
             </Link>
-            <Pill dot tone={phaseTone(jobPhase(job))}>
-              {phaseLabel(jobPhase(job))}
-            </Pill>
+            {phase !== "active" ? (
+              <Pill dot tone={phaseTone(phase)}>
+                {phaseLabel(phase)}
+              </Pill>
+            ) : null}
             {isQaTestJobName(job.name) ? <Pill tone="neutral">Test data</Pill> : null}
           </div>
-          {idLine ? (
-            <p className="mt-1.5 font-mono text-xs font-medium uppercase tracking-[0.1em] text-text-muted">
-              {idLine}
+          {numberPart || wordsPart ? (
+            <p className="mt-1 truncate text-[13px] text-text-muted">
+              {numberPart ? (
+                <span className="font-mono text-xs font-medium tracking-[0.06em]">{numberPart}</span>
+              ) : null}
+              {numberPart && wordsPart ? " · " : null}
+              {wordsPart}
             </p>
           ) : null}
 
           {/* The verdict — same dot + label + top reason the hub hero carries;
-              a sentence alone when health isn't the read for this phase. */}
-          <p className="mt-3 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-sm">
+              a sentence alone when health isn't the read for this phase. One
+              text flow, so a long reason wraps as words, not as a stray "·". */}
+          <p className="mt-3 text-sm leading-snug">
             <span
               aria-hidden="true"
-              className={cn("h-2.5 w-2.5 shrink-0 rounded-pill", VERDICT_DOT[verdict.tone])}
+              className={cn(
+                "mr-2 inline-block h-2.5 w-2.5 rounded-pill align-[0.05em]",
+                VERDICT_DOT[verdict.tone]
+              )}
             />
             {verdict.label ? (
-              <span className="font-display text-[17px] font-bold leading-none text-text">
-                {verdict.label}
-              </span>
+              <span className="font-display text-base font-bold text-text">{verdict.label}</span>
             ) : null}
             {verdict.caption ? (
               <span className={verdict.label ? "text-text-muted" : "font-medium text-text"}>
-                {verdict.label ? `· ${verdict.caption}` : verdict.caption}
-              </span>
-            ) : null}
-            {caption ? (
-              <span className="hidden text-xs uppercase tracking-wider text-text-muted lg:inline">
-                · {caption}
+                {verdict.label ? ` · ${verdict.caption}` : verdict.caption}
               </span>
             ) : null}
           </p>
 
-          {/* Phone (2e): the facts collapse to one mono line under the verdict —
-              real facts only, plus when the job last moved. */}
+          {/* Phone (2e): the facts collapse to one quiet line under the
+              verdict — real facts only, plus when the job last moved. */}
           {facts.length > 0 ? (
-            <p className="mt-2.5 font-mono text-xs font-medium uppercase tracking-[0.08em] text-text-muted sm:hidden">
+            <p className="mt-2 text-[13px] tabular-nums text-text-muted sm:hidden">
               {facts.join(" · ")}
             </p>
           ) : null}
@@ -651,37 +656,43 @@ function JobCard({
           ) : null}
         </div>
 
-        <div className="hidden shrink-0 flex-col items-end gap-3 sm:flex">
-          <dl className="flex items-start gap-8 text-right">
-            <MetaCell label="Value" value={meta.value} muted={!meta.valueKnown} />
-            <MetaCell label="Crew" value={meta.crew} muted={!meta.crewKnown} />
+        <div className="hidden flex-col items-end gap-3 sm:flex">
+          {/* Fixed-width columns, so Value / Crew / Tasks / Updated line up
+              down the whole list and read like a table. */}
+          <dl className="flex items-start text-right">
+            <MetaCell label="Value" value={meta.value} muted={!meta.valueKnown} className="w-28" />
+            <MetaCell label="Crew" value={meta.crew} muted={!meta.crewKnown} className="w-16" />
             <MetaCell
               label="Tasks"
-              value={tasksPct}
-              muted={!(typeof tasksTotal === "number" && tasksTotal > 0)}
-              hint={
-                typeof tasksTotal === "number" &&
-                typeof tasksComplete === "number" &&
-                tasksTotal > 0
-                  ? `${tasksComplete}/${tasksTotal}`
-                  : undefined
-              }
+              value={hasTasks ? `${tasksComplete}/${tasksTotal}` : "—"}
+              muted={!hasTasks}
+              className="w-20"
+            />
+            <MetaCell
+              label="Updated"
+              value={updated || "—"}
+              muted
+              small
+              className="w-24"
             />
           </dl>
           {/* Quick links — deep-link past the hub (power-user one-tap). Lifted
-              above the card's stretched name link so they stay clickable. */}
+              above the card's stretched name link so they stay clickable. The
+              evidence link carries work, so it never hides. */}
           <div className="relative z-10 flex items-center gap-1.5">
             {canBuild ? (
               <QuickLink
                 href={`/v2/jobs/${encodeURIComponent(job.id)}/builder`}
                 label="Builder"
                 ariaLabel={`Open the builder for ${job.name}`}
+                className={REVEAL_ON_HOVER}
               />
             ) : null}
             <QuickLink
               href={`/v2/jobs/${encodeURIComponent(job.id)}/photos`}
               label="Photos"
               ariaLabel={`Open the photo wall for ${job.name}`}
+              className={REVEAL_ON_HOVER}
             />
             {evidencePending > 0 ? (
               <QuickLink
@@ -695,14 +706,15 @@ function JobCard({
         </div>
       </div>
 
-      {/* The slim risk meter (2a) — real health level, no fabricated score. */}
-      <div
-        className="absolute inset-x-0 bottom-0 h-[3px] bg-surface-subtle"
-        role="img"
-        aria-label={`Risk: ${healthLabel(health.level)}`}
-      >
-        <span className={cn("block h-full", risk.width, risk.bar)} />
-      </div>
+      {/* Attention rule (2a) — real health level, no fabricated score; only on
+          the jobs that need you. */}
+      {needsYou ? (
+        <div
+          className={cn("absolute inset-x-0 bottom-0 h-[3px]", VERDICT_DOT[verdict.tone])}
+          role="img"
+          aria-label={`Risk: ${healthLabel(health.level)}`}
+        />
+      ) : null}
     </div>
   );
 }
@@ -725,27 +737,33 @@ function cardMetaWithStream(job: Job, extra?: CardExtra): JobCardMeta {
   };
 }
 
-/** Right-column stat (2a): mono label over a bold tabular display figure. */
+/** Right-column stat (2a): mono label over a bold tabular display figure.
+ *  `small` is for a quiet, non-figure value (when the job last moved) — it
+ *  keeps the figure's line height so the row stays level. */
 function MetaCell({
   label,
   value,
   muted,
-  hint,
+  small,
+  className,
 }: {
   label: string;
   value: string;
   muted?: boolean;
-  hint?: string;
+  small?: boolean;
+  className?: string;
 }) {
   return (
-    <div>
+    <div className={className}>
       <dt className="font-mono text-xs font-medium uppercase tracking-[0.14em] text-text-muted">
         {label}
-        {hint ? <span className="ml-1 normal-case tracking-normal">· {hint}</span> : null}
       </dt>
       <dd
         className={cn(
-          "mt-1 font-display text-[17px] font-bold tabular-nums leading-none",
+          "mt-1.5 whitespace-nowrap tabular-nums",
+          small
+            ? "text-sm font-medium leading-[17px]"
+            : "font-display text-[17px] font-bold leading-none",
           muted ? "text-text-muted" : "text-text"
         )}
       >

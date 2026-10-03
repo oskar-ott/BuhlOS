@@ -76,11 +76,12 @@ import { PhilNewJobSheet } from "./PhilNewJobSheet";
  *     avatars (crew comes from /api/time-entries-on-site on the job page,
  *     not this list payload) and no "Synced" pill (there is no per-job sync
  *     state to be truthful about) — honest absence over decoration.
- *   - Row status line: the real ?withStats=1 signals (open snags / active
- *     ITPs) + the address. Task/blocker rollups ("Waiting on parts",
- *     "Blocked") don't exist in the list data, so the badge shows the job's
- *     real status (Active / On hold / Complete) instead — show less, never
- *     invent (P7).
+ *   - Row lines: the address, then the real ?withStats=1 signals (open
+ *     snags / active ITPs) on their own line when there are any. Task/blocker
+ *     rollups ("Waiting on parts", "Blocked") don't exist in the list data,
+ *     so the badge shows the job's real status instead — show less, never
+ *     invent (P7). Active is the list's normal state and wears no badge
+ *     (2026-10-03 cleanup, P10); On hold / Finished / Closed always do.
  */
 
 // jobs-domain status tone → the sharpened badge tone (same three words).
@@ -304,7 +305,7 @@ export function PhilJobsSharpened({ initialJobs, userId = "", loadFailed = false
                       className="flex min-h-[56px] items-center gap-3 px-4 py-3 active:bg-surface-subtle"
                     >
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate font-display text-[17px] font-bold tracking-[-0.014em] text-text">
+                        <span className="block line-clamp-2 break-words font-display text-[17px] font-bold leading-snug tracking-[-0.014em] text-text">
                           {job.name}
                         </span>
                         {job.siteAddress ? (
@@ -349,6 +350,8 @@ function OnTodayCard({ job }: { job: Job }) {
   // Code chip: the real IV#### `code` field (Wave 2b) when present, else the
   // legacy free-text `ref` — jobs without either render exactly as before.
   const chip = job.code ?? job.ref;
+  // No status badge: the hero only exists for an ACTIVE job, and "On today"
+  // already says so — the badge cost the name half its width (P10).
   return (
     <section aria-labelledby="phil-jobs-on-today-heading" className="space-y-1.5">
       <h2
@@ -368,20 +371,16 @@ function OnTodayCard({ job }: { job: Job }) {
               {chip}
             </span>
           ) : null}
-          <span className="block truncate font-display text-[17px] font-bold tracking-[-0.014em] text-text">
+          <span className="block line-clamp-2 break-words font-display text-[17px] font-bold leading-snug tracking-[-0.014em] text-text">
             {job.name}
           </span>
-          {address || summary ? (
-            <span className="mt-0.5 block truncate text-[13px] text-text-muted">
-              {[address, summary].filter(Boolean).join(" · ")}
-            </span>
+          {address ? (
+            <span className="mt-0.5 block truncate text-[13px] text-text-muted">{address}</span>
+          ) : null}
+          {summary ? (
+            <span className="mt-1 block truncate text-[13px] font-semibold text-text">{summary}</span>
           ) : null}
         </span>
-        <PhilStatusBadge
-          label={phaseLabel(jobPhase(job))}
-          tone={JOB_BADGE_TONE[phaseTone(jobPhase(job))]}
-          className="shrink-0"
-        />
         <ChevronRight aria-hidden="true" className="h-5 w-5 shrink-0 text-text-muted" />
       </PhilOfflineLink>
     </section>
@@ -408,8 +407,11 @@ function SharpJobRow({
   // A finished job says so twice, honestly sized for a phone: the short badge
   // ("Finished") and the callback window on the secondary line — a long badge
   // crushed the job name to two letters (2026-09-24 walk).
-  const phaseDetail = jobPhase(job) === "finishing" ? fieldPhaseChip(job)?.replace(/^Finished · /, "") ?? null : null;
-  const statusLine = [address, summary, phaseDetail].filter(Boolean).join(" · ");
+  const phase = jobPhase(job);
+  const phaseDetail = phase === "finishing" ? fieldPhaseChip(job)?.replace(/^Finished · /, "") ?? null : null;
+  // Address on one line, open work on its own — the work is the reason to
+  // tap, so it never gets truncated off the end of a long address.
+  const addressLine = [address, phaseDetail].filter(Boolean).join(" · ");
   // Code chip: real `code` (IV####, Wave 2b) first, legacy `ref` fallback.
   const chip = job.code ?? job.ref;
 
@@ -433,7 +435,7 @@ function SharpJobRow({
       <div className="flex items-stretch">
         <PhilOfflineLink
           href={`/phil/jobs/${encodeURIComponent(job.id)}` as Route}
-          className="flex min-h-[72px] flex-1 select-none items-center gap-3 px-4 py-3 hover:bg-surface-subtle focus:bg-surface-subtle focus:outline-none [-webkit-touch-callout:none]"
+          className="flex min-h-[72px] min-w-0 flex-1 select-none items-center gap-3 px-4 py-3 hover:bg-surface-subtle focus:bg-surface-subtle focus:outline-none [-webkit-touch-callout:none]"
           aria-label={summary ? `Open ${job.name} — ${summary}` : `Open ${job.name}`}
           {...rowLongPress}
         >
@@ -443,21 +445,30 @@ function SharpJobRow({
                 {chip}
               </span>
             ) : null}
-            <span className="block truncate font-display text-base font-semibold text-text">
+            <span className="block line-clamp-2 break-words font-display text-base font-semibold leading-snug text-text">
               {job.name}
             </span>
-            {statusLine ? (
+            {addressLine ? (
               <span className="mt-0.5 block truncate text-[13px] text-text-muted">
-                {statusLine}
+                {addressLine}
+              </span>
+            ) : null}
+            {summary ? (
+              <span className="mt-1 block truncate text-[13px] font-semibold text-text">
+                {summary}
               </span>
             ) : null}
           </span>
 
-          <PhilStatusBadge
-            label={phaseLabel(jobPhase(job))}
-            tone={JOB_BADGE_TONE[phaseTone(jobPhase(job))]}
-            className="shrink-0"
-          />
+          {/* Active is the normal state of a job on this list, so it wears no
+              badge (P10) — only a job that ISN'T running says so (P7). */}
+          {phase !== "active" ? (
+            <PhilStatusBadge
+              label={phaseLabel(phase)}
+              tone={JOB_BADGE_TONE[phaseTone(phase)]}
+              className="shrink-0"
+            />
+          ) : null}
           <ChevronRight aria-hidden="true" className="h-5 w-5 shrink-0 text-text-muted/60" />
         </PhilOfflineLink>
 
