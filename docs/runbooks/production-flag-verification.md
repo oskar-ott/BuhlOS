@@ -38,6 +38,7 @@ only that registry, typed union and docs agree (`npm run check:flag-docs`).
 | --- | --- | --- | --- | --- | --- | --- |
 | `invoice_capture` | off · admin-tier | | | | | |
 | `receipt_capture` | off · global | | | | | |
+| `job_purchases` | off · global | | | | | |
 | `job_materials_spend` | off · admin-tier | | | | | |
 | `phil_sharpened` | off · global | | | | | |
 

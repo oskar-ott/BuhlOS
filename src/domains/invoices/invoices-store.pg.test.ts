@@ -209,6 +209,33 @@ describe.skipIf(!ENABLED)("invoices store — dev Postgres", () => {
     await sql`delete from public.supplier_line_categories where tenant_id = ${tenantId} and supplier_key = ${`lines-co-${marker}`}`;
   });
 
+  it("lists a job's recent purchases newest first with their lines, counting only active allocations on confirmed invoices (2026-10-04)", async () => {
+    const job = `job-purch-${marker}`;
+    const older = await make("b1".repeat(32));
+    const newer = await make("b2".repeat(32));
+    const pending = await make("b3".repeat(32));
+    for (const [inv, date, num] of [[older, "2026-09-01", "P-1"], [newer, "2026-09-20", "P-2"], [pending, "2026-09-25", "P-3"]] as const) {
+      await store.claimOne(sql, tenantId, inv.invoice.id);
+      await store.applyExtraction(sql, tenantId, inv.invoice.id, { supplierName: `Purch Co ${marker}`, supplierKey: `purch-${marker}`, supplierInvoiceNumber: num, invoiceDate: date, documentType: "tax_invoice", status: "matched", extractionMethod: "pdf_text", currency: "AUD", matchStatus: "exact", matchedJobId: job, reviewReasons: [], subtotalCents: 1000, gstCents: 100, totalCents: 1100 });
+    }
+    await store.replaceInvoiceLines(sql, tenantId, newer.invoice.id, [
+      { lineNo: 1, description: "2.5mm TPS 100m", descriptionKey: "2 5mm tps 100m", quantity: 2, unit: "roll", unitPriceCents: 400, lineTotalCents: 800, category: "cable", categorySource: "rule", confidence: "high" },
+      { lineNo: 2, description: "Saddles", descriptionKey: "saddles", quantity: 1, unit: "pk", unitPriceCents: 200, lineTotalCents: 200, category: "fixings", categorySource: "rule", confidence: "high" },
+    ]);
+    for (const inv of [older, newer]) {
+      await store.confirmAllocation(sql, tenantId, inv.invoice.id, { jobLegacyId: job, jobUuid: null, amountCents: 1000, gstCents: 100, totalCents: 1100, matchStatus: "exact", actor });
+    }
+    const r = await store.jobRecentPurchases(sql, tenantId, job, { limit: 20 });
+    expect(r.totalCount).toBe(2); // the unconfirmed one is not a purchase
+    expect(r.totalCents).toBe(2000);
+    expect(r.invoices.map((i: { supplierInvoiceNumber: string; invoiceDate: string }) => [i.supplierInvoiceNumber, i.invoiceDate])).toEqual([["P-2", "2026-09-20"], ["P-1", "2026-09-01"]]);
+    expect(r.lines.map((l: { invoiceId: string; lineNo: number }) => [l.invoiceId, l.lineNo])).toEqual([[newer.invoice.id, 1], [newer.invoice.id, 2]]);
+    const one = await store.jobRecentPurchases(sql, tenantId, job, { limit: 1 });
+    expect(one.invoices).toHaveLength(1);
+    expect(one.totalCount).toBe(2); // the count is the whole job, not the page
+    expect(await store.jobRecentPurchases(sql, tenantId, `nothing-${marker}`)).toEqual({ invoices: [], lines: [], totalCount: 0, totalCents: 0 });
+  });
+
   it("accepts an evidence placement (match_status inferred) with its evidence in match_reason", async () => {
     const inv = await make("a1".repeat(32));
     await store.claimOne(sql, tenantId, inv.invoice.id);

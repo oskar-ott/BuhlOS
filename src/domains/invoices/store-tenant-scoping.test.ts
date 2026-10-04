@@ -140,6 +140,7 @@ const CASES: Array<{ name: string; args: () => unknown[] }> = [
   { name: "learnedCategories", args: () => [TENANT, "sparky", ["cable"]] },
   { name: "rememberCategory", args: () => [TENANT, { supplierKey: "sparky", descriptionKey: "cable", category: "cable", actor }] },
   { name: "jobMaterialsBreakdown", args: () => [TENANT, "birdwood"] },
+  { name: "jobRecentPurchases", args: () => [TENANT, "birdwood"] },
   // Landed on main during the 2026-09-28 remediation merges (D, F, H, I).
   { name: "jobActiveAllocations", args: () => [TENANT, "birdwood"] },
   { name: "shadowRows", args: () => [TENANT, { from: "2026-07-01", to: "2026-09-28" }] },

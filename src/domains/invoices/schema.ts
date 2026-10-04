@@ -414,3 +414,38 @@ export const LearnedCategorySchema = z
 export type LearnedCategory = z.infer<typeof LearnedCategorySchema>;
 export const LearnedCategoryListSchema = z.object({ rules: z.array(LearnedCategorySchema), total: z.number().int() }).passthrough();
 export type LearnedCategoryList = z.infer<typeof LearnedCategoryListSchema>;
+
+/**
+ * GET /api/invoices?action=job-purchases — a job's recent purchases (owner pull
+ * 2026-10-04). `amountCents` / `totalCents` are present ONLY for the office
+ * tier (`costVisible`); the server never sends them to the crew or a leading
+ * hand, so their absence here is the contract, not a UI choice.
+ */
+export const JobPurchaseLineSchema = z.object({
+  description: z.string(),
+  quantity: z.number().nullable(),
+  unit: z.string().nullable(),
+  category: z.string(),
+  categoryLabel: z.string(),
+  measure: z.object({ amount: z.number().nullable(), unit: z.string().nullable() }),
+});
+export const JobPurchaseSchema = z.object({
+  id: z.string(),
+  date: z.string().nullable(),
+  supplier: z.string().nullable(),
+  supplierInvoiceNumber: z.string().nullable(),
+  boughtBy: z.string().nullable(),
+  kind: z.enum(["invoice", "receipt", "return"]),
+  lines: z.array(JobPurchaseLineSchema),
+  amountCents: z.number().int().nullable().optional(),
+});
+export const JobPurchasesSchema = z.object({
+  purchases: z.array(JobPurchaseSchema),
+  totalCount: z.number().int(),
+  awaitingCount: z.number().int(),
+  costVisible: z.boolean(),
+  totalCents: z.number().int().optional(),
+});
+export type JobPurchaseLine = z.infer<typeof JobPurchaseLineSchema>;
+export type JobPurchase = z.infer<typeof JobPurchaseSchema>;
+export type JobPurchases = z.infer<typeof JobPurchasesSchema>;

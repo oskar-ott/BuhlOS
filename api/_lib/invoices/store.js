@@ -957,6 +957,57 @@ async function jobMaterialsBreakdown(sql, tenantId, jobLegacyId) {
   return { lines, invoicesWithoutLines: withoutLines, invoices, confirmedCents: covered.reduce((s, c) => s + (cents(c.amount) || 0), 0), invoiceCount: covered.length };
 }
 
+/**
+ * A job's most recent purchases (owner pull 2026-10-04: "view recent purchases
+ * from wholesalers on the job easily and simply"): the newest confirmed
+ * invoices / receipts on the job with their lines, plus the whole-job count
+ * and total. Same truth as the materials breakdown — ACTIVE allocations on
+ * CONFIRMED invoices only — newest first by invoice date. The route decides
+ * who may see the money (api/_lib/invoices/purchases.js strips it).
+ */
+async function jobRecentPurchases(sql, tenantId, jobLegacyId, { limit = 20 } = {}) {
+  const [rows, totals] = await Promise.all([
+    sql`
+      select a.invoice_id, a.amount_ex_gst_cents, a.confirmed_at,
+             i.supplier_name, i.supplier_invoice_number, i.invoice_date, i.document_type, i.source,
+             coalesce(i.purchaser_worker_name, i.purchaser_name) as purchaser
+      from public.supplier_invoice_allocations a
+      join public.supplier_invoices i on i.id = a.invoice_id and i.tenant_id = a.tenant_id
+      where a.tenant_id = ${tenantId} and a.job_legacy_id = ${jobLegacyId}
+        and a.status = 'active' and i.status = 'confirmed'
+      order by i.invoice_date desc nulls last, a.confirmed_at desc
+      limit ${limit}`,
+    sql`
+      select coalesce(sum(a.amount_ex_gst_cents), 0)::bigint as total, count(*)::int as n
+      from public.supplier_invoice_allocations a
+      join public.supplier_invoices i on i.id = a.invoice_id and i.tenant_id = a.tenant_id
+      where a.tenant_id = ${tenantId} and a.job_legacy_id = ${jobLegacyId}
+        and a.status = 'active' and i.status = 'confirmed'`,
+  ]);
+  const ids = rows.map((r) => r.invoice_id);
+  const lineRows = ids.length
+    ? await sql`select * from public.supplier_invoice_lines
+                where tenant_id = ${tenantId} and invoice_id in ${sql(ids)}
+                order by invoice_id, line_no`
+    : [];
+  return {
+    invoices: rows.map((r) => ({
+      invoiceId: r.invoice_id,
+      amountCents: cents(r.amount_ex_gst_cents),
+      confirmedAt: iso(r.confirmed_at),
+      supplierName: r.supplier_name,
+      supplierInvoiceNumber: r.supplier_invoice_number,
+      invoiceDate: dateOnly(r.invoice_date),
+      documentType: r.document_type,
+      source: r.source,
+      purchaser: r.purchaser || null,
+    })),
+    lines: lineRows.map(lineRow),
+    totalCount: Number(totals[0].n),
+    totalCents: cents(totals[0].total),
+  };
+}
+
 /** What the mid-week alert needs (api/_lib/invoices/alerts.js). */
 async function healthSnapshot(sql, tenantId) {
   const [failed, stuck, quarantinedOld, fwdFailed, last] = await Promise.all([
@@ -1092,4 +1143,5 @@ module.exports = {
   listLearnedCategories,
   forgetLearnedCategory,
   jobMaterialsBreakdown,
+  jobRecentPurchases,
 };

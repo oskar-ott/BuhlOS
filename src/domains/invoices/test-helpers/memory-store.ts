@@ -479,6 +479,35 @@ export function createMemoryStore(opts: { tenantId?: string; jobUuids?: Record<s
       }).sort((x, y) => String(x.invoiceDate ?? "").localeCompare(String(y.invoiceDate ?? "")));
       return { lines, invoicesWithoutLines: withoutLines, invoices, confirmedCents: active.reduce((s, a) => s + (a.amountCents as number), 0), invoiceCount: active.length };
     },
+    jobRecentPurchases: async (_s: unknown, _t: string, jobLegacyId: string, { limit = 20 }: { limit?: number } = {}) => {
+      const active = store.allocations
+        .filter((a) => a.jobId === jobLegacyId && a.status === "active")
+        .filter((a) => store.invoices.find((r) => r.id === a.invoiceId)?.status === "confirmed");
+      const rows = active
+        .map((a) => {
+          const inv = store.invoices.find((r) => r.id === a.invoiceId)!;
+          return {
+            invoiceId: inv.id,
+            amountCents: a.amountCents,
+            confirmedAt: a.confirmedAt ?? null,
+            supplierName: inv.supplierName ?? null,
+            supplierInvoiceNumber: inv.supplierInvoiceNumber ?? null,
+            invoiceDate: inv.invoiceDate ?? null,
+            documentType: inv.documentType ?? null,
+            source: inv.source ?? null,
+            purchaser: inv.purchaserWorkerName ?? inv.purchaserName ?? null,
+          };
+        })
+        .sort((x, y) => String(y.invoiceDate ?? "").localeCompare(String(x.invoiceDate ?? "")) || String(y.confirmedAt ?? "").localeCompare(String(x.confirmedAt ?? "")))
+        .slice(0, limit);
+      const ids = new Set(rows.map((r) => r.invoiceId));
+      return {
+        invoices: rows,
+        lines: store.lines.filter((l) => ids.has(l.invoiceId)).map((l) => ({ ...l })),
+        totalCount: active.length,
+        totalCents: active.reduce((s, a) => s + (a.amountCents as number), 0),
+      };
+    },
     healthSnapshot: async () => {
       const dayAgo = Date.now() - 86_400_000;
       const twoHoursAgo = Date.now() - 2 * 3_600_000;

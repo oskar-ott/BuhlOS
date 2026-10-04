@@ -421,6 +421,17 @@ const REGISTRY = {
     target: 'global',
     expires: '2027-03-31',
   },
+  // Recent purchases on the job (owner pull 2026-10-04): what's been bought
+  // from the wholesalers, newest first, on the office job page AND the field
+  // job page. GLOBAL target — the crew and leading hands see it — but prices
+  // and the job total reach the OFFICE TIER only (api/_lib/invoices/purchases.js).
+  // Reads the confirmed supplier invoices, so it needs invoice_capture on too.
+  job_purchases: {
+    description: 'Recent purchases on the job — what was bought from the wholesalers (date, supplier, who, items), newest first, on the office job page + the field job page (api/invoices ?action=job-purchases). Crew + leading hands see no prices; the office tier sees amounts + the total. Needs invoice_capture on. Dark.',
+    default: false,
+    target: 'global',
+    expires: '2027-04-30',
+  },
 
   // job_photos left the hidden list by owner decision (#916 call 2,
   // 2026-07-18): the gallery completes the capture loop, so it is lean-core —
@@ -445,6 +456,7 @@ const FLAG_PRESENTATION = {
   job_materials_spend: { label: 'Job materials spend ledger', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/v2/jobs' },
   invoice_capture: { label: 'Supplier invoice capture', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/invoices' },
   receipt_capture: { label: 'Receipts from the field', domain: 'Jobs', surface: 'Phil', previewHref: '/phil/my-day' },
+  job_purchases: { label: 'Recent purchases on the job', domain: 'Jobs', surface: 'Shared', previewHref: '/v2/jobs' },
   admin_flags_readout: { label: 'Flags readout card', domain: 'Platform', surface: 'BuhlOS', previewHref: '/command-centre' },
   servicem8_sync: { label: 'ServiceM8 job sync', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/command-centre' },
   phil_sharpened: { label: 'Phil sharpened redesign', domain: 'Phil', surface: 'Phil', previewHref: '/phil/my-day' },

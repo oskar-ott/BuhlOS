@@ -72,6 +72,8 @@ They are separate columns, separate fields, separate labels everywhere.
 | Review | `/invoices/[invoiceId]` (`InvoiceReviewClient`) | admin tier + flag |
 | Job hub card | `JobSupplierInvoicesCard` ("Materials cost": category breakdown + lines — confirmed supplier charges, i.e. what was BOUGHT for the job, never proof of what was used) on `/v2/jobs/[jobId]` | rendered only when the flag is on for the viewer — no card, no fetch otherwise |
 | Money card | `api/job-profitability.js` adds the job's confirmed allocations to the Materials figure; since 2026-09-27 a docket typed into the manual ledger that looks like one of those allocations is warned about first (`docs/job-materials-spend.md` "Possible duplicate cost") (`supplierInvoices` in the response; `materialSource` `'invoices'` when only invoices carry it) — owner direction 2026-09-23 | flag on for the viewer; off ⇒ `supplierInvoices: null`, no store read |
+| Recent purchases (office) | `JobRecentPurchasesCard` on `/v2/jobs/[jobId]`, above Materials cost — newest-first purchases for **everyone who can open the job page**; amounts + the job total only when the route sent them (office tier) | `job_purchases` + `invoice_capture` on (see "Recent purchases on the job") |
+| What's been bought (field) | `PhilJobPurchasesCard` in the reference group of `/phil/jobs/[jobId]` — no prices, ever; absent until the job has a purchase | `job_purchases` + `invoice_capture` on |
 | Nav item | `Invoices` in the Jobs group (`src/components/admin/nav.ts`) | hidden by `AdminShell` while off |
 | Office API | `api/invoices.js` | admin tier + flag (404 off); every mutation audited |
 | Inbound webhook | `POST /api/inbound/invoices` (`src/app/api/inbound/invoices/route.ts` → `api/_lib/invoices/webhook.js`) | Svix signature; flag off ⇒ **quarantine** (see below) |
@@ -687,6 +689,39 @@ and undo that memory, and one way of creating a bad rule is closed:
   supplier* in the card — forget them.
 - Only a person's re-file creates a rule; the pipeline and the AI rung never
   write one (tested).
+
+## Recent purchases on the job (owner pull 2026-10-04)
+
+*"I want to be able to view recent purchases from wholesalers on the job
+easily and simply — only PMs and admins can view the total cost."*
+Owner decisions the same day: the crew AND leading hands see the purchases;
+"PMs and admins" means the whole office tier (everyone who sees money today).
+
+- **Route** `GET /api/invoices?action=job-purchases&jobId=` — the one invoice
+  read below the office tier (beside the receipt POST). Flag `job_purchases`
+  (global, dark) **and** `invoice_capture` on, else 404. Roles: office tier,
+  leading hand, field. A worker reads only a job they could open on site
+  (`isFieldOpenable` — the receipt rule); archived / deleted / unknown jobs
+  all answer the same 404. `Cache-Control: private, no-store`.
+- **What counts** — the same truth as the materials breakdown: **active
+  allocations on confirmed invoices** (`store.jobRecentPurchases`), newest
+  first by invoice date, the latest 20 with their lines, plus the whole-job
+  count and total. Invoices still matched/in review are a *count* only
+  ("2 more are still with the office"). A credit note is a **Return**; a field
+  receipt a **Receipt**. Moving or excluding an invoice takes it off the list.
+- **Money** — `api/_lib/invoices/purchases.js` builds one whitelisted
+  projection for everyone and ADDS `amountCents` per purchase and `totalCents`
+  only when the caller is office tier (`costVisible: true`). Nothing is
+  stripped after the fact, so a new column can't leak. Line unit prices and
+  totals are never in this response for anyone (the office has Materials cost
+  and the invoice itself for those). Tests walk the whole crew/LH response for
+  any money-shaped key (`invoices-job-purchases-api.test.ts`).
+- **Surfaces** — office job page "Recent purchases" card (latest 5, "Show N
+  more", each purchase's first two items with "+ N more items"; office rows
+  link to the invoice); field job page "What's been bought" (latest 3, each a
+  48 px native `<details>` row; P14 / P1 / P10 / P7 / P8 / P11 — see the
+  component header). The field card never renders a price even if one were
+  sent.
 
 ## Security
 

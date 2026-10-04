@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
-import { isFlagEnabled } from "../../../../../api/_lib/feature-flags.js";
+import { isFlagEnabled, isFlagOn } from "../../../../../api/_lib/feature-flags.js";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { PhilJobDetail } from "@/components/phil/PhilJobDetail";
@@ -79,13 +79,18 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
   // philSharpenedFlags enforces jobRooms ⇒ sharpened, so with either flag off
   // the job screen (and its chrome) renders exactly as today. Booleans only —
   // never the flags blob (docs/feature-flags.md).
-  const [sharpenedFlags, itpSimpleEnabled, photosGalleryEnabled] = await Promise.all([
+  const [sharpenedFlags, itpSimpleEnabled, photosGalleryEnabled, purchasesFlag, invoicesOn] = await Promise.all([
     philSharpenedFlags(session),
     isFlagEnabled("itp_simple", session),
     // #915: the gallery card is data-driven — without the flag it would
     // render a dead link to a flag-gated 404 route.
     isFlagEnabled("job_photos", session),
+    // "What's been bought" (owner pull 2026-10-04) reads the confirmed
+    // supplier invoices, so it also needs invoice_capture on.
+    isFlagEnabled("job_purchases", session),
+    isFlagOn("invoice_capture"),
   ]);
+  const purchasesEnabled = purchasesFlag && invoicesOn;
   const accountInitials = philInitials(session.name ?? session.username);
 
   // Gate the fast shell behind the SAME flag as the jobs-summary read path
@@ -121,6 +126,7 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
           jobRooms: sharpenedFlags.jobRooms,
           itpSimpleEnabled,
           photosGalleryEnabled,
+          purchasesEnabled,
           // Owner ruling 2026-08-31 — same gate as "+ New job": whoever can
           // add a job can fix its name.
           canFixName: sharpenedFlags.sharpened,
@@ -161,6 +167,7 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
           jobRooms={sharpenedFlags.jobRooms}
           itpSimpleEnabled={itpSimpleEnabled}
           photosGalleryEnabled={photosGalleryEnabled}
+          purchasesEnabled={purchasesEnabled}
           canFixName={sharpenedFlags.sharpened}
           sharpened={sharpenedFlags.sharpened}
         />
@@ -187,6 +194,7 @@ async function PhilJobDetailFull({
   jobRooms,
   itpSimpleEnabled,
   photosGalleryEnabled,
+  purchasesEnabled,
   canFixName,
   sharpened,
 }: {
@@ -202,6 +210,8 @@ async function PhilJobDetailFull({
   itpSimpleEnabled: boolean;
   /** #915: gate for the data-driven gallery card, whose route 404s dark. */
   photosGalleryEnabled: boolean;
+  /** job_purchases + invoice_capture: the "What's been bought" card. */
+  purchasesEnabled: boolean;
   /** Owner ruling 2026-08-31 — same phil_sharpened gate as "+ New job":
    *  whoever can add a job can fix its name (bottom-of-page quiet row). */
   canFixName: boolean;
@@ -262,6 +272,7 @@ async function PhilJobDetailFull({
       autoCaptureToken={captureToken}
       itpSimpleEnabled={itpSimpleEnabled}
       photosGalleryEnabled={photosGalleryEnabled}
+      purchasesEnabled={purchasesEnabled}
       canFixName={canFixName}
       // Sharpened Hours takes the job as launch context, so "Log hours" from
       // here lands with this job picked (flag off: the Today tab's log form).

@@ -23,10 +23,11 @@ import { JobHealthBand } from "@/components/admin/JobHealthBand";
 import { JobLabourSummary } from "@/components/admin/JobLabourSummary";
 import { JobMaterialsCard } from "@/components/admin/JobMaterialsCard";
 import { JobSupplierInvoicesCard } from "@/components/admin/invoices/JobSupplierInvoicesCard";
+import { JobRecentPurchasesCard } from "@/components/admin/JobRecentPurchasesCard";
 import { JobMoneyCard } from "@/components/admin/JobMoneyCard";
 import { JobTagsSummary } from "@/components/admin/JobTagsSummary";
 import { JobEvidenceSummary } from "@/components/admin/JobEvidenceSummary";
-import { isFlagEnabled } from "../../../../../api/_lib/feature-flags.js";
+import { isFlagEnabled, isFlagOn } from "../../../../../api/_lib/feature-flags.js";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import {
@@ -117,6 +118,12 @@ export default async function AdminJobInterfacePage({ params }: PageParams) {
   // Supplier-invoice capture is an admin-tier launch-gate (dark): when off the
   // hub renders no card, no count and makes no fetch — no trace at all.
   const invoicesEnabled = canBuild && (await isFlagEnabled("invoice_capture", session));
+  // Recent purchases (owner pull 2026-10-04): for EVERYONE who can open this
+  // page — a leading hand sees what was bought, the office also sees the
+  // money (the route only sends amounts to the office tier). Reads the
+  // confirmed supplier invoices, so it rides invoice_capture being on.
+  const purchasesEnabled =
+    (await isFlagEnabled("job_purchases", session)) && (await isFlagOn("invoice_capture"));
 
   const base = await requestBase();
   const result = await loadJob(base, raw, jobId);
@@ -231,6 +238,7 @@ export default async function AdminJobInterfacePage({ params }: PageParams) {
                 <LabourSection base={base} cookieValue={raw} job={job} progressPct={progressPct} />
               </Suspense>
             ) : null}
+            {purchasesEnabled ? <JobRecentPurchasesCard jobId={job.id} /> : null}
             {materialsEnabled ? <JobMaterialsCard jobId={job.id} invoicesEnabled={invoicesEnabled} /> : null}
             {invoicesEnabled ? <JobSupplierInvoicesCard jobId={job.id} /> : null}
             <Suspense fallback={<EvidenceSkeleton />}>

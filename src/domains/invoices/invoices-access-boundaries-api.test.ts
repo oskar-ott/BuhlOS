@@ -11,7 +11,8 @@ import * as F from "./test-helpers/fixtures";
  *     exist (404 — the flag targets the admin tier), on list, detail, the
  *     document proxy, lines, the job breakdown, uploads and every write;
  *   - a field role may only ever POST a receipt, and only to a job it can
- *     open; it cannot then read the invoice it created;
+ *     open; it cannot then read the invoice it created (its one read is the
+ *     price-free job purchase list — invoices-job-purchases-api.test.ts);
  *   - guessing ids buys nothing: an unknown invoice id, document id or a
  *     document id from ANOTHER invoice is a 404 for an admin too;
  *   - archived / excluded documents keep the same rules;
