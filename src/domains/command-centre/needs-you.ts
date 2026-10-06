@@ -49,8 +49,8 @@ export interface NeedsYouCounts {
   noCrewJobs: number;
   /** Submitted days awaiting approver action. */
   pending: number;
-  /** Photos/tags pending review across live jobs (statsEvidenceV2Pending rollup). */
-  evidence: number;
+  // No evidence row (owner pull 2026-10-06): photos / tags to review block no
+  // one and grew with every capture — they live on the job ("Review N").
 }
 
 /** Build the queue rows in "what blocks pay, first" order; zero counts drop. */
@@ -107,18 +107,6 @@ export function buildNeedsYouQueue(c: NeedsYouCounts): NeedsYouRow[] {
       sub: "Approve or send back so they land in this pay period.",
       cta: "Approve",
       href: "/hours/approvals",
-    },
-    {
-      key: "evidence",
-      count: c.evidence,
-      tone: "calm",
-      title:
-        c.evidence === 1
-          ? "Photo or tag to review"
-          : "Photos and tags to review",
-      sub: "Site evidence uploaded against live jobs — no one is blocked on it.",
-      cta: "Jobs",
-      href: "/v2/jobs",
     },
   ];
   return rows.filter((r) => r.count > 0);

@@ -1,4 +1,5 @@
 import type { Job } from "./types";
+import { jobPhase } from "./lifecycle";
 
 /**
  * Pure job HEALTH derivation from real signals (#226).
@@ -58,7 +59,23 @@ export const AT_RISK_SOFT_TOTAL = 10;
 type HealthStats = Pick<
   Job,
   "statsEvidenceV2Pending" | "statsSnagsV2Active" | "statsItpsNeedsReview" | "statsExpiredTags"
->;
+> &
+  Partial<Pick<Job, "status" | "completedAt">>;
+
+/**
+ * Evidence review is a soft, running-work backlog: once a job is finished,
+ * closed or archived its unreviewed photos stop counting toward health (owner
+ * pull 2026-10-06 — "stop unnecessary Needs you items building up"). They stay
+ * on the job's Evidence page and its "Review N" link; they just stop turning a
+ * finished job amber. Expired gear tags (HARD — out-of-test kit) count on any
+ * phase. A job with no status reads as active, so callers without lifecycle
+ * fields keep today's behaviour.
+ */
+function evidenceCounts(job: HealthStats): boolean {
+  if (!job.status) return true;
+  const phase = jobPhase(job as Pick<Job, "status" | "completedAt">);
+  return phase === "active" || phase === "on_hold" || phase === "draft";
+}
 
 function isPresent(v: number | null | undefined): boolean {
   return typeof v === "number" && Number.isFinite(v);
@@ -81,7 +98,7 @@ export function deriveJobHealth(job: HealthStats): JobHealth {
 
   const candidates: JobHealthReason[] = [
     { key: "tags", label: "Expired gear tags", count: positive(job.statsExpiredTags), severity: "hard" },
-    { key: "evidence", label: "Evidence to review", count: positive(job.statsEvidenceV2Pending), severity: "soft" },
+    { key: "evidence", label: "Evidence to review", count: evidenceCounts(job) ? positive(job.statsEvidenceV2Pending) : 0, severity: "soft" },
   ];
   const reasons = candidates.filter((c) => c.count > 0); // already HARD-first by order
 

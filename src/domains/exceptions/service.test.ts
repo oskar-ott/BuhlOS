@@ -12,7 +12,6 @@ import {
   summariseExceptions,
 } from "./service";
 import type { TimeEntry } from "@/domains/timesheets/types";
-import { formatShortDateLabel } from "@/domains/timesheets/format";
 import type { Job } from "@/domains/jobs/types";
 import type { ExceptionSources } from "./types";
 
@@ -38,37 +37,50 @@ function job(over: Partial<Job> & { id: string; name: string }): Job {
 }
 
 // ── hours ─────────────────────────────────────────────────────────────
-describe("hoursExceptions", () => {
-  it("maps submitted → waiting approval and rejected → needs correction", () => {
+describe("hoursExceptions — one item per kind, never one per day (owner pull 2026-10-06)", () => {
+  it("groups every submitted day into ONE approval item and every rejected day into ONE re-submit item", () => {
     const items = hoursExceptions(
-      [te({ id: "t1", status: "submitted" })],
-      [te({ id: "t2", status: "rejected", rejectedReason: "Wrong job", rejectedAt: "2026-06-02T00:00:00.000Z" })],
+      [
+        te({ id: "t1", userName: "Tom", date: "2026-09-21", submittedAt: "2026-09-26T08:00:00.000Z" }),
+        te({ id: "t2", userName: "Tom", date: "2026-09-22", submittedAt: "2026-09-26T08:00:00.000Z" }),
+        te({ id: "t3", userName: "Sam", date: "2026-09-22", submittedAt: "2026-09-25T08:00:00.000Z" }),
+      ],
+      [te({ id: "t4", userName: "Craig", status: "rejected", date: "2026-09-24", rejectedReason: "Wrong job", rejectedAt: "2026-09-27T00:00:00.000Z" })],
     );
-    expect(items.map((i) => i.id)).toEqual(["hours-pending:t1", "hours-rejected:t2"]);
-    expect(items[0]).toMatchObject({ source: "hours", severity: "warning", status: "waiting", actionHref: "/hours/approvals", actionState: "available", jobId: "job-1" });
-    expect(items[1]).toMatchObject({ status: "blocked" });
-    expect(items[1]!.summary).toContain("Wrong job");
+    expect(items.map((i) => i.id)).toEqual(["hours-pending", "hours-rejected"]);
+    expect(items[0]).toMatchObject({
+      source: "hours",
+      severity: "warning",
+      status: "waiting",
+      title: "3 days waiting on your approval",
+      actionHref: "/hours/approvals",
+      actionState: "available",
+      createdAt: "2026-09-25T08:00:00.000Z", // ages from the OLDEST day
+    });
+    expect(items[0]!.summary).toContain("From Tom and Sam");
+    expect(items[0]!.jobId).toBeUndefined();
+    expect(items[1]).toMatchObject({ status: "blocked", title: "1 rejected day to re-submit" });
+    expect(items[1]!.summary).toContain("Sent back to Craig");
   });
 
-  it("names the day the way the office UI does, never a raw ISO date", () => {
-    const items = hoursExceptions(
-      [te({ id: "t1", status: "submitted", userName: "Sam Nguyen", date: "2026-09-21" })],
-      [te({ id: "t2", status: "rejected", date: "2026-09-21" })],
-    );
-    // Same helper the rest of the office uses ("Mon 21 Sep"; ICU may add a comma / "Sept").
-    const label = formatShortDateLabel("2026-09-21");
-    expect(label).toMatch(/^Mon,? 21 Sept?$/);
-    expect(items[0]!.title).toBe(`Hours from Sam Nguyen (${label}) awaiting approval`);
-    expect(items[1]!.title).toContain(`(${label})`);
-    expect(items.map((i) => i.title).join(" ")).not.toContain("2026-09-21");
+  it("names a crowd briefly and never prints a raw ISO date", () => {
+    const crew = ["Ann", "Ben", "Cal", "Dee", "Eve"].map((n, i) => te({ id: `t${i}`, userName: n }));
+    const [item] = hoursExceptions(crew, []);
+    expect(item!.title).toBe("5 days waiting on your approval");
+    expect(item!.summary).toContain("From Ann, Ben and 3 others");
+    expect(item!.title + item!.summary).not.toMatch(/\d{4}-\d{2}-\d{2}/);
   });
 
-  it("sends a rejected day to the weekly board for its week (the approvals queue lists submitted only)", () => {
+  it("sends the rejected group to the weekly board on the OLDEST rejected day's week", () => {
     const [item] = hoursExceptions(
       [],
-      [te({ id: "t2", status: "rejected", date: "2026-09-24" })], // Thursday
+      [
+        te({ id: "r1", status: "rejected", date: "2026-10-01" }),
+        te({ id: "r2", status: "rejected", date: "2026-09-24" }), // Thursday, week of 21 Sep
+      ],
     );
     expect(item).toMatchObject({
+      title: "2 rejected days to re-submit",
       actionHref: "/hours/weekly?week=2026-09-21",
       actionLabel: "Review rejections",
       actionState: "available",
@@ -79,16 +91,11 @@ describe("hoursExceptions", () => {
     expect(hoursExceptions([te({ id: "t1", status: "approved" })], [])).toEqual([]);
     expect(hoursExceptions([], [te({ id: "t2", status: "submitted" })])).toEqual([]);
   });
-
-  it("leaves jobId undefined for a multi-job entry", () => {
-    const item = hoursExceptions([te({ id: "t1", allocations: [{ jobId: "a", hours: 4 }, { jobId: "b", hours: 4 }] as TimeEntry["allocations"] })], [])[0];
-    expect(item!.jobId).toBeUndefined();
-  });
 });
 
 // ── jobs ──────────────────────────────────────────────────────────────
 describe("jobExceptions", () => {
-  it("emits a pending-evidence item, an active-no-crew critical, and a draft info", () => {
+  it("emits an active-no-crew critical and a draft info — and NO photos-to-review item (it blocks no one)", () => {
     const items = jobExceptions([
       job({ id: "j1", name: "Alpha", status: "active", statsEvidenceV2Pending: 2, statsCrewCount: 4 }),
       job({ id: "j2", name: "Bravo", status: "active", statsCrewCount: 0 }),
@@ -96,12 +103,9 @@ describe("jobExceptions", () => {
       job({ id: "j4", name: "Old", status: "archived", statsEvidenceV2Pending: 9 }),
     ]);
     const ids = items.map((i) => i.id);
-    expect(ids).toContain("evidence-job:j1");
-    expect(ids).toContain("job-no-crew:j2");
-    expect(ids).toContain("job-draft:j3");
-    // archived job never surfaces, draft job has no field-work queues
-    expect(ids).not.toContain("evidence-job:j4");
-    expect(ids).not.toContain("evidence-job:j3");
+    expect(ids).toEqual(expect.arrayContaining(["job-no-crew:j2", "job-draft:j3"]));
+    expect(ids.some((id) => id.startsWith("evidence"))).toBe(false);
+    expect(items.some((i) => /evidence to review/i.test(i.title))).toBe(false);
     // no-crew deep-links to the assignment section anchor; draft to the publish tab
     expect(items.find((i) => i.id === "job-no-crew:j2")).toMatchObject({
       severity: "critical",
@@ -122,14 +126,6 @@ describe("jobExceptions", () => {
     expect(items[0]!.actionHref).toBe("/v2/jobs/j%2F1%23frag/builder#assigned-field-workers");
     expect(isSafeActionHref(items[0]!.actionHref)).toBe(true);
   });
-
-  it("encodes dynamic job route segments in a per-job section href", () => {
-    const item = jobExceptions([
-      job({ id: "job/1?bad=true", name: "Odd id", status: "active", statsEvidenceV2Pending: 1, statsCrewCount: 2 }),
-    ])[0];
-    expect(item!.actionHref).toBe("/v2/jobs/job%2F1%3Fbad%3Dtrue/evidence");
-    expect(isSafeActionHref(item!.actionHref)).toBe(true);
-  });
 });
 
 // ── aggregation / sort / filters ──────────────────────────────────────
@@ -146,9 +142,9 @@ const SOURCES: ExceptionSources = {
 describe("buildExceptions", () => {
   const items = buildExceptions(SOURCES);
 
-  it("aggregates all sources", () => {
-    expect(items.length).toBe(4);
-    expect(new Set(items.map((i) => i.source))).toEqual(new Set(["hours", "evidence", "job"]));
+  it("aggregates all sources (hours grouped; no photo items)", () => {
+    expect(items.map((i) => i.id).sort()).toEqual(["hours-pending", "job-draft:j3", "job-no-crew:j2"]);
+    expect(new Set(items.map((i) => i.source))).toEqual(new Set(["hours", "job"]));
   });
 
   it("sorts critical first, then warning, then info (deterministic)", () => {
@@ -183,8 +179,8 @@ describe("buildExceptions", () => {
   });
 
   it("decorates every item with its human sourceLabel", () => {
-    expect(items.find((i) => i.id === "evidence-job:j1")!.sourceLabel).toBe("Evidence");
-    expect(items.find((i) => i.id === "hours-pending:t1")!.sourceLabel).toBe("Hours");
+    expect(items.find((i) => i.id === "job-no-crew:j2")!.sourceLabel).toBeTruthy();
+    expect(items.find((i) => i.id === "hours-pending")!.sourceLabel).toBe("Hours");
   });
 });
 
@@ -200,13 +196,13 @@ describe("filterExceptions + summary + jobOptions", () => {
 
   it("summarises counts by severity and source", () => {
     const s = summariseExceptions(items);
-    expect(s.total).toBe(4);
+    expect(s.total).toBe(3);
     expect(s.bySeverity.critical).toBe(1); // the no-crew job
     expect(s.bySource.hours).toBe(1);
   });
 
   it("lists distinct jobs for the filter, sorted by name", () => {
-    expect(jobOptions(items).map((o) => o.jobId)).toEqual(["j1", "j2", "j3", "job-1"]); // Alpha, Bravo, Charlie, then the un-named hours job
+    expect(jobOptions(items).map((o) => o.jobId)).toEqual(["j2", "j3"]); // Bravo, Charlie (grouped hours carry no job)
   });
 });
 

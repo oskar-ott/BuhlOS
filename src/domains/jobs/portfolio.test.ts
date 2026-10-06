@@ -162,6 +162,12 @@ describe("portfolio — jobCardVerdict (honest per phase)", () => {
     expect(verdict({ status: "active", statsExpiredTags: 2 }).caption).toBe("2 expired gear tags");
   });
 
+  it("a finished job with photos still unreviewed reads its phase, not 'Watch' (owner pull 2026-10-06)", () => {
+    const v = verdict({ status: "complete", completedAt: "2026-09-21T10:00:00Z", statsEvidenceV2Pending: 4, statsExpiredTags: 0 });
+    expect(v.label).toBeNull();
+    expect(v.caption).toMatch(/^Finished 21 Sept? · crew can log until 21 Oct$/);
+  });
+
   it("an active job with nothing outstanding is On track · nothing needs you", () => {
     expect(verdict({ status: "active", statsEvidenceV2Pending: 0, statsExpiredTags: 0 })).toEqual({
       label: "On track",
