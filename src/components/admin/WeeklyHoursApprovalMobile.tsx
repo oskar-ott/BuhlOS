@@ -1352,6 +1352,7 @@ function ReviewSheet({
               periodLabel={periodLabel}
               candidates={xeroCandidates}
               outstanding={outstanding}
+              savingCount={busyIds.length}
               onClose={onClose}
               onBusyChange={setFinaleBusy}
             />

@@ -510,9 +510,9 @@ describe("POST — a refusal of just-approved days says when to retry", () => {
     expect(res.statusCode).toBe(503);
     const body = res.body as { error: string; code?: string; retryAfterMs?: number };
     expect(body.code).toBe("settling");
-    // Settles 65s after its PUT → ~55s from now.
-    expect(body.retryAfterMs).toBeGreaterThan(45_000);
-    expect(body.retryAfterMs).toBeLessThanOrEqual(65_000);
+    // Settles 70s after its PUT → ~60s from now.
+    expect(body.retryAfterMs).toBeGreaterThan(50_000);
+    expect(body.retryAfterMs).toBeLessThanOrEqual(70_000);
     expect(Number(res.headers["Retry-After"])).toBe(Math.ceil(body.retryAfterMs! / 1000));
     expect(body.error).toContain("Mick Doran 2026-08-03 (just changed)");
     expect(body.error).toContain("still settling");
@@ -530,7 +530,20 @@ describe("POST — a refusal of just-approved days says when to retry", () => {
     });
     const res = await call("u_admin", "admin", "POST", { fromDate: FROM, toDate: TO });
     expect(res.statusCode).toBe(503);
-    expect((res.body as { retryAfterMs: number }).retryAfterMs).toBeGreaterThan(55_000);
+    expect((res.body as { retryAfterMs: number }).retryAfterMs).toBeGreaterThan(60_000);
+  });
+
+  it("a stale day past the expected window still backs off (10s floor) rather than retrying instantly", async () => {
+    seedRecipients(["tia@example.com"]);
+    seedEntry("u_mick", FROM, { status: "submitted" });
+    const key = `users/u_mick/time-entries/${FROM}.json`;
+    listWithUploadedAt({ [key]: new Date(Date.now() - 90_000).toISOString() });
+    const res = await call("u_admin", "admin", "POST", { fromDate: FROM, toDate: TO });
+    expect(res.statusCode).toBe(503);
+    const body = res.body as { code?: string; retryAfterMs?: number };
+    expect(body.code).toBe("settling");
+    expect(body.retryAfterMs).toBe(10_000);
+    expect(resendCalls).toHaveLength(0);
   });
 
   it("an OLD day-file that can't be read is not a settling race — no retryAfterMs, a person looks", async () => {

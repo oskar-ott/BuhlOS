@@ -27,8 +27,10 @@ export type PeriodSendOutcome =
   | { ok: true; receipt: PeriodSendReceipt }
   | { ok: false; error: string };
 
-/** Automatic re-sends after a 'settling' refusal before handing back to a person. */
-export const MAX_SETTLE_RETRIES = 2;
+/** Automatic re-sends after a 'settling' refusal before handing back to a person.
+ *  With the server's 70s settle + 10s back-off this covers ~2 minutes after
+ *  the last approval — twice the ~60s staleness seen in production. */
+export const MAX_SETTLE_RETRIES = 3;
 /** Never wait longer than this on the server's say-so. */
 export const MAX_SETTLE_WAIT_MS = 120_000;
 

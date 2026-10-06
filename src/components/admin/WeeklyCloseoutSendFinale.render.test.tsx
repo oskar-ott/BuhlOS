@@ -162,3 +162,57 @@ describe("WeeklyCloseoutSendFinale — wait-or-send (owner pull 2026-08-16)", ()
     expect(html).not.toContain('data-testid="wha-send-wait"');
   });
 });
+
+describe("WeeklyCloseoutSendFinale — approvals still saving (2026-10-06 audit)", () => {
+  // Approvals are fired in the background so the boss never waits between
+  // people, so this screen can open while the last ones are still being
+  // written. A send then reads those days as "submitted" and leaves them off
+  // the sheet with NO error — so while anything is saving, there is no send.
+  const inFlight = {
+    // While approvals are in flight the overlay hasn't caught up, so the
+    // week-wide count calls those days "still waiting for review".
+    outstanding: {
+      sentBackDays: 0,
+      notReviewedDays: 9,
+      notInYetDays: 2,
+      actionableDays: 9,
+      total: 11,
+    },
+    savingCount: 2,
+  };
+
+  it("no send button of any kind while saves are in flight — a disabled 'Saving approvals…' instead", () => {
+    const html = render(inFlight);
+    expect(html).toContain('data-testid="wha-send-saving"');
+    expect(html).toContain("Saving approvals…");
+    expect(html).not.toContain('data-testid="wha-send-accounts"');
+    expect(html).not.toContain("Send anyway");
+    expect(html).not.toContain("Send to Tia</button>");
+  });
+
+  it("says why, in site language — and doesn't call the in-flight days 'waiting for review'", () => {
+    const html = render(inFlight);
+    expect(html).toContain('data-testid="wha-send-saving-note"');
+    expect(html).toContain("2 people’s hours are still saving");
+    expect(html).not.toContain('data-testid="wha-send-outstanding"');
+    expect(html).not.toContain('data-testid="wha-send-wait"');
+    expect(html).not.toContain('data-testid="wha-send-fyi"');
+  });
+
+  it("never shows 'No approved hours' while the approvals that would fill it are still landing", () => {
+    const html = render({ ...inFlight, candidates: [] });
+    expect(html).not.toContain("No approved hours");
+    expect(html).toContain('data-testid="wha-send-saving"');
+  });
+
+  it("one worker saving reads in the singular", () => {
+    expect(render({ savingCount: 1 })).toContain("1 person’s hours are still saving");
+  });
+
+  it("nothing saving → today's send face, unchanged", () => {
+    const html = render({ savingCount: 0 });
+    expect(html).toContain('data-testid="wha-send-accounts"');
+    expect(html).toContain("Send to Tia");
+    expect(html).not.toContain('data-testid="wha-send-saving"');
+  });
+});

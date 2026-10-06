@@ -69,6 +69,17 @@ interface Props {
    * re-send is safe, so sending early is a judgement call, not an error.
    */
   outstanding?: OutstandingWeek;
+  /**
+   * Hours actions from this review still saving (the review sheet's per-worker
+   * busyIds — approve, send back, fix a day, undo). Approvals are fired in the
+   * background so the boss never waits between people, so this screen can
+   * open while the last few are still being written. A send in that window
+   * reads those days as still "submitted" and leaves them off the sheet with
+   * NO error (no freshness refusal can see a write that hasn't happened yet —
+   * 2026-10-06 audit of the 5 Oct send). While anything is saving, the send
+   * waits; it unlocks by itself when the saves land.
+   */
+  savingCount?: number;
   onClose: () => void;
   /** Raised while the send is in flight so the sheet can't be dismissed under it. */
   onBusyChange?: (busy: boolean) => void;
@@ -81,15 +92,20 @@ export function WeeklyCloseoutSendFinale({
   reviewedCount,
   candidates,
   outstanding,
+  savingCount = 0,
   onClose,
   onBusyChange,
 }: Props) {
   // No validation call — there is no Xero in this path. The plan is purely
   // the approved hours already on screen.
   const plan = buildReviewPlan(candidates, null);
+  // This review's own approvals are still being written — nothing below is
+  // settled yet, so the send (and the wait/FYI notices, which would count the
+  // in-flight days as "still waiting for review") hold until they land.
+  const saving = savingCount > 0;
   // Days mid-flight (sent back / not reviewed) lead with waiting; days that
   // will never arrive (holiday crew) only inform.
-  const holdsSend = (outstanding?.actionableDays ?? 0) > 0;
+  const holdsSend = !saving && (outstanding?.actionableDays ?? 0) > 0;
   const notInYet = outstanding?.notInYetDays ?? 0;
 
   // Who the email really goes to + whether this week already went (the audit
@@ -230,7 +246,15 @@ export function WeeklyCloseoutSendFinale({
       onClose={onClose}
       footer={
         <div className="space-y-1.5">
-          {plan.rows.length > 0 ? (
+          {saving ? (
+            <Button className="w-full" data-testid="wha-send-saving" disabled>
+              <Loader2
+                aria-hidden="true"
+                className="h-4 w-4 animate-spin motion-reduce:animate-none"
+              />
+              Saving approvals…
+            </Button>
+          ) : plan.rows.length > 0 ? (
             holdsSend ? (
               /* Fixes are coming back — waiting is the sensible default.
                  Sending early is a REAL button (secondary, not ghost): the
@@ -278,6 +302,16 @@ export function WeeklyCloseoutSendFinale({
         }
       />
 
+      {saving ? (
+        <div data-testid="wha-send-saving-note" role="status">
+          <Notice tone="muted" title="Still saving">
+            {savingCount} {savingCount === 1 ? "person’s" : "people’s"} hours are
+            still saving. Sending unlocks as soon as they land — usually a few seconds — so
+            nothing you just approved is left off the sheet.
+          </Notice>
+        </div>
+      ) : null}
+
       {error ? (
         <Notice tone="danger" title="The email didn&rsquo;t send">
           {error}
@@ -303,7 +337,7 @@ export function WeeklyCloseoutSendFinale({
         </div>
       ) : null}
 
-      {!holdsSend && notInYet > 0 && plan.rows.length > 0 ? (
+      {!saving && !holdsSend && notInYet > 0 && plan.rows.length > 0 ? (
         /* Crew who never sent a week in — holiday, away, or just didn't log.
            Normal (owner call 2026-08-17), so it informs and never holds. */
         <div data-testid="wha-send-fyi">
@@ -314,7 +348,7 @@ export function WeeklyCloseoutSendFinale({
         </div>
       ) : null}
 
-      {plan.rows.length === 0 ? (
+      {saving ? null : plan.rows.length === 0 ? (
         <Notice tone="muted" title="No approved hours">
           Nothing was approved this week, so there&rsquo;s nothing to email. Approve the days
           first, then send.

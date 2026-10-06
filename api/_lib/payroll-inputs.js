@@ -86,17 +86,20 @@ const FETCH_TIMEOUT_MS = 8_000;
 // week, unfixable by retrying, until the two records were rewritten by hand.
 // Recency is what separates them, and the gap alone cannot.
 const STALE_SUSPECT_WINDOW_MS = 5 * 60_000;
-// When a refused read is GUARANTEED to clear: Vercel documents that an
-// overwritten blob can serve its previous content from the CDN for up to 60s.
-// Measured live on 2026-10-05: the boss approved the week on the phone and
-// tapped Send to Tia ten seconds later — refused; tapped again ~40s later —
-// still refused for the last day approved (PUT 07:34:31, still stale at
-// 07:35:31); then gave up, and the week never reached accounts. The in-request
-// retry below cannot wait that long, so a refusal of days written inside this
-// window carries `retryAfterMs` — the moment the newest of them has settled —
-// and the send surfaces wait it out and re-send by themselves instead of
-// handing a seconds-scale race back to a person. 60s + 5s of margin.
-const CDN_SETTLE_MS = 65_000;
+// When a refused read is expected to clear: Vercel documents that an
+// overwritten blob can serve its previous content from the CDN for up to ~60s,
+// and production matched it to the second on 2026-10-05: the boss approved the
+// week on the phone and tapped Send to Tia ten seconds later — refused; tapped
+// again ~40s later — still refused for the last day approved (PUT 07:34:31,
+// still stale on the in-request retry at ~07:35:31, i.e. ~60s); then gave up,
+// and the week never reached accounts. The in-request retry below cannot wait
+// that long, so a refusal of days written inside this window carries
+// `retryAfterMs` — the moment the newest of them should have settled — and the
+// send surfaces wait it out and re-send by themselves instead of handing a
+// minute-scale race back to a person. 70s = the observed ~60s + 10s margin;
+// a refusal that outlasts it backs off by RETRY_AFTER_FLOOR_MS per re-send.
+const CDN_SETTLE_MS = 70_000;
+const RETRY_AFTER_FLOOR_MS = 10_000;
 // Bounded retry before refusing (~12s worst case). Vercel documents that an
 // overwritten blob can keep serving its previous content from the CDN for up
 // to ~60s, so this cannot cover every case — it covers the common seconds-scale
@@ -198,8 +201,8 @@ async function fetchEntryVerified(b) {
  * refused day has a listing PUT time and is either a 'stale' verdict (which
  * only exists inside STALE_SUSPECT_WINDOW_MS of its write, by construction) or
  * an 'unreadable' blob written inside CDN_SETTLE_MS (a just-created day-file
- * can 404 from the CDN for a moment). Floored at 5s so a stale verdict past
- * the documented window still backs off instead of hammering.
+ * can 404 from the CDN for a moment). Floored at RETRY_AFTER_FLOOR_MS so a
+ * stale verdict past the expected window still backs off instead of hammering.
  */
 function settleRetryAfterMs(refused, nowMs) {
   if (!refused.length) return null;
@@ -210,7 +213,7 @@ function settleRetryAfterMs(refused, nowMs) {
     if (r.problem !== 'stale' && !justWritten) return null;
     if (r.uploadedMs > newestPut) newestPut = r.uploadedMs;
   }
-  return Math.max(5_000, newestPut + CDN_SETTLE_MS - nowMs);
+  return Math.max(RETRY_AFTER_FLOOR_MS, newestPut + CDN_SETTLE_MS - nowMs);
 }
 
 async function collectRows({ status, userId, jobId, fromDate, toDate }) {
