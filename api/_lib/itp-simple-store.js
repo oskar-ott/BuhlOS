@@ -208,6 +208,32 @@ async function deletePhoto(sql, tenantId, jobLegacyId, photoId) {
   return rows.length > 0;
 }
 
+/** Every photo on a job's live ITP reports, newest first, with the report
+ *  title + area name it belongs to — the photo gallery's ITP source
+ *  (api/photos-catalog.js). Read-only; photos on soft-deleted reports are
+ *  excluded (they're gone from the ITP list too). */
+async function listJobPhotos(sql, tenantId, jobLegacyId) {
+  const rows = await sql`
+    select p.id, p.blob_url, p.caption, p.taken_by_name, p.created_at,
+      a.name as area_name, r.id as report_id, r.title as report_title
+    from public.itp_simple_photos p
+    join public.itp_simple_areas a on a.id = p.area_id
+    join public.itp_simple_reports r on r.id = a.report_id
+    where r.tenant_id = ${tenantId} and r.job_legacy_id = ${jobLegacyId}
+      and r.deleted_at is null
+    order by p.created_at desc`;
+  return rows.map((p) => ({
+    id: p.id,
+    url: p.blob_url,
+    caption: p.caption || '',
+    takenBy: p.taken_by_name || '',
+    createdAt: p.created_at instanceof Date ? p.created_at.toISOString() : String(p.created_at || ''),
+    areaName: p.area_name || '',
+    reportId: p.report_id,
+    reportTitle: p.report_title || '',
+  }));
+}
+
 /** Stamp the latest generated PDF artifact onto the report. */
 async function stampPdf(sql, tenantId, jobLegacyId, reportId, pdfUrl) {
   const rows = await sql`
@@ -224,6 +250,7 @@ module.exports = {
   resolveJobUuid,
   listReports,
   getReport,
+  listJobPhotos,
   createReport,
   renameReport,
   deleteReport,

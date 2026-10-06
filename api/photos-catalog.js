@@ -1,12 +1,13 @@
 // Photo catalog per job — handover support.
 //
 //   GET /api/photos-catalog?jobId=<id>
-//       &source=snags|dwellings|all   (default: all)
+//       &source=snags|dwellings|itp|all   (default: all)
 //       &format=json|csv              (default: json)
 //
 // Flat list of every photo associated with the job: snag photos
-// (jobs/<id>/snag-photos/...) and dwelling/ITP photos (indexed in
-// jobs/<id>/photos-index.json). Each entry carries enough context — what
+// (jobs/<id>/snag-photos/...), dwelling/ITP photos (indexed in
+// jobs/<id>/photos-index.json) and — when `itp_simple` is on — photos on the
+// job's simple ITP reports (Supabase itp_simple_*, api/itp-simple.js). Each entry carries enough context — what
 // it's a photo *of* — that the handover binder can be assembled without
 // a database lookup per row.
 //
@@ -20,13 +21,16 @@
 // JSON response:
 //   {
 //     jobId, jobName,
-//     counts: { total, snag, dwelling },
+//     counts: { total, snag, dwelling, itp },
 //     photos: [
-//       { source: 'snag'|'dwelling',
+//       { source: 'snag'|'dwelling'|'itp',
 //         id, url, addedBy, addedAt,
 //         snagId?, snagDesc?, snagPriority?, snagStatus?,
-//         dwellingId?, dwellingName?, stage? }
-//     ]
+//         dwellingId?, dwellingName?, stage?,
+//         reportId?, reportTitle?, areaName?, caption? }
+//     ],
+//     itpError?   // set when the ITP store couldn't be read — the other
+//                 // sources still return; the gallery names the gap
 //   }
 //
 // CSV columns: Source, ID, Subject, Priority/Stage, Status, Added By,
@@ -37,6 +41,8 @@
 const { readBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, canManageJob, isStaffRole } = require('./_lib/auth');
 const { isFlagEnabled } = require('./_lib/feature-flags');
+const { getDb } = require('./_lib/supabase-db');
+const itpStore = require('./_lib/itp-simple-store');
 
 module.exports = async (req, res) => {
   setNoCache(res);
@@ -53,7 +59,7 @@ module.exports = async (req, res) => {
 
   const q = req.query || {};
   const jobId  = q.jobId || '';
-  const source = (q.source || 'all').toLowerCase();    // 'snags' | 'dwellings' | 'all'
+  const source = (q.source || 'all').toLowerCase();    // 'snags' | 'dwellings' | 'itp' | 'all'
   const format = (q.format || 'json').toLowerCase();   // 'json' | 'csv'
   if (!jobId) return res.status(400).json({ error: 'jobId required' });
 
@@ -70,7 +76,8 @@ module.exports = async (req, res) => {
   }
 
   const photos = [];
-  let snagCount = 0, dwellingCount = 0;
+  let snagCount = 0, dwellingCount = 0, itpCount = 0;
+  let itpError = null;
 
   // ── Snag photos ───────────────────────────────────────────────────────
   if (source === 'snags' || source === 'all') {
@@ -123,6 +130,36 @@ module.exports = async (req, res) => {
     }
   }
 
+  // ── Simple ITP report photos (#912 builder) ───────────────────────────
+  // Same viewer-aware gate as api/itp-simple.js: flag off → the source is
+  // absent, exactly as if the builder didn't exist. A store failure never
+  // takes the snag/dwelling photos down with it — it's reported as itpError.
+  if ((source === 'itp' || source === 'all') && (await isFlagEnabled('itp_simple', me))) {
+    try {
+      const sql = getDb({ mode: 'read' });
+      const tenantId = await itpStore.resolveTenantId(sql);
+      if (!tenantId) throw new Error('itp store not provisioned');
+      for (const p of await itpStore.listJobPhotos(sql, tenantId, jobId)) {
+        if (!p.url) continue;
+        photos.push({
+          source: 'itp',
+          id: p.id,
+          url: p.url,
+          addedBy: p.takenBy,
+          addedAt: p.createdAt,
+          reportId: p.reportId,
+          reportTitle: p.reportTitle,
+          areaName: p.areaName,
+          caption: p.caption,
+        });
+        itpCount++;
+      }
+    } catch (e) {
+      console.error('[photos-catalog] itp photos unavailable:', e && e.message);
+      itpError = "ITP report photos couldn't load";
+    }
+  }
+
   // Sort newest first by addedAt — handover binders read in reverse chrono.
   photos.sort((a, b) => (b.addedAt || '').localeCompare(a.addedAt || ''));
 
@@ -130,12 +167,15 @@ module.exports = async (req, res) => {
     const cols = ['Source', 'ID', 'Subject', 'Priority / Stage', 'Status', 'Dwelling', 'Added By', 'Added At', 'URL'];
     const lines = [cols.map(csvCell).join(',')];
     for (const p of photos) {
-      const subject = p.source === 'snag' ? p.snagDesc : ('Dwelling photo · ' + (p.stage || ''));
-      const priOrStage = p.source === 'snag' ? p.snagPriority : p.stage;
+      const subject = p.source === 'snag' ? p.snagDesc
+        : p.source === 'itp' ? ('ITP: ' + p.reportTitle + (p.caption ? ' · ' + p.caption : ''))
+        : ('Dwelling photo · ' + (p.stage || ''));
+      const priOrStage = p.source === 'snag' ? p.snagPriority : p.source === 'itp' ? '' : p.stage;
       const status = p.source === 'snag' ? p.snagStatus : '';
+      const place = p.source === 'itp' ? p.areaName : p.dwellingName;
       lines.push([
         p.source, p.id, subject, priOrStage, status,
-        p.dwellingName, p.addedBy, p.addedAt, p.url,
+        place, p.addedBy, p.addedAt, p.url,
       ].map(csvCell).join(','));
     }
     const csv = lines.join('\n') + '\n';
@@ -149,8 +189,9 @@ module.exports = async (req, res) => {
 
   return res.status(200).json({
     jobId, jobName: job.name,
-    counts: { total: photos.length, snag: snagCount, dwelling: dwellingCount },
+    counts: { total: photos.length, snag: snagCount, dwelling: dwellingCount, itp: itpCount },
     photos,
+    ...(itpError ? { itpError } : {}),
   });
 };
 
