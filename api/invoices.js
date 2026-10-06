@@ -1,8 +1,10 @@
 // Supplier-invoice capture — the office API (docs/invoice-capture.md).
 //
 // ADMIN-TIER ONLY on every method (money is office data; a leading hand never
-// reads it). Dark behind the `invoice_capture` launch-gate: 404 while off on
-// every path except the cron sweep, which no-ops (skipped:flag_off).
+// reads it) — except two worker-facing actions: POST ?action=receipt and the
+// price-free GET ?action=job-purchases (amounts only for the office tier).
+// Dark behind the `invoice_capture` launch-gate: 404 while off on every path
+// except the cron sweep, which no-ops (skipped:flag_off).
 //
 //   GET    /api/invoices                       list (status,supplier,jobId,from,to,q,page,limit)
 //   GET    /api/invoices?id=X                  one invoice (documents, allocation, events, attempts)
@@ -21,6 +23,7 @@
 //   POST   /api/invoices?action=process-pending                        → processes up to 3 received rows
 //   POST   /api/invoices?action=retry&id=X                             → re-runs extraction
 //   PUT    /api/invoices?id=X                  { field corrections }   → re-checks totals + IV match
+//   GET    /api/invoices?action=job-purchases&jobId=  FIELD/LH/OFFICE: the job's recent purchases (job_purchases + invoice_capture); prices + total ONLY for the office tier
 //   POST   /api/invoices?action=receipt          FIELD: { jobId, filename, dataUrl, paidPersonally?, note? } → a photographed receipt logged to a job, read, and handed to the office (receipt_capture + invoice_capture)
 //   PUT    /api/invoices?action=line&id=X      { lineNo, category?, description? } → re-files a line item; the category is REMEMBERED for this supplier + product
 //   GET    /api/invoices?action=job-materials&jobId=  a job's materials breakdown by category, line by line (confirmed invoices only)
@@ -59,6 +62,7 @@ const { normaliseIvReference, buildJobCodeIndex, matchJobByIv, nearMissJobs } = 
 const { normaliseSupplierName } = require('./_lib/invoices/supplier-identity');
 const { CATEGORY_LABELS, isCategory, descriptionKey } = require('./_lib/invoices/categories');
 const { measureOf, rollUpProducts, measureTotals } = require('./_lib/invoices/measure');
+const { buildJobPurchases } = require('./_lib/invoices/purchases');
 const { jobsFromEntry } = require('./_lib/invoices/purchaser');
 const { readEntry } = require('./_lib/time-entries');
 const { reconcileTotals, allocationAmountCents, isCents } = require('./_lib/invoices/money');
@@ -276,6 +280,9 @@ async function handler(req, res) {
   // Receipts from the field: the one worker-facing action (receipt_capture is
   // a GLOBAL flag; the office side it feeds must be on too).
   if (action === 'receipt' && req.method === 'POST') return submitReceipt(req, me, res);
+  // Recent purchases on a job: readable by the crew, leading hands and the
+  // office; the money is in the response only for the office tier.
+  if (action === 'job-purchases' && req.method === 'GET') return jobPurchases(req, me, res);
   if (!(await isFlagEnabled('invoice_capture', me))) return res.status(404).json({ error: 'not found' });
   if (!isAdminRole(me.role)) return res.status(403).json({ error: 'admin only' });
 
@@ -503,6 +510,48 @@ async function upload(sql, tenant, me, body, res) {
   const detail = await detailWithJob(sql, tenant, invoice.id);
   await journal(me, 'invoice.uploaded', detail.invoice, `Uploaded supplier document ${file.filename}`, { filename: file.filename, outcome: result.status || result.code });
   return res.status(201).json(detail);
+}
+
+/**
+ * Recent purchases on a job (owner pull 2026-10-04: "view recent purchases
+ * from wholesalers on the job easily and simply — only PMs and admins can view
+ * the total cost"). The crew and leading hands see WHAT was bought, when, from
+ * whom and by whom; amounts and the job total are added only for the office
+ * tier (api/_lib/invoices/purchases.js whitelists every field). A worker may
+ * read it for any job they can open on site (isFieldOpenable — the same rule
+ * as logging a receipt); the office for any live job. Needs job_purchases AND
+ * invoice_capture (the source of the data) — else invisible (404).
+ */
+async function jobPurchases(req, me, res) {
+  if (!(await isFlagEnabled('job_purchases', me)) || !(await isFlagOn('invoice_capture'))) return res.status(404).json({ error: 'not found' });
+  const office = isAdminRole(me.role);
+  if (!(office || isLeadingHandRole(me.role) || isFieldRole(me.role))) return res.status(403).json({ error: 'forbidden' });
+  const jobId = typeof req.query?.jobId === 'string' ? req.query.jobId : '';
+  if (!jobId) return res.status(400).json({ error: 'jobId required' });
+  const job = liveJob(await readJobs(), jobId);
+  // Same answer for "no such job" and "not yours to open" — no probing.
+  if (!job || (!office && !isFieldOpenable(job))) return res.status(404).json({ error: 'job_not_found' });
+  let sql;
+  let tenant;
+  try {
+    sql = getDb({ mode: 'read' });
+    tenant = await store.resolveTenant(sql);
+  } catch (e) {
+    console.error('[invoices] job-purchases: store unavailable', { code: (e && e.code) || 'db' });
+    return res.status(503).json({ error: 'store_unavailable' });
+  }
+  if (!tenant) return res.status(503).json({ error: 'store_unprovisioned' });
+  try {
+    const [raw, summary] = await Promise.all([
+      store.jobRecentPurchases(sql, tenant.id, job.id, { limit: 20 }),
+      store.jobSummary(sql, tenant.id, job.id),
+    ]);
+    res.setHeader('Cache-Control', 'private, no-store');
+    return res.status(200).json(buildJobPurchases(raw, { withCost: office, awaitingCount: summary.awaitingCount }));
+  } catch (e) {
+    console.error('[invoices] job-purchases failed', { code: (e && e.code) || 'db' });
+    return res.status(500).json({ error: 'purchases_unavailable' });
+  }
 }
 
 /**

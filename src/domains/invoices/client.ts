@@ -6,6 +6,8 @@ import {
   JobInvoiceSummarySchema,
   JobMaterialsBreakdownSchema,
   type JobMaterialsBreakdown,
+  JobPurchasesSchema,
+  type JobPurchases,
   type MaterialCategory,
   JobPickerSchema,
   ProcessPendingSchema,
@@ -86,6 +88,12 @@ export function jobMaterialsBreakdown(jobId: string): Promise<HttpResult<JobMate
 /** Re-file (or rename) one line item; the category is remembered for this supplier + product. */
 export function correctInvoiceLine(id: string, patch: { lineNo: number; category?: MaterialCategory; description?: string; remember?: boolean }): Promise<HttpResult<InvoiceDetail>> {
   return httpPut(`${BASE}${qs({ action: "line", id })}`, patch, { schema: InvoiceDetailSchema, timeoutMs: 20_000 });
+}
+
+/** A job's recent wholesaler purchases. Readable by the crew, leading hands and
+ *  the office (job_purchases); prices come back for the office tier only. */
+export function jobPurchases(jobId: string): Promise<HttpResult<JobPurchases>> {
+  return httpGet(`${BASE}${qs({ action: "job-purchases", jobId })}`, { schema: JobPurchasesSchema });
 }
 
 export function jobInvoiceSummary(jobId: string): Promise<HttpResult<JobInvoiceSummary>> {

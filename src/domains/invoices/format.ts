@@ -237,3 +237,37 @@ export const EVENT_LABELS: Record<string, string> = {
 export function eventLabel(event: string): string {
   return EVENT_LABELS[event] ?? event.replace(/_/g, " ");
 }
+
+/**
+ * One purchase line in site words (recent purchases, owner pull 2026-10-04):
+ * "3 × 2.5mm TPS 100m roll · 300 m". The quantity leads; the measure follows
+ * only when it says something the quantity doesn't (metres off a roll count).
+ */
+export function purchaseLineLabel(line: {
+  description: string;
+  quantity: number | null;
+  unit: string | null;
+  measure: { amount: number | null; unit: string | null };
+}): string {
+  const desc = line.description.trim() || "Item";
+  const qty =
+    line.quantity == null
+      ? ""
+      : `${Number.isInteger(line.quantity) ? line.quantity : line.quantity.toFixed(2).replace(/\.?0+$/, "")} × `;
+  const m = line.measure;
+  const showMeasure =
+    m.amount != null && m.unit === "m" && !(line.unit && /^(m|mtr|mtrs|metres?|meters?)$/i.test(line.unit));
+  const measure = showMeasure ? ` · ${Number.isInteger(m.amount) ? m.amount : (m.amount as number).toFixed(1)} m` : "";
+  return `${qty}${desc}${measure}`;
+}
+
+/** "Lawrence & Hanson · bought by Tom" / "Receipt · Sam" / "Return · L&H". */
+export function purchaseHeadline(p: {
+  supplier: string | null;
+  boughtBy: string | null;
+  kind: "invoice" | "receipt" | "return";
+}): string {
+  const who = p.supplier || (p.kind === "receipt" ? "Receipt" : "Supplier not read");
+  const prefix = p.kind === "return" ? "Return · " : p.kind === "receipt" && p.supplier ? "Receipt · " : "";
+  return `${prefix}${who}${p.boughtBy ? ` · ${p.boughtBy}` : ""}`;
+}

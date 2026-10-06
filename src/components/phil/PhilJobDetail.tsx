@@ -42,6 +42,7 @@ import { TodaysCapturesStrip } from "./TodaysCapturesStrip";
 import { JobDocumentsPanel } from "./JobDocumentsPanel";
 import { PhilJobSiteCard } from "./PhilJobSiteCard";
 import { PhilJobCrewCard } from "./PhilJobCrewCard";
+import { PhilJobPurchasesCard } from "./PhilJobPurchasesCard";
 import { PhilFixJobName } from "./PhilFixJobName";
 import { PhilJobHero } from "./PhilJobHero";
 import { PhilJobCommandPanel } from "./PhilJobCommandPanel";
@@ -114,6 +115,9 @@ interface Props {
   /** #915: the Photos gallery card is DATA-driven — without the flag it would
    *  link to a flag-gated 404 route. */
   photosGalleryEnabled?: boolean;
+  /** job_purchases + invoice_capture (owner pull 2026-10-04): the "What's been
+   *  bought" reference card. Off ⇒ no card, no fetch. */
+  purchasesEnabled?: boolean;
   /**
    * phil_job_rooms (dark — the filed #133 experiment): render this job as the
    * FOUR ROOMS takeover (Now · Work · [Capture] · Proof · Site with the in-job
@@ -195,6 +199,7 @@ export function PhilJobDetail({
   autoCaptureToken,
   itpSimpleEnabled = false,
   photosGalleryEnabled = false,
+  purchasesEnabled = false,
   rooms = false,
   canFixName = false,
   logHoursHref,
@@ -852,6 +857,11 @@ export function PhilJobDetail({
           </Card>
         </section>
       ) : null}
+
+      {/* What's been bought (owner pull 2026-10-04) — the job's recent
+          wholesaler purchases, no prices. Enters the reference group as one
+          quiet card and is absent until something has been bought (P10, P7). */}
+      {purchasesEnabled ? <PhilJobPurchasesCard jobId={job.id} /> : null}
 
       {/* Site details — reference info (address / access / parking / safety /
           induction). Demoted to the bottom "reference" zone so the active work
