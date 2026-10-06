@@ -29,6 +29,7 @@ function fullForm(over: Partial<JobBuilderForm> = {}): JobBuilderForm {
     type: "",
     status: "draft",
     clientUserId: "",
+    clientName: "",
     siteAddress: "",
     siteContactName: "",
     siteContactPhone: "",
@@ -109,6 +110,24 @@ describe("buildCreatePayload", () => {
       type: "fitout",
       siteAddress: "1 Site Rd",
     });
+  });
+});
+
+describe("client name (owner pull 2026-10-03)", () => {
+  it("create carries the client trimmed, and omits it when blank", () => {
+    expect(buildCreatePayload({ name: "J", clientName: "  Hutchinson Builders " })).toEqual({
+      name: "J",
+      status: "draft",
+      clientName: "Hutchinson Builders",
+    });
+    expect(buildCreatePayload({ name: "J", clientName: "   " })).toEqual({ name: "J", status: "draft" });
+  });
+
+  it("update always sends the client (blank clears it)", () => {
+    expect(buildUpdatePayload("j", fullForm({ clientName: " Built Pty Ltd " })).clientName).toBe(
+      "Built Pty Ltd"
+    );
+    expect(buildUpdatePayload("j", fullForm({ clientName: "" })).clientName).toBe("");
   });
 });
 

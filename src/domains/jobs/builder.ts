@@ -141,6 +141,8 @@ export interface JobBuilderForm {
   type: string;
   status: JobStatus;
   clientUserId: string;
+  /** The client the job is for — usually the builder ("" = not set). */
+  clientName: string;
   siteAddress: string;
   siteContactName: string;
   siteContactPhone: string;
@@ -163,6 +165,8 @@ export interface NewJobForm {
   ref?: string;
   type?: string;
   siteAddress?: string;
+  /** The client the job is for — optional, free text. */
+  clientName?: string;
   /** The IV job number (IV####) — what workers give the wholesaler and what supplier invoices are matched on. */
   code?: string;
 }
@@ -228,6 +232,8 @@ export function buildCreatePayload(form: NewJobForm): JobCreateInput {
   if (type) payload.type = type;
   const siteAddress = (form.siteAddress ?? "").trim();
   if (siteAddress) payload.siteAddress = siteAddress;
+  const clientName = (form.clientName ?? "").trim();
+  if (clientName) payload.clientName = clientName;
   return payload;
 }
 
@@ -246,6 +252,7 @@ export function buildUpdatePayload(jobId: string, form: JobBuilderForm): JobUpda
     ref: trimOrNull(form.ref),
     type: trimOrNull(form.type),
     clientUserId: trimOrNull(form.clientUserId),
+    clientName: form.clientName.trim(),
     siteAddress: form.siteAddress.trim(),
     siteContactName: form.siteContactName.trim(),
     siteContactPhone: form.siteContactPhone.trim(),
