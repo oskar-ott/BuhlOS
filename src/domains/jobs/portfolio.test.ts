@@ -157,6 +157,11 @@ describe("portfolio — jobCardVerdict (honest per phase)", () => {
     expect(verdict({ status: "draft", statsExpiredTags: 1 }).label).toBe("At risk");
   });
 
+  it("counts the reason in plain English — one tag is a tag, not 'tags'", () => {
+    expect(verdict({ status: "active", statsExpiredTags: 1 }).caption).toBe("1 expired gear tag");
+    expect(verdict({ status: "active", statsExpiredTags: 2 }).caption).toBe("2 expired gear tags");
+  });
+
   it("an active job with nothing outstanding is On track · nothing needs you", () => {
     expect(verdict({ status: "active", statsEvidenceV2Pending: 0, statsExpiredTags: 0 })).toEqual({
       label: "On track",
