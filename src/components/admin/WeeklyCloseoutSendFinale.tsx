@@ -17,6 +17,7 @@ import {
   ReviewedMark,
 } from "@/components/admin/WeeklyCloseoutXeroFinale";
 import { formatPeriodSend, usePeriodEmailStatus } from "./usePeriodEmailStatus";
+import { sendPeriodTimesheets } from "./sendPeriodTimesheets";
 
 /**
  * WeeklyCloseoutSendFinale (owner pull 2026-08-15) — the closeout's last
@@ -32,6 +33,10 @@ import { formatPeriodSend, usePeriodEmailStatus } from "./usePeriodEmailStatus";
  * - Emailing stamps nothing (ADR #609) — a re-send just emails again.
  * - The receipt quotes the SERVER's numbers, never a local guess; a failed
  *   send says so and stays on this screen for a retry.
+ * - Days approved seconds ago can't be read back for up to a minute; the
+ *   server refuses rather than send a short sheet and says when to retry, and
+ *   this screen waits it out and sends by itself (sendPeriodTimesheets —
+ *   2026-10-05, the week that never went).
  */
 
 type Stage = "review" | "sending" | "sent";
@@ -99,6 +104,8 @@ export function WeeklyCloseoutSendFinale({
   const [stage, setStage] = useState<Stage>("review");
   const [error, setError] = useState<string | null>(null);
   const [receipt, setReceipt] = useState<SentReceipt | null>(null);
+  // Set while the send waits for just-approved days to settle (ms it waits).
+  const [settleWaitMs, setSettleWaitMs] = useState<number | null>(null);
   const alive = useRef(true);
 
   useEffect(() => {
@@ -111,24 +118,21 @@ export function WeeklyCloseoutSendFinale({
   const send = useCallback(async () => {
     setStage("sending");
     setError(null);
+    setSettleWaitMs(null);
     onBusyChange?.(true);
     try {
-      const res = await fetch("/api/time-entries-email", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ fromDate: weekStart, toDate: weekEnd }),
+      const outcome = await sendPeriodTimesheets({
+        fromDate: weekStart,
+        toDate: weekEnd,
+        onSettling: (ms) => {
+          if (alive.current) setSettleWaitMs(ms);
+        },
+        isActive: () => alive.current,
       });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) {
-        throw new Error(data?.error || `The send failed (${res.status}) — nothing was emailed.`);
-      }
-      if (!alive.current) return;
+      if (!alive.current || !outcome) return;
+      if (!outcome.ok) throw new Error(outcome.error);
       setReceipt({
-        recipients: Array.isArray(data?.recipients)
-          ? (data.recipients as unknown[]).filter((r): r is string => typeof r === "string")
-          : [],
-        workerCount: Number(data?.workerCount) || 0,
-        totalHours: Number(data?.totalHours) || 0,
+        ...outcome.receipt,
         sentAtLabel: new Date().toLocaleTimeString("en-AU", {
           hour: "numeric",
           minute: "2-digit",
@@ -148,6 +152,7 @@ export function WeeklyCloseoutSendFinale({
       );
       setStage("review");
     } finally {
+      if (alive.current) setSettleWaitMs(null);
       onBusyChange?.(false);
     }
   }, [weekStart, weekEnd, onBusyChange, refreshEmailStatus]);
@@ -167,6 +172,16 @@ export function WeeklyCloseoutSendFinale({
           <p className="text-sm text-text-muted">
             Sending the {periodLabel} PDF to {recipients.join(", ") || "accounts"}.
           </p>
+          {settleWaitMs != null ? (
+            <p
+              role="status"
+              data-testid="wha-send-settling"
+              className="mx-auto max-w-[32ch] text-sm leading-relaxed text-text-muted"
+            >
+              The days you just approved are still saving. It sends by itself in about{" "}
+              {Math.ceil(settleWaitMs / 1000)} seconds — keep this screen open.
+            </p>
+          ) : null}
         </div>
       </FinaleShell>
     );

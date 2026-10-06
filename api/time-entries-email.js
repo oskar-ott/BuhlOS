@@ -175,7 +175,20 @@ async function handleSend(req, res, me) {
   }
 
   const ctx = await collectRows({ status: 'approved', fromDate, toDate });
-  if (!ctx.ok) return res.status(ctx.status).json({ error: ctx.error });
+  if (!ctx.ok) {
+    // A refusal of days approved seconds ago (code 'settling') says WHEN it
+    // will clear; the send surfaces wait that long and re-send by themselves
+    // (2026-10-05: the boss approved the week, tapped send inside the CDN
+    // window twice, and the week never went). Nothing was sent, so the retry
+    // can never produce a second email.
+    if (ctx.retryAfterMs != null) {
+      res.setHeader('Retry-After', String(Math.ceil(ctx.retryAfterMs / 1000)));
+      return res
+        .status(ctx.status)
+        .json({ error: ctx.error, code: ctx.code, retryAfterMs: ctx.retryAfterMs });
+    }
+    return res.status(ctx.status).json({ error: ctx.error });
+  }
   const rows = ctx.rows;
   if (!rows.length) {
     return res.status(422).json({

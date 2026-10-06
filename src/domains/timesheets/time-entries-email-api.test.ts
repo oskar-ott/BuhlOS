@@ -73,6 +73,7 @@ function createRes() {
   return {
     statusCode: 200,
     body: null as unknown,
+    headers: {} as Record<string, string>,
     status(code: number) {
       this.statusCode = code;
       return this;
@@ -81,7 +82,8 @@ function createRes() {
       this.body = body;
       return this;
     },
-    setHeader() {
+    setHeader(name: string, value: string) {
+      this.headers[name] = value;
       return this;
     },
     end() {
@@ -465,5 +467,106 @@ describe("POST /api/time-entries-email (send)", () => {
     expect(res.statusCode).toBe(502);
     expect((res.body as { code: string }).code).toBe("provider_error");
     expect((res.body as { error: string }).error).toContain("nothing reached accounts");
+  });
+});
+
+// ── 2026-10-05: approve, then send inside the CDN window ─────────────────────
+// The boss approved the week on the phone and tapped Send to Tia ten seconds
+// later: the just-approved days still read as "submitted", so the payroll read
+// refused (correctly — never a short sheet). A second tap 40s later was still
+// inside the window; the week never went. The refusal now SAYS when it clears,
+// so the send surfaces can wait it out and re-send by themselves.
+describe("POST — a refusal of just-approved days says when to retry", () => {
+  function listWithUploadedAt(uploadedAt: Record<string, string>, extraPaths: string[] = []) {
+    const sdk = requireFromHere(blobSdkPath) as { list: ReturnType<typeof vi.fn> };
+    sdk.list.mockImplementation(async () => ({
+      blobs: [...new Set([...blob.keys(), ...extraPaths])]
+        .filter((key) => key.includes("/time-entries/"))
+        .map((pathname) => ({
+          pathname,
+          url: `https://blob.test/${encodeURIComponent(pathname)}`,
+          ...(uploadedAt[pathname] ? { uploadedAt: uploadedAt[pathname] } : {}),
+        })),
+    }));
+  }
+
+  beforeEach(() => {
+    // One instant in-request retry, so refusals resolve without sleeping.
+    (
+      requireFromHere(payrollInputsPath) as {
+        __setFreshnessRetryDelaysForTests: (d: number[]) => void;
+      }
+    ).__setFreshnessRetryDelaysForTests([0]);
+  });
+
+  it("a day approved 10s ago that still reads as its previous version → 503 'settling' with retryAfterMs + Retry-After; nothing sent", async () => {
+    seedRecipients(["tia@example.com"]);
+    seedEntry("u_mick", FROM, { status: "submitted" }); // the CDN's pre-approval copy
+    const key = `users/u_mick/time-entries/${FROM}.json`;
+    const putAt = Date.now() - 10_000;
+    listWithUploadedAt({ [key]: new Date(putAt).toISOString() });
+
+    const res = await call("u_admin", "admin", "POST", { fromDate: FROM, toDate: TO });
+    expect(res.statusCode).toBe(503);
+    const body = res.body as { error: string; code?: string; retryAfterMs?: number };
+    expect(body.code).toBe("settling");
+    // Settles 65s after its PUT → ~55s from now.
+    expect(body.retryAfterMs).toBeGreaterThan(45_000);
+    expect(body.retryAfterMs).toBeLessThanOrEqual(65_000);
+    expect(Number(res.headers["Retry-After"])).toBe(Math.ceil(body.retryAfterMs! / 1000));
+    expect(body.error).toContain("Mick Doran 2026-08-03 (just changed)");
+    expect(body.error).toContain("still settling");
+    expect(resendCalls).toHaveLength(0);
+  });
+
+  it("waits for the NEWEST of several just-approved days", async () => {
+    seedRecipients(["tia@example.com"]);
+    seedEntry("u_mick", "2026-08-03", { status: "submitted" });
+    seedEntry("u_mick", "2026-08-04", { status: "submitted" });
+    const now = Date.now();
+    listWithUploadedAt({
+      "users/u_mick/time-entries/2026-08-03.json": new Date(now - 30_000).toISOString(),
+      "users/u_mick/time-entries/2026-08-04.json": new Date(now - 2_000).toISOString(),
+    });
+    const res = await call("u_admin", "admin", "POST", { fromDate: FROM, toDate: TO });
+    expect(res.statusCode).toBe(503);
+    expect((res.body as { retryAfterMs: number }).retryAfterMs).toBeGreaterThan(55_000);
+  });
+
+  it("an OLD day-file that can't be read is not a settling race — no retryAfterMs, a person looks", async () => {
+    seedRecipients(["tia@example.com"]);
+    seedEntry("u_mick", FROM);
+    const missing = "users/u_mick/time-entries/2026-08-05.json";
+    listWithUploadedAt({ [missing]: new Date(Date.now() - 3 * 60 * 60_000).toISOString() }, [missing]);
+    const res = await call("u_admin", "admin", "POST", { fromDate: FROM, toDate: TO });
+    expect(res.statusCode).toBe(503);
+    const body = res.body as { error: string; code?: string; retryAfterMs?: number };
+    expect(body.error).toContain("(unreadable)");
+    expect(body.code).toBeUndefined();
+    expect(body.retryAfterMs).toBeUndefined();
+    expect(res.headers["Retry-After"]).toBeUndefined();
+    expect(resendCalls).toHaveLength(0);
+  });
+
+  it("a just-CREATED day-file the CDN still 404s IS a settling race", async () => {
+    seedRecipients(["tia@example.com"]);
+    seedEntry("u_mick", FROM);
+    const fresh = "users/u_mick/time-entries/2026-08-05.json";
+    listWithUploadedAt({ [fresh]: new Date(Date.now() - 3_000).toISOString() }, [fresh]);
+    const res = await call("u_admin", "admin", "POST", { fromDate: FROM, toDate: TO });
+    expect(res.statusCode).toBe(503);
+    expect((res.body as { code?: string }).code).toBe("settling");
+  });
+
+  it("once settled, the same send goes through", async () => {
+    seedRecipients(["tia@example.com"]);
+    seedEntry("u_mick", FROM); // the approved copy now serves
+    const key = `users/u_mick/time-entries/${FROM}.json`;
+    const entry = blob.get(key) as Record<string, unknown>;
+    entry.__updatedAt = new Date(Date.now() - 70_000).toISOString();
+    listWithUploadedAt({ [key]: new Date(Date.now() - 69_000).toISOString() });
+    const res = await call("u_admin", "admin", "POST", { fromDate: FROM, toDate: TO });
+    expect(res.statusCode).toBe(200);
+    expect(resendCalls).toHaveLength(1);
   });
 });
