@@ -40,17 +40,26 @@ no new permission surface, no extra fetch**.
 
 ## 4. Sources included in Phase 1
 
+*Current as of 2026-10-06 (owner pull: "stop unnecessary Needs you items
+building up"). The observations / snags / ITP / material-request sources left
+with the 2026-07-27 gut; the evidence source left on 2026-10-06.*
+
 | Source | Exception | Severity | Action link |
 |---|---|---|---|
-| Hours — submitted | "Hours from X (date) awaiting approval" | warning | `/hours/approvals` |
-| Hours — rejected | "Rejected hours from X need correction" | warning | `/hours/approvals` |
-| Observations (open + `requiresAction`) | the observation title, by priority | urgent→critical / high·normal→warning / low→info | `/v2/jobs/{id}/observations` or `/observations` |
-| Job evidence (`statsEvidenceV2Pending`) | "{job}: N evidence to review" | warning | `/v2/jobs/{id}/evidence` |
-| Job snags (`statsSnagsV2Active`) | "{job}: N open snags" | warning | `/v2/jobs/{id}/snags` |
-| Job ITP (`statsItpsNeedsReview`) | "{job}: N ITPs need sign-off" | warning | `/v2/jobs/{id}/itps` |
+| Hours — submitted | **one** item: "N days waiting on your approval" + who ("From Tom, Sam and 3 others"), aged from the oldest day | warning | `/hours/approvals` |
+| Hours — rejected | **one** item: "N rejected days to re-submit" + who | warning | `/hours/weekly?week=<oldest rejected day's week>` |
 | Active job, no crew (`statsCrewCount===0`, PR #67 source of truth) | "{job}: active but no field workers assigned" | **critical** | `/v2/jobs/{id}/builder#assigned-field-workers` |
 | Draft job (`status==='draft'`) | "{job}: draft, not published" | info | `/v2/jobs/{id}/builder#publish` |
-| Material requests (`requested`/`approved`) | "{job}: {item} ({status})" | urgent→critical / high→warning / else info | `/material-requests?focus={id}` |
+
+**Why grouped, why no photos.** Hours used to be one item per submitted day —
+a crew of eight logging a week put ~40 rows on the phone home. They are now one
+item per kind (the desktop queue already worked that way); every day is still
+on the approvals queue / weekly board. Photos and tags to review were a
+Needs-you item and a desktop row although "no one is blocked on it"; they grew
+with every capture. They now live only on the job — the list card's
+"Review N" / "Evidence N" link, the hub's Evidence card and the job's Evidence
+page. Job health also stops counting unreviewed photos once a job is finished,
+closed or archived ([job-health-thresholds.md](job-health-thresholds.md)).
 
 Ordering is deterministic: **critical → warning → info**, then oldest first,
 then id.

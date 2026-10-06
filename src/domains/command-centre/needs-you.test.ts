@@ -11,7 +11,6 @@ const ZERO: NeedsYouCounts = {
   missingDays: 0,
   noCrewJobs: 0,
   pending: 0,
-  evidence: 0,
 };
 
 describe("summaryHeadline", () => {
@@ -74,10 +73,15 @@ describe("buildNeedsYouQueue", () => {
       missingDays: 0, // dropped
       noCrewJobs: 2,
       pending: 5,
-      evidence: 7,
     });
-    expect(rows.map((r) => r.key)).toEqual(["rejected", "no-crew", "pending", "evidence"]);
-    expect(rows.map((r) => r.tone)).toEqual(["block", "block", "wait", "calm"]);
+    expect(rows.map((r) => r.key)).toEqual(["rejected", "no-crew", "pending"]);
+    expect(rows.map((r) => r.tone)).toEqual(["block", "block", "wait"]);
+  });
+
+  it("never carries a photos-to-review row — it blocks no one (owner pull 2026-10-06)", () => {
+    const rows = buildNeedsYouQueue({ rejected: 0, missingDays: 0, noCrewJobs: 0, pending: 0 });
+    expect(rows).toEqual([]);
+    expect(rows.some((r) => /photo|evidence/i.test(r.title))).toBe(false);
   });
 
   it("routes each core row to its owning surface", () => {
@@ -86,14 +90,12 @@ describe("buildNeedsYouQueue", () => {
       missingDays: 1,
       noCrewJobs: 1,
       pending: 1,
-      evidence: 1,
     });
     expect(rows.map((r) => [r.key, r.cta, r.href])).toEqual([
       ["rejected", "Review", "/hours/weekly"],
       ["missing", "Hours", "/hours/weekly"],
       ["no-crew", "Jobs", "/v2/jobs"],
       ["pending", "Approve", "/hours/approvals"],
-      ["evidence", "Jobs", "/v2/jobs"],
     ]);
   });
 

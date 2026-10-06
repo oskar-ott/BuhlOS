@@ -106,11 +106,6 @@ export default async function CommandCentrePage() {
   // untouched either way.
   const todayStrip = summariseTodayStrip(todayPulse);
 
-  const evidencePending = jobs.reduce(
-    (sum, j) => sum + (j.statsEvidenceV2Pending ?? 0),
-    0
-  );
-
   // #155 pilot: the flags readout is itself flag-gated + admin-tier targeted
   // — dark for everyone (incl. this page) until FLAG_ADMIN_FLAGS_READOUT or
   // the flags.json override turns it on, and never rendered to non-admin
@@ -216,7 +211,6 @@ export default async function CommandCentrePage() {
     missingWeekStart: addDays(weekStartOf(localDateString(new Date(), BUSINESS_TIMEZONE)), -7),
     noCrewJobs,
     pending: hoursPending.length,
-    evidence: evidencePending,
   });
   // Weekly-first (owner directive 2026-08-08): the strip counts the CURRENT
   // Mon–Sun week, not today — the crew logs weekly, so today-figures read 0

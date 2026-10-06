@@ -1,9 +1,8 @@
 import type { TimeEntry } from "@/domains/timesheets/types";
-import { formatShortDateLabel } from "@/domains/timesheets/format";
 import { weekStartOf } from "@/domains/timesheets/service";
 import type { Job } from "@/domains/jobs/types";
-import { resolveAction, jobHubHref, type ResolvedAction } from "./routes";
-import type { ExceptionItem, ExceptionSeverity } from "./types";
+import { resolveAction, type ResolvedAction } from "./routes";
+import type { ExceptionItem } from "./types";
 
 /**
  * Source-specific mappers: each turns real source records into ExceptionItems.
@@ -24,56 +23,69 @@ function withAction(action: ResolvedAction) {
   };
 }
 
-/** The single distinct job an hours entry is allocated to, or undefined. */
-function singleAllocationJobId(entry: TimeEntry): string | undefined {
-  const ids = new Set(
-    (entry.allocations ?? []).map((a) => a.jobId).filter((j): j is string => !!j),
-  );
-  return ids.size === 1 ? [...ids][0] : undefined;
+/** "Tom", "Tom and Sam", "Tom, Sam and 3 others" — the people behind a group. */
+function namesLabel(entries: ReadonlyArray<TimeEntry>): string {
+  const names = [...new Set(entries.map((e) => e.userName?.trim() || "a worker"))];
+  if (names.length <= 2) return names.join(" and ");
+  return `${names.slice(0, 2).join(", ")} and ${names.length - 2} other${names.length - 2 === 1 ? "" : "s"}`;
 }
 
-/** Hours: submitted = awaiting approval; rejected = needs worker correction. */
+/** The earliest of a set of ISO stamps (the group's age is its oldest item). */
+function oldest(stamps: ReadonlyArray<string | null | undefined>): string | undefined {
+  const real = stamps.filter((s): s is string => !!s).sort();
+  return real[0];
+}
+
+/**
+ * Hours: submitted = awaiting approval; rejected = needs worker correction.
+ *
+ * ONE item per kind, not one per day (owner pull 2026-10-06 — "stop
+ * unnecessary Needs you items building up"): a crew of eight logging a week
+ * used to put ~40 rows on the phone home. The group says how many days and
+ * whose, ages from its OLDEST day, and lands where they're decided — the
+ * approvals queue, or the weekly board on the oldest rejected day's week
+ * (rejected days show there as "Sent back"). Every day is still on those
+ * screens; nothing is dropped, only counted together. Same shape as the
+ * desktop queue rows (src/domains/command-centre/needs-you.ts).
+ */
 export function hoursExceptions(
   pending: ReadonlyArray<TimeEntry>,
   rejected: ReadonlyArray<TimeEntry>,
 ): ExceptionItem[] {
   const out: ExceptionItem[] = [];
-  for (const e of pending) {
-    if (e.status !== "submitted") continue; // trust the field, not the caller
+  const waiting = pending.filter((e) => e.status === "submitted"); // trust the field, not the caller
+  if (waiting.length > 0) {
+    const n = waiting.length;
     out.push({
-      id: `hours-pending:${e.id}`,
+      id: "hours-pending",
       source: "hours",
-      sourceId: e.id,
-      jobId: singleAllocationJobId(e),
-      title: `Hours from ${e.userName ?? "a worker"} (${formatShortDateLabel(e.date)}) awaiting approval`,
-      summary: `${e.totalHours}h submitted — approve or reject in the hours queue.`,
+      sourceId: "pending",
+      title: `${n} ${n === 1 ? "day" : "days"} waiting on your approval`,
+      summary: `From ${namesLabel(waiting)} — approve or send back so they land in this pay period.`,
       severity: "warning",
       status: "waiting",
       ownerRole: "office",
-      createdAt: e.submittedAt ?? e.createdAt,
+      createdAt: oldest(waiting.map((e) => e.submittedAt ?? e.createdAt)),
       ...withAction(resolveAction("hoursApprovals", {}, { label: "Review approvals" })),
       tags: ["hours", "approval"],
     });
   }
-  for (const e of rejected) {
-    if (e.status !== "rejected") continue;
+  const sentBack = rejected.filter((e) => e.status === "rejected");
+  if (sentBack.length > 0) {
+    const n = sentBack.length;
+    const oldestDay = [...sentBack].sort((a, b) => a.date.localeCompare(b.date))[0]!;
     out.push({
-      id: `hours-rejected:${e.id}`,
+      id: "hours-rejected",
       source: "hours",
-      sourceId: e.id,
-      jobId: singleAllocationJobId(e),
-      title: `Rejected hours from ${e.userName ?? "a worker"} (${formatShortDateLabel(e.date)}) need correction`,
-      summary: e.rejectedReason
-        ? `Reason: ${e.rejectedReason} — review and nudge the worker to resubmit.`
-        : "Worker needs to fix and resubmit — review the rejection.",
+      sourceId: "rejected",
+      title: `${n} rejected ${n === 1 ? "day" : "days"} to re-submit`,
+      summary: `Sent back to ${namesLabel(sentBack)} — these hours can’t be paid until they fix and resubmit.`,
       severity: "warning",
       status: "blocked",
       ownerRole: "office",
-      createdAt: e.rejectedAt ?? e.submittedAt ?? e.createdAt,
-      // Rejected days never appear on /hours/approvals (submitted only) — they
-      // show as "Sent back" on the weekly board for the day's week.
+      createdAt: oldest(sentBack.map((e) => e.rejectedAt ?? e.submittedAt ?? e.createdAt)),
       ...withAction(
-        resolveAction("hoursWeekly", {}, { label: "Review rejections", query: { week: weekStartOf(e.date) } }),
+        resolveAction("hoursWeekly", {}, { label: "Review rejections", query: { week: weekStartOf(oldestDay.date) } }),
       ),
       tags: ["hours", "rejected"],
     });
@@ -95,14 +107,9 @@ export function jobExceptions(jobs: ReadonlyArray<Job>): ExceptionItem[] {
     if (status && ARCHIVED_LIKE.has(status)) continue; // never surface archived work
     const name = j.name;
 
-    // Field-work queues only apply once a job is real (not a draft).
-    if (status !== "draft") {
-      const hub = jobHubHref(j.id); // safe parent surface if a section route ever goes missing
-      const evidence = j.statsEvidenceV2Pending ?? 0;
-      if (evidence > 0) {
-        out.push(jobStatItem(j, "evidence", evidence, `${name}: ${evidence} evidence to review`, resolveAction("jobEvidence", { jobId: j.id }, { label: "Open evidence", fallbackHref: hub }), "warning"));
-      }
-    }
+    // Photos / tags to review are NOT a Needs-you item (owner pull 2026-10-06):
+    // they block no one and grew with every capture. They stay on the job —
+    // the card's "Review N" link and the job's Evidence page.
 
     // Active but nobody assigned — the field literally can't see this job.
     if (status === "active" && (j.statsCrewCount ?? 0) === 0) {
@@ -143,27 +150,4 @@ export function jobExceptions(jobs: ReadonlyArray<Job>): ExceptionItem[] {
     }
   }
   return out;
-}
-
-function jobStatItem(
-  j: Job,
-  source: ExceptionItem["source"],
-  count: number,
-  title: string,
-  action: ResolvedAction,
-  severity: ExceptionSeverity,
-): ExceptionItem {
-  return {
-    id: `${source}-job:${j.id}`,
-    source,
-    sourceId: j.id,
-    jobId: j.id,
-    jobName: j.name,
-    title,
-    severity,
-    status: "open",
-    ownerRole: "office",
-    ...withAction(action),
-    tags: ["job", source, `count:${count}`],
-  };
 }
