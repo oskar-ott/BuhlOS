@@ -319,6 +319,22 @@ describe("JobsList — §3 portfolio card presentation (admin redesign)", () => 
     expect(html).toContain(">Updated<");
   });
 
+  it("shows who the job is for on the card, between the job number and the address", () => {
+    const html = render("", [
+      job({ id: "a", name: "Alpha", status: "active", code: "IV2231", clientName: "Hutchinson Builders", siteAddress: "48 Parramatta Rd" }),
+      job({ id: "b", name: "Bravo", status: "active", code: "IV2232", siteAddress: "1 Smith St" }),
+    ]);
+    expect(html).toContain('data-testid="job-card-client">Hutchinson Builders<');
+    const alpha = html.slice(html.indexOf(">Alpha<"), html.indexOf(">Bravo<"));
+    expect(alpha.indexOf("IV2231")).toBeLessThan(alpha.indexOf("Hutchinson Builders"));
+    expect(alpha.indexOf("Hutchinson Builders")).toBeLessThan(alpha.indexOf("48 Parramatta Rd"));
+    // a job with no client simply has none — no empty slot, no stray separator
+    const bravo = html.slice(html.indexOf(">Bravo<"));
+    expect(bravo).not.toContain("job-card-client");
+    expect(bravo).not.toMatch(/ · <!-- --> · /);
+    expect(html).toContain("Search name, IV number, client or address");
+  });
+
   it("takes nothing away: Builder + Photos always visible, the full address never truncated", () => {
     const html = renderWith(
       "",
