@@ -1,3 +1,4 @@
+import { inProcessFetch } from "../../../../api/_lib/in-process-api.js";
 import Link from "next/link";
 import type { Route } from "next";
 import { redirect } from "next/navigation";
@@ -106,11 +107,6 @@ export default async function CommandCentrePage() {
   // untouched either way.
   const todayStrip = summariseTodayStrip(todayPulse);
 
-  const evidencePending = jobs.reduce(
-    (sum, j) => sum + (j.statsEvidenceV2Pending ?? 0),
-    0
-  );
-
   // #155 pilot: the flags readout is itself flag-gated + admin-tier targeted
   // — dark for everyone (incl. this page) until FLAG_ADMIN_FLAGS_READOUT or
   // the flags.json override turns it on, and never rendered to non-admin
@@ -216,7 +212,6 @@ export default async function CommandCentrePage() {
     missingWeekStart: addDays(weekStartOf(localDateString(new Date(), BUSINESS_TIMEZONE)), -7),
     noCrewJobs,
     pending: hoursPending.length,
-    evidence: evidencePending,
   });
   // Weekly-first (owner directive 2026-08-08): the strip counts the CURRENT
   // Mon–Sun week, not today — the crew logs weekly, so today-figures read 0
@@ -613,7 +608,7 @@ async function loadSnapshot(
     loadRosterTotal(base, headersInit),
     // The greeting name — resolved from the authoritative /api/auth?action=me
     // (the cookie carries no name). Fails soft to null → impersonal greeting.
-    cookieValue ? verifyViaApi(`${SESSION_COOKIE}=${cookieValue}`, base) : Promise.resolve(null),
+    cookieValue ? verifyViaApi(`${SESSION_COOKIE}=${cookieValue}`, base, inProcessFetch) : Promise.resolve(null),
   ]);
 
   const displayName =
@@ -650,7 +645,7 @@ async function loadTodayPulse(
   headersInit: { cookie: string } | undefined
 ): Promise<{ pulse: TodayPulseResponse | null; error: string | null }> {
   try {
-    const res = await fetch(`${base}/api/today-pulse`, {
+    const res = await inProcessFetch(`${base}/api/today-pulse`, {
       cache: "no-store",
       headers: headersInit,
     });
@@ -685,7 +680,7 @@ async function loadRosterTotal(
   headersInit: { cookie: string } | undefined
 ): Promise<number | null> {
   try {
-    const res = await fetch(`${base}/api/admin-stats`, {
+    const res = await inProcessFetch(`${base}/api/admin-stats`, {
       cache: "no-store",
       headers: headersInit,
     });
@@ -727,7 +722,7 @@ async function loadHoursOverview(
   error: string | null;
 }> {
   try {
-    const res = await fetch(
+    const res = await inProcessFetch(
       `${base}/api/time-entries-overview?fromDate=${fromDate}&toDate=${toDate}`,
       { cache: "no-store", headers: headersInit }
     );
@@ -764,7 +759,7 @@ async function loadHoursByStatus(
   status: "submitted" | "rejected"
 ): Promise<{ entries: ReadonlyArray<TimeEntry>; error: string | null }> {
   try {
-    const res = await fetch(
+    const res = await inProcessFetch(
       `${base}/api/time-entries?scope=approver&status=${status}`,
       { cache: "no-store", headers: headersInit }
     );
@@ -794,7 +789,7 @@ async function loadJobsWithStats(
     // evidence-pending / snags-active / ITPs-needs-review) — never task counts —
     // so `statsOnly=1` serves them from the small jobs-summary + per-job stat
     // reads, skipping the ~8s jobs.json monolith. Same counts, no staleness.
-    const res = await fetch(`${base}/api/jobs?withStats=1&statsOnly=1`, {
+    const res = await inProcessFetch(`${base}/api/jobs?withStats=1&statsOnly=1`, {
       cache: "no-store",
       headers: headersInit,
     });

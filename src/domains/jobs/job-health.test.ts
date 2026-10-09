@@ -49,6 +49,31 @@ describe("deriveJobHealth", () => {
     expect(h.level).toBe("watch");
   });
 
+  it("photos to review only count while the job is running — a finished / closed job stops nagging (owner pull 2026-10-06)", () => {
+    const recent = new Date(Date.now() - 3 * 86_400_000).toISOString(); // finished 3 days ago (in the callback window)
+    const longAgo = "2026-01-10T00:00:00.000Z"; // closed
+    for (const job of [
+      { status: "complete" as const, completedAt: recent },
+      { status: "complete" as const, completedAt: longAgo },
+      { status: "archived" as const },
+    ]) {
+      const h = deriveJobHealth({ ...job, statsEvidenceV2Pending: 12, statsExpiredTags: 0 });
+      expect(h.level, JSON.stringify(job)).toBe("good");
+      expect(h.reasons, JSON.stringify(job)).toEqual([]);
+    }
+    // still counts on running work
+    expect(deriveJobHealth({ status: "active", statsEvidenceV2Pending: 3 }).level).toBe("watch");
+    expect(deriveJobHealth({ status: "on_hold", statsEvidenceV2Pending: 3 }).level).toBe("watch");
+    // a job with no status reads as active (callers without lifecycle fields keep today's rule)
+    expect(deriveJobHealth({ statsEvidenceV2Pending: 3 }).level).toBe("watch");
+  });
+
+  it("expired gear tags still count on a finished job — out-of-test kit is a hard breach in any phase", () => {
+    const h = deriveJobHealth({ status: "complete", completedAt: "2026-01-10T00:00:00.000Z", statsExpiredTags: 1, statsEvidenceV2Pending: 5 });
+    expect(h.level).toBe("at-risk");
+    expect(h.reasons.map((r) => r.key)).toEqual(["tags"]);
+  });
+
   it("a zero stat still counts as 'loaded' → good, not unknown", () => {
     expect(deriveJobHealth({ statsEvidenceV2Pending: 0 }).level).toBe("good");
   });

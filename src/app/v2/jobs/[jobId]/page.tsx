@@ -1,3 +1,4 @@
+import { inProcessFetch } from "../../../../../api/_lib/in-process-api.js";
 import { Suspense } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -429,7 +430,7 @@ async function loadJob(base: string, cookieValue: string | undefined, jobId: str
   // withStats=1 so the band + tags card can show health / evidence / crew
   // counts on the loaded Job.
   const [jobRes] = await Promise.allSettled([
-    fetch(`${base}/api/jobs?id=${encodeURIComponent(jobId)}&withStats=1`, authInit(cookieValue)),
+    inProcessFetch(`${base}/api/jobs?id=${encodeURIComponent(jobId)}&withStats=1`, authInit(cookieValue)),
   ]);
   return parseJobResult(jobRes);
 }
@@ -455,7 +456,7 @@ async function LabourSection({
   progressPct: number | null;
 }) {
   const [hoursRes] = await Promise.allSettled([
-    fetch(`${base}/api/job-hours?jobId=${encodeURIComponent(job.id)}`, authInit(cookieValue)),
+    inProcessFetch(`${base}/api/job-hours?jobId=${encodeURIComponent(job.id)}`, authInit(cookieValue)),
   ]);
   const hours = await parseHoursResult(hoursRes);
   const workerIds = [
@@ -490,7 +491,7 @@ async function loadRateHistories(
   const pairs = await Promise.all(
     workerIds.map(async (userId): Promise<[string, CostRateEntry[]] | null> => {
       try {
-        const res = await fetch(
+        const res = await inProcessFetch(
           `${base}/api/cost-rates?userId=${encodeURIComponent(userId)}`,
           authInit(cookieValue)
         );
@@ -531,7 +532,7 @@ async function loadEmployeeIds(
   cookieValue: string | undefined
 ): Promise<Record<string, string>> {
   try {
-    const res = await fetch(`${base}/api/employees`, authInit(cookieValue));
+    const res = await inProcessFetch(`${base}/api/employees`, authInit(cookieValue));
     if (!res.ok) return {};
     const parsed = EmployeeIdsSchema.safeParse(await res.json());
     if (!parsed.success) return {};
@@ -553,7 +554,7 @@ async function EvidenceSection({
   jobId: string;
 }) {
   const [evidenceRes] = await Promise.allSettled([
-    fetch(`${base}/api/evidence?jobId=${encodeURIComponent(jobId)}`, authInit(cookieValue)),
+    inProcessFetch(`${base}/api/evidence?jobId=${encodeURIComponent(jobId)}`, authInit(cookieValue)),
   ]);
   const evidence = await parseEvidenceResult(evidenceRes);
   return (

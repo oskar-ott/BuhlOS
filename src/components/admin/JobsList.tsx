@@ -361,7 +361,7 @@ export function JobsList({ jobs, canBuild = false, newJobHref, cardExtrasPromise
               type="search"
               value={query}
               onChange={(e) => handleQueryChange(e.target.value)}
-              placeholder="Search name, IV number or address"
+              placeholder="Search name, IV number, client or address"
               aria-label="Filter jobs"
               className="w-full bg-transparent text-text outline-none placeholder:text-text-muted"
             />
@@ -544,9 +544,11 @@ function JobCard({
 
   const updated = job.updatedAt ? relativeWhen(job.updatedAt) : "";
   // Identity line: the job number in mono (it's typed, read out, searched),
-  // then type + address in plain words (sentence case reads shorter than the
-  // old all-caps mono line). Wraps, never truncates — the full address stays.
+  // then who it's for (the client, owner pull 2026-10-03 — a touch darker so
+  // "all the Hutchinson jobs" scans), then type + address in plain words.
+  // Wraps, never truncates — the full address stays.
   const numberPart = [job.code, job.ref].filter(Boolean).join(" · ");
+  const clientPart = (job.clientName ?? "").trim();
   const wordsPart = [job.typeName, (job.siteAddress ?? "").trim()].filter(Boolean).join(" · ");
   const evidencePending = job.statsEvidenceV2Pending ?? 0;
 
@@ -594,12 +596,18 @@ function JobCard({
             ) : null}
             {isQaTestJobName(job.name) ? <Pill tone="neutral">Test data</Pill> : null}
           </div>
-          {numberPart || wordsPart ? (
+          {numberPart || clientPart || wordsPart ? (
             <p className="mt-1 break-words text-[13px] text-text-muted">
               {numberPart ? (
                 <span className="font-mono text-xs font-medium tracking-[0.06em]">{numberPart}</span>
               ) : null}
-              {numberPart && wordsPart ? " · " : null}
+              {numberPart && clientPart ? " · " : null}
+              {clientPart ? (
+                <span className="font-medium text-text" data-testid="job-card-client">
+                  {clientPart}
+                </span>
+              ) : null}
+              {(numberPart || clientPart) && wordsPart ? " · " : null}
               {wordsPart}
             </p>
           ) : null}
@@ -787,6 +795,12 @@ function QuickLink({
   return (
     <Link
       href={href as Route}
+      // Secondary per-card links don't pre-load (2026-10-09, "the admin side
+      // is slow"): with Builder · Photos · Evidence on every card, a jobs list
+      // fired ~3 server renders per job the moment it appeared (prod logs: 30
+      // in two seconds). They still open on tap; the card's own link — the
+      // common path — keeps pre-loading, so opening a job stays instant.
+      prefetch={false}
       aria-label={ariaLabel}
       className={cn(
         "inline-flex items-center rounded-[4px] border px-2.5 py-1 text-xs font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-brand-navy",

@@ -28,6 +28,7 @@ read `GET /api/jobs?summary=1`; if it fails the field still works as plain text.
 
 ## Where it shows
 - The job page hero, under the job name (building icon).
+- The jobs list card, between the job number and the address (a touch darker so a client's jobs scan down the list).
 - The jobs list search matches it — typing *hutchinson* lists every Hutchinson job.
 - The job cost report PDF (Money card → *Download job report*), which already
   printed `Client: …` when the field was set (`api/_lib/job-report-pdf.js`).

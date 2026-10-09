@@ -35,6 +35,12 @@ vi.mock("next/headers", () => ({
   headers: async () => ({ get: () => null }),
 }));
 
+// The page runs its API reads in-process (api/_lib/in-process-api.js); these
+// tests feed data through the stubbed global fetch, so the seam delegates to it.
+vi.mock("../../../../api/_lib/in-process-api.js", () => ({
+  inProcessFetch: (input: string, init?: RequestInit) => fetch(input, init),
+}));
+
 vi.mock("next/navigation", () => ({
   redirect: (url: string) => {
     throw new Error(`unexpected redirect to ${url}`);
@@ -237,6 +243,11 @@ describe("/command-centre lean-reset board", () => {
     expect(html).toContain('href="/hours/weekly?week=2026-06-08"');
     // Zero loops render NO row (the queue shows only what's open).
     expect(html).not.toContain("Photos and tags to review");
+    // Phone home (owner pull 2026-10-06): the three submitted days are ONE
+    // grouped item, never one row per day; the rejected day is one item too.
+    expect(html).toContain("3 days waiting on your approval");
+    expect(html).toContain("1 rejected day to re-submit");
+    expect(html).not.toMatch(/Hours from [^<]* awaiting approval/);
     // This-week strip tiles (weekly-first, owner directive 2026-08-08).
     expect(html).toContain("This week");
     for (const label of [

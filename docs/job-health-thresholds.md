@@ -46,7 +46,7 @@ list can never contradict the status pill beside it:
 
 | Job | Card line |
 |---|---|
-| any phase with a real backlog | `Watch · 3 evidence to review` (the health word + the top reason) |
+| any phase with a real backlog | `Watch · 3 evidence to review` (the health word + the top reason) — **photos to review count only while the job is running** (active / on hold / draft); expired gear tags count in any phase |
 | active, all clear | `On track · nothing needs you` |
 | active, no stat loaded | `No data · health starts when hours or photos come in` |
 | on hold, nothing outstanding | `Paused — nothing to review` |
@@ -74,3 +74,13 @@ gone: the identity line wraps rather than truncating, so the full address
 stays visible. The field jobs list
 (`PhilJobsSharpened`) follows the same rule: no Active badge, open snags /
 ITPs on their own line under the address.
+
+**Finished jobs stop nagging (2026-10-06 — owner: "stop unnecessary Needs you
+items building up").** `deriveJobHealth` ignores `statsEvidenceV2Pending` once
+the job's phase is finishing, closed or archived: a finished job with photos
+nobody reviewed reads its phase sentence ("Finished 21 Sep · crew can log until
+21 Oct"), drops out of "N need attention" and the attention rule, and its
+photos stay one click away on the job ("Review N" / the Evidence page). Expired
+gear tags still trip At risk on any phase — out-of-test kit is a hard breach.
+A job with no `status` reads as active, so callers without lifecycle fields
+keep the old rule.

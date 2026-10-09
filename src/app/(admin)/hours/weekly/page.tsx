@@ -1,3 +1,4 @@
+import { inProcessFetch } from "../../../../../api/_lib/in-process-api.js";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
@@ -211,7 +212,7 @@ async function loadRuns(
   const proto = h.get("x-forwarded-proto") ?? "http";
   const base = host ? `${proto}://${host}` : "http://localhost:3000";
   try {
-    const res = await fetch(`${base}/api/payroll-runs?limit=8`, {
+    const res = await inProcessFetch(`${base}/api/payroll-runs?limit=8`, {
       cache: "no-store",
       headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
     });
@@ -248,7 +249,7 @@ async function loadCostRates(
   const pairs = await Promise.all(
     workerIds.map(async (userId): Promise<[string, number] | null> => {
       try {
-        const res = await fetch(
+        const res = await inProcessFetch(
           `${base}/api/cost-rates?userId=${encodeURIComponent(userId)}`,
           {
             cache: "no-store",
@@ -285,7 +286,7 @@ async function loadWeek(
   const base = host ? `${proto}://${host}` : "http://localhost:3000";
 
   try {
-    const res = await fetch(
+    const res = await inProcessFetch(
       `${base}/api/time-entries-overview?fromDate=${fromDate}&toDate=${toDate}`,
       {
         cache: "no-store",
