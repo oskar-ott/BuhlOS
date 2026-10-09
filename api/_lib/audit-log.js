@@ -423,6 +423,21 @@ const VALID_ACTIONS = new Set([
   'payroll.reconciled',
   // #895: batch-snapshot CSV fallback download (no Xero write).
   'payroll.csv_downloaded',
+  // Workshop Stock (docs/workshop-stock.md): office catalogue actions, count
+  // corrections and undos. targetType 'workshop_stock_item' (targetId = the PG
+  // item uuid). Routine add/take/return live in the immutable movement ledger
+  // (public.workshop_stock_movements), not here. Kept in sync with
+  // src/domains/audit-log/schema.ts AUDIT_ACTIONS.
+  'workshop_stock.item_created',
+  'workshop_stock.item_updated',
+  'workshop_stock.item_archived',
+  'workshop_stock.item_restored',
+  'workshop_stock.identifier_added',
+  'workshop_stock.identifier_removed',
+  'workshop_stock.photo_changed',
+  'workshop_stock.verification_recorded',
+  'workshop_stock.count_corrected',
+  'workshop_stock.movement_undone',
 ]);
 const VALID_TARGET_TYPES = new Set([
   'evidence',
@@ -501,6 +516,8 @@ const VALID_TARGET_TYPES = new Set([
   'supplier_invoice',
   // Task I: targetId = public.supplier_line_categories.id (a remembered filing rule).
   'supplier_line_category',
+  // Workshop Stock: targetId = public.workshop_stock_items.id.
+  'workshop_stock_item',
 ]);
 
 const MAX_ENTRIES_PER_MONTH = 5000;

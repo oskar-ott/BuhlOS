@@ -1,4 +1,4 @@
-import { LayoutGrid, Briefcase, Clock, Wrench, Users, Receipt } from "lucide-react";
+import { LayoutGrid, Briefcase, Clock, Wrench, Users, Receipt, Boxes } from "lucide-react";
 import type { Route } from "next";
 import type { FlagKey } from "../../../api/_lib/feature-flags";
 
@@ -138,6 +138,16 @@ export const NAV_GROUPS: ReadonlyArray<NavGroup> = [
         icon: Wrench,
         activeFor: ["/gear"],
         flag: "gear",
+      },
+      {
+        // Workshop Stock (workshop_stock, dark): materials and consumables in
+        // the workshop — separate from Gear (no custody / serials / tagging).
+        // Hidden by AdminShell while the flag is off for the viewer.
+        label: "Workshop stock",
+        href: "/stock" as Route,
+        icon: Boxes,
+        activeFor: ["/stock"],
+        flag: "workshop_stock",
       },
     ],
   },

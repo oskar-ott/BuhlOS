@@ -105,6 +105,7 @@ Confirmed in code. These are the intended destinations for new navigation.
 | `/hours/weekly` | `src/app/(admin)/hours/weekly/page.tsx` | Weekly closeout / payroll readiness (PR #113). |
 | `/hours/period` | `src/app/(admin)/hours/period/page.tsx` | Pay-period roll-up — read-only Xero-ready approved-hours preview (#131/#895; admin-tier; `/api/time-entries-export` is preview/download only, no commit) + the flag-gated payroll-batch review panel (#893/#894 — validate → create → lock immutable batches; dark unless `xero_connection` is on). Locked batches export as DRAFT Xero timesheets via `/api/xero/payroll-export` (#249), gated by `xero_payroll_export` (default off); the batch-CSV download works without it. |
 | `/gear` | `src/app/(admin)/gear/page.tsx` | Gear register. |
+| `/stock` | `src/app/(admin)/stock/page.tsx` | **Workshop Stock — office view** (`workshop_stock`, dark — `docs/workshop-stock.md`). Every workshop item with its recorded balance, location, last movement / count and code confirmation; the item drawer does count corrections (stale-count guard), the full movement history with audited Undo, catalogue edits, codes and packs, the online code check and archive/restore. Separate from Gear (no custody, no serials). `notFound()` while the flag is off; nav item hidden; `?item=` opens an item. |
 | `/employees` | `src/app/(admin)/employees/page.tsx` | People / onboarding (O1+); crew sign-up link panel behind `signup_link`. |
 | `/employees/[id]` | `src/app/(admin)/employees/[id]/page.tsx` | Employee detail. |
 | `/invoices` | `src/app/(admin)/invoices/page.tsx` | **Supplier-invoice inbox** (`invoice_capture`, dark, admin-tier — `docs/invoice-capture.md`). 404 via `notFound()` while the flag is off; nav item hidden; `?jobId=` + `?status=` pre-filter from the job hub card. |
@@ -126,6 +127,7 @@ Confirmed in code. These are the intended destinations for new navigation.
 | `/phil/jobs/[jobId]/photos` | `.../photos/page.tsx` | Read-only photo gallery (#242, the field "Job Bible"). Browse every photo on the job, date-grouped + filterable. Reuses the gated `/api/evidence` + `/api/photos-catalog` reads — a tradie sees their own evidence; the catalog (snag/ITP/dwelling) is leading-hand+, so a tradie gets an honest "office-side" note, never a silent gap. Linked from the job home only when there's at least one photo (hidden-until-real). Browse-only — capture stays on the job home. |
 | `/phil/hours` | `src/app/phil/hours/page.tsx` | Hours history / fix-and-resubmit. |
 | `/phil/gear` | `src/app/phil/gear/page.tsx` | My gear (return / report damaged / missing). |
+| `/phil/stock` | `src/app/phil/stock/page.tsx` | **Workshop Stock on the phone** (`workshop_stock`, dark — `docs/workshop-stock.md`). Take stock / Add stock by photo (or by hand), return unused stock, the searchable list of what's recorded and where. Reached from the More screen's reference group (`/v2/phil` card, flag-gated) — **no tab, no My Day tile** (P10). `notFound()` while the flag is off. |
 | `/phil/onboarding` | `src/app/phil/onboarding/page.tsx` | First-run tour (gated phil). |
 
 ## 5. Transitional routes (live, but the URL/shape will change)
@@ -209,6 +211,7 @@ The legacy estate must stay dead. `scripts/check-legacy-quarantine.js`
 | `/hours/approvals` | BuhlOS | `(admin)/hours/approvals` | AdminShell | canonical | admin | sidebar, command-centre | approvals queue |
 | `/hours/weekly` | BuhlOS | `(admin)/hours/weekly` | AdminShell | canonical | admin | /hours CTA | weekly closeout / payroll readiness |
 | `/gear` | BuhlOS | `(admin)/gear` | AdminShell | canonical | admin | sidebar, command-centre | gear register |
+| `/stock` | BuhlOS | `(admin)/stock` | AdminShell | canonical (flag-dark) | admin | sidebar People & gear group (only while `workshop_stock` is on) | Workshop Stock office view (`docs/workshop-stock.md`); unauth → 307 `/v2/login`; flag off → `404` |
 | `/employees` | BuhlOS | `(admin)/employees` | AdminShell | canonical | admin | sidebar | people / onboarding |
 | `/invoices` · `/invoices/[invoiceId]` | BuhlOS | `(admin)/invoices` | AdminShell | canonical (flag-dark) | admin | sidebar Jobs group (only while `invoice_capture` is on), job hub card | supplier-invoice inbox + review; unauth → 307 `/v2/login`; flag off → `404` |
 | `/api/inbound/invoices` | API | `src/app/api/inbound/invoices/route.ts` | n/a | canonical (flag-dark) | Resend webhook (Svix signature, no session) | Resend receiving webhook | inbound supplier-invoice receipt; flag off → quarantine receipt only |
@@ -231,6 +234,7 @@ The legacy estate must stay dead. `scripts/check-legacy-quarantine.js`
 | `/phil/jobs/[jobId]/plans` | Phil | `phil/jobs/[jobId]/plans` | PhilShell | canonical | field/LH | job detail "Open plan viewer" (gated on `plans` module) | read-only Plan Viewer; **current revisions only**; unauth → 307 `/v2/login` |
 | `/phil/hours` | Phil | `phil/hours` | PhilShell | canonical | field/LH | my-day, rejected banner | hours history / fix |
 | `/phil/gear` | Phil | `phil/gear` | PhilShell | canonical | field/LH | tab "Gear" | my gear |
+| `/phil/stock` | Phil | `phil/stock` | PhilShell | canonical (flag-dark) | field/LH | `/v2/phil` "Workshop stock" card (only while `workshop_stock` is on) — not a tab | Workshop Stock on the phone (`docs/workshop-stock.md`); unauth → 307 `/v2/login`; flag off → `404` |
 | `/phil/onboarding` | Phil | `phil/onboarding` | PhilShell | canonical | field/LH | v2/phil "Start the tour" | first-run tour |
 | `/v2/phil` | Phil | `v2/phil` | PhilShell | transitional | field/LH | tab "More" / "Snag" (UC) | profile/More placeholder |
 | `/phil/invite/[token]` | Phil | `phil/invite/[token]` | (own) | transitional | **public** | invite email | worker setup, no session yet |
@@ -248,6 +252,7 @@ failure that has happened (or could) if the row is left unguarded.
 | `/v2/login` | shared | none (bespoke) | `src/app/v2/login/page.tsx` | canonical | shell creep; gets gated | `check-route-ownership` (required source), `check-shell-contract` (SHELL_EXEMPT), `middleware.test` (always public) |
 | `/command-centre` | BuhlOS | AdminShell | `src/app/(admin)/command-centre/page.tsx` | canonical | blank after login / wrong shell | `check-shell-contract`, `middleware.test`, `auth-routing.spec` |
 | `/hours` · `/hours/approvals` · `/hours/weekly` · `/gear` · `/employees` · `/employees/[id]` | BuhlOS | AdminShell | `src/app/(admin)/**` | canonical | blank / wrong shell | `check-shell-contract`, `middleware.test`, `check-route-ownership` |
+| `/stock` | BuhlOS | AdminShell | `src/app/(admin)/stock/page.tsx` | canonical (flag-dark) | blank / wrong shell / nav drift / reachable with the flag off | `check-shell-contract`, `check-route-ownership` (approved href + required source), `nav.test` (flag-gated item), `workshop-stock-api.test` (flag off → 404 on every path) |
 | `/owner` | BuhlOS | AdminShell | `src/app/(admin)/owner/page.tsx` | canonical | a normal admin reaching owner-only data / secret leak / blank / wrong shell | `check-shell-contract`, `check-route-ownership` (required source — no nav link by design), `middleware.test` (coarse admin gate + owner landing), `owner-console-api.test` (401/403/200 gate + no-secrets + read-only flags), `owner-access.test` (TS↔CJS parity), `owner-console.test` (classification + schema), `OwnerConsole.render.test` |
 | `/settings` | BuhlOS | AdminShell | `src/app/(admin)/settings/page.tsx` | canonical | blank / wrong shell / nav drift / a fake card with no persisting endpoint | `check-shell-contract`, `check-route-ownership` (approved href + required source), `policy-schema.test` (advisory bounds mirror the API), `HoursPolicySection`/`JobTypesSection` render tests (loading-first; job-types empty ≠ error) |
 | `/settings/notifications` | BuhlOS | AdminShell | `src/app/(admin)/settings/notifications/page.tsx` | canonical | blank / wrong shell / dead toggles / nav drift | `check-shell-contract`, `middleware.test`, `check-route-ownership` (approved href + required source), `auth-routing.spec`, `notification-item.test` (kinds↔keys 1:1) |
@@ -265,6 +270,7 @@ failure that has happened (or could) if the row is left unguarded.
 | `/phil/my-day` · `/phil/hours` · `/phil/gear` · `/phil/jobs` · `/phil/jobs/[jobId]` (+ itps) · `/phil/onboarding` | Phil | PhilShell | `src/app/phil/**` | canonical | renders admin shell / blank | `check-shell-contract`, `middleware.test`, `phil.spec` |
 | `/phil/jobs/[jobId]/plans` | Phil | PhilShell | `…/plans/page.tsx` | canonical | wrong shell | `check-shell-contract`, `check-route-ownership` (required source) |
 | `/phil/jobs/[jobId]/photos` | Phil | PhilShell | `…/photos/page.tsx` | canonical | wrong shell | `check-shell-contract`, `check-route-ownership` (required source) |
+| `/phil/stock` | Phil | PhilShell | `src/app/phil/stock/page.tsx` | canonical (flag-dark) | wrong shell / grows into a tab (P10) / reachable with the flag off | `check-shell-contract`, `check-route-ownership` (required source), `workshop-stock-api.test` (flag off → 404), `stock.render.test`, `tests/workshop-stock` (local harness E2E) |
 | `/phil/invite/[token]` | Phil | own (public) | `src/app/phil/invite/[token]/page.tsx` | transitional | gets gated / wrong shell | `check-shell-contract` (SHELL_EXEMPT; cross-shell still applies) |
 | `/my-day` | legacy | legacy tradie home | `public/my-day.html` (vercel) | legacy | linked from modern nav | `check-route-ownership` (forbidden `/my-day`) |
 | `/my-gear` | legacy | legacy gear | `public/my-gear.html` (vercel) | legacy | linked from modern nav | `check-route-ownership` (forbidden `/my-gear`) |
@@ -309,7 +315,7 @@ lists in the guard **and** §8 / §8.1 here in the same PR.
 
 - **BuhlOS sidebar** (`src/components/admin/AdminSidebar.tsx`) — `live` items may
   only link to approved admin routes: `/command-centre`, `/hours`,
-  `/hours/approvals`, `/hours/weekly`, `/gear`, `/employees`, `/v2/jobs`,
+  `/hours/approvals`, `/hours/weekly`, `/gear`, `/stock`, `/employees`, `/v2/jobs`,
   `/settings`, `/settings/notifications`. The **footer** carries a
   single `/settings` link (next to sign-out) — the #222 settings hub, which hosts
   hours policy + job types and links on to notification prefs (#218) and task
@@ -320,7 +326,9 @@ lists in the guard **and** §8 / §8.1 here in the same PR.
   The nav carries **no unbuilt items** — an unclickable nav entry is a broken
   promise (the hide-unfinished rule). The 2026-07-27 gut cut it back to five
   destinations across four groups: Today (Command centre), Jobs, Hours, and
-  People & gear (Employees, Gear).
+  People & gear (Employees, Gear). People & gear also carries **Workshop stock**
+  (`/stock`, approved href) — flag-gated on `workshop_stock`, so it is hidden
+  while the flag is off (owner pull 2026-10-09, `docs/workshop-stock.md`).
 - **BuhlOS mobile bottom tab bar** (`src/components/admin/AdminMobileTabBar.tsx`)
   — the calm office navigation below `md` (the mobile-admin redesign; the
   `AdminSidebar` is desktop-only `hidden md:flex`). Its `TAB_ITEMS` array carries
@@ -345,6 +353,9 @@ lists in the guard **and** §8 / §8.1 here in the same PR.
   approved and is reached via the sharpened header avatar (`PhilHeader`). Flag
   off, the bar is the unchanged 4-tab layout; flipping the flag is a governed
   change to the ratified Phil package (P15).
+  **Workshop stock** (`/phil/stock`) is deliberately NOT a tab: its only entry
+  point is a card in the `/v2/phil` reference group, rendered only while
+  `workshop_stock` is on (P10 — no new slot in the bar or on My Day).
 - **No modern nav component may link to a legacy `public/*.html` route or a
   legacy/deprecated URL.** The forbidden set is `*.html`, `/admin/*`,
   `/admin-legacy`, `/buhlos/*`, `/dev/site-office*`, `/my-day`, `/my-gear`,

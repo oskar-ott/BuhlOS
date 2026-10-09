@@ -433,6 +433,20 @@ const REGISTRY = {
     expires: '2027-04-30',
   },
 
+  // Workshop Stock (owner pull 2026-10-09, docs/workshop-stock.md): what
+  // materials and consumables are in the workshop and where — photo-assisted
+  // add / take / return, office counts + corrections, an append-only movement
+  // ledger in Postgres. NOT gear (no custody/serials/test-and-tag). GLOBAL
+  // target: the crew uses the phone side; the office actions are admin-tier by
+  // role on the server. Optional: ANTHROPIC_API_KEY for photo reading + the
+  // online code check (both degrade to manual search/entry without it).
+  workshop_stock: {
+    description: 'Workshop Stock — materials/consumables in the workshop: searchable list with shelf/bin, photo-assisted Add stock / Take stock / Return, office count corrections + catalogue, append-only movement ledger with Undo (api/workshop-stock, /phil/stock, /stock). Separate from gear. Dark.',
+    default: false,
+    target: 'global',
+    expires: '2027-01-07',
+  },
+
   // job_photos left the hidden list by owner decision (#916 call 2,
   // 2026-07-18): the gallery completes the capture loop, so it is lean-core —
   // a kill-switch (default ON).
@@ -457,6 +471,7 @@ const FLAG_PRESENTATION = {
   invoice_capture: { label: 'Supplier invoice capture', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/invoices' },
   receipt_capture: { label: 'Receipts from the field', domain: 'Jobs', surface: 'Phil', previewHref: '/phil/my-day' },
   job_purchases: { label: 'Recent purchases on the job', domain: 'Jobs', surface: 'Shared', previewHref: '/v2/jobs' },
+  workshop_stock: { label: 'Workshop stock', domain: 'People & gear', surface: 'Shared', previewHref: '/phil/stock' },
   admin_flags_readout: { label: 'Flags readout card', domain: 'Platform', surface: 'BuhlOS', previewHref: '/command-centre' },
   servicem8_sync: { label: 'ServiceM8 job sync', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/command-centre' },
   phil_sharpened: { label: 'Phil sharpened redesign', domain: 'Phil', surface: 'Phil', previewHref: '/phil/my-day' },
