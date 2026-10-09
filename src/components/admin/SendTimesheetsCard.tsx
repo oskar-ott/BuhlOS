@@ -34,6 +34,8 @@ interface SentReceipt {
   recipients: string[];
   workerCount: number;
   totalHours: number;
+  /** What the sheet left off, by name — the server's list (also in the email). */
+  notOnSheet?: { dayCount: number; lines: Array<{ workerName: string; reason: string; days: string }> };
 }
 
 type Phase =
@@ -158,6 +160,27 @@ export function SendTimesheetsCard({
             <b className="font-semibold">{phase.receipt.recipients.join(", ") || "accounts"}</b>.
           </span>
         </p>
+      ) : null}
+
+      {phase.kind === "sent" && phase.receipt.notOnSheet && phase.receipt.notOnSheet.lines.length > 0 ? (
+        <div
+          data-testid="period-send-not-on-sheet"
+          className="mt-2 rounded-card border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+          role="status"
+        >
+          <p className="font-semibold">
+            {phase.receipt.notOnSheet.dayCount} day
+            {phase.receipt.notOnSheet.dayCount === 1 ? "" : "s"} not on the sheet — named in the email
+            so nothing is missed:
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {phase.receipt.notOnSheet.lines.map((l) => (
+              <li key={`${l.workerName}|${l.reason}`}>
+                <b className="font-semibold">{l.workerName}</b> · {l.reason}: {l.days}
+              </li>
+            ))}
+          </ul>
+        </div>
       ) : null}
 
       {phase.kind === "sending" && phase.settleWaitMs != null ? (

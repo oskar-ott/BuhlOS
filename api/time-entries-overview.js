@@ -35,6 +35,9 @@ const { publicHolidaysInRange } = require('./_lib/public-holidays');
 const { requireAuth, isStaffRole, isAdminRole, isHoursTrackedWorker } = require('./_lib/auth');
 const { buildWorkerLabeller } = require('./_lib/worker-names');
 const { HOURS_GO_LIVE } = require('./_lib/hours-epoch');
+// The ONE missing-day rule, shared with the payroll sheet's "Not on this
+// sheet" list (api/_lib/not-on-sheet.js) — extracted from this file verbatim.
+const { missingWeekdays } = require('./_lib/missing-days');
 
 module.exports = async (req, res) => {
   setNoCache(res);
@@ -224,7 +227,6 @@ module.exports = async (req, res) => {
   // entry of any status. We restrict missing to weekdays only — weekends
   // create false alarms unless the team works them. Past/today only — no
   // future "missing".
-  const today0 = new Date(today + 'T00:00:00');
   const missing = [];
   // Pre-index entries by user+date for O(1) lookup
   const entryByUserDate = {};
@@ -260,38 +262,25 @@ module.exports = async (req, res) => {
   // (2026-08-03). A range reaching further back (the Jul-29→Aug-4 pay period,
   // an old week the office paged to) must not demand hours from before the
   // app existed in the field — no missing, no leave rows before the epoch.
-  const goLive0 = new Date(HOURS_GO_LIVE + 'T00:00:00');
-  const cursor = new Date(fromDate + 'T00:00:00');
-  if (cursor < goLive0) cursor.setTime(goLive0.getTime());
-  const end    = new Date(toDate   + 'T00:00:00');
-  while (cursor <= end && cursor <= today0) {
-    const dow = cursor.getDay();
-    const isWeekend = (dow === 0 || dow === 6);
-    // Format from the cursor's own calendar components, NOT toISOString():
-    // the cursor is local-midnight, so the UTC render shifted the emitted
-    // date by a day on any non-UTC host — entry-suppression then never
-    // matched. Invisible on UTC production, but wrong (and untestable)
-    // everywhere else; this keeps the date consistent with the local
-    // getDay() weekend check above.
-    const iso =
-      cursor.getFullYear() + '-' +
-      String(cursor.getMonth() + 1).padStart(2, '0') + '-' +
-      String(cursor.getDate()).padStart(2, '0');
-    // A public holiday is not a required day — exempt it from "missing" just
-    // like a weekend, or the board cries wolf for the whole crew every
-    // holiday week and the office learns to ignore red.
-    if (!isWeekend && !holidaySet.has(iso)) {
-      for (const u of crewForMissing) {
-        if (entryByUserDate[u.id + '|' + iso]) continue;
-        const leaveType = leaveByUserDate[u.id + '|' + iso];
-        if (leaveType) {
-          leave.push({ date: iso, userId: u.id, userName: labelFor(u.id, null), type: leaveType });
-        } else {
-          missing.push({ date: iso, userId: u.id, userName: labelFor(u.id, null), role: u.role });
-        }
-      }
-    }
-    cursor.setDate(cursor.getDate() + 1);
+  // The rule itself lives in api/_lib/missing-days.js (weekdays, past/today,
+  // no public holidays, never before go-live, any entry counts, approved
+  // leave is leave) — the same function builds the payroll sheet's
+  // "Not on this sheet" list, so the two can never disagree.
+  const found = missingWeekdays({
+    fromDate,
+    toDate,
+    todayISO: today,
+    crew: crewForMissing,
+    hasEntry: (userId, date) => !!entryByUserDate[userId + '|' + date],
+    holidaySet,
+    leaveByUserDate,
+    goLiveISO: HOURS_GO_LIVE,
+  });
+  for (const { date, user, type } of found.leave) {
+    leave.push({ date, userId: user.id, userName: labelFor(user.id, null), type });
+  }
+  for (const { date, user } of found.missing) {
+    missing.push({ date, userId: user.id, userName: labelFor(user.id, null), role: user.role });
   }
 
   return res.status(200).json({

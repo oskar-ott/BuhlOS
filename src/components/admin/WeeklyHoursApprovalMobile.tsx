@@ -42,8 +42,10 @@ import {
   amendDayAllocations,
   canAmendDay,
   outstandingWeek,
+  outstandingWeekLines,
   type MobileQueryReason,
   type MobileWorkerBands,
+  type OutstandingLine,
   type OutstandingWeek,
 } from "@/domains/timesheets/weekly-review";
 import {
@@ -240,6 +242,12 @@ export function WeeklyHoursApprovalMobile({
   // The send finale's wait-or-send question (owner pull 2026-08-16): what is
   // still to come in across the WHOLE week, session decisions included — so a
   // boss who just rejected days is told the sheet would miss them.
+  // …and WHO / WHICH DAYS behind those counts (2026-10-09): the finale names
+  // them in the same words the emailed sheet's "Not on this sheet" list uses.
+  const outstandingLines = useMemo<OutstandingLine[]>(
+    () => outstandingWeekLines(closeout.workers, overlay),
+    [closeout.workers, overlay],
+  );
   const outstanding = useMemo<OutstandingWeek>(
     () => outstandingWeek(closeout.workers, overlay),
     [closeout.workers, overlay],
@@ -629,6 +637,7 @@ export function WeeklyHoursApprovalMobile({
           xeroGate={xeroGate}
           xeroCandidates={xeroCandidates}
           outstanding={outstanding}
+          outstandingLines={outstandingLines}
         />
       ) : null}
 
@@ -1230,6 +1239,7 @@ function ReviewSheet({
   xeroGate,
   xeroCandidates,
   outstanding,
+  outstandingLines,
 }: {
   ids: string[];
   startId: string;
@@ -1256,6 +1266,8 @@ function ReviewSheet({
   xeroCandidates: ReviewCandidate[];
   /** Week-wide "still to come in" counts for the send finale's wait choice. */
   outstanding: OutstandingWeek;
+  /** …and the names + days behind them, in the sheet's own words. */
+  outstandingLines: OutstandingLine[];
 }) {
   const panelRef = useDialogFocus(true);
   const [shown, setShown] = useState(false);
@@ -1352,6 +1364,7 @@ function ReviewSheet({
               periodLabel={periodLabel}
               candidates={xeroCandidates}
               outstanding={outstanding}
+              outstandingLines={outstandingLines}
               savingCount={busyIds.length}
               onClose={onClose}
               onBusyChange={setFinaleBusy}

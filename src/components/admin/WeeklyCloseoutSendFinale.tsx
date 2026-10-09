@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { formatHoursLabel } from "@/domains/timesheets/format";
 import {
   outstandingWeekLabel,
+  type OutstandingLine,
   type OutstandingWeek,
 } from "@/domains/timesheets/weekly-review";
 import { buildReviewPlan, type ReviewCandidate } from "@/domains/timesheets/xero-closeout";
@@ -46,6 +47,30 @@ interface SentReceipt {
   workerCount: number;
   totalHours: number;
   sentAtLabel: string;
+  /** What the sheet left off, by name — the server's own list (the same one
+   *  the email and PDF print). Absent when the server didn't say: then the
+   *  receipt says nothing about it, never a hopeful "Nothing" (P7). */
+  notOnSheet?: { dayCount: number; lines: Array<{ workerName: string; reason: string; days: string }> };
+}
+
+/** "Dylan Sinclair · nothing logged: Fri 2 Oct" — one line per worker per reason. */
+function NamedDays({
+  lines,
+  testId,
+}: {
+  lines: ReadonlyArray<{ workerName: string; reason: string; days: string }>;
+  testId: string;
+}) {
+  if (!lines.length) return null;
+  return (
+    <ul data-testid={testId} className="mt-2 space-y-1">
+      {lines.map((l) => (
+        <li key={`${l.workerName}|${l.reason}`} className="leading-snug">
+          <b className="font-semibold">{l.workerName}</b> · {l.reason}: {l.days}
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 interface Props {
@@ -70,6 +95,13 @@ interface Props {
    */
   outstanding?: OutstandingWeek;
   /**
+   * WHO and WHICH DAYS behind `outstanding` (2026-10-09 — the 5 Oct finale said
+   * "2 days never came in" and nobody could tell it meant two people's
+   * Fridays). Same reasons + day format as the sheet's own "Not on this sheet"
+   * list, so what the boss reads here is what accounts reads in the email.
+   */
+  outstandingLines?: ReadonlyArray<OutstandingLine>;
+  /**
    * Hours actions from this review still saving (the review sheet's per-worker
    * busyIds — approve, send back, fix a day, undo). Approvals are fired in the
    * background so the boss never waits between people, so this screen can
@@ -92,6 +124,7 @@ export function WeeklyCloseoutSendFinale({
   reviewedCount,
   candidates,
   outstanding,
+  outstandingLines = [],
   savingCount = 0,
   onClose,
   onBusyChange,
@@ -234,8 +267,27 @@ export function WeeklyCloseoutSendFinale({
         <dl className="rounded-card border border-border px-3.5 py-1">
           <ReceiptRow label="Workers" value={String(receipt.workerCount)} />
           <ReceiptRow label="Approved hours" value={formatHoursLabel(receipt.totalHours)} />
+          {receipt.notOnSheet ? (
+            <ReceiptRow
+              label="Not on the sheet"
+              value={
+                receipt.notOnSheet.dayCount > 0
+                  ? `${receipt.notOnSheet.dayCount} day${receipt.notOnSheet.dayCount === 1 ? "" : "s"}`
+                  : "Nothing"
+              }
+            />
+          ) : null}
           <ReceiptRow label="Sent" value={receipt.sentAtLabel} last />
         </dl>
+        {receipt.notOnSheet && receipt.notOnSheet.lines.length > 0 ? (
+          <div data-testid="wha-send-sent-missing">
+            <Notice tone="warn" title="Listed in the email so nothing is missed">
+              These days have no approved hours, so they aren&rsquo;t on the sheet — the email and
+              PDF name them for Tia.
+              <NamedDays lines={receipt.notOnSheet.lines} testId="wha-send-sent-missing-lines" />
+            </Notice>
+          </div>
+        ) : null}
       </FinaleShell>
     );
   }
@@ -333,6 +385,10 @@ export function WeeklyCloseoutSendFinale({
             {outstandingWeekLabel(outstanding)}. The PDF only carries approved hours — days
             that land later won&rsquo;t be on it. Waiting costs nothing; this screen is here
             whenever you&rsquo;re ready.
+            <NamedDays
+              lines={outstandingLines.filter((l) => l.kind !== "notInYet")}
+              testId="wha-send-outstanding-lines"
+            />
           </Notice>
         </div>
       ) : null}
@@ -343,7 +399,12 @@ export function WeeklyCloseoutSendFinale({
         <div data-testid="wha-send-fyi">
           <Notice tone="muted" title="Not everyone&rsquo;s week is here">
             {notInYet} day{notInYet === 1 ? "" : "s"} never came in — crew on holiday or
-            nothing logged. The sheet carries approved hours only, so it sends without them.
+            nothing logged. The sheet carries approved hours only, so it sends without them —
+            and names them for Tia, so nothing is missed.
+            <NamedDays
+              lines={outstandingLines.filter((l) => l.kind === "notInYet")}
+              testId="wha-send-fyi-lines"
+            />
           </Notice>
         </div>
       ) : null}

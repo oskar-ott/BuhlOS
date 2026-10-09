@@ -134,3 +134,46 @@ describe("sendPeriodTimesheets", () => {
     );
   });
 });
+
+describe("sendPeriodTimesheets — the receipt carries what the sheet left off", () => {
+  it("parses the server's notOnSheet list into the receipt", async () => {
+    const { impl } = fetchSequence([
+      {
+        status: 200,
+        body: {
+          sent: true,
+          recipients: ["tia@x.com"],
+          workerCount: 10,
+          totalHours: 412.4,
+          notOnSheet: {
+            dayCount: 2,
+            lines: [
+              { workerName: "Dylan Sinclair", reason: "nothing logged", days: "Fri 2 Oct" },
+              { workerName: "Stephen Mayne", reason: "nothing logged", days: "Fri 2 Oct" },
+              { bogus: true },
+            ],
+          },
+        },
+      },
+    ]);
+    const out = await sendPeriodTimesheets({ ...PERIOD, fetchImpl: impl });
+    expect(out).toMatchObject({
+      ok: true,
+      receipt: {
+        notOnSheet: {
+          dayCount: 2,
+          lines: [
+            { workerName: "Dylan Sinclair", reason: "nothing logged", days: "Fri 2 Oct" },
+            { workerName: "Stephen Mayne", reason: "nothing logged", days: "Fri 2 Oct" },
+          ],
+        },
+      },
+    });
+  });
+
+  it("an older server without the list leaves it absent — never a fake 'nothing missing'", async () => {
+    const { impl } = fetchSequence([SENT]);
+    const out = await sendPeriodTimesheets({ ...PERIOD, fetchImpl: impl });
+    expect(out && out.ok && out.receipt.notOnSheet).toBeUndefined();
+  });
+});

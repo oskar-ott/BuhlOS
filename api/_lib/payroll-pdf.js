@@ -19,8 +19,9 @@
 
 const { PDFDocument, StandardFonts, rgb } = require('pdf-lib');
 
-/** Bump when the layout/content changes materially (quote-pdf precedent). */
-const GENERATOR_VERSION = 'payroll-pdf/1';
+/** Bump when the layout/content changes materially (quote-pdf precedent).
+ *  /2 (2026-10-09): the "Not on this sheet" section. */
+const GENERATOR_VERSION = 'payroll-pdf/2';
 
 const A4 = { width: 595.28, height: 841.89 };
 const MARGIN = 42;
@@ -146,6 +147,12 @@ function rollupRows(rows) {
  *   statusLabel?: string,          // e.g. 'approved'
  *   generatedAtLabel?: string,
  *   includeDetail?: boolean,       // per-worker day breakdown (default true)
+ *   notOnSheet?: {                 // api/_lib/not-on-sheet.js — what this sheet
+ *     lines: Array<{ workerName: string, reason: string, days: string }>,
+ *     dayCount: number,            //   does NOT carry, and why (printed so missing
+ *     leaveChecked?: boolean,      //   hours can never leave the building silently)
+ *     periodComplete?: boolean,
+ *   },
  * }} input
  * @returns {Promise<Uint8Array>}
  */
@@ -205,6 +212,80 @@ async function composePayrollPdf(input) {
       thickness: 1,
       color: RULE,
     });
+  }
+  /** Greedy word-wrap of `str` into lines no wider than `width` at `size`. */
+  function wrap(str, width, size, f) {
+    const words = safeText(str).split(/\s+/).filter(Boolean);
+    const out = [];
+    let cur = '';
+    for (const w of words) {
+      const next = cur ? cur + ' ' + w : w;
+      if (cur && (f || font).widthOfTextAtSize(next, size) > width) {
+        out.push(cur);
+        cur = w;
+      } else {
+        cur = next;
+      }
+    }
+    if (cur) out.push(cur);
+    return out.length ? out : [''];
+  }
+  /**
+   * "Not on this sheet" (2026-10-09): every worker-day this sheet does NOT
+   * carry, and why — so a sheet is complete or names exactly what it is
+   * missing. Printed whenever the caller passes the list (the emailed sheet
+   * and the approved Download PDF), including on an otherwise empty sheet.
+   */
+  function drawNotOnSheet() {
+    const nos = opts.notOnSheet;
+    if (!nos) return;
+    const lines = Array.isArray(nos.lines) ? nos.lines : [];
+    if (!lines.length) {
+      if (nos.periodComplete && nos.leaveChecked !== false) {
+        ensure(20);
+        text('Nothing left off - every weekday for the crew has approved hours on this sheet.', MARGIN, 9, {
+          color: GREY,
+        });
+        y -= 18;
+      }
+      return;
+    }
+    const count = Number(nos.dayCount) || lines.length;
+    ensure(56);
+    text(`Not on this sheet - ${count} day${count === 1 ? '' : 's'}`, MARGIN, 12, { bold: true });
+    y -= 17;
+    for (const l of wrap(
+      'These days have no approved hours, so they are not in the totals above. Check them before the pay run.',
+      contentWidth,
+      9,
+    )) {
+      text(l, MARGIN, 9, { color: GREY });
+      y -= 12;
+    }
+    y -= 4;
+    const nameW = 150;
+    const detailX = MARGIN + nameW;
+    const detailW = contentWidth - nameW;
+    for (const l of lines) {
+      const detail = wrap(`${l.reason}: ${l.days}`, detailW, 9);
+      ensure(13 * detail.length + 4);
+      let name = safeText(l.workerName);
+      while (name && bold.widthOfTextAtSize(name, 9) > nameW - 10) name = name.slice(0, -1);
+      text(name, MARGIN, 9, { bold: true });
+      for (let i = 0; i < detail.length; i++) {
+        text(detail[i], detailX, 9);
+        y -= 13;
+      }
+      y -= 2;
+    }
+    if (nos.leaveChecked === false) {
+      ensure(14);
+      text('Leave could not be checked when this sheet was made - a day shown as nothing logged may be leave.', MARGIN, 8, {
+        color: GREY,
+      });
+      y -= 12;
+    }
+    y -= 10;
   }
 
   // ── Header ──────────────────────────────────────────────────────────
@@ -266,6 +347,8 @@ async function composePayrollPdf(input) {
       'Nothing has been approved for these dates yet - approve days on the weekly board and they appear here.',
       MARGIN, 9, { color: GREY },
     );
+    y -= 24;
+    drawNotOnSheet();
     return doc.save();
   }
 
@@ -315,6 +398,11 @@ async function composePayrollPdf(input) {
   textRight(hours(totals.overtimeHours, { dashWhenZero: true }), colOt, 10, { bold: true });
   textRight(hours(totals.hours), colTot, 10, { bold: true });
   y -= 24;
+
+  // ── Not on this sheet ───────────────────────────────────────────────
+  // Straight under the totals it qualifies — and before the summary-only
+  // return, so the one-page sheet carries it too.
+  drawNotOnSheet();
 
   // ── Per-worker day breakdown ────────────────────────────────────────
   if (!includeDetail) return doc.save();

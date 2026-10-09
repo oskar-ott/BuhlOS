@@ -17,10 +17,35 @@
  * connection THROWS (the caller already words "can't tell if it went").
  */
 
+export interface NotOnSheetLine {
+  workerName: string;
+  reason: string;
+  days: string;
+}
+
 export interface PeriodSendReceipt {
   recipients: string[];
   workerCount: number;
   totalHours: number;
+  /** What the sheet left off, by name — the server's list (also printed in
+   *  the email + PDF). Absent from an older server. */
+  notOnSheet?: { dayCount: number; lines: NotOnSheetLine[] };
+}
+
+function parseNotOnSheet(raw: unknown): PeriodSendReceipt["notOnSheet"] {
+  if (!raw || typeof raw !== "object") return undefined;
+  const r = raw as { dayCount?: unknown; lines?: unknown };
+  const lines = Array.isArray(r.lines)
+    ? r.lines
+        .filter((l): l is Record<string, unknown> => !!l && typeof l === "object")
+        .map((l) => ({
+          workerName: String(l.workerName ?? ""),
+          reason: String(l.reason ?? ""),
+          days: String(l.days ?? ""),
+        }))
+        .filter((l) => l.workerName && l.reason)
+    : [];
+  return { dayCount: Number(r.dayCount) || lines.length, lines };
 }
 
 export type PeriodSendOutcome =
@@ -74,6 +99,7 @@ export async function sendPeriodTimesheets({
           recipients: strings(data?.recipients),
           workerCount: Number(data?.workerCount) || 0,
           totalHours: Number(data?.totalHours) || 0,
+          ...(data?.notOnSheet ? { notOnSheet: parseNotOnSheet(data.notOnSheet) } : {}),
         },
       };
     }

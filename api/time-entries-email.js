@@ -33,6 +33,7 @@ const { requireAuth } = require('./_lib/auth');
 const { collectRows } = require('./_lib/payroll-inputs');
 const { composePayrollPdf, rollupRows } = require('./_lib/payroll-pdf');
 const { renderTimesheetsEmail } = require('./_lib/timesheets-email');
+const { buildNotOnSheet, notOnSheetLines } = require('./_lib/not-on-sheet');
 const { isEmailConfigured, sendEmail } = require('./_lib/email');
 const {
   normalizeRecipients,
@@ -174,9 +175,12 @@ async function handleSend(req, res, me) {
     return res.status(400).json({ error: 'fromDate and toDate are required (YYYY-MM-DD)' });
   }
 
-  const ctx = await collectRows({ status: 'approved', fromDate, toDate });
+  // quiet: the sheet that leaves the building is only ever read from a period
+  // whose hours have stopped changing (no day-file written in the last ~70s) —
+  // never mid-way through a batch of approvals, never inside the CDN window.
+  const ctx = await collectRows({ status: 'approved', fromDate, toDate, quiet: true });
   if (!ctx.ok) {
-    // A refusal of days approved seconds ago (code 'settling') says WHEN it
+    // A refusal of days changed seconds ago (code 'settling') says WHEN it
     // will clear; the send surfaces wait that long and re-send by themselves
     // (2026-10-05: the boss approved the week, tapped send inside the CDN
     // window twice, and the week never went). Nothing was sent, so the retry
@@ -197,6 +201,24 @@ async function handleSend(req, res, me) {
     });
   }
 
+  // What this sheet does NOT carry, and why (api/_lib/not-on-sheet.js) —
+  // printed in the PDF and the email body, so a day nobody logged or nobody
+  // approved can never leave the building silently (2026-10-09: Dylan's and
+  // Stephen's unlogged Fridays were a bare count on the phone and nowhere on
+  // the sheet). Built from the SAME freshness-verified read as the rows.
+  const nos = await buildNotOnSheet({
+    fromDate: ctx.fromDate,
+    toDate: ctx.toDate,
+    entries: ctx.entries,
+    userById: ctx.userById,
+  });
+  const notOnSheet = {
+    lines: notOnSheetLines(nos.items),
+    dayCount: nos.items.length,
+    leaveChecked: nos.leaveChecked,
+    periodComplete: nos.periodComplete,
+  };
+
   const generatedAtLabel = new Date().toISOString().slice(0, 10);
   const pdf = await composePayrollPdf({
     rows,
@@ -205,6 +227,7 @@ async function handleSend(req, res, me) {
     statusLabel: 'approved',
     generatedAtLabel,
     includeDetail: true,
+    notOnSheet,
   });
   const attachmentName = `buhlos-hours-${ctx.fromDate}-to-${ctx.toDate}.pdf`;
 
@@ -223,6 +246,7 @@ async function handleSend(req, res, me) {
     overtimeHours: totals.overtimeHours,
     attachmentName,
     sentByName: me.username || '',
+    notOnSheet,
   });
 
   const sent = await sendEmail({
@@ -263,6 +287,7 @@ async function handleSend(req, res, me) {
         totalHours: totals.hours,
         overtimeHours: totals.overtimeHours,
         rowCount: rows.length,
+        notOnSheetDays: notOnSheet.dayCount,
       },
     })
     .catch(() => {});
@@ -276,5 +301,8 @@ async function handleSend(req, res, me) {
     totalHours: totals.hours,
     overtimeHours: totals.overtimeHours,
     rowCount: rows.length,
+    // The receipt says what the sheet left off, by name — the same list the
+    // email and PDF carry.
+    notOnSheet: { dayCount: notOnSheet.dayCount, lines: notOnSheet.lines },
   });
 }

@@ -51,158 +51,137 @@
 
 const { list } = require('@vercel/blob');
 const { readBlob } = require('./blob');
+// The ONE freshness rule (size + storage stamp vs the store's own metadata),
+// shared with the day-file write guard — never a second copy of it here.
+const {
+  contentVerdict,
+  writeStampMs,
+  FRESHNESS_SKEW_MS,
+  CDN_SETTLE_MS,
+} = require('./source-freshness');
 const { isLeadingHandRole, isFieldRole } = require('./auth');
 const { prorateAllocations } = require('./payroll-rows');
 
 // ── Freshness-verified entry reads ───────────────────────────────────────────
-// Tolerance between the document's storage stamp (`__updatedAt`, written just
-// before the put) and the blob's last-PUT time: both are Vercel wall clocks;
-// the gap on a genuine write is the put's own latency. MEASURED, not reasoned:
-// max 3.1s, p99 2.6s across every production day-file (2026-09-22) — 15s is
-// five times the worst case seen. Beyond it, the fetched content predates the
-// PUT, i.e. the CDN served the pre-overwrite document.
-const FRESHNESS_SKEW_MS = 15_000;
+// Every entry read here is held against the store's own listing metadata —
+// byte size and last-PUT time — by contentVerdict (api/_lib/source-freshness.js,
+// which carries the measured constants and the incident history).
 // A single content fetch may not hang the whole payroll read: a stalled CDN
 // connection used to hold `Promise.all` — and the office's Send button — until
 // the function itself timed out. A timed-out attempt counts as unreadable and
 // is retried like any other.
 const FETCH_TIMEOUT_MS = 8_000;
-// How long after a write the CDN can still plausibly serve the PREVIOUS
-// document. Propagation is a seconds-scale race, so this is deliberately
-// generous. Past it, a blob is SETTLED: whatever we read is the current
-// document, full stop.
-//
-// This matters because the skew check below asks the wrong question on its
-// own. It compares the blob's last-PUT time against the newest stamp INSIDE
-// the content, and a gap can mean two very different things:
-//   · the blob was just written and we were served the pre-overwrite copy
-//     (the 2026-08-24 wk34 incident — refuse, and retry first); or
-//   · the document's own stamp simply trails the write that stored it,
-//     because of how it was WRITTEN (the 2026-09-21 batch-stamp bug, fixed in
-//     time-entries-bulk-approve.js: one timestamp taken before a slow
-//     sequential loop).
-// Only the first is a stale read. The second is baked into stored data, so
-// refusing it is permanent — it blocked the owner's payroll for a whole pay
-// week, unfixable by retrying, until the two records were rewritten by hand.
-// Recency is what separates them, and the gap alone cannot.
-const STALE_SUSPECT_WINDOW_MS = 5 * 60_000;
-// When a refused read is expected to clear: Vercel documents that an
-// overwritten blob can serve its previous content from the CDN for up to ~60s,
-// and production matched it to the second on 2026-10-05: the boss approved the
-// week on the phone and tapped Send to Tia ten seconds later — refused; tapped
-// again ~40s later — still refused for the last day approved (PUT 07:34:31,
-// still stale on the in-request retry at ~07:35:31, i.e. ~60s); then gave up,
-// and the week never reached accounts. The in-request retry below cannot wait
-// that long, so a refusal of days written inside this window carries
-// `retryAfterMs` — the moment the newest of them should have settled — and the
-// send surfaces wait it out and re-send by themselves instead of handing a
-// minute-scale race back to a person. 70s = the observed ~60s + 10s margin;
-// a refusal that outlasts it backs off by RETRY_AFTER_FLOOR_MS per re-send.
-const CDN_SETTLE_MS = 70_000;
+// A refusal that outlasts the CDN window backs off by this much per re-send
+// rather than hammering (the send surfaces re-send by themselves on 'settling').
 const RETRY_AFTER_FLOOR_MS = 10_000;
-// Bounded retry before refusing (~12s worst case). Vercel documents that an
-// overwritten blob can keep serving its previous content from the CDN for up
-// to ~60s, so this cannot cover every case — it covers the common seconds-scale
-// race without making the office wait a minute on every send, and the refusal
-// that follows says exactly what to do (wait, retry). Tests shrink this so the
-// suite never sleeps.
+// Bounded in-request retry before refusing (~12s worst case). It covers the
+// common seconds-scale CDN race without making the office wait a minute on
+// every send; anything longer is refused with `retryAfterMs` (when the newest
+// refused day will have settled) and the send surfaces wait that out and
+// re-send by themselves (2026-10-05: the week was approved and sent inside the
+// ~60s window, refused twice, and never reached accounts). Tests shrink this
+// so the suite never sleeps.
 let RETRY_DELAYS_MS = [1000, 2000, 3000, 3000, 3000];
 function __setFreshnessRetryDelaysForTests(delays) {
   RETRY_DELAYS_MS = Array.isArray(delays) ? delays : [];
 }
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** Newest HANDLER-written stamp on an entry, ms epoch — null when the entry
- *  carries none. Fallback only (see entryWriteStampMs): a handler stamp is
- *  taken before the write and can trail the PUT by however long the write
- *  path took to reach the put. */
-function entryLastWriteMs(entry) {
-  let max = 0;
-  for (const k of ['updatedAt', 'approvedAt', 'rejectedAt', 'submittedAt', 'amendedAt', 'exportedAt', 'createdAt']) {
-    const t = Date.parse((entry && entry[k]) || '');
-    if (Number.isFinite(t) && t > max) max = t;
-  }
-  return max || null;
-}
+/** Kept for existing importers: the stamp held against the PUT (the storage
+ *  stamp first; handler stamps only for documents that predate it) — see
+ *  source-freshness.js. */
+const entryWriteStampMs = writeStampMs;
 
-/** The stamp to hold against the blob's last-PUT time, ms epoch, or null when
- *  the document carries none (a raw-put legacy row), in which case freshness
- *  cannot be judged and the read is accepted (never invent staleness — P7).
- *
- *  Primary: the storage layer's `__updatedAt` — set inside writeBlob by
- *  applyGuards immediately before the put, on every document written through
- *  the app since #157. It is the only stamp no handler can trail.
- *  Fallback: the handler stamps, for a document that predates it. */
-function entryWriteStampMs(entry) {
-  const storage = Date.parse((entry && entry.__updatedAt) || '');
-  if (Number.isFinite(storage)) return storage;
-  return entryLastWriteMs(entry);
-}
-
-/** One content fetch, bounded by FETCH_TIMEOUT_MS. Resolves the parsed entry
- *  or null (HTTP error, bad JSON, network failure, timeout). */
+/** One content fetch, bounded by FETCH_TIMEOUT_MS. Resolves { doc, bytes } —
+ *  the parsed entry and the exact byte length of the body as served, so the
+ *  verdict can hold it against the listing's `size` — or null (HTTP error, bad
+ *  JSON, network failure, timeout). A response without text() (some test
+ *  doubles) still parses; its byte length is then simply unknown. */
 async function fetchEntryOnce(url) {
   let signal;
   try { signal = AbortSignal.timeout(FETCH_TIMEOUT_MS); } catch { signal = undefined; }
   try {
     const r = await fetch(url, { cache: 'no-store', signal });
     if (!r.ok) return null;
-    const entry = await r.json();
-    return entry && typeof entry === 'object' ? entry : null;
+    let doc;
+    let bytes;
+    if (typeof r.text === 'function') {
+      const body = await r.text();
+      bytes = Buffer.byteLength(body, 'utf8');
+      doc = JSON.parse(body);
+    } else {
+      doc = await r.json();
+    }
+    return doc && typeof doc === 'object' ? { doc, bytes } : null;
   } catch {
     return null;
   }
 }
 
 /**
- * Fetch one entry blob and verify the content is at least as new as the
- * blob's last PUT. Retries per RETRY_DELAYS_MS. Resolves { entry } on a
- * verified (or unverifiable) read, else { problem: 'stale' | 'unreadable' }.
+ * Fetch one entry blob and verify it is the version the listing describes
+ * (contentVerdict: byte size + storage stamp vs `size`/`uploadedAt`). Retries
+ * per RETRY_DELAYS_MS. Resolves { entry } on a verified (or unverifiable)
+ * read, else { problem: 'stale' | 'unreadable', … the numbers behind it }.
  */
 async function fetchEntryVerified(b) {
-  const uploadedMs = Date.parse((b && b.uploadedAt) || '');
-  let lastProblem = 'unreadable';
-  let lastGapMs = null;
-  let lastContentMs = null;
+  const meta = { uploadedAt: b && b.uploadedAt, size: b && b.size };
+  let last = { problem: 'unreadable' };
   for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
     if (attempt > 0) await sleep(RETRY_DELAYS_MS[attempt - 1]);
-    const entry = await fetchEntryOnce(b.url + '?t=' + Date.now() + '-' + attempt);
-    if (!entry) { lastProblem = 'unreadable'; continue; }
-    if (!Number.isFinite(uploadedMs)) return { entry }; // no listing stamp → cannot verify
-    const contentMs = entryWriteStampMs(entry);
-    if (contentMs == null) return { entry }; // legacy row → cannot verify
-    if (uploadedMs - contentMs <= FRESHNESS_SKEW_MS) return { entry };
-    // Settled long enough that no propagation window is left — this IS the
-    // current document, and its stamp merely trails its own write. Accept it
-    // rather than refuse payroll forever, but say so: a run of these means a
-    // writer is stamping before it stores.
-    if (Date.now() - uploadedMs > STALE_SUSPECT_WINDOW_MS) {
-      console.warn(
-        'payroll read: accepting settled entry whose write stamp trails its PUT by ' +
-        (uploadedMs - contentMs) + 'ms — ' + b.pathname +
-        ' (last written ' + Math.round((Date.now() - uploadedMs) / 1000) + 's ago, ' +
-        'so no CDN propagation window remains)',
-      );
-      return { entry };
+    const got = await fetchEntryOnce(b.url + '?t=' + Date.now() + '-' + attempt);
+    if (!got) { last = { problem: 'unreadable' }; continue; }
+    const v = contentVerdict(meta, got, Date.now());
+    if (v.current) {
+      // Settled long enough that no propagation window is left — this IS the
+      // current document. Accept it rather than refuse payroll forever, but
+      // say so: a run of these means a writer stamps before it stores, or the
+      // size signal disagrees with the store (re-measure before trusting it).
+      if (v.settled && (v.sizeMismatch || (v.gapMs != null && v.gapMs > FRESHNESS_SKEW_MS))) {
+        console.warn(
+          'payroll read: accepting settled entry — ' + b.pathname +
+          (v.sizeMismatch ? ' (byte size ' + got.bytes + ' ≠ listed ' + b.size + ')' : '') +
+          (v.gapMs != null ? ' (write stamp trails its PUT by ' + v.gapMs + 'ms)' : '') +
+          ' — last written ' + Math.round((Date.now() - v.uploadedMs) / 1000) + 's ago, ' +
+          'so no CDN propagation window remains',
+        );
+      }
+      return { entry: got.doc };
     }
-    lastProblem = 'stale'; // CDN served the pre-overwrite document — retry
-    lastGapMs = uploadedMs - contentMs;
-    lastContentMs = contentMs;
+    // The CDN served a version other than the current one — retry.
+    last = {
+      problem: 'stale',
+      reason: v.reason,
+      contentMs: v.contentMs,
+      gapMs: v.gapMs,
+      bytes: got.bytes,
+    };
   }
   // Carry the numbers out so the refusal can SAY why, not just that. A refusal
   // used to log nothing at all, so "the email didn't send" was unanswerable
   // after the fact — the 2026-09-21 payroll block took a code read to explain.
-  return { problem: lastProblem, uploadedMs, contentMs: lastContentMs, gapMs: lastGapMs };
+  return {
+    ...last,
+    uploadedMs: uploadedMsOf(b),
+    size: b && Number.isFinite(b.size) ? b.size : null,
+  };
+}
+
+/** ms epoch of a listing's uploadedAt (the SDK hands back a Date or a string). */
+function uploadedMsOf(b) {
+  const v = b && b.uploadedAt;
+  if (v instanceof Date) return v.getTime();
+  return Date.parse(v || '');
 }
 
 /**
  * How long until every refused day has settled, in ms — or null when the
  * refusal is not one that waiting will clear. Retryable only when EVERY
  * refused day has a listing PUT time and is either a 'stale' verdict (which
- * only exists inside STALE_SUSPECT_WINDOW_MS of its write, by construction) or
- * an 'unreadable' blob written inside CDN_SETTLE_MS (a just-created day-file
- * can 404 from the CDN for a moment). Floored at RETRY_AFTER_FLOOR_MS so a
- * stale verdict past the expected window still backs off instead of hammering.
+ * only exists inside the suspect window of its write, by construction) or an
+ * 'unreadable' blob written inside CDN_SETTLE_MS (a just-created day-file can
+ * 404 from the CDN for a moment). Floored at RETRY_AFTER_FLOOR_MS so a stale
+ * verdict past the expected window still backs off instead of hammering.
  */
 function settleRetryAfterMs(refused, nowMs) {
   if (!refused.length) return null;
@@ -216,7 +195,34 @@ function settleRetryAfterMs(refused, nowMs) {
   return Math.max(RETRY_AFTER_FLOOR_MS, newestPut + CDN_SETTLE_MS - nowMs);
 }
 
-async function collectRows({ status, userId, jobId, fromDate, toDate }) {
+/** "Mick Doran 2026-10-02" for a day-file pathname — names the days a refusal
+ *  is about, so the office knows exactly what to wait for or chase. */
+function dayLabel(pathname, userById) {
+  const m = String(pathname || '').match(/^users\/([^/]+)\/time-entries\/(\d{4}-\d{2}-\d{2})/);
+  const u = m ? userById[m[1]] : null;
+  const who = (u && (u.name || u.username)) || (m ? m[1] : pathname);
+  return (who + ' ' + (m ? m[2] : '')).trim();
+}
+
+/**
+ * Collect the payroll rows for a range.
+ *
+ * `quiet: true` — the ARTIFACT mode (the emailed sheet, a CSV/PDF download, a
+ * Xero batch): refuse, before reading a single day, while ANY day-file in the
+ * range was written inside CDN_SETTLE_MS. Two failures it closes for every
+ * client, not just the phone closeout:
+ *   · a stale read the verdict cannot see (two same-size writes seconds apart);
+ *   · approvals still being written — a bulk approve writes one day every few
+ *     seconds, so while it runs there is always a fresh write in range, and a
+ *     sheet produced mid-batch would carry the days already approved and
+ *     silently leave off the ones still queued (2026-10-06 audit).
+ * The refusal is fast (no content fetched), names the days that just changed,
+ * and carries code 'settling' + retryAfterMs — the moment the newest change has
+ * settled — so the send surfaces wait it out and re-send by themselves. The
+ * on-screen previews (/hours/period rollup) don't pass it: they verify every
+ * read instead, and a preview can be refreshed.
+ */
+async function collectRows({ status, userId, jobId, fromDate, toDate, quiet = false }) {
   // Default range = current ISO week (Mon..Sun). NOTE: this is server-local
   // (UTC on Vercel); every UI caller passes explicit fromDate/toDate.
   if (!fromDate || !toDate) {
@@ -272,6 +278,34 @@ async function collectRows({ status, userId, jobId, fromDate, toDate }) {
     return { ok: false, status: 502, error: 'blob list failed: ' + e.message };
   }
 
+  if (quiet) {
+    const nowMs = Date.now();
+    const recent = entryBlobs
+      .map((b) => ({ b, putMs: uploadedMsOf(b) }))
+      .filter(({ putMs }) => Number.isFinite(putMs) && nowMs - putMs < CDN_SETTLE_MS)
+      .sort((a, b) => b.putMs - a.putMs);
+    if (recent.length) {
+      const retryAfterMs = Math.max(1_000, recent[0].putMs + CDN_SETTLE_MS - nowMs);
+      const shown = recent.slice(0, 6).map(({ b }) => dayLabel(b.pathname, userById)).join('; ');
+      console.warn(
+        'payroll read held: ' + recent.length + ' day-file(s) in ' + fromDate + '..' + toDate +
+        ' written in the last ' + Math.round(CDN_SETTLE_MS / 1000) + 's (newest ' +
+        new Date(recent[0].putMs).toISOString() + ') — retry in ' + retryAfterMs + 'ms',
+      );
+      return {
+        ok: false,
+        status: 503,
+        code: 'settling',
+        retryAfterMs,
+        error:
+          'payroll read refused — hours in this period changed in the last minute (' +
+          shown + (recent.length > 6 ? '; …' : '') + '). Nothing was produced: every change ' +
+          'finishes saving first, so nothing is left off — try again in about ' +
+          Math.ceil(retryAfterMs / 1000) + ' seconds.',
+      };
+    }
+  }
+
   const results = await Promise.all(
     entryBlobs.map(async (b) => ({ b, out: await fetchEntryVerified(b) })),
   );
@@ -282,20 +316,19 @@ async function collectRows({ status, userId, jobId, fromDate, toDate }) {
     else refused.push({
       pathname: b.pathname,
       problem: out.problem,
+      reason: out.reason,
       uploadedMs: out.uploadedMs,
       contentMs: out.contentMs,
       gapMs: out.gapMs,
+      bytes: out.bytes,
+      size: out.size,
     });
   }
   if (refused.length) {
     // Never produce a payroll artifact missing real hours. Name the days so
     // the office knows exactly what to wait for / chase.
-    const label = (r) => {
-      const m = r.pathname.match(/^users\/([^/]+)\/time-entries\/(\d{4}-\d{2}-\d{2})/);
-      const u = m ? userById[m[1]] : null;
-      const who = (u && (u.name || u.username)) || (m ? m[1] : r.pathname);
-      return (who + ' ' + (m ? m[2] : '') + ' (' + (r.problem === 'stale' ? 'just changed' : 'unreadable') + ')').trim();
-    };
+    const label = (r) =>
+      dayLabel(r.pathname, userById) + ' (' + (r.problem === 'stale' ? 'just changed' : 'unreadable') + ')';
     // One line per refused day, with the NUMBERS behind the verdict: which blob,
     // when it was last PUT, the newest stamp inside it, and the gap that failed
     // the skew. A 'stale' verdict with a large, stable gap is not a CDN lag at
@@ -306,10 +339,11 @@ async function collectRows({ status, userId, jobId, fromDate, toDate }) {
       console.error(
         'payroll read refused: ' + r.pathname + ' — ' + r.problem +
         (r.problem === 'stale'
-          ? ' (blob PUT ' + new Date(r.uploadedMs).toISOString() +
+          ? ' (' + (r.reason === 'size' ? 'byte size ' + r.bytes + ' ≠ listed ' + r.size + '; ' : '') +
+            'blob PUT ' + (Number.isFinite(r.uploadedMs) ? new Date(r.uploadedMs).toISOString() : 'unknown') +
             ', newest stamp in content ' +
             (r.contentMs ? new Date(r.contentMs).toISOString() : 'none') +
-            ', gap ' + r.gapMs + 'ms, skew allows ' + FRESHNESS_SKEW_MS + 'ms)'
+            ', gap ' + r.gapMs + 'ms)'
           : ''),
       );
     }
