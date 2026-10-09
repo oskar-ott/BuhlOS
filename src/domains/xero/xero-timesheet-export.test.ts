@@ -183,7 +183,8 @@ beforeEach(() => {
     exports: { getDb: () => makeSql(stampModel ?? freshModel()), __setStampModel: (m: Model) => { stampModel = m; } },
   } as NodeJS.Module;
   timeEntries = {
-    readEntry: vi.fn(async (userId: string, date: string) => ({ id: `te_${userId}_${date}`, userId, date, __rev: "r1" })),
+    // Stamping decides on the VERIFIED read (2026-10-09 hours-integrity pass).
+    readEntryVerified: vi.fn(async (userId: string, date: string) => ({ id: `te_${userId}_${date}`, userId, date, __rev: "r1" })),
     writeEntry: vi.fn(async () => ({})),
     appendAudit: vi.fn(async () => ({})),
   };

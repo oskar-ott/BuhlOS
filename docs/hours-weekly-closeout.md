@@ -107,6 +107,12 @@ fix is server-side only — `/hours`, `/hours/weekly` and the command-centre
 card all consume the same corrected `missing[]`; no client-side missing-row
 generation was added, and future-day / weekend handling is unchanged.
 
+The rule itself lives in ONE function, `api/_lib/missing-days.js`
+(`missingWeekdays`, extracted verbatim from the overview on 2026-10-09). The
+overview's `missing[]`/`leave[]` and the payroll sheet's "Not on this sheet"
+list (`api/_lib/not-on-sheet.js`) both call it, so the boards and the sheet
+that goes to accounts can never disagree about a missing day.
+
 **Known follow-up (found in #114, deliberately not changed):** the overview's
 *viewer* scoping still literal-matches `viewer.role === 'admin'`, so
 admin-tier viewers other than literal `admin` (office/boss/pm…) get

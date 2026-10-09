@@ -138,6 +138,21 @@ a pure projection over this loop; nothing below changed.
   Xero resumes. No env var, no flag. Emailing stamps nothing; each send is
   journalled as `hours.timesheets_emailed`, each list change as
   `hours.timesheets_recipients_updated`.
+  **Integrity rules for the send (2026-10-09, after the 5 Oct week that never
+  went — `docs/regressions/payroll-export-blocked.md`):**
+  - the sheet is only read from a **quiet period** — if any hours in the
+    period changed in the last ~70s (approvals still saving, or still settling
+    in the storage CDN) the server refuses with `code: 'settling'` and the
+    seconds to wait, and both send surfaces **wait it out and send by
+    themselves** ("still saving — it sends by itself in about N seconds");
+  - the phone finale **can't send while its own approvals are saving**
+    ("Saving approvals…");
+  - the sheet **names everything it doesn't carry** — "Not on this sheet":
+    every worker-day with no approved hours and why (waiting for approval,
+    sent back for a fix, not sent in, nothing logged, on approved leave) — in
+    the PDF, the email body and subject, the approved Download PDF and the
+    send receipts; the phone finale names the same days before sending. A
+    finished week with nothing outstanding says "Nothing left off".
 - **Admin reopen from the v2 UI** — API exists (`/api/time-entries-reopen`),
   surface is legacy for now.
 

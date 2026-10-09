@@ -38,7 +38,8 @@
 const { setNoCache } = require('./_lib/blob');
 const { requireAuth, isAdminRole } = require('./_lib/auth');
 const {
-  readEntry,
+  readEntryVerified,
+  decisionReadFailure,
   writeEntry,
   appendAudit,
   entryView,
@@ -73,7 +74,17 @@ module.exports = async (req, res) => {
   if (!reason || !String(reason).trim()) return res.status(400).json({ error: 'reason required' });
   const trimmedReason = String(reason).trim().slice(0, MAX_REASON_LENGTH);
 
-  const entry = await readEntry(userId, date);
+  // The correction is applied to a version PROVEN current — amending a stale
+  // copy would write the office's fix over hours the worker changed seconds
+  // ago — and that version is the CAS baseline below.
+  let entry;
+  try {
+    entry = await readEntryVerified(userId, date);
+  } catch (e) {
+    const failure = decisionReadFailure(e);
+    if (failure) return res.status(failure.status).json(failure.body);
+    throw e;
+  }
   if (!entry) return res.status(404).json({ error: 'not found' });
   // 409, not 400: the day-file is in a state this action cannot act on, and the
   // fix is for the caller to re-read it (the queue already refreshes on 409).
@@ -171,7 +182,7 @@ module.exports = async (req, res) => {
   };
 
   try {
-    await writeEntry(userId, updated);
+    await writeEntry(userId, updated, { basedOn: entry });
   } catch (e) {
     if (e && e.code === 'stale_write') {
       // The day-file changed underneath this decision (concurrent approve/edit

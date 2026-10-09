@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { formatHoursLabel } from "@/domains/timesheets/format";
 import {
   outstandingWeekLabel,
+  type OutstandingLine,
   type OutstandingWeek,
 } from "@/domains/timesheets/weekly-review";
 import { buildReviewPlan, type ReviewCandidate } from "@/domains/timesheets/xero-closeout";
@@ -17,6 +18,7 @@ import {
   ReviewedMark,
 } from "@/components/admin/WeeklyCloseoutXeroFinale";
 import { formatPeriodSend, usePeriodEmailStatus } from "./usePeriodEmailStatus";
+import { sendPeriodTimesheets } from "./sendPeriodTimesheets";
 
 /**
  * WeeklyCloseoutSendFinale (owner pull 2026-08-15) — the closeout's last
@@ -32,6 +34,10 @@ import { formatPeriodSend, usePeriodEmailStatus } from "./usePeriodEmailStatus";
  * - Emailing stamps nothing (ADR #609) — a re-send just emails again.
  * - The receipt quotes the SERVER's numbers, never a local guess; a failed
  *   send says so and stays on this screen for a retry.
+ * - Days approved seconds ago can't be read back for up to a minute; the
+ *   server refuses rather than send a short sheet and says when to retry, and
+ *   this screen waits it out and sends by itself (sendPeriodTimesheets —
+ *   2026-10-05, the week that never went).
  */
 
 type Stage = "review" | "sending" | "sent";
@@ -41,6 +47,30 @@ interface SentReceipt {
   workerCount: number;
   totalHours: number;
   sentAtLabel: string;
+  /** What the sheet left off, by name — the server's own list (the same one
+   *  the email and PDF print). Absent when the server didn't say: then the
+   *  receipt says nothing about it, never a hopeful "Nothing" (P7). */
+  notOnSheet?: { dayCount: number; lines: Array<{ workerName: string; reason: string; days: string }> };
+}
+
+/** "Dylan Sinclair · nothing logged: Fri 2 Oct" — one line per worker per reason. */
+function NamedDays({
+  lines,
+  testId,
+}: {
+  lines: ReadonlyArray<{ workerName: string; reason: string; days: string }>;
+  testId: string;
+}) {
+  if (!lines.length) return null;
+  return (
+    <ul data-testid={testId} className="mt-2 space-y-1">
+      {lines.map((l) => (
+        <li key={`${l.workerName}|${l.reason}`} className="leading-snug">
+          <b className="font-semibold">{l.workerName}</b> · {l.reason}: {l.days}
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 interface Props {
@@ -64,6 +94,24 @@ interface Props {
    * re-send is safe, so sending early is a judgement call, not an error.
    */
   outstanding?: OutstandingWeek;
+  /**
+   * WHO and WHICH DAYS behind `outstanding` (2026-10-09 — the 5 Oct finale said
+   * "2 days never came in" and nobody could tell it meant two people's
+   * Fridays). Same reasons + day format as the sheet's own "Not on this sheet"
+   * list, so what the boss reads here is what accounts reads in the email.
+   */
+  outstandingLines?: ReadonlyArray<OutstandingLine>;
+  /**
+   * Hours actions from this review still saving (the review sheet's per-worker
+   * busyIds — approve, send back, fix a day, undo). Approvals are fired in the
+   * background so the boss never waits between people, so this screen can
+   * open while the last few are still being written. A send in that window
+   * reads those days as still "submitted" and leaves them off the sheet with
+   * NO error (no freshness refusal can see a write that hasn't happened yet —
+   * 2026-10-06 audit of the 5 Oct send). While anything is saving, the send
+   * waits; it unlocks by itself when the saves land.
+   */
+  savingCount?: number;
   onClose: () => void;
   /** Raised while the send is in flight so the sheet can't be dismissed under it. */
   onBusyChange?: (busy: boolean) => void;
@@ -76,15 +124,21 @@ export function WeeklyCloseoutSendFinale({
   reviewedCount,
   candidates,
   outstanding,
+  outstandingLines = [],
+  savingCount = 0,
   onClose,
   onBusyChange,
 }: Props) {
   // No validation call — there is no Xero in this path. The plan is purely
   // the approved hours already on screen.
   const plan = buildReviewPlan(candidates, null);
+  // This review's own approvals are still being written — nothing below is
+  // settled yet, so the send (and the wait/FYI notices, which would count the
+  // in-flight days as "still waiting for review") hold until they land.
+  const saving = savingCount > 0;
   // Days mid-flight (sent back / not reviewed) lead with waiting; days that
   // will never arrive (holiday crew) only inform.
-  const holdsSend = (outstanding?.actionableDays ?? 0) > 0;
+  const holdsSend = !saving && (outstanding?.actionableDays ?? 0) > 0;
   const notInYet = outstanding?.notInYetDays ?? 0;
 
   // Who the email really goes to + whether this week already went (the audit
@@ -99,6 +153,8 @@ export function WeeklyCloseoutSendFinale({
   const [stage, setStage] = useState<Stage>("review");
   const [error, setError] = useState<string | null>(null);
   const [receipt, setReceipt] = useState<SentReceipt | null>(null);
+  // Set while the send waits for just-approved days to settle (ms it waits).
+  const [settleWaitMs, setSettleWaitMs] = useState<number | null>(null);
   const alive = useRef(true);
 
   useEffect(() => {
@@ -111,24 +167,21 @@ export function WeeklyCloseoutSendFinale({
   const send = useCallback(async () => {
     setStage("sending");
     setError(null);
+    setSettleWaitMs(null);
     onBusyChange?.(true);
     try {
-      const res = await fetch("/api/time-entries-email", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ fromDate: weekStart, toDate: weekEnd }),
+      const outcome = await sendPeriodTimesheets({
+        fromDate: weekStart,
+        toDate: weekEnd,
+        onSettling: (ms) => {
+          if (alive.current) setSettleWaitMs(ms);
+        },
+        isActive: () => alive.current,
       });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) {
-        throw new Error(data?.error || `The send failed (${res.status}) — nothing was emailed.`);
-      }
-      if (!alive.current) return;
+      if (!alive.current || !outcome) return;
+      if (!outcome.ok) throw new Error(outcome.error);
       setReceipt({
-        recipients: Array.isArray(data?.recipients)
-          ? (data.recipients as unknown[]).filter((r): r is string => typeof r === "string")
-          : [],
-        workerCount: Number(data?.workerCount) || 0,
-        totalHours: Number(data?.totalHours) || 0,
+        ...outcome.receipt,
         sentAtLabel: new Date().toLocaleTimeString("en-AU", {
           hour: "numeric",
           minute: "2-digit",
@@ -148,6 +201,7 @@ export function WeeklyCloseoutSendFinale({
       );
       setStage("review");
     } finally {
+      if (alive.current) setSettleWaitMs(null);
       onBusyChange?.(false);
     }
   }, [weekStart, weekEnd, onBusyChange, refreshEmailStatus]);
@@ -167,6 +221,16 @@ export function WeeklyCloseoutSendFinale({
           <p className="text-sm text-text-muted">
             Sending the {periodLabel} PDF to {recipients.join(", ") || "accounts"}.
           </p>
+          {settleWaitMs != null ? (
+            <p
+              role="status"
+              data-testid="wha-send-settling"
+              className="mx-auto max-w-[32ch] text-sm leading-relaxed text-text-muted"
+            >
+              The days you just approved are still saving. It sends by itself in about{" "}
+              {Math.ceil(settleWaitMs / 1000)} seconds — keep this screen open.
+            </p>
+          ) : null}
         </div>
       </FinaleShell>
     );
@@ -203,8 +267,27 @@ export function WeeklyCloseoutSendFinale({
         <dl className="rounded-card border border-border px-3.5 py-1">
           <ReceiptRow label="Workers" value={String(receipt.workerCount)} />
           <ReceiptRow label="Approved hours" value={formatHoursLabel(receipt.totalHours)} />
+          {receipt.notOnSheet ? (
+            <ReceiptRow
+              label="Not on the sheet"
+              value={
+                receipt.notOnSheet.dayCount > 0
+                  ? `${receipt.notOnSheet.dayCount} day${receipt.notOnSheet.dayCount === 1 ? "" : "s"}`
+                  : "Nothing"
+              }
+            />
+          ) : null}
           <ReceiptRow label="Sent" value={receipt.sentAtLabel} last />
         </dl>
+        {receipt.notOnSheet && receipt.notOnSheet.lines.length > 0 ? (
+          <div data-testid="wha-send-sent-missing">
+            <Notice tone="warn" title="Listed in the email so nothing is missed">
+              These days have no approved hours, so they aren&rsquo;t on the sheet — the email and
+              PDF name them for Tia.
+              <NamedDays lines={receipt.notOnSheet.lines} testId="wha-send-sent-missing-lines" />
+            </Notice>
+          </div>
+        ) : null}
       </FinaleShell>
     );
   }
@@ -215,7 +298,15 @@ export function WeeklyCloseoutSendFinale({
       onClose={onClose}
       footer={
         <div className="space-y-1.5">
-          {plan.rows.length > 0 ? (
+          {saving ? (
+            <Button className="w-full" data-testid="wha-send-saving" disabled>
+              <Loader2
+                aria-hidden="true"
+                className="h-4 w-4 animate-spin motion-reduce:animate-none"
+              />
+              Saving approvals…
+            </Button>
+          ) : plan.rows.length > 0 ? (
             holdsSend ? (
               /* Fixes are coming back — waiting is the sensible default.
                  Sending early is a REAL button (secondary, not ghost): the
@@ -263,6 +354,16 @@ export function WeeklyCloseoutSendFinale({
         }
       />
 
+      {saving ? (
+        <div data-testid="wha-send-saving-note" role="status">
+          <Notice tone="muted" title="Still saving">
+            {savingCount} {savingCount === 1 ? "person’s" : "people’s"} hours are
+            still saving. Sending unlocks as soon as they land — usually a few seconds — so
+            nothing you just approved is left off the sheet.
+          </Notice>
+        </div>
+      ) : null}
+
       {error ? (
         <Notice tone="danger" title="The email didn&rsquo;t send">
           {error}
@@ -284,22 +385,31 @@ export function WeeklyCloseoutSendFinale({
             {outstandingWeekLabel(outstanding)}. The PDF only carries approved hours — days
             that land later won&rsquo;t be on it. Waiting costs nothing; this screen is here
             whenever you&rsquo;re ready.
+            <NamedDays
+              lines={outstandingLines.filter((l) => l.kind !== "notInYet")}
+              testId="wha-send-outstanding-lines"
+            />
           </Notice>
         </div>
       ) : null}
 
-      {!holdsSend && notInYet > 0 && plan.rows.length > 0 ? (
+      {!saving && !holdsSend && notInYet > 0 && plan.rows.length > 0 ? (
         /* Crew who never sent a week in — holiday, away, or just didn't log.
            Normal (owner call 2026-08-17), so it informs and never holds. */
         <div data-testid="wha-send-fyi">
           <Notice tone="muted" title="Not everyone&rsquo;s week is here">
             {notInYet} day{notInYet === 1 ? "" : "s"} never came in — crew on holiday or
-            nothing logged. The sheet carries approved hours only, so it sends without them.
+            nothing logged. The sheet carries approved hours only, so it sends without them —
+            and names them for Tia, so nothing is missed.
+            <NamedDays
+              lines={outstandingLines.filter((l) => l.kind === "notInYet")}
+              testId="wha-send-fyi-lines"
+            />
           </Notice>
         </div>
       ) : null}
 
-      {plan.rows.length === 0 ? (
+      {saving ? null : plan.rows.length === 0 ? (
         <Notice tone="muted" title="No approved hours">
           Nothing was approved this week, so there&rsquo;s nothing to email. Approve the days
           first, then send.

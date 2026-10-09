@@ -65,6 +65,11 @@ function hoursLabel(n) {
  *   totalHours, overtimeHours, period totals off the same rollup
  *   attachmentName,            the PDF filename, named so it can't get lost
  *   sentByName?                who closed the week off (signature line)
+ *   notOnSheet?                { lines: [{ workerName, reason, days }], dayCount,
+ *                                leaveChecked, periodComplete } — every
+ *                                worker-day the sheet does NOT carry, and why
+ *                                (api/_lib/not-on-sheet.js). Same list the PDF
+ *                                prints, so accounts sees it before paying.
  * }
  * @returns {{ subject: string, html: string, text: string }}
  */
@@ -77,7 +82,17 @@ function renderTimesheetsEmail(ctx) {
   const count = workers.length;
   const workerWord = count === 1 ? 'worker' : 'workers';
 
-  const subject = `Timesheets ${label} · ${count} ${workerWord} · ${total}`;
+  const nos = ctx.notOnSheet || null;
+  const nosLines = nos && Array.isArray(nos.lines) ? nos.lines : [];
+  const nosCount = nosLines.length ? Number(nos.dayCount) || nosLines.length : 0;
+  const nosDays = `${nosCount} day${nosCount === 1 ? '' : 's'}`;
+  // Nothing outstanding is said out loud only when it is TRUE: the period is
+  // over and leave was checked. Otherwise silence, never a hopeful claim (P7).
+  const nothingLeftOff = !!(nos && !nosLines.length && nos.periodComplete && nos.leaveChecked !== false);
+
+  const subject = `Timesheets ${label} · ${count} ${workerWord} · ${total}${
+    nosCount ? ` · ${nosDays} not on the sheet` : ''
+  }`;
 
   const rowsHtml = workers
     .map(
@@ -106,6 +121,24 @@ ${rowsHtml}
 </tr>
 </table>
 ${ot > 0 ? `<p style="font-size:13px;color:#8a6d1a;margin:0 0 14px">Includes ${hoursLabel(ot)} overtime across the period — split out per worker in the PDF.</p>` : ''}
+${
+  nosLines.length
+    ? `<div style="margin:16px 0 6px;padding:12px 14px;border:1px solid #f0c36d;background:#fff8e6">
+<p style="margin:0 0 4px;font-size:14px;font-weight:700;color:#7a4b00">Not on this sheet — ${esc(nosDays)}</p>
+<p style="margin:0 0 8px;font-size:13px;line-height:1.45;color:#7a4b00">These days have no approved hours, so they aren't in the totals or the PDF. Please check them before the pay run.</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+${nosLines
+  .map(
+    (l) => `<tr><td valign="top" style="padding:3px 10px 3px 0;font-size:13px;font-weight:700;color:${INK};white-space:nowrap">${esc(l.workerName)}</td><td style="padding:3px 0;font-size:13px;color:${INK}">${esc(l.reason)}: ${esc(l.days)}</td></tr>`,
+  )
+  .join('\n')}
+</table>
+${nos.leaveChecked === false ? `<p style="margin:8px 0 0;font-size:12px;color:#7a4b00">Leave couldn't be checked when this was sent — a day shown as "nothing logged" may be leave.</p>` : ''}
+</div>`
+    : nothingLeftOff
+      ? `<p style="font-size:13px;color:#2f6b3a;margin:12px 0 0">Nothing left off — every weekday for the crew has approved hours on this sheet.</p>`
+      : ''
+}
 <p style="font-size:13px;line-height:1.5;color:#6a7591;margin:10px 0 0">Sent from BuhlOS when the pay week was closed off${ctx.sentByName ? ` by ${esc(ctx.sentByName)}` : ''}. If anything looks off, reply to this email or call the office.</p>
 </td></tr>
 <tr><td style="padding:14px 32px;background:#f6f7f9;border-top:1px solid #e2e8f0;font-size:11px;color:#6a7591">BuhlOS · approved hours only — figures match the attached PDF.</td></tr>
@@ -125,6 +158,18 @@ ${ot > 0 ? `<p style="font-size:13px;color:#8a6d1a;margin:0 0 14px">Includes ${h
     '',
     `  Total (${count} ${workerWord}) — ${total}${ot > 0 ? ` incl. ${hoursLabel(ot)} overtime` : ''}`,
     '',
+    ...(nosLines.length
+      ? [
+          `NOT ON THIS SHEET — ${nosDays}. These days have no approved hours, so they aren't in the totals or the PDF. Please check them before the pay run:`,
+          ...nosLines.map((l) => `  ${l.workerName} — ${l.reason}: ${l.days}`),
+          ...(nos.leaveChecked === false
+            ? [`  (Leave couldn't be checked when this was sent — a day shown as "nothing logged" may be leave.)`]
+            : []),
+          '',
+        ]
+      : nothingLeftOff
+        ? ['Nothing left off — every weekday for the crew has approved hours on this sheet.', '']
+        : []),
     `Sent from BuhlOS when the pay week was closed off${ctx.sentByName ? ` by ${ctx.sentByName}` : ''}.`,
     'If anything looks off, reply to this email or call the office.',
   ].join('\n');

@@ -27,7 +27,7 @@
 
 const { readBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, canApproveHours, isLeadingHandRole } = require('./_lib/auth');
-const { readEntry, writeEntry, appendAudit } = require('./_lib/time-entries');
+const { readEntryVerified, writeEntry, appendAudit } = require('./_lib/time-entries');
 const { append: appendAuditLog } = require('./_lib/audit-log');
 const { buildHoursBulkAuditEntry } = require('./_lib/hours-audit');
 const { sendPushToUserId } = require('./_lib/push');
@@ -87,9 +87,17 @@ module.exports = async (req, res) => {
     }
 
     let entry;
-    try { entry = await readEntry(userId, date); }
+    // Decide on a version PROVEN current (never a stale CDN copy), and use
+    // it as the CAS baseline for the write below.
+    try { entry = await readEntryVerified(userId, date); }
     catch (e) {
-      failed.push({ userId, date, error: 'read failed: ' + (e.message || 'unknown') });
+      if (e && e.code === 'stale_write') {
+        // The day changed moments ago and its new version couldn't be
+        // confirmed yet — retryable, like a conflict; never decided on.
+        failed.push({ userId, date, error: 'changed moments ago — try again in a minute', code: 'conflict' });
+      } else {
+        failed.push({ userId, date, error: 'read failed: ' + (e.message || 'unknown') });
+      }
       continue;
     }
     if (!entry) {
@@ -128,7 +136,7 @@ module.exports = async (req, res) => {
       updatedAt: now,
     };
     try {
-      await writeEntry(userId, updated);
+      await writeEntry(userId, updated, { basedOn: entry });
       await appendAudit(userId, entry.id, 'rejected', me.id, reason);
     } catch (e) {
       if (e && e.code === 'stale_write') {
