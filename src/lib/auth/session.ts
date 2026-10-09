@@ -93,10 +93,14 @@ const MeResponseSchema = z.object({
 
 export async function verifyViaApi(
   cookieHeader: string,
-  baseUrl: string
+  baseUrl: string,
+  /** Injectable for server pages that run the auth handler in-process
+   *  (api/_lib/in-process-api.js) — this module stays edge-safe, so it never
+   *  imports api/_lib itself. Defaults to the global fetch. */
+  fetchImpl: (url: string, init?: RequestInit) => Promise<Response> = fetch
 ): Promise<SessionPayload | null> {
   try {
-    const res = await fetch(`${baseUrl}/api/auth?action=me`, {
+    const res = await fetchImpl(`${baseUrl}/api/auth?action=me`, {
       headers: { cookie: cookieHeader },
       cache: "no-store",
     });

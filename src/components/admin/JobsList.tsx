@@ -795,6 +795,12 @@ function QuickLink({
   return (
     <Link
       href={href as Route}
+      // Secondary per-card links don't pre-load (2026-10-09, "the admin side
+      // is slow"): with Builder · Photos · Evidence on every card, a jobs list
+      // fired ~3 server renders per job the moment it appeared (prod logs: 30
+      // in two seconds). They still open on tap; the card's own link — the
+      // common path — keeps pre-loading, so opening a job stays instant.
+      prefetch={false}
       aria-label={ariaLabel}
       className={cn(
         "inline-flex items-center rounded-[4px] border px-2.5 py-1 text-xs font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-brand-navy",

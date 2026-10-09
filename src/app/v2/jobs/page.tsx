@@ -1,3 +1,4 @@
+import { inProcessFetch } from "../../../../api/_lib/in-process-api.js";
 import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
@@ -133,7 +134,7 @@ async function loadJobs(cookieValue: string | undefined): Promise<{
     // ~8s jobs.json monolith. The "X/Y tasks" progress (areaGroups-derived) and
     // the admin-tier contractValue are absent here and streamed in via
     // loadCardExtras. Flag-off → full read.
-    const res = await fetch(`${base}/api/jobs?withStats=1&statsOnly=1`, {
+    const res = await inProcessFetch(`${base}/api/jobs?withStats=1&statsOnly=1`, {
       cache: "no-store",
       headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
     });
@@ -171,7 +172,7 @@ async function loadCardExtras(
   const proto = h.get("x-forwarded-proto") ?? "http";
   const base = host ? `${proto}://${host}` : "http://localhost:3000";
   try {
-    const res = await fetch(`${base}/api/jobs?withStats=1`, {
+    const res = await inProcessFetch(`${base}/api/jobs?withStats=1`, {
       cache: "no-store",
       headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
     });
