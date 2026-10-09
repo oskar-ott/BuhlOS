@@ -29,6 +29,12 @@ vi.mock("next/headers", () => ({
   headers: async () => ({ get: () => null }),
 }));
 
+// The loader runs its API reads in-process (api/_lib/in-process-api.js); this
+// suite feeds data through the stubbed global fetch, so the seam delegates to it.
+vi.mock("../../../../api/_lib/in-process-api.js", () => ({
+  inProcessFetch: (input: string, init?: RequestInit) => fetch(input, init),
+}));
+
 vi.mock("next/navigation", () => ({
   redirect: (url: string) => {
     throw new Error(`unexpected redirect to ${url}`);
