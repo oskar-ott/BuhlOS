@@ -32,18 +32,40 @@ function isTimeEntryBlob(b) {
   );
 }
 
-/** Every time-entry blob ({ pathname, url, … }) under users/, fully paginated. */
-async function listTimeEntryBlobs() {
+// One listing at a time per process (2026-10-09, "the admin side is slow"):
+// the store's list() costs 1–2s from Sydney, and an office page now runs its
+// API reads in-process (api/_lib/in-process-api.js), so the Today screen's five
+// hours readers would otherwise each pay it at the same moment. Callers that
+// arrive while a listing is IN FLIGHT share it; the moment it settles the next
+// caller lists afresh — nothing is cached, so no reader ever sees an older
+// listing than it would have fetched itself. Each caller gets its own array.
+let inflightListing = null;
+
+async function listAllTimeEntryBlobs() {
   const token = process.env.BLOB_READ_WRITE_TOKEN;
   const out = [];
   let cursor;
+  let pages = 0;
+  const started = Date.now();
   const { list } = sdk();
   do {
     const r = await list({ prefix: 'users/', token, limit: 1000, cursor });
+    pages += 1;
     for (const b of (r && r.blobs) || []) if (isTimeEntryBlob(b)) out.push(b);
     cursor = r && r.hasMore ? r.cursor : undefined;
   } while (cursor);
+  console.log(`[perf] blob list users/ ${Date.now() - started}ms ${out.length} entries ${pages}p`);
   return out;
+}
+
+/** Every time-entry blob ({ pathname, url, … }) under users/, fully paginated. */
+async function listTimeEntryBlobs() {
+  if (!inflightListing) {
+    inflightListing = listAllTimeEntryBlobs().finally(() => {
+      inflightListing = null;
+    });
+  }
+  return (await inflightListing).slice();
 }
 
 /** The day-file blobs for ONE calendar date across every user — the walk the

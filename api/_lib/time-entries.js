@@ -290,8 +290,13 @@ function recentDatesWithin(fromDate, toDate) {
 // but acceptable for the approver queue volumes.
 // `status` (single) keeps the legacy default; `statuses` (array) lets a caller
 // pull several states in ONE scan (e.g. per-job costing needs submitted+approved).
-async function listAllEntriesForApprovers({ status = 'submitted', statuses } = {}) {
-  const wanted = Array.isArray(statuses) && statuses.length ? statuses : [status];
+// The approver walk reads EVERY day-file (status isn't in the path). Today
+// asks for submitted AND rejected at the same moment — two identical walks.
+// Concurrent callers share the in-flight walk (same rule as the listing: never
+// cached past settling); each caller filters its own copy.
+let inflightApproverWalk = null;
+
+async function walkAllEntriesForApprovers() {
   let entryBlobs;
   try {
     entryBlobs = await listTimeEntryBlobs(); // #935: fully paginated — never the silent 5000 cap
@@ -299,6 +304,7 @@ async function listAllEntriesForApprovers({ status = 'submitted', statuses } = {
     console.error('list error', e.message);
     return [];
   }
+  const started = Date.now();
   const entries = await Promise.all(entryBlobs.map(async b => {
     try {
       const r = await fetch(b.url + '?t=' + Date.now(), { cache: 'no-store' });
@@ -306,8 +312,19 @@ async function listAllEntriesForApprovers({ status = 'submitted', statuses } = {
       return await r.json();
     } catch { return null; }
   }));
-  return entries
-    .filter(Boolean)
+  console.log(`[perf] approver walk fetched ${entryBlobs.length} entries ${Date.now() - started}ms`);
+  return entries.filter(Boolean);
+}
+
+async function listAllEntriesForApprovers({ status = 'submitted', statuses } = {}) {
+  const wanted = Array.isArray(statuses) && statuses.length ? statuses : [status];
+  if (!inflightApproverWalk) {
+    inflightApproverWalk = walkAllEntriesForApprovers().finally(() => {
+      inflightApproverWalk = null;
+    });
+  }
+  const all = await inflightApproverWalk;
+  return all
     .filter(e => wanted.includes(e.status))
     .sort((a, b) => (a.submittedAt || '').localeCompare(b.submittedAt || ''));
 }
