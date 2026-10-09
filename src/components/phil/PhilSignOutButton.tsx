@@ -7,6 +7,7 @@ import { cn } from "@/lib/cn";
 import { purgePhilPageCaches } from "@/domains/phil/page-cache";
 import { boundedFetch } from "@/domains/phil/write-client";
 import { purgeJobListPrefs } from "./jobListPrefs";
+import { clearPending as clearWorkshopStockPending } from "@/domains/workshop-stock/pending";
 
 /**
  * Phil sign-out control.
@@ -58,6 +59,9 @@ export function PhilSignOutButton({
     // Drop this worker's recent + pinned jobs (#145) for the same shared-device
     // reason — best-effort, client-only, keyed by userId.
     if (userId) purgeJobListPrefs(userId);
+    // …and any Workshop Stock save still pending on this phone (it is only ever
+    // read back for its owner, but a shared device starts the next shift clean).
+    clearWorkshopStockPending();
     router.replace("/v2/login");
     router.refresh();
   }

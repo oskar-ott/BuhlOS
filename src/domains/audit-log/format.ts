@@ -125,6 +125,17 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "invoice.auto_confirmed": "Booked a supplier invoice automatically",
   "invoice.held": "Held a supplier invoice for a person",
   "invoice.supplier_pref_changed": "Changed a supplier's review preference",
+  // Workshop Stock (targetType 'workshop_stock_item' groups as Other).
+  "workshop_stock.item_created": "Added a workshop stock item",
+  "workshop_stock.item_updated": "Edited a workshop stock item",
+  "workshop_stock.item_archived": "Archived a workshop stock item",
+  "workshop_stock.item_restored": "Restored a workshop stock item",
+  "workshop_stock.identifier_added": "Added a code to a workshop stock item",
+  "workshop_stock.identifier_removed": "Removed a code from a workshop stock item",
+  "workshop_stock.photo_changed": "Changed a workshop stock photo",
+  "workshop_stock.verification_recorded": "Recorded a product-code check",
+  "workshop_stock.count_corrected": "Corrected a workshop stock count",
+  "workshop_stock.movement_undone": "Undid a workshop stock movement",
   // #370: daywork register (targetType 'daywork' groups as Other, like time_entry).
   "daywork.created": "Raised daywork docket",
   "daywork.signed": "Signed daywork docket",

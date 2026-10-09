@@ -328,6 +328,17 @@ describe("AuditLogEntrySchema", () => {
       // #280: variation claim lifecycle.
       "variation.created",
       "variation.transitioned",
+      // Workshop Stock (sorts between variation and xero).
+      "workshop_stock.count_corrected",
+      "workshop_stock.identifier_added",
+      "workshop_stock.identifier_removed",
+      "workshop_stock.item_archived",
+      "workshop_stock.item_created",
+      "workshop_stock.item_restored",
+      "workshop_stock.item_updated",
+      "workshop_stock.movement_undone",
+      "workshop_stock.photo_changed",
+      "workshop_stock.verification_recorded",
       // #247: Xero connection lifecycle (sorts last — 'x').
       "xero.connect_started",
       "xero.connected",
@@ -406,6 +417,8 @@ describe("AuditLogEntrySchema", () => {
       "time_entry",
       // #280: variation claim records.
       "variation",
+      // Workshop Stock items (sorts between variation and xero_mapping).
+      "workshop_stock_item",
       // #248: worker↔Xero-employee links.
       "xero_mapping",
       // #251: sync-health panel targets (sorts last).
