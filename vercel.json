@@ -8,7 +8,8 @@
     "api/internal/sync-checks/structure.js": { "maxDuration": 60 },
     "api/internal/sync-checks/servicem8.js": { "maxDuration": 60 },
     "api/internal/mirror-tasks.js": { "maxDuration": 60 },
-    "api/internal/mirror-evidence.js": { "maxDuration": 60 }
+    "api/internal/mirror-evidence.js": { "maxDuration": 60 },
+    "api/internal/mirror-hours.js": { "maxDuration": 60 }
   },
   "rewrites": [
     { "source": "/client", "destination": "/client.html" },
@@ -123,6 +124,7 @@
     { "path": "/api/internal/sync-checks/structure",            "schedule": "0 18 * * *"   },
     { "path": "/api/internal/sync-checks/servicem8",            "schedule": "15 19 * * *"  },
     { "path": "/api/internal/mirror-tasks",                     "schedule": "*/10 * * * *" },
-    { "path": "/api/internal/mirror-evidence",                  "schedule": "*/15 * * * *" }
+    { "path": "/api/internal/mirror-evidence",                  "schedule": "*/15 * * * *" },
+    { "path": "/api/internal/mirror-hours",                     "schedule": "7,22,37,52 * * * *" }
   ]
 }
