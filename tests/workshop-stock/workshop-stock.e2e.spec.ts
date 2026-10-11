@@ -139,8 +139,8 @@ type Wire = {
   dropNext: Match;
   /** the line drops before the server gets it (nothing saved) */
   dropBeforeNext: Match;
-  /** a canned answer instead of the server's (e.g. 503 store_unavailable) */
-  answerNext: { match: Match; status: number; body: unknown } | null;
+  /** a canned answer instead of the server's (e.g. 503 store_unavailable), optionally after a wait */
+  answerNext: { match: Match; status: number; body: unknown; delayMs?: number } | null;
   problems: string[];
   ignored: string[];
 };
@@ -160,6 +160,7 @@ async function wire(page: Page): Promise<Wire> {
         const a = w.answerNext;
         w.answerNext = null;
         w.ignored.push(`answered on purpose: ${req.method()} ${u.search} → ${a.status}`);
+        if (a.delayMs) await new Promise((r) => setTimeout(r, a.delayMs));
         await route.fulfill({ status: a.status, contentType: "application/json", body: JSON.stringify(a.body) });
         return;
       }
@@ -815,6 +816,49 @@ test.describe("phone: what the review found", () => {
     clean(w, [/^api 503: POST \?action=move$/, /status of 503 \(Service Unavailable\) @ .*action=move$/]);
   });
 
+  test("a slow photo upload can't be tapped into two items, and a photo that fails says so — the item still saves", async ({ page, context }) => {
+    test.setTimeout(150_000);
+    await signIn(context, "worker");
+    const w = await wire(page);
+    await openStock(page);
+    // a take photo of something not in the workshop → "add it as new": its photo uploads on Save
+    await queue(reading({ ...SWITCH, manufacturerCode: "E-PHOTO-9", position: "only product" }));
+    await page.getByTestId("stock-take-button").click();
+    await photoInput(page).setInputFiles(productPhoto(10));
+    await expect(page.getByTestId("stock-outcome-none")).toBeVisible({ timeout: 30_000 });
+    await page.getByTestId("stock-outcome-add-new").click();
+    await page.getByTestId("stock-new-name").fill("TEST photo-fail switch");
+    await page.getByTestId("stock-new-location").fill("Bin 9");
+    w.answerNext = { match: (u, method) => method === "POST" && u.searchParams.get("action") === "store-photo", status: 502, body: { error: "photo_store_failed" }, delayMs: 2500 };
+    await page.getByTestId("stock-new-save").click();
+    // while the photo is uploading the form is already saving: a second tap does nothing
+    await expect(page.getByTestId("stock-new-save")).toHaveAttribute("aria-busy", "true");
+    await expect(page.getByTestId("stock-new-save")).toBeDisabled();
+    await page.getByTestId("stock-new-save-another").click({ force: true, trial: false }).catch(() => undefined);
+    await expect(page.getByTestId("stock-last-write")).toContainText("TEST photo-fail switch", { timeout: 20_000 });
+    await expect(page.getByTestId("stock-last-photo-missing")).toContainText("The photo couldn’t be attached");
+    const created = (await state()).items.filter((i) => i.name === "TEST photo-fail switch");
+    expect(created).toHaveLength(1);
+    expect(created[0]!.photo_id).toBeNull();
+    clean(w, [/^api 502: POST \?action=store-photo$/, /status of 502 \(Bad Gateway\) @ .*action=store-photo$/]);
+  });
+
+  test("coming back to the app re-reads the list: a balance changed meanwhile shows without a reload", async ({ page, context }) => {
+    test.setTimeout(120_000);
+    await signIn(context, "worker");
+    const w = await wire(page);
+    await openStock(page);
+    const row = page.getByTestId("stock-list").getByTestId("stock-row").filter({ hasText: "TEST double GPO" });
+    const before = (await itemNamed(/TEST double GPO/)).item.balance_milli;
+    await expect(row).toContainText(String(before / 1000));
+    // someone takes some while this phone sits in a pocket
+    expect((await api("worker2", "POST", "action=move", { itemId: (await itemNamed(/TEST double GPO/)).item.id, kind: "take", quantity: "2" })).status).toBe(201);
+    await page.waitForTimeout(16_000); // the page re-reads at most every 15 s
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await expect(row).toContainText(String(before / 1000 - 2), { timeout: 20_000 });
+    clean(w);
+  });
+
   test("the office undoes from the phone screens: asked for a reason, not refused", async ({ page, context }) => {
     test.setTimeout(120_000);
     await signIn(context, "office");
@@ -842,7 +886,9 @@ test.describe("phone: what the review found", () => {
     await signIn(context, "worker");
     const w = await wire(page);
     await openStock(page);
-    await queue(reading({ ...SWITCH, manufacturerCode: "E-ABANDON-1", position: "only product" }));
+    // products nothing in the workshop resembles, so each read goes the same way whatever ran before
+    const unlike = (code: string, description: string): RawProduct => ({ brand: "Acme", manufacturerCode: code, supplierSku: null, supplierName: null, description, colourFinish: null, variantDetails: [], barcode: null, packQuantity: null, packUnit: null, labelText: [], position: "only product" });
+    await queue(reading(unlike("ZZ-ABANDON-1", "Pond pump")));
     await page.getByTestId("stock-add-button").click();
     await photoInput(page).setInputFiles(productPhoto(6));
     await expect(page.getByTestId("stock-new-item")).toBeVisible({ timeout: 30_000 });
@@ -852,11 +898,11 @@ test.describe("phone: what the review found", () => {
     expect(kept[0]).toMatchObject({ has_thumb: true, blobStored: true, thumbStored: true });
 
     expect((await harness<{ expired: number }>("/__harness/expire-photos", {})).expired).toBe(1);
-    // the next photo read does the cleanup alongside its own work
-    await queue(reading(SWITCH));
+    // the next photo read does the cleanup alongside its own work (a product nothing matches)
+    await queue(reading(unlike("ZZ-NOTHING-1", "Garden hose reel")));
     await page.getByTestId("stock-take-button").click();
     await photoInput(page).setInputFiles(productPhoto(7));
-    await expect(page.getByTestId("stock-outcome-none").or(page.getByTestId("stock-move-confirm"))).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("stock-outcome-none")).toBeVisible({ timeout: 30_000 });
     const gone = (await state()).photos.find((p) => p.id === kept[0]!.id);
     expect(gone).toMatchObject({ deleted: true, blob_deleted: true, blobStored: false, thumbStored: false });
     clean(w);

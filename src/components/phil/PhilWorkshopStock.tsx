@@ -180,6 +180,7 @@ export function PhilWorkshopStock() {
         <div className="space-y-2" data-testid="stock-last-write">
           <PhilNotice tone="success" title={lastUndone ? "Undone" : movementSummary(last.movement, last.item.baseUnit)}>
             {last.item.name} — {recordedNow(last.item)}.
+            {last.photoAttached === false ? <span data-testid="stock-last-photo-missing"> The photo couldn&rsquo;t be attached — the office can add one later.</span> : null}
           </PhilNotice>
           {!lastUndone && last.movement.kind !== "reversal" ? (
             <UndoControl key={last.movement.id} movement={last.movement} onUndone={(r) => { setLast(r); setLastUndone(true); void load(); }} testId="stock-last-undo" />
