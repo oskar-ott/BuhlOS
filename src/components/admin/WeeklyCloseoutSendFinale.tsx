@@ -19,6 +19,8 @@ import {
 } from "@/components/admin/WeeklyCloseoutXeroFinale";
 import { formatPeriodSend, usePeriodEmailStatus } from "./usePeriodEmailStatus";
 import { sendPeriodTimesheets } from "./sendPeriodTimesheets";
+import { ProblemDialog } from "@/components/ui/ProblemDialog";
+import { explainHoursProblem, type HoursProblem } from "@/domains/timesheets/problem";
 
 /**
  * WeeklyCloseoutSendFinale (owner pull 2026-08-15) — the closeout's last
@@ -152,6 +154,7 @@ export function WeeklyCloseoutSendFinale({
 
   const [stage, setStage] = useState<Stage>("review");
   const [error, setError] = useState<string | null>(null);
+  const [problem, setProblem] = useState<HoursProblem | null>(null);
   const [receipt, setReceipt] = useState<SentReceipt | null>(null);
   // Set while the send waits for just-approved days to settle (ms it waits).
   const [settleWaitMs, setSettleWaitMs] = useState<number | null>(null);
@@ -179,7 +182,15 @@ export function WeeklyCloseoutSendFinale({
         isActive: () => alive.current,
       });
       if (!alive.current || !outcome) return;
-      if (!outcome.ok) throw new Error(outcome.error);
+      if (!outcome.ok) {
+        // Plain words in a pop-up (what went wrong, why, what to do); the
+        // same words stay on the finale after it's closed.
+        const p = outcome.problem;
+        setError(`${p.title}. ${p.todo}`);
+        setProblem(p);
+        setStage("review");
+        return;
+      }
       setReceipt({
         ...outcome.receipt,
         sentAtLabel: new Date().toLocaleTimeString("en-AU", {
@@ -199,6 +210,7 @@ export function WeeklyCloseoutSendFinale({
           ? e.message
           : "Lost the connection mid-send, so we can't tell if it went. Check whether it shows as already emailed before sending again.",
       );
+      setProblem(explainHoursProblem("send", { status: 0, kind: "timeout" }));
       setStage("review");
     } finally {
       if (alive.current) setSettleWaitMs(null);
@@ -364,6 +376,7 @@ export function WeeklyCloseoutSendFinale({
         </div>
       ) : null}
 
+      <ProblemDialog problem={problem} onClose={() => setProblem(null)} onRetry={() => void send()} />
       {error ? (
         <Notice tone="danger" title="The email didn&rsquo;t send">
           {error}

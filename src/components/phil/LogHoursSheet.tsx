@@ -53,6 +53,8 @@ import {
   statusTone,
 } from "@/domains/timesheets/format";
 import { canResubmitInPhil } from "@/domains/timesheets/resubmit";
+import { explainHoursProblem, type HoursProblem } from "@/domains/timesheets/problem";
+import { ProblemDialog } from "@/components/ui/ProblemDialog";
 import { RejectedHoursResubmitSheet } from "./RejectedHoursResubmitSheet";
 import type { TimeEntry } from "@/domains/timesheets/types";
 
@@ -229,6 +231,10 @@ export function LogHoursSheet({
   // manual open/close still works.
   const [moreOpen, setMoreOpen] = useState(false);
   const [state, setState] = useState<SubmitState>({ kind: "idle" });
+  // A refused or unanswered save pops up in plain words — what went wrong,
+  // why, what to do (owner pull 2026-10-11); the same words stay inline after.
+  const [problem, setProblem] = useState<HoursProblem | null>(null);
+  const [retryLast, setRetryLast] = useState<(() => void) | null>(null);
   // Job attribution. Preselect, in order of authority: an explicit launch
   // context (initialJobId) → the worker's last-logged job (the usual "same job
   // as yesterday" default) → the sole assigned job. Only a worker with several
@@ -351,7 +357,7 @@ export function LogHoursSheet({
     const result = await timesheetsClient.submitNewEntry(payload, {
       idempotencyKey: submissionKey.keyFor(JSON.stringify(payload)),
     });
-    handleResult(result, "standard");
+    handleResult(result, "standard", () => void submitStandardDay());
   }
 
   async function submitCustom() {
@@ -389,7 +395,7 @@ export function LogHoursSheet({
     const result = await timesheetsClient.submitNewEntry(payload, {
       idempotencyKey: submissionKey.keyFor(JSON.stringify(payload)),
     });
-    handleResult(result, "custom");
+    handleResult(result, "custom", () => void submitCustom());
   }
 
   async function submitSplit(
@@ -418,12 +424,13 @@ export function LogHoursSheet({
     const result = await timesheetsClient.submitNewEntry(payload, {
       idempotencyKey: submissionKey.keyFor(JSON.stringify(payload)),
     });
-    handleResult(result, "custom");
+    handleResult(result, "custom", () => void submitSplit(totalHours, allocations));
   }
 
   function handleResult(
     result: Awaited<ReturnType<typeof timesheetsClient.submitNewEntry>>,
-    mode: Mode
+    mode: Mode,
+    retry: () => void
   ) {
     if (result.ok) {
       // Confirmed write — drop the held key so the NEXT distinct submission
@@ -443,25 +450,14 @@ export function LogHoursSheet({
       router.refresh();
       return;
     }
-    if (result.error.status === 409) {
-      setState({
-        kind: "error",
-        message: "That day already has hours logged — open it in the week list above to change it.",
-        status: 409,
-      });
-      return;
-    }
-    if (result.error.status === 401) {
-      setState({
-        kind: "error",
-        message: "Session expired. Sign in again to log hours.",
-        status: 401,
-      });
-      return;
-    }
+    // Plain words for every refusal — the server's reason, not the browser's
+    // "Bad Request" / "Conflict". Same replay key on a retry: never saved twice.
+    const explained = explainHoursProblem("log", result.error);
+    setRetryLast(() => retry);
+    setProblem(explained);
     setState({
       kind: "error",
-      message: result.error.message || "Couldn't submit your hours. Try again in a moment.",
+      message: `${explained.title}. ${explained.todo}`,
       status: result.error.status || 0,
     });
   }
@@ -492,6 +488,11 @@ export function LogHoursSheet({
 
   return (
     <div className="space-y-3">
+      <ProblemDialog
+        problem={problem}
+        onClose={() => setProblem(null)}
+        onRetry={retryLast ?? undefined}
+      />
       <StatusLine entry={statusEntry}>
         {statusEntry?.status === "rejected" ? (
           canResubmitInPhil(statusEntry) ? (

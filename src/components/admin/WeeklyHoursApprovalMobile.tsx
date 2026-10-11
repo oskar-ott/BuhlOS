@@ -55,6 +55,13 @@ import {
 import { WeeklyCloseoutSendFinale } from "@/components/admin/WeeklyCloseoutSendFinale";
 import { AmendHoursEditor, type AmendPayload } from "@/components/admin/AmendHoursEditor";
 import { officeDayTypeOptions } from "@/domains/timesheets/resubmit";
+import {
+  explainHoursProblem,
+  type HoursAction,
+  type HoursProblem,
+  type ProblemInput,
+} from "@/domains/timesheets/problem";
+import { ProblemDialog } from "@/components/ui/ProblemDialog";
 import type { ReviewCandidate } from "@/domains/timesheets/xero-closeout";
 
 /**
@@ -313,6 +320,20 @@ export function WeeklyHoursApprovalMobile({
     [],
   );
 
+  // A failed approve / send back / fix / undo pops up in plain words — what
+  // went wrong, why, what to do (owner pull 2026-10-11) — instead of a
+  // fleeting "try again" toast. It sits above the review sheet (z-[80]).
+  const [problem, setProblem] = useState<HoursProblem | null>(null);
+  const [retryProblem, setRetryProblem] = useState<(() => void) | null>(null);
+  const showProblem = useCallback(
+    (action: HoursAction, input: ProblemInput, retry: (() => void) | null, caption?: string) => {
+      const explained = explainHoursProblem(action, input);
+      setRetryProblem(() => retry);
+      setProblem(caption ? { ...explained, caption } : explained);
+    },
+    [],
+  );
+
   const approveWorker = useCallback(
     async (worker: WeeklyWorkerHours) => {
       const entries = submittedWeekSelection(worker);
@@ -321,26 +342,22 @@ export function WeeklyHoursApprovalMobile({
       const res = await timesheetsClient.bulkApproveEntries({ entries });
       setBusy(worker.workerId, false);
       if (!res.ok) {
-        toast(
-          res.error.status === 403
-            ? "You can't approve these — office login needed"
-            : "Couldn't approve — try again",
-          "warn",
-        );
+        showProblem("approve", res.error, () => void approveWorker(worker));
         return;
       }
       const { approvedCount, failed } = res.data;
       // HONESTY (P7): only claim "approved" on a FULL success. A partial or empty
-      // result stays actionable and says exactly what happened.
-      if (approvedCount === 0) {
-        toast(`Couldn't approve ${firstName(worker.workerName)} — try again`, "warn");
-        scheduleRefresh();
-        return;
-      }
+      // result stays actionable and says exactly what happened — and why.
       if (failed.length > 0) {
-        toast(
-          `Approved ${approvedCount} of ${approvedCount + failed.length} days · ${firstName(worker.workerName)} — ${failed.length} need a look`,
-          "warn",
+        const first = failed[0]!;
+        const firstCode = (first as { code?: unknown }).code;
+        showProblem(
+          "approve",
+          { status: firstCode === "conflict" ? 409 : 400, body: { error: first.error, code: firstCode } },
+          null,
+          approvedCount === 0
+            ? `${firstName(worker.workerName)} not approved`
+            : `Approved ${approvedCount} of ${approvedCount + failed.length} days · ${failed.length} not approved`,
         );
         scheduleRefresh();
         return;
@@ -351,7 +368,7 @@ export function WeeklyHoursApprovalMobile({
       scheduleUndoExpiry(worker.workerId, undo);
       scheduleRefresh();
     },
-    [canUndo, toast, scheduleRefresh, scheduleUndoExpiry, setBusy],
+    [canUndo, toast, scheduleRefresh, scheduleUndoExpiry, setBusy, showProblem],
   );
 
   const queryWorker = useCallback(
@@ -361,25 +378,28 @@ export function WeeklyHoursApprovalMobile({
       if (days.length === 0 || !reasonText || busyRef.current.has(worker.workerId)) return;
       setBusy(worker.workerId, true);
       let failed = 0;
+      let firstError: ProblemInput | null = null;
       for (const d of days) {
         const r = await timesheetsClient.rejectEntry({
           userId: d.userId,
           date: d.date,
           reason: reasonText,
         });
-        if (!r.ok) failed += 1;
+        if (!r.ok) {
+          failed += 1;
+          firstError ??= r.error;
+        }
       }
       setBusy(worker.workerId, false);
       const succeeded = days.length - failed;
-      if (succeeded === 0) {
-        toast(`Couldn't send it back — try again`, "warn");
-        scheduleRefresh();
-        return;
-      }
-      if (failed > 0) {
-        toast(
-          `Sent ${succeeded} of ${days.length} days back · ${firstName(worker.workerName)} — ${failed} didn't send`,
-          "warn",
+      if (failed > 0 && firstError) {
+        showProblem(
+          "sendBack",
+          firstError,
+          succeeded === 0 ? () => void queryWorker(worker, reason, note) : null,
+          succeeded === 0
+            ? undefined
+            : `Sent ${succeeded} of ${days.length} days back · ${failed} didn't go`,
         );
         scheduleRefresh();
         return;
@@ -390,7 +410,7 @@ export function WeeklyHoursApprovalMobile({
       scheduleUndoExpiry(worker.workerId, undo);
       scheduleRefresh();
     },
-    [canUndo, toast, scheduleRefresh, scheduleUndoExpiry, setBusy],
+    [canUndo, toast, scheduleRefresh, scheduleUndoExpiry, setBusy, showProblem],
   );
 
   /**
@@ -419,14 +439,10 @@ export function WeeklyHoursApprovalMobile({
       });
       setBusy(worker.workerId, false);
       if (!res.ok) {
-        toast(
-          res.error.status === 403
-            ? "Only the office can change someone's hours"
-            : res.error.status === 409
-              ? "That day moved while you were fixing it — refresh"
-              : "Couldn't save the fix — try again",
-          "warn",
-        );
+        // Plain words: "You can't do this to your own hours", "This day's
+        // already approved", "This day just changed" — never a status word.
+        // The editor stays open with everything typed.
+        showProblem("fix", res.error, null);
         scheduleRefresh();
         return false;
       }
@@ -438,7 +454,7 @@ export function WeeklyHoursApprovalMobile({
       scheduleRefresh();
       return true;
     },
-    [toast, scheduleRefresh, setBusy],
+    [toast, scheduleRefresh, setBusy, showProblem],
   );
 
   const undoWorker = useCallback(
@@ -447,17 +463,21 @@ export function WeeklyHoursApprovalMobile({
       if (!entry || entry.undo.length === 0 || busyRef.current.has(worker.workerId)) return;
       setBusy(worker.workerId, true);
       let failed = 0;
+      let firstError: ProblemInput | null = null;
       for (const ref of entry.undo) {
         const r = await timesheetsClient.reopenEntry({
           userId: ref.userId,
           date: ref.date,
           toStatus: "submitted",
         });
-        if (!r.ok) failed += 1;
+        if (!r.ok) {
+          failed += 1;
+          firstError ??= r.error;
+        }
       }
       setBusy(worker.workerId, false);
       if (failed === entry.undo.length) {
-        toast("Couldn't undo — try again", "warn");
+        showProblem("undo", firstError ?? { status: 0 }, () => void undoWorker(worker));
         return;
       }
       setOverlay((o) => {
@@ -468,7 +488,7 @@ export function WeeklyHoursApprovalMobile({
       toast(`Undone · ${firstName(worker.workerName)} back to submitted`);
       scheduleRefresh();
     },
-    [overlay, toast, scheduleRefresh, setBusy],
+    [overlay, toast, scheduleRefresh, setBusy, showProblem],
   );
 
   // The stepper queue = to-approve workers not yet resolved this session.
@@ -644,6 +664,12 @@ export function WeeklyHoursApprovalMobile({
           outstandingLines={outstandingLines}
         />
       ) : null}
+
+      <ProblemDialog
+        problem={problem}
+        onClose={() => setProblem(null)}
+        onRetry={retryProblem ?? undefined}
+      />
 
       {/* Toasts. */}
       <div

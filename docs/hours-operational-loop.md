@@ -60,6 +60,20 @@ State persists.                       Vercel Blob: users/<userId>/time-entries/<
   keeps a day type unless the patch names one), so the job gate applies
   again. Before this, a sick / holiday / TAFE day couldn't be changed in Phil
   at all.
+- **Every failure explains itself (owner pull 2026-10-11: "clear instructions
+  to pop up if there is an error — simple explanations of what went wrong and
+  why").** A refused or unanswered hours action pops up `ProblemDialog`: what
+  didn't happen ("Fix not saved"), what went wrong ("You can't do this to your
+  own hours"), why, and **What to do** — plus "Try again" only when retrying
+  can work. The words come from ONE pure translator,
+  `src/domains/timesheets/problem.ts` (`explainHoursProblem`), which reads the
+  server's own reason from the response body — before this the screens showed
+  the browser's status word ("Bad Request", "Conflict") because
+  `src/lib/http.ts` puts `statusText` in `error.message`. Wired into the
+  worker's log sheet, change / fix sheet and send-week, the phone closeout's
+  approve / send back / Fix / undo (replacing the "try again" toasts), the
+  `/hours/approvals` queue, and both Send to Tia screens. The same words stay
+  inline after the pop-up closes; nothing typed is lost.
 - **No hours reminder on a public holiday.** The weekday "Did you log your
   hours?" push (`send-daily-reminders`) skips NSW public holidays — the boards
   never ask for hours on one, and on Labour Day 2026 the push had the crew

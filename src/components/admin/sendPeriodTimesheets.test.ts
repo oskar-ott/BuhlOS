@@ -71,7 +71,9 @@ describe("sendPeriodTimesheets", () => {
   it("gives up after a bounded number of automatic re-sends and shows the server's words", async () => {
     const { impl, calls } = fetchSequence([settling(5_000)]);
     const out = await sendPeriodTimesheets({ ...PERIOD, fetchImpl: impl, sleep: async () => {} });
-    expect(out).toEqual({ ok: false, error: expect.stringContaining("payroll read refused") });
+    expect(out).toMatchObject({ ok: false, error: expect.stringContaining("payroll read refused") });
+    // …and the pop-up says it in plain words.
+    expect(out && !out.ok && out.problem.title).toBe("Hours are still saving");
     expect(calls).toHaveLength(MAX_SETTLE_RETRIES + 1);
   });
 
@@ -98,7 +100,7 @@ describe("sendPeriodTimesheets", () => {
       const { impl, calls } = fetchSequence([reply]);
       const sleep = vi.fn(async () => {});
       const out = await sendPeriodTimesheets({ ...PERIOD, fetchImpl: impl, sleep });
-      expect(out).toEqual({ ok: false, error: (reply.body as { error: string }).error });
+      expect(out).toMatchObject({ ok: false, error: (reply.body as { error: string }).error });
       expect(calls).toHaveLength(1);
       expect(sleep).not.toHaveBeenCalled();
     }
@@ -107,7 +109,7 @@ describe("sendPeriodTimesheets", () => {
   it("a body-less failure still says nothing was emailed", async () => {
     const { impl } = fetchSequence([{ status: 500, body: null }]);
     const out = await sendPeriodTimesheets({ ...PERIOD, fetchImpl: impl });
-    expect(out).toEqual({ ok: false, error: "The send failed (500) — nothing was emailed." });
+    expect(out).toMatchObject({ ok: false, error: "The send failed (500) — nothing was emailed." });
   });
 
   it("stops without re-sending when the screen went away during the wait", async () => {
@@ -175,5 +177,19 @@ describe("sendPeriodTimesheets — the receipt carries what the sheet left off",
     const { impl } = fetchSequence([SENT]);
     const out = await sendPeriodTimesheets({ ...PERIOD, fetchImpl: impl });
     expect(out && out.ok && out.receipt.notOnSheet).toBeUndefined();
+  });
+});
+
+describe("sendPeriodTimesheets — every refusal carries plain words for the pop-up", () => {
+  it.each([
+    [{ status: 503, body: { error: "No recipients yet", code: "not_configured" } }, "No one to send it to"],
+    [{ status: 422, body: { error: "No approved hours in this period — nothing was sent.", code: "empty_period" } }, "Nothing approved yet"],
+    [{ status: 502, body: { error: "The email provider refused the send (x)", code: "provider_error" } }, "The email didn't go"],
+    [{ status: 503, body: { error: "payroll read refused — 1 day record(s) could not be read consistently" } }, "Some hours couldn't be read"],
+  ])("%o → %s", async (reply, title) => {
+    const { impl } = fetchSequence([reply as Reply]);
+    const out = await sendPeriodTimesheets({ ...PERIOD, fetchImpl: impl, sleep: async () => {} });
+    expect(out && !out.ok && out.problem.title).toBe(title);
+    expect(out && !out.ok && out.problem.caption).toBe("Timesheets not sent");
   });
 });

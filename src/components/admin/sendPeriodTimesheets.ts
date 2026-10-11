@@ -17,6 +17,8 @@
  * connection THROWS (the caller already words "can't tell if it went").
  */
 
+import { explainHoursProblem, type HoursProblem } from "@/domains/timesheets/problem";
+
 export interface NotOnSheetLine {
   workerName: string;
   reason: string;
@@ -50,7 +52,9 @@ function parseNotOnSheet(raw: unknown): PeriodSendReceipt["notOnSheet"] {
 
 export type PeriodSendOutcome =
   | { ok: true; receipt: PeriodSendReceipt }
-  | { ok: false; error: string };
+  /** `problem` is the plain-words pop-up (what went wrong, why, what to do);
+   *  `error` keeps the server's own sentence for logs and older callers. */
+  | { ok: false; error: string; problem: HoursProblem };
 
 /** Automatic re-sends after a 'settling' refusal before handing back to a person.
  *  With the server's 70s settle + 10s back-off this covers ~2 minutes after
@@ -122,6 +126,7 @@ export async function sendPeriodTimesheets({
       error:
         (typeof data?.error === "string" && data.error) ||
         `The send failed (${res.status}) — nothing was emailed.`,
+      problem: explainHoursProblem("send", { status: res.status, body: data }),
     };
   }
 }
