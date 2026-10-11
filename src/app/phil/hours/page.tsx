@@ -198,6 +198,7 @@ export default async function PhilHoursPage({
                   entry={entry}
                   assignedJobs={assignedJobs.jobs}
                   jobsError={assignedJobs.error}
+                  canLogTafe={canLogTafe}
                 />
               </li>
             ))}
@@ -212,10 +213,12 @@ function EntryCard({
   entry,
   assignedJobs,
   jobsError,
+  canLogTafe,
 }: {
   entry: TimeEntry;
   assignedJobs: ReadonlyArray<AssignableJob>;
   jobsError: boolean;
+  canLogTafe: boolean;
 }) {
   return (
     <Card className="space-y-2">
@@ -256,6 +259,7 @@ function EntryCard({
           entry={entry}
           assignedJobs={assignedJobs}
           jobsError={jobsError}
+          canLogTafe={canLogTafe}
         />
       ) : null}
 

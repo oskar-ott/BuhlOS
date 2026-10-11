@@ -48,6 +48,20 @@ State persists.                       Vercel Blob: users/<userId>/time-entries/<
   consequence: the office gets the new version). The edit is a content PATCH
   (status stays `submitted`), stamps `editedWhileSubmittedAt` and journals
   `hours.edited_while_submitted`.
+- **A day logged on a job by mistake can become a sick day / holiday — and
+  back** (owner pull 2026-10-11: four of the crew logged the 5 Oct public
+  holiday as a normal job day, and nothing could turn it into a holiday). The
+  same change / fix sheet offers "Not a job day?" — Sick day · Holiday (TAFE
+  day for apprentices) — under the job; picking one sends `dayType` with a
+  `jobId: null` allocation, all ordinary (`buildDayTypeResubmitPayload`). A
+  day-type day opens AS its type, with "Log a job day instead"; going back
+  sends `dayType: null` (the server keeps a day type unless the patch names
+  one), so the job gate applies again. Before this, a sick / holiday / TAFE
+  day couldn't be changed in Phil at all.
+- **No hours reminder on a public holiday.** The weekday "Did you log your
+  hours?" push (`send-daily-reminders`) skips NSW public holidays — the boards
+  never ask for hours on one, and on Labour Day 2026 the push had the crew
+  logging the holiday as a job day.
 - **Duplicates:** one entry per worker+date. The server answers 409 on a
   duplicate POST; a selected day that's already submitted/approved never shows
   the log actions — it shows its status (and, for submitted, the change

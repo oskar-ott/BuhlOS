@@ -35,6 +35,7 @@ const { notify } = require('./_lib/notify');
 // #381: fail-closed cron gate (503 in production when CRON_SECRET unset).
 const { requireCron } = require('./_lib/cron-auth');
 const { readLeave, approvedLeaveByUserDate } = require('./_lib/leave');
+const { isPublicHoliday } = require('./_lib/public-holidays');
 const { expiringTagRows, expiringCalibrationRows, newCrossings } = require('./_lib/tag-compliance');
 const { tagsFromBlob } = require('./_lib/tags-store');
 const { licenceRows, newLicenceCrossings } = require('./_lib/licence-compliance');
@@ -110,6 +111,12 @@ module.exports = async (req, res) => {
     if (!getWebPush()) return res.status(503).json({ error: 'push not configured (missing VAPID env vars)' });
 
     const today = sydneyToday();
+    // Never on a public holiday (2026-10-11): the boards don't ask for hours
+    // on one, and on Labour Day (5 Oct) this push had the crew logging the
+    // holiday as a normal job day. Same rule as the payroll reminder.
+    if (isPublicHoliday(today)) {
+      return res.status(200).json({ ok: true, date: today, sent: 0, skipped: 'public holiday' });
+    }
     const data = await readBlob(USERS_KEY, { users: [] });
     const users = data.users || [];
 

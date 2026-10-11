@@ -505,6 +505,7 @@ export function LogHoursSheet({
               jobsError={jobsError}
               defaultOpen={autoOpenFix}
               onSaved={onSaved}
+              canLogTafe={canLogTafe}
             />
           ) : (
             // Single AND split days are now fixable in Phil (#128). This is the
@@ -548,6 +549,7 @@ export function LogHoursSheet({
             assignedJobs={assignedJobs}
             jobsError={jobsError}
             onSaved={onSaved}
+            canLogTafe={canLogTafe}
           />
         ) : (
           <>
@@ -1364,11 +1366,13 @@ function LockedDayStatus({
   assignedJobs,
   jobsError,
   onSaved,
+  canLogTafe,
 }: {
   entry: TimeEntry;
   assignedJobs: ReadonlyArray<{ id: string; name: string }>;
   jobsError: boolean;
   onSaved?: (entry: TimeEntry) => void;
+  canLogTafe: boolean;
 }): ReactNode {
   if (entry.status === "submitted") {
     return (
@@ -1385,6 +1389,7 @@ function LockedDayStatus({
             assignedJobs={assignedJobs}
             jobsError={jobsError}
             onSaved={onSaved}
+            canLogTafe={canLogTafe}
           />
         ) : (
           // Residual honest limit: a submitted entry with no usable

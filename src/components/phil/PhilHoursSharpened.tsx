@@ -290,6 +290,7 @@ export function PhilHoursSharpened({
             )
           }
           todayISO={todayISO}
+          canLogTafe={canLogTafe}
           assignedJobs={assignedJobs}
           jobsError={jobsError}
           onLogDay={logDay}
@@ -341,6 +342,7 @@ function WeekCard({
   open,
   onToggle,
   todayISO,
+  canLogTafe,
   assignedJobs,
   jobsError,
   onLogDay,
@@ -353,6 +355,7 @@ function WeekCard({
   open: boolean;
   onToggle: () => void;
   todayISO: string;
+  canLogTafe: boolean;
   assignedJobs: ReadonlyArray<HoursJobRef>;
   jobsError: boolean;
   onLogDay: (date: string) => void;
@@ -444,6 +447,7 @@ function WeekCard({
           <DayRows
             week={week}
             todayISO={todayISO}
+            canLogTafe={canLogTafe}
             assignedJobs={assignedJobs}
             jobsError={jobsError}
             onLogDay={onLogDay}
@@ -479,6 +483,7 @@ function weekRange(week: HoursWeek): string {
 function DayRows({
   week,
   todayISO,
+  canLogTafe,
   assignedJobs,
   jobsError,
   onLogDay,
@@ -486,6 +491,7 @@ function DayRows({
 }: {
   week: HoursWeek;
   todayISO: string;
+  canLogTafe: boolean;
   assignedJobs: ReadonlyArray<HoursJobRef>;
   jobsError: boolean;
   onLogDay: (date: string) => void;
@@ -507,6 +513,7 @@ function DayRows({
               entry={entry}
               date={date}
               todayISO={todayISO}
+              canLogTafe={canLogTafe}
               assignedJobs={assignedJobs}
               jobsError={jobsError}
               onSaved={onSaved}
@@ -542,6 +549,7 @@ function EntryRow({
   entry,
   date,
   todayISO,
+  canLogTafe,
   assignedJobs,
   jobsError,
   onSaved,
@@ -549,6 +557,7 @@ function EntryRow({
   entry: TimeEntry;
   date: string;
   todayISO: string;
+  canLogTafe: boolean;
   assignedJobs: ReadonlyArray<HoursJobRef>;
   jobsError: boolean;
   onSaved: (entry: TimeEntry) => void;
@@ -643,6 +652,7 @@ function EntryRow({
             assignedJobs={assignedJobs.map((j) => ({ id: j.id, name: j.name }))}
             jobsError={jobsError}
             onSaved={onSaved}
+            canLogTafe={canLogTafe}
           />
         </div>
       ) : null}
@@ -659,6 +669,7 @@ function EntryRow({
           open
           onOpenChange={setChangeOpen}
           onSaved={onSaved}
+          canLogTafe={canLogTafe}
         />
       ) : null}
     </div>

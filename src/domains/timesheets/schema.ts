@@ -130,7 +130,7 @@ export const TimeEntrySchema = z
  * Server fills id/userId/userName/userRole/timestamps from the session cookie;
  * the client only sends the shape below.
  */
-export const CreateTimeEntryPayloadSchema = z
+const TimeEntryPayloadObject = z
   .object({
     date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD"),
     totalHours: z
@@ -156,30 +156,49 @@ export const CreateTimeEntryPayloadSchema = z
     breakMinutes: z.number().nullable().optional(),
     otOverridden: z.boolean().optional(),
     status: z.enum(["draft", "submitted"]).optional(),
-  })
-  .superRefine((data, ctx) => {
-    if (Math.abs(data.ordinaryHours + data.overtimeHours - data.totalHours) > HOURS_TOLERANCE) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Ordinary + overtime hours must equal total hours",
-        path: ["totalHours"],
-      });
-    }
-    const sum = data.allocations.reduce((s, a) => s + a.hours, 0);
-    if (Math.abs(sum - data.totalHours) > HOURS_TOLERANCE) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Allocation hours must sum to total hours",
-        path: ["allocations"],
-      });
-    }
   });
+
+/** The totals checks every create/edit payload must pass. */
+function checkPayloadTotals(
+  data: {
+    totalHours: number;
+    ordinaryHours: number;
+    overtimeHours: number;
+    allocations: Array<{ hours: number }>;
+  },
+  ctx: z.RefinementCtx
+): void {
+  if (Math.abs(data.ordinaryHours + data.overtimeHours - data.totalHours) > HOURS_TOLERANCE) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Ordinary + overtime hours must equal total hours",
+      path: ["totalHours"],
+    });
+  }
+  const sum = data.allocations.reduce((s, a) => s + a.hours, 0);
+  if (Math.abs(sum - data.totalHours) > HOURS_TOLERANCE) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Allocation hours must sum to total hours",
+      path: ["allocations"],
+    });
+  }
+}
+
+export const CreateTimeEntryPayloadSchema = TimeEntryPayloadObject.superRefine(checkPayloadTotals);
 
 /**
  * Payload the client PATCHes to /api/time-entries?date=YYYY-MM-DD when
  * editing a draft / rejected entry (rejected workers re-edit and resubmit).
+ *
+ * The create shape, except an edit may also CLEAR a day type
+ * (`dayType: null`): a sick day / holiday switched back to a job day (owner
+ * pull 2026-10-11). The server keeps an entry's day type unless the patch
+ * names a new one, so the switch back has to say null out loud.
  */
-export const PatchTimeEntryPayloadSchema = CreateTimeEntryPayloadSchema;
+export const PatchTimeEntryPayloadSchema = TimeEntryPayloadObject.extend({
+  dayType: z.enum(["tafe", "sick", "holiday"]).nullable().optional(),
+}).superRefine(checkPayloadTotals);
 
 export const ApproveTimeEntryPayloadSchema = z.object({
   userId: z.string().min(1, "userId required"),

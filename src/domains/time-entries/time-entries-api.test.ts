@@ -884,4 +884,65 @@ describe("day-type days (TAFE / sick / holiday) — job-less by design", () => {
     expect(res.statusCode).toBe(403);
     expect((res.body as { error: string }).error).toMatch(/active job/i);
   });
+
+  // Owner pull 2026-10-11: the 5 Oct public holiday was logged as a normal
+  // job day by four of the crew, and nothing could turn it into a holiday.
+  // The phone's change sheet now sends exactly these two edits.
+  it("PATCH: a job day logged by mistake becomes a holiday — no job, all ordinary, still submitted", async () => {
+    const res = await call({
+      method: "PATCH",
+      userId: "u_field",
+      role: "electrician",
+      query: { date: TODAY },
+      body: {
+        dayType: "holiday",
+        totalHours: 7.6,
+        ordinaryHours: 7.6,
+        overtimeHours: 0,
+        allocations: [{ jobId: null, hours: 7.6, notes: null }],
+        status: "submitted",
+        notes: null,
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const stored = blob.get(`users/u_field/time-entries/${TODAY}.json`) as {
+      dayType: string | null;
+      status: string;
+      ordinaryHours: number;
+      overtimeHours: number;
+      allocations: Array<{ jobId: string | null }>;
+    };
+    expect(stored.dayType).toBe("holiday");
+    expect(stored.status).toBe("submitted");
+    expect(stored.allocations.map((a) => a.jobId)).toEqual([null]);
+    expect([stored.ordinaryHours, stored.overtimeHours]).toEqual([7.6, 0]);
+  });
+
+  it("PATCH: a holiday goes back to a job day — the type clears and the job gate applies", async () => {
+    blob.set(
+      `users/u_field2/time-entries/${TODAY}.json`,
+      dayTypeEntrySeed("u_field2", TODAY, "holiday"),
+    );
+    const res = await call({
+      method: "PATCH",
+      userId: "u_field2",
+      role: "tradie",
+      query: { date: TODAY },
+      body: {
+        dayType: null,
+        totalHours: 7.6,
+        ordinaryHours: 7.6,
+        overtimeHours: 0,
+        allocations: [{ jobId: "job-x", hours: 7.6, notes: null }],
+        status: "submitted",
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const stored = blob.get(`users/u_field2/time-entries/${TODAY}.json`) as {
+      dayType: string | null;
+      allocations: Array<{ jobId: string | null }>;
+    };
+    expect(stored.dayType).toBeNull();
+    expect(stored.allocations.map((a) => a.jobId)).toEqual(["job-x"]);
+  });
 });
