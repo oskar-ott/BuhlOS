@@ -34,6 +34,7 @@ export type FlagKey =
   | "invoice_capture" // supplier-invoice capture — inbound email + upload → exact IV match → confirmed job cost (docs/invoice-capture.md)
   | "receipt_capture" // receipts from the field — My Day photo + job → vision read → the invoice inbox (needs invoice_capture)
   | "job_purchases" // recent wholesaler purchases on the job (office + field); prices office-tier only (needs invoice_capture)
+  | "workshop_stock" // owner pull 2026-10-09 — workshop materials/consumables: photo add/take/return + ledger (docs/workshop-stock.md)
   // #760 owner feature-control kill-switches (LIVE features, default ON).
   // The 2026-07 lean reset + gut left only the lean core here; every other
   // feature's flag was deleted with its code (docs/product/02-lean-reset.md).

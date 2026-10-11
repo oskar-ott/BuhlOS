@@ -67,6 +67,7 @@ const APPROVED_ADMIN_HREFS = new Set([
   '/employees',
   '/v2/jobs', // transitional — live admin Jobs index; -> /admin/jobs later
   '/invoices', // supplier-invoice capture inbox (invoice_capture, dark) — nav item hides while the flag is off
+  '/stock', // Workshop Stock office view (workshop_stock, dark) — nav item hides while the flag is off
   '/settings', // #222 — the v2 settings hub (hours policy + job types); sidebar FOOTER link (not a nav group)
   '/settings/notifications', // #218 — notification prefs; sidebar FOOTER link (not a nav group), reached from the #222 hub
 ]);
@@ -120,6 +121,8 @@ const REQUIRED_SOURCES = [
   'src/app/(admin)/employees/[id]/page.tsx',
   'src/app/(admin)/invoices/page.tsx', // supplier-invoice inbox (invoice_capture, dark)
   'src/app/(admin)/invoices/[invoiceId]/page.tsx', // supplier-invoice review
+  'src/app/(admin)/stock/page.tsx', // Workshop Stock office view (workshop_stock, dark)
+  'src/app/phil/stock/page.tsx', // Workshop Stock field view — entered from /v2/phil (workshop_stock, dark)
   // Owner Console (docs/owner-console.md) — owner-only platform control. No nav
   // link by design (not in the shared admin sidebar), so it is verified by its
   // required source + shell contract, not the nav scan.

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Route } from "next";
 import { cookies, headers } from "next/headers";
+import { isFlagEnabled } from "../../../../api/_lib/feature-flags.js";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { PhilMyLicencesCard } from "@/components/phil/PhilMyLicencesCard";
 import { PhilMyInductionsCard } from "@/components/phil/PhilMyInductionsCard";
@@ -38,11 +39,14 @@ export default async function PhilV2HomePage() {
   const store = await cookies();
   const session = decodeSessionCookie(store.get(SESSION_COOKIE)?.value);
   const viewerId = session?.userId ?? session?.sub ?? "";
-  const [{ credentials, fetchError }, inductions, myRecord] =
+  const [{ credentials, fetchError }, inductions, myRecord, workshopStock] =
     await Promise.all([
       loadMyLicences(),
       loadMyInductions(),
       loadMyRecord(),
+      // Workshop Stock (workshop_stock, dark): its one entry point on the phone —
+      // the reference group here, never a tab or a My Day tile (P10).
+      session?.role ? isFlagEnabled("workshop_stock", session).catch(() => false) : Promise.resolve(false),
     ]);
   return (
     <PhilShell title="BuhlOS">
@@ -104,6 +108,27 @@ export default async function PhilV2HomePage() {
             </Link>
           </div>
         </Card>
+
+        {workshopStock ? (
+          <Card className="space-y-3">
+            <div>
+              <CardTitle>Workshop stock</CardTitle>
+              <CardDescription>
+                What&rsquo;s in the workshop and where — take what you need, add
+                what&rsquo;s come in, bring back what you didn&rsquo;t use.
+              </CardDescription>
+            </div>
+            <div>
+              <Link
+                href={"/phil/stock" as Route}
+                className="inline-flex h-11 items-center justify-center rounded-card border border-border bg-surface px-4 text-sm font-semibold text-text hover:border-brand-navy"
+                data-testid="more-stock-link"
+              >
+                Open workshop stock →
+              </Link>
+            </div>
+          </Card>
+        ) : null}
 
         {/* #331: the worker's own licence register — the licence-expiry
             push deep-links to this page. */}

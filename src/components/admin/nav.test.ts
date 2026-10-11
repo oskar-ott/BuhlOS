@@ -29,6 +29,7 @@ describe("NAV_GROUPS / ALL_ITEMS (#215 shared source)", () => {
       "/hours",
       "/employees",
       "/gear",
+      "/stock", // Workshop Stock — flag-gated (workshop_stock), hidden while off
     ]);
     expect(new Set(hrefs).size).toBe(hrefs.length);
   });
@@ -97,8 +98,8 @@ describe("visibleNavGroups (#760 owner feature-control)", () => {
     // Hours only holds /hours; hiding it removes the group entirely.
     const groups = visibleNavGroups(["/hours"]);
     expect(groups.some((g) => g.heading === "Hours")).toBe(false);
-    // People & gear still shows Employees when only Gear is hidden.
-    const peopleGear = visibleNavGroups(["/gear"]).find((g) => g.heading === "People & gear");
+    // People & gear still shows Employees when Gear (and dark Workshop Stock) are hidden.
+    const peopleGear = visibleNavGroups(["/gear", "/stock"]).find((g) => g.heading === "People & gear");
     expect(peopleGear?.items.map((i) => i.href)).toEqual(["/employees"]);
   });
 

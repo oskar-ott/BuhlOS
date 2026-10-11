@@ -38,6 +38,9 @@ const PROTECTED: ReadonlyArray<{ prefix: string; surface: Surface }> = [
   // Supplier-invoice capture (invoice_capture, dark): office money surface —
   // admin tier; the page + api/invoices additionally 404 while the flag is off.
   { prefix: "/invoices", surface: "admin" },
+  // Workshop Stock (workshop_stock, dark): the office view is admin tier; the
+  // field view is /phil/stock below. Page + api/workshop-stock 404 while off.
+  { prefix: "/stock", surface: "admin" },
   // People · Employees onboarding (O1). The Phil setup routes
   // (/phil/invite/[token], /phil/setup) are intentionally NOT gated — a worker
   // has no session yet when they open their invite (O3).
@@ -74,6 +77,7 @@ const PROTECTED: ReadonlyArray<{ prefix: string; surface: Surface }> = [
   { prefix: "/phil/gear", surface: "phil" },
   { prefix: "/phil/jobs", surface: "phil" },
   { prefix: "/phil/onboarding", surface: "phil" },
+  { prefix: "/phil/stock", surface: "phil" },
 ];
 
 export function middleware(req: NextRequest) {
@@ -132,6 +136,7 @@ export const config = {
     "/hours/:path*",
     "/gear/:path*",
     "/invoices/:path*",
+    "/stock/:path*",
     "/employees/:path*",
     "/observations/:path*",
     "/material-requests/:path*",
@@ -147,5 +152,6 @@ export const config = {
     "/phil/gear/:path*",
     "/phil/jobs/:path*",
     "/phil/onboarding/:path*",
+    "/phil/stock/:path*",
   ],
 };

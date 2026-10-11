@@ -170,6 +170,20 @@ lifecycle + readback reconciliation are recorded as append-only events. No token
 secret or OAuth columns — only the Xero TimesheetID/correlation id and a safe
 error category. The write itself is gated by `xero_payroll_export` (default off).
 
+**`workshop_stock_items` / `_identifiers` / `_movements` / `_item_events` /
+`_photos` / `_lookup_cache` / `_usage`** (Workshop Stock, owner pull 2026-10-09 —
+`20261009100000_workshop_stock.sql`, see [../workshop-stock.md](../workshop-stock.md)):
+RLS-on, zero policies, service-role only — every read and write goes through
+`api/workshop-stock.js`, which takes the actor, role and tenant from the
+session. The integrity rules live IN the database: the movements ledger and
+the item events are append-only (triggers refuse UPDATE/DELETE); an item's
+cached balance changes only inside the ledger trigger, in the same statement
+as the movement insert, and can never go below zero; a movement is reversed at
+most once (partial unique index) and never after a later count absorbed it;
+the unit freezes once real stock has moved; items are archived, never deleted.
+Composite `(tenant_id, id)` foreign keys keep every row inside its tenant. Photo
+rows carry a Blob URL that is never sent to a browser (authenticated proxy).
+
 ## How to apply + verify (later — not during the cutover ceremony)
 
 1. **Dev first.** Apply `20260703230000_phase1_rls_policies.sql` to the dev

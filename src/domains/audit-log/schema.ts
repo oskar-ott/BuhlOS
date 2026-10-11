@@ -232,6 +232,18 @@ export const AUDIT_ACTIONS = [
   "invoice.auto_confirmed",
   "invoice.held",
   "invoice.supplier_pref_changed",
+  // Workshop Stock: office catalogue actions, count corrections, undos
+  // (targetType 'workshop_stock_item'). Kept in sync with api/_lib/audit-log.js.
+  "workshop_stock.item_created",
+  "workshop_stock.item_updated",
+  "workshop_stock.item_archived",
+  "workshop_stock.item_restored",
+  "workshop_stock.identifier_added",
+  "workshop_stock.identifier_removed",
+  "workshop_stock.photo_changed",
+  "workshop_stock.verification_recorded",
+  "workshop_stock.count_corrected",
+  "workshop_stock.movement_undone",
   // #370: daywork register (api/dayworks.js). daywork.created on POST;
   // daywork.signed on the supervisor sign; daywork.transitioned on the
   // signed → invoiced change (metadata.from/to); daywork.amended when a
@@ -416,6 +428,8 @@ export const AUDIT_TARGET_TYPES = [
   "supplier_invoice",
   // Task I: targetId = the PG rule uuid (supplier_line_categories).
   "supplier_line_category",
+  // Workshop Stock: targetId = the PG item uuid.
+  "workshop_stock_item",
 ] as const;
 export const AuditTargetTypeSchema = z.enum(AUDIT_TARGET_TYPES);
 
