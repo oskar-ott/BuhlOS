@@ -109,6 +109,9 @@ export const TimeEntrySchema = z
         ordinaryHours: z.number().optional(),
         overtimeHours: z.number().optional(),
         allocations: z.array(TimeEntryAllocationSchema).optional(),
+        /** What the day was before the fix switched it (2026-10-11) — absent
+         *  on amendments made before the office could switch a day. */
+        dayType: z.enum(["tafe", "sick", "holiday"]).nullable().optional(),
       })
       .passthrough()
       .nullable()
@@ -242,6 +245,9 @@ export const AmendApproveTimeEntryPayloadSchema = z
       )
       .min(1, "At least one job allocation is required")
       .optional(),
+    /** Switch the day while fixing it (owner pull 2026-10-11): a sick day /
+     *  holiday / TAFE day, or null for job work. Absent keeps the day as it is. */
+    dayType: z.enum(["tafe", "sick", "holiday"]).nullable().optional(),
   })
   .superRefine((data, ctx) => {
     if (data.totalHours === undefined && data.allocations === undefined) {

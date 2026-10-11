@@ -10,6 +10,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { RefreshButton } from "@/components/ui/RefreshButton";
 import { ReasonField } from "@/components/admin/ReasonField";
 import { relativeWhen } from "@/domains/jobs/format";
+import { officeDayTypeOptions } from "@/domains/timesheets/resubmit";
 import {
   AmendHoursEditor,
   type AmendAllocationInput,
@@ -17,6 +18,7 @@ import {
 } from "@/components/admin/AmendHoursEditor";
 import { timesheetsClient } from "@/domains/timesheets/client";
 import {
+  DAY_TYPE_LABELS,
   dayTypeLabel,
   formatDateLabel,
   formatHoursLabel,
@@ -189,10 +191,7 @@ export function HoursApprovalsQueue({
    * server action, so the queue treats it exactly like an approve: the row
    * leaves the list on success, nothing is ever shown as half-done.
    */
-  async function amendAndApprove(
-    entry: TimeEntry,
-    payload: { totalHours: number; allocations: Array<{ jobId: string | null; hours: number }>; reason: string },
-  ) {
+  async function amendAndApprove(entry: TimeEntry, payload: AmendPayload) {
     const key = entryKey(entry);
     setAction({ kind: "amending", entryKey: key });
     const result = await timesheetsClient.amendAndApproveEntry({
@@ -201,6 +200,7 @@ export function HoursApprovalsQueue({
       reason: payload.reason,
       totalHours: payload.totalHours,
       allocations: payload.allocations,
+      ...(payload.dayType ? { dayType: payload.dayType } : {}),
     });
     if (result.ok) {
       setAmendKey(null);
@@ -208,7 +208,9 @@ export function HoursApprovalsQueue({
       setAction({
         kind: "success",
         entryKey: key,
-        label: `Fixed and approved — ${formatHoursLabel(entry.totalHours)} → ${formatHoursLabel(result.data.entry.totalHours)} for ${entry.userName ?? entry.userId} on ${formatDateLabel(entry.date)}. They'll see the change on their phone.`,
+        label: payload.dayType
+          ? `Fixed and approved — now ${DAY_TYPE_LABELS[payload.dayType]} (${formatHoursLabel(result.data.entry.totalHours)}) for ${entry.userName ?? entry.userId} on ${formatDateLabel(entry.date)}. They'll see the change on their phone.`
+          : `Fixed and approved — ${formatHoursLabel(entry.totalHours)} → ${formatHoursLabel(result.data.entry.totalHours)} for ${entry.userName ?? entry.userId} on ${formatDateLabel(entry.date)}. They'll see the change on their phone.`,
       });
       startTransition(() => router.refresh());
       return;
@@ -594,6 +596,8 @@ function EntryRow({
             workerName={entry.userName ?? entry.userId}
             currentTotalHours={entry.totalHours}
             allocations={amendAllocationsFor(entry)}
+            dayType={entry.dayType ?? null}
+            dayTypeOptions={officeDayTypeOptions(entry.userRole, entry.dayType)}
             saving={amending}
             onCancel={() => onOpenAmend(null)}
             onSave={(payload) => onAmend(entry, payload)}

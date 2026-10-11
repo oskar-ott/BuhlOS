@@ -826,3 +826,23 @@ describe("buildWeeklyHoursCloseout — mid-week pending (weekly logging, owner d
     expect(weeklyDayStatusLabel("pending")).toBe("Not logged yet");
   });
 });
+
+describe("buildWeeklyHoursCloseout — the day's own type rides each day (2026-10-11)", () => {
+  it("a holiday logged on the day carries dayType; a job day and an empty day carry null", () => {
+    const c = build([
+      entry({
+        userId: "u1",
+        date: "2024-05-20",
+        status: "submitted",
+        dayType: "holiday",
+        allocations: [{ jobId: null, hours: 7.6 }],
+      } as Partial<TimeEntry> & { userId: string; date: string }),
+      entry({ userId: "u1", date: "2024-05-21", status: "submitted" }),
+    ]);
+    const days = c.workers[0]!.days;
+    expect(days[0]!.dayType).toBe("holiday");
+    expect(days[0]!.jobLabel).toBe("Holiday");
+    expect(days[1]!.dayType).toBeNull();
+    expect(days[2]!.dayType).toBeNull(); // no entry
+  });
+});

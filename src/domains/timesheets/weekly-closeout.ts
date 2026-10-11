@@ -85,6 +85,10 @@ export interface WeeklyHoursDay {
   /** Public-holiday name (#137) — set when this date is a public holiday,
    *  whether or not the worker logged it. e.g. "Good Friday". */
   holidayName: string | null;
+  /** The entry's job-less day type (sick / holiday / TAFE), null for job work
+   *  or no entry. Lets the office's fix switch the day (owner pull
+   *  2026-10-11). Optional so older hand-built days still type-check. */
+  dayType?: "tafe" | "sick" | "holiday" | null;
 }
 
 export interface WeeklyJobSlice {
@@ -412,6 +416,7 @@ export function buildWeeklyHoursCloseout(input: WeeklyCloseoutInput): WeeklyHour
         exportId: entry?.exportId ?? null,
         leaveType,
         holidayName: holidayNameByDate.get(date) ?? null,
+        dayType: entry?.dayType ?? null,
       });
     }
 

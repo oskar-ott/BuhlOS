@@ -20,7 +20,7 @@ import { RefreshButton } from "@/components/ui/RefreshButton";
 import { useDialogFocus } from "@/components/ui/useDialogFocus";
 import { WeekShapeStrip } from "@/components/admin/WeekShapeStrip";
 import { timesheetsClient } from "@/domains/timesheets/client";
-import { formatHoursLabel } from "@/domains/timesheets/format";
+import { DAY_TYPE_LABELS, formatHoursLabel } from "@/domains/timesheets/format";
 import { workerStrip } from "@/domains/timesheets/pay-run";
 import {
   submittedWeekSelection,
@@ -54,6 +54,7 @@ import {
 } from "@/components/admin/WeeklyCloseoutXeroFinale";
 import { WeeklyCloseoutSendFinale } from "@/components/admin/WeeklyCloseoutSendFinale";
 import { AmendHoursEditor, type AmendPayload } from "@/components/admin/AmendHoursEditor";
+import { officeDayTypeOptions } from "@/domains/timesheets/resubmit";
 import type { ReviewCandidate } from "@/domains/timesheets/xero-closeout";
 
 /**
@@ -414,6 +415,7 @@ export function WeeklyHoursApprovalMobile({
         reason: payload.reason,
         totalHours: payload.totalHours,
         allocations: payload.allocations,
+        ...(payload.dayType ? { dayType: payload.dayType } : {}),
       });
       setBusy(worker.workerId, false);
       if (!res.ok) {
@@ -429,7 +431,9 @@ export function WeeklyHoursApprovalMobile({
         return false;
       }
       toast(
-        `Fixed ${day.weekday} · ${formatHoursLabel(day.hours ?? 0)} → ${formatHoursLabel(res.data.entry.totalHours)}`,
+        payload.dayType
+          ? `Fixed ${day.weekday} · now ${DAY_TYPE_LABELS[payload.dayType]} · ${formatHoursLabel(res.data.entry.totalHours)}`
+          : `Fixed ${day.weekday} · ${formatHoursLabel(day.hours ?? 0)} → ${formatHoursLabel(res.data.entry.totalHours)}`,
       );
       scheduleRefresh();
       return true;
@@ -1707,6 +1711,8 @@ function DaySheetRow({
             workerName={worker.workerName}
             currentTotalHours={day.hours ?? 0}
             allocations={amendDayAllocations(day)}
+            dayType={day.dayType ?? null}
+            dayTypeOptions={officeDayTypeOptions(worker.workerRole, day.dayType)}
             saving={busy}
             onCancel={() => onOpenAmend(null)}
             onSave={(payload) => {

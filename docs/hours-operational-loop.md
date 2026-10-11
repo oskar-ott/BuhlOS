@@ -82,6 +82,19 @@ State persists.                       Vercel Blob: users/<userId>/time-entries/<
   worker verbatim). Empty state is honest ("No entries to approve").
 - **Leading hands** see/action only entries on jobs they run, never another
   LH's entry. Self-approval is impossible for everyone.
+- **Fix it and approve** (admin tier only, reason required, submitted days
+  only — `api/time-entries-amend-approve.js`) sits on every day of the phone
+  closeout (`/hours/weekly`, "Fix") and on the `/hours/approvals` queue — one
+  editor, `AmendHoursEditor`. Since owner pull 2026-10-11 ("switch someone's
+  day from the mobile admin process" — the 5 Oct public holiday logged as job
+  days) it can also switch **what the day is**: a "This day" row offers Job
+  day · Sick day · Holiday (TAFE day for an apprentice). A switched day is one
+  job-less time, all ordinary; the before-type is kept in `amendedFrom.dayType`
+  and the worker's line reads "Adjusted by the office — Job day → Holiday ·
+  7h 36m: <reason>", with a push saying what the day became. "Job day" is only
+  offered when the day was job work (it restores those jobs); a day already
+  logged as leave goes back to job work through the worker, who knows the job
+  (the API refuses a job-less "job day").
 - **Worker names are FULL names, never nicknames** (owner-directed 2026-08-16,
   #1020; extended to the job hub's Labour card by #1027). Hours feed payroll,
   so every office surface labels a worker the way the payroll PDF does:

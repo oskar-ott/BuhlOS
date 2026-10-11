@@ -156,6 +156,18 @@ export function fixDayTypeOptions(
   return canLogTafe || current === "tafe" ? ["sick", "holiday", "tafe"] : ["sick", "holiday"];
 }
 
+/**
+ * The day types the OFFICE may switch a worker's day to while fixing it (owner
+ * pull 2026-10-11). Same rule as the worker's sheet; TAFE for an apprentice
+ * by the worker's account role (the office review has no employee record).
+ */
+export function officeDayTypeOptions(
+  workerRole: string | null | undefined,
+  current: TimeEntry["dayType"] | null | undefined,
+): FixDayType[] {
+  return fixDayTypeOptions(String(workerRole ?? "").trim().toLowerCase() === "apprentice", current);
+}
+
 /** The entry's day type as the sheet's starting selection (null = job day). */
 export function initialFixDayType(entry: Pick<TimeEntry, "dayType">): FixDayType | null {
   const t = entry.dayType;

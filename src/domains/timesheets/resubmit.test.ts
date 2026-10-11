@@ -6,6 +6,7 @@ import {
   canResubmitInPhil,
   fixDayTypeOptions,
   initialFixDayType,
+  officeDayTypeOptions,
   isSplitResubmit,
   resolveResubmitJob,
   resubmitFeedback,
@@ -352,5 +353,13 @@ describe("day types on the change sheet", () => {
     expect(initialFixDayType(te({ dayType: "holiday" }))).toBe("holiday");
     expect(initialFixDayType(te({ dayType: "sick" }))).toBe("sick");
     expect(initialFixDayType(te({ dayType: "tafe" }))).toBe("tafe");
+  });
+});
+
+describe("officeDayTypeOptions — what the office's fix may switch a day to", () => {
+  it("sick / holiday for anyone; TAFE for an apprentice (any casing) or a day that already is one", () => {
+    expect(officeDayTypeOptions("electrician", null)).toEqual(["sick", "holiday"]);
+    expect(officeDayTypeOptions("Apprentice", null)).toEqual(["sick", "holiday", "tafe"]);
+    expect(officeDayTypeOptions(null, "tafe")).toEqual(["sick", "holiday", "tafe"]);
   });
 });

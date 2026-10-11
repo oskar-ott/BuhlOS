@@ -24,13 +24,19 @@
 //     allocations sum to the total, jobs must be real + active), plus the OT
 //     split recomputed from the new total (autoSplitOT).
 //
-// Body: { userId, date, reason, totalHours?, allocations? }
+// Body: { userId, date, reason, totalHours?, allocations?, dayType? }
 //   - allocations (preferred, and REQUIRED for a split day):
 //       [{ jobId, hours, notes? }, …] — the full replacement set.
 //   - totalHours alone is accepted for a SINGLE-allocation day: that one
 //     allocation moves to the new total (its job attribution is untouched).
 //   Sending both is fine as long as they agree (±0.01) — the shared validator
 //   is what says so.
+//   - dayType (owner pull 2026-10-11 — "switch someone's day from the mobile
+//     admin"): 'sick' | 'holiday' | 'tafe' turns the day into that job-less
+//     day (one jobId:null allocation carrying the total, all ordinary);
+//     null turns a day-type day back into job work (real jobs required);
+//     absent keeps whatever the day already is. The before-type rides
+//     amendedFrom so the worker sees "Job day → Holiday".
 //
 // Gated by the existing `hours` core flag along with the rest of the hours
 // workflow — this is a capability inside a live feature, not a new one.
@@ -54,6 +60,8 @@ const { sendPushToUserId } = require('./_lib/push');
 const { appendActivity } = require('./_lib/activity');
 
 const MAX_REASON_LENGTH = 500;
+const DAY_TYPES = ['tafe', 'sick', 'holiday'];
+const DAY_TYPE_WORDS = { tafe: 'a TAFE day', sick: 'a sick day', holiday: 'a holiday' };
 
 module.exports = async (req, res) => {
   setNoCache(res);
@@ -69,7 +77,11 @@ module.exports = async (req, res) => {
   }
 
   const { userId, date, reason, totalHours, allocations } = req.body || {};
+  const dayTypeIn = (req.body || {}).dayType;
   if (!userId || !date) return res.status(400).json({ error: 'userId and date required' });
+  if (dayTypeIn !== undefined && dayTypeIn !== null && !DAY_TYPES.includes(dayTypeIn)) {
+    return res.status(400).json({ error: 'dayType must be sick, holiday, tafe or null' });
+  }
   if (userId === user.id) return res.status(403).json({ error: 'cannot amend your own hours' });
   if (!reason || !String(reason).trim()) return res.status(400).json({ error: 'reason required' });
   const trimmedReason = String(reason).trim().slice(0, MAX_REASON_LENGTH);
@@ -97,6 +109,9 @@ module.exports = async (req, res) => {
 
   // ── Build the corrected allocations ─────────────────────────────────
   const existingAllocations = Array.isArray(entry.allocations) ? entry.allocations : [];
+  const fromDayType = DAY_TYPES.includes(entry.dayType) ? entry.dayType : null;
+  // Absent = keep the day what it is; null = job work; a type = that day.
+  const nextDayType = dayTypeIn === undefined ? fromDayType : dayTypeIn;
   let nextAllocations;
   if (Array.isArray(allocations)) {
     if (allocations.length === 0) return res.status(400).json({ error: 'at least one allocation required' });
@@ -129,13 +144,29 @@ module.exports = async (req, res) => {
   const nextTotal = typeof totalHours === 'number'
     ? Math.round(Number(totalHours) * 100) / 100
     : Math.round(allocationSum * 100) / 100;
+
+  if (nextDayType) {
+    // A sick day / holiday / TAFE day belongs to NO job — the whole day is one
+    // job-less allocation, whatever jobs it was logged against by mistake.
+    nextAllocations = [{ jobId: null, hours: nextTotal, notes: null, sortOrder: 0 }];
+  } else if (fromDayType && nextAllocations.some((a) => !a.jobId)) {
+    // Back to job work: the hours must land on a real job — never a job-less
+    // "job day" (the same rule the worker's own edit enforces).
+    return res.status(400).json({ error: 'pick the job these hours are for' });
+  }
+
   // OT is re-derived from the corrected total — an amended day must never keep
   // a split that belonged to the old number. Date-aware: a weekend day books
-  // as all overtime (owner-directed 2026-08-10).
-  const split = autoSplitOT(nextTotal, entry.date);
+  // as all overtime (owner-directed 2026-08-10). Leave and training pay
+  // ordinary regardless of the calendar or the length (the worker's own
+  // day-type entries book the same way).
+  const split = nextDayType
+    ? { ordinary: nextTotal, overtime: 0 }
+    : autoSplitOT(nextTotal, entry.date);
 
   const candidate = {
     ...entry,
+    dayType: nextDayType,
     totalHours: nextTotal,
     ordinaryHours: split.ordinary,
     overtimeHours: split.overtime,
@@ -169,6 +200,7 @@ module.exports = async (req, res) => {
       totalHours: Number(entry.totalHours) || 0,
       ordinaryHours: Number(entry.ordinaryHours) || 0,
       overtimeHours: Number(entry.overtimeHours) || 0,
+      dayType: fromDayType,
       allocations: existingAllocations.map((a, i) => ({
         jobId: a.jobId || null,
         hours: Number(a.hours) || 0,
@@ -217,6 +249,8 @@ module.exports = async (req, res) => {
       fromTotalHours: Number(entry.totalHours) || 0,
       totalHours: nextTotal,
       jobIds: nextAllocations.map((a) => a.jobId).filter(Boolean),
+      fromDayType,
+      dayType: nextDayType,
     },
   });
 
@@ -228,7 +262,10 @@ module.exports = async (req, res) => {
       actor: user,
       entry: entryView(updated),
       reason: trimmedReason,
-      extraMetadata: { fromTotalHours: Number(entry.totalHours) || 0 },
+      extraMetadata: {
+        fromTotalHours: Number(entry.totalHours) || 0,
+        ...(nextDayType !== fromDayType ? { fromDayType, dayType: nextDayType } : {}),
+      },
     }),
   ).catch(() => {});
 
@@ -237,9 +274,14 @@ module.exports = async (req, res) => {
   // api/_lib/notify.js): a change to someone's hours is not a notification they
   // should be able to mute into a silent pay change. Best-effort; the deep link
   // lands on /phil/hours, the screen that renders the adjustment line.
+  // A changed day type says what the day became — "7h 36m → 7h 36m" alone
+  // would hide the change that matters.
+  const typeChanged = nextDayType !== fromDayType;
   sendPushToUserId(userId, {
     title: 'Hours adjusted and approved',
-    body: `Your ${weekdayShort(entry.date)} hours were adjusted and approved — ${durationLabel(Number(entry.totalHours) || 0)} → ${durationLabel(nextTotal)}. Tap to see it.`,
+    body: typeChanged
+      ? `Your ${weekdayShort(entry.date)} was changed to ${nextDayType ? DAY_TYPE_WORDS[nextDayType] : 'a job day'} and approved — ${durationLabel(nextTotal)}. Tap to see it.`
+      : `Your ${weekdayShort(entry.date)} hours were adjusted and approved — ${durationLabel(Number(entry.totalHours) || 0)} → ${durationLabel(nextTotal)}. Tap to see it.`,
     url: '/phil/hours',
     tag: 'buhl-hours-amended-' + entry.date,
   }).catch(() => {});
