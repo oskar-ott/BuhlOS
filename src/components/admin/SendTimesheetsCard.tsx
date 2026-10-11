@@ -8,6 +8,8 @@ import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { formatHoursLabel } from "@/domains/timesheets/format";
 import { formatPeriodSend, usePeriodEmailStatus } from "./usePeriodEmailStatus";
 import { sendPeriodTimesheets } from "./sendPeriodTimesheets";
+import { ProblemDialog } from "@/components/ui/ProblemDialog";
+import { explainHoursProblem, type HoursProblem } from "@/domains/timesheets/problem";
 
 /**
  * Send-to-accounts card (owner pull 2026-08-15) — the pay-run handoff while
@@ -44,7 +46,7 @@ type Phase =
   /** settleWaitMs: set while waiting for just-approved days to settle. */
   | { kind: "sending"; settleWaitMs?: number }
   | { kind: "sent"; receipt: SentReceipt }
-  | { kind: "error"; message: string };
+  | { kind: "error"; message: string; problem: HoursProblem };
 
 interface Props {
   fromDate: string;
@@ -64,6 +66,9 @@ export function SendTimesheetsCard({
   workersNeedingAction,
 }: Props) {
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
+  // A failed send pops up in plain words (what went wrong, why, what to do);
+  // the same words stay on the card after it's closed.
+  const [problemOpen, setProblemOpen] = useState(false);
   const { status: emailStatus, refresh: refreshEmailStatus } = usePeriodEmailStatus(
     fromDate,
     toDate
@@ -92,7 +97,9 @@ export function SendTimesheetsCard({
       });
       if (!alive.current || !outcome) return;
       if (!outcome.ok) {
-        setPhase({ kind: "error", message: outcome.error });
+        const p = outcome.problem;
+        setPhase({ kind: "error", message: `${p.title}. ${p.todo}`, problem: p });
+        setProblemOpen(true);
         return;
       }
       setPhase({ kind: "sent", receipt: outcome.receipt });
@@ -106,7 +113,9 @@ export function SendTimesheetsCard({
         kind: "error",
         message:
           "Lost the connection mid-send, so we can't tell if it went. Check the \u201cAlready emailed\u201d line below before sending again.",
+        problem: explainHoursProblem("send", { status: 0, kind: "timeout" }),
       });
+      setProblemOpen(true);
     }
   };
 
@@ -202,6 +211,11 @@ export function SendTimesheetsCard({
           {phase.message}
         </p>
       ) : null}
+      <ProblemDialog
+        problem={phase.kind === "error" && problemOpen ? phase.problem : null}
+        onClose={() => setProblemOpen(false)}
+        onRetry={() => void send()}
+      />
 
       {phase.kind === "confirm" ? (
         <div className="mt-3 rounded-card border border-border bg-surface-subtle p-3">

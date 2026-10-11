@@ -19,6 +19,8 @@ import {
 } from "@/domains/timesheets/format";
 import { STATUS_WORDS } from "@/domains/timesheets/status-words";
 import { canResubmitInPhil } from "@/domains/timesheets/resubmit";
+import { explainHoursProblem, type HoursProblem, type ProblemInput } from "@/domains/timesheets/problem";
+import { ProblemDialog } from "@/components/ui/ProblemDialog";
 import { STANDARD_DAY_HOURS, lastLoggedJobFor } from "@/domains/timesheets/service";
 import type { TimeEntry, TimeEntryAllocation } from "@/domains/timesheets/types";
 import {
@@ -211,6 +213,9 @@ export function PhilHoursSharpened({
 
   // Draft-flush ("send week") state, per week card.
   const [sendStates, setSendStates] = useState<Record<string, SendState>>({});
+  // Days that didn't go up say WHY in a pop-up (owner pull 2026-10-11) — the
+  // banner below still says they're safe as drafts.
+  const [sendProblem, setSendProblem] = useState<{ problem: HoursProblem; week: HoursWeek } | null>(null);
   const sendStateFor = (w: HoursWeek): SendState => sendStates[w.weekStart] ?? { kind: "idle" };
 
   async function sendWeek(week: HoursWeek) {
@@ -222,6 +227,7 @@ export function PhilHoursSharpened({
     }));
     let ok = 0;
     let failed = 0;
+    let firstError: ProblemInput | null = null;
     // Sequential, non-optimistic: each PATCH is confirmed (or not) before the
     // next; a failure never blocks the rest, and nothing renders as sent
     // until the server said so.
@@ -230,7 +236,20 @@ export function PhilHoursSharpened({
       if (result.ok) {
         ok += 1;
         recordSaved(result.data.entry);
-      } else failed += 1;
+      } else {
+        failed += 1;
+        firstError ??= result.error;
+      }
+    }
+    if (firstError) {
+      const explained = explainHoursProblem("change", firstError);
+      setSendProblem({
+        week,
+        problem: {
+          ...explained,
+          caption: `${failed} of ${drafts.length} ${drafts.length === 1 ? "day" : "days"} not sent`,
+        },
+      });
     }
     setSendStates((s) => ({
       ...s,
@@ -267,6 +286,11 @@ export function PhilHoursSharpened({
 
   return (
     <div className="space-y-4" data-testid="phil-hours-sharpened">
+      <ProblemDialog
+        problem={sendProblem?.problem ?? null}
+        onClose={() => setSendProblem(null)}
+        onRetry={sendProblem ? () => void sendWeek(sendProblem.week) : undefined}
+      />
       <header className="flex items-baseline justify-between gap-3">
         <h1 className="font-display text-2xl font-extrabold tracking-[-0.02em] text-text">Hours</h1>
         {weeks.length > 1 ? (

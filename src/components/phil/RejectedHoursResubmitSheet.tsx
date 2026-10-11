@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/Button";
 import { Pill } from "@/components/ui/Pill";
@@ -8,6 +8,9 @@ import { RefreshButton } from "@/components/ui/RefreshButton";
 import { PhilNotice } from "./ui/PhilNotice";
 import { cn } from "@/lib/cn";
 import { timesheetsClient } from "@/domains/timesheets/client";
+import { explainHoursProblem, type HoursProblem } from "@/domains/timesheets/problem";
+import { ProblemDialog } from "@/components/ui/ProblemDialog";
+import type { HttpError } from "@/lib/http";
 import { useSubmissionKey } from "@/domains/timesheets/useSubmissionKey";
 import {
   MAX_HOURS_PER_DAY,
@@ -161,6 +164,11 @@ export function RejectedHoursResubmitSheet({
   // split editor (seeded from the entry); Cancel there returns here.
   const [splitMode, setSplitMode] = useState(false);
   const [state, setState] = useState<State>({ kind: "idle" });
+  // A refused or unanswered send pops up in plain words — what went wrong, why,
+  // what to do (owner pull 2026-10-11). The same words stay in the sheet after
+  // the pop-up closes; everything typed stays put.
+  const [problem, setProblem] = useState<HoursProblem | null>(null);
+  const retryRef = useRef<(() => void) | null>(null);
   // Replay-safe key per fix attempt — a retry after a timeout reuses it; a
   // changed correction mints a fresh one; success clears it. (#497)
   const resubmitKey = useSubmissionKey();
@@ -172,6 +180,13 @@ export function RejectedHoursResubmitSheet({
   const hoursValid = totalHours > 0 && totalHours <= MAX_HOURS_PER_DAY;
   const submitting = state.kind === "submitting";
   const canSubmit = (dayType !== null || resolution.ok) && hoursValid && !submitting;
+
+  function failed(error: HttpError, retry: () => void) {
+    const explained = explainHoursProblem("change", error);
+    retryRef.current = retry;
+    setProblem(explained);
+    setState({ kind: "error", message: `${explained.title}. ${explained.todo}`, status: error.status || 0 });
+  }
 
   async function submitSplit(
     nextTotal: number,
@@ -187,6 +202,11 @@ export function RejectedHoursResubmitSheet({
     const result = await timesheetsClient.editOwnEntry(entry.date, payload, {
       idempotencyKey: resubmitKey.keyFor(JSON.stringify(payload)),
     });
+    if (!result.ok) {
+      // Same payload → same replay key, so a retry can never save twice.
+      failed(result.error, () => void submitSplit(nextTotal, allocations));
+      return;
+    }
     const fb = resubmitFeedback(result);
     if (fb.kind === "success") {
       resubmitKey.clear();
@@ -234,6 +254,10 @@ export function RejectedHoursResubmitSheet({
     const result = await timesheetsClient.editOwnEntry(entry.date, payload, {
       idempotencyKey: resubmitKey.keyFor(JSON.stringify(payload)),
     });
+    if (!result.ok) {
+      failed(result.error, () => void submit());
+      return;
+    }
     const fb = resubmitFeedback(result);
     if (fb.kind === "success") {
       resubmitKey.clear();
@@ -245,6 +269,14 @@ export function RejectedHoursResubmitSheet({
         : { kind: "error", message: fb.message, status: fb.status },
     );
   }
+
+  const problemDialog = (
+    <ProblemDialog
+      problem={problem}
+      onClose={() => setProblem(null)}
+      onRetry={() => retryRef.current?.()}
+    />
+  );
 
   // Field report 2026-09-27: "I can only change my hours once" — the success
   // notice used to be terminal, and in controlled mode it also hid the row's
@@ -357,17 +389,20 @@ export function RejectedHoursResubmitSheet({
     }
     const init = splitResubmitInitialRows(entry, assignedJobs);
     return (
-      <SplitDaySheet
-        open
-        onClose={() => setOpen(false)}
-        assignedJobs={assignedJobs}
-        submitting={submitting}
-        title={editingSubmitted ? "Change & resend the split day" : "Fix & resubmit the split day"}
-        initialTotal={init.total}
-        initialRows={init.rows}
-        errorMessage={state.kind === "error" ? state.message : null}
-        onSubmit={submitSplit}
-      />
+      <>
+        <SplitDaySheet
+          open
+          onClose={() => setOpen(false)}
+          assignedJobs={assignedJobs}
+          submitting={submitting}
+          title={editingSubmitted ? "Change & resend the split day" : "Fix & resubmit the split day"}
+          initialTotal={init.total}
+          initialRows={init.rows}
+          errorMessage={state.kind === "error" ? state.message : null}
+          onSubmit={submitSplit}
+        />
+        {problemDialog}
+      </>
     );
   }
 
@@ -379,22 +414,26 @@ export function RejectedHoursResubmitSheet({
   if (splitMode) {
     const init = splitChangeInitialRows(entry, assignedJobs);
     return (
-      <SplitDaySheet
-        open
-        onClose={closeSplit}
-        assignedJobs={assignedJobs}
-        submitting={submitting}
-        title={editingSubmitted ? "Change & resend the split day" : "Fix & resubmit the split day"}
-        initialTotal={init.total}
-        initialRows={init.rows}
-        errorMessage={state.kind === "error" ? state.message : null}
-        onSubmit={submitSplit}
-      />
+      <>
+        <SplitDaySheet
+          open
+          onClose={closeSplit}
+          assignedJobs={assignedJobs}
+          submitting={submitting}
+          title={editingSubmitted ? "Change & resend the split day" : "Fix & resubmit the split day"}
+          initialTotal={init.total}
+          initialRows={init.rows}
+          errorMessage={state.kind === "error" ? state.message : null}
+          onSubmit={submitSplit}
+        />
+        {problemDialog}
+      </>
     );
   }
 
   return (
     <div className="space-y-3 rounded-card border border-border bg-surface-subtle p-3">
+      {problemDialog}
       <p className="font-display text-xs uppercase tracking-widest text-text-muted">
         {headerLabel}
       </p>

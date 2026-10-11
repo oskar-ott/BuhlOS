@@ -12,6 +12,13 @@ import { ReasonField } from "@/components/admin/ReasonField";
 import { relativeWhen } from "@/domains/jobs/format";
 import { officeDayTypeOptions } from "@/domains/timesheets/resubmit";
 import {
+  explainHoursProblem,
+  type HoursAction,
+  type HoursProblem,
+  type ProblemInput,
+} from "@/domains/timesheets/problem";
+import { ProblemDialog } from "@/components/ui/ProblemDialog";
+import {
   AmendHoursEditor,
   type AmendAllocationInput,
   type AmendPayload,
@@ -93,6 +100,18 @@ export function HoursApprovalsQueue({
 
   const grouped = useMemo(() => groupByWorker(entries), [entries]);
 
+  // A failed approve / fix / send back / undo pops up in plain words — what
+  // went wrong, why, what to do (owner pull 2026-10-11) — and the same words
+  // stay in the banner after it's closed.
+  const [problem, setProblem] = useState<HoursProblem | null>(null);
+  const [retryProblem, setRetryProblem] = useState<(() => void) | null>(null);
+  function failWith(action: HoursAction, input: ProblemInput, retry: (() => void) | null): HoursProblem {
+    const explained = explainHoursProblem(action, input);
+    setRetryProblem(() => retry);
+    setProblem(explained);
+    return explained;
+  }
+
   async function approveAll(group: WorkerGroupShape) {
     // The queue lists submitted entries only; cap at the endpoint max with an
     // honest remainder note rather than a silent truncation.
@@ -105,13 +124,8 @@ export function HoursApprovalsQueue({
     const result = await timesheetsClient.bulkApproveEntries({ entries: entriesToSend });
     setBulkBusyWorker(null);
     if (!result.ok) {
-      setAction({
-        kind: "error",
-        message:
-          result.error.status === 403
-            ? "You don't have permission to approve these entries."
-            : result.error.message || "Couldn't approve. Try again.",
-      });
+      const p = failWith("approve", result.error, () => void approveAll(group));
+      setAction({ kind: "error", message: `${p.title}. ${p.todo}` });
       return;
     }
     const approvedKeys = new Set(result.data.approved.map((a) => `${a.userId}:${a.date}`));
@@ -140,14 +154,19 @@ export function HoursApprovalsQueue({
     if (!bulk || bulk.undo.length === 0 || undoBusy) return;
     setUndoBusy(true);
     const failures: string[] = [];
+    let firstError: ProblemInput | null = null;
     for (const ref of bulk.undo) {
       const r = await timesheetsClient.reopenEntry({
         userId: ref.userId,
         date: ref.date,
         toStatus: "submitted",
       });
-      if (!r.ok) failures.push(`${ref.date}: ${r.error.message || `HTTP ${r.error.status}`}`);
+      if (!r.ok) {
+        firstError ??= r.error;
+        failures.push(`${ref.date}: ${explainHoursProblem("undo", r.error).title}`);
+      }
     }
+    if (firstError) failWith("undo", firstError, null);
     const total = bulk.undo.length;
     setUndoBusy(false);
     setBulk(null);
@@ -177,13 +196,8 @@ export function HoursApprovalsQueue({
       startTransition(() => router.refresh());
       return;
     }
-    setAction({
-      kind: "error",
-      message:
-        result.error.status === 403
-          ? "You don't have permission to approve this entry — admin only."
-          : result.error.message || "Couldn't approve. Try again.",
-    });
+    const p = failWith("approve", result.error, () => void approve(entry));
+    setAction({ kind: "error", message: `${p.title}. ${p.todo}` });
   }
 
   /**
@@ -215,15 +229,10 @@ export function HoursApprovalsQueue({
       startTransition(() => router.refresh());
       return;
     }
-    setAction({
-      kind: "error",
-      message:
-        result.error.status === 403
-          ? "Only the office can change someone's hours."
-          : result.error.status === 409
-            ? "These hours moved while you were fixing them — refresh and look again."
-            : result.error.message || "Couldn't save the fix. Try again.",
-    });
+    // Plain words ("You can't do this to your own hours", "This day just
+    // changed"…); the editor stays open with everything typed.
+    const p = failWith("fix", result.error, null);
+    setAction({ kind: "error", message: `${p.title}. ${p.todo}` });
   }
 
   function openReject(entry: TimeEntry) {
@@ -272,15 +281,17 @@ export function HoursApprovalsQueue({
       return;
     }
     setAction({ kind: "idle" });
-    setRejectError(
-      result.error.status === 403
-        ? "You don't have permission to reject this entry — admin only."
-        : result.error.message || "Couldn't reject. Try again.",
-    );
+    const p = failWith("sendBack", result.error, () => void confirmReject());
+    setRejectError(`${p.title}. ${p.todo}`);
   }
 
   return (
     <div className="space-y-4">
+      <ProblemDialog
+        problem={problem}
+        onClose={() => setProblem(null)}
+        onRetry={retryProblem ?? undefined}
+      />
       {fetchError ? (
         <Card className="border-amber-200 bg-amber-50" role="alert">
           <CardTitle>Couldn&rsquo;t load the queue</CardTitle>
