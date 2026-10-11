@@ -14,7 +14,11 @@
 --   * movements are APPEND-ONLY: update/delete raise. A mistake is undone by a
 --     compensating 'reversal' row, and one movement can be reversed once
 --     (partial unique index); a movement that a later count has absorbed can't
---     be reversed at all (the count already corrected it)
+--     be reversed at all (the count already corrected it). Each movement keeps
+--     the item's estimate flag and last-count stamp from just before it, so an
+--     undone count puts those back too
+--   * movement timestamps are the server's clock when the row is applied (after
+--     the item lock), so one item's history sorts in the order it happened
 --   * every write carries a client idempotency key, unique per tenant; the
 --     request hash beside it lets the app refuse a reused key with a different
 --     payload
@@ -29,7 +33,9 @@
 -- through the authenticated proxy in api/workshop-stock.js). Recognition
 -- photos for "take stock" are not stored at all. A product photo uploaded
 -- while adding stock is 'pending' until an item claims it and expires after a
--- day otherwise (cleaned up by the API).
+-- day otherwise (cleaned up by the API: an expired photo can't be claimed, and
+-- the row is marked deleted before its blob goes, so a claim and a cleanup
+-- can never both win).
 --
 -- Additive only. Down path (documented, not executed):
 --   drop table if exists public.workshop_stock_usage;
@@ -60,17 +66,30 @@ create table public.workshop_stock_photos (
   uploaded_by_name       text,
   created_at             timestamptz not null default now(),
   expires_at             timestamptz,
+  -- deletion is two steps: the row is marked first (so nothing can claim it
+  -- any more), then the blob goes; a blob delete that failed is retried
   deleted_at             timestamptz,
+  blob_deleted_at        timestamptz,
+  -- a small copy for lists (made on the phone); null for photos without one
+  thumb_url              text,
+  thumb_pathname         text,
+  thumb_byte_size        integer check (thumb_byte_size is null or (thumb_byte_size > 0 and thumb_byte_size <= 200000)),
   -- what the photo reader transcribed (image-derived, kept apart from listing
   -- evidence and from what the worker confirmed); null when not read
   reading                jsonb,
   unique (tenant_id, id),
-  check (purpose = 'item' or expires_at is not null)
+  check (purpose = 'item' or expires_at is not null),
+  check ((thumb_url is null) = (thumb_pathname is null)),
+  check (blob_deleted_at is null or deleted_at is not null)
 );
 
 create index workshop_stock_photos_expiry_idx
   on public.workshop_stock_photos (tenant_id, expires_at)
   where purpose <> 'item' and deleted_at is null;
+
+create index workshop_stock_photos_blob_retry_idx
+  on public.workshop_stock_photos (tenant_id)
+  where deleted_at is not null and blob_deleted_at is null;
 
 comment on table public.workshop_stock_photos is
   'Workshop Stock product photos. Binary in Vercel Blob (URL server-only; served through the authenticated proxy). pending → item when an item claims it; pending/retired rows expire and are deleted.';
@@ -144,11 +163,15 @@ create table public.workshop_stock_identifiers (
   pack_unit             text check (pack_unit is null or pack_unit in ('box', 'pack', 'bag', 'roll', 'length', 'carton', 'coil', 'reel')),
   pack_size_milli       bigint check (pack_size_milli is null or pack_size_milli > 0),
   retired_at            timestamptz,
+  -- why it stopped being live: the item was archived (a restore brings it
+  -- back), the office removed it, or an edit replaced it (neither comes back)
+  retired_reason        text check (retired_reason is null or retired_reason in ('archived', 'removed', 'replaced')),
   created_by_legacy_id  text not null,
   created_by_name       text,
   created_at            timestamptz not null default now(),
   foreign key (tenant_id, item_id) references public.workshop_stock_items (tenant_id, id),
-  check ((pack_unit is null) = (pack_size_milli is null))
+  check ((pack_unit is null) = (pack_size_milli is null)),
+  check ((retired_at is null) = (retired_reason is null))
 );
 
 -- one live owner per code/barcode: the duplicate-item guard
@@ -190,6 +213,12 @@ create table public.workshop_stock_movements (
   actor_role            text,
   idempotency_key       text not null check (char_length(idempotency_key) between 8 and 100),
   request_hash          text not null check (request_hash ~ '^[0-9a-f]{64}$'),
+  -- the item's estimate flag and last-count stamp just BEFORE this movement
+  -- (stamped by the ledger trigger) — what undoing it puts back
+  prev_estimated                  boolean,
+  prev_last_counted_at            timestamptz,
+  prev_last_counted_by_legacy_id  text,
+  prev_last_counted_by_name       text,
   created_at            timestamptz not null default now(),
   unique (tenant_id, id),
   foreign key (tenant_id, item_id) references public.workshop_stock_items (tenant_id, id),
@@ -251,11 +280,14 @@ create table public.workshop_stock_lookup_cache (
   tenant_id   uuid not null references public.tenants(id),
   brand_key   text not null default '',
   code_key    text not null check (char_length(code_key) between 2 and 48),
+  -- the colour / size details the check compared against ('' when none): a
+  -- check for the white one is not a check for the black one
+  variant_key text not null default '' check (char_length(variant_key) <= 64),
   status      text not null check (status in ('manufacturer_code_matched', 'possible_match', 'no_match')),
   result      jsonb not null,
   fetched_at  timestamptz not null default now(),
   expires_at  timestamptz not null,
-  primary key (tenant_id, brand_key, code_key)
+  primary key (tenant_id, brand_key, code_key, variant_key)
 );
 
 comment on table public.workshop_stock_lookup_cache is
@@ -281,8 +313,14 @@ declare
   orig record;
   step bigint;
   next_balance bigint;
+  next_estimated boolean;
+  next_counted_at timestamptz;
+  next_counted_by text;
+  next_counted_name text;
+  stamp timestamptz;
 begin
-  select id, base_unit, balance_milli, version, archived_at, estimated
+  select id, base_unit, balance_milli, version, archived_at, estimated,
+         last_counted_at, last_counted_by_legacy_id, last_counted_by_name
     into it
     from public.workshop_stock_items
     where id = new.item_id and tenant_id = new.tenant_id
@@ -293,6 +331,9 @@ begin
   if it.archived_at is not null then
     raise exception 'workshop stock item % is archived', new.item_id using errcode = 'check_violation';
   end if;
+  -- the wall clock once the item is locked, not the transaction start: rows of
+  -- one item then sort in the order they landed
+  stamp := clock_timestamp();
 
   step := case it.base_unit when 'metre' then 100 else 1000 end;
   if new.quantity_milli % step <> 0
@@ -309,7 +350,8 @@ begin
   end if;
 
   if new.kind = 'reversal' then
-    select id, item_id, kind, quantity_milli, item_version_after
+    select id, item_id, kind, quantity_milli, item_version_after, prev_estimated,
+           prev_last_counted_at, prev_last_counted_by_legacy_id, prev_last_counted_by_name
       into orig
       from public.workshop_stock_movements
       where id = new.reverses_movement_id and tenant_id = new.tenant_id;
@@ -343,23 +385,56 @@ begin
     raise exception 'insufficient recorded stock' using errcode = 'check_violation';
   end if;
 
-  new.created_at := now();
+  -- The estimate flag and the last-count stamp. An undo puts back how the item
+  -- stood before the undone movement — plus any estimated stock added since
+  -- that still stands (no count can have landed since: refused above).
+  if new.kind in ('count', 'opening') then
+    next_estimated := new.estimated;
+  elsif new.kind = 'reversal' then
+    next_estimated := coalesce(orig.prev_estimated, it.estimated) or exists (
+      select 1 from public.workshop_stock_movements m
+       where m.tenant_id = new.tenant_id and m.item_id = new.item_id
+         and m.item_version_after > orig.item_version_after
+         and m.kind in ('add', 'return') and m.estimated
+         and not exists (
+           select 1 from public.workshop_stock_movements r
+            where r.tenant_id = m.tenant_id and r.reverses_movement_id = m.id));
+  else
+    next_estimated := it.estimated or new.estimated;
+  end if;
+  next_counted_at := it.last_counted_at;
+  next_counted_by := it.last_counted_by_legacy_id;
+  next_counted_name := it.last_counted_by_name;
+  if new.kind = 'count' or (new.kind = 'opening' and not new.estimated) then
+    next_counted_at := stamp;
+    next_counted_by := new.actor_legacy_id;
+    next_counted_name := new.actor_name;
+  elsif new.kind = 'reversal' then
+    -- (orig is only assigned for a reversal: test it inside this branch)
+    if orig.kind in ('count', 'opening') then
+      next_counted_at := orig.prev_last_counted_at;
+      next_counted_by := orig.prev_last_counted_by_legacy_id;
+      next_counted_name := orig.prev_last_counted_by_name;
+    end if;
+  end if;
+
+  new.created_at := stamp;
   new.balance_after_milli := next_balance;
   new.item_version_after := it.version + 1;
+  new.prev_estimated := it.estimated;
+  new.prev_last_counted_at := it.last_counted_at;
+  new.prev_last_counted_by_legacy_id := it.last_counted_by_legacy_id;
+  new.prev_last_counted_by_name := it.last_counted_by_name;
 
   perform set_config('workshop_stock.ledger_write', 'on', true);
   update public.workshop_stock_items set
     balance_milli = next_balance,
     version = it.version + 1,
-    last_movement_at = new.created_at,
-    estimated = case
-      when new.kind in ('count', 'opening') then new.estimated
-      when new.kind = 'reversal' then it.estimated
-      else it.estimated or new.estimated
-    end,
-    last_counted_at = case when new.kind = 'count' or (new.kind = 'opening' and not new.estimated) then new.created_at else last_counted_at end,
-    last_counted_by_legacy_id = case when new.kind = 'count' or (new.kind = 'opening' and not new.estimated) then new.actor_legacy_id else last_counted_by_legacy_id end,
-    last_counted_by_name = case when new.kind = 'count' or (new.kind = 'opening' and not new.estimated) then new.actor_name else last_counted_by_name end
+    last_movement_at = stamp,
+    estimated = next_estimated,
+    last_counted_at = next_counted_at,
+    last_counted_by_legacy_id = next_counted_by,
+    last_counted_by_name = next_counted_name
   where id = it.id;
   perform set_config('workshop_stock.ledger_write', 'off', true);
   return new;

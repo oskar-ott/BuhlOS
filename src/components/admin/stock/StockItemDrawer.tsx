@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Drawer } from "@/components/ui/Drawer";
 import { Button } from "@/components/ui/Button";
 import { PhotoCapture } from "@/components/stock/PhotoCapture";
 import { StockThumb } from "@/components/stock/StockThumb";
 import { fetchHistory, fetchItem, newOperationKey, replaceItemPhoto, setArchived, storePhoto, undoMovement } from "@/domains/workshop-stock/client";
 import { balanceLabel, errorCopy, formatQuantity, identityLine, movementSummary, signedQuantity, timeAgo } from "@/domains/workshop-stock/format";
+import { isUncertain } from "@/domains/workshop-stock/pending";
 import type { ItemDetail, StockMovement } from "@/domains/workshop-stock/schema";
 import { CheckSection, CountForm, EditForm, IdentifiersEditor } from "./StockAdminForms";
 
@@ -28,7 +29,8 @@ const EVENT_LABEL: Record<string, string> = {
  * The office view of one workshop item: recorded balance, count correction,
  * the full movement history with audited Undo, then catalogue details, codes,
  * online check, photo, and — set apart at the bottom — archive/restore (P12:
- * the destructive action never sits beside routine ones).
+ * the destructive action never sits beside routine ones). An archived item is
+ * read-only until it is restored.
  */
 export function StockItemDrawer({ itemId, lookupEnabled, onClose, onChanged }: { itemId: string; lookupEnabled: boolean; onClose: () => void; onChanged: () => void }) {
   const [detail, setDetail] = useState<ItemDetail | null>(null);
@@ -40,6 +42,9 @@ export function StockItemDrawer({ itemId, lookupEnabled, onClose, onChanged }: {
   const [busy, setBusy] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState(false);
   const [photoMsg, setPhotoMsg] = useState<string | null>(null);
+  const [restoreNote, setRestoreNote] = useState<string | null>(null);
+  // one operation key per movement until its undo has a definite answer
+  const undoKeys = useRef(new Map<string, string>());
 
   const load = useCallback(async () => {
     const r = await fetchItem(itemId);
@@ -58,23 +63,35 @@ export function StockItemDrawer({ itemId, lookupEnabled, onClose, onChanged }: {
 
   async function undo(m: StockMovement) {
     setBusy(true); setError(null);
-    const r = await undoMovement({ movementId: m.id, reason: undoReason.trim() }, newOperationKey());
+    const key = undoKeys.current.get(m.id) ?? newOperationKey();
+    undoKeys.current.set(m.id, key);
+    const r = await undoMovement({ movementId: m.id, reason: undoReason.trim() }, key);
     setBusy(false);
-    if (r.ok) { setUndoFor(null); setUndoReason(""); changed(); return; }
+    if (r.ok) { undoKeys.current.delete(m.id); setUndoFor(null); setUndoReason(""); changed(); return; }
+    if (isUncertain(r.error.status, r.error.body)) {
+      setError("Not sure the undo went through — try again (it won't double up).");
+      return;
+    }
+    undoKeys.current.delete(m.id);
     setError(errorCopy(r.error.status, r.error.body));
   }
 
   async function archive(archived: boolean) {
-    setBusy(true); setError(null);
+    setBusy(true); setError(null); setRestoreNote(null);
     const r = await setArchived(itemId, archived);
     setBusy(false);
     setConfirmArchive(false);
-    if (r.ok) changed(); else setError(errorCopy(r.error.status, r.error.body));
+    if (!r.ok) { setError(errorCopy(r.error.status, r.error.body)); return; }
+    const kept = r.data.codesNotRestored ?? [];
+    if (kept.length) {
+      setRestoreNote(`Restored without ${kept.map((c) => `${c.value}${c.heldBy ? ` (now on “${c.heldBy}”)` : ""}`).join(", ")} — another item uses ${kept.length === 1 ? "that code" : "those codes"} now.`);
+    }
+    changed();
   }
 
-  async function newPhoto(dataUrl: string) {
+  async function newPhoto(dataUrl: string, thumbDataUrl: string | null) {
     setPhotoMsg("Saving photo…");
-    const s = await storePhoto(dataUrl);
+    const s = await storePhoto(dataUrl, thumbDataUrl);
     if (!s.ok) { setPhotoMsg(errorCopy(s.error.status, s.error.body)); return; }
     const r = await replaceItemPhoto(itemId, s.data.photoId);
     setPhotoMsg(r.ok ? "Photo changed." : errorCopy(r.error.status, r.error.body));
@@ -102,6 +119,7 @@ export function StockItemDrawer({ itemId, lookupEnabled, onClose, onChanged }: {
             </div>
           </div>
           {error ? <p role="alert" className="text-sm text-state-danger">{error}</p> : null}
+          {restoreNote ? <p role="status" className="text-sm text-state-warning" data-testid="stock-restore-note">{restoreNote}</p> : null}
 
           <Section title="Correct the count"><CountForm item={item} onSaved={changed} /></Section>
           <Section title="Movement history">
@@ -135,13 +153,22 @@ export function StockItemDrawer({ itemId, lookupEnabled, onClose, onChanged }: {
             </ul>
             {next ? <Button type="button" variant="secondary" size="sm" onClick={() => void loadOlder()}>Load older</Button> : null}
           </Section>
-          <Section title="Details"><EditForm key={item.metaRevision} item={item} unitLocked={unitLocked} onSaved={changed} /></Section>
-          <Section title="Codes, barcodes and packs"><IdentifiersEditor item={item} onChanged={changed} /></Section>
-          <Section title="Online product check"><CheckSection item={item} lookupEnabled={lookupEnabled} onChanged={changed} /></Section>
-          <Section title="Photo">
-            <PhotoCapture guidance="Replace the product photo." onPhoto={(u) => void newPhoto(u)} testId="stock-drawer-photo" />
-            {photoMsg ? <p className="text-sm text-text-muted">{photoMsg}</p> : null}
-          </Section>
+          {item.archivedAt ? (
+            <Section title="Details">
+              <p className="text-sm text-text-muted" data-testid="stock-drawer-archived-note">Archived — restore it (below) to change its details, codes, online check or photo.</p>
+            </Section>
+          ) : (
+            <>
+              {/* keyed on the item, not its revision: a reload never wipes what the office is typing */}
+              <Section title="Details"><EditForm key={item.id} item={item} unitLocked={unitLocked} onSaved={changed} /></Section>
+              <Section title="Codes, barcodes and packs"><IdentifiersEditor item={item} onChanged={changed} /></Section>
+              <Section title="Online product check"><CheckSection item={item} lookupEnabled={lookupEnabled} onChanged={changed} /></Section>
+              <Section title="Photo">
+                <PhotoCapture guidance="Replace the product photo." onPhoto={(u, _d, t) => void newPhoto(u, t)} testId="stock-drawer-photo" />
+                {photoMsg ? <p className="text-sm text-text-muted">{photoMsg}</p> : null}
+              </Section>
+            </>
+          )}
 
 
           {detail?.events?.length ? (

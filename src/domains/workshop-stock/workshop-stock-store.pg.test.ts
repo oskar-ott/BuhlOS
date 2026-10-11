@@ -244,6 +244,68 @@ describe.skipIf(!ENABLED)("workshop stock store — real Postgres", () => {
     expect(undoTake.item.balanceMilli).toBe(10_000);
   });
 
+  it("undoing a count puts back the estimate flag and last-count stamp it replaced; undoing an estimated add clears the estimate", async () => {
+    const { item } = await makeItem({ name: "Part-used roll", baseUnit: "metre" }, 50_000, worker, { estimated: true });
+    expect(item).toMatchObject({ estimated: true, lastCountedAt: null });
+    const count = await store.recordCount(sql, tenantA, { itemId: item.id, countedMilli: 42_000, expectedVersion: item.version, reason: "measured it", actor: office, idempotencyKey: key("e"), requestHash: hash("e-count") });
+    expect(count.item).toMatchObject({ estimated: false, lastCountedByName: "Olive Office" });
+    const undone = await store.reverseMovement(sql, tenantA, { movementId: count.movement.id, actor: office, reason: "wrong roll", idempotencyKey: key("e"), requestHash: hash("e-undo") }, () => null);
+    expect(undone.item).toMatchObject({ balanceMilli: 50_000, estimated: true, lastCountedAt: null, lastCountedByName: null });
+
+    const { item: gpo } = await makeItem({ name: "Estimated add" }, 10_000);
+    const est = await store.recordMovement(sql, tenantA, { itemId: gpo.id, kind: "add", quantityMilli: 5000, estimated: true, actor: worker, idempotencyKey: key("e"), requestHash: hash("e-add") });
+    expect(est.item.estimated).toBe(true);
+    const back = await store.reverseMovement(sql, tenantA, { movementId: est.movement.id, actor: worker, idempotencyKey: key("e"), requestHash: hash("e-undo2") }, () => null);
+    expect(back.item).toMatchObject({ balanceMilli: 10_000, estimated: false });
+    expect(back.item.lastCountedAt).toBe(gpo.lastCountedAt); // the opening count still stands
+  });
+
+  it("stamps each movement with the clock when it lands, so one item's history sorts the way it happened", async () => {
+    const { item } = await makeItem({ name: "Same transaction" }, 10_000);
+    await sql.begin(async (tx) => {
+      for (const i of [1, 2, 3]) {
+        await tx`insert into public.workshop_stock_movements (tenant_id, item_id, kind, quantity_milli, actor_legacy_id, idempotency_key, request_hash)
+                 values (${tenantA}, ${item.id}, 'take', -1000, 'u_field', ${key(`ts${i}`)}, ${hash(`ts${i}`)})`;
+      }
+    });
+    // compared in Postgres (microseconds): within ONE transaction, now() would tie them
+    const rows = await sql`
+      select bool_and(created_at > prev) as increasing, count(*)::int as c from (
+        select created_at, lag(created_at) over (order by item_version_after) as prev
+        from public.workshop_stock_movements where tenant_id = ${tenantA} and item_id = ${item.id}) t
+      where prev is not null`;
+    expect(rows[0]).toEqual({ increasing: true, c: 3 });
+    const hist = await store.listMovements(sql, tenantA, item.id);
+    expect(hist.map((m: { itemVersionAfter: number }) => m.itemVersionAfter)).toEqual([4, 3, 2, 1]);
+  });
+
+  it("a used key is answered first: a retry replays the saved movement even after the item was archived", async () => {
+    const { item } = await makeItem({ name: "Archived after the take" }, 5000);
+    const k = key("rp");
+    const first = await store.recordMovement(sql, tenantA, { itemId: item.id, kind: "take", quantityMilli: 1000, actor: worker, idempotencyKey: k, requestHash: hash("rp-1") });
+    await store.setArchived(sql, tenantA, item.id, true, office);
+    const replay = await store.replayOperation(sql, tenantA, k, hash("rp-1"));
+    expect(replay).toMatchObject({ ok: true, replayed: true });
+    expect(replay.movement.id).toBe(first.movement.id);
+    expect(await store.replayOperation(sql, tenantA, k, hash("rp-other"))).toEqual({ error: "idempotency_conflict" });
+    expect(await store.replayOperation(sql, tenantA, key("rp-new"), hash("rp-1"))).toBeNull();
+  });
+
+  it("two creates racing with one key make ONE item: the second replays it instead of reporting a duplicate", async () => {
+    const idf = codes.identifierFor("manufacturer_code", `RACE-${n}`, { brand: "Acme" });
+    const k = key("cr-race");
+    const input = {
+      item: { name: "Double-tapped create", brand: "Acme", manufacturerCode: idf.value, baseUnit: "each" },
+      identifiers: [idf], openingMilli: 3000, actor: worker, idempotencyKey: k, requestHash: hash("cr-race"),
+    };
+    const [a, b] = await Promise.all([store.createItemWithOpening(connect(), tenantA, input), store.createItemWithOpening(connect(), tenantA, input)]);
+    expect(a.ok && b.ok).toBe(true);
+    expect([a.replayed === true, b.replayed === true].filter(Boolean)).toHaveLength(1);
+    expect(a.item.id).toBe(b.item.id);
+    const rows = await sql`select count(*)::int as c from public.workshop_stock_items where tenant_id = ${tenantA} and name = ${"Double-tapped create"}`;
+    expect(rows[0]!.c).toBe(1);
+  });
+
   it("the policy callback runs on the locked state and can refuse", async () => {
     const { item } = await makeItem({ name: "Not yours" }, 5000);
     const take = await store.recordMovement(sql, tenantA, { itemId: item.id, kind: "take", quantityMilli: 1000, actor: worker, idempotencyKey: key("p"), requestHash: hash("p-take") });
@@ -289,8 +351,33 @@ describe.skipIf(!ENABLED)("workshop stock store — real Postgres", () => {
     expect(await store.getPhotoForServing(sql, tenantA, otherId, { viewerId: worker.id, office: false })).toBeNull();
     expect(await store.getPhotoForServing(sql, tenantA, ownId, { viewerId: "someone", office: false })).toMatchObject({ id: ownId });
     await sql`update public.workshop_stock_photos set expires_at = now() - interval '1 hour' where id = ${otherId}`;
-    const expired = await store.expiredPhotos(sql, tenantA, 10);
-    expect(expired.map((p: { id: string }) => p.id)).toEqual([otherId]); // the claimed one is never a candidate
+    const due = await store.photosDueForDeletion(sql, tenantA, 10);
+    expect(due.map((p: { id: string }) => p.id)).toEqual([otherId]); // the claimed one is never a candidate
+    expect(due[0]).toMatchObject({ marked: false, thumbUrl: null });
+  });
+
+  it("an expired photo can't be claimed, and one marked for deletion stays unclaimed — a claim and a cleanup never both win", async () => {
+    const photo = (sha: string, actor = worker) => store.insertPhoto(sql, tenantA, { blobUrl: `https://blob.invalid/${sha}`, blobPathname: sha, contentType: "image/jpeg", byteSize: 100, width: 800, height: 600, sha256: sha.repeat(64).slice(0, 64), actor, thumb: { url: `https://blob.invalid/${sha}-t`, pathname: `${sha}-t`, byteSize: 50 } });
+    const late = await photo("c");
+    await sql`update public.workshop_stock_photos set expires_at = now() - interval '1 minute' where id = ${late}`;
+    const tooLate = await makeItem({ name: "Expired photo" }, 0, worker, { photoId: late });
+    expect(tooLate.item.photoId).toBeNull();
+    expect(tooLate.photoAttached).toBe(false);
+    // the cleanup marks first; from then on a claim can't take it, even one racing in
+    expect(await store.markPhotoDeleted(sql, tenantA, late)).toBe(true);
+    expect(await store.markPhotoDeleted(sql, tenantA, late)).toBe(false); // already marked
+    const due = await store.photosDueForDeletion(sql, tenantA, 10);
+    expect(due.find((p: { id: string }) => p.id === late)).toMatchObject({ marked: true, thumbUrl: "https://blob.invalid/c-t" }); // blob not gone yet: retried
+    await store.markBlobDeleted(sql, tenantA, late);
+    expect((await store.photosDueForDeletion(sql, tenantA, 10)).find((p: { id: string }) => p.id === late)).toBeUndefined();
+    // a claimed photo is never marked, however late the cleanup runs
+    const kept = await photo("d");
+    const owner = await makeItem({ name: "Kept photo" }, 0, worker, { photoId: kept });
+    expect(owner.item.photoId).toBe(kept);
+    expect(await store.markPhotoDeleted(sql, tenantA, kept)).toBe(false);
+    // the list-size copy is served when asked for, the photo otherwise
+    expect(await store.getPhotoForServing(sql, tenantA, kept, { viewerId: worker.id, office: false, size: "thumb" })).toMatchObject({ blobUrl: "https://blob.invalid/d-t", thumb: true });
+    expect(await store.getPhotoForServing(sql, tenantA, kept, { viewerId: worker.id, office: false })).toMatchObject({ blobUrl: "https://blob.invalid/d", thumb: false });
   });
 
   it("keeps tenants apart: guessed ids from another tenant read and move nothing", async () => {
@@ -314,9 +401,43 @@ describe.skipIf(!ENABLED)("workshop stock store — real Postgres", () => {
     expect((await store.listMovements(sql, tenantA, item.id)).length).toBe(1);
     const replacement = await makeItem({ name: "Replacement" }, 0, worker, { identifiers: [idf] });
     expect(replacement.ok).toBe(true); // the barcode is free again
+    // Restoring brings the item back; the barcode stays with the item that took it.
     const restore = await store.setArchived(sql, tenantA, item.id, false, office);
-    expect(restore).toEqual({ error: "identifier_in_use" });
+    expect(restore.ok).toBe(true);
+    expect(restore.item.archivedAt).toBeNull();
+    expect(restore.item.identifiers).toEqual([]);
+    expect(restore.codesNotRestored).toEqual([{ kind: "barcode", value: "9300704010017", heldBy: "Replacement" }]);
+    expect((await store.getItem(sql, tenantA, replacement.item.id)).identifiers.map((i: { value: string }) => i.value)).toEqual(["9300704010017"]);
     await expect(sql`delete from public.workshop_stock_items where id = ${item.id}`).rejects.toThrow(/never deleted/);
+  });
+
+  it("restore brings back only the codes the archive retired — never one the office removed or replaced before", async () => {
+    const a = codes.identifierFor("manufacturer_code", "KEEP-1", { brand: "Acme" });
+    const b = codes.identifierFor("barcode", "9300704010024");
+    const { item } = await makeItem({ name: "Round trip", brand: "Acme", manufacturerCode: "KEEP-1" }, 0, worker, { identifiers: [a, b] });
+    const barcodeRow = item.identifiers.find((i: { kind: string }) => i.kind === "barcode");
+    expect((await store.retireIdentifier(sql, tenantA, barcodeRow.id, office)).ok).toBe(true); // removed on purpose
+    await store.setArchived(sql, tenantA, item.id, true, office);
+    const back = await store.setArchived(sql, tenantA, item.id, false, office);
+    expect(back.codesNotRestored).toEqual([]);
+    expect(back.item.identifiers.map((i: { value: string }) => i.value)).toEqual(["KEEP-1"]); // the removed barcode stays removed
+    expect(back.item.manufacturerCode).toBe("KEEP-1");
+    // a second archive / restore cycle behaves the same
+    await store.setArchived(sql, tenantA, item.id, true, office);
+    expect((await store.setArchived(sql, tenantA, item.id, false, office)).item.identifiers.map((i: { value: string }) => i.value)).toEqual(["KEEP-1"]);
+  });
+
+  it("restoring an item whose maker's code was taken meanwhile empties its code field and clears its online check", async () => {
+    const idf = codes.identifierFor("manufacturer_code", "TAKEN-9", { brand: "Acme" });
+    const { item } = await makeItem({ name: "Old listing", brand: "Acme", manufacturerCode: "TAKEN-9" }, 0, worker, { identifiers: [idf], verificationStatus: "manufacturer_code_matched", verification: { sourceUrl: "https://example.invalid/p" } });
+    expect(item.verificationStatus).toBe("manufacturer_code_matched");
+    await store.setArchived(sql, tenantA, item.id, true, office);
+    await makeItem({ name: "New listing", brand: "Acme", manufacturerCode: "TAKEN-9" }, 0, worker, { identifiers: [idf] });
+    const back = await store.setArchived(sql, tenantA, item.id, false, office);
+    expect(back.codesNotRestored).toEqual([{ kind: "manufacturer_code", value: "TAKEN-9", heldBy: "New listing" }]);
+    expect(back.item).toMatchObject({ manufacturerCode: null, verificationStatus: "unverified", verification: null });
+    const events = await store.itemEvents(sql, tenantA, item.id);
+    expect(events[0]).toMatchObject({ event: "restored", detail: { codesNotRestored: [{ value: "TAKEN-9" }] } });
   });
 
   it("catalogue edits are compare-and-set; the unit locks once real stock has moved; codes move with edits", async () => {
@@ -341,13 +462,64 @@ describe.skipIf(!ENABLED)("workshop stock store — real Postgres", () => {
     await expect(sql`update public.workshop_stock_items set balance_milli = 999000 where id = ${coded.item.id}`).rejects.toThrow(/only through the movement ledger/);
   });
 
+  it("a changed maker's code or brand clears the online check that was for the old one; other edits keep it", async () => {
+    const idf = codes.identifierFor("manufacturer_code", "VER-1", { brand: "Acme" });
+    const { item } = await makeItem({ name: "Verified", brand: "Acme", manufacturerCode: "VER-1" }, 0, worker, { identifiers: [idf], verificationStatus: "manufacturer_code_matched", verification: { sourceUrl: "https://example.invalid/v" } });
+    const located = await store.updateItem(sql, tenantA, item.id, { patch: { location: "Bin 9" }, expectedRevision: item.metaRevision, actor: office });
+    expect(located.item.verificationStatus).toBe("manufacturer_code_matched");
+    const rebranded = codes.identifierFor("manufacturer_code", "VER-1", { brand: "Other Co" });
+    const moved = await store.updateItem(sql, tenantA, item.id, { patch: { brand: "Other Co" }, expectedRevision: located.item.metaRevision, actor: office, identifierChanges: { retire: [idf], add: [rebranded] } });
+    expect(moved.item).toMatchObject({ verificationStatus: "unverified", verification: null });
+    expect(moved.changes.verification).toEqual({ from: "manufacturer_code_matched", to: "unverified" });
+  });
+
+  it("only catalogue edits move meta_revision: a photo, an online check or an archive never invalidates an open edit form; archived items can't be edited", async () => {
+    const { item } = await makeItem({ name: "Edit form open" }, 0);
+    const photoId = await store.insertPhoto(sql, tenantA, { blobUrl: "https://blob.invalid/e", blobPathname: "e", contentType: "image/jpeg", byteSize: 100, width: 800, height: 600, sha256: "e".repeat(64), actor: office });
+    expect((await store.replaceItemPhoto(sql, tenantA, item.id, photoId, office)).ok).toBe(true);
+    expect((await store.recordVerification(sql, tenantA, item.id, { status: "unverified", verification: null, actor: office })).ok).toBe(true);
+    const still = await store.getItem(sql, tenantA, item.id);
+    expect(still.metaRevision).toBe(item.metaRevision);
+    const saved = await store.updateItem(sql, tenantA, item.id, { patch: { name: "Edited after photo" }, expectedRevision: item.metaRevision, actor: office });
+    expect(saved.item.name).toBe("Edited after photo");
+    await store.setArchived(sql, tenantA, item.id, true, office);
+    expect(await store.updateItem(sql, tenantA, item.id, { patch: { name: "While archived" }, expectedRevision: saved.item.metaRevision, actor: office })).toEqual({ error: "item_archived" });
+    expect((await store.addIdentifier(sql, tenantA, item.id, codes.identifierFor("barcode", "9300704010031"), office)).error).toBe("item_archived");
+    expect(await store.recordVerification(sql, tenantA, item.id, { status: "unverified", verification: null, actor: office })).toEqual({ error: "item_archived" });
+    const otherPhoto = await store.insertPhoto(sql, tenantA, { blobUrl: "https://blob.invalid/f", blobPathname: "f", contentType: "image/jpeg", byteSize: 100, width: 800, height: 600, sha256: "f".repeat(64), actor: office });
+    expect(await store.replaceItemPhoto(sql, tenantA, item.id, otherPhoto, office)).toEqual({ error: "item_archived" });
+  });
+
+  it("the item's code fields follow its codes: removing the main code moves to the next one (or empties) and clears the check; a first code fills the field", async () => {
+    const main = codes.identifierFor("manufacturer_code", "MAIN-1", { brand: "Acme" });
+    const { item } = await makeItem({ name: "Two codes", brand: "Acme", manufacturerCode: "MAIN-1" }, 0, worker, { identifiers: [main], verificationStatus: "possible_match", verification: { sourceUrl: "https://example.invalid/m" } });
+    const alt = await store.addIdentifier(sql, tenantA, item.id, codes.identifierFor("manufacturer_code", "ALT-2", { brand: "Acme" }), office);
+    expect(alt.ok).toBe(true);
+    const mainRow = (await store.getItem(sql, tenantA, item.id)).identifiers.find((i: { value: string }) => i.value === "MAIN-1");
+    await store.retireIdentifier(sql, tenantA, mainRow.id, office);
+    const after = await store.getItem(sql, tenantA, item.id);
+    expect(after).toMatchObject({ manufacturerCode: "ALT-2", verificationStatus: "unverified" });
+    expect(after.metaRevision).toBe(item.metaRevision + 1);
+    const altRow = after.identifiers.find((i: { value: string }) => i.value === "ALT-2");
+    await store.retireIdentifier(sql, tenantA, altRow.id, office);
+    expect((await store.getItem(sql, tenantA, item.id)).manufacturerCode).toBeNull();
+    // a code-less item gets its first codes into its fields
+    const { item: bare } = await makeItem({ name: "No codes yet", brand: "Acme" }, 0);
+    await store.addIdentifier(sql, tenantA, bare.id, codes.identifierFor("manufacturer_code", "FIRST-3", { brand: "Acme" }), office);
+    await store.addIdentifier(sql, tenantA, bare.id, { ...codes.identifierFor("supplier_sku", "SKU-77", { supplier: "Rexel" }), supplierName: "Rexel" }, office);
+    expect(await store.getItem(sql, tenantA, bare.id)).toMatchObject({ manufacturerCode: "FIRST-3", supplierSku: "SKU-77", supplierName: "Rexel" });
+  });
+
   it("enforces the daily cost ceiling and caches lookups", async () => {
     const results = [];
     for (let i = 0; i < 4; i++) results.push(await store.consumeUsage(sql, tenantA, "lookup", 3));
     expect(results.map((r: { allowed: boolean }) => r.allowed)).toEqual([true, true, true, false]);
-    await store.putCachedLookup(sql, tenantA, "clipsal", "2025WE", "manufacturer_code_matched", { status: "manufacturer_code_matched", candidate: { sourceUrl: "https://www.clipsal.com/x" } }, 30);
-    const hit = await store.getCachedLookup(sql, tenantA, "clipsal", "2025WE");
+    const white = codes.lookupKey({ brand: "Clipsal", manufacturerCode: "2025WE", colourFinish: "White" });
+    const black = codes.lookupKey({ brand: "Clipsal", manufacturerCode: "2025WE", colourFinish: "Black" });
+    await store.putCachedLookup(sql, tenantA, white, "manufacturer_code_matched", { status: "manufacturer_code_matched", candidate: { sourceUrl: "https://www.clipsal.com/x" } }, 30);
+    const hit = await store.getCachedLookup(sql, tenantA, white);
     expect(hit).toMatchObject({ status: "manufacturer_code_matched", cached: true });
-    expect(await store.getCachedLookup(sql, tenantB, "clipsal", "2025WE")).toBeNull();
+    expect(await store.getCachedLookup(sql, tenantA, black)).toBeNull(); // a check for the white one isn't one for the black one
+    expect(await store.getCachedLookup(sql, tenantB, white)).toBeNull();
   });
 });

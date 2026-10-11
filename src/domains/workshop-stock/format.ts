@@ -1,4 +1,5 @@
 import type { LookupStatus, MovementKind, ReadStatus, StockItem, StockMovement, StockUnit, VerificationStatus } from "./schema";
+import { canonicalWords } from "./trade-terms";
 
 /**
  * Workshop Stock — display helpers and site-language copy (P11). Pure.
@@ -42,6 +43,20 @@ export function formatQuantity(milli: number, unit: StockUnit | string): string 
   return `${n} ${Math.abs(milli) === MILLI ? u.singular : u.plural}`;
 }
 
+/**
+ * A plain warning when the unit chosen for a NEW item is a container: stock
+ * then only moves a whole box (bag, roll…) at a time, which is right for boxes
+ * that go out unopened and wrong for singles taken out of one.
+ */
+export function unitHint(unit: StockUnit): string | null {
+  if (unit === "box" || unit === "pack" || unit === "bag") {
+    const u = UNIT_LABEL[unit];
+    return `Counted in whole ${u.plural}: stock can only go out a full ${u.singular} at a time. Taking singles out of the ${u.singular}? Choose Each, and tick "Adding full, unopened boxes, packs or rolls" below.`;
+  }
+  if (unit === "roll") return "Counted in whole rolls: a part-used roll can't be recorded. Cable or tape taken by the metre? Choose Metres.";
+  return null;
+}
+
 /** The step (in milli) the −/+ buttons move by for a unit. */
 export function stepMilli(unit: StockUnit): number {
   return UNIT_LABEL[unit].decimals > 0 ? 100 : 1000;
@@ -69,6 +84,11 @@ export function toQuantityString(milli: number): string {
 export function balanceLabel(item: Pick<StockItem, "balanceMilli" | "baseUnit" | "estimated">): string {
   if (item.balanceMilli === 0) return "None recorded";
   return item.estimated ? `≈ ${formatQuantity(item.balanceMilli, item.baseUnit)} (estimate)` : formatQuantity(item.balanceMilli, item.baseUnit);
+}
+
+/** "17 each recorded now", "none recorded now", "20 each recorded at Shelf A2" — never "None recorded recorded". */
+export function recordedNow(item: Pick<StockItem, "balanceMilli" | "baseUnit" | "estimated">, at?: string | null): string {
+  return `${item.balanceMilli === 0 ? "none" : balanceLabel(item)} recorded ${at ? `at ${at}` : "now"}`;
 }
 
 /** Short identity line under a name: "Clipsal · 2025WE · White · 10A". */
@@ -186,6 +206,21 @@ export function errorCopy(status: number, body: unknown, fallback = "That didn't
       return "That code is already on another item.";
     case "job_not_available":
       return "That job isn't open any more — pick another or leave it blank.";
+    case "pack_changed": {
+      const pack = b.pack && typeof b.pack === "object" ? (b.pack as { unit?: unknown; sizeMilli?: unknown }) : null;
+      const size = pack && typeof pack.sizeMilli === "number" ? formatNumber(pack.sizeMilli) : null;
+      return size
+        ? `The office changed the ${String(pack?.unit ?? "pack")} size to ${size} — nothing was saved. Check how many and confirm again.`
+        : "The pack size changed — nothing was saved. Check how many and confirm again.";
+    }
+    case "pack_not_found":
+      return "That pack size isn't set up any more — nothing was saved. Enter the quantity instead.";
+    case "movement_not_found":
+      return "That change isn't in the history any more. Reload and check.";
+    case "identifier_not_found":
+      return "That code was already removed.";
+    case "no_code":
+      return "Add a manufacturer code to check it online.";
     case "quantity_too_precise":
       return "That unit only takes whole numbers (metres: one decimal place).";
     case "quantity_zero":
@@ -205,6 +240,12 @@ export function errorCopy(status: number, body: unknown, fallback = "That didn't
       return "That photo format isn't supported. Take a new photo, or pick a JPEG or PNG.";
     case "photo_unreadable":
       return "That file doesn't look like a photo. Take it again.";
+    case "photo_store_failed":
+      return "Couldn't save the photo just now. Try again — or carry on without it.";
+    case "photo_unavailable":
+      return "Couldn't load that photo right now.";
+    case "photo_not_available":
+      return "That photo has expired. Take it again.";
     case "photo_limit":
     case "lookup_limit":
       return "That's a lot of reads in a short time — wait a few minutes or search the list.";
@@ -216,22 +257,32 @@ export function errorCopy(status: number, body: unknown, fallback = "That didn't
       return "Only the office can do that.";
     case "store_unavailable":
     case "store_unprovisioned":
-      return "Workshop stock can't be reached right now. Nothing was saved.";
+      return "Workshop stock can't save right now — nothing was saved. Try again in a few minutes, or tell the office.";
     default:
       return fallback;
   }
 }
 
-/** Case-insensitive all-words search over the things a worker would type. */
-export function matchesSearch(item: Pick<StockItem, "name" | "brand" | "manufacturerCode" | "supplierSku" | "location" | "variant" | "colourFinish" | "identifiers">, query: string): boolean {
+/**
+ * Case-insensitive all-words search over the things a worker would type — and
+ * in trade names too: "power point" finds the GPO, "twin and earth" the TPS,
+ * whichever words the item was saved under. A confirmed listing's product name
+ * is searchable as well (never shown in place of the name the crew gave it).
+ */
+export function matchesSearch(item: Pick<StockItem, "name" | "brand" | "manufacturerCode" | "supplierSku" | "location" | "variant" | "colourFinish" | "identifiers"> & Partial<Pick<StockItem, "verificationStatus" | "verification">>, query: string): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;
-  const hay = [item.name, item.brand, item.manufacturerCode, item.supplierSku, item.location, item.variant, item.colourFinish, ...item.identifiers.map((i) => i.value)]
+  const listingName = item.verificationStatus === "manufacturer_code_matched" && item.verification?.productName ? item.verification.productName : null;
+  const fields = [item.name, item.brand, item.manufacturerCode, item.supplierSku, item.location, item.variant, item.colourFinish, listingName, ...item.identifiers.map((i) => i.value)]
     .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
+    .join(" ");
+  const hay = fields.toLowerCase();
   const hayTight = hay.replace(/[\s\-./]/g, "");
-  return q.split(/\s+/).every((w) => hay.includes(w) || hayTight.includes(w.replace(/[\s\-./]/g, "")));
+  if (q.split(/\s+/).every((w) => hay.includes(w) || hayTight.includes(w.replace(/[\s\-./]/g, "")))) return true;
+  const words = canonicalWords(q);
+  if (!words.length) return false;
+  const canon = canonicalWords(fields).join(" ");
+  return words.every((w) => canon.includes(w));
 }
 
 /** "5 min ago", "2 h ago", "3 Oct". */
@@ -247,7 +298,7 @@ export function timeAgo(iso: string | null | undefined, now = Date.now()): strin
   return new Date(t).toLocaleDateString("en-AU", { day: "numeric", month: "short", timeZone: "Australia/Sydney" });
 }
 
-/** Proxy URL for a product photo — the Blob URL never reaches the browser. */
-export function photoUrl(photoId: string): string {
-  return `/api/workshop-stock?action=photo&id=${encodeURIComponent(photoId)}`;
+/** Proxy URL for a product photo (or its list-size copy) — the Blob URL never reaches the browser. */
+export function photoUrl(photoId: string, size: "full" | "thumb" = "full"): string {
+  return `/api/workshop-stock?action=photo&id=${encodeURIComponent(photoId)}${size === "thumb" ? "&size=thumb" : ""}`;
 }

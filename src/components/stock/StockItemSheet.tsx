@@ -3,12 +3,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { ExternalLink, MapPin } from "lucide-react";
 import { PhilNotice } from "@/components/phil/ui/PhilNotice";
-import { fetchItem, newOperationKey, undoMovement } from "@/domains/workshop-stock/client";
+import { fetchItem } from "@/domains/workshop-stock/client";
 import { balanceLabel, errorCopy, movementSummary, timeAgo, VERIFICATION_LABEL } from "@/domains/workshop-stock/format";
-import type { ItemDetail, StockItem, StockMovement, WriteResult } from "@/domains/workshop-stock/schema";
+import type { ItemDetail, StockItem, WriteResult } from "@/domains/workshop-stock/schema";
 import { FlowSheet } from "./FlowSheet";
 import { MoveConfirm, type MoveItem } from "./MoveConfirm";
 import { StockThumb } from "./StockThumb";
+import { UndoControl } from "./UndoControl";
 
 /**
  * One workshop item on the phone: what it is, where it lives, what's recorded,
@@ -19,8 +20,6 @@ export function StockItemSheet({ item: initial, onChanged, onClose }: { item: St
   const [detail, setDetail] = useState<ItemDetail | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [action, setAction] = useState<"take" | "return" | "add" | null>(null);
-  const [undoing, setUndoing] = useState<string | null>(null);
-  const [undoError, setUndoError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const r = await fetchItem(initial.id);
@@ -30,16 +29,6 @@ export function StockItemSheet({ item: initial, onChanged, onClose }: { item: St
   useEffect(() => { void load(); }, [load]);
 
   const item: StockItem = detail?.item ?? initial;
-
-  async function undo(m: StockMovement) {
-    setUndoing(m.id);
-    setUndoError(null);
-    const r = await undoMovement({ movementId: m.id }, newOperationKey());
-    setUndoing(null);
-    if (!r.ok) { setUndoError(errorCopy(r.error.status, r.error.body)); return; }
-    onChanged(r.data);
-    void load();
-  }
 
   if (action) {
     return (
@@ -102,20 +91,13 @@ export function StockItemSheet({ item: initial, onChanged, onClose }: { item: St
       <section className="space-y-2">
         <h3 className="font-display text-sm font-semibold text-text">Latest movements</h3>
         {loadError ? <PhilNotice tone="warning" role="alert">{loadError}</PhilNotice> : null}
-        {undoError ? <PhilNotice tone="danger" role="alert">{undoError}</PhilNotice> : null}
         {!detail && !loadError ? <p className="text-sm text-text-muted">Loading…</p> : null}
         <ul className="space-y-1.5" data-testid="stock-sheet-movements">
           {(detail?.movements ?? []).slice(0, 12).map((m) => (
-            <li key={m.id} className="flex items-center gap-2 rounded-card border border-border px-3 py-2 text-sm">
-              <div className="min-w-0 flex-1">
-                <p className={m.reversedBy ? "text-text-muted line-through" : "text-text"}>{movementSummary(m, item.baseUnit)}</p>
-                <p className="truncate text-xs text-text-muted">{[m.actorName, timeAgo(m.createdAt), m.jobLabel].filter(Boolean).join(" · ")}{m.reversedBy ? ` · undone by ${m.reversedBy.actorName ?? "someone"}` : ""}</p>
-              </div>
-              {m.undo?.allowed ? (
-                <button type="button" onClick={() => void undo(m)} disabled={undoing === m.id} className="min-h-[44px] shrink-0 rounded-card border border-brand-navy px-3 text-sm font-semibold text-brand-navy" data-testid="stock-sheet-undo">
-                  {undoing === m.id ? "…" : "Undo"}
-                </button>
-              ) : null}
+            <li key={m.id} className="space-y-1 rounded-card border border-border px-3 py-2 text-sm">
+              <p className={m.reversedBy ? "text-text-muted line-through" : "text-text"}>{movementSummary(m, item.baseUnit)}</p>
+              <p className="truncate text-xs text-text-muted">{[m.actorName, timeAgo(m.createdAt), m.jobLabel].filter(Boolean).join(" · ")}{m.reversedBy ? ` · undone by ${m.reversedBy.actorName ?? "someone"}` : ""}</p>
+              <UndoControl movement={m} size="sm" onUndone={(r) => { onChanged(r); void load(); }} testId="stock-sheet-undo" />
             </li>
           ))}
         </ul>

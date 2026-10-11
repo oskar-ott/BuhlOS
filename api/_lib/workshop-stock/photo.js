@@ -15,6 +15,9 @@
 //   • retention: take-stock recognition photos are never stored; an add-stock
 //     photo is 'pending' for 24 h until an item claims it, then lives as long as
 //     the item uses it; replaced/abandoned photos are deleted after expiry.
+//   • lists show a small copy (≤ 320 px JPEG) the phone makes alongside the
+//     photo, so a long list doesn't download every full-size label shot. A
+//     missing or invalid small copy is simply skipped — never a failed upload.
 
 const crypto = require('crypto');
 const { put, del } = require('@vercel/blob');
@@ -24,6 +27,8 @@ const { withTimeout } = require('../with-timeout');
 const MAX_PHOTO_BYTES = 3 * 1024 * 1024; // the ~4.5 MB serverless body cap minus base64 overhead
 const MIN_SIDE = 64;
 const MAX_SIDE = 10000;
+const MAX_THUMB_BYTES = 200_000;
+const MAX_THUMB_SIDE = 400;
 const FETCH_TIMEOUT_MS = 15_000;
 
 function u16be(b, o) { return (b[o] << 8) | b[o + 1]; }
@@ -89,11 +94,25 @@ function readPhotoUpload(dataUrl) {
   };
 }
 
+/**
+ * The small list copy, or null when there isn't a usable one: a JPEG of at most
+ * 200 KB and 400 px a side. Never an error — the photo itself still uploads.
+ */
+function readThumbUpload(dataUrl) {
+  if (typeof dataUrl !== 'string' || !dataUrl) return null;
+  const decoded = decodeDataUrl(dataUrl, MAX_THUMB_BYTES);
+  if (!decoded || decoded.tooLarge) return null;
+  if (imageTypeOf(decoded.bytes) !== 'image/jpeg') return null;
+  const dims = imageDimensions(decoded.bytes, 'image/jpeg');
+  if (!dims || dims.width < 8 || dims.height < 8 || dims.width > MAX_THUMB_SIDE || dims.height > MAX_THUMB_SIDE) return null;
+  return { bytes: decoded.bytes, contentType: 'image/jpeg', width: dims.width, height: dims.height };
+}
+
 const EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
 
-async function storePhoto({ tenantSlug, bytes, contentType }) {
+async function storePhoto({ tenantSlug, bytes, contentType, thumb = false }) {
   const stamp = Date.now().toString(36);
-  const blob = await put(`workshop-stock/${tenantSlug}/photos/${stamp}.${EXT[contentType] || 'jpg'}`, bytes, {
+  const blob = await put(`workshop-stock/${tenantSlug}/photos/${stamp}${thumb ? '-thumb' : ''}.${EXT[contentType] || 'jpg'}`, bytes, {
     access: 'public',
     addRandomSuffix: true,
     contentType,
@@ -119,8 +138,10 @@ async function fetchPhoto(url) {
   return buf;
 }
 
-async function deletePhoto(url) {
-  await del(url, { token: process.env.BLOB_READ_WRITE_TOKEN });
+/** Delete a photo's blobs (one URL or several; a blob already gone is not an error). */
+async function deletePhoto(urls) {
+  const list = (Array.isArray(urls) ? urls : [urls]).filter(Boolean);
+  if (list.length) await del(list, { token: process.env.BLOB_READ_WRITE_TOKEN });
 }
 
-module.exports = { MAX_PHOTO_BYTES, imageDimensions, readPhotoUpload, storePhoto, fetchPhoto, deletePhoto };
+module.exports = { MAX_PHOTO_BYTES, MAX_THUMB_BYTES, imageDimensions, readPhotoUpload, readThumbUpload, storePhoto, fetchPhoto, deletePhoto };

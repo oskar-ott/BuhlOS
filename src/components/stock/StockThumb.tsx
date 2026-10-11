@@ -8,6 +8,8 @@ import { photoUrl } from "@/domains/workshop-stock/format";
 /**
  * A workshop item's product photo through the authenticated proxy (the Blob URL
  * never reaches the browser), or a plain package icon — never a broken image.
+ * List sizes load the small copy (the proxy serves the photo itself when there
+ * isn't one); only the large view loads the full photo.
  */
 export function StockThumb({ photoId, alt, size = "md", className }: { photoId: string | null; alt: string; size?: "sm" | "md" | "lg"; className?: string }) {
   const [failed, setFailed] = useState(false);
@@ -22,7 +24,7 @@ export function StockThumb({ photoId, alt, size = "md", className }: { photoId: 
   return (
     // eslint-disable-next-line @next/next/no-img-element -- an authenticated same-origin proxy, not a static asset
     <img
-      src={photoUrl(photoId)}
+      src={photoUrl(photoId, size === "lg" ? "full" : "thumb")}
       alt={alt}
       loading="lazy"
       decoding="async"

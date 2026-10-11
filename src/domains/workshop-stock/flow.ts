@@ -6,6 +6,15 @@ import type { CandidateItem, MatchCandidate, ReadPhotoResult, ReadProduct, Stock
  * without a DOM). Nothing here talks to the network or writes stock.
  */
 
+/**
+ * The freshest copy of an item the screen holds — the list's, or the one a
+ * photo read returned moments ago (each carries the ledger version it was read
+ * at). The confirm screen re-reads it anyway; this just starts from the best.
+ */
+export function freshestItem<T extends { version: number }>(listed: T | null | undefined, other: T): T {
+  return listed && listed.version >= other.version ? listed : other;
+}
+
 /** −/+ by one unit step, never below `min`. */
 export function stepQuantity(milli: number, unit: StockUnit, dir: 1 | -1, min = 0): number {
   const step = stepMilli(unit);

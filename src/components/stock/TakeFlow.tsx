@@ -5,7 +5,7 @@ import { Loader2, PackagePlus, Search } from "lucide-react";
 import { PhilNotice } from "@/components/phil/ui/PhilNotice";
 import { readPhoto } from "@/domains/workshop-stock/client";
 import { balanceLabel, errorCopy, EVIDENCE_LABEL, matchedInWorkshop, READ_STATUS_COPY } from "@/domains/workshop-stock/format";
-import { decideRead, productLabel, type ReadOutcome } from "@/domains/workshop-stock/flow";
+import { decideRead, freshestItem, productLabel, type ReadOutcome } from "@/domains/workshop-stock/flow";
 import type { CandidateItem, MatchCandidate, ReadPhotoResult, ReadProduct, StockItem, WriteResult } from "@/domains/workshop-stock/schema";
 import { FlowSheet } from "./FlowSheet";
 import { ItemPicker } from "./ItemPicker";
@@ -45,23 +45,27 @@ export function TakeFlow({
   kind?: "take" | "return";
   photoReading: boolean;
   onSaved: (r: WriteResult) => void;
-  onAddNew: (seed: { dataUrl: string | null; product: ReadProduct | null }) => void;
+  onAddNew: (seed: { dataUrl: string | null; thumbDataUrl: string | null; product: ReadProduct | null }) => void;
   onClose: () => void;
 }) {
   const [step, setStep] = useState<Step>(photoReading && kind === "take" ? { s: "photo" } : { s: "search" });
   const [dataUrl, setDataUrl] = useState<string | null>(null);
+  const [thumbDataUrl, setThumbDataUrl] = useState<string | null>(null);
   const [dark, setDark] = useState(false);
   const [read, setRead] = useState<ReadPhotoResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const title = kind === "take" ? "Take stock" : "Return unused stock";
 
+  // The list's copy or the one the photo read just returned, whichever is newer
+  // (the confirm screen re-reads it from the server either way).
   function asMoveItem(c: CandidateItem | StockItem): MoveItem {
-    const full = items.find((i) => i.id === c.id);
-    return { ...(full ?? c), identifiers: (full ?? c).identifiers } as MoveItem;
+    const pick = freshestItem<CandidateItem | StockItem>(items.find((i) => i.id === c.id), c);
+    return { ...pick, identifiers: pick.identifiers } as MoveItem;
   }
 
-  async function onPhoto(url: string, isDark: boolean) {
+  async function onPhoto(url: string, isDark: boolean, thumb: string | null) {
     setDataUrl(url);
+    setThumbDataUrl(thumb);
     setDark(isDark);
     setError(null);
     setStep({ s: "reading" });
@@ -99,7 +103,7 @@ export function TakeFlow({
     <FlowSheet title={title} onClose={onClose} onBack={back} testId={`stock-${kind}-flow`}>
       {step.s === "photo" ? (
         <>
-          <PhotoCapture guidance={GUIDANCE} onPhoto={(u, d) => void onPhoto(u, d)} previewUrl={dataUrl} />
+          <PhotoCapture guidance={GUIDANCE} onPhoto={(u, d, t) => void onPhoto(u, d, t)} previewUrl={dataUrl} />
           {dark ? <PhilNotice tone="warning">That photo looks dark — a brighter one reads better.</PhilNotice> : null}
           {error ? <PhilNotice tone="danger" role="alert">{error}</PhilNotice> : null}
           <button type="button" onClick={() => setStep({ s: "search" })} className="flex min-h-[56px] w-full items-center justify-center gap-2 rounded-card border border-border-strong font-semibold text-text" data-testid="stock-take-search">
@@ -128,7 +132,7 @@ export function TakeFlow({
           onRetake={() => setStep({ s: "photo" })}
           onAddNew={() => {
             const p = read && read.reading && step.outcome.kind !== "status" && step.outcome.kind !== "pick-product" ? read.reading.products[step.outcome.productIndex] ?? null : null;
-            onAddNew({ dataUrl, product: p });
+            onAddNew({ dataUrl, thumbDataUrl, product: p });
           }}
         />
       ) : null}
@@ -148,7 +152,7 @@ export function TakeFlow({
           matchedBy={step.matchedBy}
           packIdentifierId={step.packIdentifierId}
           onSaved={onSaved}
-          onAnother={() => { setDataUrl(null); setRead(null); setStep(photoReading && kind === "take" ? { s: "photo" } : { s: "search" }); }}
+          onAnother={() => { setDataUrl(null); setThumbDataUrl(null); setRead(null); setStep(photoReading && kind === "take" ? { s: "photo" } : { s: "search" }); }}
           onClose={onClose}
         />
       ) : null}

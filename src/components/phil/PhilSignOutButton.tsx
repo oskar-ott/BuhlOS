@@ -7,7 +7,7 @@ import { cn } from "@/lib/cn";
 import { purgePhilPageCaches } from "@/domains/phil/page-cache";
 import { boundedFetch } from "@/domains/phil/write-client";
 import { purgeJobListPrefs } from "./jobListPrefs";
-import { clearPending as clearWorkshopStockPending } from "@/domains/workshop-stock/pending";
+import { clearAllPending as clearWorkshopStockPending } from "@/domains/workshop-stock/pending";
 
 /**
  * Phil sign-out control.

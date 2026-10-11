@@ -20,7 +20,8 @@ export function PhotoCapture({
   testId = "stock-photo",
 }: {
   guidance: string;
-  onPhoto: (dataUrl: string, dark: boolean) => void;
+  /** the photo (≤ 1600 px), whether it looks dark, and its list-size copy (null if it couldn't be made) */
+  onPhoto: (dataUrl: string, dark: boolean, thumbDataUrl: string | null) => void;
   previewUrl?: string | null;
   disabled?: boolean;
   testId?: string;
@@ -39,7 +40,7 @@ export function PhotoCapture({
       setProblem(PHOTO_PROBLEM_COPY[prepared.reason]);
       return;
     }
-    onPhoto(prepared.dataUrl, prepared.dark);
+    onPhoto(prepared.dataUrl, prepared.dark, prepared.thumbDataUrl);
   }
 
   const off = disabled || busy;

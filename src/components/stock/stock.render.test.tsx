@@ -20,7 +20,7 @@ const flat = (html: string) => html.replace(/<!-- -->/g, "");
 
 const base = {
   id: "i1", name: "Clipsal double GPO", brand: "Clipsal", manufacturerCode: "2025WE", supplierSku: "CLI-2025WE", supplierName: "Rexel",
-  colourFinish: "white", variant: "10A", location: "Shelf A2", baseUnit: "each" as const, balanceMilli: 42_000, estimated: false, photoId: null,
+  colourFinish: "white", variant: "10A", location: "Shelf A2", baseUnit: "each" as const, balanceMilli: 42_000, estimated: false, version: 3, photoId: null,
   defaultPack: null, identifiers: [],
 };
 
@@ -55,10 +55,14 @@ describe("MoveConfirm", () => {
     expect(html).toContain('inputMode="numeric"');
     expect(html).toContain("Note a job (optional)");
   });
-  it("won't let a take go below what's recorded, and says so plainly", () => {
+  it("says plainly when a take is more than recorded — and only blocks it on a balance read just now", () => {
     const html = renderToString(createElement(MoveConfirm, { item: { ...base, balanceMilli: 0 }, kind: "take", onSaved: () => undefined, onClose: () => undefined }));
     expect(html).toContain("None recorded. If there&#x27;s some on the shelf, ask the office to correct the count.");
-    expect(html).toMatch(/data-testid="stock-move-submit"[^>]*disabled|disabled[^>]*data-testid="stock-move-submit"/);
+    // the list's copy may be stale: until the screen has re-read the item, the server decides
+    expect(html).toContain('data-fresh="0"');
+    // (match the disabled ATTRIBUTE — the class list always mentions "disabled:")
+    expect(html).toMatch(/<button[^>]*data-testid="stock-move-submit"/);
+    expect(html).not.toMatch(/<button[^>]*\sdisabled=""[^>]*data-testid="stock-move-submit"/);
   });
   it("offers a defined pack conversion explicitly, never silently", () => {
     const html = flat(renderToString(createElement(MoveConfirm, { item: { ...base, defaultPack: { unit: "box", sizeMilli: 10_000 } }, kind: "add", onSaved: () => undefined, onClose: () => undefined })));

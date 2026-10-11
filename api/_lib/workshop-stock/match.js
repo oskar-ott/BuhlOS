@@ -9,7 +9,9 @@
 //   3. supplier SKU       exact code key, same supplier (or supplier unread)
 //   4. a code that matches apart from punctuation, or a code read as one kind
 //      that equals an item's other kind (a SKU read as the maker's code)
-//   5. words              the photo's description vs the item's name/variant
+//   5. words              the photo's description vs the item's name/variant,
+//                         compared with trade names folded (a "power point" on
+//                         the box is the "GPO" in the list — trade-terms.js)
 //
 // Only 1–3 with no conflict can make an item the single EXACT suggestion. Words
 // alone never do: two GPOs look alike, so a visual/description match is only
@@ -17,7 +19,8 @@
 // here is a confirmation — the person still confirms the item and quantity.
 
 const { codeKey, looseCodeKey, barcodeKey, brandKey, supplierKey, cleanCode } = require('./codes');
-const { colourFacts, compareVariants, words } = require('./variants');
+const { colourFacts, compareVariants } = require('./variants');
+const { canonicalWords } = require('./trade-terms');
 
 const MAX_CANDIDATES = 5;
 const MIN_WORD_SCORE = 0.34;
@@ -25,7 +28,7 @@ const MIN_WORD_SCORE = 0.34;
 const STOP = new Set(['the', 'and', 'with', 'for', 'of', 'a', 'an', 'in', 'to', 'pack', 'pk', 'each', 'ea', 'x', 'pcs', 'series', 'range', 'new']);
 
 function tokens(text) {
-  return words(text).filter((w) => w.length >= 2 && !STOP.has(w));
+  return canonicalWords(text).filter((w) => w.length >= 2 && !STOP.has(w));
 }
 
 /** Words that describe an item, for the description fallback. */
@@ -145,27 +148,4 @@ function identify(product, items) {
   return { outcome: candidates.length ? 'candidates' : 'none', candidates };
 }
 
-/**
- * Items that already carry one of the codes a NEW item would get — the
- * duplicate guard before a create. Exact keys only (same kind, same scope);
- * a punctuation-only or description likeness is shown as a hint, never blocks.
- */
-function findDuplicates({ brand, manufacturerCode, supplierSku, supplierName, barcode }, items) {
-  const live = (items || []).filter((i) => i && !i.archivedAt);
-  const mfr = codeKey(manufacturerCode);
-  const sku = codeKey(supplierSku);
-  const bc = barcodeKey(barcode);
-  const b = brandKey(brand) || '';
-  const s = supplierKey(supplierName) || '';
-  const out = [];
-  for (const item of live) {
-    for (const id of item.identifiers || []) {
-      if (bc && id.kind === 'barcode' && id.valueKey === bc) out.push({ itemId: item.id, kind: 'barcode', value: id.value });
-      else if (mfr && id.kind === 'manufacturer_code' && id.valueKey === mfr && (id.scope || '') === b) out.push({ itemId: item.id, kind: 'manufacturer_code', value: id.value });
-      else if (sku && id.kind === 'supplier_sku' && id.valueKey === sku && (id.scope || '') === s) out.push({ itemId: item.id, kind: 'supplier_sku', value: id.value });
-    }
-  }
-  return out;
-}
-
-module.exports = { identify, findDuplicates, tokens, MAX_CANDIDATES, MIN_WORD_SCORE };
+module.exports = { identify, tokens, MAX_CANDIDATES, MIN_WORD_SCORE };

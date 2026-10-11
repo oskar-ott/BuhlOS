@@ -38,8 +38,9 @@ recorded, and where they live.
 
 **Workers (phone, `/phil/stock`)**
 
-- Search the list by name, code, barcode or shelf; each row shows the photo,
-  the recorded quantity with its unit, and the shelf/bin.
+- Search the list by name, code, barcode or shelf — in trade names too ("power
+  point" finds the GPO, "twin and earth" the TPS); each row shows a small copy
+  of the photo, the recorded quantity with its unit, and the shelf/bin.
 - **Take stock** — photograph the item; when its barcode or code identifies one
   of our items, confirm the quantity and save. Several products in the photo →
   "which one?". Not recognised → search the list, take a closer photo, or add
@@ -51,7 +52,8 @@ recorded, and where they live.
 - **Return unused stock** — find the item, confirm the quantity.
 - Note a job on a movement if they like (optional, informational — **never a
   job cost**).
-- Undo their own movement for 30 minutes.
+- Undo their own movement for 30 minutes (the office can undo from the same
+  screens, with a reason).
 
 **Office (`/stock`, desktop and phone)**
 
@@ -81,14 +83,20 @@ a nav group; the Gear workflow is untouched.
 4. A new item opens one form. Fields read from the photo are labelled **read
    from photo**; when the label showed a manufacturer code, the online check
    runs once by itself and its result shows as evidence with its source link.
-   "Use these details" fills empty fields from the listing (labelled **from
-   the listing**). Before saving, the form says the code status the item will
-   be saved with.
+   "Use these details" fills only **empty** fields from the listing (labelled
+   **from the listing**) — never the name the crew gave it, which is what
+   people search for. Before saving, the form says the code status the item
+   will be saved with — and if the code, brand, colour or size is changed after
+   the check so it no longer describes this item, it says so and offers to
+   check again.
 5. Name, unit, location and the quantity going on the shelf (or a number of
    full packs × the pack size) → **Save**. The item, its codes, its photo and
    its opening movement are created in **one transaction** — or nothing is.
    A code another live item already carries is refused with "Add to "X"
-   instead".
+   instead". Choosing a container unit (Boxes, Packs, Bags, Rolls) says what
+   it means first: stock then only goes out a whole container at a time.
+   If the photo couldn't be uploaded the item still saves, and the result says
+   the photo isn't attached.
 
 ### Take stock: photo → identify → confirm → deduct
 
@@ -96,7 +104,9 @@ The photo is read for identification only and **not stored**. Only an exact
 catalogue match goes straight to the confirmation; the confirmation shows the
 item, brand · code · colour · rating, supplier SKU, the shelf, the recorded
 quantity and what matched (e.g. "Matched in workshop · barcode
-9300704010017"). Nothing changes until **Confirm take**. A take larger than
+9300704010017"). The confirmation **re-reads the item** when it opens, so the
+recorded quantity and pack sizes are the server's current ones, not the list's
+from earlier. Nothing changes until **Confirm take**. A take larger than
 what is recorded is refused on the phone and by the database, with the
 recorded quantity said plainly ("Only 2 each recorded. If there's more on the
 shelf, ask the office to correct the count.").
@@ -115,16 +125,23 @@ shelf, ask the office to correct the count.").
 ### No signal, lost answers
 
 A save is only "saved" when the server says so. Every write carries one
-**operation key** for its whole life (retries reuse it), and the phone keeps the
-pending save in local storage, stamped with the worker's id. If the answer is
-lost (no signal, 5xx, the phone killed the app), the form locks with **Try
-again** (same key — the server replays the first result, never a second
-movement) and **Check if it saved** (asks the server about that key). Reopening
-the screen later does the check by itself and says "Your last save went
-through" — or offers to save it now / discard it. A pending save is only ever
-read back for the person who made it, expires after a day, and is cleared on
-Phil sign-out. Offline, nothing is queued silently; the screen says it didn't
-save.
+**operation key** for its whole life (retries reuse it), and the phone keeps
+each pending save in local storage under its key (several can wait at once),
+stamped with the worker's id. If the answer is lost (no signal, 5xx, the phone
+killed the app), the form locks with **Try again** (same key — the server
+replays the first result, never a second movement) and **Check if it saved**
+(asks the server about that key; "not yet" keeps the form locked and the key,
+because the first request may still be on its way). The server answers a used
+key **before** it reads anything that can change, so a retry replays even if
+the item was archived, its pack changed or the job closed in between.
+Reopening the screen, closing a sheet, or coming back to the app does the
+check by itself and says "Your save went through" — or offers to try again /
+discard it (it only calls a save lost once it is older than 90 seconds). A
+pending save is only ever read back for the person who made it, expires after
+a day, and is cleared on Phil sign-out. A **"Workshop stock can't save right
+now"** answer (503 `store_unavailable` / `store_unprovisioned`: the server
+refused before trying) is definite — nothing was saved and the form unlocks.
+Offline, nothing is queued silently; the screen says it didn't save.
 
 ## Identification
 
@@ -145,6 +162,13 @@ candidates for the worker to pick from, each with its conflicts named ("colour
 differs"). Codes keep their punctuation and leading zeroes for display; the
 exact key uppercases and removes spaces. Several products in one reading → the
 worker picks the product first. One item per transaction, always.
+
+Description words are compared with **trade names folded** (`trade-terms.js`,
+mirrored for the list search in `src/domains/workshop-stock/trade-terms.ts`):
+power point / socket outlet / switched socket outlet → GPO, safety switch →
+RCD, circuit breaker → MCB, twin and earth / T&E → TPS, junction box → JB,
+"twin" → double, plurals singular. Folding only compares — nothing stored or
+shown is rewritten.
 
 ## Photo reading
 
@@ -201,12 +225,20 @@ The pipeline, each piece replaceable:
 | No listing found / Couldn't check online / Online check not set up | said plainly; the item can still be saved |
 
 A worker accepting a listing saves the item as **Manufacturer code matched** or
-**Possible match** — the server takes the status from **its own cached check**,
-never from the phone. Anything else saves as **Saved without external
-verification**. A match is evidence that a public listing uses this code, **not
-a certification** or a check that it suits the job (said on the card).
-Listings are cached per brand + code (matched 30 days, possible 7, none 3); the
-office can re-check and record the result on an item.
+**Possible match** — the phone names the check it accepted (`lookupCheck`,
+exactly what was asked), and the server takes the status from **its own cached
+result** for that check, never from the phone — and only while the check
+still describes the item: the same code, and the brand / colour / size it was
+made for (or that the listing itself showed). Anything else saves as **Saved
+without external verification**. A match is evidence that a public listing
+uses this code, **not a certification** or a check that it suits the job (said
+on the card). Checks are cached per brand + code + colour/size details
+(matched 30 days, possible 7, none 3) — a check for the white one is not a
+check for the black one. "Couldn't check" is never cached, and neither is a
+no-match that couldn't open every page it found; listings found but impossible
+to open are "Couldn't check online", not "No listing found". The office can
+re-check and record the result on an item; changing an item's maker's code or
+brand clears a verification that was for the old one.
 
 ## Information kept apart
 
@@ -244,17 +276,36 @@ office can re-check and record the result on an item.
   from the session.
 - **No negative stock** — refused in the database; the refusal carries the real
   recorded balance.
-- **Idempotency keys** unique per company; the request hash beside each key
-  makes a reused key with a different payload a refusal, and an identical retry
-  a replay. Concurrent duplicates are resolved by the unique index (proven with
-  10 parallel connections).
+- **Idempotency keys** unique per company; the request hash (of the request as
+  sent) beside each key makes a reused key with a different payload a refusal,
+  and an identical retry a replay — answered before anything else is read.
+  Concurrent duplicates are resolved by the unique index (proven with 10
+  parallel connections); two creates racing with one key queue on a
+  transaction lock on the key, so the second replays the first item.
+- **Pack sizes as shown** — a pack movement carries the size the screen showed;
+  if the office changed it meanwhile the save is refused (`pack_changed`) with
+  the new size, never recorded at a size the worker didn't see.
 - **Stale-count guard** — a count is pinned to the version counting started
   from.
 - **Undo** — one reversal per movement (partial unique index); a reversal can't
   be reversed; it can't take stock below zero; and a movement a later count has
   absorbed can't be undone at all (the count already corrected it — undo the
   count first, or count again). Checked by the API, under the item lock, and
-  by the ledger trigger.
+  by the ledger trigger. Each movement keeps the item's estimate flag and
+  last-count stamp from just before it, so undoing a count (or an estimated
+  add) puts those back too.
+- **Server time** — a movement's timestamp is the clock when it was applied
+  (after the item lock), so one item's history sorts the way it happened.
+- **Catalogue edits** are compare-and-set on a revision that only catalogue
+  changes move (details, and a code added/removed that changes a code field) —
+  a photo change, an online check or an archive never invalidates an open edit
+  form. Archived items can't be edited until restored.
+- **Codes follow the item's fields** — removing the code an item shows moves
+  its field to the next live code of that kind (or empties it), and a first
+  code fills it. Archiving retires the codes (freed for a replacement item);
+  **restore** brings back exactly those — never one removed or replaced before
+  — and where another item took a code meanwhile, that item keeps it and the
+  restore says so.
 - **Tenant scope** from the server; composite `(tenant_id, id)` foreign keys.
 
 ## Permissions and the undo policy
@@ -270,24 +321,32 @@ office can re-check and record the result on an item.
 | Count, edit, codes/packs, photo, archive/restore | — | ✓ |
 
 Clients and unknown roles get 403; signed-out 401. The actor, role and company
-always come from the session; bodies are validated (Zod). Office actions,
-counts, undos and item creation are journalled (`workshop_stock.*` audit verbs).
+always come from the session; bodies are validated (Zod). Office actions —
+counts, undos, catalogue changes and the office's own item creation — are
+journalled (`workshop_stock.*` audit verbs). The crew's item creation is in the
+item's own history (`workshop_stock_item_events`), not the shared audit journal
+(one Blob, read-modify-write), so a workshop set-up session can't contend on it.
 
 ## Photos: validation, storage, retention
 
 - **On the phone:** orientation applied, downscaled to 1600 px, re-encoded as
   JPEG (which also drops EXIF metadata such as location); a dark photo gets a
-  non-blocking hint.
+  non-blocking hint. A ≤ 320 px copy is made alongside for lists.
 - **On the server:** at most 3 MiB; the type is sniffed from the bytes (JPEG,
   PNG, WebP — never trusted from the client), the dimensions are read from the
   header (64–10,000 px).
 - **Storage:** Vercel Blob under `workshop-stock/<company>/photos/` with a
   random suffix; the URL never leaves the server — photos are served only
   through the authenticated `?action=photo` proxy (`nosniff`, private cache).
+  Lists ask for `&size=thumb` (the small copy, ≤ 200 KB JPEG; the photo itself
+  when there isn't one), so a long list never downloads every label shot.
 - **Retention:** take photos are not stored. An add photo is **pending** for a
   day — claimed by the item it becomes, otherwise deleted. A replaced item photo
-  is retired and deleted a day later. Clean-up runs opportunistically on the
-  next photo upload; nothing else is kept.
+  is retired and deleted a day later. An expired photo can't be claimed, and a
+  deletion marks the row first and removes the blobs second (a failed blob
+  delete is retried), so a save and a clean-up can never both win. Clean-up
+  runs alongside the next photo upload's own work (capped at 4 s), not in
+  front of it; nothing else is kept.
 
 ## Limits and cost
 
@@ -296,7 +355,7 @@ counts, undos and item creation are journalled (`workshop_stock.*` audit verbs).
 | Photo reads per person | 30 per 10 minutes (per warm instance) |
 | Online checks per person | 20 per hour (per warm instance) |
 | Daily ceiling per company | `STOCK_DAILY_PHOTO_READS` (300), `STOCK_DAILY_LOOKUPS` (60) — durable, in Postgres |
-| Per check | ≤ 2 searches, ≤ 3 pages, 20 s page budget; cached per brand + code |
+| Per check | ≤ 2 searches, ≤ 3 pages, 20 s page budget; cached per brand + code + colour/size |
 | Function duration | 60 s (`vercel.json`) |
 
 Costs are Anthropic API usage on the existing key: tokens for each photo read
@@ -344,17 +403,25 @@ export).
 2. Apply `20261009100000_workshop_stock.sql` to the **dev** project, then to
    **production** as an operator release step (Supabase migration process —
    never from an agent session). Confirm the seven tables exist with RLS on.
-3. Confirm `ANTHROPIC_API_KEY` is set in Production and that **web search is
+3. **Production writes are opt-in for every Supabase-backed feature**: the env
+   guard (`api/_lib/supabase-env.js`) refuses a write connection to production
+   unless `SUPABASE_ALLOW_PRODUCTION_WRITES="true"` is set in Production (see
+   [supabase-environment.md](supabase-environment.md) and [supabase-foundation-runbook.md](supabase-foundation-runbook.md)).
+   Without it every stock save answers 503 `store_unavailable` and the phone
+   says "Workshop stock can't save right now — nothing was saved"; reads still
+   work. Confirm it is set (an operator decision, not this PR's) before the
+   flag goes on.
+4. Confirm `ANTHROPIC_API_KEY` is set in Production and that **web search is
    enabled for the organisation** in the Claude Console; leave the stock env
    vars unset to take the defaults.
-4. On a preview with the migration applied: flip the flag for the preview
+5. On a preview with the migration applied: flip the flag for the preview
    only, photograph two or three real products, take one, undo it, return
    one, and count one from the office. Check the source links the online
    check shows and that nothing from the preview remains (archive the test
    items).
-5. Flip `workshop_stock` on at `/owner` (audited). Record the effective state
+6. Flip `workshop_stock` on at `/owner` (audited). Record the effective state
    in [runbooks/production-flag-verification.md](runbooks/production-flag-verification.md).
-6. Set up the workshop with real stock as a deliberate job (Add stock → Save
+7. Set up the workshop with real stock as a deliberate job (Add stock → Save
    and add another).
 
 ## Rollback
@@ -373,9 +440,9 @@ export).
 
 | Layer | What | Run |
 | --- | --- | --- |
-| Unit | quantities, codes, barcodes, matching, variants, extraction, verification, SSRF guards, client decisions, pending-save scoping | `npx vitest run src/domains/workshop-stock src/components/stock` |
-| API | the real handler with mocked store/AI: auth, flag 404, office-only, actor from session, idempotency keys, uploads, statuses | (same; `workshop-stock-api.test.ts`) |
-| Postgres | the store + triggers against a real local Postgres: atomic ledger, no negatives, concurrent takes (10 connections), idempotent replays/conflicts, stale counts, one-time undo, counted-since, atomic create, tenants, archive, unit lock, cost ceiling | `WORKSHOP_STOCK_PG_TEST=1 SUPABASE_ENV=local SUPABASE_PROJECT_REF=localstack SUPABASE_DB_URL=postgres://…@localhost:5432/<db> npx vitest run src/domains/workshop-stock/workshop-stock-store.pg.test.ts` (migrations applied to `<db>`) |
+| Unit | quantities, codes, barcodes, matching, trade names, variants, extraction, verification, SSRF guards, client decisions, pending saves (several, per person, the 90 s "lost" rule), the phone's copies of server rules (parity) | `npx vitest run src/domains/workshop-stock src/components/stock` |
+| API | the real handler with mocked store/AI: auth, flag 404, office-only, actor from session, idempotency keys answered first, pack size as shown, the accepted check re-validated, uploads + list copies, photo clean-up order, cache keys, statuses | (same; `workshop-stock-api.test.ts`) |
+| Postgres | the store + triggers against a real local Postgres: atomic ledger, no negatives, concurrent takes (10 connections), idempotent replays/conflicts (incl. two creates racing with one key), replay after archive, stale counts, one-time undo, counted-since, undoing a count restores its estimate/last-count, server time order, atomic create, tenants, archive/restore codes, code fields following codes, verification cleared on a code change, edit revision, photo claim vs clean-up, cost ceiling, cache per colour | `WORKSHOP_STOCK_PG_TEST=1 SUPABASE_ENV=local SUPABASE_PROJECT_REF=localstack SUPABASE_DB_URL=postgres://…@localhost:5432/<db> npx vitest run src/domains/workshop-stock/workshop-stock-store.pg.test.ts` (migrations applied to `<db>`) |
 | Browser E2E | phone (Pixel 7) + desktop, real pages + real handler + real local Postgres; the photo reader's model answer, the search response and the listing pages are **fixtures** (`scripts/qa/workshop-stock-e2e/harness.js`) | below |
 
 Browser E2E, locally (never against a hosted database — the harness refuses a
@@ -393,13 +460,21 @@ WORKSHOP_STOCK_E2E_API=http://localhost:3101 npx playwright test tests/workshop-
 ```
 
 The spec covers: More → Workshop stock; add by photo with the online check and
-packs; photograph again and take; Undo; take from the list; return; a lost
-answer recovered by Try again (one movement) and by reopening (reconciled);
-several products → which one; unknown product → add as new; reader and check
-both down → by hand; the office list, filters, history, the stale-count path,
-an audited undo, the counted-since refusal; the worker seeing the office's
-count; the office list at phone width. It fails on any page error, console
-error or failed request that isn't named as environment noise in the spec.
+packs (the listing never renames it; a changed brand makes the check stale);
+search by trade name; list photos as small copies; photograph again and take;
+Undo; take from the list; return; a lost answer recovered by Try again (one
+movement) and by reopening (reconciled); several products → which one; unknown
+product → add as new; reader and check both down → by hand (container-unit
+hint); the office list, filters, history, the stale-count path, an audited
+undo, the counted-since refusal; the worker seeing the office's count; the
+office list at phone width. And, from the review: the confirm screen's fresh
+read stopping a take a stale list would allow; a pack re-sized mid-confirm;
+"Check if it saved" keeping the key; two unanswered saves reconciled after a
+reopen; "can't save right now" unlocking with nothing pending; the office
+undoing from the phone with a reason; an abandoned photo cleaned up; restore
+reporting a code another item took; an edit in progress surviving a reload and
+flagging someone else's edit. It fails on any page error, console error or
+failed request that isn't named as environment noise in the spec.
 
 ## Deliberately out of scope
 

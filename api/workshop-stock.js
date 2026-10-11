@@ -10,30 +10,33 @@
 //   GET    ?action=list[&archived=1]          catalogue (archived: office)
 //   GET    ?action=item&id=                   one item + its latest movements (+ catalogue history for the office)
 //   GET    ?action=history&id=&before=&beforeId=  older movements (paging)
-//   GET    ?action=recent                     the viewer's own movements, last 24 h, with Undo eligibility
 //   GET    ?action=operation&key=             reconcile a save whose response was lost (own operations; office: any)
-//   GET    ?action=photo&id=                  a product photo (authenticated proxy — the Blob URL never leaves the server)
+//   GET    ?action=photo&id=[&size=thumb]     a product photo or its list-size copy (authenticated proxy — the Blob URL never leaves the server)
 //   GET    ?action=jobs&q=                    job picker for the optional job note
-//   POST   ?action=read-photo  { dataUrl, purpose: 'add'|'take' }       read a photo, match the catalogue (writes no stock)
-//   POST   ?action=store-photo { dataUrl }  keep a product photo for a new item without reading it again (no AI call)
+//   POST   ?action=read-photo  { dataUrl, thumbDataUrl?, purpose: 'add'|'take' }  read a photo, match the catalogue (writes no stock)
+//   POST   ?action=store-photo { dataUrl, thumbDataUrl? }  keep a product photo for a new item without reading it again (no AI call)
 //   POST   ?action=lookup      { brand?, manufacturerCode, colourFinish?, variantDetails? }  online code check (allowlisted sources)
-//   POST   ?action=create      { …item, openingQuantity | pack…, useLookup?, idempotencyKey }  new item + opening balance, atomically
+//   POST   ?action=create      { …item, openingQuantity | pack…, lookupCheck?, idempotencyKey }  new item + opening balance, atomically
 //   POST   ?action=move        { itemId, kind: add|take|return, quantity | packCount+pack, jobId?, note?, estimated?, idempotencyKey }
+//                              pack: the pack the screen showed, with its size — refused (409 pack_changed) if the office changed it
 //   POST   ?action=count       { itemId, countedQuantity, expectedVersion, reason, estimated?, idempotencyKey }   OFFICE
 //   POST   ?action=undo        { movementId, reason?, idempotencyKey }   own recent (worker) · any with reason (office)
 //   PUT    ?action=item&id=    { expectedRevision, …fields }             OFFICE catalogue edit (compare-and-set)
 //   POST   ?action=identifier  { itemId, kind, value, supplierName?, packUnit?, packSize? }   OFFICE
 //   DELETE ?action=identifier&id=                                        OFFICE
-//   POST   ?action=archive | restore  { itemId }                         OFFICE
+//   POST   ?action=archive | restore  { itemId }                         OFFICE (restore says which codes another item now holds)
 //   POST   ?action=item-photo  { itemId, photoId }                       OFFICE
 //   POST   ?action=verify      { itemId }   OFFICE — record the cached online check on an item
 //
 // Rules every path follows: the actor, role and company scope come from the
 // session and the server — never from the body; bodies are Zod-validated;
 // quantities are decimal strings parsed exactly; every ledger write needs an
-// Idempotency-Key (header or body `idempotencyKey`) and a reused key with a
-// different payload is refused; nothing reports success before Postgres
-// committed; errors are { error: <stable code> } — never an exception message.
+// Idempotency-Key (header or body `idempotencyKey`): a used key is answered
+// first — the saved result for the same request (even if the item, its pack or
+// the job changed since), a refusal for a different one; nothing reports
+// success before Postgres committed; errors are { error: <stable code> } —
+// never an exception message. 503 store_unavailable / store_unprovisioned mean
+// nothing was attempted, so nothing was saved.
 // A job on a movement is informational only: no job cost is written anywhere.
 
 'use strict';
@@ -59,6 +62,7 @@ const photo = require('./_lib/workshop-stock/photo');
 const search = require('./_lib/workshop-stock/search');
 const { lookupProduct } = require('./_lib/workshop-stock/lookup');
 const { fetchAllowlistedPage } = require('./_lib/workshop-stock/safe-fetch');
+const { withTimeout } = require('./_lib/with-timeout');
 
 const FLAG = 'workshop_stock';
 
@@ -69,6 +73,7 @@ const lookupLimiter = createRateLimiter({ windowMs: 60 * 60_000, max: 20 });
 const DAILY_PHOTO_READS = Math.max(1, Number(process.env.STOCK_DAILY_PHOTO_READS || 300));
 const DAILY_LOOKUPS = Math.max(1, Number(process.env.STOCK_DAILY_LOOKUPS || 60));
 const LOOKUP_TTL_DAYS = { manufacturer_code_matched: 30, possible_match: 7, no_match: 3 };
+const CLEANUP_BUDGET_MS = 4000;
 
 const KEY_RE = /^[A-Za-z0-9_-]{8,100}$/;
 
@@ -153,6 +158,29 @@ function withUndo(movements, me) {
   return movements.map((m) => ({ ...m, undo: undoInfo(m, me, now) }));
 }
 
+/**
+ * A used operation key, answered before anything else is read: the saved result
+ * (200, replayed) for the same request, 409 idempotency_conflict for another.
+ * Returns true when it answered. The hash is of the request AS SENT — the same
+ * bytes on every retry — so a retry replays even when the item, its pack or the
+ * job changed after the first attempt landed.
+ */
+async function answeredByReplay(sql, tenant, me, key, hash, res, extra = () => ({})) {
+  const prior = await store.replayOperation(sql, tenant.id, key, hash);
+  if (!prior) return false;
+  if (prior.error) {
+    res.status(409).json({ error: prior.error });
+    return true;
+  }
+  res.status(200).json({
+    item: prior.item,
+    movement: { ...prior.movement, undo: undoInfo(prior.movement, me, Date.now()) },
+    replayed: true,
+    ...extra(prior),
+  });
+  return true;
+}
+
 // ── schemas ───────────────────────────────────────────────────────────────────
 
 const qty = z.union([z.string().trim().max(24), z.number()]);
@@ -160,11 +188,24 @@ const optText = (max) => z.string().trim().max(max).nullish().transform((v) => (
 const uuid = z.string().uuid();
 const packUnit = z.enum(Q.PACK_UNITS);
 
+// identifier / default: the pack the screen showed, WITH the size it showed —
+// the server refuses (pack_changed) rather than record a different quantity.
+const shownSize = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const PackPick = z.union([
-  z.object({ source: z.literal('identifier'), identifierId: uuid }),
-  z.object({ source: z.literal('default') }),
+  z.object({ source: z.literal('identifier'), identifierId: uuid, sizeMilli: shownSize }),
+  z.object({ source: z.literal('default'), sizeMilli: shownSize }),
   z.object({ source: z.literal('custom'), unit: packUnit, size: qty }),
 ]);
+
+// The size/rating words a check compared: anything a phone sends is trimmed to
+// what the check uses (≤ 8 words of ≤ 30 characters), never refused.
+const variantDetails = z.array(z.string().max(200)).max(50).optional().transform((v) => codes.variantDetailsFrom(v || []));
+const LookupCheck = z.object({
+  brand: optText(60),
+  manufacturerCode: z.string().trim().min(1).max(48),
+  colourFinish: optText(40),
+  variantDetails,
+});
 
 const MoveBody = z.object({
   itemId: uuid,
@@ -195,7 +236,9 @@ const CreateBody = z.object({
   packSize: qty.optional(),
   rememberPack: z.boolean().optional(),
   estimated: z.boolean().optional(),
-  useLookup: z.boolean().optional(),
+  // the online check the worker accepted (exactly what was asked — the lookup
+  // response's `check`); the server re-reads its own cached result for it
+  lookupCheck: LookupCheck.optional(),
   provenance: z.record(z.enum(['name', 'brand', 'manufacturerCode', 'supplierSku', 'barcode', 'variant', 'colourFinish']), z.enum(['photo', 'lookup', 'typed'])).optional(),
   note: optText(200),
 });
@@ -233,12 +276,15 @@ const IdentifierBody = z.object({
   packSize: qty.optional(),
 });
 
-const ReadPhotoBody = z.object({ dataUrl: z.string().min(16), purpose: z.enum(['add', 'take']) });
+// The list-size copy is optional and never fails an upload: anything unusable
+// (too big, not a JPEG, not a string) is simply dropped by photo.readThumbUpload.
+const thumbDataUrl = z.unknown().optional().transform((v) => (typeof v === 'string' ? v : null));
+const ReadPhotoBody = z.object({ dataUrl: z.string().min(16), thumbDataUrl, purpose: z.enum(['add', 'take']) });
 const LookupBody = z.object({
   brand: optText(60),
   manufacturerCode: z.string().trim().min(1).max(48),
   colourFinish: optText(40),
-  variantDetails: z.array(z.string().trim().max(30)).max(8).optional(),
+  variantDetails,
   refresh: z.boolean().optional(),
 });
 const ItemIdBody = z.object({ itemId: uuid });
@@ -291,11 +337,6 @@ async function history(sql, tenant, me, q, res) {
   return res.status(200).json({ movements: withUndo(movements, me), next: movements.length === 100 && last ? { before: last.createdAt, beforeId: last.id } : null });
 }
 
-async function recent(sql, tenant, me, res) {
-  const rows = await store.recentForActor(sql, tenant.id, me.id, { sinceMinutes: 24 * 60, limit: 10 });
-  return res.status(200).json({ movements: withUndo(rows, me), undoMinutes: policy.WORKER_UNDO_MINUTES });
-}
-
 async function operation(sql, tenant, me, key, res) {
   if (!KEY_RE.test(String(key || ''))) return bad(res, 'idempotency_key_invalid');
   const movement = await store.getOperation(sql, tenant.id, key);
@@ -305,9 +346,9 @@ async function operation(sql, tenant, me, key, res) {
   return res.status(200).json({ found: true, movement: { ...movement, undo: undoInfo(movement, me, Date.now()) }, item });
 }
 
-async function servePhoto(sql, tenant, me, id, res) {
+async function servePhoto(sql, tenant, me, id, size, res) {
   if (!uuid.safeParse(id).success) return res.status(404).json({ error: 'not_found' });
-  const p = await store.getPhotoForServing(sql, tenant.id, id, { viewerId: me.id, office: policy.isOffice(me.role) });
+  const p = await store.getPhotoForServing(sql, tenant.id, id, { viewerId: me.id, office: policy.isOffice(me.role), size: size === 'thumb' ? 'thumb' : 'full' });
   if (!p) return res.status(404).json({ error: 'not_found' });
   let bytes;
   try {
@@ -337,20 +378,47 @@ async function jobs(me, q, res) {
 
 // ── photo reading + online check ──────────────────────────────────────────────
 
-async function cleanupExpiredPhotos(sql, tenantId) {
-  try {
-    const expired = await store.expiredPhotos(sql, tenantId, 3);
-    for (const p of expired) {
-      try {
-        await photo.deletePhoto(p.blobUrl);
-        await store.markPhotoDeleted(sql, tenantId, p.id);
-      } catch {
-        // leave it for the next pass
-      }
+/**
+ * Delete expired photos. Each is marked first (from then on nothing can claim
+ * it), then its blobs go; a failed blob delete is retried by a later pass.
+ */
+async function cleanupPhotos(sql, tenantId) {
+  const due = await store.photosDueForDeletion(sql, tenantId, 3);
+  for (const p of due) {
+    try {
+      if (!p.marked && !(await store.markPhotoDeleted(sql, tenantId, p.id))) continue; // claimed meanwhile
+      await photo.deletePhoto([p.blobUrl, p.thumbUrl]);
+      await store.markBlobDeleted(sql, tenantId, p.id);
+    } catch {
+      // the next pass retries it
     }
-  } catch {
-    // cleanup never blocks a read
   }
+}
+
+/**
+ * Cleanup rides along with the slow part of an upload (the photo read, the blob
+ * write) instead of in front of it, capped so it can never hold a response up
+ * for long. Never throws.
+ */
+function cleanupAlongside(sql, tenantId) {
+  return withTimeout(cleanupPhotos(sql, tenantId), CLEANUP_BUDGET_MS, 'photo cleanup').catch(() => {});
+}
+
+/** Store a validated upload (+ its list-size copy when there is a usable one) and record it as pending. */
+async function keepPhoto(sql, tenant, me, up, thumbDataUrl) {
+  const thumbUp = photo.readThumbUpload(thumbDataUrl);
+  const [stored, thumb] = await Promise.all([
+    photo.storePhoto({ tenantSlug: tenant.slug, bytes: up.bytes, contentType: up.contentType }),
+    thumbUp
+      ? photo.storePhoto({ tenantSlug: tenant.slug, bytes: thumbUp.bytes, contentType: thumbUp.contentType, thumb: true })
+        .then((t) => ({ url: t.url, pathname: t.pathname, byteSize: thumbUp.bytes.length }))
+        .catch(() => null)
+      : Promise.resolve(null),
+  ]);
+  return store.insertPhoto(sql, tenant.id, {
+    blobUrl: stored.url, blobPathname: stored.pathname, contentType: up.contentType, byteSize: up.bytes.length,
+    width: up.width, height: up.height, sha256: up.sha256, thumb, actor: actorOf(me), ttlHours: 24,
+  });
 }
 
 function itemSummary(item) {
@@ -371,16 +439,12 @@ async function readPhoto(sql, tenant, me, body, res) {
     return res.status(429).json({ error: 'photo_limit', retryAfterSec: photoReadLimiter.retryAfterSec(me.id) });
   }
 
+  const cleanup = cleanupAlongside(sql, tenant.id);
   let photoId = null;
   let photoStored = null;
   if (input.purpose === 'add') {
-    await cleanupExpiredPhotos(sql, tenant.id);
     try {
-      const stored = await photo.storePhoto({ tenantSlug: tenant.slug, bytes: up.bytes, contentType: up.contentType });
-      photoId = await store.insertPhoto(sql, tenant.id, {
-        blobUrl: stored.url, blobPathname: stored.pathname, contentType: up.contentType, byteSize: up.bytes.length,
-        width: up.width, height: up.height, sha256: up.sha256, actor: actorOf(me), ttlHours: 24,
-      });
+      photoId = await keepPhoto(sql, tenant, me, up, input.thumbDataUrl);
       photoStored = true;
     } catch (e) {
       console.error('[workshop-stock] photo store failed', { code: (e && e.code) || 'blob' });
@@ -420,6 +484,7 @@ async function readPhoto(sql, tenant, me, body, res) {
     const ids = new Set(matches.flatMap((m) => m.candidates.map((c) => c.itemId)));
     candidateItems = items.filter((i) => ids.has(i.id)).map(itemSummary);
   }
+  await cleanup;
   return res.status(200).json({
     readStatus,
     reading: reading ? { legibility: reading.legibility, note: reading.note, products: reading.products } : null,
@@ -430,7 +495,7 @@ async function readPhoto(sql, tenant, me, body, res) {
   });
 }
 
-const StorePhotoBody = z.object({ dataUrl: z.string().min(16) });
+const StorePhotoBody = z.object({ dataUrl: z.string().min(16), thumbDataUrl });
 
 /** Keep a product photo as 'pending' (claimed by the create that follows, else expires). No AI call. */
 async function storePhotoOnly(sql, tenant, me, body, res) {
@@ -438,18 +503,16 @@ async function storePhotoOnly(sql, tenant, me, body, res) {
   if (!input) return;
   const up = photo.readPhotoUpload(input.dataUrl);
   if (up.error) return res.status(up.status).json({ error: up.error, maxBytes: up.maxBytes });
-  await cleanupExpiredPhotos(sql, tenant.id);
-  let stored;
+  const cleanup = cleanupAlongside(sql, tenant.id);
+  let photoId;
   try {
-    stored = await photo.storePhoto({ tenantSlug: tenant.slug, bytes: up.bytes, contentType: up.contentType });
+    photoId = await keepPhoto(sql, tenant, me, up, input.thumbDataUrl);
   } catch (e) {
     console.error('[workshop-stock] photo store failed', { code: (e && e.code) || 'blob' });
+    await cleanup;
     return res.status(502).json({ error: 'photo_store_failed' });
   }
-  const photoId = await store.insertPhoto(sql, tenant.id, {
-    blobUrl: stored.url, blobPathname: stored.pathname, contentType: up.contentType, byteSize: up.bytes.length,
-    width: up.width, height: up.height, sha256: up.sha256, actor: actorOf(me), ttlHours: 24,
-  });
+  await cleanup;
   return res.status(201).json({ photoId });
 }
 
@@ -458,32 +521,35 @@ async function lookup(sql, tenant, me, body, res) {
   if (!input) return;
   const code = codes.cleanCode(input.manufacturerCode);
   if (!code) return res.status(200).json({ status: 'not_checked', reasons: ['That doesn\'t look like a product code — check it against the label'], candidate: null, sources: [] });
-  const bKey = codes.brandKey(input.brand) || '';
-  const cKey = codes.codeKey(code);
+  // Exactly what this check is for — echoed back so a save can name it (lookupCheck).
+  const check = { brand: input.brand, manufacturerCode: code, colourFinish: input.colourFinish, variantDetails: input.variantDetails };
+  const key = codes.lookupKey(check);
   const refresh = input.refresh === true && policy.isOffice(me.role);
   if (!refresh) {
-    const cached = await store.getCachedLookup(sql, tenant.id, bKey, cKey);
-    if (cached) return res.status(200).json(cached);
+    const cached = await store.getCachedLookup(sql, tenant.id, key);
+    if (cached) return res.status(200).json({ ...cached, check });
   }
   if (!search.enabled()) {
-    return res.status(200).json({ status: 'not_configured', reasons: ['The online product check isn\'t set up — the item can still be saved'], candidate: null, sources: [], code });
+    return res.status(200).json({ status: 'not_configured', reasons: ['The online product check isn\'t set up — the item can still be saved'], candidate: null, sources: [], code, check });
   }
   if (lookupLimiter.isLimited(me.id)) {
     return res.status(429).json({ error: 'lookup_limit', retryAfterSec: lookupLimiter.retryAfterSec(me.id) });
   }
   const usage = await store.consumeUsage(sql, tenant.id, 'lookup', DAILY_LOOKUPS);
   if (!usage.allowed) {
-    return res.status(200).json({ status: 'unavailable', reasons: ['Today\'s online checks are used up — save it now and check it tomorrow'], candidate: null, sources: [], code });
+    return res.status(200).json({ status: 'unavailable', reasons: ['Today\'s online checks are used up — save it now and check it tomorrow'], candidate: null, sources: [], code, check });
   }
   lookupLimiter.record(me.id);
   const result = await lookupProduct(
-    { brand: input.brand, manufacturerCode: code, colourFinish: input.colourFinish, variantDetails: input.variantDetails || [] },
+    { brand: input.brand, manufacturerCode: code, colourFinish: input.colourFinish, variantDetails: input.variantDetails },
     { search: search.searchListings, fetchPage: fetchAllowlistedPage, configured: true },
   );
-  if (LOOKUP_TTL_DAYS[result.status]) {
-    try { await store.putCachedLookup(sql, tenant.id, bKey, cKey, result.status, result, LOOKUP_TTL_DAYS[result.status]); } catch { /* cache is an optimisation */ }
+  // Only an answer is cached: never "couldn't check", never a no-match that
+  // couldn't open every page it found.
+  if (LOOKUP_TTL_DAYS[result.status] && !result.incomplete) {
+    try { await store.putCachedLookup(sql, tenant.id, key, result.status, result, LOOKUP_TTL_DAYS[result.status]); } catch { /* cache is an optimisation */ }
   }
-  return res.status(200).json({ ...result, cached: false });
+  return res.status(200).json({ ...result, cached: false, check });
 }
 
 // ── writes ────────────────────────────────────────────────────────────────────
@@ -522,6 +588,10 @@ async function create(sql, tenant, me, req, body, res) {
   if (!key) return;
   const input = parseOr400(CreateBody, body, res);
   if (!input) return;
+  const actor = actorOf(me);
+  const hash = requestHash('create', { ...input, actorId: actor.id });
+  // A retried create returns the item it made — with its photo, if it claimed one.
+  if (await answeredByReplay(sql, tenant, me, key, hash, res, (r) => ({ photoAttached: !input.photoId || Boolean(r.item.photoId), verificationStatus: r.item.verificationStatus }))) return;
   const unit = input.baseUnit;
 
   const manufacturerCode = input.manufacturerCode ? codes.cleanCode(input.manufacturerCode) : null;
@@ -553,27 +623,27 @@ async function create(sql, tenant, me, req, body, res) {
   const identifiers = identifiersForItem({ brand: input.brand, manufacturerCode, supplierSku, supplierName: input.supplierName, barcode });
   if (identifiers.some((i) => i.error)) return bad(res, 'code_invalid');
 
-  // The verification is the SERVER's cached lookup for this brand + code — a
-  // client cannot claim "matched"; it can only accept or ignore the check.
+  // The verification is the SERVER's cached result for the check the worker
+  // accepted — a client cannot claim "matched"; it can only name the check. And
+  // only while that check still describes this item: same code, and the brand /
+  // colour / size it was made for (or that the listing itself showed).
   let verificationStatus = 'unverified';
   let verification = null;
   let lookupSummary = null;
-  if (input.useLookup && manufacturerCode) {
-    const cached = await store.getCachedLookup(sql, tenant.id, codes.brandKey(input.brand) || '', codes.codeKey(manufacturerCode));
+  if (input.lookupCheck && manufacturerCode) {
+    const lk = codes.lookupKey(input.lookupCheck);
+    const cached = lk ? await store.getCachedLookup(sql, tenant.id, lk) : null;
     const v = verificationFromLookup(cached);
-    if (v) {
+    const applies = v && codes.checkApplies(input.lookupCheck, cached.candidate, { brand: input.brand, manufacturerCode, colourFinish: input.colourFinish, variant: input.variant });
+    if (applies) {
       verificationStatus = v.status;
       verification = v.detail;
       lookupSummary = { status: v.status, sourceUrl: v.detail.sourceUrl, checkedAt: v.detail.checkedAt };
+    } else {
+      lookupSummary = { status: 'not_applied', reason: v ? 'item_differs_from_check' : 'check_not_found' };
     }
   }
 
-  const actor = actorOf(me);
-  const payload = {
-    name: input.name, brand: input.brand, manufacturerCode, supplierSku, supplierName: supplierSku ? input.supplierName : null, barcode,
-    variant: input.variant, colourFinish: input.colourFinish, baseUnit: unit, location: input.location, photoId: input.photoId || null,
-    openingMilli, pack, defaultPack, estimated: input.estimated === true, useLookup: input.useLookup === true, actorId: actor.id,
-  };
   const result = await store.createItemWithOpening(sql, tenant.id, {
     item: {
       name: input.name, brand: input.brand, manufacturerCode, supplierSku, supplierName: supplierSku ? input.supplierName : null,
@@ -591,12 +661,15 @@ async function create(sql, tenant, me, req, body, res) {
     actor,
     actorIsOffice: policy.isOffice(me.role),
     idempotencyKey: key,
-    requestHash: requestHash('create', payload),
+    requestHash: hash,
   });
   if (result.error === 'duplicate_item') return res.status(409).json({ error: 'duplicate_item', existing: result.existing });
   if (result.error === 'idempotency_conflict') return res.status(409).json({ error: 'idempotency_conflict' });
   if (result.error) return res.status(409).json({ error: result.error });
-  if (!result.replayed) {
+  // The crew's creates are in the item's own history (workshop_stock_item_events);
+  // the shared audit journal — one blob, read-modify-write — only carries the
+  // office's catalogue changes, so a workshop set-up session can't contend on it.
+  if (!result.replayed && policy.isOffice(me.role)) {
     await journal(me, 'workshop_stock.item_created', result.item.id, `Added ${result.item.name} to workshop stock`, {
       unit, verificationStatus, photo: Boolean(result.item.photoId),
     });
@@ -605,7 +678,8 @@ async function create(sql, tenant, me, req, body, res) {
     item: result.item,
     movement: { ...result.movement, undo: undoInfo(result.movement, me, Date.now()) },
     replayed: result.replayed === true,
-    photoAttached: result.photoAttached !== false,
+    photoAttached: result.replayed ? !input.photoId || Boolean(result.item.photoId) : result.photoAttached !== false,
+    verificationStatus: result.item.verificationStatus,
   });
 }
 
@@ -614,6 +688,9 @@ async function move(sql, tenant, me, req, body, res) {
   if (!key) return;
   const input = parseOr400(MoveBody, body, res);
   if (!input) return;
+  const actor = actorOf(me);
+  const hash = requestHash('move', { ...input, actorId: actor.id });
+  if (await answeredByReplay(sql, tenant, me, key, hash, res)) return;
   const item = await store.getItem(sql, tenant.id, input.itemId);
   if (!item || item.archivedAt) return res.status(404).json({ error: item ? 'item_archived' : 'item_not_found' });
 
@@ -625,11 +702,11 @@ async function move(sql, tenant, me, req, body, res) {
     let sizeMilli = null;
     if (input.pack.source === 'identifier') {
       const idf = item.identifiers.find((i) => i.id === input.pack.identifierId && i.packSizeMilli);
-      if (!idf) return bad(res, 'pack_not_found');
+      if (!idf) return res.status(409).json({ error: 'pack_not_found' });
       unitName = idf.packUnit;
       sizeMilli = idf.packSizeMilli;
     } else if (input.pack.source === 'default') {
-      if (!item.defaultPack) return bad(res, 'pack_not_found');
+      if (!item.defaultPack) return res.status(409).json({ error: 'pack_not_found' });
       unitName = item.defaultPack.unit;
       sizeMilli = item.defaultPack.sizeMilli;
     } else {
@@ -637,6 +714,11 @@ async function move(sql, tenant, me, req, body, res) {
       if (s.error) return bad(res, s.error, { field: 'pack.size' });
       unitName = input.pack.unit;
       sizeMilli = s.milli;
+    }
+    // The worker confirmed "N boxes of the size on the screen": if the office has
+    // changed that size since, ask again — never record a different quantity.
+    if (input.pack.source !== 'custom' && input.pack.sizeMilli !== sizeMilli) {
+      return res.status(409).json({ error: 'pack_changed', pack: { unit: unitName, sizeMilli } });
     }
     const total = Q.packTotalMilli(input.packCount, sizeMilli, item.baseUnit);
     if (total.error) return bad(res, total.error);
@@ -651,7 +733,6 @@ async function move(sql, tenant, me, req, body, res) {
   const jobRef = await resolveJob(input.jobId, me);
   if (jobRef.error) return bad(res, jobRef.error);
 
-  const actor = actorOf(me);
   const result = await store.recordMovement(sql, tenant.id, {
     itemId: item.id,
     kind: input.kind,
@@ -663,7 +744,7 @@ async function move(sql, tenant, me, req, body, res) {
     note: input.note,
     actor,
     idempotencyKey: key,
-    requestHash: requestHash('move', { itemId: item.id, kind: input.kind, quantityMilli, pack, jobId: jobRef.job ? jobRef.job.id : null, note: input.note, estimated: input.estimated === true, actorId: actor.id }),
+    requestHash: hash,
   });
   if (result.error === 'insufficient_stock') {
     return res.status(409).json({ error: 'insufficient_stock', balanceMilli: result.balanceMilli, unit: result.unit, requestedMilli: result.requestedMilli, recorded: Q.formatQuantity(result.balanceMilli, result.unit) });
@@ -682,11 +763,13 @@ async function count(sql, tenant, me, req, body, res) {
   if (!key) return;
   const input = parseOr400(CountBody, body, res);
   if (!input) return;
+  const actor = actorOf(me);
+  const hash = requestHash('count', { ...input, actorId: actor.id });
+  if (await answeredByReplay(sql, tenant, me, key, hash, res)) return;
   const item = await store.getItem(sql, tenant.id, input.itemId);
   if (!item || item.archivedAt) return res.status(404).json({ error: item ? 'item_archived' : 'item_not_found' });
   const counted = Q.parseQuantity(input.countedQuantity, item.baseUnit, { allowZero: true });
   if (counted.error) return bad(res, counted.error, { field: 'countedQuantity' });
-  const actor = actorOf(me);
   const result = await store.recordCount(sql, tenant.id, {
     itemId: item.id,
     countedMilli: counted.milli,
@@ -695,7 +778,7 @@ async function count(sql, tenant, me, req, body, res) {
     estimated: input.estimated === true,
     actor,
     idempotencyKey: key,
-    requestHash: requestHash('count', { itemId: item.id, countedMilli: counted.milli, expectedVersion: input.expectedVersion, reason: input.reason, estimated: input.estimated === true, actorId: actor.id }),
+    requestHash: hash,
   });
   if (result.error === 'stock_changed') {
     return res.status(409).json({ error: 'stock_changed', currentVersion: result.currentVersion, balanceMilli: result.balanceMilli, since: result.since });
@@ -715,10 +798,12 @@ async function undo(sql, tenant, me, req, body, res) {
   const input = parseOr400(UndoBody, body, res);
   if (!input) return;
   const actor = actorOf(me);
+  const hash = requestHash('undo', { movementId: input.movementId, reason: input.reason, actorId: actor.id });
+  if (await answeredByReplay(sql, tenant, me, key, hash, res)) return;
   const result = await store.reverseMovement(
     sql,
     tenant.id,
-    { movementId: input.movementId, reason: input.reason, actor, idempotencyKey: key, requestHash: requestHash('undo', { movementId: input.movementId, reason: input.reason, actorId: actor.id }) },
+    { movementId: input.movementId, reason: input.reason, actor, idempotencyKey: key, requestHash: hash },
     (movement) => policy.undoDenial(movement, me, { nowMs: Date.now(), reason: input.reason }),
   );
   if (result.error === 'movement_not_found') return res.status(404).json({ error: 'movement_not_found' });
@@ -809,6 +894,7 @@ async function identifier(sql, tenant, me, req, body, res) {
   if (!input) return;
   const item = await store.getItem(sql, tenant.id, input.itemId);
   if (!item) return res.status(404).json({ error: 'item_not_found' });
+  if (item.archivedAt) return res.status(409).json({ error: 'item_archived' });
   const idf = codes.identifierFor(input.kind, input.value, { brand: item.brand, supplier: input.supplierName || item.supplierName });
   if (idf.error) return bad(res, idf.error);
   if ((input.packUnit && input.packSize === undefined) || (!input.packUnit && input.packSize !== undefined)) return bad(res, 'pack_incomplete');
@@ -818,7 +904,7 @@ async function identifier(sql, tenant, me, req, body, res) {
     idf.packUnit = input.packUnit;
     idf.packSizeMilli = s.milli;
   }
-  const r = await store.addIdentifier(sql, tenant.id, item.id, idf, actorOf(me));
+  const r = await store.addIdentifier(sql, tenant.id, item.id, { ...idf, supplierName: input.supplierName || null }, actorOf(me));
   if (r.error === 'identifier_in_use') return res.status(409).json({ error: 'identifier_in_use', existing: r.existing || [] });
   if (r.error) return res.status(409).json({ error: r.error });
   await journal(me, 'workshop_stock.identifier_added', item.id, `Added ${input.kind.replace('_', ' ')} ${idf.value} to ${item.name}`, { kind: input.kind, value: idf.value });
@@ -831,10 +917,12 @@ async function archive(sql, tenant, me, body, res, archived) {
   if (!input) return;
   const r = await store.setArchived(sql, tenant.id, input.itemId, archived, actorOf(me));
   if (r.error) return res.status(r.error === 'item_not_found' ? 404 : 409).json({ error: r.error });
+  const codesNotRestored = r.codesNotRestored || [];
   if (!r.unchanged) {
-    await journal(me, archived ? 'workshop_stock.item_archived' : 'workshop_stock.item_restored', input.itemId, `${archived ? 'Archived' : 'Restored'} ${r.item.name}`, {});
+    await journal(me, archived ? 'workshop_stock.item_archived' : 'workshop_stock.item_restored', input.itemId, `${archived ? 'Archived' : 'Restored'} ${r.item.name}`,
+      codesNotRestored.length ? { codesNotRestored: codesNotRestored.map((c) => c.value) } : {});
   }
-  return res.status(200).json({ item: r.item, unchanged: r.unchanged === true });
+  return res.status(200).json({ item: r.item, unchanged: r.unchanged === true, codesNotRestored });
 }
 
 async function itemPhoto(sql, tenant, me, body, res) {
@@ -853,11 +941,15 @@ async function verify(sql, tenant, me, body, res) {
   if (!input) return;
   const item = await store.getItem(sql, tenant.id, input.itemId);
   if (!item) return res.status(404).json({ error: 'item_not_found' });
+  if (item.archivedAt) return res.status(409).json({ error: 'item_archived' });
   if (!item.manufacturerCode) return res.status(409).json({ error: 'no_code' });
-  const cached = await store.getCachedLookup(sql, tenant.id, codes.brandKey(item.brand) || '', codes.codeKey(item.manufacturerCode));
+  // The check for exactly this item (its brand, code, colour and size words) —
+  // what the office's "Check online" asked for.
+  const key = codes.lookupKey({ brand: item.brand, manufacturerCode: item.manufacturerCode, colourFinish: item.colourFinish, variantDetails: item.variant });
+  const cached = key ? await store.getCachedLookup(sql, tenant.id, key) : null;
   const v = verificationFromLookup(cached);
   const r = await store.recordVerification(sql, tenant.id, item.id, { status: v ? v.status : 'unverified', verification: v ? v.detail : null, actor: actorOf(me) });
-  if (r.error) return res.status(404).json({ error: r.error });
+  if (r.error) return res.status(r.error === 'item_not_found' ? 404 : 409).json({ error: r.error });
   await journal(me, 'workshop_stock.verification_recorded', item.id, `Recorded the online check for ${item.name}: ${v ? v.status : 'unverified'}`, { status: v ? v.status : 'unverified' });
   return res.status(200).json({ item: await store.getItem(sql, tenant.id, item.id) });
 }
@@ -895,9 +987,8 @@ async function handler(req, res) {
       case 'list': return list(sql, tenant, me, req, res);
       case 'item': return itemDetail(sql, tenant, me, String(q.id || ''), res);
       case 'history': return history(sql, tenant, me, q, res);
-      case 'recent': return recent(sql, tenant, me, res);
       case 'operation': return operation(sql, tenant, me, q.key, res);
-      case 'photo': return servePhoto(sql, tenant, me, String(q.id || ''), res);
+      case 'photo': return servePhoto(sql, tenant, me, String(q.id || ''), String(q.size || ''), res);
       default: return res.status(400).json({ error: 'unknown_action' });
     }
   }

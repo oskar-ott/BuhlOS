@@ -136,13 +136,13 @@ export const ItemDetailSchema = z.object({
 });
 export type ItemDetail = z.infer<typeof ItemDetailSchema>;
 
-export const RecentSchema = z.object({ movements: z.array(MovementSchema), undoMinutes: z.number() });
-
 export const WriteResultSchema = z.object({
   item: StockItemSchema,
   movement: MovementSchema,
   replayed: z.boolean().optional(),
   photoAttached: z.boolean().optional(),
+  /** create only: the code status the server actually recorded */
+  verificationStatus: z.enum(VERIFICATION_STATUSES).optional(),
 });
 export type WriteResult = z.infer<typeof WriteResultSchema>;
 
@@ -152,7 +152,12 @@ export const OperationSchema = z.object({
   item: StockItemSchema.optional(),
 });
 
-export const ItemOnlySchema = z.object({ item: StockItemSchema, unchanged: z.boolean().optional() });
+export const ItemOnlySchema = z.object({
+  item: StockItemSchema,
+  unchanged: z.boolean().optional(),
+  /** restore only: codes another item holds now, so this one came back without them */
+  codesNotRestored: z.array(z.object({ kind: z.string(), value: z.string(), heldBy: z.string().nullable() })).optional(),
+});
 
 /** One product as read from a photo — image-derived, never confirmed. */
 export const ReadProductSchema = z.object({
@@ -232,6 +237,12 @@ export const LookupResultSchema = z
     sources: z.array(z.object({ url: z.string(), title: z.string().nullable().optional(), domain: z.string(), kind: z.string(), opened: z.boolean(), verdict: z.string(), error: z.string().nullable().optional() })).default([]),
     checkedAt: z.string().optional(),
     cached: z.boolean().optional(),
+    /** a no-match from a search that couldn't open every page it found */
+    incomplete: z.boolean().optional(),
+    /** exactly what was checked — named back on save (lookupCheck) */
+    check: z
+      .object({ brand: z.string().nullable(), manufacturerCode: z.string(), colourFinish: z.string().nullable(), variantDetails: z.array(z.string()) })
+      .optional(),
   })
   .passthrough();
 export type LookupResult = z.infer<typeof LookupResultSchema>;

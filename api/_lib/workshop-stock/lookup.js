@@ -10,8 +10,11 @@
 // Result statuses (what the worker sees):
 //   manufacturer_code_matched  a retrieved page confirms the exact code
 //   possible_match             evidence, but something is unconfirmed or conflicts
-//   no_match                   nothing found for this code
-//   unavailable                the search/pages couldn't be reached right now
+//   no_match                   nothing found for this code (a result that couldn't
+//                              open every page it wanted is marked incomplete and
+//                              is not cached)
+//   unavailable                the search, or every page it found, couldn't be
+//                              reached right now — never cached, never "no match"
 //   not_configured             no search provider configured (ANTHROPIC_API_KEY)
 //   not_checked                no usable code to check against
 // Every failure is a status, never an exception: a lookup can only ever ADD
@@ -139,14 +142,26 @@ async function lookupProduct(wanted, deps) {
   const ranked = rows.filter((r) => r.result && r.verdict !== 'no_match')
     .sort((a, b) => (RANK[b.verdict] - RANK[a.verdict]) || (Number(b.opened) - Number(a.opened)) || (Number(b.kind === 'manufacturer') - Number(a.kind === 'manufacturer')));
   if (!ranked.length) {
-    const anyOpened = rows.some((r) => r.opened);
+    // Pages that couldn't be opened prove nothing: with none opened this is not
+    // a "no match" (which would be cached for days) — it's "couldn't check".
+    if (!rows.some((r) => r.opened)) {
+      return {
+        ...base,
+        status: 'unavailable',
+        reasons: ['Found listings but couldn\'t open them to check the code — save it and check later'],
+        candidate: null,
+        sources: summarise(rows),
+        searches: found.searches || 0,
+      };
+    }
     return {
       ...base,
       status: 'no_match',
-      reasons: [anyOpened ? 'The pages found don\'t show this exact code' : 'Listings were found but couldn\'t be opened to check the code'],
+      reasons: ['The pages found don\'t show this exact code'],
       candidate: null,
       sources: summarise(rows),
       searches: found.searches || 0,
+      incomplete: rows.some((r) => r.error),
     };
   }
 

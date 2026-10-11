@@ -9,7 +9,7 @@ import { describe, expect, it, vi } from "vitest";
  *     is cleaned or refused, never acted on; nothing counts objects
  */
 const requireFromHere = createRequire(import.meta.url);
-const { identify, findDuplicates } = requireFromHere("../../../api/_lib/workshop-stock/match.js");
+const { identify } = requireFromHere("../../../api/_lib/workshop-stock/match.js");
 const codes = requireFromHere("../../../api/_lib/workshop-stock/codes.js");
 
 function item(id: string, over: Record<string, unknown>, ids: Array<[string, string, Record<string, unknown>?]> = []) {
@@ -90,10 +90,33 @@ describe("identify — which of OUR items is in the photo", () => {
     expect(identify({ manufacturerCode: "OLD1", brand: "Clipsal" }, CATALOGUE).outcome).toBe("none");
   });
 
-  it("finds the existing owner of a code before a duplicate is created", () => {
-    expect(findDuplicates({ brand: "Clipsal", manufacturerCode: "2025 we" }, CATALOGUE)).toEqual([{ itemId: "gpo-white", kind: "manufacturer_code", value: "2025WE" }]);
-    expect(findDuplicates({ brand: "HPM", manufacturerCode: "2025WE" }, CATALOGUE)).toEqual([]);
-    expect(findDuplicates({ barcode: "4006381333931" }, CATALOGUE)[0].itemId).toBe("gpo-white");
+  it("compares descriptions in trade names: a 'power point' box finds the GPO, 'twin & earth' finds TPS — as candidates only", () => {
+    const shelf = [
+      item("gpo", { name: "Clipsal double GPO", brand: "Clipsal", colourFinish: "white" }),
+      item("tps", { name: "TPS 2.5mm 2C+E", brand: "Olex" }),
+      item("rcd", { name: "RCD 2 pole 40A", brand: "Clipsal" }),
+    ];
+    const gpo = identify({ brand: "Clipsal", description: "Double switched socket outlet", colourFinish: "white" }, shelf);
+    expect(gpo.outcome).toBe("candidates"); // words alone are never "exact"
+    expect(gpo.candidates[0]).toMatchObject({ itemId: "gpo", evidence: "description" });
+    expect(identify({ description: "Twin & Earth cable 2.5mm", brand: "Olex" }, shelf).candidates[0]).toMatchObject({ itemId: "tps" });
+    expect(identify({ description: "Safety switch 40A 2 pole", brand: "Clipsal" }, shelf).candidates[0]).toMatchObject({ itemId: "rcd" });
+  });
+});
+
+describe("trade names", () => {
+  const { canonicalWords } = requireFromHere("../../../api/_lib/workshop-stock/trade-terms.js");
+
+  it("folds what electricians call the same thing to one word, and plurals to singular", () => {
+    expect(canonicalWords("Clipsal double power points")).toEqual(["clipsal", "double", "gpo"]);
+    expect(canonicalWords("Switched Socket Outlet 10A")).toEqual(["gpo", "10a"]);
+    expect(canonicalWords("T&E 2.5")).toEqual(["tps", "2", "5"]);
+    expect(canonicalWords("twin and earth")).toEqual(["tps"]);
+    expect(canonicalWords("twin GPO")).toEqual(["double", "gpo"]); // "twin" alone is a double
+    expect(canonicalWords("Circuit breakers")).toEqual(["mcb"]);
+    expect(canonicalWords("Junction boxes")).toEqual(["jb"]);
+    expect(canonicalWords("brass glands, switches")).toEqual(["brass", "gland", "switch"]);
+    expect(canonicalWords("")).toEqual([]);
   });
 });
 

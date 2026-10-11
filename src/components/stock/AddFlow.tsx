@@ -3,9 +3,9 @@
 import { useState } from "react";
 import { Loader2, PencilLine, Search } from "lucide-react";
 import { PhilNotice } from "@/components/phil/ui/PhilNotice";
-import { newOperationKey, readPhoto, undoMovement } from "@/domains/workshop-stock/client";
-import { balanceLabel, errorCopy, EVIDENCE_LABEL, matchedInWorkshop, READ_STATUS_COPY } from "@/domains/workshop-stock/format";
-import { decideRead, productLabel, type ReadOutcome } from "@/domains/workshop-stock/flow";
+import { readPhoto } from "@/domains/workshop-stock/client";
+import { errorCopy, EVIDENCE_LABEL, matchedInWorkshop, READ_STATUS_COPY, recordedNow } from "@/domains/workshop-stock/format";
+import { decideRead, freshestItem, productLabel, type ReadOutcome } from "@/domains/workshop-stock/flow";
 import type { CandidateItem, ReadPhotoResult, ReadProduct, StockItem, WriteResult } from "@/domains/workshop-stock/schema";
 import { FlowSheet } from "./FlowSheet";
 import { ItemPicker } from "./ItemPicker";
@@ -13,6 +13,7 @@ import { MoveConfirm, type MoveItem } from "./MoveConfirm";
 import { NewItemForm, type NewItemSeed } from "./NewItemForm";
 import { PhotoCapture } from "./PhotoCapture";
 import { StockItemRow } from "./StockItemRow";
+import { UndoControl } from "./UndoControl";
 
 type Step =
   | { s: "photo" }
@@ -44,50 +45,53 @@ export function AddFlow({
 }: {
   items: StockItem[];
   capabilities: { photoRead: boolean; lookup: boolean };
-  seed?: { dataUrl: string | null; product: ReadProduct | null } | null;
+  seed?: { dataUrl: string | null; thumbDataUrl?: string | null; product: ReadProduct | null } | null;
   onSaved: (r: WriteResult) => void;
   onClose: () => void;
 }) {
   const [step, setStep] = useState<Step>(() =>
-    seed ? { s: "new", seed: { product: seed.product, photoId: null, dataUrl: seed.dataUrl }, formKey: 1 } : capabilities.photoRead ? { s: "photo" } : { s: "new", seed: { product: null, photoId: null, dataUrl: null }, formKey: 1 },
+    seed ? { s: "new", seed: { product: seed.product, photoId: null, dataUrl: seed.dataUrl, thumbDataUrl: seed.thumbDataUrl ?? null }, formKey: 1 } : capabilities.photoRead ? { s: "photo" } : { s: "new", seed: { product: null, photoId: null, dataUrl: null }, formKey: 1 },
   );
   const [dataUrl, setDataUrl] = useState<string | null>(null);
+  const [thumbDataUrl, setThumbDataUrl] = useState<string | null>(null);
   const [dark, setDark] = useState(false);
   const [read, setRead] = useState<ReadPhotoResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lastSaved, setLastSaved] = useState<WriteResult | null>(null);
-  const [undoState, setUndoState] = useState<"idle" | "undoing" | "undone">("idle");
-  const [undoError, setUndoError] = useState<string | null>(null);
+  const [undone, setUndone] = useState<WriteResult | null>(null);
 
+  // The list's copy or the one the photo read just returned, whichever is newer
+  // (the confirm screen re-reads it from the server either way).
   function asMoveItem(c: CandidateItem | StockItem): MoveItem {
-    const full = items.find((i) => i.id === c.id);
-    return { ...(full ?? c), identifiers: (full ?? c).identifiers } as MoveItem;
+    const pick = freshestItem<CandidateItem | StockItem>(items.find((i) => i.id === c.id), c);
+    return { ...pick, identifiers: pick.identifiers } as MoveItem;
   }
 
   function newSeed(product: ReadProduct | null): NewItemSeed {
-    return { product, photoId: read?.photoId ?? null, dataUrl };
+    return { product, photoId: read?.photoId ?? null, dataUrl, thumbDataUrl };
   }
 
-  async function onPhoto(url: string, isDark: boolean) {
+  async function onPhoto(url: string, isDark: boolean, thumb: string | null) {
     setDataUrl(url);
+    setThumbDataUrl(thumb);
     setDark(isDark);
     setError(null);
     setStep({ s: "reading" });
-    const r = await readPhoto(url, "add");
+    const r = await readPhoto(url, "add", thumb);
     if (!r.ok) {
       setError(errorCopy(r.error.status, r.error.body, "Couldn't read the photo. Enter it by hand, or try again."));
       setStep({ s: "photo" });
       return;
     }
     setRead(r.data);
-    route(r.data, null, url);
+    route(r.data, null, url, thumb);
   }
 
-  function route(result: ReadPhotoResult, chosen: number | null, url: string | null = dataUrl) {
+  function route(result: ReadPhotoResult, chosen: number | null, url: string | null = dataUrl, thumb: string | null = thumbDataUrl) {
     const outcome = decideRead(result, chosen);
     if (outcome.kind === "none") {
       const product = result.reading?.products[outcome.productIndex] ?? null;
-      setStep({ s: "new", seed: { product, photoId: result.photoId, dataUrl: url }, formKey: Date.now() });
+      setStep({ s: "new", seed: { product, photoId: result.photoId, dataUrl: url, thumbDataUrl: thumb }, formKey: Date.now() });
       return;
     }
     setStep({ s: "outcome", outcome });
@@ -95,8 +99,7 @@ export function AddFlow({
 
   function saved(r: WriteResult, again: boolean) {
     setLastSaved(r);
-    setUndoState("idle");
-    setUndoError(null);
+    setUndone(null);
     onSaved(r);
     if (!again) {
       // the list screen shows what was saved, with its Undo
@@ -104,36 +107,19 @@ export function AddFlow({
       return;
     }
     setDataUrl(null);
+    setThumbDataUrl(null);
     setRead(null);
     setStep(capabilities.photoRead ? { s: "photo" } : { s: "new", seed: { product: null, photoId: null, dataUrl: null }, formKey: Date.now() });
-  }
-
-  async function undoLast() {
-    if (!lastSaved) return;
-    setUndoState("undoing");
-    const r = await undoMovement({ movementId: lastSaved.movement.id }, newOperationKey());
-    if (r.ok) {
-      setUndoState("undone");
-      onSaved(r.data);
-      return;
-    }
-    setUndoState("idle");
-    setUndoError(errorCopy(r.error.status, r.error.body));
   }
 
   const back = step.s !== "photo" && step.s !== "reading" ? () => { setError(null); setStep({ s: "photo" }); } : null;
   const banner = lastSaved ? (
     <div className="space-y-2" data-testid="stock-add-saved">
-      <PhilNotice tone="success" title={undoState === "undone" ? "Undone" : "Saved"}>
-        {lastSaved.item.name} — {balanceLabel(undoState === "undone" ? { ...lastSaved.item, balanceMilli: lastSaved.item.balanceMilli - lastSaved.movement.quantityMilli } : lastSaved.item)} recorded{lastSaved.item.location ? ` at ${lastSaved.item.location}` : ""}.
-        {lastSaved.photoAttached === false ? " The photo couldn't be attached." : ""}
+      <PhilNotice tone="success" title={undone ? "Undone" : "Saved"}>
+        {lastSaved.item.name} — {recordedNow(undone ? undone.item : lastSaved.item, lastSaved.item.location)}.
+        {lastSaved.photoAttached === false ? <span data-testid="stock-add-photo-missing"> The photo couldn&rsquo;t be attached — the office can add one later.</span> : null}
       </PhilNotice>
-      {undoState !== "undone" && lastSaved.movement.undo?.allowed ? (
-        <button type="button" onClick={() => void undoLast()} disabled={undoState === "undoing"} className="min-h-[48px] w-full rounded-card border-2 border-brand-navy font-semibold text-brand-navy" data-testid="stock-add-undo">
-          {undoState === "undoing" ? "Undoing…" : "Undo that"}
-        </button>
-      ) : null}
-      {undoError ? <PhilNotice tone="danger" role="alert">{undoError}</PhilNotice> : null}
+      {!undone ? <UndoControl movement={lastSaved.movement} label="Undo that" onUndone={(r) => { setUndone(r); onSaved(r); }} testId="stock-add-undo" /> : null}
     </div>
   ) : null;
 
@@ -143,7 +129,7 @@ export function AddFlow({
         <>
           {banner}
           {capabilities.photoRead ? (
-            <PhotoCapture guidance={GUIDANCE} onPhoto={(u, d) => void onPhoto(u, d)} previewUrl={null} />
+            <PhotoCapture guidance={GUIDANCE} onPhoto={(u, d, t) => void onPhoto(u, d, t)} previewUrl={null} />
           ) : (
             <PhilNotice tone="info">Photo reading isn&rsquo;t set up — enter the item by hand.</PhilNotice>
           )}

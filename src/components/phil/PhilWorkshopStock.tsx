@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { PackageMinus, PackagePlus, Search, Undo2, X } from "lucide-react";
+import { PackageMinus, PackagePlus, Search, X } from "lucide-react";
 import { PhilNotice } from "./ui/PhilNotice";
 import { PhilPageIntro } from "./ui/PhilPageIntro";
 import { PhilSkeleton } from "./ui/PhilSkeleton";
@@ -11,15 +11,16 @@ import { AddFlow } from "@/components/stock/AddFlow";
 import { StockItemRow } from "@/components/stock/StockItemRow";
 import { StockItemSheet } from "@/components/stock/StockItemSheet";
 import { TakeFlow } from "@/components/stock/TakeFlow";
-import { createItem, fetchOperation, fetchStockList, newOperationKey, recordMove, undoMovement, type CreateInput, type MoveInput } from "@/domains/workshop-stock/client";
-import { balanceLabel, errorCopy, matchesSearch, movementSummary } from "@/domains/workshop-stock/format";
-import { clearPending, readPending, setPendingOwner, type PendingSave } from "@/domains/workshop-stock/pending";
+import { UndoControl } from "@/components/stock/UndoControl";
+import { createItem, fetchOperation, fetchStockList, recordMove, type CreateInput, type MoveInput } from "@/domains/workshop-stock/client";
+import { errorCopy, matchesSearch, movementSummary, recordedNow } from "@/domains/workshop-stock/format";
+import { clearPending, definitelyNotSaved, isUncertain, readPending, setPendingOwner, type PendingSave } from "@/domains/workshop-stock/pending";
 import type { ReadProduct, StockItem, StockList, WriteResult } from "@/domains/workshop-stock/schema";
 
 type Flow =
   | { kind: "take" }
   | { kind: "return" }
-  | { kind: "add"; seed?: { dataUrl: string | null; product: ReadProduct | null } | null }
+  | { kind: "add"; seed?: { dataUrl: string | null; thumbDataUrl?: string | null; product: ReadProduct | null } | null }
   | { kind: "item"; item: StockItem };
 
 type Reconcile =
@@ -33,6 +34,10 @@ type Reconcile =
  * buttons over a searchable list of what's recorded and where it lives. Return
  * and per-item actions sit one tap down. Recorded stock is labelled as recorded
  * (P7): the shelf is the truth, the list is the log of it.
+ *
+ * Saves whose answer never arrived are checked with the server — every one of
+ * them, when the screen opens, when a sheet closes, and when the phone comes
+ * back to the app (the list is re-read then too, so balances aren't hours old).
  */
 export function PhilWorkshopStock() {
   const [list, setList] = useState<StockList | null>(null);
@@ -41,27 +46,50 @@ export function PhilWorkshopStock() {
   const [query, setQuery] = useState("");
   const [flow, setFlow] = useState<Flow | null>(null);
   const [last, setLast] = useState<WriteResult | null>(null);
-  const [lastUndo, setLastUndo] = useState<"idle" | "undoing" | "undone">("idle");
+  const [lastUndone, setLastUndone] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
-  const [reconcile, setReconcile] = useState<Reconcile | null>(null);
+  const [reconciles, setReconciles] = useState<Reconcile[]>([]);
+  const viewerRef = useRef<string | null>(null);
+  const checkingRef = useRef(false);
+  const recheckRef = useRef(false);
+  const flowOpenRef = useRef(false);
 
-  const checkPending = useCallback(async (viewerId: string) => {
-    const p = readPending(viewerId);
-    if (!p) return;
-    setReconcile({ p, status: "checking" });
-    const r = await fetchOperation(p.key);
-    if (!r.ok) { setReconcile({ p, status: "unknown" }); return; }
-    if (r.data.found && r.data.movement && r.data.item) {
-      clearPending();
-      setReconcile({ p, status: "saved", result: { item: r.data.item, movement: r.data.movement, replayed: true } });
+  // Ask the server about every save on this phone that never got its answer
+  // (they are only ever this viewer's). A save the server hasn't seen is only
+  // called "didn't go through" once it's old enough that it can't still land.
+  const checkPending = useCallback(async (): Promise<void> => {
+    const viewerId = viewerRef.current;
+    if (!viewerId) return;
+    if (checkingRef.current) {
+      // one is running: look again when it's done (a sheet may just have left a new one)
+      recheckRef.current = true;
       return;
     }
-    setReconcile({ p, status: "not_saved" });
+    const pending = readPending(viewerId);
+    if (!pending.length) {
+      setReconciles((rs) => rs.filter((r) => r.status === "saved"));
+      return;
+    }
+    checkingRef.current = true;
+    const keys = new Set(pending.map((p) => p.key));
+    setReconciles((rs) => [...rs.filter((r) => r.status === "saved" && !keys.has(r.p.key)), ...pending.map((p) => ({ p, status: "checking" as const }))]);
+    const results = await Promise.all(pending.map(async (p): Promise<Reconcile> => {
+      const r = await fetchOperation(p.key);
+      if (!r.ok) return { p, status: "unknown" };
+      if (r.data.found && r.data.movement && r.data.item) {
+        clearPending(p.key);
+        return { p, status: "saved", result: { item: r.data.item, movement: r.data.movement, replayed: true } };
+      }
+      return { p, status: definitelyNotSaved(p) ? "not_saved" : "unknown" };
+    }));
+    checkingRef.current = false;
+    setReconciles((rs) => [...rs.filter((r) => r.status === "saved" && !keys.has(r.p.key)), ...results]);
+    if (recheckRef.current) {
+      recheckRef.current = false;
+      await checkPending();
+    }
   }, []);
 
-  // A save left pending on this phone is checked after the first successful
-  // load — once we know who's looking (it is only ever theirs).
-  const reconciled = useRef(false);
   const load = useCallback(async () => {
     const r = await fetchStockList();
     setLoading(false);
@@ -69,10 +97,9 @@ export function PhilWorkshopStock() {
       setList(r.data);
       setLoadError(null);
       setPendingOwner(r.data.viewer.id);
-      if (!reconciled.current) {
-        reconciled.current = true;
-        void checkPending(r.data.viewer.id);
-      }
+      const first = viewerRef.current === null;
+      viewerRef.current = r.data.viewer.id;
+      if (first) void checkPending();
       return;
     }
     setLoadError(r.error.status === 401 ? "You've been signed out. Sign in again to see the workshop stock." : errorCopy(r.error.status, r.error.body, "Couldn't load workshop stock."));
@@ -80,36 +107,65 @@ export function PhilWorkshopStock() {
 
   useEffect(() => { void load(); }, [load]);
 
+  // Back in the app after a while (the phone slept, another app was open):
+  // re-read the list, and check any save still waiting for its answer.
+  useEffect(() => {
+    let lastRefresh = Date.now();
+    function onReturn() {
+      if (document.visibilityState !== "visible" || Date.now() - lastRefresh < 15_000) return;
+      lastRefresh = Date.now();
+      void load();
+      if (!flowOpenRef.current) void checkPending();
+    }
+    document.addEventListener("visibilitychange", onReturn);
+    window.addEventListener("focus", onReturn);
+    return () => {
+      document.removeEventListener("visibilitychange", onReturn);
+      window.removeEventListener("focus", onReturn);
+    };
+  }, [load, checkPending]);
+
   const items = useMemo(() => list?.items ?? [], [list]);
   const shown = useMemo(() => items.filter((i) => matchesSearch(i, query)), [items, query]);
 
   function saved(r: WriteResult) {
     setLast(r);
-    setLastUndo(r.movement.kind === "reversal" ? "undone" : "idle");
+    setLastUndone(r.movement.kind === "reversal");
     setLastError(null);
     void load();
   }
 
-  async function undoLast() {
-    if (!last) return;
-    setLastUndo("undoing");
-    const r = await undoMovement({ movementId: last.movement.id }, newOperationKey());
-    if (r.ok) { setLastUndo("undone"); setLast(r.data); void load(); return; }
-    setLastUndo("idle");
+  async function retryPending(p: PendingSave) {
+    setReconciles((rs) => rs.map((r) => (r.p.key === p.key ? { p, status: "retrying" } : r)));
+    const r = p.kind === "create" ? await createItem(p.request as unknown as CreateInput, p.key) : await recordMove(p.request as unknown as MoveInput, p.key);
+    if (r.ok) {
+      clearPending(p.key);
+      setReconciles((rs) => rs.filter((x) => x.p.key !== p.key));
+      saved(r.data);
+      return;
+    }
+    if (isUncertain(r.error.status, r.error.body)) {
+      setReconciles((rs) => rs.map((x) => (x.p.key === p.key ? { p, status: "unknown" } : x)));
+      return;
+    }
+    clearPending(p.key);
+    setReconciles((rs) => rs.filter((x) => x.p.key !== p.key));
     setLastError(errorCopy(r.error.status, r.error.body));
   }
 
-  async function retryPending(p: PendingSave) {
-    setReconcile({ p, status: "retrying" });
-    const r = p.kind === "create" ? await createItem(p.request as unknown as CreateInput, p.key) : await recordMove(p.request as unknown as MoveInput, p.key);
-    if (r.ok) { clearPending(); setReconcile(null); saved(r.data); return; }
-    if (r.error.status === 0 || r.error.status >= 500) { setReconcile({ p, status: "unknown" }); return; }
-    clearPending();
-    setReconcile(null);
-    setLastError(errorCopy(r.error.status, r.error.body));
+  function dismiss(p: PendingSave) {
+    clearPending(p.key);
+    setReconciles((rs) => rs.filter((x) => x.p.key !== p.key));
   }
 
   const flowOpen = flow !== null;
+  flowOpenRef.current = flowOpen;
+  // A sheet just closed: anything it left unanswered shows here now.
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (wasOpen.current && !flowOpen) void checkPending();
+    wasOpen.current = flowOpen;
+  }, [flowOpen, checkPending]);
   // ONE back-gesture guard for whichever stock sheet is open (P8): the phone's
   // back closes the sheet instead of leaving the page, and a hand-over between
   // sheets (take → "add it as new", item → take) keeps the same marker.
@@ -118,17 +174,15 @@ export function PhilWorkshopStock() {
     <div className="space-y-4 pb-6" data-testid="phil-workshop-stock">
       <PhilPageIntro title="Workshop stock" description="What we have in the workshop, and where it is." meta={list ? <span className="text-xs text-text-muted">{items.length} {items.length === 1 ? "item" : "items"}</span> : null} />
 
-      {reconcile ? <ReconcileNotice r={reconcile} onRetry={retryPending} onDismiss={() => { clearPending(); setReconcile(null); }} /> : null}
+      {reconciles.map((r) => <ReconcileNotice key={r.p.key} r={r} onRetry={retryPending} onDismiss={dismiss} />)}
 
       {last && !flowOpen ? (
         <div className="space-y-2" data-testid="stock-last-write">
-          <PhilNotice tone="success" title={lastUndo === "undone" ? "Undone" : movementSummary(last.movement, last.item.baseUnit)}>
-            {last.item.name} — {balanceLabel(last.item)} recorded now.
+          <PhilNotice tone="success" title={lastUndone ? "Undone" : movementSummary(last.movement, last.item.baseUnit)}>
+            {last.item.name} — {recordedNow(last.item)}.
           </PhilNotice>
-          {lastUndo !== "undone" && last.movement.kind !== "reversal" && last.movement.undo?.allowed ? (
-            <button type="button" onClick={() => void undoLast()} disabled={lastUndo === "undoing"} className="flex min-h-[48px] w-full items-center justify-center gap-2 rounded-card border-2 border-brand-navy font-semibold text-brand-navy" data-testid="stock-last-undo">
-              <Undo2 aria-hidden="true" className="h-4 w-4" /> {lastUndo === "undoing" ? "Undoing…" : "Undo"}
-            </button>
+          {!lastUndone && last.movement.kind !== "reversal" ? (
+            <UndoControl key={last.movement.id} movement={last.movement} onUndone={(r) => { setLast(r); setLastUndone(true); void load(); }} testId="stock-last-undo" />
           ) : null}
           {lastError ? <PhilNotice tone="danger" role="alert">{lastError}</PhilNotice> : null}
         </div>
@@ -200,28 +254,29 @@ export function PhilWorkshopStock() {
   );
 }
 
-function ReconcileNotice({ r, onRetry, onDismiss }: { r: Reconcile; onRetry: (p: PendingSave) => void; onDismiss: () => void }) {
+function ReconcileNotice({ r, onRetry, onDismiss }: { r: Reconcile; onRetry: (p: PendingSave) => void; onDismiss: (p: PendingSave) => void }) {
   const what = `${r.p.kind === "create" ? "new item" : r.p.kind} of ${r.p.quantityLabel} ${r.p.kind === "create" ? `(${r.p.itemName})` : `· ${r.p.itemName}`}`;
   if (r.status === "checking" || r.status === "retrying") {
-    return <PhilNotice tone="info" title="Checking your last save…">Your {what}.</PhilNotice>;
+    return <PhilNotice tone="info" title="Checking a save…">Your {what}.</PhilNotice>;
   }
   if (r.status === "saved") {
     return (
-      <div data-testid="stock-reconcile-saved">
-        <PhilNotice tone="success" title="Your last save went through">
-          {movementSummary(r.result.movement, r.result.item.baseUnit)} · {r.result.item.name} — {balanceLabel(r.result.item)} recorded now.
+      <div className="space-y-1" data-testid="stock-reconcile-saved">
+        <PhilNotice tone="success" title="Your save went through">
+          {movementSummary(r.result.movement, r.result.item.baseUnit)} · {r.result.item.name} — {recordedNow(r.result.item)}.
         </PhilNotice>
+        <button type="button" onClick={() => onDismiss(r.p)} className="min-h-[44px] text-sm font-semibold text-brand-navy" data-testid="stock-reconcile-ok">OK</button>
       </div>
     );
   }
   return (
     <div className="space-y-2" data-testid="stock-reconcile-pending" data-status={r.status}>
-      <PhilNotice tone="warning" title={r.status === "not_saved" ? "Your last save didn't go through" : "Can't confirm your last save yet"}>
-        Your {what}. {r.status === "not_saved" ? "Save it now, or discard it." : "No signal — try again; it won't double up."}
+      <PhilNotice tone="warning" title={r.status === "not_saved" ? "A save didn't go through" : "Can't confirm a save yet"}>
+        Your {what}. {r.status === "not_saved" ? "Save it now, or discard it." : "Not confirmed yet — try again; it won't double up."}
       </PhilNotice>
       <div className="grid grid-cols-2 gap-2">
         <button type="button" onClick={() => onRetry(r.p)} className="min-h-[48px] rounded-card bg-accent-yellow px-3 font-semibold text-brand-navy" data-testid="stock-reconcile-retry">{r.status === "not_saved" ? "Save it now" : "Try again"}</button>
-        <button type="button" onClick={onDismiss} className="min-h-[48px] rounded-card border border-border-strong px-3 font-semibold text-text" data-testid="stock-reconcile-dismiss">Discard</button>
+        <button type="button" onClick={() => onDismiss(r.p)} className="min-h-[48px] rounded-card border border-border-strong px-3 font-semibold text-text" data-testid="stock-reconcile-dismiss">Discard</button>
       </div>
     </div>
   );

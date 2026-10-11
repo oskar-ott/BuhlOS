@@ -149,6 +149,23 @@ describe("lookupProduct — orchestration and honest failure", () => {
     expect(r).toMatchObject({ status: "no_match", candidate: null });
   });
 
+  it("listings it couldn't open prove nothing: 'unavailable' (not a cached no-match); a partly-opened no-match is marked incomplete", async () => {
+    const search = vi.fn().mockResolvedValue({ listings: [listing("https://www.rexel.com.au/p/x1", "Some other product"), listing("https://www.clipsal.com/p/x2", "Another product")] });
+    const blocked = vi.fn().mockRejectedValue(Object.assign(new Error("blocked"), { code: "http_status" }));
+    const none = await lookupProduct(WANT, { search, fetchPage: blocked });
+    expect(none).toMatchObject({ status: "unavailable", candidate: null });
+    expect(none.reasons[0]).toMatch(/couldn't open/);
+    const other = page({ title: "Clipsal 3000 series", jsonld: { "@type": "Product", name: "Light switch", brand: "Clipsal", mpn: "30MBPR" } });
+    const half = vi.fn(async (url: string) => {
+      if (url.includes("rexel")) throw Object.assign(new Error("timeout"), { code: "timeout" });
+      return { finalUrl: url, source: sourceForHost(new URL(url).hostname), body: other };
+    });
+    const partial = await lookupProduct(WANT, { search, fetchPage: half });
+    expect(partial).toMatchObject({ status: "no_match", incomplete: true });
+    const allOpened = await lookupProduct(WANT, { search, fetchPage: vi.fn(async (url: string) => ({ finalUrl: url, source: sourceForHost(new URL(url).hostname), body: other })) });
+    expect(allOpened).toMatchObject({ status: "no_match", incomplete: false });
+  });
+
   it("only allowlisted https images reach the browser; tracking noise is stripped", () => {
     expect(safeImageUrl("https://cdn.evil.example/a.jpg", "https://www.clipsal.com/x")).toBeNull();
     expect(safeImageUrl("javascript:alert(1)", "https://www.clipsal.com/x")).toBeNull();

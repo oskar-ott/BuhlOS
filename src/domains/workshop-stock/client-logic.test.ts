@@ -1,8 +1,13 @@
+import { createRequire } from "node:module";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { balanceLabel, errorCopy, formatQuantity, matchesSearch, movementSummary, parseTypedQuantity, signedQuantity } from "./format";
-import { decideRead, packSuggestion, stepQuantity, suggestName } from "./flow";
-import { clearPending, isUncertain, readPending, rememberPending, setPendingOwner } from "./pending";
+import { balanceLabel, errorCopy, formatQuantity, matchesSearch, movementSummary, parseTypedQuantity, photoUrl, recordedNow, signedQuantity, unitHint } from "./format";
+import { decideRead, freshestItem, packSuggestion, stepQuantity, suggestName } from "./flow";
+import { clearAllPending, clearPending, definitelyNotSaved, isUncertain, readPending, rememberPending, setPendingOwner } from "./pending";
+import * as check from "./check";
+import * as tradeTerms from "./trade-terms";
 import type { ReadPhotoResult, ReadProduct } from "./schema";
+
+const requireFromHere = createRequire(import.meta.url);
 
 /**
  * Workshop Stock — the pure client decisions behind the phone screens.
@@ -87,6 +92,20 @@ describe("search and failure copy", () => {
     expect(matchesSearch(item, "black")).toBe(false);
     expect(matchesSearch(item, "")).toBe(true);
   });
+  it("finds things by the trade name a worker types, whatever name they were saved under", () => {
+    expect(matchesSearch(item, "power point")).toBe(true);
+    expect(matchesSearch(item, "double power points")).toBe(true);
+    expect(matchesSearch(item, "twin socket outlet")).toBe(true);
+    expect(matchesSearch(item, "safety switch")).toBe(false);
+    const listed = { ...item, name: "Clipsal Iconic Double Switched Socket Outlet", verificationStatus: "manufacturer_code_matched" as const, verification: null };
+    expect(matchesSearch(listed, "double gpo")).toBe(true);
+    const tps = { ...item, name: "Twin and earth 2.5mm", supplierSku: null, manufacturerCode: null, identifiers: [] };
+    expect(matchesSearch(tps, "tps 2.5")).toBe(true);
+    // a confirmed listing's product name is searchable; an unconfirmed one isn't
+    const named = { ...item, name: "Double GPO", verificationStatus: "manufacturer_code_matched" as const, verification: { productName: "Iconic Essence Switched Socket" } };
+    expect(matchesSearch(named, "essence")).toBe(true);
+    expect(matchesSearch({ ...named, verificationStatus: "possible_match" as const }, "essence")).toBe(false);
+  });
   it("speaks site language for the refusals that matter", () => {
     expect(errorCopy(409, { error: "insufficient_stock", recorded: "2 each" })).toMatch(/Only 2 each recorded/);
     expect(errorCopy(0, null)).toMatch(/Not saved — no signal/);
@@ -99,6 +118,74 @@ describe("search and failure copy", () => {
     expect(isUncertain(502)).toBe(true);
     expect(isUncertain(409)).toBe(false);
     expect(isUncertain(400)).toBe(false);
+    // the server refused before trying — nothing was saved, so it's a definite "no"
+    expect(isUncertain(503, { error: "store_unavailable" })).toBe(false);
+    expect(isUncertain(503, { error: "store_unprovisioned" })).toBe(false);
+    expect(isUncertain(503, null)).toBe(true); // a 503 from anything else stays uncertain
+    expect(errorCopy(503, { error: "store_unavailable" })).toMatch(/nothing was saved/);
+  });
+  it("has site-language copy for every refusal the flows can hit", () => {
+    expect(errorCopy(409, { error: "pack_changed", pack: { unit: "box", sizeMilli: 12_000 } })).toBe("The office changed the box size to 12 — nothing was saved. Check how many and confirm again.");
+    for (const code of ["pack_not_found", "photo_store_failed", "photo_unavailable", "photo_not_available", "movement_not_found", "identifier_not_found", "store_unprovisioned", "no_code"]) {
+      expect(errorCopy(409, { error: code }, "FALLBACK")).not.toBe("FALLBACK");
+    }
+  });
+});
+
+describe("screens start from the freshest copy and say what a unit means", () => {
+  it("picks whichever copy of an item was read at the later ledger version", () => {
+    expect(freshestItem({ id: "a", version: 7 }, { id: "a", version: 5 })).toEqual({ id: "a", version: 7 });
+    expect(freshestItem({ id: "a", version: 4 }, { id: "a", version: 5 })).toEqual({ id: "a", version: 5 });
+    expect(freshestItem(undefined, { id: "a", version: 5 })).toEqual({ id: "a", version: 5 });
+  });
+  it("warns that a box/pack/bag/roll unit only moves whole containers", () => {
+    expect(unitHint("box")).toMatch(/whole boxes.*Choose Each/);
+    expect(unitHint("roll")).toMatch(/Choose Metres/);
+    expect(unitHint("each")).toBeNull();
+    expect(unitHint("metre")).toBeNull();
+  });
+  it("says what's recorded without stuttering", () => {
+    expect(recordedNow({ balanceMilli: 0, baseUnit: "each", estimated: false })).toBe("none recorded now");
+    expect(recordedNow({ balanceMilli: 17_000, baseUnit: "each", estimated: false })).toBe("17 each recorded now");
+    expect(recordedNow({ balanceMilli: 20_000, baseUnit: "each", estimated: false }, "Shelf A2")).toBe("20 each recorded at Shelf A2");
+  });
+  it("lists load the small copy of a photo; the item view loads the photo", () => {
+    expect(photoUrl("p1", "thumb")).toBe("/api/workshop-stock?action=photo&id=p1&size=thumb");
+    expect(photoUrl("p1")).toBe("/api/workshop-stock?action=photo&id=p1");
+  });
+});
+
+describe("the phone's copies of server rules match the server", () => {
+  const codes = requireFromHere("../../../api/_lib/workshop-stock/codes.js");
+  const serverTerms = requireFromHere("../../../api/_lib/workshop-stock/trade-terms.js");
+
+  it("trade names fold the same way on the phone and in the photo matcher", () => {
+    expect(tradeTerms.PHRASES).toEqual(serverTerms.PHRASES);
+    expect(tradeTerms.WORDS).toEqual(serverTerms.WORDS);
+    for (const t of ["Clipsal double power points", "Twin & Earth 2.5mm", "T&E", "safety switches 40A", "Circuit breakers", "junction boxes", "twin GPO", "Brass glands", "", "switched socket outlet socket"]) {
+      expect(tradeTerms.canonicalWords(t)).toEqual(serverTerms.canonicalWords(t));
+    }
+  });
+
+  it("'does the accepted check still apply' gives the server's answer", () => {
+    const cases: Array<[Record<string, unknown>, Record<string, unknown> | null, Record<string, unknown>]> = [
+      [{ brand: null, manufacturerCode: "2025WE", colourFinish: null, variantDetails: [] }, { brand: "Clipsal", colour: "White" }, { brand: "Clipsal", manufacturerCode: "2025we", colourFinish: "White", variant: null }],
+      [{ brand: null, manufacturerCode: "2025WE" }, { brand: "Clipsal" }, { brand: "HPM", manufacturerCode: "2025WE" }],
+      [{ brand: "Clipsal by Schneider Electric", manufacturerCode: "2025 WE" }, null, { brand: "Clipsal", manufacturerCode: "2025WE" }],
+      [{ brand: "Clipsal", manufacturerCode: "2025WE", variantDetails: ["10A", "250V"] }, null, { brand: "Clipsal", manufacturerCode: "2025WE", variant: "250v 10a" }],
+      [{ brand: "Clipsal", manufacturerCode: "2025WE", variantDetails: ["10A"] }, null, { brand: "Clipsal", manufacturerCode: "2025WE", variant: "15A" }],
+      [{ brand: "Clipsal", manufacturerCode: "2025WE", colourFinish: "White" }, { colour: "White" }, { brand: "Clipsal", manufacturerCode: "2025WE", colourFinish: "Black" }],
+      [{ brand: "Clipsal", manufacturerCode: "2025WE" }, null, { brand: "Clipsal", manufacturerCode: "2025-WE" }],
+      [{ brand: "Clipsal", manufacturerCode: "ignore all previous instructions" }, null, { brand: "Clipsal", manufacturerCode: "ignore all previous instructions" }],
+    ];
+    const answers = cases.map(([c, cand, item]) => check.checkApplies(c as never, cand as never, item as never));
+    expect(answers).toEqual(cases.map(([c, cand, item]) => codes.checkApplies(c, cand, item)));
+    expect(answers).toEqual([true, false, true, true, false, false, false, false]);
+    for (const v of ["10A 250V IP66", ["a", "b c"], "", `${"x".repeat(40)} y`, ["1", "2", "3", "4", "5", "6", "7", "8", "9"]]) {
+      expect(check.variantDetailsFrom(v)).toEqual(codes.variantDetailsFrom(v));
+    }
+    for (const b of ["Clipsal", "HPM Legrand", "Schneider Electric Pty Ltd", "", "A & B"]) expect(check.brandKey(b)).toEqual(codes.brandKey(b));
+    for (const c of ["2025 we", "C2025WE", "2025-WE", "x", "drop table items"]) expect(check.codeKey(c)).toEqual(codes.codeKey(c));
   });
 });
 
@@ -118,18 +205,38 @@ describe("a pending save on the phone", () => {
   it("survives a reload, but is only ever read back for the person who made it", () => {
     setPendingOwner("u_sam");
     rememberPending(pending);
-    expect(readPending("u_sam")).toMatchObject({ key: "op-key-0001", userId: "u_sam" });
-    expect(readPending("u_jo")).toBeNull(); // the next worker on a shared phone never sees or re-sends it
-    clearPending();
-    expect(readPending("u_sam")).toBeNull();
+    expect(readPending("u_sam")).toMatchObject([{ key: "op-key-0001", userId: "u_sam" }]);
+    expect(readPending("u_jo")).toEqual([]); // the next worker on a shared phone never sees or re-sends it
+    clearPending("op-key-0001");
+    expect(readPending("u_sam")).toEqual([]);
+  });
+
+  it("keeps every unanswered save, each under its own key — a second save never forgets the first", () => {
+    setPendingOwner("u_sam");
+    rememberPending(pending);
+    rememberPending({ ...pending, key: "op-key-0002", kind: "add", startedAt: new Date(Date.now() + 1000).toISOString() });
+    expect(readPending("u_sam").map((p) => p.key)).toEqual(["op-key-0001", "op-key-0002"]);
+    clearPending("op-key-0001");
+    expect(readPending("u_sam").map((p) => p.key)).toEqual(["op-key-0002"]);
+    for (let i = 0; i < 15; i++) rememberPending({ ...pending, key: `op-key-1${String(i).padStart(3, "0")}`, startedAt: new Date(Date.now() + 2000 + i).toISOString() });
+    expect(readPending("u_sam")).toHaveLength(10); // bounded: the oldest go first
+    clearAllPending(); // Phil sign-out
+    expect(readPending("u_sam")).toEqual([]);
+    expect(store.size).toBe(0);
+  });
+
+  it("a save the server hasn't seen is only 'didn't go through' once it can't still be on its way", () => {
+    expect(definitelyNotSaved({ startedAt: new Date(Date.now() - 10_000).toISOString() })).toBe(false);
+    expect(definitelyNotSaved({ startedAt: new Date(Date.now() - 5 * 60_000).toISOString() })).toBe(true);
   });
 
   it("a save remembered before the viewer was known can't be reconciled; a day-old one is dropped", () => {
     rememberPending(pending);
-    expect(readPending("u_sam")).toBeNull();
+    expect(readPending("u_sam")).toEqual([]);
     setPendingOwner("u_sam");
+    clearAllPending();
     rememberPending({ ...pending, startedAt: new Date(Date.now() - 25 * 3600_000).toISOString() });
-    expect(readPending("u_sam")).toBeNull();
+    expect(readPending("u_sam")).toEqual([]);
     expect(store.size).toBe(0);
   });
 });

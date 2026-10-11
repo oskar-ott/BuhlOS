@@ -20,6 +20,8 @@
 // Text read from a photo or a web page is untrusted: anything outside the
 // printable code alphabet is refused, not "cleaned up".
 
+const crypto = require('crypto');
+
 const CODE_RE = /^[A-Za-z0-9][A-Za-z0-9 ./_+#()-]{0,47}$/;
 const MAX_CODE = 48;
 
@@ -165,6 +167,59 @@ function identifierFor(kind, value, { brand = null, supplier = null } = {}) {
   return { kind, value: code, valueKey: codeKey(code), scope };
 }
 
+// ── online check: what was asked, and whether it still applies ───────────────
+
+/** Size/rating words as the online check compares them: ≤ 8 words of ≤ 30 characters. */
+function variantDetailsFrom(v) {
+  const text = Array.isArray(v) ? v.filter((x) => typeof x === 'string').join(' ') : typeof v === 'string' ? v : '';
+  return text.split(/\s+/).filter(Boolean).slice(0, 8).map((w) => w.slice(0, 30));
+}
+
+function colourKey(v) {
+  return (squash(v, 40) || '').toLowerCase();
+}
+
+function variantWordsKey(v) {
+  return variantDetailsFrom(v).map((w) => w.toLowerCase()).sort().join(' ');
+}
+
+/**
+ * The cache key of an online check: exactly what was asked — brand, code AND
+ * the colour / size details it compared (a check for the white one is not a
+ * check for the black one). Null when there is no usable code.
+ */
+function lookupKey({ brand = null, manufacturerCode = null, colourFinish = null, variantDetails = null } = {}) {
+  const ck = codeKey(manufacturerCode);
+  if (!ck) return null;
+  const colour = colourKey(colourFinish);
+  const words = variantWordsKey(variantDetails);
+  const variantKey = colour || words ? crypto.createHash('sha256').update(JSON.stringify([colour, words])).digest('hex').slice(0, 32) : '';
+  return { brandKey: brandKey(brand) || '', codeKey: ck, variantKey };
+}
+
+/**
+ * Does an online check made for `check` (what was asked) still describe the item
+ * being saved? The code must be the same. The brand and colour must be what was
+ * checked — or, where the check had none, what the listing itself shows (that is
+ * how accepting the listing fills them). The size/rating words must be the
+ * ones checked. Anything else means the check was for a different item.
+ * Mirrored for the screen in src/domains/workshop-stock/check.ts.
+ */
+function checkApplies(check, candidate, item) {
+  if (!check || !item) return false;
+  const ck = codeKey(check.manufacturerCode);
+  if (!ck || ck !== codeKey(item.manufacturerCode)) return false;
+  const c = candidate || {};
+  const sameOrFromListing = (checked, saved, listed, key) => {
+    const a = key(checked);
+    const b = key(saved);
+    return a === b || (!a && Boolean(b) && b === key(listed));
+  };
+  if (!sameOrFromListing(check.brand, item.brand, c.brand, (v) => brandKey(v) || '')) return false;
+  if (!sameOrFromListing(check.colourFinish, item.colourFinish, c.colour, colourKey)) return false;
+  return variantWordsKey(check.variantDetails) === variantWordsKey(item.variant);
+}
+
 module.exports = {
   MAX_CODE,
   IDENTIFIER_KINDS,
@@ -179,4 +234,7 @@ module.exports = {
   brandKey,
   supplierKey,
   identifierFor,
+  variantDetailsFrom,
+  lookupKey,
+  checkApplies,
 };

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { LookupCard } from "@/components/stock/LookupCard";
 import { addIdentifier, editItem, lookupCode, newOperationKey, recordCount, recordVerification, removeIdentifier } from "@/domains/workshop-stock/client";
@@ -96,36 +96,72 @@ export function CountForm({ item, onSaved }: { item: StockItem; onSaved: (r: Wri
   );
 }
 
-/** Office catalogue edit (compare-and-set on the item's revision). */
-export function EditForm({ item, unitLocked, onSaved }: { item: StockItem; unitLocked: boolean; onSaved: (i: StockItem) => void }) {
-  const [f, setF] = useState({
+type EditFields = {
+  name: string; brand: string; manufacturerCode: string; supplierSku: string; supplierName: string; variant: string; colourFinish: string;
+  location: string; baseUnit: StockUnit; packUnit: PackUnit | ""; packSize: string;
+};
+
+function fieldsOf(item: StockItem): EditFields {
+  return {
     name: item.name, brand: item.brand ?? "", manufacturerCode: item.manufacturerCode ?? "", supplierSku: item.supplierSku ?? "",
     supplierName: item.supplierName ?? "", variant: item.variant ?? "", colourFinish: item.colourFinish ?? "", location: item.location ?? "",
-    baseUnit: item.baseUnit as StockUnit, packUnit: (item.defaultPack?.unit ?? "") as PackUnit | "", packSize: item.defaultPack ? formatNumber(item.defaultPack.sizeMilli) : "",
-  });
+    baseUnit: item.baseUnit, packUnit: (item.defaultPack?.unit ?? "") as PackUnit | "", packSize: item.defaultPack ? formatNumber(item.defaultPack.sizeMilli) : "",
+  };
+}
+
+/**
+ * Office catalogue edit (compare-and-set on the item's revision). The form
+ * remembers the revision it started from: a reload with nothing typed simply
+ * shows the new details; with edits in progress they are kept, and the form
+ * says someone else changed the item (the server would refuse a blind save).
+ */
+export function EditForm({ item, unitLocked, onSaved }: { item: StockItem; unitLocked: boolean; onSaved: (i: StockItem) => void }) {
+  const [base, setBase] = useState<StockItem>(item);
+  const [f, setF] = useState<EditFields>(() => fieldsOf(item));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedNote, setSavedNote] = useState<string | null>(null);
-  const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF((x) => ({ ...x, [k]: e.target.value }));
+  const set = (k: keyof EditFields) => (e: { target: { value: string } }) => { setSavedNote(null); setF((x) => ({ ...x, [k]: e.target.value })); };
+  const dirty = JSON.stringify(f) !== JSON.stringify(fieldsOf(base));
+  const stale = item.metaRevision !== base.metaRevision;
+
+  useEffect(() => {
+    if (item.metaRevision !== base.metaRevision && !dirty) {
+      setBase(item);
+      setF(fieldsOf(item));
+    }
+  }, [item, base.metaRevision, dirty]);
+
+  function takeTheirs() {
+    setBase(item);
+    setF(fieldsOf(item));
+    setError(null);
+  }
 
   async function save() {
     setBusy(true); setError(null); setSavedNote(null);
-    const patch: Record<string, unknown> & { expectedRevision: number } = { expectedRevision: item.metaRevision };
+    const patch: Record<string, unknown> & { expectedRevision: number } = { expectedRevision: base.metaRevision };
     const text = (k: "name" | "brand" | "manufacturerCode" | "supplierSku" | "supplierName" | "variant" | "colourFinish" | "location") => {
-      const cur = (item[k] ?? "") as string;
+      const cur = (base[k] ?? "") as string;
       if (f[k].trim() !== cur) patch[k] = f[k].trim() || (k === "name" ? cur : null);
     };
     (["name", "brand", "manufacturerCode", "supplierSku", "supplierName", "variant", "colourFinish", "location"] as const).forEach(text);
-    if (f.baseUnit !== item.baseUnit) patch.baseUnit = f.baseUnit;
-    const packChanged = (f.packUnit || null) !== (item.defaultPack?.unit ?? null) || (f.packSize || "") !== (item.defaultPack ? formatNumber(item.defaultPack.sizeMilli) : "");
+    if (f.baseUnit !== base.baseUnit) patch.baseUnit = f.baseUnit;
+    const packChanged = (f.packUnit || null) !== (base.defaultPack?.unit ?? null) || (f.packSize || "") !== (base.defaultPack ? formatNumber(base.defaultPack.sizeMilli) : "");
     if (packChanged) patch.defaultPack = f.packUnit && f.packSize ? { unit: f.packUnit, size: f.packSize } : null;
-    const r = await editItem(item.id, patch);
+    const r = await editItem(base.id, patch);
     setBusy(false);
-    if (r.ok) { setSavedNote(r.data.unchanged ? "Nothing changed." : "Saved."); onSaved(r.data.item); return; }
+    if (r.ok) {
+      setBase(r.data.item);
+      setF(fieldsOf(r.data.item));
+      setSavedNote(r.data.unchanged ? "Nothing changed." : "Saved.");
+      onSaved(r.data.item);
+      return;
+    }
     setError(errorCopy(r.error.status, r.error.body));
   }
 
-  const text = (k: keyof typeof f, label: string) => (
+  const text = (k: keyof EditFields, label: string) => (
     <label className="block">
       <span className={LABEL}>{label}</span>
       <input value={f[k] as string} onChange={set(k)} className={INPUT} data-testid={`stock-edit-${k}`} />
@@ -133,6 +169,12 @@ export function EditForm({ item, unitLocked, onSaved }: { item: StockItem; unitL
   );
   return (
     <div className="space-y-2" data-testid="stock-edit-form">
+      {stale ? (
+        <div role="status" className="space-y-1 rounded-card border border-state-warning p-2 text-sm" data-testid="stock-edit-stale">
+          <p className="text-text">Someone changed this item since you started editing. Saving now would be refused — load their version (your edits here are dropped) and make your change again.</p>
+          <Button type="button" variant="secondary" size="sm" onClick={takeTheirs} data-testid="stock-edit-reload">Load their version</Button>
+        </div>
+      ) : null}
       {text("name", "Name")}
       <div className="grid grid-cols-2 gap-2">{text("brand", "Brand")}{text("manufacturerCode", "Manufacturer code")}</div>
       <div className="grid grid-cols-2 gap-2">{text("supplierSku", "Supplier SKU")}{text("supplierName", "Supplier")}</div>
@@ -159,7 +201,7 @@ export function EditForm({ item, unitLocked, onSaved }: { item: StockItem; unitL
         </label>
       </div>
       <div className="flex items-center gap-3">
-        <Button type="button" size="sm" onClick={() => void save()} disabled={busy} data-testid="stock-edit-save">{busy ? "Saving…" : "Save details"}</Button>
+        <Button type="button" size="sm" onClick={() => void save()} disabled={busy || !dirty} data-testid="stock-edit-save">{busy ? "Saving…" : "Save details"}</Button>
         {savedNote ? <span className="text-sm text-text-muted">{savedNote}</span> : null}
       </div>
       <Err text={error} />
@@ -231,7 +273,8 @@ export function CheckSection({ item, lookupEnabled, onChanged }: { item: StockIt
   async function check() {
     if (!item.manufacturerCode) return;
     setState("checking"); setError(null);
-    const r = await lookupCode({ brand: item.brand, manufacturerCode: item.manufacturerCode, colourFinish: item.colourFinish, variantDetails: item.variant ? item.variant.split(/\s+/) : [], refresh: true });
+    // exactly the item's own brand / code / colour / size — the check "Record" then reads back
+    const r = await lookupCode({ brand: item.brand, manufacturerCode: item.manufacturerCode, colourFinish: item.colourFinish, variantDetails: item.variant ?? "", refresh: true });
     setState("done");
     if (r.ok) setResult(r.data); else setError(errorCopy(r.error.status, r.error.body, "Couldn't check online right now."));
   }

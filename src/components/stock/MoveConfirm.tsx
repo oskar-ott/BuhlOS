@@ -1,16 +1,17 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { MapPin } from "lucide-react";
 import { PhilActionButton } from "@/components/phil/ui/PhilActionButton";
 import { PhilNotice } from "@/components/phil/ui/PhilNotice";
-import { fetchOperation, newOperationKey, recordMove, undoMovement, type MoveInput, type PackPick } from "@/domains/workshop-stock/client";
-import { balanceLabel, errorCopy, formatQuantity, packLabel, toQuantityString } from "@/domains/workshop-stock/format";
+import { fetchItem, fetchOperation, newOperationKey, recordMove, type MoveInput, type PackPick } from "@/domains/workshop-stock/client";
+import { balanceLabel, errorCopy, formatQuantity, packLabel, recordedNow, toQuantityString } from "@/domains/workshop-stock/format";
 import { clearPending, isUncertain, rememberPending } from "@/domains/workshop-stock/pending";
-import type { JobOption, StockIdentifier, StockMovement, StockUnit, WriteResult } from "@/domains/workshop-stock/schema";
+import type { JobOption, StockIdentifier, StockItem, StockUnit, WriteResult } from "@/domains/workshop-stock/schema";
 import { JobPicker } from "./JobPicker";
 import { QuantityStepper } from "./QuantityStepper";
 import { StockThumb } from "./StockThumb";
+import { UndoControl } from "./UndoControl";
 
 export interface MoveItem {
   id: string;
@@ -25,6 +26,7 @@ export interface MoveItem {
   baseUnit: StockUnit;
   balanceMilli: number;
   estimated: boolean;
+  version: number;
   photoId: string | null;
   defaultPack: { unit: string; sizeMilli: number } | null;
   identifiers: StockIdentifier[];
@@ -38,20 +40,34 @@ const VERB: Record<Kind, { button: string; field: string; done: string }> = {
   return: { button: "Return to stock", field: "Returning", done: "Returned" },
 };
 
+function asMoveItem(i: StockItem): MoveItem {
+  return {
+    id: i.id, name: i.name, brand: i.brand, manufacturerCode: i.manufacturerCode, supplierSku: i.supplierSku, supplierName: i.supplierName,
+    colourFinish: i.colourFinish, variant: i.variant, location: i.location, baseUnit: i.baseUnit, balanceMilli: i.balanceMilli,
+    estimated: i.estimated, version: i.version, photoId: i.photoId, defaultPack: i.defaultPack, identifiers: i.identifiers,
+  };
+}
+
 /**
  * Confirm the item and quantity, then save ONE movement (Workshop Stock).
  *
  *   • only this explicit confirmation writes stock — a photo, a reading or a
  *     candidate tap never does
+ *   • the item is re-read when the screen opens: the recorded balance and the
+ *     pack sizes shown are the server's current ones, not the list's from
+ *     earlier (the "only N recorded" stop needs that fresh copy to block)
+ *   • a pack is sent WITH the size the screen showed — if the office changed
+ *     it meanwhile the server refuses, and the screen shows the new size
  *   • one operation key per logical save: a retry after a timeout re-sends the
  *     same key and the server replays the saved result; the pending save is
  *     remembered on the phone so a reload can ask the server what happened
- *   • after an UNCERTAIN failure (no signal, 5xx) the form is locked until the
- *     outcome is settled — changing the quantity then could double-record
- *   • a done take shows the new recorded balance and an immediate Undo
+ *   • after an UNCERTAIN failure (no signal, 5xx) the form stays locked until
+ *     the outcome is settled — changing the quantity then could double-record —
+ *     and "Check if it saved" never unlocks it on a mere "not yet"
+ *   • a done save shows the new recorded balance and an immediate Undo
  */
 export function MoveConfirm({
-  item,
+  item: initial,
   kind,
   matchedBy,
   packIdentifierId,
@@ -67,14 +83,16 @@ export function MoveConfirm({
   onAnother?: () => void;
   onClose: () => void;
 }) {
+  const [item, setItem] = useState<MoveItem>(initial);
+  const [fresh, setFresh] = useState(false);
   const unit = item.baseUnit;
   // A barcode that is itself a pack barcode (it carries a pack size) starts the
   // form in packs; a unit barcode or a code match starts in the base unit, with
   // the item's default pack offered as an explicit switch.
   const packBarcode = packIdentifierId ? item.identifiers.find((i) => i.id === packIdentifierId && i.packSizeMilli) ?? null : null;
   const packChoice = (() => {
-    if (packBarcode && packBarcode.packSizeMilli) return { pick: { source: "identifier", identifierId: packBarcode.id } as PackPick, unit: packBarcode.packUnit || "pack", sizeMilli: packBarcode.packSizeMilli };
-    if (item.defaultPack) return { pick: { source: "default" } as PackPick, unit: item.defaultPack.unit, sizeMilli: item.defaultPack.sizeMilli };
+    if (packBarcode && packBarcode.packSizeMilli) return { pick: { source: "identifier", identifierId: packBarcode.id, sizeMilli: packBarcode.packSizeMilli } as PackPick, unit: packBarcode.packUnit || "pack", sizeMilli: packBarcode.packSizeMilli };
+    if (item.defaultPack) return { pick: { source: "default", sizeMilli: item.defaultPack.sizeMilli } as PackPick, unit: item.defaultPack.unit, sizeMilli: item.defaultPack.sizeMilli };
     return null;
   })();
   const [usePacks, setUsePacks] = useState(Boolean(packBarcode));
@@ -85,14 +103,28 @@ export function MoveConfirm({
   const [phase, setPhase] = useState<"edit" | "saving" | "uncertain" | "done">("edit");
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<WriteResult | null>(null);
-  const [undoState, setUndoState] = useState<"idle" | "undoing" | "undone">("idle");
-  const [undoError, setUndoError] = useState<string | null>(null);
+  const [undone, setUndone] = useState<WriteResult | null>(null);
   const keyRef = useRef<string | null>(null);
-  const undoKeyRef = useRef<string | null>(null);
   const requestRef = useRef<MoveInput | null>(null);
+
+  async function refresh() {
+    const r = await fetchItem(initial.id);
+    if (!r.ok) return false;
+    setItem(asMoveItem(r.data.item));
+    setFresh(true);
+    return true;
+  }
+
+  useEffect(() => {
+    void refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initial.id]);
 
   const totalMilli = usePacks && packChoice ? packCount * packChoice.sizeMilli : qtyMilli;
   const short = kind === "take" && totalMilli > item.balanceMilli;
+  // Only a balance read just now may stop a take; an older one is a warning and
+  // the server (which has the real balance) decides.
+  const blockedShort = short && fresh;
   const locked = phase === "saving" || phase === "uncertain" || phase === "done";
 
   function buildRequest(): MoveInput {
@@ -100,31 +132,42 @@ export function MoveConfirm({
     return usePacks && packChoice ? { ...base, packCount, pack: packChoice.pick } : { ...base, quantity: toQuantityString(qtyMilli) };
   }
 
+  function finish(r: WriteResult) {
+    if (keyRef.current) clearPending(keyRef.current);
+    keyRef.current = null;
+    setResult(r);
+    setPhase("done");
+    onSaved(r);
+  }
+
   async function send(request: MoveInput, key: string) {
     setPhase("saving");
     setError(null);
     const r = await recordMove(request, key);
     if (r.ok) {
-      clearPending();
-      keyRef.current = null;
-      setResult(r.data);
-      setPhase("done");
-      onSaved(r.data);
+      finish(r.data);
       return;
     }
-    if (isUncertain(r.error.status)) {
+    if (isUncertain(r.error.status, r.error.body)) {
       setPhase("uncertain");
       setError(r.error.status === 0 ? "Not sure it saved — no signal. Tap Try again: it won't double up." : "Not sure it saved. Tap Try again: it won't double up.");
       return;
     }
-    clearPending();
+    // A definite refusal: nothing was saved, the form unlocks, the next save gets a fresh key.
+    clearPending(key);
     keyRef.current = null;
     setPhase("edit");
+    const code = (r.error.body as { error?: string } | null)?.error;
+    if (code === "insufficient_stock" || code === "pack_changed" || code === "pack_not_found") {
+      // show the server's current balance / pack, not the stale one this screen started with
+      await refresh();
+      if (code === "pack_not_found") setUsePacks(false);
+    }
     setError(errorCopy(r.error.status, r.error.body));
   }
 
   function submit() {
-    if (locked || short) return;
+    if (locked || blockedShort) return;
     const request = buildRequest();
     const key = keyRef.current ?? newOperationKey();
     keyRef.current = key;
@@ -139,61 +182,28 @@ export function MoveConfirm({
     setPhase("saving");
     const r = await fetchOperation(key);
     if (r.ok && r.data.found && r.data.movement && r.data.item) {
-      clearPending();
-      keyRef.current = null;
-      const done = { item: r.data.item, movement: r.data.movement, replayed: true };
-      setResult(done);
-      setPhase("done");
-      onSaved(done);
+      finish({ item: r.data.item, movement: r.data.movement, replayed: true });
       return;
     }
-    if (r.ok && !r.data.found) {
-      // Definitely not saved: unlock the form; the next save gets a fresh key.
-      clearPending();
-      keyRef.current = null;
-      setPhase("edit");
-      setError("It didn't save. Check the quantity and save again.");
-      return;
-    }
+    // "Not found" may only mean "not landed YET" (the first request can still be
+    // on its way): keep the key and stay locked — Try again can never double up.
     setPhase("uncertain");
-    setError(errorCopy(r.ok ? 500 : r.error.status, r.ok ? null : r.error.body, "Still can't reach the office. Try again in a moment."));
-  }
-
-  async function undo(m: StockMovement) {
-    setUndoState("undoing");
-    setUndoError(null);
-    const key = undoKeyRef.current ?? newOperationKey();
-    undoKeyRef.current = key;
-    const r = await undoMovement({ movementId: m.id }, key);
-    if (r.ok) {
-      undoKeyRef.current = null;
-      setUndoState("undone");
-      setResult({ ...r.data });
-      onSaved(r.data);
-      return;
-    }
-    if (!isUncertain(r.error.status)) undoKeyRef.current = null;
-    setUndoState("idle");
-    setUndoError(isUncertain(r.error.status) ? "Not sure the undo went through — tap Undo again (it won't double up)." : errorCopy(r.error.status, r.error.body));
+    setError(r.ok ? "It hasn't saved (yet). Tap Try again — it won't double up." : errorCopy(r.error.status, r.error.body, "Still can't reach the office. Try again in a moment."));
   }
 
   if (phase === "done" && result) {
     const m = result.movement;
-    const after = result.item;
-    const isUndo = undoState === "undone";
+    const shownItem = undone ? undone.item : result.item;
     return (
       <div className="space-y-4" data-testid="stock-move-done">
-        <PhilNotice tone="success" title={isUndo ? "Undone" : `${VERB[kind].done}: ${formatQuantity(Math.abs(m.quantityMilli), unit)}${m.pack ? ` (${m.pack.count} ${packLabel(m.pack.unit, m.pack.count)})` : ""}`}>
+        <PhilNotice tone="success" title={undone ? "Undone" : `${VERB[kind].done}: ${formatQuantity(Math.abs(m.quantityMilli), unit)}${m.pack ? ` (${m.pack.count} ${packLabel(m.pack.unit, m.pack.count)})` : ""}`}>
           <span data-testid="stock-move-balance">
-            {item.name} — {balanceLabel(after)} recorded now{result.replayed && !isUndo ? " (already saved earlier)" : ""}.
+            {item.name} — {recordedNow(shownItem)}{result.replayed && !undone ? " (already saved earlier)" : ""}.
           </span>
         </PhilNotice>
-        {!isUndo && m.undo?.allowed ? (
-          <button type="button" onClick={() => void undo(m)} disabled={undoState === "undoing"} className="min-h-[56px] w-full rounded-card border-2 border-brand-navy bg-surface px-4 font-semibold text-brand-navy disabled:opacity-60" data-testid="stock-move-undo">
-            {undoState === "undoing" ? "Undoing…" : "Undo"}
-          </button>
+        {!undone ? (
+          <UndoControl movement={m} onUndone={(r) => { setUndone(r); onSaved(r); }} testId="stock-move-undo" />
         ) : null}
-        {undoError ? <PhilNotice tone="danger" role="alert">{undoError}</PhilNotice> : null}
         <div className="grid grid-cols-2 gap-2">
           {onAnother ? (
             <button type="button" onClick={onAnother} className="min-h-[56px] rounded-card border border-border-strong px-3 font-semibold text-text" data-testid="stock-move-another">
@@ -207,7 +217,7 @@ export function MoveConfirm({
   }
 
   return (
-    <div className="space-y-4" data-testid="stock-move-confirm" data-kind={kind}>
+    <div className="space-y-4" data-testid="stock-move-confirm" data-kind={kind} data-fresh={fresh ? "1" : "0"}>
       <div className="flex gap-3 rounded-card border border-border bg-surface-raised p-3">
         <StockThumb photoId={item.photoId} alt="" size="md" />
         <div className="min-w-0 flex-1">
@@ -275,7 +285,7 @@ export function MoveConfirm({
           </button>
         </div>
       ) : (
-        <PhilActionButton size="lg" onClick={submit} disabled={locked || short || totalMilli <= 0} aria-busy={phase === "saving"} className="min-h-[56px]" data-testid="stock-move-submit">
+        <PhilActionButton size="lg" onClick={submit} disabled={locked || blockedShort || totalMilli <= 0} aria-busy={phase === "saving"} className="min-h-[56px]" data-testid="stock-move-submit">
           {phase === "saving" ? "Saving…" : VERB[kind].button}
         </PhilActionButton>
       )}

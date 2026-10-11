@@ -7,7 +7,6 @@ import {
   LookupResultSchema,
   OperationSchema,
   ReadPhotoSchema,
-  RecentSchema,
   StockListSchema,
   WriteResultSchema,
   type LookupResult,
@@ -17,6 +16,7 @@ import {
   type StockUnit,
   type WriteResult,
 } from "./schema";
+import { variantDetailsFrom, type LookupCheck } from "./check";
 
 /**
  * Typed client for /api/workshop-stock. Every ledger write carries an
@@ -52,10 +52,6 @@ export function fetchHistory(id: string, before?: { before: string; beforeId: st
   });
 }
 
-export function fetchRecent() {
-  return httpGet(`${BASE}?action=recent`, { schema: RecentSchema, init: INIT, timeoutMs: 15_000 });
-}
-
 export function fetchOperation(key: string) {
   return httpGet(`${BASE}?action=operation&key=${encodeURIComponent(key)}`, { schema: OperationSchema, init: INIT, timeoutMs: 15_000 });
 }
@@ -64,21 +60,24 @@ export function searchJobs(q: string) {
   return httpGet(`${BASE}?action=jobs&q=${encodeURIComponent(q)}`, { schema: JobPickerSchema, init: INIT, timeoutMs: 15_000 });
 }
 
-export function readPhoto(dataUrl: string, purpose: "add" | "take"): Promise<HttpResult<ReadPhotoResult>> {
-  return httpPost(`${BASE}?action=read-photo`, { dataUrl, purpose }, { schema: ReadPhotoSchema, init: INIT, timeoutMs: PHOTO_TIMEOUT_MS });
+/** Read a photo. An add-stock photo is kept (with its list-size copy, when there is one); a take-stock photo never is. */
+export function readPhoto(dataUrl: string, purpose: "add" | "take", thumbDataUrl?: string | null): Promise<HttpResult<ReadPhotoResult>> {
+  return httpPost(`${BASE}?action=read-photo`, { dataUrl, purpose, ...(purpose === "add" && thumbDataUrl ? { thumbDataUrl } : {}) }, { schema: ReadPhotoSchema, init: INIT, timeoutMs: PHOTO_TIMEOUT_MS });
 }
 
-export function storePhoto(dataUrl: string) {
-  return httpPost(`${BASE}?action=store-photo`, { dataUrl }, { schema: z.object({ photoId: z.string() }), init: INIT, timeoutMs: PHOTO_TIMEOUT_MS });
+export function storePhoto(dataUrl: string, thumbDataUrl?: string | null) {
+  return httpPost(`${BASE}?action=store-photo`, { dataUrl, ...(thumbDataUrl ? { thumbDataUrl } : {}) }, { schema: z.object({ photoId: z.string() }), init: INIT, timeoutMs: PHOTO_TIMEOUT_MS });
 }
 
-export function lookupCode(input: { brand?: string | null; manufacturerCode: string; colourFinish?: string | null; variantDetails?: string[]; refresh?: boolean }): Promise<HttpResult<LookupResult>> {
-  return httpPost(`${BASE}?action=lookup`, input, { schema: LookupResultSchema, init: INIT, timeoutMs: LOOKUP_TIMEOUT_MS });
+/** Online code check. Size/rating text is sent as the check compares it (≤ 8 words). */
+export function lookupCode(input: { brand?: string | null; manufacturerCode: string; colourFinish?: string | null; variantDetails?: string[] | string | null; refresh?: boolean }): Promise<HttpResult<LookupResult>> {
+  return httpPost(`${BASE}?action=lookup`, { ...input, variantDetails: variantDetailsFrom(input.variantDetails ?? []) }, { schema: LookupResultSchema, init: INIT, timeoutMs: LOOKUP_TIMEOUT_MS });
 }
 
+/** A pack the screen showed, WITH the size it showed — the server refuses (pack_changed) if that size changed. */
 export type PackPick =
-  | { source: "identifier"; identifierId: string }
-  | { source: "default" }
+  | { source: "identifier"; identifierId: string; sizeMilli: number }
+  | { source: "default"; sizeMilli: number }
   | { source: "custom"; unit: PackUnit; size: string };
 
 export interface MoveInput {
@@ -114,7 +113,8 @@ export interface CreateInput {
   packSize?: string;
   rememberPack?: boolean;
   estimated?: boolean;
-  useLookup?: boolean;
+  /** the online check the worker accepted — exactly what it asked (LookupResult.check) */
+  lookupCheck?: LookupCheck;
   provenance?: Record<string, "photo" | "lookup" | "typed">;
   note?: string | null;
 }

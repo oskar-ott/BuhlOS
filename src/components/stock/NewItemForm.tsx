@@ -5,7 +5,8 @@ import { PhilActionButton } from "@/components/phil/ui/PhilActionButton";
 import { PhilNotice } from "@/components/phil/ui/PhilNotice";
 import { cn } from "@/lib/cn";
 import { createItem, fetchOperation, lookupCode, newOperationKey, storePhoto, type CreateInput } from "@/domains/workshop-stock/client";
-import { errorCopy, formatQuantity, packLabel, toQuantityString, UNIT_LABEL, VERIFICATION_LABEL } from "@/domains/workshop-stock/format";
+import { errorCopy, formatQuantity, packLabel, toQuantityString, UNIT_LABEL, unitHint, VERIFICATION_LABEL } from "@/domains/workshop-stock/format";
+import { checkApplies } from "@/domains/workshop-stock/check";
 import { packSuggestion, suggestName } from "@/domains/workshop-stock/flow";
 import { clearPending, isUncertain, rememberPending } from "@/domains/workshop-stock/pending";
 import { PACK_UNITS, UNIT_KEYS, type LookupResult, type PackUnit, type ReadProduct, type StockItem, type StockUnit, type WriteResult } from "@/domains/workshop-stock/schema";
@@ -18,6 +19,8 @@ export interface NewItemSeed {
   product: ReadProduct | null;
   photoId: string | null;
   dataUrl: string | null;
+  /** the list-size copy made on the phone (kept with the photo) */
+  thumbDataUrl?: string | null;
 }
 
 function Field({ label, value, onChange, placeholder, source, testId, inputMode, disabled }: {
@@ -38,11 +41,16 @@ function Field({ label, value, onChange, placeholder, source, testId, inputMode,
  * The one short form for a NEW workshop item (Workshop Stock).
  *
  * Pre-filled from what the photo shows (labelled "read from photo"), checked
- * against a public listing when a code was read (labelled "from the listing"
- * once accepted), confirmed by the worker. Asks only for what a new item needs:
- * the name, the unit, where it lives, and how many are going on the shelf. A
- * printed pack size is OFFERED as a conversion, never applied silently. The
- * item, its codes, its photo and its opening count save together or not at all.
+ * against a public listing when a code was read, confirmed by the worker. Asks
+ * only for what a new item needs: the name, the unit, where it lives, and how
+ * many are going on the shelf. A printed pack size is OFFERED as a conversion,
+ * never applied silently. The item, its codes, its photo and its opening count
+ * save together or not at all.
+ *
+ * "Use these details" only FILLS what's empty — the name the crew gave it is
+ * kept (a wholesaler's catalogue title is not what anyone searches for) — and
+ * the code status shown is what the server will record: the accepted check
+ * counts while it still describes this item, and says so when it doesn't.
  */
 export function NewItemForm({
   seed,
@@ -91,6 +99,10 @@ export function NewItemForm({
   const keyRef = useRef<string | null>(null);
   const requestRef = useRef<CreateInput | null>(null);
   const againRef = useRef(false);
+  // Set synchronously on the first tap: a second tap while the photo is still
+  // uploading must not start a second save.
+  const savingRef = useRef(false);
+  const photoFailedRef = useRef(false);
 
   const suggestion = packSuggestion(p, unit);
   const locations = useMemo(() => {
@@ -131,38 +143,50 @@ export function NewItemForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Fill only what's empty: the listing never replaces the name (or anything) the crew gave it.
   function accept() {
     setAccepted(true);
     const c = lookup?.candidate;
     if (!c) return;
-    if (c.name && (sources.name !== "typed" || !name.trim())) { setName(c.name.slice(0, 160)); setSources((s) => ({ ...s, name: "lookup" })); }
-    if (c.brand && !brand.trim()) { setBrand(c.brand); setSources((s) => ({ ...s, brand: "lookup" })); }
-    if (c.colour && !colour.trim()) { setColour(c.colour); setSources((s) => ({ ...s, colourFinish: "lookup" })); }
+    if (c.name && !name.trim()) { setName(c.name.slice(0, 160)); setSources((s) => ({ ...s, name: "lookup" })); }
+    if (c.brand && !brand.trim()) { setBrand(c.brand.slice(0, 60)); setSources((s) => ({ ...s, brand: "lookup" })); }
+    if (c.colour && !colour.trim()) { setColour(c.colour.slice(0, 40)); setSources((s) => ({ ...s, colourFinish: "lookup" })); }
   }
 
   const codeChangedSinceCheck = checkedCode !== null && checkedCode !== code.trim();
-  // What the item will be saved as (the server re-derives it from its own cached check).
-  const listingStatus = accepted === true && !codeChangedSinceCheck && (lookup?.status === "manufacturer_code_matched" || lookup?.status === "possible_match") ? lookup.status : null;
+  const listingFound = lookup?.status === "manufacturer_code_matched" || lookup?.status === "possible_match";
+  // Does the accepted check still describe what's on the form? (The server
+  // re-reads its own cached result and decides the same way.)
+  const checkStillApplies = Boolean(lookup?.check) && checkApplies(lookup?.check, lookup?.candidate, { brand, manufacturerCode: code, colourFinish: colour, variant });
+  const listingStatus = accepted === true && listingFound && checkStillApplies ? lookup!.status as "manufacturer_code_matched" | "possible_match" : null;
+  const checkStale = accepted === true && listingFound && !checkStillApplies;
   const canSave = !locked && name.trim().length > 0 && location.trim().length > 0 && (packMode ? Boolean(packSizeMilli) : true);
+
+  function done(r: WriteResult) {
+    if (keyRef.current) clearPending(keyRef.current);
+    keyRef.current = null;
+    savingRef.current = false;
+    setPhase("edit");
+    // a photo that couldn't be uploaded is "not attached", even though the save asked for none
+    onSaved(photoFailedRef.current ? { ...r, photoAttached: false } : r, againRef.current);
+  }
 
   async function send(request: CreateInput, key: string) {
     setPhase("saving");
     setError(null);
     const r = await createItem(request, key);
     if (r.ok) {
-      clearPending();
-      keyRef.current = null;
-      setPhase("edit");
-      onSaved(r.data, againRef.current);
+      done(r.data);
       return;
     }
-    if (isUncertain(r.error.status)) {
+    if (isUncertain(r.error.status, r.error.body)) {
       setPhase("uncertain");
       setError("Not sure it saved — no signal. Tap Try again: it won't make a second item.");
       return;
     }
-    clearPending();
+    clearPending(key);
     keyRef.current = null;
+    savingRef.current = false;
     setPhase("edit");
     const body = r.error.body as { error?: string; existing?: Array<{ itemId: string; itemName: string; value: string }> } | null;
     if (body?.error === "duplicate_item" && body.existing?.length) {
@@ -174,13 +198,18 @@ export function NewItemForm({
   }
 
   async function save(again: boolean) {
-    if (!canSave) return;
+    if (!canSave || savingRef.current) return;
+    savingRef.current = true;
+    setPhase("saving");
+    setError(null);
     againRef.current = again;
     setDuplicates([]);
     let pid = photoId;
+    photoFailedRef.current = false;
     if (!pid && seed.dataUrl) {
-      const s = await storePhoto(seed.dataUrl);
+      const s = await storePhoto(seed.dataUrl, seed.thumbDataUrl ?? null);
       if (s.ok) { pid = s.data.photoId; setPhotoId(pid); }
+      else photoFailedRef.current = true; // the item still saves; the result says the photo isn't on it
     }
     const request: CreateInput = {
       name: name.trim(),
@@ -195,7 +224,7 @@ export function NewItemForm({
       location: location.trim(),
       photoId: pid,
       estimated,
-      useLookup: accepted === true && !codeChangedSinceCheck,
+      ...(listingStatus && lookup?.check ? { lookupCheck: lookup.check } : {}),
       provenance: Object.fromEntries(Object.entries(sources).filter(([k]) => ["name", "brand", "manufacturerCode", "supplierSku", "barcode", "variant", "colourFinish"].includes(k))) as CreateInput["provenance"],
       ...(packMode && packSizeMilli ? { packCount, packUnit, packSize: toQuantityString(packSizeMilli), rememberPack } : { openingQuantity: toQuantityString(qtyMilli) }),
     };
@@ -211,21 +240,13 @@ export function NewItemForm({
     setPhase("saving");
     const r = await fetchOperation(keyRef.current);
     if (r.ok && r.data.found && r.data.item && r.data.movement) {
-      clearPending();
-      keyRef.current = null;
-      setPhase("edit");
-      onSaved({ item: r.data.item, movement: r.data.movement, replayed: true }, againRef.current);
+      done({ item: r.data.item, movement: r.data.movement, replayed: true });
       return;
     }
-    if (r.ok && !r.data.found) {
-      clearPending();
-      keyRef.current = null;
-      setPhase("edit");
-      setError("It didn't save. Check the details and save again.");
-      return;
-    }
+    // "Not found" may only mean "not landed YET": keep the key and stay locked —
+    // Try again can never make a second item.
     setPhase("uncertain");
-    setError("Still can't reach the office. Try again in a moment.");
+    setError(r.ok ? "It hasn't saved (yet). Tap Try again — it won't make a second item." : "Still can't reach the office. Try again in a moment.");
   }
 
   return (
@@ -240,9 +261,9 @@ export function NewItemForm({
         <Field label="Brand" value={brand} onChange={(v) => { setBrand(v); typed("brand"); }} source={sources.brand} testId="stock-new-brand" disabled={locked} />
         <Field label="Manufacturer code" value={code} onChange={(v) => { setCode(v); typed("manufacturerCode"); }} placeholder="as printed" source={sources.manufacturerCode} testId="stock-new-code" disabled={locked} />
       </div>
-      {lookupEnabled && code.trim() && (lookupState === "idle" || codeChangedSinceCheck) ? (
+      {lookupEnabled && code.trim() && (lookupState === "idle" || codeChangedSinceCheck || checkStale) ? (
         <button type="button" onClick={() => void runLookup()} disabled={locked} className="min-h-[44px] text-sm font-semibold text-brand-navy" data-testid="stock-new-check">
-          Check this code online
+          {checkStale ? "Check it again with these details" : "Check this code online"}
         </button>
       ) : null}
       <LookupCard state={lookupState} result={codeChangedSinceCheck ? null : lookup} accepted={accepted} onAccept={accept} onReject={() => setAccepted(false)} onRetry={() => void runLookup()} />
@@ -273,6 +294,7 @@ export function NewItemForm({
             </button>
           ))}
         </div>
+        {unitHint(unit) ? <p className="text-xs text-text-muted" data-testid="stock-new-unit-hint">{unitHint(unit)}</p> : null}
       </fieldset>
 
       <div className="space-y-1.5">
@@ -353,9 +375,9 @@ export function NewItemForm({
       ) : (
         <div className="space-y-2">
           {!location.trim() ? <p className="text-xs text-text-muted">Add where it lives so the next person can find it.</p> : null}
-          <p className="text-xs text-text-muted" data-testid="stock-new-code-status">
+          <p className="text-xs text-text-muted" data-testid="stock-new-code-status" data-status={listingStatus ?? (checkStale ? "stale" : "unverified")}>
             Code status: <span className="font-semibold text-text">{VERIFICATION_LABEL[listingStatus ?? "unverified"]}</span>
-            {listingStatus ? " (the listing you accepted)" : ""}
+            {listingStatus ? " (the listing you accepted)" : checkStale ? " — the details changed since the online check, so it no longer counts. Check again to use it." : ""}
           </p>
           <PhilActionButton size="lg" onClick={() => void save(false)} disabled={!canSave} aria-busy={phase === "saving"} className="min-h-[56px]" data-testid="stock-new-save">
             {phase === "saving" ? "Saving…" : "Save"}

@@ -210,8 +210,8 @@ safeFetch.fetchAllowlistedPage = (url, opts = {}) => realFetchPage(url, { ...opt
 
 const photoMod = require(at('api/_lib/workshop-stock/photo.js'));
 const photoStore = new Map();
-photoMod.storePhoto = async ({ tenantSlug, bytes, contentType }) => {
-  const pathname = `workshop-stock/${tenantSlug}/photos/e2e-${crypto.randomBytes(8).toString('hex')}.${contentType === 'image/png' ? 'png' : 'jpg'}`;
+photoMod.storePhoto = async ({ tenantSlug, bytes, contentType, thumb = false }) => {
+  const pathname = `workshop-stock/${tenantSlug}/photos/e2e-${crypto.randomBytes(8).toString('hex')}${thumb ? '-thumb' : ''}.${contentType === 'image/png' ? 'png' : 'jpg'}`;
   const url = `https://harness-blob.invalid/${pathname}`;
   photoStore.set(url, Buffer.from(bytes));
   return { url, pathname };
@@ -221,7 +221,9 @@ photoMod.fetchPhoto = async (url) => {
   if (!b) throw apiError(404, 'harness: photo gone');
   return b;
 };
-photoMod.deletePhoto = async (url) => { photoStore.delete(url); };
+photoMod.deletePhoto = async (urls) => {
+  for (const url of (Array.isArray(urls) ? urls : [urls]).filter(Boolean)) photoStore.delete(url);
+};
 
 // ── the real handler ─────────────────────────────────────────────────────────
 
@@ -306,12 +308,14 @@ async function state() {
   const t = await tenantId();
   const items = await sql`select id, name, base_unit, balance_milli, version, estimated, location, photo_id, verification_status, archived_at from public.workshop_stock_items where tenant_id = ${t} order by created_at`;
   const movements = await sql`select id, item_id, kind, quantity_milli, balance_after_milli, counted_milli, reverses_movement_id, actor_name, idempotency_key, job_label, reason from public.workshop_stock_movements where tenant_id = ${t} order by created_at, id`;
-  const photos = await sql`select id, purpose, byte_size, expires_at is not null as expires from public.workshop_stock_photos where tenant_id = ${t}`;
+  const photos = await sql`select id, purpose, byte_size, expires_at is not null as expires, thumb_url is not null as has_thumb, thumb_byte_size,
+                                  deleted_at is not null as deleted, blob_deleted_at is not null as blob_deleted, blob_url, thumb_url
+                           from public.workshop_stock_photos where tenant_id = ${t}`;
   const audit = [...blobMem.entries()].filter(([k]) => k.startsWith('audit/')).flatMap(([, v]) => (Array.isArray(v) ? v : (v && v.entries) || []));
   return {
     items: items.map((r) => ({ ...r, balance_milli: Number(r.balance_milli) })),
     movements: movements.map((r) => ({ ...r, quantity_milli: Number(r.quantity_milli), balance_after_milli: Number(r.balance_after_milli), counted_milli: r.counted_milli == null ? null : Number(r.counted_milli) })),
-    photos,
+    photos: photos.map(({ blob_url: blobUrl, thumb_url: thumbUrl, ...p }) => ({ ...p, blobStored: photoStore.has(blobUrl), thumbStored: thumbUrl ? photoStore.has(thumbUrl) : null })),
     calls,
     pageFetches,
     visionQueued: visionQueue.length,
@@ -351,6 +355,13 @@ async function control(url, req, res) {
     }
     case '/__harness/state':
       return sendJson(res, 200, await state());
+    case '/__harness/expire-photos': {
+      // the clock jumping past every pending photo's 24 h, without waiting a day
+      const t = await tenantId();
+      const rows = await sql`update public.workshop_stock_photos set expires_at = now() - interval '1 hour'
+                             where tenant_id = ${t} and purpose <> 'item' and deleted_at is null returning id`;
+      return sendJson(res, 200, { expired: rows.length });
+    }
     default:
       return sendJson(res, 404, { error: 'unknown harness route' });
   }

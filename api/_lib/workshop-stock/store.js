@@ -13,9 +13,13 @@
 //   • each mutation is ONE transaction that row-locks the item (SELECT … FOR
 //     UPDATE) before reading the balance — two workers taking the last GPO are
 //     serialised; the second sees the first's result
-//   • the idempotency key is re-checked AFTER the lock, so a double tap that
-//     raced in behind the first returns the first's result (a replay), and a
-//     reused key with a different payload is refused (request_hash mismatch)
+//   • a used key is answered FIRST (replayOperation), before the handler reads
+//     anything that can change: a retry of a save that landed replays it even
+//     when the item, its pack or the job changed since. The key is re-checked
+//     AFTER the lock too, so a double tap that raced in behind the first returns
+//     the first's result, and a reused key with a different payload is refused
+//     (request_hash mismatch). A create has no item row to lock, so it takes a
+//     transaction lock on the key itself
 //   • unique-violations (23505) are caught OUTSIDE sql.begin — inside, the
 //     transaction is already aborted (25P02) — then the winner is re-read
 //   • the balance itself is moved by the DB trigger in the same statement as the
@@ -24,6 +28,7 @@
 // Results are plain objects: { ok:true, … } or { error:'<stable code>', … }.
 
 const { toMilli } = require('./quantity');
+const { codeKey, brandKey, supplierKey } = require('./codes');
 
 const TENANT_SLUG = 'buhl';
 const UNIQUE_VIOLATION = '23505';
@@ -193,19 +198,6 @@ async function listMovements(sql, tenantId, itemId, { limit = 50, before = null 
   return mapMovements(sql, tenantId, rows);
 }
 
-/** One actor's recent movements across items (for "your recent" + Undo on the phone). */
-async function recentForActor(sql, tenantId, actorId, { sinceMinutes = 24 * 60, limit = 10 } = {}) {
-  const rows = await sql`
-    select m.*, i.name as item_name, i.base_unit as item_unit
-    from public.workshop_stock_movements m
-    join public.workshop_stock_items i on i.tenant_id = m.tenant_id and i.id = m.item_id
-    where m.tenant_id = ${tenantId} and m.actor_legacy_id = ${actorId}
-      and m.created_at > now() - make_interval(mins => ${sinceMinutes})
-    order by m.created_at desc, m.id desc limit ${Math.min(Number(limit) || 10, 50)}`;
-  const mapped = await mapMovements(sql, tenantId, rows);
-  return mapped.map((m, i) => ({ ...m, itemName: rows[i].item_name, itemUnit: rows[i].item_unit }));
-}
-
 async function getMovement(sql, tenantId, movementId) {
   const rows = await sql`select * from public.workshop_stock_movements where tenant_id = ${tenantId} and id = ${movementId}`;
   if (!rows.length) return null;
@@ -222,6 +214,17 @@ async function getOperation(sql, tenantId, key) {
   const row = await findByKey(sql, tenantId, key);
   if (!row) return null;
   return (await mapMovements(sql, tenantId, [row]))[0];
+}
+
+/**
+ * A key that has been used already: its saved result when the request is the
+ * same (a retry), or { error: 'idempotency_conflict' } when it isn't. Null for
+ * a new key. Handlers ask this before any check on state that can change.
+ */
+async function replayOperation(sql, tenantId, key, requestHash) {
+  const prior = await findByKey(sql, tenantId, key);
+  if (!prior) return null;
+  return finishWith(sql, tenantId, replayOrConflict(prior, requestHash));
 }
 
 /** Movements that landed after the version a counter started from (stale-count review). */
@@ -453,14 +456,20 @@ async function createItemWithOpening(sql, tenantId, input) {
   let result;
   try {
     result = await sql.begin(async (tx) => {
+      // No item row exists to lock yet: two requests carrying one key (a double
+      // tap, a retry racing the first) queue on the key instead, and the second
+      // then finds the first's opening movement and replays it.
+      await tx`select pg_advisory_xact_lock(hashtextextended(${`workshop_stock:${tenantId}:${input.idempotencyKey}`}, 0))`;
       const prior = await findByKey(tx, tenantId, input.idempotencyKey);
       if (prior) return replayOrConflict(prior, input.requestHash);
       let photoId = null;
       let photoReading = null;
       if (input.photoId) {
+        // An expired photo can't be claimed: the cleanup may already be deleting it.
         const claimed = await tx`
           update public.workshop_stock_photos set purpose = 'item', expires_at = null
           where tenant_id = ${tenantId} and id = ${input.photoId} and purpose = 'pending' and deleted_at is null
+            and expires_at > now()
             and (uploaded_by_legacy_id = ${input.actor.id} or ${input.actorIsOffice === true})
           returning id, reading`;
         if (claimed.length) {
@@ -509,8 +518,10 @@ async function createItemWithOpening(sql, tenantId, input) {
       const prior = await findByKey(sql, tenantId, input.idempotencyKey);
       if (prior) result = replayOrConflict(prior, input.requestHash);
     } else if (e && e.code === UNIQUE_VIOLATION && /identifiers_live/.test(c)) {
-      const owners = await identifierOwners(sql, tenantId, input.identifiers || []);
-      return { error: 'duplicate_item', existing: owners };
+      // Our own earlier attempt holding the code is a replay, not a duplicate.
+      const prior = await findByKey(sql, tenantId, input.idempotencyKey);
+      if (prior) result = replayOrConflict(prior, input.requestHash);
+      else return { error: 'duplicate_item', existing: await identifierOwners(sql, tenantId, input.identifiers || []) };
     } else if (ledgerRefusal(e)) {
       return { error: ledgerRefusal(e) };
     }
@@ -539,10 +550,59 @@ const EDITABLE = {
   supplierName: 'supplier_name', variant: 'variant', colourFinish: 'colour_finish', location: 'location', baseUnit: 'base_unit',
 };
 
+const UNVERIFIED = { verification_status: 'unverified', verification: null };
+
+/** Does the item's own code field name this identifier row (same value key AND scope)? */
+function columnHolds(item, row) {
+  if (row.kind === 'manufacturer_code') {
+    return Boolean(item.manufacturer_code) && codeKey(item.manufacturer_code) === row.value_key && (brandKey(item.brand) || '') === (row.scope || '');
+  }
+  if (row.kind === 'supplier_sku') {
+    return Boolean(item.supplier_sku) && codeKey(item.supplier_sku) === row.value_key && (supplierKey(item.supplier_name) || '') === (row.scope || '');
+  }
+  return false;
+}
+
+/**
+ * The item's code fields show its main codes, and matching runs on the live
+ * identifier rows — keep the two in step after a code row is retired: a code
+ * field that showed it moves to the next live code of that kind (same scope),
+ * or empties. A changed manufacturer code clears the online verification, which
+ * was for the old code. Returns the field changes (empty when none).
+ */
+async function syncCodeFields(tx, tenantId, item, retiredRows, actor) {
+  const set = {};
+  const changes = {};
+  for (const row of retiredRows) {
+    if (!columnHolds(item, row)) continue;
+    const scope = row.kind === 'manufacturer_code' ? brandKey(item.brand) || '' : supplierKey(item.supplier_name) || '';
+    const next = await tx`
+      select value from public.workshop_stock_identifiers
+      where tenant_id = ${tenantId} and item_id = ${item.id} and kind = ${row.kind} and scope = ${scope} and retired_at is null
+      order by created_at limit 1`;
+    const col = row.kind === 'manufacturer_code' ? 'manufacturer_code' : 'supplier_sku';
+    const field = row.kind === 'manufacturer_code' ? 'manufacturerCode' : 'supplierSku';
+    set[col] = next.length ? next[0].value : null;
+    changes[field] = { from: item[col], to: set[col] };
+    if (row.kind === 'manufacturer_code' && item.verification_status !== 'unverified') {
+      Object.assign(set, UNVERIFIED);
+      changes.verification = { from: item.verification_status, to: 'unverified' };
+    }
+  }
+  if (Object.keys(set).length) {
+    await tx`update public.workshop_stock_items set ${tx(set)}, meta_revision = meta_revision + 1,
+               updated_by_legacy_id = ${actor.id}, updated_by_name = ${actor.name || null}
+             where tenant_id = ${tenantId} and id = ${item.id}`;
+  }
+  return changes;
+}
+
 /**
  * Office catalogue edit, compare-and-set on meta_revision. `patch` holds only
  * validated, changed fields (+ optional defaultPack). Returns the before/after
- * of each changed field for the history.
+ * of each changed field for the history. meta_revision moves ONLY with the
+ * catalogue fields (this, and a code added/removed that changes a code field) —
+ * a photo, verification or archive never invalidates an open edit form.
  */
 async function updateItem(sql, tenantId, itemId, { patch, expectedRevision, actor, identifierChanges = null }) {
   try {
@@ -550,6 +610,7 @@ async function updateItem(sql, tenantId, itemId, { patch, expectedRevision, acto
       const rows = await tx`select * from public.workshop_stock_items where tenant_id = ${tenantId} and id = ${itemId} for update`;
       const cur = rows[0];
       if (!cur) return { error: 'item_not_found' };
+      if (cur.archived_at) return { error: 'item_archived' };
       if (Number(cur.meta_revision) !== Number(expectedRevision)) return { error: 'item_changed', metaRevision: Number(cur.meta_revision) };
       const set = {};
       const changes = {};
@@ -570,18 +631,25 @@ async function updateItem(sql, tenantId, itemId, { patch, expectedRevision, acto
         }
       }
       if (!Object.keys(set).length) return { ok: true, unchanged: true };
+      // The online check was for the old maker's code (or brand): it no longer applies.
+      const retire = (identifierChanges && identifierChanges.retire) || [];
+      const add = (identifierChanges && identifierChanges.add) || [];
+      if ([...retire, ...add].some((i) => i.kind === 'manufacturer_code') && cur.verification_status !== 'unverified') {
+        Object.assign(set, UNVERIFIED);
+        changes.verification = { from: cur.verification_status, to: 'unverified' };
+      }
       set.meta_revision = Number(cur.meta_revision) + 1;
       set.updated_by_legacy_id = actor.id;
       set.updated_by_name = actor.name || null;
       await tx`update public.workshop_stock_items set ${tx(set)} where tenant_id = ${tenantId} and id = ${itemId}`;
       // A changed code (or the brand/supplier that scopes it) moves its identifier
       // in the same transaction, so matching never runs on a stale code.
-      for (const r of (identifierChanges && identifierChanges.retire) || []) {
-        await tx`update public.workshop_stock_identifiers set retired_at = now()
+      for (const r of retire) {
+        await tx`update public.workshop_stock_identifiers set retired_at = now(), retired_reason = 'replaced'
                  where tenant_id = ${tenantId} and item_id = ${itemId} and kind = ${r.kind}
                    and scope = ${r.scope || ''} and value_key = ${r.valueKey} and retired_at is null`;
       }
-      for (const a of (identifierChanges && identifierChanges.add) || []) {
+      for (const a of add) {
         await tx`insert into public.workshop_stock_identifiers
                    (tenant_id, item_id, kind, value, value_key, scope, created_by_legacy_id, created_by_name)
                  values (${tenantId}, ${itemId}, ${a.kind}, ${a.value}, ${a.valueKey}, ${a.scope || ''}, ${actor.id}, ${actor.name || null})`;
@@ -599,45 +667,100 @@ async function updateItem(sql, tenantId, itemId, { patch, expectedRevision, acto
   }
 }
 
+/**
+ * Archive / restore. Archiving frees the item's codes for a replacement item
+ * (retired as 'archived', stamped with the archive time). Restoring brings back
+ * exactly those — never a code the office removed or replaced before — and only
+ * where no live item took the code meanwhile: that item keeps it, this one comes
+ * back without it (its code field empties) and the answer says which.
+ */
 async function setArchived(sql, tenantId, itemId, archived, actor) {
   try {
     return await sql.begin(async (tx) => {
-      const rows = await tx`select id, archived_at from public.workshop_stock_items where tenant_id = ${tenantId} and id = ${itemId} for update`;
+      const rows = await tx`select * from public.workshop_stock_items where tenant_id = ${tenantId} and id = ${itemId} for update`;
       if (!rows.length) return { error: 'item_not_found' };
-      const isArchived = Boolean(rows[0].archived_at);
+      const item = rows[0];
+      const isArchived = Boolean(item.archived_at);
       if (isArchived === archived) return { ok: true, unchanged: true };
       if (archived) {
-        await tx`update public.workshop_stock_items set archived_at = now(), archived_by_legacy_id = ${actor.id}, archived_by_name = ${actor.name || null}, meta_revision = meta_revision + 1 where tenant_id = ${tenantId} and id = ${itemId}`;
-        // free the codes for a replacement item; the history keeps them
-        await tx`update public.workshop_stock_identifiers set retired_at = now() where tenant_id = ${tenantId} and item_id = ${itemId} and retired_at is null`;
-      } else {
-        await tx`update public.workshop_stock_identifiers d set retired_at = null
-                 where d.tenant_id = ${tenantId} and d.item_id = ${itemId} and d.retired_at = (
-                   select max(retired_at) from public.workshop_stock_identifiers x where x.tenant_id = ${tenantId} and x.item_id = ${itemId})`;
-        await tx`update public.workshop_stock_items set archived_at = null, archived_by_legacy_id = null, archived_by_name = null, meta_revision = meta_revision + 1 where tenant_id = ${tenantId} and id = ${itemId}`;
+        await tx`update public.workshop_stock_items set archived_at = now(), archived_by_legacy_id = ${actor.id}, archived_by_name = ${actor.name || null} where tenant_id = ${tenantId} and id = ${itemId}`;
+        await tx`update public.workshop_stock_identifiers set retired_at = now(), retired_reason = 'archived'
+                 where tenant_id = ${tenantId} and item_id = ${itemId} and retired_at is null`;
+        await insertEvent(tx, tenantId, itemId, 'archived', {}, actor);
+        return { ok: true, codesNotRestored: [] };
       }
-      await insertEvent(tx, tenantId, itemId, archived ? 'archived' : 'restored', {}, actor);
-      return { ok: true };
+      // the same statement-time stamp the archive wrote on the item and its codes
+      await tx`update public.workshop_stock_identifiers d set retired_at = null, retired_reason = null
+               from public.workshop_stock_items it
+               where it.tenant_id = ${tenantId} and it.id = ${itemId}
+                 and d.tenant_id = it.tenant_id and d.item_id = it.id
+                 and d.retired_reason = 'archived' and d.retired_at = it.archived_at
+                 and not exists (
+                   select 1 from public.workshop_stock_identifiers x
+                   where x.tenant_id = d.tenant_id and x.kind = d.kind and x.scope = d.scope
+                     and x.value_key = d.value_key and x.retired_at is null)`;
+      const kept = await tx`
+        select d.kind, d.value, d.value_key, d.scope,
+               (select i2.name from public.workshop_stock_identifiers x
+                  join public.workshop_stock_items i2 on i2.tenant_id = x.tenant_id and i2.id = x.item_id
+                 where x.tenant_id = d.tenant_id and x.kind = d.kind and x.scope = d.scope
+                   and x.value_key = d.value_key and x.retired_at is null limit 1) as held_by
+        from public.workshop_stock_identifiers d
+        join public.workshop_stock_items it on it.tenant_id = d.tenant_id and it.id = d.item_id
+        where d.tenant_id = ${tenantId} and d.item_id = ${itemId}
+          and d.retired_reason = 'archived' and d.retired_at = it.archived_at`;
+      await tx`update public.workshop_stock_items set archived_at = null, archived_by_legacy_id = null, archived_by_name = null where tenant_id = ${tenantId} and id = ${itemId}`;
+      const codesNotRestored = kept.map((k) => ({ kind: k.kind, value: k.value, heldBy: k.held_by || null }));
+      const changes = await syncCodeFields(tx, tenantId, item, kept, actor);
+      await insertEvent(tx, tenantId, itemId, 'restored', codesNotRestored.length ? { codesNotRestored, changes } : {}, actor);
+      return { ok: true, codesNotRestored };
     }).then(async (r) => (r.ok ? { ...r, item: await getItem(sql, tenantId, itemId) } : r));
   } catch (e) {
+    // a code went live elsewhere between the check and the revive: say so, change nothing
     if (e && e.code === UNIQUE_VIOLATION && /identifiers_live/.test(constraintOf(e))) return { error: 'identifier_in_use' };
     throw e;
   }
 }
 
+/**
+ * Office: add a code / barcode (optionally a pack barcode). The first code of a
+ * kind also fills the item's code field, so what the office sees is what
+ * matching uses; a further one is an extra code the item is recognised by.
+ */
 async function addIdentifier(sql, tenantId, itemId, idf, actor) {
   try {
     return await sql.begin(async (tx) => {
-      const rows = await tx`select id, archived_at from public.workshop_stock_items where tenant_id = ${tenantId} and id = ${itemId} for update`;
+      const rows = await tx`select * from public.workshop_stock_items where tenant_id = ${tenantId} and id = ${itemId} for update`;
       if (!rows.length) return { error: 'item_not_found' };
-      if (rows[0].archived_at) return { error: 'item_archived' };
+      const item = rows[0];
+      if (item.archived_at) return { error: 'item_archived' };
       const ins = await tx`
         insert into public.workshop_stock_identifiers
           (tenant_id, item_id, kind, value, value_key, scope, pack_unit, pack_size_milli, created_by_legacy_id, created_by_name)
         values (${tenantId}, ${itemId}, ${idf.kind}, ${idf.value}, ${idf.valueKey}, ${idf.scope || ''},
                 ${idf.packUnit || null}, ${idf.packSizeMilli || null}, ${actor.id}, ${actor.name || null})
         returning *`;
-      await insertEvent(tx, tenantId, itemId, 'identifier_added', { kind: idf.kind, value: idf.value, packUnit: idf.packUnit || null, packSizeMilli: idf.packSizeMilli || null }, actor);
+      const set = {};
+      if (idf.kind === 'manufacturer_code' && !item.manufacturer_code && (brandKey(item.brand) || '') === (idf.scope || '')) {
+        set.manufacturer_code = idf.value;
+      }
+      if (idf.kind === 'supplier_sku' && !item.supplier_sku) {
+        if (!item.supplier_name && (supplierKey(idf.supplierName) || '') === (idf.scope || '')) {
+          set.supplier_sku = idf.value;
+          set.supplier_name = idf.supplierName || null;
+        } else if ((supplierKey(item.supplier_name) || '') === (idf.scope || '')) {
+          set.supplier_sku = idf.value;
+        }
+      }
+      if (Object.keys(set).length) {
+        await tx`update public.workshop_stock_items set ${tx(set)}, meta_revision = meta_revision + 1,
+                   updated_by_legacy_id = ${actor.id}, updated_by_name = ${actor.name || null}
+                 where tenant_id = ${tenantId} and id = ${itemId}`;
+      }
+      await insertEvent(tx, tenantId, itemId, 'identifier_added', {
+        kind: idf.kind, value: idf.value, packUnit: idf.packUnit || null, packSizeMilli: idf.packSizeMilli || null,
+        ...(Object.keys(set).length ? { fields: Object.keys(set) } : {}),
+      }, actor);
       return { ok: true, identifier: mapIdentifier(ins[0]) };
     });
   } catch (e) {
@@ -648,14 +771,22 @@ async function addIdentifier(sql, tenantId, itemId, idf, actor) {
   }
 }
 
+/** Office: stop recognising an item by a code; the item's code field follows (syncCodeFields). */
 async function retireIdentifier(sql, tenantId, identifierId, actor) {
   return sql.begin(async (tx) => {
+    const found = await tx`select item_id from public.workshop_stock_identifiers where tenant_id = ${tenantId} and id = ${identifierId} and retired_at is null`;
+    if (!found.length) return { error: 'identifier_not_found' };
+    // item first, then its codes — the lock order every other write uses
+    const items = await tx`select * from public.workshop_stock_items where tenant_id = ${tenantId} and id = ${found[0].item_id} for update`;
     const rows = await tx`
-      update public.workshop_stock_identifiers set retired_at = now()
+      update public.workshop_stock_identifiers set retired_at = now(), retired_reason = 'removed'
       where tenant_id = ${tenantId} and id = ${identifierId} and retired_at is null
-      returning item_id, kind, value`;
+      returning item_id, kind, value, value_key, scope`;
     if (!rows.length) return { error: 'identifier_not_found' };
-    await insertEvent(tx, tenantId, rows[0].item_id, 'identifier_removed', { kind: rows[0].kind, value: rows[0].value }, actor);
+    const changes = items.length ? await syncCodeFields(tx, tenantId, items[0], rows, actor) : {};
+    await insertEvent(tx, tenantId, rows[0].item_id, 'identifier_removed', {
+      kind: rows[0].kind, value: rows[0].value, ...(Object.keys(changes).length ? { changes } : {}),
+    }, actor);
     return { ok: true, itemId: rows[0].item_id };
   });
 }
@@ -663,11 +794,13 @@ async function retireIdentifier(sql, tenantId, identifierId, actor) {
 /** Office: record (or clear) a product-code verification on an item from a server-side lookup result. */
 async function recordVerification(sql, tenantId, itemId, { status, verification, actor }) {
   return sql.begin(async (tx) => {
-    const rows = await tx`
+    const items = await tx`select id, archived_at from public.workshop_stock_items where tenant_id = ${tenantId} and id = ${itemId} for update`;
+    if (!items.length) return { error: 'item_not_found' };
+    if (items[0].archived_at) return { error: 'item_archived' };
+    await tx`
       update public.workshop_stock_items set verification_status = ${status}, verification = ${verification ? tx.json(verification) : null},
-        meta_revision = meta_revision + 1, updated_by_legacy_id = ${actor.id}, updated_by_name = ${actor.name || null}
-      where tenant_id = ${tenantId} and id = ${itemId} returning id`;
-    if (!rows.length) return { error: 'item_not_found' };
+        updated_by_legacy_id = ${actor.id}, updated_by_name = ${actor.name || null}
+      where tenant_id = ${tenantId} and id = ${itemId}`;
     await insertEvent(tx, tenantId, itemId, 'verification_recorded', { status, sourceUrl: verification ? verification.sourceUrl : null }, actor);
     return { ok: true };
   });
@@ -679,9 +812,10 @@ async function insertPhoto(sql, tenantId, p) {
   const rows = await sql`
     insert into public.workshop_stock_photos
       (tenant_id, purpose, blob_url, blob_pathname, content_type, byte_size, width, height, sha256,
-       uploaded_by_legacy_id, uploaded_by_name, expires_at)
+       thumb_url, thumb_pathname, thumb_byte_size, uploaded_by_legacy_id, uploaded_by_name, expires_at)
     values (${tenantId}, 'pending', ${p.blobUrl}, ${p.blobPathname}, ${p.contentType}, ${p.byteSize}, ${p.width}, ${p.height},
-            ${p.sha256}, ${p.actor.id}, ${p.actor.name || null}, now() + make_interval(hours => ${p.ttlHours || 24}))
+            ${p.sha256}, ${p.thumb ? p.thumb.url : null}, ${p.thumb ? p.thumb.pathname : null}, ${p.thumb ? p.thumb.byteSize : null},
+            ${p.actor.id}, ${p.actor.name || null}, now() + make_interval(hours => ${p.ttlHours || 24}))
     returning id`;
   return rows[0].id;
 }
@@ -690,47 +824,73 @@ async function setPhotoReading(sql, tenantId, photoId, reading) {
   await sql`update public.workshop_stock_photos set reading = ${sql.json(reading)} where tenant_id = ${tenantId} and id = ${photoId}`;
 }
 
-/** Server-only: the Blob URL + type of a photo the viewer may see, or null. */
-async function getPhotoForServing(sql, tenantId, photoId, { viewerId, office }) {
+/**
+ * Server-only: the Blob URL + type of a photo the viewer may see, or null.
+ * `size: 'thumb'` serves the small copy when there is one (else the photo).
+ */
+async function getPhotoForServing(sql, tenantId, photoId, { viewerId, office, size = 'full' }) {
   const rows = await sql`
-    select id, blob_url, content_type, byte_size, purpose, uploaded_by_legacy_id
+    select id, blob_url, content_type, byte_size, thumb_url, thumb_byte_size, purpose, uploaded_by_legacy_id
     from public.workshop_stock_photos
     where tenant_id = ${tenantId} and id = ${photoId} and deleted_at is null`;
   const p = rows[0];
   if (!p) return null;
   if (p.purpose !== 'item' && !office && p.uploaded_by_legacy_id !== viewerId) return null;
-  return { id: p.id, blobUrl: p.blob_url, contentType: p.content_type, byteSize: Number(p.byte_size) };
+  if (size === 'thumb' && p.thumb_url) return { id: p.id, blobUrl: p.thumb_url, contentType: 'image/jpeg', byteSize: Number(p.thumb_byte_size), thumb: true };
+  return { id: p.id, blobUrl: p.blob_url, contentType: p.content_type, byteSize: Number(p.byte_size), thumb: false };
 }
 
 /** Office: point an item at a new (pending) photo; the old one is retired and expires. */
 async function replaceItemPhoto(sql, tenantId, itemId, photoId, actor) {
   return sql.begin(async (tx) => {
-    const items = await tx`select id, photo_id from public.workshop_stock_items where tenant_id = ${tenantId} and id = ${itemId} for update`;
+    const items = await tx`select id, photo_id, archived_at from public.workshop_stock_items where tenant_id = ${tenantId} and id = ${itemId} for update`;
     if (!items.length) return { error: 'item_not_found' };
+    if (items[0].archived_at) return { error: 'item_archived' };
     const claimed = await tx`
       update public.workshop_stock_photos set purpose = 'item', expires_at = null
-      where tenant_id = ${tenantId} and id = ${photoId} and purpose = 'pending' and deleted_at is null returning id`;
+      where tenant_id = ${tenantId} and id = ${photoId} and purpose = 'pending' and deleted_at is null and expires_at > now()
+      returning id`;
     if (!claimed.length) return { error: 'photo_not_available' };
     const old = items[0].photo_id;
-    await tx`update public.workshop_stock_items set photo_id = ${photoId}, meta_revision = meta_revision + 1, updated_by_legacy_id = ${actor.id}, updated_by_name = ${actor.name || null} where tenant_id = ${tenantId} and id = ${itemId}`;
+    await tx`update public.workshop_stock_items set photo_id = ${photoId}, updated_by_legacy_id = ${actor.id}, updated_by_name = ${actor.name || null} where tenant_id = ${tenantId} and id = ${itemId}`;
     if (old) await tx`update public.workshop_stock_photos set purpose = 'retired', expires_at = now() + interval '1 day' where tenant_id = ${tenantId} and id = ${old}`;
     await insertEvent(tx, tenantId, itemId, 'photo_changed', { from: old, to: photoId }, actor);
     return { ok: true };
   });
 }
 
-/** Expired pending/retired photos no item points at — safe to delete. */
-async function expiredPhotos(sql, tenantId, limit = 5) {
+/**
+ * Photos to delete: expired pending/retired photos no item points at, plus any
+ * whose blob delete failed last time (marked, blob still there).
+ */
+async function photosDueForDeletion(sql, tenantId, limit = 3) {
   const rows = await sql`
-    select p.id, p.blob_url from public.workshop_stock_photos p
-    where p.tenant_id = ${tenantId} and p.purpose <> 'item' and p.deleted_at is null and p.expires_at < now()
-      and not exists (select 1 from public.workshop_stock_items i where i.tenant_id = p.tenant_id and i.photo_id = p.id)
-    order by p.expires_at limit ${limit}`;
-  return rows.map((r) => ({ id: r.id, blobUrl: r.blob_url }));
+    select p.id, p.blob_url, p.thumb_url, p.deleted_at is not null as marked
+    from public.workshop_stock_photos p
+    where p.tenant_id = ${tenantId} and (
+      (p.deleted_at is not null and p.blob_deleted_at is null)
+      or (p.purpose <> 'item' and p.deleted_at is null and p.expires_at < now()
+          and not exists (select 1 from public.workshop_stock_items i where i.tenant_id = p.tenant_id and i.photo_id = p.id)))
+    order by p.expires_at nulls first limit ${limit}`;
+  return rows.map((r) => ({ id: r.id, blobUrl: r.blob_url, thumbUrl: r.thumb_url || null, marked: r.marked === true }));
 }
 
+/**
+ * Step 1 of a delete: mark the row so nothing can claim it any more. False when
+ * it was claimed (or marked) meanwhile — then the blob must stay.
+ */
 async function markPhotoDeleted(sql, tenantId, photoId) {
-  await sql`update public.workshop_stock_photos set deleted_at = now() where tenant_id = ${tenantId} and id = ${photoId} and purpose <> 'item'`;
+  const rows = await sql`
+    update public.workshop_stock_photos p set deleted_at = now()
+    where p.tenant_id = ${tenantId} and p.id = ${photoId} and p.purpose <> 'item' and p.deleted_at is null and p.expires_at < now()
+      and not exists (select 1 from public.workshop_stock_items i where i.tenant_id = p.tenant_id and i.photo_id = p.id)
+    returning p.id`;
+  return rows.length > 0;
+}
+
+/** Step 2: the blob (and its small copy) are gone. */
+async function markBlobDeleted(sql, tenantId, photoId) {
+  await sql`update public.workshop_stock_photos set blob_deleted_at = now() where tenant_id = ${tenantId} and id = ${photoId} and deleted_at is not null`;
 }
 
 // ── cost ceiling + lookup cache ───────────────────────────────────────────────
@@ -746,18 +906,20 @@ async function consumeUsage(sql, tenantId, kind, cap) {
   return rows.length ? { allowed: true, count: Number(rows[0].count) } : { allowed: false, count: cap };
 }
 
-async function getCachedLookup(sql, tenantId, brandKey, codeKey) {
+/** A cached check for exactly this brand + code + colour/size details ({ brandKey, codeKey, variantKey }). */
+async function getCachedLookup(sql, tenantId, key) {
   const rows = await sql`
     select result, fetched_at from public.workshop_stock_lookup_cache
-    where tenant_id = ${tenantId} and brand_key = ${brandKey || ''} and code_key = ${codeKey} and expires_at > now()`;
+    where tenant_id = ${tenantId} and brand_key = ${key.brandKey || ''} and code_key = ${key.codeKey}
+      and variant_key = ${key.variantKey || ''} and expires_at > now()`;
   return rows.length ? { ...rows[0].result, cached: true, cachedAt: iso(rows[0].fetched_at) } : null;
 }
 
-async function putCachedLookup(sql, tenantId, brandKey, codeKey, status, result, ttlDays) {
+async function putCachedLookup(sql, tenantId, key, status, result, ttlDays) {
   await sql`
-    insert into public.workshop_stock_lookup_cache (tenant_id, brand_key, code_key, status, result, fetched_at, expires_at)
-    values (${tenantId}, ${brandKey || ''}, ${codeKey}, ${status}, ${sql.json(result)}, now(), now() + make_interval(days => ${ttlDays}))
-    on conflict (tenant_id, brand_key, code_key) do update
+    insert into public.workshop_stock_lookup_cache (tenant_id, brand_key, code_key, variant_key, status, result, fetched_at, expires_at)
+    values (${tenantId}, ${key.brandKey || ''}, ${key.codeKey}, ${key.variantKey || ''}, ${status}, ${sql.json(result)}, now(), now() + make_interval(days => ${ttlDays}))
+    on conflict (tenant_id, brand_key, code_key, variant_key) do update
       set status = excluded.status, result = excluded.result, fetched_at = excluded.fetched_at, expires_at = excluded.expires_at`;
 }
 
@@ -767,9 +929,9 @@ module.exports = {
   listItems,
   getItem,
   listMovements,
-  recentForActor,
   getMovement,
   getOperation,
+  replayOperation,
   movementsSinceVersion,
   itemEvents,
   recordMovement,
@@ -786,8 +948,9 @@ module.exports = {
   setPhotoReading,
   getPhotoForServing,
   replaceItemPhoto,
-  expiredPhotos,
+  photosDueForDeletion,
   markPhotoDeleted,
+  markBlobDeleted,
   consumeUsage,
   getCachedLookup,
   putCachedLookup,
