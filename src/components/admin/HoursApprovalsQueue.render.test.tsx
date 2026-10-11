@@ -8,7 +8,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { HoursApprovalsQueue } from "./HoursApprovalsQueue";
-import { AmendHoursEditor, amendDayPayload } from "./AmendHoursEditor";
+import { AmendHoursEditor, amendDayPayload, reasonAfterDayPick } from "./AmendHoursEditor";
 import type { TimeEntry } from "@/domains/timesheets/types";
 
 /**
@@ -289,6 +289,18 @@ describe("the amend editor — switching the day", () => {
     expect(html).not.toContain("Time worked");
   });
 
+  it("a holiday says why there's no 'Job day' — the worker picks the job (P7 named absence)", () => {
+    const html = editorHtml({
+      dayType: "holiday",
+      dayTypeOptions: ["sick", "holiday"],
+      allocations: [{ jobId: null, label: "Holiday", hours: 7.6 }],
+    });
+    expect(html).toContain("To make it a job day, send it back so they can pick the job.");
+    expect(editorHtml({ dayType: null, dayTypeOptions: ["sick", "holiday"] })).not.toContain(
+      'data-testid="amend-no-job-day"',
+    );
+  });
+
   it("an apprentice's day can become a TAFE day", () => {
     const html = editorHtml({ dayType: null, dayTypeOptions: ["sick", "holiday", "tafe"] });
     expect(html).toContain('data-testid="amend-daytype-tafe"');
@@ -351,5 +363,18 @@ describe("amendDayPayload — what a fix sends", () => {
       reason: "It was the public holiday",
     });
     expect(payload.dayType).toBe("holiday");
+  });
+});
+
+describe("reasonAfterDayPick — the public-holiday reason starts itself", () => {
+  it("Holiday on Labour Day fills an empty reason with the true one", () => {
+    expect(reasonAfterDayPick("holiday", "Labour Day", "")).toBe("Labour Day — public holiday");
+    expect(reasonAfterDayPick("holiday", "Labour Day", "   ")).toBe("Labour Day — public holiday");
+  });
+  it("never replaces what the boss typed, never fills on other days or other types", () => {
+    expect(reasonAfterDayPick("holiday", "Labour Day", "RDO swap")).toBe("RDO swap");
+    expect(reasonAfterDayPick("holiday", null, "")).toBe("");
+    expect(reasonAfterDayPick("sick", "Labour Day", "")).toBe("");
+    expect(reasonAfterDayPick(null, "Labour Day", "")).toBe("");
   });
 });

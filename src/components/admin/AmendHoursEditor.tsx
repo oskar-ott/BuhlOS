@@ -81,6 +81,18 @@ export function amendDayPayload(input: {
   };
 }
 
+/** Picking Holiday on a public holiday starts an EMPTY reason with the true
+ *  one ("Labour Day — public holiday"); anything typed is never replaced. */
+export function reasonAfterDayPick(
+  next: FixDayType | null,
+  holidayName: string | null | undefined,
+  current: string,
+): string {
+  return next === "holiday" && holidayName && current.trim() === ""
+    ? `${holidayName} — public holiday`
+    : current;
+}
+
 const SWITCH_REASON_HINT: Record<FixDayType, string> = {
   holiday: "e.g. Public holiday — not a job day",
   sick: "e.g. Off sick — logged on a job by mistake",
@@ -102,6 +114,7 @@ export function AmendHoursEditor({
   onSave,
   dayType = null,
   dayTypeOptions = [],
+  holidayName = null,
 }: {
   dateLabel: string;
   workerName: string;
@@ -114,6 +127,10 @@ export function AmendHoursEditor({
   dayType?: FixDayType | null;
   /** The types the fix may switch the day to — none → no "This day" row. */
   dayTypeOptions?: ReadonlyArray<FixDayType>;
+  /** The public holiday this date is, when it is one ("Labour Day"): picking
+   *  Holiday then starts the reason as "Labour Day — public holiday" — the
+   *  slowest step on a phone, and the true reason. Editable, never forced. */
+  holidayName?: string | null;
 }): ReactNode {
   const [rows, setRows] = useState<AmendRow[]>(() =>
     allocations.map((a) => {
@@ -155,6 +172,7 @@ export function AmendHoursEditor({
     // Leaving job work carries the time over; the job rows stay put for the
     // way back.
     if (type === null && next !== null) setTypeTime(splitHoursMinutes(jobTotal));
+    setReason((current) => reasonAfterDayPick(next, holidayName, current));
     setType(next);
   }
 
@@ -208,6 +226,12 @@ export function AmendHoursEditor({
               );
             })}
           </div>
+          {dayType !== null ? (
+            // Named absence (P7): why there's no "Job day" here.
+            <p className="mt-1 text-xs text-text-muted" data-testid="amend-no-job-day">
+              To make it a job day, send it back so they can pick the job.
+            </p>
+          ) : null}
         </div>
       ) : null}
 

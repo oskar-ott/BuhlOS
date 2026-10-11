@@ -1713,6 +1713,7 @@ function DaySheetRow({
             allocations={amendDayAllocations(day)}
             dayType={day.dayType ?? null}
             dayTypeOptions={officeDayTypeOptions(worker.workerRole, day.dayType)}
+            holidayName={day.holidayName}
             saving={busy}
             onCancel={() => onOpenAmend(null)}
             onSave={(payload) => {

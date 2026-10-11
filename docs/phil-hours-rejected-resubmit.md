@@ -80,9 +80,10 @@ submit payload, job attribution guard, and create-path behaviour are unchanged.
   entries — "Change these hours" / "Change & resend" — because a worker can
   fix a sent day until the office decides; content edits of a submitted entry
   are journalled as `hours.edited_while_submitted`.
-- **Day types (owner pull 2026-10-11):** the sheet switches a day between a
-  job day and a sick day / holiday (TAFE day for apprentices), both ways, and
-  a day-type day opens as its type instead of being refused. The day-type
+- **Day types (owner pull 2026-10-11):** a "This day" row (Job day · Sick
+  day · Holiday, TAFE day for apprentices — the office Fix's words) switches a
+  day between job work and a leave / training day, both ways, and a day-type
+  day opens as its type instead of being refused. The day-type
   payload is the one deliberate `jobId: null` on this path — it always
   carries a valid `dayType`, the only case the server's null-job block stands
   down for. Switching back to a job day sends `dayType: null`.

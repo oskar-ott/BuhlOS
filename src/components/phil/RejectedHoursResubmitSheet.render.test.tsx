@@ -251,9 +251,10 @@ describe("RejectedHoursResubmitSheet — sick day / holiday", () => {
   const holiday = (over: Partial<TimeEntry> = {}) =>
     sent({ dayType: "holiday", allocations: [{ jobId: null, hours: 7.6, notes: null }], ...over });
 
-  it("a job day offers 'Not a job day?' — Sick day and Holiday, no TAFE for a non-apprentice", () => {
+  it("a job day opens on 'This day: Job day' — with Sick day and Holiday beside it, no TAFE for a non-apprentice", () => {
     const html = render({ entry: sent(), assignedJobs: ONE_JOB, defaultOpen: true });
-    expect(html).toContain("Not a job day?");
+    expect(html).toContain("This day");
+    expect(html).toMatch(/aria-checked="true"[^>]*data-testid="phil-fix-job-day"/);
     expect(html).toContain("phil-fix-daytype-pick-sick");
     expect(html).toContain("phil-fix-daytype-pick-holiday");
     expect(html).not.toContain("phil-fix-daytype-pick-tafe");
@@ -274,7 +275,9 @@ describe("RejectedHoursResubmitSheet — sick day / holiday", () => {
     expect(html).toContain("phil-fix-daytype-holiday");
     expect(html).toContain("Holiday");
     expect(html).toContain("Logged as leave — no job");
-    expect(html).toContain("Log a job day instead");
+    // The way back is the same row: "Job day" sits beside it, not chosen.
+    expect(html).toMatch(/aria-checked="true"[^>]*data-testid="phil-fix-daytype-pick-holiday"/);
+    expect(html).toMatch(/aria-checked="false"[^>]*data-testid="phil-fix-job-day"/);
     // No job picker, no split, no OT on a leave day.
     expect(html).not.toContain("Pick one");
     expect(html).not.toContain("phil-change-split");

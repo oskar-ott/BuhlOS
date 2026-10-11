@@ -15,7 +15,7 @@ import {
   STANDARD_DAY_OT_ADD_ONS,
   standardDayPlusOt,
 } from "@/domains/timesheets/service";
-import { DAY_TYPE_LABELS, formatHoursLabel, otChipLabel } from "@/domains/timesheets/format";
+import { formatHoursLabel, otChipLabel } from "@/domains/timesheets/format";
 import {
   buildDayTypeResubmitPayload,
   buildResubmitPayload,
@@ -406,23 +406,21 @@ export function RejectedHoursResubmitSheet({
         </p>
       ) : null}
 
-      {dayType ? (
-        <FixDayTypeLine
-          type={dayType}
-          onJobDay={() => setDayType(null)}
+      <FixDayChooser
+        types={dayTypeOptions}
+        selected={dayType}
+        onSelect={setDayType}
+        disabled={submitting}
+      />
+
+      {dayType ? null : (
+        <ResubmitJobPicker
+          jobs={assignedJobs}
+          selectedJobId={selectedJobId}
+          onSelect={setSelectedJobId}
+          jobsError={jobsError}
           disabled={submitting}
         />
-      ) : (
-        <>
-          <ResubmitJobPicker
-            jobs={assignedJobs}
-            selectedJobId={selectedJobId}
-            onSelect={setSelectedJobId}
-            jobsError={jobsError}
-            disabled={submitting}
-          />
-          <FixDayTypeChoices types={dayTypeOptions} onSelect={setDayType} disabled={submitting} />
-        </>
       )}
 
       <fieldset className="space-y-2" disabled={submitting}>
@@ -586,70 +584,61 @@ export function RejectedHoursResubmitSheet({
 }
 
 /**
- * The day as a job-less type: what it is, what that means for pay, and the
- * way back to a job day (the log sheet's words). Fills the job slot — no new
- * section (P10).
+ * "This day" — Job day · Sick day · Holiday (TAFE day for apprentices): one
+ * row, one tap, the same words and order as the office's fix (owner pull
+ * 2026-10-11: a day logged on a job by mistake couldn't be switched). Same
+ * chip look as the hours presets below; the caption says what a leave day
+ * means for pay. Sits inside the open sheet — nothing new at level one (P10).
  */
-function FixDayTypeLine({
-  type,
-  onJobDay,
-  disabled,
-}: {
-  type: FixDayType;
-  onJobDay: () => void;
-  disabled: boolean;
-}): ReactNode {
-  return (
-    <div className="space-y-2" data-testid={`phil-fix-daytype-${type}`}>
-      <div className="rounded-card border border-border bg-surface px-3 py-2">
-        <p className="text-sm font-medium text-text">{DAY_TYPE_LABELS[type]}</p>
-        <p className="text-xs text-text-muted">{FIX_DAY_TYPE_COPY[type].caption}</p>
-      </div>
-      <Button
-        variant="secondary"
-        size="sm"
-        onClick={onJobDay}
-        disabled={disabled}
-        data-testid="phil-fix-job-day"
-      >
-        Log a job day instead
-      </Button>
-    </div>
-  );
-}
-
-/**
- * "Not a job day?" — switch the day to a sick day / holiday (TAFE for
- * apprentices). Owner pull 2026-10-11: a day logged on a job by mistake (the
- * 5 Oct public holiday) couldn't be corrected anywhere. Sits under the job
- * picker inside the open sheet; nothing new at level one (P10).
- */
-function FixDayTypeChoices({
+function FixDayChooser({
   types,
+  selected,
   onSelect,
   disabled,
 }: {
   types: ReadonlyArray<FixDayType>;
-  onSelect: (t: FixDayType) => void;
+  selected: FixDayType | null;
+  onSelect: (t: FixDayType | null) => void;
   disabled: boolean;
 }): ReactNode {
+  const choices: Array<FixDayType | null> = [null, ...types];
   return (
-    <div className="space-y-1" data-testid="phil-fix-daytypes">
-      <p className="text-xs text-text-muted">Not a job day?</p>
-      <div className="flex flex-wrap gap-2">
-        {types.map((t) => (
-          <Button
-            key={t}
-            variant="secondary"
-            size="sm"
-            onClick={() => onSelect(t)}
-            disabled={disabled}
-            data-testid={`phil-fix-daytype-pick-${t}`}
-          >
-            {FIX_DAY_TYPE_COPY[t].choice}
-          </Button>
-        ))}
+    <div data-testid="phil-fix-daytypes">
+      <p className="font-display text-xs uppercase tracking-widest text-text-muted">This day</p>
+      <div
+        role="radiogroup"
+        aria-label="What this day is"
+        className={cn("mt-1 grid gap-2", choices.length === 4 ? "grid-cols-2" : "grid-cols-3")}
+      >
+        {choices.map((t) => {
+          const active = t === selected;
+          return (
+            <button
+              key={t ?? "job"}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              onClick={() => onSelect(t)}
+              disabled={disabled}
+              data-testid={t ? `phil-fix-daytype-pick-${t}` : "phil-fix-job-day"}
+              className={cn(
+                "min-h-[44px] rounded-card border px-2 py-2 text-sm font-medium",
+                "disabled:cursor-not-allowed disabled:opacity-60",
+                active
+                  ? "border-brand-navy bg-brand-navy text-text-inverse"
+                  : "border-border bg-surface text-text hover:border-border-strong",
+              )}
+            >
+              {t ? FIX_DAY_TYPE_COPY[t].choice : "Job day"}
+            </button>
+          );
+        })}
       </div>
+      {selected ? (
+        <p className="mt-1.5 text-xs text-text-muted" data-testid={`phil-fix-daytype-${selected}`}>
+          {FIX_DAY_TYPE_COPY[selected].caption}
+        </p>
+      ) : null}
     </div>
   );
 }

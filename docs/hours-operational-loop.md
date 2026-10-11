@@ -51,13 +51,15 @@ State persists.                       Vercel Blob: users/<userId>/time-entries/<
 - **A day logged on a job by mistake can become a sick day / holiday — and
   back** (owner pull 2026-10-11: four of the crew logged the 5 Oct public
   holiday as a normal job day, and nothing could turn it into a holiday). The
-  same change / fix sheet offers "Not a job day?" — Sick day · Holiday (TAFE
-  day for apprentices) — under the job; picking one sends `dayType` with a
-  `jobId: null` allocation, all ordinary (`buildDayTypeResubmitPayload`). A
-  day-type day opens AS its type, with "Log a job day instead"; going back
-  sends `dayType: null` (the server keeps a day type unless the patch names
-  one), so the job gate applies again. Before this, a sick / holiday / TAFE
-  day couldn't be changed in Phil at all.
+  same change / fix sheet opens with a "This day" row — Job day · Sick day ·
+  Holiday (TAFE day for apprentices) — the same words and order as the
+  office's Fix; picking a leave type hides the job and the overtime presets
+  and sends `dayType` with a `jobId: null` allocation, all ordinary
+  (`buildDayTypeResubmitPayload`). A day-type day opens AS its type; tapping
+  "Job day" brings the job picker back and sends `dayType: null` (the server
+  keeps a day type unless the patch names one), so the job gate applies
+  again. Before this, a sick / holiday / TAFE day couldn't be changed in Phil
+  at all.
 - **No hours reminder on a public holiday.** The weekday "Did you log your
   hours?" push (`send-daily-reminders`) skips NSW public holidays — the boards
   never ask for hours on one, and on Labour Day 2026 the push had the crew
@@ -91,9 +93,11 @@ State persists.                       Vercel Blob: users/<userId>/time-entries/<
   day · Sick day · Holiday (TAFE day for an apprentice). A switched day is one
   job-less time, all ordinary; the before-type is kept in `amendedFrom.dayType`
   and the worker's line reads "Adjusted by the office — Job day → Holiday ·
-  7h 36m: <reason>", with a push saying what the day became. "Job day" is only
-  offered when the day was job work (it restores those jobs); a day already
-  logged as leave goes back to job work through the worker, who knows the job
+  7h 36m: <reason>", with a push saying what the day became. On a public
+  holiday, picking Holiday starts the reason as "<holiday> — public holiday"
+  (editable; never replaces typed text). "Job day" is only offered when the
+  day was job work (it restores those jobs); a day already logged as leave
+  says so and goes back to job work through the worker, who knows the job
   (the API refuses a job-less "job day").
 - **Worker names are FULL names, never nicknames** (owner-directed 2026-08-16,
   #1020; extended to the job hub's Labour card by #1027). Hours feed payroll,
