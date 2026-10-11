@@ -170,3 +170,67 @@ describe("composePayrollPdf", () => {
     expect(await pageCount(bytes)).toBe(1);
   });
 });
+
+describe("composePayrollPdf — Not on this sheet (2026-10-09)", () => {
+  // The sheet names every worker-day it does NOT carry, so it is complete or
+  // says exactly what is missing. pdf-lib text isn't extracted here (the
+  // suite pins structure); the composer's content is pinned through the
+  // not-on-sheet unit tests and the email assertions, which share the list.
+  const notOnSheet = {
+    lines: [
+      { workerName: "Dylan Sinclair", reason: "nothing logged", days: "Fri 2 Oct" },
+      { workerName: "Stephen Mayne", reason: "nothing logged", days: "Fri 2 Oct" },
+    ],
+    dayCount: 2,
+    leaveChecked: true,
+    periodComplete: true,
+  };
+
+  it("adds the section to the sheet (and to the one-page summary) without breaking it", async () => {
+    const rows = [row()];
+    const plain = await composePayrollPdf({ ...BASE, rows });
+    const withList = await composePayrollPdf({ ...BASE, rows, notOnSheet });
+    expect(await pageCount(withList)).toBe(1);
+    expect(withList.byteLength).toBeGreaterThan(plain.byteLength);
+    const summaryOnly = await composePayrollPdf({ ...BASE, rows, notOnSheet, includeDetail: false });
+    const summaryPlain = await composePayrollPdf({ ...BASE, rows, includeDetail: false });
+    expect(summaryOnly.byteLength).toBeGreaterThan(summaryPlain.byteLength);
+  });
+
+  it("prints on an otherwise empty sheet too — why there are no hours is the point", async () => {
+    const empty = await composePayrollPdf({ ...BASE, rows: [] });
+    const emptyWithList = await composePayrollPdf({ ...BASE, rows: [], notOnSheet });
+    expect(emptyWithList.byteLength).toBeGreaterThan(empty.byteLength);
+  });
+
+  it("a long list wraps and page-breaks instead of overflowing or throwing", async () => {
+    const many = Array.from({ length: 60 }, (_, i) => ({
+      workerName: `Worker ${i} With A Fairly Long Name`,
+      reason: "waiting for approval",
+      days: "Mon 28 Sep (7.6h), Tue 29 Sep (9.6h), Wed 30 Sep (11.6h), Thu 1 Oct (7.6h), Fri 2 Oct (7.6h)",
+    }));
+    const bytes = await composePayrollPdf({
+      ...BASE,
+      rows: [row()],
+      notOnSheet: { lines: many, dayCount: 300, leaveChecked: false, periodComplete: true },
+    });
+    expect(await pageCount(bytes)).toBeGreaterThan(1);
+  });
+
+  it("an empty list on a finished period still says so ('Nothing left off'); on an unfinished one it stays quiet", async () => {
+    const rows = [row()];
+    const plain = await composePayrollPdf({ ...BASE, rows });
+    const complete = await composePayrollPdf({
+      ...BASE,
+      rows,
+      notOnSheet: { lines: [], dayCount: 0, leaveChecked: true, periodComplete: true },
+    });
+    const unfinished = await composePayrollPdf({
+      ...BASE,
+      rows,
+      notOnSheet: { lines: [], dayCount: 0, leaveChecked: true, periodComplete: false },
+    });
+    expect(complete.byteLength).toBeGreaterThan(plain.byteLength);
+    expect(Math.abs(unfinished.byteLength - plain.byteLength)).toBeLessThan(64);
+  });
+});

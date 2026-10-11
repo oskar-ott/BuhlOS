@@ -7,7 +7,8 @@
 //   users/<userId>/time-entries-audit/<yyyy-mm>.json → append-only audit log
 
 const { put, list, del } = require('@vercel/blob');
-const { readBlob, writeBlob, deleteBlob } = require('./blob');
+const blobLib = require('./blob');
+const { readBlob, writeBlob, deleteBlob } = blobLib;
 const { acceptsHours } = require('./job-lifecycle');
 const { mirrorTimeEntry, mirrorTimeEntryDelete } = require('./hours-mirror');
 const { recordMirrorDrift } = require('./mirror-drift'); // DWD-04: surface Blob-ok/PG-fail drift
@@ -169,19 +170,92 @@ async function inactiveJobAllocationError(allocations) {
   return null;
 }
 
-// Read one entry by user+date. Returns null if missing.
+// Read one entry by user+date. Returns null if missing. The FAST read (CDN +
+// a 5s instance cache) — for screens. Never base a write on it: see
+// readEntryVerified.
 async function readEntry(userId, date) {
   return await readBlob(ENTRY_PATH(userId, date), null);
 }
 
-// Write one entry by user+date. Overwrites. #157: when the entry object
-// came from readEntry it carries __rev — threading it as expectedRev turns
-// every read-modify-write on a day-file into a guarded write (a concurrent
+// Read one entry by user+date and PROVE it is the current version — the read
+// every decision that is written back is made on (create's "does this day
+// exist?", edit, approve, reject, reopen, amend, export stamping).
+//
+// Why (2026-10-09 hours-integrity pass): the fast read goes through Vercel
+// Blob's CDN, which can serve the PREVIOUS version of a day for up to ~60s
+// after it changes. An approval decided on that copy wrote the old hours back
+// over a correction made seconds earlier, and the compare-and-swap below it
+// read through the same CDN, agreed, and never tripped (api/_lib/leave.js
+// recorded the same failure live on 2026-07-25). A create's existence check
+// could also take a degraded/CDN 404 for "no entry" and overwrite a day that
+// already existed. This read asks the store itself (blob.js readBlobVerified:
+// head()/list() metadata vs the fetched body — byte size + storage stamp).
+//
+// Resolves the entry, or null ONLY when the store says the day doesn't exist.
+// Throws (StaleReadError, code 'stale_write') when the CDN kept serving another
+// version for the whole retry budget, or BlobReadError when the store couldn't
+// be asked — callers answer those with decisionReadFailure() below.
+async function readEntryVerified(userId, date) {
+  const key = ENTRY_PATH(userId, date);
+  // Test doubles that stub blob.js without the verified read fall back to the
+  // fast read; production always has it.
+  if (typeof blobLib.readBlobVerified !== 'function') return await readBlob(key, null);
+  const { value } = await blobLib.readBlobVerified(key);
+  return value;
+}
+
+/**
+ * The HTTP answer for a verified read that could not be completed, or null
+ * when `err` is something else (rethrow it). A day that changed moments ago is
+ * a retryable 409 — the same shape every hours write already uses for a
+ * conflict, plus a reason the screens can show; a store that could not be
+ * reached is a 503. Never a 404: "couldn't read" is not "doesn't exist".
+ */
+function decisionReadFailure(err) {
+  if (!err) return null;
+  if (err.code === 'stale_write') {
+    return {
+      status: 409,
+      body: {
+        error: 'conflict',
+        code: 'stale_read',
+        message: 'This day changed moments ago — try again in a minute.',
+        ...(err.retryAfterMs ? { retryAfterMs: err.retryAfterMs } : {}),
+        currentRev: err.currentRev == null ? null : err.currentRev,
+      },
+    };
+  }
+  if (err.code === 'blob_read_failed') {
+    return {
+      status: 503,
+      body: { error: "couldn't reach the hours store — try again", code: 'read_failed' },
+    };
+  }
+  return null;
+}
+
+// Write one entry by user+date. Overwrites. #157: when the entry object came
+// from a read it carries __rev — threading it as expectedRev turns every
+// read-modify-write on a day-file into a guarded write (a concurrent
 // approve/edit of the SAME day throws StaleWriteError instead of silently
 // losing one writer). Fresh creates carry no __rev → unguarded create.
-async function writeEntry(userId, entry) {
+//
+// opts.basedOn — the entry exactly as readEntryVerified returned it. It is the
+// compare-and-swap baseline (the version the decision was made on, proven
+// current), so nothing is re-read. Without it, a read-modify-write verifies
+// the current version itself before comparing revisions — a writer that still
+// decided on a fast (possibly stale) read gets an honest conflict, never a
+// silent overwrite.
+async function writeEntry(userId, entry, opts = {}) {
+  const guarded = entry.__rev !== undefined && entry.__rev !== null;
+  const cas = !guarded
+    ? {}
+    : opts.basedOn
+      ? { current: opts.basedOn }
+      : { verifyCurrent: true };
   await writeBlob(ENTRY_PATH(userId, entry.date), entry, {
     expectedRev: entry.__rev,
+    ...cas,
   });
   // #152 dual-write: best-effort mirror into Postgres. Blob is authoritative;
   // mirrorTimeEntry never throws (triple-gated, inert in prod) so a mirror
@@ -430,6 +504,8 @@ module.exports = {
   validateEntryShape,
   inactiveJobAllocationError,
   readEntry,
+  readEntryVerified,
+  decisionReadFailure,
   writeEntry,
   deleteEntry,
   listUserEntries,

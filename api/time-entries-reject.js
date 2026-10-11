@@ -4,7 +4,13 @@
 
 const { readBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, canApproveHours, isLeadingHandRole } = require('./_lib/auth');
-const { readEntry, writeEntry, appendAudit, entryView } = require('./_lib/time-entries');
+const {
+  readEntryVerified,
+  decisionReadFailure,
+  writeEntry,
+  appendAudit,
+  entryView,
+} = require('./_lib/time-entries');
 const { append: appendAuditLog } = require('./_lib/audit-log');
 const { buildHoursAuditEntry } = require('./_lib/hours-audit');
 const { sendPushToUserId } = require('./_lib/push');
@@ -32,7 +38,15 @@ module.exports = async (req, res) => {
   if (userId === user.id) return res.status(403).json({ error: 'cannot reject your own hours' });
   if (!isUndo && (!reason || !String(reason).trim())) return res.status(400).json({ error: 'reason required' });
 
-  const entry = await readEntry(userId, date);
+  // Decide on a version PROVEN current; it is also the CAS baseline below.
+  let entry;
+  try {
+    entry = await readEntryVerified(userId, date);
+  } catch (e) {
+    const failure = decisionReadFailure(e);
+    if (failure) return res.status(failure.status).json(failure.body);
+    throw e;
+  }
   if (!entry) return res.status(404).json({ error: 'not found' });
 
   if (isLeadingHandRole(user.role)) {
@@ -62,7 +76,7 @@ module.exports = async (req, res) => {
     delete reverted.rejectedAt;
     delete reverted.rejectedBy;
     try {
-      await writeEntry(userId, reverted);
+      await writeEntry(userId, reverted, { basedOn: entry });
     } catch (e) {
       if (e && e.code === 'stale_write') {
         // #157: the day-file changed underneath this decision (concurrent
@@ -104,7 +118,7 @@ module.exports = async (req, res) => {
     updatedAt: now,
   };
   try {
-    await writeEntry(userId, updated);
+    await writeEntry(userId, updated, { basedOn: entry });
   } catch (e) {
     if (e && e.code === 'stale_write') {
       // #157: the day-file changed underneath this decision (concurrent

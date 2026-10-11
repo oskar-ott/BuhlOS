@@ -162,3 +162,103 @@ describe("WeeklyCloseoutSendFinale — wait-or-send (owner pull 2026-08-16)", ()
     expect(html).not.toContain('data-testid="wha-send-wait"');
   });
 });
+
+describe("WeeklyCloseoutSendFinale — approvals still saving (2026-10-06 audit)", () => {
+  // Approvals are fired in the background so the boss never waits between
+  // people, so this screen can open while the last ones are still being
+  // written. A send then reads those days as "submitted" and leaves them off
+  // the sheet with NO error — so while anything is saving, there is no send.
+  const inFlight = {
+    // While approvals are in flight the overlay hasn't caught up, so the
+    // week-wide count calls those days "still waiting for review".
+    outstanding: {
+      sentBackDays: 0,
+      notReviewedDays: 9,
+      notInYetDays: 2,
+      actionableDays: 9,
+      total: 11,
+    },
+    savingCount: 2,
+  };
+
+  it("no send button of any kind while saves are in flight — a disabled 'Saving approvals…' instead", () => {
+    const html = render(inFlight);
+    expect(html).toContain('data-testid="wha-send-saving"');
+    expect(html).toContain("Saving approvals…");
+    expect(html).not.toContain('data-testid="wha-send-accounts"');
+    expect(html).not.toContain("Send anyway");
+    expect(html).not.toContain("Send to Tia</button>");
+  });
+
+  it("says why, in site language — and doesn't call the in-flight days 'waiting for review'", () => {
+    const html = render(inFlight);
+    expect(html).toContain('data-testid="wha-send-saving-note"');
+    expect(html).toContain("2 people’s hours are still saving");
+    expect(html).not.toContain('data-testid="wha-send-outstanding"');
+    expect(html).not.toContain('data-testid="wha-send-wait"');
+    expect(html).not.toContain('data-testid="wha-send-fyi"');
+  });
+
+  it("never shows 'No approved hours' while the approvals that would fill it are still landing", () => {
+    const html = render({ ...inFlight, candidates: [] });
+    expect(html).not.toContain("No approved hours");
+    expect(html).toContain('data-testid="wha-send-saving"');
+  });
+
+  it("one worker saving reads in the singular", () => {
+    expect(render({ savingCount: 1 })).toContain("1 person’s hours are still saving");
+  });
+
+  it("nothing saving → today's send face, unchanged", () => {
+    const html = render({ savingCount: 0 });
+    expect(html).toContain('data-testid="wha-send-accounts"');
+    expect(html).toContain("Send to Tia");
+    expect(html).not.toContain('data-testid="wha-send-saving"');
+  });
+});
+
+describe("WeeklyCloseoutSendFinale — names, not just counts (2026-10-09)", () => {
+  // The 5 Oct finale said "2 days never came in" and nobody could tell it
+  // meant Dylan's and Stephen's Fridays. The notices now name them in the
+  // sheet's own words — and the sheet itself carries the same list for Tia.
+  const fridays = {
+    outstanding: { sentBackDays: 0, notReviewedDays: 0, notInYetDays: 2, actionableDays: 0, total: 2 },
+    outstandingLines: [
+      { workerName: "Dylan Sinclair", reason: "nothing logged", days: "Fri 2 Oct", kind: "notInYet" as const },
+      { workerName: "Stephen Mayne", reason: "nothing logged", days: "Fri 2 Oct", kind: "notInYet" as const },
+    ],
+  };
+
+  it("the FYI notice names who and which day — and says the sheet lists them for Tia", () => {
+    const html = render(fridays);
+    expect(html).toContain('data-testid="wha-send-fyi-lines"');
+    expect(html).toContain("Dylan Sinclair");
+    expect(html).toContain("Stephen Mayne");
+    expect(html).toContain("nothing logged: Fri 2 Oct");
+    expect(html).toContain("names them for Tia");
+    // Still a send-first face: holiday crew never hold the pay run.
+    expect(html).toContain("Send to Tia");
+  });
+
+  it("the 'week isn't finished' notice names the days still mid-flight (not the not-in-yet ones)", () => {
+    const html = render({
+      outstanding: { sentBackDays: 1, notReviewedDays: 2, notInYetDays: 1, actionableDays: 3, total: 4 },
+      outstandingLines: [
+        { workerName: "Louis Kane", reason: "waiting for approval", days: "Mon 28 Sep, Tue 29 Sep", kind: "notReviewed" },
+        { workerName: "Louis Kane", reason: "sent back for a fix", days: "Wed 30 Sep", kind: "sentBack" },
+        { workerName: "Dylan Sinclair", reason: "nothing logged", days: "Fri 2 Oct", kind: "notInYet" },
+      ],
+    });
+    expect(html).toContain('data-testid="wha-send-outstanding-lines"');
+    expect(html).toContain("waiting for approval: Mon 28 Sep, Tue 29 Sep");
+    expect(html).toContain("sent back for a fix: Wed 30 Sep");
+    // The not-in-yet line lives in the FYI notice, which the hold replaces.
+    expect(html).not.toContain("nothing logged: Fri 2 Oct");
+  });
+
+  it("no lines → the notices render as before (older callers pass none)", () => {
+    const html = render({ outstanding: fridays.outstanding });
+    expect(html).toContain("2 days never came in");
+    expect(html).not.toContain('data-testid="wha-send-fyi-lines"');
+  });
+});

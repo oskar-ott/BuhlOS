@@ -29,6 +29,7 @@ const { collectRows } = require('./_lib/payroll-inputs');
 const { csvShape, toCsv } = require('./_lib/payroll-csv');
 // Same rows, printable container — the PDF composer is pure (no I/O).
 const { composePayrollPdf } = require('./_lib/payroll-pdf');
+const { buildNotOnSheet, notOnSheetLines } = require('./_lib/not-on-sheet');
 
 module.exports = async (req, res) => {
   setNoCache(res);
@@ -68,8 +69,22 @@ async function handleGet(req, res, me) {
     jobId:  q.jobId  || '',
     fromDate: q.fromDate || '',
     toDate:   q.toDate   || '',
+    // A downloaded CSV/PDF is a payroll artifact (it gets filed, forwarded,
+    // keyed into Xero): it is only produced once the period's hours have
+    // stopped changing — the same rule as the emailed sheet. The json rollup
+    // feeding /hours/period is a refreshable on-screen preview and verifies
+    // every read instead.
+    quiet: format !== 'json',
   });
-  if (!ctx.ok) return res.status(ctx.status).json({ error: ctx.error });
+  if (!ctx.ok) {
+    if (ctx.retryAfterMs != null) {
+      res.setHeader('Retry-After', String(Math.ceil(ctx.retryAfterMs / 1000)));
+      return res
+        .status(ctx.status)
+        .json({ error: ctx.error, code: ctx.code, retryAfterMs: ctx.retryAfterMs });
+    }
+    return res.status(ctx.status).json({ error: ctx.error });
+  }
   const { rows, fromDate, toDate, status, userId, jobId } = ctx;
 
   if (format === 'json') {
@@ -87,10 +102,25 @@ async function handleGet(req, res, me) {
   // composing a document stamps nothing.
   if (format === 'pdf') {
     const generatedAtLabel = new Date().toISOString().slice(0, 10);
+    // The approved, unfiltered sheet is the one that gets forwarded to
+    // accounts — it carries the same "Not on this sheet" list as the emailed
+    // copy (the UI promises "same sheet as Download PDF"). A filtered or
+    // non-approved print is a working copy and doesn't.
+    let notOnSheet;
+    if (status === 'approved' && !userId && !jobId) {
+      const nos = await buildNotOnSheet({ fromDate, toDate, entries: ctx.entries, userById: ctx.userById });
+      notOnSheet = {
+        lines: notOnSheetLines(nos.items),
+        dayCount: nos.items.length,
+        leaveChecked: nos.leaveChecked,
+        periodComplete: nos.periodComplete,
+      };
+    }
     const pdf = await composePayrollPdf({
       rows, fromDate, toDate, statusLabel: status, generatedAtLabel,
       // ?detail=0 → the one-page summary sheet without the day breakdown.
       includeDetail: String(q.detail || '1') !== '0',
+      notOnSheet,
     });
     const body = Buffer.from(pdf);
     res.setHeader('X-Export-Hash', crypto.createHash('sha256').update(body).digest('hex'));

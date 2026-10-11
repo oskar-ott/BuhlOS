@@ -17,7 +17,8 @@ const {
   validateEntryShape,
   enforceWeekendSplit,
   inactiveJobAllocationError,
-  readEntry,
+  readEntryVerified,
+  decisionReadFailure,
   writeEntry,
   deleteEntry,
   listUserEntries,
@@ -149,13 +150,27 @@ async function handleCreate(req, res, user) {
   // The gate's jobs.json read and the existing-entry read are independent
   // round-trips to the store (each can run >1s cold) — overlap them. Response
   // precedence is unchanged: gate 403 is still checked before the 409.
-  const [gateError, existing] = await Promise.all([
+  //
+  // "Does this day already exist?" is asked of the STORE, not the CDN
+  // (readEntryVerified): a CDN 404 for a day created moments ago — or a
+  // degraded read that fell back to "nothing" — used to let this create
+  // overwrite an existing day-file (2026-10-09 hours-integrity pass).
+  const [gateError, existingRead] = await Promise.all([
     !onBehalf && isFieldRole(user.role)
       ? fieldAllocationGateError(user, body.allocations)
       : null,
-    readEntry(targetUserId, body.date),
+    readEntryVerified(targetUserId, body.date).then(
+      (value) => ({ value }),
+      (error) => ({ error }),
+    ),
   ]);
   if (gateError) return res.status(403).json({ error: gateError });
+  if (existingRead.error) {
+    const failure = decisionReadFailure(existingRead.error);
+    if (failure) return res.status(failure.status).json(failure.body);
+    throw existingRead.error;
+  }
+  const existing = existingRead.value;
 
   // Refuse if entry for that user+date already exists — caller should PATCH
   // instead — UNLESS this is a replay of the create that made it, in which
@@ -270,7 +285,17 @@ async function handlePatch(req, res, user) {
     });
   }
 
-  const existing = await readEntry(targetUserId, date);
+  // The edit is merged onto a version PROVEN current (never a stale CDN copy
+  // that would quietly undo an approval or a correction made seconds ago), and
+  // that version is the CAS baseline for the write below.
+  let existing;
+  try {
+    existing = await readEntryVerified(targetUserId, date);
+  } catch (e) {
+    const failure = decisionReadFailure(e);
+    if (failure) return res.status(failure.status).json(failure.body);
+    throw e;
+  }
   if (!existing) return res.status(404).json({ error: 'not found' });
 
   // Idempotency replay (#497): a retry of an already-applied edit (lost
@@ -432,7 +457,7 @@ async function handlePatch(req, res, user) {
   // ring never nests inside itself.
   if (idemScopeKey) recordIdempotent(updated, idemScopeKey, entryView(updated));
   try {
-    await writeEntry(targetUserId, updated);
+    await writeEntry(targetUserId, updated, { basedOn: existing });
   } catch (e) {
     if (e && e.code === 'stale_write') {
       // #157: the day-file changed underneath this decision (concurrent
@@ -522,7 +547,16 @@ async function handleDelete(req, res, user) {
     return res.status(403).json({ error: 'forbidden' });
   }
 
-  const existing = await readEntry(targetUserId, date);
+  // The "drafts only" rule is judged on a version PROVEN current — a stale
+  // copy still saying "draft" must never delete a day already submitted.
+  let existing;
+  try {
+    existing = await readEntryVerified(targetUserId, date);
+  } catch (e) {
+    const failure = decisionReadFailure(e);
+    if (failure) return res.status(failure.status).json(failure.body);
+    throw e;
+  }
   if (!existing) return res.status(404).json({ error: 'not found' });
   if (existing.status !== 'draft' && !isAdminRole(user.role)) {
     return res.status(400).json({ error: 'only drafts can be deleted' });

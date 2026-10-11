@@ -7,6 +7,8 @@ import {
   closeoutRejectReason,
   outstandingWeek,
   outstandingWeekLabel,
+  outstandingWeekLines,
+  shortDayLabel,
   reviewDayRows,
   weeklyReviewQueue,
   workerOrdOtSplit,
@@ -369,5 +371,69 @@ describe("outstandingWeekLabel", () => {
         total: 0,
       }),
     ).toBe("");
+  });
+});
+
+describe("outstandingWeekLines — WHO and WHICH DAYS behind the counts (2026-10-09)", () => {
+  // The 5 Oct finale said "2 days never came in" — a count, no names. These
+  // lines name them in the sheet's own words ("Not on this sheet").
+  const ENDED = { todayISO: "2024-05-27" };
+
+  it("names a missing day per worker — the Dylan/Stephen shape", () => {
+    const c = build(
+      [
+        entry({ userId: "u1", date: "2024-05-20", status: "approved" }),
+        entry({ userId: "u2", date: "2024-05-20", status: "approved" }),
+      ],
+      [missing("u1", "2024-05-24"), missing("u2", "2024-05-24")],
+      ENDED,
+    );
+    expect(outstandingWeekLines(c.workers, {})).toEqual([
+      { workerName: "Ari Boland", reason: "nothing logged", days: "Fri 24 May", kind: "notInYet" },
+      { workerName: "Rhys Kelly", reason: "nothing logged", days: "Fri 24 May", kind: "notInYet" },
+    ]);
+  });
+
+  it("groups a worker's days per reason, in date order, actionable reasons first", () => {
+    const c = build(
+      [
+        entry({ userId: "u1", date: "2024-05-21", status: "submitted" }),
+        entry({ userId: "u1", date: "2024-05-20", status: "submitted" }),
+        entry({ userId: "u1", date: "2024-05-22", status: "draft" }),
+        entry({ userId: "u1", date: "2024-05-23", status: "rejected" }),
+      ],
+      [missing("u1", "2024-05-24")],
+      ENDED,
+    );
+    expect(outstandingWeekLines(c.workers, {})).toEqual([
+      { workerName: "Ari Boland", reason: "waiting for approval", days: "Mon 20 May, Tue 21 May", kind: "notReviewed" },
+      { workerName: "Ari Boland", reason: "sent back for a fix", days: "Thu 23 May", kind: "sentBack" },
+      { workerName: "Ari Boland", reason: "not sent in (draft)", days: "Wed 22 May", kind: "notInYet" },
+      { workerName: "Ari Boland", reason: "nothing logged", days: "Fri 24 May", kind: "notInYet" },
+    ]);
+  });
+
+  it("follows the session: approved-this-session drops 'waiting', queried-this-session reads 'sent back'", () => {
+    const c = build(
+      [
+        entry({ userId: "u1", date: "2024-05-20", status: "submitted" }),
+        entry({ userId: "u2", date: "2024-05-20", status: "submitted" }),
+      ],
+      [],
+      ENDED,
+    );
+    expect(outstandingWeekLines(c.workers, { u1: { status: "approved" }, u2: { status: "queried" } })).toEqual([
+      { workerName: "Rhys Kelly", reason: "sent back for a fix", days: "Mon 20 May", kind: "sentBack" },
+    ]);
+  });
+
+  it("an all-approved week has nothing to name", () => {
+    const c = build([entry({ userId: "u1", date: "2024-05-20", status: "approved" })], [], ENDED);
+    expect(outstandingWeekLines(c.workers, {})).toEqual([]);
+  });
+
+  it("shortDayLabel is the sheet's day format and passes garbage through", () => {
+    expect(shortDayLabel("2026-10-02")).toBe("Fri 2 Oct");
+    expect(shortDayLabel("not-a-date")).toBe("not-a-date");
   });
 });
