@@ -17,8 +17,11 @@ import {
 } from "@/domains/timesheets/service";
 import { formatHoursLabel, otChipLabel } from "@/domains/timesheets/format";
 import {
+  buildDayTypeResubmitPayload,
   buildResubmitPayload,
   buildSplitResubmitPayload,
+  fixDayTypeOptions,
+  initialFixDayType,
   isSplitResubmit,
   resolveResubmitJob,
   resubmitFeedback,
@@ -26,6 +29,7 @@ import {
   splitChangeInitialRows,
   splitResubmitInitialRows,
   type AssignableJob,
+  type FixDayType,
   type ResubmitJobResolution,
 } from "@/domains/timesheets/resubmit";
 import { SplitDaySheet } from "./SplitDaySheet";
@@ -59,7 +63,17 @@ interface RejectedHoursResubmitSheetProps {
   /** Reports the server-confirmed entry after a successful save, so the parent
    *  can overlay it over a lagging server list (the day updates instantly). */
   onSaved?: (entry: TimeEntry) => void;
+  /** Apprentices can also switch a day to TAFE (the log sheet's rule). */
+  canLogTafe?: boolean;
 }
+
+// Same words as the log sheet's day types (LogHoursSheet DAY_TYPE_META): the
+// choice says what the day becomes, the caption says what that means for pay.
+const FIX_DAY_TYPE_COPY: Record<FixDayType, { choice: string; caption: string }> = {
+  sick: { choice: "Sick day", caption: "Logged as leave — no job" },
+  holiday: { choice: "Holiday", caption: "Logged as leave — no job" },
+  tafe: { choice: "TAFE day", caption: "Paid trade-school day — no job" },
+};
 
 type State =
   | { kind: "idle" }
@@ -114,6 +128,7 @@ export function RejectedHoursResubmitSheet({
   open: openProp,
   onOpenChange,
   onSaved,
+  canLogTafe = false,
 }: RejectedHoursResubmitSheetProps) {
   // Set once a change/fix has been sent from this sheet. The day is then
   // submitted (undecided) whatever the parent's `entry` prop still says, so a
@@ -135,6 +150,12 @@ export function RejectedHoursResubmitSheet({
     resubmitInitialJobId(entry, assignedJobs),
   );
   const [notes, setNotes] = useState<string>(entry.notes ?? "");
+  // A job-less day type (owner pull 2026-10-11): a day logged on a job by
+  // mistake can become a sick day / holiday (TAFE for apprentices), and a
+  // day-type day opens AS its type — never with a job forced onto it. While
+  // set, the day belongs to no job: the job picker yields to the type line.
+  const [dayType, setDayType] = useState<FixDayType | null>(() => initialFixDayType(entry));
+  const dayTypeOptions = fixDayTypeOptions(canLogTafe, entry.dayType);
   // 2026-07-26 owner-directed: a SINGLE-allocation day can be split across
   // jobs from inside this flow. When on, the single-job form yields to the
   // split editor (seeded from the entry); Cancel there returns here.
@@ -150,7 +171,7 @@ export function RejectedHoursResubmitSheet({
   const resolution = resolveResubmitJob({ assignedJobs, selectedJobId, jobsError });
   const hoursValid = totalHours > 0 && totalHours <= MAX_HOURS_PER_DAY;
   const submitting = state.kind === "submitting";
-  const canSubmit = resolution.ok && hoursValid && !submitting;
+  const canSubmit = (dayType !== null || resolution.ok) && hoursValid && !submitting;
 
   async function submitSplit(
     nextTotal: number,
@@ -190,7 +211,7 @@ export function RejectedHoursResubmitSheet({
   }
 
   async function submit() {
-    if (!resolution.ok) {
+    if (!dayType && !resolution.ok) {
       setState({ kind: "error", status: 0, message: reasonMessage(resolution.reason) });
       return;
     }
@@ -202,12 +223,14 @@ export function RejectedHoursResubmitSheet({
       });
       return;
     }
+    const note = notes.trim() || null;
+    const payload = dayType
+      ? buildDayTypeResubmitPayload(entry, { totalHours, dayType, notes: note })
+      : resolution.ok
+        ? buildResubmitPayload(entry, { totalHours, jobId: resolution.jobId, notes: note })
+        : null;
+    if (!payload) return;
     setState({ kind: "submitting" });
-    const payload = buildResubmitPayload(entry, {
-      totalHours,
-      jobId: resolution.jobId,
-      notes: notes.trim() || null,
-    });
     const result = await timesheetsClient.editOwnEntry(entry.date, payload, {
       idempotencyKey: resubmitKey.keyFor(JSON.stringify(payload)),
     });
@@ -231,6 +254,7 @@ export function RejectedHoursResubmitSheet({
   function changeAgain(saved: TimeEntry) {
     setTotalHours(saved.totalHours);
     setNotes(saved.notes ?? "");
+    setDayType(initialFixDayType(saved));
     setSplitMode(false);
     setSentOnce(true);
     setState({ kind: "idle" });
@@ -382,17 +406,26 @@ export function RejectedHoursResubmitSheet({
         </p>
       ) : null}
 
-      <ResubmitJobPicker
-        jobs={assignedJobs}
-        selectedJobId={selectedJobId}
-        onSelect={setSelectedJobId}
-        jobsError={jobsError}
+      <FixDayChooser
+        types={dayTypeOptions}
+        selected={dayType}
+        onSelect={setDayType}
         disabled={submitting}
       />
 
+      {dayType ? null : (
+        <ResubmitJobPicker
+          jobs={assignedJobs}
+          selectedJobId={selectedJobId}
+          onSelect={setSelectedJobId}
+          jobsError={jobsError}
+          disabled={submitting}
+        />
+      )}
+
       <fieldset className="space-y-2" disabled={submitting}>
         <legend className="font-display text-xs uppercase tracking-widest text-text-muted">
-          Hours for this job
+          {dayType ? "Hours" : "Hours for this job"}
         </legend>
         <div className="grid grid-cols-2 gap-2">
           <button
@@ -408,7 +441,9 @@ export function RejectedHoursResubmitSheet({
           >
             {`Standard day · ${formatHoursLabel(STANDARD_DAY_HOURS)}`}
           </button>
-          {STANDARD_DAY_OT_ADD_ONS.map((addOn) => {
+          {/* Leave and training pay ordinary — no overtime presets on a
+              day-type day (the payload books it all ordinary anyway). */}
+          {(dayType ? [] : STANDARD_DAY_OT_ADD_ONS).map((addOn) => {
             const total = standardDayPlusOt(addOn);
             const active = totalHours === total;
             return (
@@ -484,10 +519,11 @@ export function RejectedHoursResubmitSheet({
         </div>
       </fieldset>
 
-      {assignedJobs.length > 1 ? (
+      {assignedJobs.length > 1 && !dayType ? (
         // 2026-07-26 owner-directed: the day can be split across jobs from
         // here. Same words as the log sheet's split affordance; only shown to
-        // multi-job workers (a one-job worker has nothing to split into).
+        // multi-job workers (a one-job worker has nothing to split into) on a
+        // job day (a sick day / holiday has no jobs to split).
         <Button
           variant="secondary"
           size="sm"
@@ -543,6 +579,66 @@ export function RejectedHoursResubmitSheet({
           </Button>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * "This day" — Job day · Sick day · Holiday (TAFE day for apprentices): one
+ * row, one tap, the same words and order as the office's fix (owner pull
+ * 2026-10-11: a day logged on a job by mistake couldn't be switched). Same
+ * chip look as the hours presets below; the caption says what a leave day
+ * means for pay. Sits inside the open sheet — nothing new at level one (P10).
+ */
+function FixDayChooser({
+  types,
+  selected,
+  onSelect,
+  disabled,
+}: {
+  types: ReadonlyArray<FixDayType>;
+  selected: FixDayType | null;
+  onSelect: (t: FixDayType | null) => void;
+  disabled: boolean;
+}): ReactNode {
+  const choices: Array<FixDayType | null> = [null, ...types];
+  return (
+    <div data-testid="phil-fix-daytypes">
+      <p className="font-display text-xs uppercase tracking-widest text-text-muted">This day</p>
+      <div
+        role="radiogroup"
+        aria-label="What this day is"
+        className={cn("mt-1 grid gap-2", choices.length === 4 ? "grid-cols-2" : "grid-cols-3")}
+      >
+        {choices.map((t) => {
+          const active = t === selected;
+          return (
+            <button
+              key={t ?? "job"}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              onClick={() => onSelect(t)}
+              disabled={disabled}
+              data-testid={t ? `phil-fix-daytype-pick-${t}` : "phil-fix-job-day"}
+              className={cn(
+                "min-h-[44px] rounded-card border px-2 py-2 text-sm font-medium",
+                "disabled:cursor-not-allowed disabled:opacity-60",
+                active
+                  ? "border-brand-navy bg-brand-navy text-text-inverse"
+                  : "border-border bg-surface text-text hover:border-border-strong",
+              )}
+            >
+              {t ? FIX_DAY_TYPE_COPY[t].choice : "Job day"}
+            </button>
+          );
+        })}
+      </div>
+      {selected ? (
+        <p className="mt-1.5 text-xs text-text-muted" data-testid={`phil-fix-daytype-${selected}`}>
+          {FIX_DAY_TYPE_COPY[selected].caption}
+        </p>
+      ) : null}
     </div>
   );
 }

@@ -8,7 +8,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { HoursApprovalsQueue } from "./HoursApprovalsQueue";
-import { AmendHoursEditor } from "./AmendHoursEditor";
+import { AmendHoursEditor, amendDayPayload, reasonAfterDayPick } from "./AmendHoursEditor";
 import type { TimeEntry } from "@/domains/timesheets/types";
 
 /**
@@ -237,5 +237,144 @@ describe("approve/reject button accessibility (H7/H27)", () => {
     expect(html).toContain('aria-label="Reject 8h for Sparky on');
     // H7: size="sm" gives the 44px phone touch floor (h-11).
     expect(html).toContain("h-11");
+  });
+});
+
+/**
+ * Owner pull 2026-10-11: "switch someone's day from the mobile admin process"
+ * — the same editor serves the phone closeout and this queue. Given
+ * dayTypeOptions it can turn the day into a sick day / holiday (TAFE for an
+ * apprentice); a day already logged as leave stays leave or swaps type.
+ */
+describe("the amend editor — switching the day", () => {
+  function editorHtml(props: Partial<Parameters<typeof AmendHoursEditor>[0]> = {}) {
+    return renderToString(
+      createElement(AmendHoursEditor, {
+        dateLabel: "Mon 5",
+        workerName: "Louis Kane",
+        currentTotalHours: 7.6,
+        allocations: [{ jobId: "job-1", label: "Smith St Rewire", hours: 7.6 }],
+        saving: false,
+        onCancel: () => {},
+        onSave: () => {},
+        ...props,
+      }),
+    );
+  }
+
+  it("no options → no 'This day' row (every existing caller is unchanged)", () => {
+    expect(editorHtml()).not.toContain('data-testid="amend-daytypes"');
+  });
+
+  it("a job day offers Job day (current) · Sick day · Holiday", () => {
+    const html = editorHtml({ dayType: null, dayTypeOptions: ["sick", "holiday"] });
+    expect(html).toContain('data-testid="amend-daytypes"');
+    expect(html).toMatch(/aria-pressed="true"[^>]*data-testid="amend-daytype-job"/);
+    expect(html).toContain('data-testid="amend-daytype-sick"');
+    expect(html).toContain('data-testid="amend-daytype-holiday"');
+    expect(html).not.toContain('data-testid="amend-daytype-tafe"');
+    // Still the job's own time row until a type is picked.
+    expect(html).toContain("Time worked");
+  });
+
+  it("a holiday opens as a holiday — one time, no jobs, and no 'Job day' (the worker knows the job)", () => {
+    const html = editorHtml({
+      dayType: "holiday",
+      dayTypeOptions: ["sick", "holiday"],
+      allocations: [{ jobId: null, label: "Holiday", hours: 7.6 }],
+    });
+    expect(html).not.toContain('data-testid="amend-daytype-job"');
+    expect(html).toMatch(/aria-pressed="true"[^>]*data-testid="amend-daytype-holiday"/);
+    expect(html).toContain("Holiday hours");
+    expect(html).not.toContain("Time worked");
+  });
+
+  it("a holiday says why there's no 'Job day' — the worker picks the job (P7 named absence)", () => {
+    const html = editorHtml({
+      dayType: "holiday",
+      dayTypeOptions: ["sick", "holiday"],
+      allocations: [{ jobId: null, label: "Holiday", hours: 7.6 }],
+    });
+    expect(html).toContain("To make it a job day, send it back so they can pick the job.");
+    expect(editorHtml({ dayType: null, dayTypeOptions: ["sick", "holiday"] })).not.toContain(
+      'data-testid="amend-no-job-day"',
+    );
+  });
+
+  it("an apprentice's day can become a TAFE day", () => {
+    const html = editorHtml({ dayType: null, dayTypeOptions: ["sick", "holiday", "tafe"] });
+    expect(html).toContain('data-testid="amend-daytype-tafe"');
+    expect(html).toContain("TAFE day");
+  });
+});
+
+describe("amendDayPayload — what a fix sends", () => {
+  const JOB_ROWS = [{ jobId: "job-1", hours: 7.6 }];
+
+  it("job day → holiday: one job-less time, dayType set", () => {
+    expect(
+      amendDayPayload({
+        type: "holiday",
+        initialType: null,
+        rows: JOB_ROWS,
+        typeHours: 7.6,
+        reason: "  Public holiday — not a job day ",
+      }),
+    ).toEqual({
+      totalHours: 7.6,
+      allocations: [{ jobId: null, hours: 7.6 }],
+      reason: "Public holiday — not a job day",
+      dayType: "holiday",
+    });
+  });
+
+  it("a plain hours fix sends no dayType at all — the day stays what it is", () => {
+    const payload = amendDayPayload({
+      type: null,
+      initialType: null,
+      rows: [
+        { jobId: "job-1", hours: 5 },
+        { jobId: "job-2", hours: 3.6 },
+      ],
+      typeHours: 0,
+      reason: "Split fixed",
+    });
+    expect(payload.totalHours).toBe(8.6);
+    expect("dayType" in payload).toBe(false);
+  });
+
+  it("a holiday's hours fix keeps the type (no dayType) and stays job-less", () => {
+    const payload = amendDayPayload({
+      type: "holiday",
+      initialType: "holiday",
+      rows: [{ jobId: null, hours: 7.6 }],
+      typeHours: 3.8,
+      reason: "Half day",
+    });
+    expect(payload).toEqual({ totalHours: 3.8, allocations: [{ jobId: null, hours: 3.8 }], reason: "Half day" });
+  });
+
+  it("sick day → holiday swaps the type", () => {
+    const payload = amendDayPayload({
+      type: "holiday",
+      initialType: "sick",
+      rows: [{ jobId: null, hours: 7.6 }],
+      typeHours: 7.6,
+      reason: "It was the public holiday",
+    });
+    expect(payload.dayType).toBe("holiday");
+  });
+});
+
+describe("reasonAfterDayPick — the public-holiday reason starts itself", () => {
+  it("Holiday on Labour Day fills an empty reason with the true one", () => {
+    expect(reasonAfterDayPick("holiday", "Labour Day", "")).toBe("Labour Day — public holiday");
+    expect(reasonAfterDayPick("holiday", "Labour Day", "   ")).toBe("Labour Day — public holiday");
+  });
+  it("never replaces what the boss typed, never fills on other days or other types", () => {
+    expect(reasonAfterDayPick("holiday", "Labour Day", "RDO swap")).toBe("RDO swap");
+    expect(reasonAfterDayPick("holiday", null, "")).toBe("");
+    expect(reasonAfterDayPick("sick", "Labour Day", "")).toBe("");
+    expect(reasonAfterDayPick(null, "Labour Day", "")).toBe("");
   });
 });

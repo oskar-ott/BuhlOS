@@ -308,10 +308,11 @@ describe("PhilHoursSharpened — day-type days", () => {
     // …and TAFE appears exactly ONCE (non-apprentice render: no dial row),
     // proving the job breakdown holds no day-type rows.
     expect(html.match(/TAFE/g)).toHaveLength(1);
-    // Day-type days never carry the fix-sheet 'Change' pill — the office
-    // amends them (canResubmitInPhil refuses day-type entries).
-    const dayRows = html.split("Log your day")[0];
-    expect(dayRows).not.toContain("phil-edit-submitted");
+    // A submitted day-type day carries the same 'Change' pill as a job day
+    // (owner pull 2026-10-11): the sheet opens on its type, and it can go
+    // back to a job day — before, nobody could change one.
+    const dayRows = html.split("Log your day")[0] ?? "";
+    expect(dayRows.match(/data-testid="phil-edit-submitted"/g)).toHaveLength(2);
   });
 
   it("canLogTafe passes through to the mounted log sheet's dial", () => {

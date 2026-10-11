@@ -616,3 +616,112 @@ describe("concurrency — one guarded write, never a clobber", () => {
     expect(stored().totalHours).toBe(8.37);
   });
 });
+
+/**
+ * Owner pull 2026-10-11: "I want to be able to easily switch someone's day
+ * from the mobile admin process" — the 5 Oct public holiday was logged as a
+ * normal job day by four of the crew. The office's fix can now turn a day
+ * into a sick day / holiday / TAFE day (and a day-type day back into job
+ * work), with the same guardrails as any fix.
+ */
+describe("switching the day type while fixing it", () => {
+  const SWITCH = {
+    userId: "u_field",
+    date: TODAY,
+    totalHours: 7.6,
+    allocations: [{ jobId: "job-x", hours: 7.6 }],
+    dayType: "holiday",
+    reason: "Public holiday — not a job day",
+  };
+  type Typed = StoredEntry & { dayType?: string | null; amendedFrom?: { dayType?: string | null } };
+
+  it("a job day logged by mistake becomes a holiday: no job, all ordinary, approved, before-type kept", async () => {
+    setEntry({ totalHours: 7.6, ordinaryHours: 7.6, overtimeHours: 0 });
+    const res = await call("u_admin", "admin", SWITCH);
+    expect(res.statusCode).toBe(200);
+    const e = stored() as Typed;
+    expect(e.status).toBe("approved");
+    expect(e.dayType).toBe("holiday");
+    // The job it was logged against by mistake is gone — the day belongs to no job.
+    expect(e.allocations.map((a) => [a.jobId, a.hours])).toEqual([[null, 7.6]]);
+    expect([e.ordinaryHours, e.overtimeHours]).toEqual([7.6, 0]);
+    expect(e.amendedFrom?.dayType).toBeNull();
+    expect(e.amendedFrom?.allocations[0]?.jobId).toBe("job-x");
+    // The worker is told what the day BECAME, not a meaningless "7h 36m → 7h 36m".
+    const push = pushMock().mock.calls[0]![1] as { body: string };
+    expect(push.body).toMatch(/changed to a holiday and approved/);
+  });
+
+  it("a day-type day's hours fix keeps the type and books all ordinary — even a long one", async () => {
+    setEntry({
+      dayType: "sick",
+      totalHours: 7.6,
+      ordinaryHours: 7.6,
+      overtimeHours: 0,
+      allocations: [{ jobId: null, hours: 7.6, notes: null, sortOrder: 0 }],
+    } as unknown as Partial<StoredEntry>);
+    const res = await call("u_admin", "admin", {
+      userId: "u_field",
+      date: TODAY,
+      totalHours: 9.6,
+      reason: "Long day at the doctor",
+    });
+    expect(res.statusCode).toBe(200);
+    const e = stored() as Typed;
+    expect(e.dayType).toBe("sick");
+    expect([e.ordinaryHours, e.overtimeHours]).toEqual([9.6, 0]);
+  });
+
+  it("a weekend day switched to a sick day pays ordinary, not weekend overtime", async () => {
+    blob.set(`users/u_field/time-entries/${LAST_SATURDAY}.json`, {
+      ...entry(),
+      date: LAST_SATURDAY,
+      totalHours: 7.6,
+      ordinaryHours: 0,
+      overtimeHours: 7.6,
+      allocations: [{ jobId: "job-x", hours: 7.6, notes: null, sortOrder: 0 }],
+    });
+    const res = await call("u_admin", "admin", { ...SWITCH, date: LAST_SATURDAY, dayType: "sick" });
+    expect(res.statusCode).toBe(200);
+    const e = blob.get(`users/u_field/time-entries/${LAST_SATURDAY}.json`) as Typed;
+    expect(e.dayType).toBe("sick");
+    expect([e.ordinaryHours, e.overtimeHours]).toEqual([7.6, 0]);
+  });
+
+  it("back to job work needs a real job — never a job-less 'job day'", async () => {
+    const holiday = {
+      dayType: "holiday",
+      totalHours: 7.6,
+      ordinaryHours: 7.6,
+      overtimeHours: 0,
+      allocations: [{ jobId: null, hours: 7.6, notes: null, sortOrder: 0 }],
+    } as unknown as Partial<StoredEntry>;
+    setEntry(holiday);
+    const bare = await call("u_admin", "admin", { ...FIX, totalHours: 7.6, dayType: null });
+    expect(bare.statusCode).toBe(400);
+    expect((bare.body as { error: string }).error).toMatch(/pick the job/);
+    expect(stored().status).toBe("submitted");
+
+    const res = await call("u_admin", "admin", {
+      userId: "u_field",
+      date: TODAY,
+      totalHours: 7.6,
+      allocations: [{ jobId: "job-x", hours: 7.6 }],
+      dayType: null,
+      reason: "Worked Smith St after all",
+    });
+    expect(res.statusCode).toBe(200);
+    const e = stored() as Typed;
+    expect(e.dayType).toBeNull();
+    expect(e.allocations.map((a) => a.jobId)).toEqual(["job-x"]);
+    expect(e.amendedFrom?.dayType).toBe("holiday");
+  });
+
+  it("refuses an unknown day type and keeps every other guardrail (leading hand, own hours)", async () => {
+    const bad = await call("u_admin", "admin", { ...SWITCH, dayType: "long-weekend" });
+    expect(bad.statusCode).toBe(400);
+    const lh = await call("u_lh", "leadingHand", SWITCH);
+    expect(lh.statusCode).toBe(403);
+    expect(stored().status).toBe("submitted");
+  });
+});

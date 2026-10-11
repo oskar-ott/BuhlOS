@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildDayTypeResubmitPayload,
   buildResubmitPayload,
   buildSplitResubmitPayload,
   canResubmitInPhil,
+  fixDayTypeOptions,
+  initialFixDayType,
+  officeDayTypeOptions,
   isSplitResubmit,
   resolveResubmitJob,
   resubmitFeedback,
@@ -10,6 +14,7 @@ import {
   splitChangeInitialRows,
   splitResubmitInitialRows,
 } from "./resubmit";
+import { CreateTimeEntryPayloadSchema, PatchTimeEntryPayloadSchema } from "./schema";
 import type { TimeEntry } from "./types";
 
 function te(over: Partial<TimeEntry> = {}): TimeEntry {
@@ -46,10 +51,13 @@ describe("canResubmitInPhil", () => {
     expect(canResubmitInPhil(te({ status: "approved" }))).toBe(false);
     expect(canResubmitInPhil(te({ status: "draft" }))).toBe(false);
   });
-  it("REFUSES day-type days (TAFE / sick / holiday, 2026-08-10) — the fix sheet would force a job onto a job-less day", () => {
-    expect(canResubmitInPhil(te({ status: "rejected", dayType: "tafe" }))).toBe(false);
-    expect(canResubmitInPhil(te({ status: "submitted", dayType: "sick" }))).toBe(false);
-    expect(canResubmitInPhil(te({ status: "submitted", dayType: "holiday" }))).toBe(false);
+  it("ALLOWS day-type days (owner pull 2026-10-11) — the sheet opens ON the day type, never forcing a job onto it", () => {
+    const leave = { allocations: [{ jobId: null, hours: 7.6, notes: null }] };
+    expect(canResubmitInPhil(te({ status: "rejected", dayType: "tafe", ...leave }))).toBe(true);
+    expect(canResubmitInPhil(te({ status: "submitted", dayType: "sick", ...leave }))).toBe(true);
+    expect(canResubmitInPhil(te({ status: "submitted", dayType: "holiday", ...leave }))).toBe(true);
+    // Approved stays locked for pay whatever the day is.
+    expect(canResubmitInPhil(te({ status: "approved", dayType: "holiday", ...leave }))).toBe(false);
   });
   it("ALLOWS a rejected multi-allocation (split) entry — routed to the split editor", () => {
     const multi = te({
@@ -255,5 +263,103 @@ describe("resubmitFeedback", () => {
       error: { status: 400, message: "Allocation hours must sum", body: null },
     });
     expect(fb).toEqual({ kind: "error", status: 400, message: "Allocation hours must sum" });
+  });
+});
+
+/**
+ * Owner pull 2026-10-11: "I can't change days to a sick day or holiday if I
+ * log it on a job by mistake" — four of the crew (the owner included) logged
+ * the 5 Oct public holiday as a normal job day, and nothing could turn it
+ * into a holiday. The change sheet now can, and back.
+ */
+describe("day types on the change sheet", () => {
+  it("a job day logged by mistake becomes a holiday: no job, all ordinary, still submitted", () => {
+    const payload = buildDayTypeResubmitPayload(te({ date: "2026-10-05", status: "submitted" }), {
+      totalHours: 7.6,
+      dayType: "holiday",
+      notes: null,
+    });
+    expect(payload).toEqual({
+      date: "2026-10-05",
+      totalHours: 7.6,
+      ordinaryHours: 7.6,
+      overtimeHours: 0,
+      allocations: [{ jobId: null, hours: 7.6, notes: null }],
+      status: "submitted",
+      notes: null,
+      dayType: "holiday",
+    });
+    expect(PatchTimeEntryPayloadSchema.safeParse(payload).success).toBe(true);
+  });
+
+  it("leave never splits into overtime — a long sick day or a weekend one books all ordinary", () => {
+    const long = buildDayTypeResubmitPayload(te(), { totalHours: 9.6, dayType: "sick", notes: null });
+    expect(long).toMatchObject({ ordinaryHours: 9.6, overtimeHours: 0 });
+    const saturday = buildDayTypeResubmitPayload(te({ date: "2026-10-10" }), {
+      totalHours: 7.6,
+      dayType: "sick",
+      notes: null,
+    });
+    expect(saturday).toMatchObject({ ordinaryHours: 7.6, overtimeHours: 0 });
+  });
+
+  it("a holiday switched back to a job day CLEARS the type (the server keeps it unless told)", () => {
+    const holiday = te({
+      status: "submitted",
+      dayType: "holiday",
+      allocations: [{ jobId: null, hours: 7.6, notes: null }],
+    });
+    const back = buildResubmitPayload(holiday, { totalHours: 7.6, jobId: "job-a", notes: null });
+    expect(back.dayType).toBeNull();
+    expect(back.allocations).toEqual([{ jobId: "job-a", hours: 7.6, notes: null }]);
+    expect(PatchTimeEntryPayloadSchema.safeParse(back).success).toBe(true);
+    const split = buildSplitResubmitPayload(holiday, {
+      totalHours: 7.6,
+      allocations: [
+        { jobId: "job-a", hours: 4 },
+        { jobId: "job-b", hours: 3.6 },
+      ],
+      notes: null,
+    });
+    expect(split.dayType).toBeNull();
+  });
+
+  it("a plain job day's payload is unchanged — no dayType key at all", () => {
+    const payload = buildResubmitPayload(te(), { totalHours: 7.6, jobId: "job-a", notes: null });
+    expect("dayType" in payload).toBe(false);
+  });
+
+  it("only an EDIT may clear a day type; a create still can't send null", () => {
+    const base = {
+      date: "2026-10-05",
+      totalHours: 7.6,
+      ordinaryHours: 7.6,
+      overtimeHours: 0,
+      allocations: [{ jobId: "job-a", hours: 7.6, notes: null }],
+      dayType: null,
+    };
+    expect(PatchTimeEntryPayloadSchema.safeParse(base).success).toBe(true);
+    expect(CreateTimeEntryPayloadSchema.safeParse(base).success).toBe(false);
+  });
+
+  it("offers sick / holiday to everyone, TAFE to apprentices — and always the day's own type", () => {
+    expect(fixDayTypeOptions(false, null)).toEqual(["sick", "holiday"]);
+    expect(fixDayTypeOptions(true, null)).toEqual(["sick", "holiday", "tafe"]);
+    expect(fixDayTypeOptions(false, "tafe")).toEqual(["sick", "holiday", "tafe"]);
+  });
+
+  it("the sheet starts on the entry's own type (null for a job day)", () => {
+    expect(initialFixDayType(te())).toBeNull();
+    expect(initialFixDayType(te({ dayType: "holiday" }))).toBe("holiday");
+    expect(initialFixDayType(te({ dayType: "sick" }))).toBe("sick");
+    expect(initialFixDayType(te({ dayType: "tafe" }))).toBe("tafe");
+  });
+});
+
+describe("officeDayTypeOptions — what the office's fix may switch a day to", () => {
+  it("sick / holiday for anyone; TAFE for an apprentice (any casing) or a day that already is one", () => {
+    expect(officeDayTypeOptions("electrician", null)).toEqual(["sick", "holiday"]);
+    expect(officeDayTypeOptions("Apprentice", null)).toEqual(["sick", "holiday", "tafe"]);
+    expect(officeDayTypeOptions(null, "tafe")).toEqual(["sick", "holiday", "tafe"]);
   });
 });

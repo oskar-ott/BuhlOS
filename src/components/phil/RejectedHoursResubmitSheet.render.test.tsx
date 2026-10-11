@@ -238,3 +238,68 @@ describe("RejectedHoursResubmitSheet — standard-day + OT presets, h+m entry", 
     expect(html).toContain('value="36"');
   });
 });
+
+/**
+ * Owner pull 2026-10-11: "I can't change days to a sick day or holiday if I
+ * log it on a job by mistake" (the 5 Oct public holiday, logged as a job day
+ * by four of the crew). The change sheet now switches a day to a sick day /
+ * holiday (TAFE for apprentices) — and a day-type day opens AS its type.
+ */
+describe("RejectedHoursResubmitSheet — sick day / holiday", () => {
+  const sent = (over: Partial<TimeEntry> = {}) =>
+    te({ status: "submitted", rejectedReason: undefined, date: "2026-10-05", ...over });
+  const holiday = (over: Partial<TimeEntry> = {}) =>
+    sent({ dayType: "holiday", allocations: [{ jobId: null, hours: 7.6, notes: null }], ...over });
+
+  it("a job day opens on 'This day: Job day' — with Sick day and Holiday beside it, no TAFE for a non-apprentice", () => {
+    const html = render({ entry: sent(), assignedJobs: ONE_JOB, defaultOpen: true });
+    expect(html).toContain("This day");
+    expect(html).toMatch(/aria-checked="true"[^>]*data-testid="phil-fix-job-day"/);
+    expect(html).toContain("phil-fix-daytype-pick-sick");
+    expect(html).toContain("phil-fix-daytype-pick-holiday");
+    expect(html).not.toContain("phil-fix-daytype-pick-tafe");
+    // The job day itself is unchanged: the job, the job legend, the OT presets.
+    expect(html).toContain("Smith St");
+    expect(html).toContain("Hours for this job");
+    expect(html).toContain("+1h OT");
+  });
+
+  it("an apprentice can also switch to a TAFE day", () => {
+    const html = render({ entry: sent(), assignedJobs: ONE_JOB, defaultOpen: true, canLogTafe: true });
+    expect(html).toContain("phil-fix-daytype-pick-tafe");
+    expect(html).toContain("TAFE day");
+  });
+
+  it("a holiday opens AS a holiday — no job forced onto it, a way back, no overtime presets", () => {
+    const html = render({ entry: holiday(), assignedJobs: TWO_JOBS, defaultOpen: true });
+    expect(html).toContain("phil-fix-daytype-holiday");
+    expect(html).toContain("Holiday");
+    expect(html).toContain("Logged as leave — no job");
+    // The way back is the same row: "Job day" sits beside it, not chosen.
+    expect(html).toMatch(/aria-checked="true"[^>]*data-testid="phil-fix-daytype-pick-holiday"/);
+    expect(html).toMatch(/aria-checked="false"[^>]*data-testid="phil-fix-job-day"/);
+    // No job picker, no split, no OT on a leave day.
+    expect(html).not.toContain("Pick one");
+    expect(html).not.toContain("phil-change-split");
+    expect(html).not.toContain("+1h OT");
+    expect(html).not.toContain("Hours for this job");
+    expect(html).toContain("Standard day");
+    // Still the submitted variant's words and its P12 consequence line.
+    expect(html).toContain("Send the fix");
+    expect(html).toContain("phil-edit-submitted-consequence");
+  });
+
+  it("a sent sick day collapses to the same 'Change these hours' trigger as a job day", () => {
+    const html = render({
+      entry: sent({ dayType: "sick", allocations: [{ jobId: null, hours: 7.6, notes: null }] }),
+      assignedJobs: ONE_JOB,
+    });
+    expect(html).toContain("Change these hours");
+  });
+
+  it("a holiday can still be changed when the worker's jobs failed to load (it needs no job)", () => {
+    const html = render({ entry: holiday(), assignedJobs: [], jobsError: true, defaultOpen: true });
+    expect(html).toContain("phil-fix-daytype-holiday");
+    expect(html).not.toContain("load your jobs");
+  });
+});

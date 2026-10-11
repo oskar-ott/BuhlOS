@@ -16,6 +16,9 @@ import type { PatchTimeEntryPayload, TimeEntry, TimeEntryMutationResponse } from
  * field self-edit, but the Phil UI stays the first guardrail:
  * `resolveResubmitJob` is that guard; `buildResubmitPayload`
  * only accepts a non-null `jobId: string`, so a null job can't reach the wire.
+ * The one deliberate `jobId: null` is a day-type day (sick / holiday / TAFE,
+ * `buildDayTypeResubmitPayload`), which always carries a valid `dayType` — the
+ * only case the server's null-job block stands down for.
  *
  * The transition itself is already supported on `main`: PATCH
  * /api/time-entries?date= moves a `rejected` (or `draft`) entry to `submitted`,
@@ -54,11 +57,11 @@ export interface AssignableJob {
 export function canResubmitInPhil(
   entry: Pick<TimeEntry, "status" | "allocations" | "dayType">,
 ): boolean {
-  // A day-type day (TAFE / sick / holiday, 2026-08-10) can't go through the
-  // fix sheet — that flow REQUIRES attributing the hours to an active job,
-  // which would silently turn the training/leave day into a job day. The row
-  // falls back to the honest "ask the office" copy; the office amends these.
-  if (entry.dayType) return false;
+  // Day-type days (TAFE / sick / holiday) ride the same sheet since owner pull
+  // 2026-10-11: it opens ON the day type (never forcing a job onto a leave
+  // day), and a job day can be switched to one — or back. Before, a day
+  // logged on a job by mistake (the 5 Oct public holiday) couldn't be turned
+  // into a holiday anywhere, and a sick day couldn't be changed at all.
   return (
     (entry.status === "rejected" || entry.status === "submitted") &&
     Array.isArray(entry.allocations) &&
@@ -136,6 +139,41 @@ export function resubmitInitialJobId(
   return null;
 }
 
+/** The job-less day types the change sheet offers (same vocabulary as the
+ *  log sheet: `DAY_TYPE_LABELS`). */
+export type FixDayType = "sick" | "holiday" | "tafe";
+
+/**
+ * The day types this worker may switch a day to: sick / holiday for everyone,
+ * TAFE for apprentices (`canLogTafe`, the log sheet's rule) — and always the
+ * entry's OWN type, so a TAFE day opened by a screen that didn't pass
+ * `canLogTafe` still shows what it is. Order = the log sheet's dial order.
+ */
+export function fixDayTypeOptions(
+  canLogTafe: boolean,
+  current: TimeEntry["dayType"] | null | undefined,
+): FixDayType[] {
+  return canLogTafe || current === "tafe" ? ["sick", "holiday", "tafe"] : ["sick", "holiday"];
+}
+
+/**
+ * The day types the OFFICE may switch a worker's day to while fixing it (owner
+ * pull 2026-10-11). Same rule as the worker's sheet; TAFE for an apprentice
+ * by the worker's account role (the office review has no employee record).
+ */
+export function officeDayTypeOptions(
+  workerRole: string | null | undefined,
+  current: TimeEntry["dayType"] | null | undefined,
+): FixDayType[] {
+  return fixDayTypeOptions(String(workerRole ?? "").trim().toLowerCase() === "apprentice", current);
+}
+
+/** The entry's day type as the sheet's starting selection (null = job day). */
+export function initialFixDayType(entry: Pick<TimeEntry, "dayType">): FixDayType | null {
+  const t = entry.dayType;
+  return t === "sick" || t === "holiday" || t === "tafe" ? t : null;
+}
+
 export type ResubmitJobResolution =
   | { ok: true; jobId: string }
   | { ok: false; reason: "jobs_error" | "no_jobs" | "no_selection" };
@@ -171,7 +209,7 @@ export function resolveResubmitJob(input: {
  * transition the server already supports.
  */
 export function buildResubmitPayload(
-  entry: Pick<TimeEntry, "date">,
+  entry: Pick<TimeEntry, "date"> & { dayType?: TimeEntry["dayType"] },
   input: { totalHours: number; jobId: string; notes: string | null }
 ): PatchTimeEntryPayload {
   const { ordinary, overtime } = autoSplitOT(input.totalHours, entry.date);
@@ -183,7 +221,38 @@ export function buildResubmitPayload(
     allocations: [{ jobId: input.jobId, hours: input.totalHours, notes: null }],
     status: "submitted",
     notes: input.notes,
+    ...clearDayType(entry),
   };
+}
+
+/**
+ * Build the PATCH payload that turns the day into a job-less day type — a
+ * sick day, holiday or TAFE day (owner pull 2026-10-11: a day logged on a job
+ * by mistake). Mirrors the log sheet's `buildCustomHoursPayload` day-type
+ * shape: `jobId: null`, all ordinary (leave and training never split into
+ * overtime; the server mirrors this), status → `submitted`.
+ */
+export function buildDayTypeResubmitPayload(
+  entry: Pick<TimeEntry, "date">,
+  input: { totalHours: number; dayType: FixDayType; notes: string | null }
+): PatchTimeEntryPayload {
+  return {
+    date: entry.date,
+    totalHours: input.totalHours,
+    ordinaryHours: Math.round(input.totalHours * 100) / 100,
+    overtimeHours: 0,
+    allocations: [{ jobId: null, hours: input.totalHours, notes: null }],
+    status: "submitted",
+    notes: input.notes,
+    dayType: input.dayType,
+  };
+}
+
+/** A day-type day going back to job work must say so: the server keeps an
+ *  entry's day type unless the patch names one, so the switch sends null.
+ *  A plain job day's payload stays exactly as it was. */
+function clearDayType(entry: { dayType?: TimeEntry["dayType"] }): { dayType?: null } {
+  return entry.dayType ? { dayType: null } : {};
 }
 
 /**
@@ -198,7 +267,7 @@ export function buildResubmitPayload(
  * downstream backstops.
  */
 export function buildSplitResubmitPayload(
-  entry: Pick<TimeEntry, "date">,
+  entry: Pick<TimeEntry, "date"> & { dayType?: TimeEntry["dayType"] },
   input: {
     totalHours: number;
     allocations: ReadonlyArray<{ jobId: string; hours: number }>;
@@ -214,6 +283,7 @@ export function buildSplitResubmitPayload(
     allocations: input.allocations.map((a) => ({ jobId: a.jobId, hours: a.hours, notes: null })),
     status: "submitted",
     notes: input.notes,
+    ...clearDayType(entry),
   };
 }
 

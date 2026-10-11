@@ -1160,6 +1160,30 @@ describe("amendmentLine() — what the worker is told", () => {
     expect(line).not.toContain("→");
   });
 
+  it("names a switch of what the day IS — job day → holiday (2026-10-11)", () => {
+    expect(
+      amendmentLine({
+        totalHours: 7.6,
+        dayType: "holiday",
+        amendedFrom: { totalHours: 7.6, dayType: null },
+        amendedReason: "Public holiday — not a job day",
+      })
+    ).toBe("Adjusted by the office — Job day → Holiday · 7h 36m: Public holiday — not a job day");
+    expect(
+      amendmentLine({
+        totalHours: 3.8,
+        dayType: "sick",
+        amendedFrom: { totalHours: 7.6, dayType: "holiday" },
+      })
+    ).toBe("Adjusted by the office — Holiday → Sick day · 7h 36m → 3h 48m");
+  });
+
+  it("an older amendment (no before-type recorded) never grows an invented switch (P7)", () => {
+    expect(
+      amendmentLine({ totalHours: 7.6, dayType: "holiday", amendedFrom: { totalHours: 7.6 } })
+    ).toBe("Adjusted by the office — 7h 36m");
+  });
+
   it("uses worker words, never office jargon (P11)", () => {
     const line = amendmentLine({ totalHours: 8.6, amendedFrom: { totalHours: 8.37 } })!;
     expect(line).toContain("Adjusted by the office");

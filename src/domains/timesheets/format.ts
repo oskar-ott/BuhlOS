@@ -130,7 +130,8 @@ export function otChipLabel(addOnHours: number): string {
  */
 export interface AmendmentParts {
   totalHours: number;
-  amendedFrom?: { totalHours: number } | null;
+  dayType?: TimeEntry["dayType"] | null;
+  amendedFrom?: { totalHours: number; dayType?: TimeEntry["dayType"] | null } | null;
   amendedReason?: string | null;
 }
 
@@ -144,10 +145,20 @@ export function amendmentLine(entry: AmendmentParts): string | null {
   // The totals can legitimately match when only the job split moved; claiming
   // "8h → 8h" would read as a bug, so the line states the settled time and
   // lets the reason carry the what.
-  const change =
+  const hours =
     Math.abs(from - to) > 0.005
       ? `${formatHoursLabel(from)} → ${formatHoursLabel(to)}`
       : formatHoursLabel(to);
+  // The office switched what the day IS (2026-10-11: a job day logged on a
+  // public holiday → Holiday). Only claimed when the before-type was recorded
+  // — amendments from before the switch existed never grow one.
+  const before = entry.amendedFrom;
+  const fromType = before && "dayType" in before ? (before.dayType ?? null) : undefined;
+  const toType = entry.dayType ?? null;
+  const change =
+    fromType !== undefined && fromType !== toType
+      ? `${dayTypeLabel(fromType) ?? "Job day"} → ${dayTypeLabel(toType) ?? "Job day"} · ${hours}`
+      : hours;
   return reason
     ? `Adjusted by the office — ${change}: ${reason}`
     : `Adjusted by the office — ${change}`;
