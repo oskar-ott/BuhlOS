@@ -57,10 +57,19 @@ needs depends on what the domain already has:
   where <distinct from>` upsert (revision bumped by trigger) with allocations
   reconciled in the same txn. Stage A here just **promotes** that write under
   `supabase_source_hours` (it runs when that OR `supabase_dual_write` is on) and
-  reports `source` for the diagnostics. The hours Blob write also already has
-  optimistic-lock CAS (`writeBlob` `expectedRev: entry.__rev`), so hours has **no
-  lost-update flaw** — its PG win is **referential** (real job FKs, per-allocation
-  rows, schema CHECKs) and it unlocks the Stage-B payroll read.
+  reports `source` for the diagnostics. The hours Blob write also has
+  optimistic-lock CAS (`writeBlob` `expectedRev: entry.__rev`). **Correction
+  (2026-10-09):** until then that CAS read the "current" revision through the
+  CDN, which can serve the previous version for ~60s — a stale decision read
+  and an equally stale CAS read agreed, so hours DID have a lost-update window
+  (the same failure `api/_lib/leave.js` recorded live on 2026-07-25). Every
+  hours write now decides on a verified read and uses it as the CAS baseline
+  (`readEntryVerified` / `writeEntry({ basedOn })`, see
+  `docs/regressions/payroll-export-blocked.md` guardrail 12), which narrows the
+  window to the put's own latency (~1.4s) — Blob has no conditional put. A true
+  zero-window CAS is one more reason for the PG revision write; its other wins
+  are **referential** (real job FKs, per-allocation rows, schema CHECKs) and it
+  unlocks the Stage-B payroll read.
 
 The invariants are constant regardless of shape: synchronous + at-request-time,
 identity via the existing legacy bridge (never mint an id), Blob write-through always

@@ -341,12 +341,17 @@ describe("handler mapping (approve → 409 on conflict)", () => {
       StaleWriteError: new (k: string, e: number, c: number) => Error;
     };
     delete requireFromHere.cache[timeEntriesPath];
+    const realTimeEntries = requireFromHere(timeEntriesPath) as {
+      decisionReadFailure: (e: unknown) => unknown;
+    };
+    delete requireFromHere.cache[timeEntriesPath];
     requireFromHere.cache[timeEntriesPath] = {
       id: timeEntriesPath,
       filename: timeEntriesPath,
       loaded: true,
       exports: {
-        readEntry: vi.fn(async () => ({
+        // The approve handler decides on the VERIFIED read (2026-10-09).
+        readEntryVerified: vi.fn(async () => ({
           id: "te1",
           userId: "u_field",
           date: "2026-06-12",
@@ -354,6 +359,7 @@ describe("handler mapping (approve → 409 on conflict)", () => {
           totalHours: 7.6,
           __rev: 5,
         })),
+        decisionReadFailure: realTimeEntries.decisionReadFailure,
         writeEntry: vi.fn(async () => {
           throw new guards.StaleWriteError("users/u_field/time-entries/2026-06-12.json", 5, 6);
         }),

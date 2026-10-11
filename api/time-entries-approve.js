@@ -5,7 +5,13 @@
 
 const { readBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, canApproveHours, isLeadingHandRole } = require('./_lib/auth');
-const { readEntry, writeEntry, appendAudit, entryView } = require('./_lib/time-entries');
+const {
+  readEntryVerified,
+  decisionReadFailure,
+  writeEntry,
+  appendAudit,
+  entryView,
+} = require('./_lib/time-entries');
 const { append: appendAuditLog } = require('./_lib/audit-log');
 const { buildHoursAuditEntry } = require('./_lib/hours-audit');
 const { notify } = require('./_lib/notify');
@@ -26,7 +32,16 @@ module.exports = async (req, res) => {
   if (!userId || !date) return res.status(400).json({ error: 'userId and date required' });
   if (userId === user.id) return res.status(403).json({ error: 'cannot approve your own hours' });
 
-  const entry = await readEntry(userId, date);
+  // The decision is made on a version PROVEN current (not a possibly-stale
+  // CDN copy), and that version is the compare-and-swap baseline below.
+  let entry;
+  try {
+    entry = await readEntryVerified(userId, date);
+  } catch (e) {
+    const failure = decisionReadFailure(e);
+    if (failure) return res.status(failure.status).json(failure.body);
+    throw e;
+  }
   if (!entry) return res.status(404).json({ error: 'not found' });
   if (entry.status !== 'submitted') return res.status(400).json({ error: 'entry is not submitted' });
 
@@ -54,7 +69,7 @@ module.exports = async (req, res) => {
     updatedAt: now,
   };
   try {
-    await writeEntry(userId, updated);
+    await writeEntry(userId, updated, { basedOn: entry });
   } catch (e) {
     if (e && e.code === 'stale_write') {
       // #157: the day-file changed underneath this decision (concurrent

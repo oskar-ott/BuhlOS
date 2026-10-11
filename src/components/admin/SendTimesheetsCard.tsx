@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Check, Loader2, Mail } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { formatHoursLabel } from "@/domains/timesheets/format";
 import { formatPeriodSend, usePeriodEmailStatus } from "./usePeriodEmailStatus";
+import { sendPeriodTimesheets } from "./sendPeriodTimesheets";
 
 /**
  * Send-to-accounts card (owner pull 2026-08-15) — the pay-run handoff while
@@ -25,18 +26,23 @@ import { formatPeriodSend, usePeriodEmailStatus } from "./usePeriodEmailStatus";
  * the sheet again — so the card reads the audit journal (usePeriodEmailStatus)
  * and says, BEFORE the button, whether this period already went and to whom,
  * and the confirm names the real recipient list, not a hard-coded "Tia".
+ * Days approved seconds ago can't be read back for up to a minute — the card
+ * waits that out and sends by itself (sendPeriodTimesheets, 2026-10-05).
  */
 
 interface SentReceipt {
   recipients: string[];
   workerCount: number;
   totalHours: number;
+  /** What the sheet left off, by name — the server's list (also in the email). */
+  notOnSheet?: { dayCount: number; lines: Array<{ workerName: string; reason: string; days: string }> };
 }
 
 type Phase =
   | { kind: "idle" }
   | { kind: "confirm" }
-  | { kind: "sending" }
+  /** settleWaitMs: set while waiting for just-approved days to settle. */
+  | { kind: "sending"; settleWaitMs?: number }
   | { kind: "sent"; receipt: SentReceipt }
   | { kind: "error"; message: string };
 
@@ -64,35 +70,35 @@ export function SendTimesheetsCard({
   );
   const recipients = emailStatus.kind === "loading" ? [] : emailStatus.recipients;
   const lastSent = emailStatus.kind === "ready" ? emailStatus.lastSent : null;
+  const alive = useRef(true);
+
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
 
   const send = async () => {
     setPhase({ kind: "sending" });
     try {
-      const res = await fetch("/api/time-entries-email", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ fromDate, toDate }),
+      const outcome = await sendPeriodTimesheets({
+        fromDate,
+        toDate,
+        onSettling: (ms) => {
+          if (alive.current) setPhase({ kind: "sending", settleWaitMs: ms });
+        },
+        isActive: () => alive.current,
       });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) {
-        setPhase({
-          kind: "error",
-          message: data?.error || `The send failed (${res.status}) — nothing was emailed.`,
-        });
+      if (!alive.current || !outcome) return;
+      if (!outcome.ok) {
+        setPhase({ kind: "error", message: outcome.error });
         return;
       }
-      setPhase({
-        kind: "sent",
-        receipt: {
-          recipients: Array.isArray(data?.recipients)
-            ? (data.recipients as unknown[]).filter((r): r is string => typeof r === "string")
-            : [],
-          workerCount: Number(data?.workerCount) || 0,
-          totalHours: Number(data?.totalHours) || 0,
-        },
-      });
+      setPhase({ kind: "sent", receipt: outcome.receipt });
       refreshEmailStatus();
     } catch {
+      if (!alive.current) return;
       // The request may have reached the server before the connection dropped
       // — don't claim it didn't. Re-read the journal so the card says what's true.
       refreshEmailStatus();
@@ -153,6 +159,38 @@ export function SendTimesheetsCard({
             {formatHoursLabel(phase.receipt.totalHours)} emailed to{" "}
             <b className="font-semibold">{phase.receipt.recipients.join(", ") || "accounts"}</b>.
           </span>
+        </p>
+      ) : null}
+
+      {phase.kind === "sent" && phase.receipt.notOnSheet && phase.receipt.notOnSheet.lines.length > 0 ? (
+        <div
+          data-testid="period-send-not-on-sheet"
+          className="mt-2 rounded-card border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+          role="status"
+        >
+          <p className="font-semibold">
+            {phase.receipt.notOnSheet.dayCount} day
+            {phase.receipt.notOnSheet.dayCount === 1 ? "" : "s"} not on the sheet — named in the email
+            so nothing is missed:
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {phase.receipt.notOnSheet.lines.map((l) => (
+              <li key={`${l.workerName}|${l.reason}`}>
+                <b className="font-semibold">{l.workerName}</b> · {l.reason}: {l.days}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {phase.kind === "sending" && phase.settleWaitMs != null ? (
+        <p
+          data-testid="period-send-settling"
+          className="mt-3 rounded-card border border-border bg-surface-subtle px-3 py-2 text-sm text-text-muted"
+          role="status"
+        >
+          The days just approved are still saving. It sends by itself in about{" "}
+          {Math.ceil(phase.settleWaitMs / 1000)} seconds — keep this page open.
         </p>
       ) : null}
 

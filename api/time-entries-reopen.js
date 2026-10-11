@@ -13,7 +13,12 @@
 
 const { setNoCache } = require('./_lib/blob');
 const { requireAuth } = require('./_lib/auth');
-const { readEntry, writeEntry, appendAudit } = require('./_lib/time-entries');
+const {
+  readEntryVerified,
+  decisionReadFailure,
+  writeEntry,
+  appendAudit,
+} = require('./_lib/time-entries');
 const { append: appendAuditLog } = require('./_lib/audit-log');
 const { buildHoursAuditEntry } = require('./_lib/hours-audit');
 const { sendPushToUserId } = require('./_lib/push');
@@ -32,7 +37,16 @@ module.exports = async (req, res) => {
     return res.status(400).json({ error: 'toStatus must be "submitted" or "draft"' });
   }
 
-  const entry = await readEntry(userId, date);
+  // Decide on a version PROVEN current — the exportId gate below must never be
+  // judged on a stale copy — and use it as the CAS baseline.
+  let entry;
+  try {
+    entry = await readEntryVerified(userId, date);
+  } catch (e) {
+    const failure = decisionReadFailure(e);
+    if (failure) return res.status(failure.status).json(failure.body);
+    throw e;
+  }
   if (!entry) return res.status(404).json({ error: 'not found' });
 
   if (!['approved', 'rejected'].includes(entry.status)) {
@@ -76,7 +90,7 @@ module.exports = async (req, res) => {
   }
 
   try {
-    await writeEntry(userId, updated);
+    await writeEntry(userId, updated, { basedOn: entry });
   } catch (e) {
     if (e && e.code === 'stale_write') {
       // #157: the day-file changed underneath this decision (concurrent

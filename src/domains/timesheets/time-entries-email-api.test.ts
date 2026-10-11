@@ -73,6 +73,7 @@ function createRes() {
   return {
     statusCode: 200,
     body: null as unknown,
+    headers: {} as Record<string, string>,
     status(code: number) {
       this.statusCode = code;
       return this;
@@ -81,7 +82,8 @@ function createRes() {
       this.body = body;
       return this;
     },
-    setHeader() {
+    setHeader(name: string, value: string) {
+      this.headers[name] = value;
       return this;
     },
     end() {
@@ -436,7 +438,9 @@ describe("POST /api/time-entries-email (send)", () => {
     const sent = resendCalls[0]!;
     expect(sent.from).toBe("BuhlOS Timesheets <timesheets@buhlos.com>");
     expect(sent.to).toEqual(["tia@example.com", "backup@example.com"]);
-    expect(sent.subject).toBe("Timesheets 3 – 9 Aug 2026 · 1 worker · 17.2h");
+    // Mon + Tue approved; Sun still waiting; Wed–Fri never logged — the sheet
+    // says so in its subject line, so accounts sees it before opening it.
+    expect(sent.subject).toBe("Timesheets 3 – 9 Aug 2026 · 1 worker · 17.2h · 4 days not on the sheet");
     expect(sent.reply_to).toBeUndefined();
     expect(sent.attachments).toHaveLength(1);
     expect(sent.attachments![0]!.filename).toBe(`buhlos-hours-${FROM}-to-${TO}.pdf`);
@@ -444,6 +448,39 @@ describe("POST /api/time-entries-email (send)", () => {
     expect(sent.attachments![0]!.content.startsWith("JVBER")).toBe(true);
 
     expect(journalText()).toContain("hours.timesheets_emailed");
+  });
+
+  it("NOT ON THIS SHEET: the email names every worker-day it doesn't carry, and why — and the receipt carries the same list", async () => {
+    seedRecipients(["tia@example.com"]);
+    seedEntry("u_mick", FROM, { totalHours: 9.6, ordinaryHours: 7.6, overtimeHours: 2 });
+    seedEntry("u_mick", "2026-08-04");
+    seedEntry("u_mick", TO, { status: "submitted" });
+    const res = await call("u_admin", "admin", "POST", { fromDate: FROM, toDate: TO });
+    expect(res.statusCode).toBe(200);
+    const body = res.body as {
+      notOnSheet: { dayCount: number; lines: Array<{ workerName: string; reason: string; days: string }> };
+    };
+    expect(body.notOnSheet.dayCount).toBe(4);
+    expect(body.notOnSheet.lines).toEqual([
+      { workerName: "Mick Doran", reason: "waiting for approval", kind: "submitted", days: "Sun 9 Aug (7.6h)" },
+      { workerName: "Mick Doran", reason: "nothing logged", kind: "missing", days: "Wed 5 Aug, Thu 6 Aug, Fri 7 Aug" },
+    ]);
+    const sent = resendCalls[0]! as ResendCall & { html?: string; text?: string };
+    expect(sent.html).toContain("Not on this sheet — 4 days");
+    expect(sent.html).toContain("nothing logged: Wed 5 Aug, Thu 6 Aug, Fri 7 Aug");
+    expect(sent.text).toContain("Mick Doran — waiting for approval: Sun 9 Aug (7.6h)");
+    expect(journalText()).toContain('"notOnSheetDays":4');
+  });
+
+  it("a complete week says so — 'Nothing left off' only when the period is over and every weekday is approved", async () => {
+    seedRecipients(["tia@example.com"]);
+    for (const d of ["2026-08-03", "2026-08-04", "2026-08-05", "2026-08-06", "2026-08-07"]) seedEntry("u_mick", d);
+    const res = await call("u_admin", "admin", "POST", { fromDate: FROM, toDate: TO });
+    expect(res.statusCode).toBe(200);
+    const sent = resendCalls[0]! as ResendCall & { html?: string };
+    expect(sent.subject).toBe("Timesheets 3 – 9 Aug 2026 · 1 worker · 38h");
+    expect(sent.html).toContain("Nothing left off");
+    expect((res.body as { notOnSheet: { dayCount: number } }).notOnSheet.dayCount).toBe(0);
   });
 
   it("honours the FROM / REPLY_TO env overrides", async () => {
@@ -465,5 +502,187 @@ describe("POST /api/time-entries-email (send)", () => {
     expect(res.statusCode).toBe(502);
     expect((res.body as { code: string }).code).toBe("provider_error");
     expect((res.body as { error: string }).error).toContain("nothing reached accounts");
+  });
+});
+
+// ── 2026-10-05: approve, then send inside the CDN window ─────────────────────
+// The boss approved the week on the phone and tapped Send to Tia ten seconds
+// later: the just-approved days still read as "submitted", so the payroll read
+// refused (correctly — never a short sheet). A second tap 40s later was still
+// inside the window; the week never went. The sheet is now only read from a
+// period whose hours have stopped changing (quiet mode), every read is held
+// against the listing's byte size + PUT time, and every refusal SAYS when it
+// clears so the send surfaces wait it out and re-send by themselves.
+describe("POST — the sheet is only read once the period's hours have stopped changing", () => {
+  function listWithMeta(
+    meta: Record<string, { uploadedAt?: string; size?: number }>,
+    extraPaths: string[] = [],
+  ) {
+    const sdk = requireFromHere(blobSdkPath) as { list: ReturnType<typeof vi.fn> };
+    sdk.list.mockImplementation(async () => ({
+      blobs: [...new Set([...blob.keys(), ...extraPaths])]
+        .filter((key) => key.includes("/time-entries/"))
+        .map((pathname) => ({
+          pathname,
+          url: `https://blob.test/${encodeURIComponent(pathname)}`,
+          ...(meta[pathname] ?? {}),
+        })),
+    }));
+  }
+  const iso = (msAgo: number) => new Date(Date.now() - msAgo).toISOString();
+  const keyOf = (date: string) => `users/u_mick/time-entries/${date}.json`;
+  /** Byte length of the stored document exactly as the store would hold it. */
+  const storedBytes = (key: string) => Buffer.byteLength(JSON.stringify(blob.get(key)), "utf8");
+
+  /** Serve blob bodies through text() as well, so the byte-size check runs. */
+  function serveWithText(override?: (pathname: string) => unknown) {
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+      async (url: string, init?: { body?: string }) => {
+        if (String(url).includes("api.resend.com")) {
+          if (init?.body) resendCalls.push(JSON.parse(init.body) as ResendCall);
+          return { ok: true, status: 200, json: async () => ({ id: "em_test" }) };
+        }
+        const pathname = decodeURIComponent(new URL(String(url)).pathname.slice(1));
+        const value = override ? override(pathname) : blob.get(pathname);
+        const body = value === undefined ? "" : JSON.stringify(value);
+        return { ok: value !== undefined, text: async () => body, json: async () => clone(value) };
+      },
+    );
+  }
+
+  beforeEach(() => {
+    // One instant in-request retry, so refusals resolve without sleeping.
+    (
+      requireFromHere(payrollInputsPath) as {
+        __setFreshnessRetryDelaysForTests: (d: number[]) => void;
+      }
+    ).__setFreshnessRetryDelaysForTests([0]);
+  });
+
+  it("the 5 Oct case: a day approved 10s ago → 503 'settling' BEFORE any day is read, naming it, with retryAfterMs + Retry-After; nothing sent", async () => {
+    seedRecipients(["tia@example.com"]);
+    seedEntry("u_mick", FROM);
+    listWithMeta({ [keyOf(FROM)]: { uploadedAt: iso(10_000) } });
+    const fetchSpy = globalThis.fetch as ReturnType<typeof vi.fn>;
+    fetchSpy.mockClear();
+
+    const res = await call("u_admin", "admin", "POST", { fromDate: FROM, toDate: TO });
+    expect(res.statusCode).toBe(503);
+    const body = res.body as { error: string; code?: string; retryAfterMs?: number };
+    expect(body.code).toBe("settling");
+    // Settles 70s after its PUT → ~60s from now.
+    expect(body.retryAfterMs).toBeGreaterThan(50_000);
+    expect(body.retryAfterMs).toBeLessThanOrEqual(70_000);
+    expect(Number(res.headers["Retry-After"])).toBe(Math.ceil(body.retryAfterMs! / 1000));
+    expect(body.error).toContain("changed in the last minute");
+    expect(body.error).toContain("Mick Doran 2026-08-03");
+    // Held before a single day-file was fetched — a fast, cheap refusal.
+    const blobFetches = fetchSpy.mock.calls.filter(([u]) => String(u).startsWith("https://blob.test/"));
+    expect(blobFetches).toHaveLength(0);
+    expect(resendCalls).toHaveLength(0);
+  });
+
+  it("approvals still being written (a batch mid-way) hold the send — the days not yet approved can never be silently left off", async () => {
+    seedRecipients(["tia@example.com"]);
+    // Mid-batch: Mon was just approved (written 3s ago); Tue is still
+    // "submitted" because the batch hasn't reached it yet. Tue reads PERFECTLY
+    // fresh — no stale-read check can see a write that hasn't happened — so
+    // only the quiet rule stands between this and a sheet short of Tuesday.
+    seedEntry("u_mick", "2026-08-03");
+    seedEntry("u_mick", "2026-08-04", { status: "submitted" });
+    listWithMeta({
+      [keyOf("2026-08-03")]: { uploadedAt: iso(3_000) },
+      [keyOf("2026-08-04")]: { uploadedAt: iso(3 * 60 * 60_000) },
+    });
+    const res = await call("u_admin", "admin", "POST", { fromDate: FROM, toDate: TO });
+    expect(res.statusCode).toBe(503);
+    expect((res.body as { code?: string }).code).toBe("settling");
+    expect(resendCalls).toHaveLength(0);
+  });
+
+  it("waits for the NEWEST of several recent changes", async () => {
+    seedRecipients(["tia@example.com"]);
+    seedEntry("u_mick", "2026-08-03");
+    seedEntry("u_mick", "2026-08-04");
+    listWithMeta({
+      [keyOf("2026-08-03")]: { uploadedAt: iso(30_000) },
+      [keyOf("2026-08-04")]: { uploadedAt: iso(2_000) },
+    });
+    const res = await call("u_admin", "admin", "POST", { fromDate: FROM, toDate: TO });
+    expect(res.statusCode).toBe(503);
+    expect((res.body as { retryAfterMs: number }).retryAfterMs).toBeGreaterThan(60_000);
+  });
+
+  it("a change OUTSIDE the period never holds it", async () => {
+    seedRecipients(["tia@example.com"]);
+    seedEntry("u_mick", FROM);
+    seedEntry("u_mick", "2026-08-12"); // next week, written seconds ago
+    listWithMeta({ [keyOf("2026-08-12")]: { uploadedAt: iso(2_000) } });
+    const res = await call("u_admin", "admin", "POST", { fromDate: FROM, toDate: TO });
+    expect(res.statusCode).toBe(200);
+    expect(resendCalls).toHaveLength(1);
+  });
+
+  it("once the period has been quiet for the window, the same send goes through", async () => {
+    seedRecipients(["tia@example.com"]);
+    seedEntry("u_mick", FROM);
+    const entry = blob.get(keyOf(FROM)) as Record<string, unknown>;
+    entry.__updatedAt = iso(76_000);
+    serveWithText();
+    listWithMeta({ [keyOf(FROM)]: { uploadedAt: iso(75_000), size: storedBytes(keyOf(FROM)) } });
+    const res = await call("u_admin", "admin", "POST", { fromDate: FROM, toDate: TO });
+    expect(res.statusCode).toBe(200);
+    expect(resendCalls).toHaveLength(1);
+  });
+
+  it("BYTE SIZE: a quiet period whose day still reads as an older, different-length version is refused — even when its stamp looks close", async () => {
+    seedRecipients(["tia@example.com"]);
+    seedEntry("u_mick", FROM); // the CURRENT stored version (approved)
+    const key = keyOf(FROM);
+    const current = blob.get(key) as Record<string, unknown>;
+    current.__updatedAt = iso(91_000);
+    const currentSize = storedBytes(key);
+    // The CDN still serves the previous version: "submitted", no approval
+    // fields, stamped only 8s before the current one — inside the 15s skew,
+    // so the stamp alone would have waved it through.
+    const previous = { ...current, status: "submitted", __updatedAt: iso(99_000) };
+    serveWithText((p) => (p === key ? previous : blob.get(p)));
+    listWithMeta({ [key]: { uploadedAt: iso(90_000), size: currentSize } });
+    const res = await call("u_admin", "admin", "POST", { fromDate: FROM, toDate: TO });
+    expect(res.statusCode).toBe(503);
+    const body = res.body as { error: string; code?: string; retryAfterMs?: number };
+    expect(body.error).toContain("Mick Doran 2026-08-03 (just changed)");
+    expect(body.code).toBe("settling");
+    expect(body.retryAfterMs).toBe(10_000); // past the window → backs off, never hammers
+    expect(resendCalls).toHaveLength(0);
+  });
+
+  it("BYTE SIZE never blocks pay forever: a mismatch on a blob settled for >5 minutes can't be a CDN-stale read, so it is accepted (and logged)", async () => {
+    seedRecipients(["tia@example.com"]);
+    seedEntry("u_mick", FROM);
+    const key = keyOf(FROM);
+    (blob.get(key) as Record<string, unknown>).__updatedAt = iso(10 * 60_000 + 1_000);
+    serveWithText();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    listWithMeta({ [key]: { uploadedAt: iso(10 * 60_000), size: storedBytes(key) + 7 } });
+    const res = await call("u_admin", "admin", "POST", { fromDate: FROM, toDate: TO });
+    expect(res.statusCode).toBe(200);
+    expect(warn.mock.calls.some(([m]) => String(m).includes("byte size"))).toBe(true);
+    warn.mockRestore();
+  });
+
+  it("an OLD day-file that can't be read is not a settling race — no retryAfterMs, a person looks", async () => {
+    seedRecipients(["tia@example.com"]);
+    seedEntry("u_mick", FROM);
+    const missing = "users/u_mick/time-entries/2026-08-05.json";
+    listWithMeta({ [missing]: { uploadedAt: iso(3 * 60 * 60_000) } }, [missing]);
+    const res = await call("u_admin", "admin", "POST", { fromDate: FROM, toDate: TO });
+    expect(res.statusCode).toBe(503);
+    const body = res.body as { error: string; code?: string; retryAfterMs?: number };
+    expect(body.error).toContain("(unreadable)");
+    expect(body.code).toBeUndefined();
+    expect(body.retryAfterMs).toBeUndefined();
+    expect(res.headers["Retry-After"]).toBeUndefined();
+    expect(resendCalls).toHaveLength(0);
   });
 });

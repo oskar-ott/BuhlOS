@@ -401,6 +401,76 @@ export function outstandingWeekLabel(o: OutstandingWeek): string {
   return parts.join(" · ");
 }
 
+/**
+ * WHO and WHICH DAYS — the names behind `outstandingWeek`'s counts (2026-10-09:
+ * the 5 Oct finale said "2 days never came in" and nobody could tell it meant
+ * Dylan's and Stephen's Fridays). One line per worker per reason, days in date
+ * order. The reasons and the day format are the SAME words the sheet's own
+ * "Not on this sheet" list prints (api/_lib/not-on-sheet.js), so what the boss
+ * reads before sending is what accounts reads after.
+ *
+ * Same session rules as outstandingWeek: a worker approved this session has no
+ * "waiting for approval" days left; one queried this session has their
+ * submitted days "sent back for a fix". Pending days (a week that hasn't ended)
+ * are excluded, exactly like the counts.
+ */
+export type OutstandingKind = "sentBack" | "notReviewed" | "notInYet";
+
+export interface OutstandingLine {
+  workerName: string;
+  reason: string;
+  /** e.g. "Fri 2 Oct" or "Mon 28 Sep, Tue 29 Sep". */
+  days: string;
+  kind: OutstandingKind;
+}
+
+const SHORT_DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const SHORT_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** "Fri 2 Oct" — UTC arithmetic on the calendar string (matches the sheet). */
+export function shortDayLabel(iso: string): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return iso;
+  return `${SHORT_DAYS[d.getUTCDay()]} ${d.getUTCDate()} ${SHORT_MONTHS[d.getUTCMonth()]}`;
+}
+
+const REASON_ORDER = ["waiting for approval", "sent back for a fix", "not sent in (draft)", "nothing logged"];
+
+export function outstandingWeekLines(
+  workers: ReadonlyArray<WeeklyWorkerHours>,
+  overlay: Readonly<Record<string, { status: "approved" | "queried" } | undefined>>,
+): OutstandingLine[] {
+  const lines: OutstandingLine[] = [];
+  for (const w of workers) {
+    const resolved = overlay[w.workerId]?.status;
+    const byReason = new Map<string, { kind: OutstandingKind; dates: string[] }>();
+    const add = (reason: string, kind: OutstandingKind, date: string) => {
+      const g = byReason.get(reason) ?? { kind, dates: [] };
+      g.dates.push(date);
+      byReason.set(reason, g);
+    };
+    for (const d of w.days) {
+      if (d.status === "rejected") add("sent back for a fix", "sentBack", d.date);
+      else if (d.status === "submitted") {
+        if (resolved === "queried") add("sent back for a fix", "sentBack", d.date);
+        else if (resolved !== "approved") add("waiting for approval", "notReviewed", d.date);
+      } else if (d.status === "draft") add("not sent in (draft)", "notInYet", d.date);
+      else if (d.status === "missing") add("nothing logged", "notInYet", d.date);
+    }
+    const reasons = [...byReason.keys()].sort((a, b) => REASON_ORDER.indexOf(a) - REASON_ORDER.indexOf(b));
+    for (const reason of reasons) {
+      const g = byReason.get(reason)!;
+      lines.push({
+        workerName: w.workerName,
+        reason,
+        days: [...g.dates].sort().map(shortDayLabel).join(", "),
+        kind: g.kind,
+      });
+    }
+  }
+  return lines.sort((a, b) => a.workerName.localeCompare(b.workerName));
+}
+
 export interface AmendDayAllocation {
   jobId: string | null;
   /** A real job name where one is known — never a guessed label. */

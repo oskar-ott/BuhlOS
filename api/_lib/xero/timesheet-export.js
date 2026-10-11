@@ -22,7 +22,7 @@ const { xeroFetch } = require('./client');
 const { XeroError } = require('./errors');
 const { PAYROLL_AU_BASE, hasTimesheetWriteScope } = require('./config');
 const { buildTimesheets, contentHashOf } = require('./timesheet-payload');
-const { readEntry, writeEntry, appendAudit } = require('../time-entries');
+const { readEntryVerified, writeEntry, appendAudit } = require('../time-entries');
 const { toCsv } = require('../payroll-csv');
 
 function db(sql, mode) {
@@ -464,7 +464,14 @@ function lineSig(lines) {
     .sort().join('|');
 }
 
-/** Compatibility stamp — per-worker, only after accepted+verified. Best-effort. */
+/** Compatibility stamp — per-worker, only after accepted+verified. Best-effort.
+ *
+ *  Each day is read through readEntryVerified (the "never re-stamp" check and
+ *  the stamp itself must be judged on the CURRENT version, not a stale CDN
+ *  copy that a stamp would then write back over newer hours) and stamped on
+ *  its own: one day that can't be stamped no longer silently skips the rest of
+ *  the worker's days, and every failure is logged with the batch and date
+ *  instead of vanishing (2026-10-09 hours-integrity pass). */
 async function stampWorkerEntries({ batchId, workerId, actor }) {
   const rsql = getDb({ mode: 'read' });
   const rows = await rsql`
@@ -473,16 +480,27 @@ async function stampWorkerEntries({ batchId, workerId, actor }) {
   `;
   for (const r of rows) {
     const date = toDateStr(r.entry_date);
-    const entry = await readEntry(workerId, date);
-    if (!entry || entry.exportId) continue; // never re-stamp
-    // Per entry, immediately before its own write — see the note in
-    // api/time-entries-bulk-approve.js. exportId (the batch id) is what ties
-    // these rows together; exportedAt is only ever displayed, so stamping it
-    // per entry loses no grouping and keeps each entry's stamp honest against
-    // its own PUT time.
-    const stampedAt = new Date().toISOString();
-    await writeEntry(workerId, { ...entry, exportedAt: stampedAt, exportId: String(batchId), updatedAt: stampedAt });
-    await appendAudit(workerId, entry.id, 'exported', actor ? actor.id : 'system', String(batchId), null);
+    try {
+      const entry = await readEntryVerified(workerId, date);
+      if (!entry || entry.exportId) continue; // never re-stamp
+      // Per entry, immediately before its own write — see the note in
+      // api/time-entries-bulk-approve.js. exportId (the batch id) is what ties
+      // these rows together; exportedAt is only ever displayed, so stamping it
+      // per entry loses no grouping and keeps each entry's stamp honest against
+      // its own PUT time.
+      const stampedAt = new Date().toISOString();
+      await writeEntry(
+        workerId,
+        { ...entry, exportedAt: stampedAt, exportId: String(batchId), updatedAt: stampedAt },
+        { basedOn: entry },
+      );
+      await appendAudit(workerId, entry.id, 'exported', actor ? actor.id : 'system', String(batchId), null);
+    } catch (e) {
+      console.error(
+        `xero export: could not stamp ${workerId} ${date} as exported in batch ${batchId} — ` +
+          `${(e && (e.code || e.message)) || 'unknown'}; the day stays unstamped (check before re-exporting)`,
+      );
+    }
   }
 }
 

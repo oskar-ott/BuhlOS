@@ -250,6 +250,182 @@ async function readBlobStrict(key, fallback = null) {
   return value;
 }
 
+// ── Verified reads — the read a DECISION is made on ─────────────────────────
+// readBlob above is the fast read: the CDN, plus a 5s instance cache. Right
+// after an overwrite the CDN can keep serving the PREVIOUS version for up to
+// ~60s, even cache-busted. That is fine for a screen that refreshes; it is not
+// fine for a read that is about to be written back or sent to payroll:
+//   · the #157 compare-and-swap read the "current" revision through the same
+//     CDN, so a stale handler read and a stale conflict-check read agreed with
+//     each other and the conflict never tripped — documented live in
+//     api/_lib/leave.js (2026-07-25: "the 'conflict' never trips");
+//   · a day approved on the strength of a stale read can write the OLD hours
+//     back over a correction made seconds earlier, with no error anywhere.
+// readBlobVerified asks the store itself (head(), or an exact-match list() —
+// API-fresh, never cached) for the blob's byte size and last-PUT time, fetches
+// the body, and holds one against the other (source-freshness contentVerdict).
+// It retries while the CDN is still serving another version and REFUSES
+// (StaleReadError) rather than hand back content it could not confirm.
+
+/** Thrown when a verified read could not confirm the current version within
+ *  its retry budget. Carries code 'stale_write' on purpose: every write path
+ *  already maps that code to a retryable 409 ("changed moments ago — retry"),
+ *  which is exactly what this is. */
+class StaleReadError extends Error {
+  constructor(key, detail) {
+    super(`could not confirm the latest version of ${key} — it changed moments ago; retry`);
+    this.code = 'stale_write';
+    this.name = 'StaleReadError';
+    this.key = key;
+    this.expectedRev = null;
+    this.currentRev = null;
+    this.detail = detail || null;
+    this.retryAfterMs = (detail && detail.retryAfterMs) || null;
+  }
+}
+
+function _sdk() {
+  return require('@vercel/blob');
+}
+
+function _isBlobNotFound(e) {
+  if (!e) return false;
+  const NotFound = _sdk().BlobNotFoundError;
+  if (typeof NotFound === 'function' && e instanceof NotFound) return true;
+  return !!(e.constructor && e.constructor.name === 'BlobNotFoundError');
+}
+
+/**
+ * API-fresh metadata for one key — { url, pathname, size, uploadedAt } — or
+ * null when the blob genuinely does not exist. head() when this instance knows
+ * the store host (one metadata call, a simple operation); otherwise an
+ * exact-match list(), which also teaches the host. Never the CDN, never the
+ * instance cache. Throws BlobReadError when the store can't answer.
+ */
+// A stalled store call may not hang the write it guards (same bound as the
+// payroll read's content fetch): a timed-out head() falls back to list(), and a
+// timed-out body fetch counts as unreadable and is retried.
+const VERIFIED_CALL_TIMEOUT_MS = 8_000;
+function _timeoutSignal() {
+  try {
+    return AbortSignal.timeout(VERIFIED_CALL_TIMEOUT_MS);
+  } catch {
+    return undefined;
+  }
+}
+
+async function blobMeta(key) {
+  const doHead = _overrides.head || _sdk().head;
+  if (_publicHost && typeof doHead === 'function') {
+    const url = `https://${_publicHost}/${_encodeKey(key)}`;
+    try {
+      const h = await doHead(url, { token: token(), abortSignal: _timeoutSignal() });
+      if (h) {
+        return { url: h.url || url, pathname: h.pathname || key, size: h.size, uploadedAt: h.uploadedAt };
+      }
+    } catch (e) {
+      if (_isBlobNotFound(e)) return null;
+      // Any other head() failure is not a verdict — ask list() instead.
+    }
+  }
+  const doList = _overrides.list || list;
+  let blobs;
+  try {
+    ({ blobs } = await doList({ prefix: key, token: token() }));
+  } catch (e) {
+    throw new BlobReadError(key, `list: ${e && e.message}`);
+  }
+  const match = (blobs || []).find((b) => b.pathname === key);
+  if (!match) return null;
+  _learnPublicHost(match.url, match.pathname);
+  return { url: match.url, pathname: match.pathname, size: match.size, uploadedAt: match.uploadedAt };
+}
+
+/** One cache-busted body fetch: { doc, bytes } (bytes = the exact byte length
+ *  served, for the size check), or { error } on HTTP error / bad JSON / network
+ *  failure. A response without text() (some test doubles) parses via json(). */
+async function _fetchBody(url) {
+  const doFetch = _overrides.fetch || fetch;
+  let r;
+  try {
+    r = await doFetch(url + (url.includes('?') ? '&' : '?') + 't=' + Date.now(), {
+      cache: 'no-store',
+      signal: _timeoutSignal(),
+    });
+  } catch (e) {
+    return { error: `fetch: ${e && e.message}` };
+  }
+  if (!r || !r.ok) return { error: `http ${r ? r.status : '?'}` };
+  try {
+    if (typeof r.text === 'function') {
+      const body = await r.text();
+      return { doc: JSON.parse(body), bytes: Buffer.byteLength(body, 'utf8') };
+    }
+    return { doc: await r.json() };
+  } catch (e) {
+    return { error: `json: ${e && e.message}` };
+  }
+}
+
+// ~9.5s worst case before refusing. Long enough for the common seconds-scale
+// CDN race; a refusal past it is retryable (the caller's 409 says so).
+let VERIFIED_RETRY_DELAYS_MS = [500, 1000, 2000, 3000, 3000];
+function __setVerifiedReadDelaysForTests(delays) {
+  VERIFIED_RETRY_DELAYS_MS = Array.isArray(delays) ? delays : [];
+}
+const _sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Read `key` and PROVE it is the current version. Resolves
+ * { value, meta } — value null (and meta null) only for a blob that genuinely
+ * does not exist (the store's own answer, never a CDN 404). Throws
+ * StaleReadError when the CDN kept serving another version (or a just-created
+ * blob kept 404ing) for the whole retry budget, and BlobReadError when the
+ * store itself couldn't be asked.
+ */
+async function readBlobVerified(key) {
+  const { contentVerdict, CDN_SETTLE_MS } = require('./source-freshness');
+  let last = null;
+  for (let attempt = 0; attempt <= VERIFIED_RETRY_DELAYS_MS.length; attempt++) {
+    if (attempt > 0) await _sleep(VERIFIED_RETRY_DELAYS_MS[attempt - 1]);
+    // Metadata every attempt: a write landing mid-retry moves the target.
+    const meta = await blobMeta(key);
+    if (!meta) return { value: null, meta: null };
+    const body = await _fetchBody(meta.url);
+    if (body.error) {
+      last = { problem: 'unreadable', reason: body.error, uploadedAt: meta.uploadedAt };
+      continue;
+    }
+    const v = contentVerdict(meta, body, Date.now());
+    if (v.current) {
+      if (v.sizeMismatch) {
+        console.warn(
+          `verified read: accepting settled ${key} whose served byte size ${body.bytes} ≠ stored ${meta.size}`,
+        );
+      }
+      _cacheSet(key, body.doc); // the freshest version this instance knows
+      return { value: body.doc, meta };
+    }
+    last = {
+      problem: 'stale',
+      reason: v.reason,
+      gapMs: v.gapMs,
+      bytes: body.bytes,
+      size: meta.size,
+      uploadedAt: meta.uploadedAt,
+    };
+  }
+  const putMs = last && last.uploadedAt instanceof Date ? last.uploadedAt.getTime() : Date.parse((last && last.uploadedAt) || '');
+  const retryAfterMs = Number.isFinite(putMs) ? Math.max(1_000, putMs + CDN_SETTLE_MS - Date.now()) : null;
+  console.error(
+    `verified read refused: ${key} — ${last && last.problem}` +
+      (last && last.problem === 'stale'
+        ? ` (${last.reason}; served ${last.bytes} bytes vs stored ${last.size}; stamp gap ${last.gapMs}ms)`
+        : last && last.reason ? ` (${last.reason})` : ''),
+  );
+  throw new StaleReadError(key, { ...last, retryAfterMs });
+}
+
 async function writeBlob(key, data, opts = {}) {
   // #157 write guards: per-store validation, shrink refusal, revision
   // stamping + optional stale-write rejection. The current document is read
@@ -263,14 +439,31 @@ async function writeBlob(key, data, opts = {}) {
   // read-modify-write persist a shrunken/empty body over a populated one.
   // Unguarded stores keep the lenient behaviour (current → null on error), so
   // there is no added blast radius for the long tail.
+  //
+  // Verified compare-and-swap (2026-10-09, the hours-integrity pass):
+  //   · opts.current — the caller already holds the current document from a
+  //     VERIFIED read (readBlobVerified) and made its decision on exactly that
+  //     version; it is the CAS baseline and nothing is re-read. The residual
+  //     race is the put's own latency (~1.4s): Blob has no conditional put.
+  //   · opts.verifyCurrent — read the CAS baseline through readBlobVerified
+  //     instead of the CDN, so a stale handler read can no longer agree with an
+  //     equally stale conflict-check read (api/_lib/leave.js, 2026-07-25). A
+  //     read that can't be confirmed fails the write closed (StaleReadError →
+  //     the caller's retryable 409) — never a silent overwrite.
   const { applyGuards, auditRejection, guardFor } = require('./blob-guards');
   const guard = guardFor(key);
   const shrinkGuarded = !!(guard && (guard.shrinkField || guard.shrinkCount));
   const wantFresh = opts.expectedRev !== undefined && opts.expectedRev !== null;
   const failClosed = shrinkGuarded || wantFresh;
+  const callerHoldsCurrent = Object.prototype.hasOwnProperty.call(opts, 'current');
   let current = null;
   try {
-    if (wantFresh) {
+    if (callerHoldsCurrent) {
+      current = opts.current === undefined ? null : opts.current;
+    } else if (wantFresh && opts.verifyCurrent) {
+      _cacheInvalidate(key);
+      current = (await readBlobVerified(key)).value; // API-checked → a real CAS
+    } else if (wantFresh) {
       _cacheInvalidate(key);
       current = await _doReadBlob(key, null); // fresh + strict → tight CAS
     } else if (shrinkGuarded) {
@@ -279,7 +472,7 @@ async function writeBlob(key, data, opts = {}) {
       current = await readBlob(key, null); // lenient: fallback on transient
     }
   } catch (err) {
-    if (err instanceof BlobReadError && failClosed) {
+    if ((err instanceof BlobReadError || err instanceof StaleReadError) && failClosed) {
       auditRejection(key, err, opts.actor); // record the fail-closed abort (best-effort)
       throw err;
     }
@@ -363,13 +556,17 @@ module.exports = {
   readBlob,
   readBlobFresh,
   readBlobStrict,
+  readBlobVerified,
+  blobMeta,
   writeBlob,
   deleteBlob,
   setNoCache,
   blobUploadedAt,
   BlobReadError,
+  StaleReadError,
   // Test-only seams (production never calls these):
   __setTestOverrides,
+  __setVerifiedReadDelaysForTests,
   __learnPublicHost: _learnPublicHost,
   __getPublicHost: () => _publicHost,
   __encodeKey: _encodeKey,

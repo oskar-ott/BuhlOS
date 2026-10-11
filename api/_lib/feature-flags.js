@@ -148,10 +148,13 @@ const REGISTRY = {
   // allocations reconciled in the same txn. So no new write file is needed: this flag
   // simply designates that upsert as the source write (it runs when EITHER this flag
   // OR the generic supabase_dual_write is on). The integrity character also differs
-  // from tasks: the hours Blob write already has optimistic-lock CAS (writeBlob
-  // expectedRev: entry.__rev), so hours has no lost-update flaw — the PG win is
-  // REFERENTIAL (real job FKs + per-allocation rows + schema CHECKs) and it unlocks a
-  // PG-authoritative payroll read (Stage B). Read stays parity-gated in Stage A.
+  // from tasks: the hours Blob write has optimistic-lock CAS (writeBlob
+  // expectedRev: entry.__rev) — since 2026-10-09 on a VERIFIED baseline
+  // (readEntryVerified / writeEntry basedOn; before that the CAS read went through
+  // the CDN and could agree with a stale decision read). Blob has no conditional
+  // put, so a ~1.4s window remains; the PG revision write closes it, and its other
+  // wins are REFERENTIAL (real job FKs + per-allocation rows + schema CHECKs) — it
+  // unlocks a PG-authoritative payroll read (Stage B). Read stays parity-gated in Stage A.
   // Best-effort + Blob write-through always (field work never stops). Default OFF,
   // unset in prod. See supabase-served-source-roadmap.md.
   supabase_source_hours: {
