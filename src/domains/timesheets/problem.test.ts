@@ -169,6 +169,12 @@ describe("explainHoursProblem — sending the week to accounts", () => {
     expect(p.title).toBe(title);
     expect(p.caption).toBe("Timesheets not sent");
   });
+  it("a 502 from reading the hours (no code) never blames the email", () => {
+    const p = explainHoursProblem("send", { status: 502, body: { error: "blob list failed: fetch failed" } });
+    expect(p.title).toBe("Couldn't reach the hours");
+    expect(p.todo).toBe("Nothing was sent. Try again in a minute.");
+    expect(p.canRetry).toBe(true);
+  });
 });
 
 describe("explainHoursProblem — never jargon", () => {

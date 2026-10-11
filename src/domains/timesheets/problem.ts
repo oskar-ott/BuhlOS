@@ -136,7 +136,9 @@ export function explainHoursProblem(action: HoursAction, input: ProblemInput): H
         "Approve the days first, then send.",
       );
     }
-    if (status === 502) {
+    // The email provider's refusal always names its reason in `code`. A 502
+    // without one is the hours read failing (answered below), not the email.
+    if (status === 502 && code) {
       return say(
         "The email didn't go",
         "The email service turned it down just then.",
@@ -168,7 +170,7 @@ export function explainHoursProblem(action: HoursAction, input: ProblemInput): H
           `${nothingHappened(action)} Wait a minute, then try again.`,
         );
   }
-  if (code === "read_failed") {
+  if (code === "read_failed" || error.includes("blob list")) {
     return say(
       "Couldn't reach the hours",
       "BuhlOS's storage didn't answer just then.",
