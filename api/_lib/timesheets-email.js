@@ -125,7 +125,7 @@ ${
   nosLines.length
     ? `<div style="margin:16px 0 6px;padding:12px 14px;border:1px solid #f0c36d;background:#fff8e6">
 <p style="margin:0 0 4px;font-size:14px;font-weight:700;color:#7a4b00">Not on this sheet — ${esc(nosDays)}</p>
-<p style="margin:0 0 8px;font-size:13px;line-height:1.45;color:#7a4b00">These days have no approved hours, so they aren't in the totals or the PDF. Please check them before the pay run.</p>
+<p style="margin:0 0 8px;font-size:13px;line-height:1.45;color:#7a4b00">These days aren't in the totals or the PDF — each line says why. Please check them before the pay run.</p>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
 ${nosLines
   .map(
@@ -160,7 +160,7 @@ ${nos.leaveChecked === false ? `<p style="margin:8px 0 0;font-size:12px;color:#7
     '',
     ...(nosLines.length
       ? [
-          `NOT ON THIS SHEET — ${nosDays}. These days have no approved hours, so they aren't in the totals or the PDF. Please check them before the pay run:`,
+          `NOT ON THIS SHEET — ${nosDays}. These days aren't in the totals or the PDF — each line says why. Please check them before the pay run:`,
           ...nosLines.map((l) => `  ${l.workerName} — ${l.reason}: ${l.days}`),
           ...(nos.leaveChecked === false
             ? [`  (Leave couldn't be checked when this was sent — a day shown as "nothing logged" may be leave.)`]

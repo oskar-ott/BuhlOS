@@ -671,18 +671,58 @@ describe("POST — the sheet is only read once the period's hours have stopped c
     warn.mockRestore();
   });
 
-  it("an OLD day-file that can't be read is not a settling race — no retryAfterMs, a person looks", async () => {
+  it("an OLD day-file that can't be read is not a settling race — no retryAfterMs, it names the day for a person", async () => {
     seedRecipients(["tia@example.com"]);
     seedEntry("u_mick", FROM);
     const missing = "users/u_mick/time-entries/2026-08-05.json";
     listWithMeta({ [missing]: { uploadedAt: iso(3 * 60 * 60_000) } }, [missing]);
     const res = await call("u_admin", "admin", "POST", { fromDate: FROM, toDate: TO });
     expect(res.statusCode).toBe(503);
-    const body = res.body as { error: string; code?: string; retryAfterMs?: number };
+    const body = res.body as {
+      error: string;
+      code?: string;
+      retryAfterMs?: number;
+      days?: Array<{ userId: string; date: string; canSkip: boolean }>;
+    };
     expect(body.error).toContain("(unreadable)");
-    expect(body.code).toBeUndefined();
+    // Not 'settling': waiting won't clear it, so nothing re-sends by itself…
+    expect(body.code).toBe("unreadable");
     expect(body.retryAfterMs).toBeUndefined();
     expect(res.headers["Retry-After"]).toBeUndefined();
+    // …but it is never a dead end: WHO and WHICH DAY, and that it can be left off.
+    expect(body.days).toEqual([expect.objectContaining({ userId: "u_mick", date: "2026-08-05", canSkip: true })]);
+    expect(resendCalls).toHaveLength(0);
+  });
+
+  it("'send without them' leaves off exactly that day — and the email, PDF and journal all name it (2026-10-12)", async () => {
+    seedRecipients(["tia@example.com"]);
+    seedEntry("u_mick", FROM);
+    const missing = "users/u_mick/time-entries/2026-08-05.json";
+    listWithMeta({ [missing]: { uploadedAt: iso(3 * 60 * 60_000) } }, [missing]);
+    const res = await call("u_admin", "admin", "POST", {
+      fromDate: FROM,
+      toDate: TO,
+      skipUnreadable: ["u_mick|2026-08-05"],
+    });
+    expect(res.statusCode).toBe(200);
+    expect(resendCalls).toHaveLength(1);
+    const body = res.body as { notOnSheet: { lines: Array<{ reason: string; days: string }> } };
+    expect(body.notOnSheet.lines[0]).toMatchObject({ reason: "couldn't be read, check before paying", days: "Wed 5 Aug" });
+    expect(JSON.stringify(resendCalls[0])).toContain("couldn't be read, check before paying");
+    expect(journalText()).toContain('"unreadableLeftOff":["u_mick|2026-08-05"]');
+  });
+
+  it("a leave-off for a day that isn't the unreadable one changes nothing — still refused, nothing sent", async () => {
+    seedRecipients(["tia@example.com"]);
+    seedEntry("u_mick", FROM);
+    const missing = "users/u_mick/time-entries/2026-08-05.json";
+    listWithMeta({ [missing]: { uploadedAt: iso(3 * 60 * 60_000) } }, [missing]);
+    const res = await call("u_admin", "admin", "POST", {
+      fromDate: FROM,
+      toDate: TO,
+      skipUnreadable: ["u_mick|2026-08-06", "not a key"],
+    });
+    expect(res.statusCode).toBe(503);
     expect(resendCalls).toHaveLength(0);
   });
 });

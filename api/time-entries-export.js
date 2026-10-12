@@ -75,6 +75,13 @@ async function handleGet(req, res, me) {
     // feeding /hours/period is a refreshable on-screen preview and verifies
     // every read instead.
     quiet: format !== 'json',
+    // Only the approved, unfiltered PDF may leave off a day that couldn't be
+    // read — it is the one artifact that prints "Not on this sheet", so a day
+    // left off is named on it. A CSV (keyed into Xero) never skips.
+    skipUnreadable:
+      format === 'pdf' && (q.status || 'approved') === 'approved' && !q.userId && !q.jobId
+        ? String(q.skip || '').split(',').filter((k) => /^[^|]{1,80}\|\d{4}-\d{2}-\d{2}$/.test(k)).slice(0, 100)
+        : [],
   });
   if (!ctx.ok) {
     if (ctx.retryAfterMs != null) {
@@ -83,7 +90,9 @@ async function handleGet(req, res, me) {
         .status(ctx.status)
         .json({ error: ctx.error, code: ctx.code, retryAfterMs: ctx.retryAfterMs });
     }
-    return res.status(ctx.status).json({ error: ctx.error });
+    return res
+      .status(ctx.status)
+      .json({ error: ctx.error, ...(ctx.code ? { code: ctx.code } : {}), ...(ctx.days ? { days: ctx.days } : {}) });
   }
   const { rows, fromDate, toDate, status, userId, jobId } = ctx;
 
@@ -108,7 +117,9 @@ async function handleGet(req, res, me) {
     // non-approved print is a working copy and doesn't.
     let notOnSheet;
     if (status === 'approved' && !userId && !jobId) {
-      const nos = await buildNotOnSheet({ fromDate, toDate, entries: ctx.entries, userById: ctx.userById });
+      const nos = await buildNotOnSheet({
+        fromDate, toDate, entries: ctx.entries, userById: ctx.userById, unreadable: ctx.skipped,
+      });
       notOnSheet = {
         lines: notOnSheetLines(nos.items),
         dayCount: nos.items.length,

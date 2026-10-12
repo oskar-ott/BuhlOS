@@ -204,6 +204,20 @@ function dayLabel(pathname, userById) {
   return (who + ' ' + (m ? m[2] : '')).trim();
 }
 
+/** { userId, date } for a day-file pathname, or null. */
+function dayRef(pathname) {
+  const m = String(pathname || '').match(/^users\/([^/]+)\/time-entries\/(\d{4}-\d{2}-\d{2})\.json$/);
+  return m ? { userId: m[1], date: m[2] } : null;
+}
+
+/** A refused day waiting can't clear: unreadable (not a stale version) and
+ *  last written longer ago than the CDN window. The only kind the office may
+ *  choose to leave off — anything that just changed is waited out instead. */
+function persistentlyUnreadable(problem, uploadedMs, nowMs) {
+  if (problem !== 'unreadable') return false;
+  return !Number.isFinite(uploadedMs) || nowMs - uploadedMs >= CDN_SETTLE_MS;
+}
+
 /**
  * Collect the payroll rows for a range.
  *
@@ -221,8 +235,18 @@ function dayLabel(pathname, userById) {
  * settled — so the send surfaces wait it out and re-send by themselves. The
  * on-screen previews (/hours/period rollup) don't pass it: they verify every
  * read instead, and a preview can be refreshed.
+ *
+ * `skipUnreadable` — ["userId|YYYY-MM-DD", …]: days the office has SEEN named
+ * as unreadable and chosen to leave off (2026-10-12, owner pull: a problem
+ * may never halt the pay run). Only a day that is still unreadable AND long
+ * settled can be skipped — a day that changed in the last minute is waited
+ * out, never skipped — and every skipped day comes back in `skipped`, for the
+ * caller to print on the sheet's "Not on this sheet" list ("couldn't be read,
+ * check before paying"). A sheet is complete or names what it is missing; this
+ * never makes one silently short. A day NOT on the list still refuses, so the
+ * office only ever leaves off what it was shown.
  */
-async function collectRows({ status, userId, jobId, fromDate, toDate, quiet = false }) {
+async function collectRows({ status, userId, jobId, fromDate, toDate, quiet = false, skipUnreadable = [] }) {
   // Default range = current ISO week (Mon..Sun). NOTE: this is server-local
   // (UTC on Vercel); every UI caller passes explicit fromDate/toDate.
   if (!fromDate || !toDate) {
@@ -311,9 +335,22 @@ async function collectRows({ status, userId, jobId, fromDate, toDate, quiet = fa
   );
   const entries = [];
   const refused = [];
+  const skipped = [];
+  const skipSet = new Set(Array.isArray(skipUnreadable) ? skipUnreadable.map(String) : []);
+  const refusalNow = Date.now();
   for (const { b, out } of results) {
-    if (out.entry) entries.push(out.entry);
-    else refused.push({
+    if (out.entry) { entries.push(out.entry); continue; }
+    const ref = dayRef(b.pathname);
+    if (
+      ref &&
+      skipSet.has(ref.userId + '|' + ref.date) &&
+      persistentlyUnreadable(out.problem, out.uploadedMs, refusalNow)
+    ) {
+      console.warn('payroll read: leaving off unreadable ' + b.pathname + ' — the office chose to, and the sheet names it');
+      skipped.push({ userId: ref.userId, date: ref.date, workerName: dayLabel(b.pathname, userById).replace(/ \d{4}-\d{2}-\d{2}$/, '') });
+      continue;
+    }
+    refused.push({
       pathname: b.pathname,
       problem: out.problem,
       reason: out.reason,
@@ -363,7 +400,20 @@ async function collectRows({ status, userId, jobId, fromDate, toDate, quiet = fa
       // the CDN window, so a retry at that moment is expected to succeed. A
       // refusal of anything else (an old unreadable day-file) has no automatic
       // retry: a person needs to look.
-      ...(retryAfterMs != null ? { code: 'settling', retryAfterMs } : {}),
+      ...(retryAfterMs != null ? { code: 'settling', retryAfterMs } : { code: 'unreadable' }),
+      // WHO and WHICH DAYS, structured — so the screen can name them and offer
+      // to leave off exactly these (canSkip) on the sheet's own list, instead
+      // of a refusal nobody can act on (2026-10-12).
+      days: refused.map((r) => {
+        const ref = dayRef(r.pathname);
+        return {
+          userId: ref ? ref.userId : null,
+          date: ref ? ref.date : null,
+          workerName: dayLabel(r.pathname, userById).replace(/ \d{4}-\d{2}-\d{2}$/, ''),
+          problem: r.problem,
+          canSkip: !!ref && persistentlyUnreadable(r.problem, r.uploadedMs, refusalNow),
+        };
+      }),
     };
   }
 
@@ -456,7 +506,7 @@ async function collectRows({ status, userId, jobId, fromDate, toDate, quiet = fa
     } catch { /* not connected / PG unreachable → legacy field stands */ }
   }
 
-  return { ok: true, fromDate, toDate, status, userId, jobId, rows, entries, userById, jobById };
+  return { ok: true, fromDate, toDate, status, userId, jobId, rows, entries, userById, jobById, skipped };
 }
 
 // Calendar-date arithmetic in UTC end to end: the previous local-midnight +

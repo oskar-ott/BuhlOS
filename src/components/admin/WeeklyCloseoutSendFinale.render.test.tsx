@@ -3,6 +3,7 @@ import { createElement, type ComponentProps } from "react";
 import { renderToString } from "react-dom/server";
 import { WeeklyCloseoutSendFinale } from "./WeeklyCloseoutSendFinale";
 import type { ReviewCandidate } from "@/domains/timesheets/xero-closeout";
+import type { HoldUpLine } from "@/domains/timesheets/week-holdups";
 
 /**
  * Static-render guards for the phone closeout's send-to-accounts finale
@@ -41,10 +42,9 @@ const base = {
 // renderToString interleaves `<!-- -->` markers between JSX expressions —
 // strip them so assertions can match the text a person actually sees.
 const render = (props: Partial<ComponentProps<typeof WeeklyCloseoutSendFinale>> = {}) =>
-  renderToString(createElement(WeeklyCloseoutSendFinale, { ...base, ...props })).replace(
-    /<!-- -->/g,
-    "",
-  );
+  renderToString(createElement(WeeklyCloseoutSendFinale, { ...base, ...props }))
+    .replace(/<!-- -->/g, "")
+    .replace(/&#x27;/g, "'");
 
 describe("WeeklyCloseoutSendFinale", () => {
   it("review face: Send to Tia action over the reviewed week", () => {
@@ -79,87 +79,122 @@ describe("WeeklyCloseoutSendFinale", () => {
   });
 });
 
-describe("WeeklyCloseoutSendFinale — wait-or-send (owner pull 2026-08-16)", () => {
-  // Rejected + unreviewed days are ACTIONABLE — fixes are mid-flight.
+// What the closeout hands the finale (week-holdups.ts) — the 5 Oct shapes.
+const louisWaiting: HoldUpLine = {
+  workerId: "u_louis",
+  workerName: "Louis Kane",
+  kind: "waiting",
+  dates: ["2026-09-28", "2026-09-29"],
+  days: "Mon 28 Sep, Tue 29 Sep",
+  hours: 17.2,
+};
+const louisSentBack: HoldUpLine = {
+  workerId: "u_louis",
+  workerName: "Louis Kane",
+  kind: "sentBack",
+  dates: ["2026-09-30"],
+  days: "Wed 30 Sep",
+  hours: 7.6,
+};
+const stephenFailed: HoldUpLine = {
+  workerId: "u_stephen",
+  workerName: "Stephen Mayne",
+  kind: "failed",
+  dates: ["2026-10-01"],
+  days: "Thu 1 Oct",
+  hours: 7.6,
+  why: "No answer — it may not have gone through.",
+};
+const anaDraft: HoldUpLine = {
+  workerId: "u_ana",
+  workerName: "Ana Ruiz",
+  kind: "draft",
+  dates: ["2026-10-02"],
+  days: "Fri 2 Oct",
+  hours: 7.6,
+};
+const dylanMissing: HoldUpLine = {
+  workerId: "u_dylan",
+  workerName: "Dylan Sinclair",
+  kind: "missing",
+  dates: ["2026-10-02"],
+  days: "Fri 2 Oct",
+  hours: 0,
+};
+const remedies = { approve: () => {}, takeBack: () => {}, sendIn: () => {}, check: () => {} };
+
+describe("WeeklyCloseoutSendFinale — every hold-up comes with its fix (owner pull 2026-10-12)", () => {
   const unfinished = {
-    outstanding: {
-      sentBackDays: 2,
-      notReviewedDays: 1,
-      notInYetDays: 0,
-      actionableDays: 3,
-      total: 3,
-    },
+    holdUps: [louisWaiting, louisSentBack, stephenFailed, anaDraft, dylanMissing],
+    remedies,
   };
 
-  it("actionable days outstanding → the wait choice LEADS; send is a REAL secondary button", () => {
+  it("names each day still to settle — with a one-tap fix on the line itself", () => {
     const html = render(unfinished);
-    expect(html).toContain('data-testid="wha-send-wait"');
-    expect(html).toContain("Wait for the full week");
-    // Send stays findable — a ghost read as "can't send" on the first live
-    // pay run (2026-08-17), so it must render as a bordered button.
+    expect(html).toContain('data-testid="wha-holdups"');
+    expect(html).toContain("Still to settle · 4 days");
+    expect(html).toContain("waiting for approval: Mon 28 Sep, Tue 29 Sep");
+    expect(html).toContain("Approve 17h 12m");
+    expect(html).toContain("sent back for a fix: Wed 30 Sep");
+    expect(html).toContain('data-testid="wha-holdup-takeback"');
+    expect(html).toContain("approve didn't go through: Thu 1 Oct");
+    expect(html).toContain("No answer — it may not have gone through. Nothing's lost — approve again.");
+    expect(html).toContain("Approve again");
+    expect(html).toContain('data-testid="wha-holdup-check"');
+  });
+
+  it("days that never came in inform — a saved draft can be sent in from here; nothing logged just names it", () => {
+    const html = render(unfinished);
+    expect(html).toContain('data-testid="wha-notin"');
+    expect(html).toContain("saved but not sent in: Fri 2 Oct");
+    expect(html).toContain('data-testid="wha-holdup-sendin"');
+    expect(html).toContain("nothing logged: Fri 2 Oct");
+    expect(html).toContain("named on the sheet so Tia knows");
+  });
+
+  it("the fixes lead — sending without them stays a REAL button, and 'Wait for the full week' is gone", () => {
+    const html = render(unfinished);
     expect(html).toContain('data-testid="wha-send-accounts"');
-    expect(html).toContain("Send anyway");
+    expect(html).toContain("Send without those 4 days");
+    expect(html).toContain('data-testid="wha-send-later"');
+    expect(html).not.toContain("Wait for the full week");
     expect(html).not.toContain("Send to Tia</button>");
-    // The wait button comes FIRST in the footer.
-    expect(html.indexOf("wha-send-wait")).toBeLessThan(html.indexOf("wha-send-accounts"));
   });
 
-  it("says exactly what the sheet would miss, in site language", () => {
-    const html = render(unfinished);
-    expect(html).toContain('data-testid="wha-send-outstanding"');
-    expect(html).toContain("The week isn’t finished");
-    expect(html).toContain("2 days sent back for a fix · 1 day still waiting for review");
-    expect(html).toContain("days that land later won’t be on it");
-  });
-
-  it("crew away all week (not-in-yet only) → Send to Tia LEADS with an FYI, never a wait wall (owner call 2026-08-17)", () => {
-    // The live pay-run case: guys on holiday never submit — normal. Their
-    // days will never arrive, so waiting on them would block every send.
-    const html = render({
-      outstanding: {
-        sentBackDays: 0,
-        notReviewedDays: 0,
-        notInYetDays: 5,
-        actionableDays: 0,
-        total: 5,
-      },
-    });
+  it("only mid-flight days hold the send — drafts and missing days alone keep Send to Tia leading (owner call 2026-08-17)", () => {
+    const html = render({ holdUps: [anaDraft, dylanMissing], remedies });
     expect(html).toContain("Send to Tia");
-    expect(html).not.toContain('data-testid="wha-send-wait"');
-    expect(html).not.toContain('data-testid="wha-send-outstanding"');
-    expect(html).toContain('data-testid="wha-send-fyi"');
-    expect(html).toContain("Not everyone’s week is here");
-    expect(html).toContain("5 days never came in");
-    expect(html).toContain("it sends without them");
+    expect(html).not.toContain('data-testid="wha-holdups"');
+    expect(html).toContain('data-testid="wha-notin"');
+    expect(html).toContain("the sheet sends without them");
   });
 
-  it("a finished week keeps today's layout — Send to Tia leads, no notices", () => {
-    const html = render({
-      outstanding: {
-        sentBackDays: 0,
-        notReviewedDays: 0,
-        notInYetDays: 0,
-        actionableDays: 0,
-        total: 0,
-      },
-    });
+  it("without office-tier fixes (no take back / send in) the line still names the day — never a dead button", () => {
+    const html = render({ ...unfinished, remedies: { approve: () => {} } });
+    expect(html).not.toContain('data-testid="wha-holdup-takeback"');
+    expect(html).not.toContain('data-testid="wha-holdup-sendin"');
+    expect(html).toContain("sent back for a fix: Wed 30 Sep");
+  });
+
+  it("a person whose write is saving shows 'Saving…' instead of buttons", () => {
+    const html = render({ ...unfinished, busyIds: ["u_ana"] });
+    expect(html).not.toContain('data-testid="wha-holdup-sendin"');
+    expect(html).toContain("Saving…");
+  });
+
+  it("a finished week keeps today's layout — Send to Tia leads, no lists", () => {
+    const html = render({ holdUps: [], remedies });
     expect(html).toContain("Send to Tia");
-    expect(html).not.toContain('data-testid="wha-send-wait"');
-    expect(html).not.toContain('data-testid="wha-send-outstanding"');
-    expect(html).not.toContain('data-testid="wha-send-fyi"');
+    expect(html).not.toContain('data-testid="wha-holdups"');
+    expect(html).not.toContain('data-testid="wha-notin"');
   });
 
-  it("no outstanding prop (desktop caller / older mount) → unchanged send-first face", () => {
-    const html = render();
-    expect(html).toContain("Send to Tia");
-    expect(html).not.toContain('data-testid="wha-send-wait"');
-  });
-
-  it("nothing approved AND days outstanding → still the honest empty state, never 'Send anyway'", () => {
+  it("nothing approved yet but days to settle → no send, and it says to approve them above", () => {
     const html = render({ candidates: [], ...unfinished });
     expect(html).toContain("No approved hours");
+    expect(html).toContain("Approve the days above, then send.");
     expect(html).not.toContain('data-testid="wha-send-accounts"');
-    expect(html).not.toContain('data-testid="wha-send-wait"');
+    expect(html).toContain("Approve 17h 12m");
   });
 });
 
@@ -168,35 +203,28 @@ describe("WeeklyCloseoutSendFinale — approvals still saving (2026-10-06 audit)
   // people, so this screen can open while the last ones are still being
   // written. A send then reads those days as "submitted" and leaves them off
   // the sheet with NO error — so while anything is saving, there is no send.
-  const inFlight = {
-    // While approvals are in flight the overlay hasn't caught up, so the
-    // week-wide count calls those days "still waiting for review".
-    outstanding: {
-      sentBackDays: 0,
-      notReviewedDays: 9,
-      notInYetDays: 2,
-      actionableDays: 9,
-      total: 11,
-    },
-    savingCount: 2,
-  };
+  const inFlight = { holdUps: [louisWaiting, dylanMissing], remedies, savingCount: 2 };
 
   it("no send button of any kind while saves are in flight — a disabled 'Saving approvals…' instead", () => {
     const html = render(inFlight);
     expect(html).toContain('data-testid="wha-send-saving"');
     expect(html).toContain("Saving approvals…");
     expect(html).not.toContain('data-testid="wha-send-accounts"');
-    expect(html).not.toContain("Send anyway");
     expect(html).not.toContain("Send to Tia</button>");
   });
 
-  it("says why, in site language — and doesn't call the in-flight days 'waiting for review'", () => {
+  it("says why, in site language — and doesn't list the in-flight days as still to settle", () => {
     const html = render(inFlight);
     expect(html).toContain('data-testid="wha-send-saving-note"');
     expect(html).toContain("2 people’s hours are still saving");
-    expect(html).not.toContain('data-testid="wha-send-outstanding"');
-    expect(html).not.toContain('data-testid="wha-send-wait"');
-    expect(html).not.toContain('data-testid="wha-send-fyi"');
+    expect(html).not.toContain('data-testid="wha-holdups"');
+    expect(html).not.toContain('data-testid="wha-notin"');
+  });
+
+  it("names who is saving when it knows", () => {
+    expect(render({ savingCount: 2, savingNames: ["Mick Doran", "Sam Perry"] })).toContain(
+      "Mick’s and Sam’s hours are still saving",
+    );
   });
 
   it("never shows 'No approved hours' while the approvals that would fill it are still landing", () => {
@@ -214,51 +242,5 @@ describe("WeeklyCloseoutSendFinale — approvals still saving (2026-10-06 audit)
     expect(html).toContain('data-testid="wha-send-accounts"');
     expect(html).toContain("Send to Tia");
     expect(html).not.toContain('data-testid="wha-send-saving"');
-  });
-});
-
-describe("WeeklyCloseoutSendFinale — names, not just counts (2026-10-09)", () => {
-  // The 5 Oct finale said "2 days never came in" and nobody could tell it
-  // meant Dylan's and Stephen's Fridays. The notices now name them in the
-  // sheet's own words — and the sheet itself carries the same list for Tia.
-  const fridays = {
-    outstanding: { sentBackDays: 0, notReviewedDays: 0, notInYetDays: 2, actionableDays: 0, total: 2 },
-    outstandingLines: [
-      { workerName: "Dylan Sinclair", reason: "nothing logged", days: "Fri 2 Oct", kind: "notInYet" as const },
-      { workerName: "Stephen Mayne", reason: "nothing logged", days: "Fri 2 Oct", kind: "notInYet" as const },
-    ],
-  };
-
-  it("the FYI notice names who and which day — and says the sheet lists them for Tia", () => {
-    const html = render(fridays);
-    expect(html).toContain('data-testid="wha-send-fyi-lines"');
-    expect(html).toContain("Dylan Sinclair");
-    expect(html).toContain("Stephen Mayne");
-    expect(html).toContain("nothing logged: Fri 2 Oct");
-    expect(html).toContain("names them for Tia");
-    // Still a send-first face: holiday crew never hold the pay run.
-    expect(html).toContain("Send to Tia");
-  });
-
-  it("the 'week isn't finished' notice names the days still mid-flight (not the not-in-yet ones)", () => {
-    const html = render({
-      outstanding: { sentBackDays: 1, notReviewedDays: 2, notInYetDays: 1, actionableDays: 3, total: 4 },
-      outstandingLines: [
-        { workerName: "Louis Kane", reason: "waiting for approval", days: "Mon 28 Sep, Tue 29 Sep", kind: "notReviewed" },
-        { workerName: "Louis Kane", reason: "sent back for a fix", days: "Wed 30 Sep", kind: "sentBack" },
-        { workerName: "Dylan Sinclair", reason: "nothing logged", days: "Fri 2 Oct", kind: "notInYet" },
-      ],
-    });
-    expect(html).toContain('data-testid="wha-send-outstanding-lines"');
-    expect(html).toContain("waiting for approval: Mon 28 Sep, Tue 29 Sep");
-    expect(html).toContain("sent back for a fix: Wed 30 Sep");
-    // The not-in-yet line lives in the FYI notice, which the hold replaces.
-    expect(html).not.toContain("nothing logged: Fri 2 Oct");
-  });
-
-  it("no lines → the notices render as before (older callers pass none)", () => {
-    const html = render({ outstanding: fridays.outstanding });
-    expect(html).toContain("2 days never came in");
-    expect(html).not.toContain('data-testid="wha-send-fyi-lines"');
   });
 });

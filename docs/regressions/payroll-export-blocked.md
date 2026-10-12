@@ -134,14 +134,31 @@ Added 2026-10-09, after the 5 Oct week that never went (the third incident):
     outstanding says "Nothing left off". The phone finale names the same days
     before the send. A sheet is complete, or it says exactly what it is
     missing — it can no longer be short by surprise.
+15. **A refusal waiting can't clear is never a dead end (2026-10-12, owner
+    pull: "it doesn't halt the process").** A non-settling refusal carries
+    `code: 'unreadable'` and the days, structured (`days: [{ userId, date,
+    workerName, problem, canSkip }]`). The office can choose to send (or
+    download the approved PDF) WITHOUT exactly those days —
+    `skipUnreadable` / `?skip=` — and each is printed first on "Not on this
+    sheet" as "couldn't be read, check before paying" (never as "nothing
+    logged"), and journalled (`unreadableLeftOff`). Only a day that is
+    unreadable AND settled past the CDN window can be left off; a day that
+    changed in the last minute is waited out (guardrail 9), and a day the
+    office wasn't shown still refuses. A CSV never skips (it is keyed into
+    Xero and has no list). Guardrail 14's rule holds: complete, or named.
+16. **The send has a way through that doesn't need the email service.** Every
+    failed send offers the same approved PDF to download and email by hand,
+    and every download waits out "still saving" by itself instead of
+    navigating to the refusal (`src/components/admin/payrollDownload.ts`).
 
 ## Not built, by decision (still open)
 
-- **No override.** A refusal still has no "send anyway" path. Deliberate:
-  a payroll artifact must never be quietly short. Since 2026-10-09 the send
-  surfaces wait a settling refusal out by themselves (guardrail 9); a
-  download that lands inside the window answers with the seconds to wait.
-  Revisit only with field evidence that the wait itself is costing pay.
+- **No QUIET override.** There is no "send anyway" that drops days without
+  saying so. Since 2026-10-12 the one override is explicit and named
+  (guardrail 15): leave off exactly the unreadable days the office was shown,
+  printed on the sheet. A settling refusal is still only ever waited out
+  (guardrail 9) — by the send surfaces and, since 2026-10-12, by the downloads
+  too.
 - **The emailed PDF does not partition subcontractor rows** out of the wages
   sheet (the Xero batch path does). No subcontractor exists in production
   today; when one is onboarded this needs an owner call on what the sheet

@@ -18,6 +18,7 @@ const nos = requireFromHere("../../../api/_lib/not-on-sheet.js") as {
     toDate: string;
     entries: Array<Record<string, unknown>>;
     userById: Record<string, Record<string, unknown>>;
+    unreadable?: Array<{ userId: string; date: string; workerName?: string }>;
     todayISO?: string;
     deps?: { readLeave?: () => Promise<{ requests: Array<Record<string, unknown>> }> };
   }) => Promise<{
@@ -164,3 +165,33 @@ describe("buildNotOnSheet", () => {
     expect(out.items.map((i) => i.date)).toEqual(["2026-08-03", "2026-08-04"]);
   });
 });
+
+describe("a day left off because it couldn't be read (2026-10-12)", () => {
+  it("is named FIRST, as couldn't be read — never as 'nothing logged'", async () => {
+    const entries = [
+      ...weekdays.slice(0, 4).map((d) => day("u_dylan", d)),
+      ...weekdays.map((d) => day("u_stephen", d)),
+      ...weekdays.map((d) => day("u_louis", d)),
+    ];
+    const out = await nos.buildNotOnSheet({
+      fromDate: FROM,
+      toDate: TO,
+      entries,
+      userById: users,
+      unreadable: [{ userId: "u_dylan", date: "2026-10-02" }],
+      todayISO: TODAY,
+      deps: noLeave,
+    });
+    expect(out.items).toEqual([
+      expect.objectContaining({ workerName: "Dylan Sinclair", date: "2026-10-02", kind: "unreadable" }),
+    ]);
+    const lines = nos.notOnSheetLines([
+      ...out.items,
+      { workerName: "Dylan Sinclair", date: "2026-10-01", kind: "submitted", reason: "waiting for approval", hours: 7.6 },
+    ]);
+    expect(lines.map((l) => l.reason)).toEqual(["couldn't be read, check before paying", "waiting for approval"]);
+    // No dash: the PDF's WinAnsi fonts would strip it.
+    expect(lines[0]!.reason).not.toMatch(/[\u2013\u2014]/);
+  });
+});
+

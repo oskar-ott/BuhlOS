@@ -313,6 +313,10 @@ export function amendAndApproveEntry(
   return httpPost<TimeEntryMutationResponse>("/api/time-entries-amend-approve", parsed.data, {
     schema: TimeEntryMutationResponseSchema,
     init: { cache: "no-store", credentials: "same-origin" },
+    // Every closeout write ends (2026-10-12): an unbounded request on bad
+    // signal held the boss's "Saving approvals…" — and the send behind it —
+    // forever. A timeout says "may not have gone through" and can be retried.
+    timeoutMs: 30000,
   });
 }
 
@@ -339,6 +343,11 @@ export function bulkApproveEntries(
   return httpPost<BulkApproveResponse>("/api/time-entries-bulk-approve", parsed.data, {
     schema: BulkApproveResponseSchema,
     init: { cache: "no-store", credentials: "same-origin" },
+    // The server approves a week one day at a time (several store round trips
+    // each), so this is generous — but it ENDS: an unbounded approve on bad
+    // signal kept the closeout's "Saving approvals…" (and Send) locked for
+    // good. A retry is safe: an already-approved day counts as done.
+    timeoutMs: 60000,
   });
 }
 
@@ -364,7 +373,31 @@ export function reopenEntry(
   return httpPost<Record<string, unknown>>("/api/time-entries-reopen", parsed.data, {
     schema: ReopenEntryResponseSchema,
     init: { cache: "no-store", credentials: "same-origin" },
+    timeoutMs: 20000,
   });
+}
+
+/**
+ * PATCH /api/time-entries?date=&userId= { status: "submitted" } — the office
+ * sends a worker's saved-but-never-sent (draft) day in for them, so it can be
+ * approved for this pay run (2026-10-12: a draft used to sit on the closeout
+ * with nothing the boss could do about it). Admin tier; the server records
+ * the office as the one who sent it in and journals it like any submit. The
+ * hours themselves are untouched — the boss still approves them separately.
+ */
+export function submitForWorker(
+  userId: string,
+  date: string,
+): Promise<HttpResult<TimeEntryMutationResponse>> {
+  return httpPatch<TimeEntryMutationResponse>(
+    `/api/time-entries?date=${encodeURIComponent(date)}&userId=${encodeURIComponent(userId)}`,
+    { status: "submitted" },
+    {
+      schema: TimeEntryMutationResponseSchema,
+      init: { cache: "no-store", credentials: "same-origin" },
+      timeoutMs: 20000,
+    },
+  );
 }
 
 export const timesheetsClient = {
@@ -379,6 +412,7 @@ export const timesheetsClient = {
   bulkApproveEntries,
   reopenEntry,
   rejectEntry,
+  submitForWorker,
 } as const;
 
 /**

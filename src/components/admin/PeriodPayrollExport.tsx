@@ -1,6 +1,7 @@
 "use client";
 
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
+import { PayrollDownloadButton } from "./PayrollDownloadButton";
 
 /**
  * Pay-period payroll DOWNLOADS (#131 / #895) — read-only CSV previews.
@@ -11,6 +12,12 @@ import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
  * The legacy "Finalise + record export" POST is retired — a payroll MUTATION
  * must not hang off this endpoint (payroll-boundary ADR #609, amended for
  * export convergence: the locked batch is the single export source).
+ *
+ * 2026-10-12 (owner pull — a problem exporting must never halt the process):
+ * the downloads are buttons, not plain links. A refused download (hours still
+ * saving, a day that can't be read) used to open a page of JSON; now it waits
+ * out the saving by itself, or says what's wrong in plain words with the way
+ * through (PayrollDownloadButton).
  */
 
 interface Props {
@@ -25,7 +32,7 @@ interface Props {
 }
 
 export function PeriodPayrollExport({ fromDate, toDate, unexportedApprovedHours, notClosed }: Props) {
-  const dryRunBase = `/api/time-entries-export?status=approved&fromDate=${fromDate}&toDate=${toDate}`;
+  const base = `buhlos-hours-${fromDate}-to-${toDate}`;
 
   return (
     <Card>
@@ -51,30 +58,35 @@ export function PeriodPayrollExport({ fromDate, toDate, unexportedApprovedHours,
         </p>
       ) : null}
 
-      <div className="mt-3 flex flex-wrap gap-2">
-        <a
-          href={`${dryRunBase}&shape=review&dryRun=1`}
-          className="rounded-card border border-border px-3 py-2 text-sm font-medium text-text hover:border-brand-navy"
-          data-testid="period-download-review"
-        >
-          Download review CSV
-        </a>
-        <a
-          href={`${dryRunBase}&shape=xero&dryRun=1`}
-          className="rounded-card border border-border px-3 py-2 text-sm font-medium text-text hover:border-brand-navy"
-          data-testid="period-download-xero"
-        >
-          Download Xero-ready CSV
-        </a>
+      <div className="mt-3 flex flex-wrap items-start gap-2">
+        <PayrollDownloadButton
+          fromDate={fromDate}
+          toDate={toDate}
+          format="csv"
+          shape="review"
+          label="Download review CSV"
+          fallbackFilename={`${base}-review.csv`}
+          testId="period-download-review"
+        />
+        <PayrollDownloadButton
+          fromDate={fromDate}
+          toDate={toDate}
+          format="csv"
+          shape="xero"
+          label="Download Xero-ready CSV"
+          fallbackFilename={`${base}-xero.csv`}
+          testId="period-download-xero"
+        />
         {/* Owner pull 2026-08-10: the printable sheet — same rows as the CSVs,
             a container you can sign, file or send to the accountant. */}
-        <a
-          href={`${dryRunBase}&format=pdf&dryRun=1`}
-          className="rounded-card border border-border px-3 py-2 text-sm font-medium text-text hover:border-brand-navy"
-          data-testid="period-download-pdf"
-        >
-          Download PDF
-        </a>
+        <PayrollDownloadButton
+          fromDate={fromDate}
+          toDate={toDate}
+          format="pdf"
+          label="Download PDF"
+          fallbackFilename={`${base}.pdf`}
+          testId="period-download-pdf"
+        />
       </div>
       <p className="mt-2 text-xs text-text-muted">
         The PDF is the printable sheet (summary by worker + day breakdown); the CSVs are for

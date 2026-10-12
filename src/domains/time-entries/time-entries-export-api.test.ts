@@ -617,3 +617,81 @@ describe("freshness guarantee — a stale or unreadable day refuses the whole pa
     expect((res.body as { error: string }).error).toContain("sparky 2026-06-09 (just changed)");
   });
 });
+
+describe("a day that can't be read never halts the pay run — named, and leave-off-able on the PDF only (2026-10-12)", () => {
+  const BAD = "users/w2/time-entries/2026-06-11.json";
+  function listWithBad(uploadedAt?: string) {
+    const vb = requireFromHere(vercelBlobPath) as { list: ReturnType<typeof vi.fn> };
+    vb.list.mockImplementation(async ({ prefix }: { prefix: string }) => ({
+      blobs: [...new Set([...blob.keys(), BAD])]
+        .filter((k) => k.startsWith(prefix))
+        .map((k) => ({
+          pathname: k,
+          url: `memory://${k}`,
+          ...(k === BAD && uploadedAt ? { uploadedAt } : {}),
+        })),
+    }));
+  }
+
+  it("the refusal names who and which day, and says the office can leave it off", async () => {
+    listWithBad(new Date(Date.now() - 10 * 60_000).toISOString());
+    const res = await call("u_admin", "office", { ...WEEK, dryRun: "1", format: "pdf", status: "approved" });
+    expect(res.statusCode).toBe(503);
+    const body = res.body as { code: string; days: Array<Record<string, unknown>> };
+    expect(body.code).toBe("unreadable");
+    expect(body.days).toEqual([
+      { userId: "w2", date: "2026-06-11", workerName: "appy", problem: "unreadable", canSkip: true },
+    ]);
+  });
+
+  it("the approved PDF leaves off exactly the day the office chose — and still produces the sheet", async () => {
+    listWithBad(new Date(Date.now() - 10 * 60_000).toISOString());
+    const res = await call("u_admin", "office", {
+      ...WEEK,
+      dryRun: "1",
+      format: "pdf",
+      status: "approved",
+      skip: "w2|2026-06-11",
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["Content-Type"]).toBe("application/pdf");
+  });
+
+  it("a skip for some OTHER day lets nothing through — the office only leaves off what it was shown", async () => {
+    listWithBad(new Date(Date.now() - 10 * 60_000).toISOString());
+    const res = await call("u_admin", "office", {
+      ...WEEK,
+      dryRun: "1",
+      format: "pdf",
+      status: "approved",
+      skip: "w1|2026-06-11",
+    });
+    expect(res.statusCode).toBe(503);
+  });
+
+  it("a CSV never skips — it gets keyed into Xero and has no 'Not on this sheet' list", async () => {
+    listWithBad(new Date(Date.now() - 10 * 60_000).toISOString());
+    const res = await call("u_admin", "office", {
+      ...WEEK,
+      dryRun: "1",
+      format: "csv",
+      status: "approved",
+      skip: "w2|2026-06-11",
+    });
+    expect(res.statusCode).toBe(503);
+    expect(res.sent).toBeNull();
+  });
+
+  it("a day written in the last minute can't be skipped — it's waited out instead", async () => {
+    listWithBad(new Date().toISOString());
+    const res = await call("u_admin", "office", {
+      ...WEEK,
+      dryRun: "1",
+      format: "pdf",
+      status: "approved",
+      skip: "w2|2026-06-11",
+    });
+    expect(res.statusCode).toBe(503);
+    expect((res.body as { code: string }).code).toBe("settling");
+  });
+});

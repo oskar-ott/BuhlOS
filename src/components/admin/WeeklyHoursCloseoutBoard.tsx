@@ -18,6 +18,13 @@ import { timesheetsClient } from "@/domains/timesheets/client";
 import { requestLeave, clearLeave } from "@/domains/timesheets/client";
 import { formatDateLabel, formatHoursLabel, otSplitLabel } from "@/domains/timesheets/format";
 import {
+  explainHoursProblem,
+  type HoursAction,
+  type ProblemInput,
+} from "@/domains/timesheets/problem";
+import { settleApproveResult } from "@/domains/timesheets/week-holdups";
+import { shortDayLabel } from "@/domains/timesheets/weekly-review";
+import {
   submittedWeekSelection,
   weeklyDayStatusLabel,
   type WeeklyHoursCloseout,
@@ -82,9 +89,22 @@ type ActionState =
 interface BulkOutcome {
   workerName: string;
   approvedCount: number;
+  /** Each day that didn't go, in plain words (2026-10-12 — the server's raw
+   *  sentence, e.g. "conflict — edited while approving; retry", used to show). */
   failed: Array<{ date: string | null; error: string }>;
+  /** The days to approve again ("Try again") — every failure that a retry can
+   *  clear; empty when none can. */
+  retry: Array<{ userId: string; date: string }>;
   /** Entries the viewer can still revert (cleared when the 30s window ends). */
   undo: Array<{ userId: string; date: string }>;
+}
+
+/** "This day just changed. Refresh, check the day, then try again." — the
+ *  board's one-line version of the pop-up (problem.ts), never "Conflict" or
+ *  "Bad Request" (src/lib/http.ts puts the status word in error.message). */
+function plainProblem(action: HoursAction, error: ProblemInput): string {
+  const p = explainHoursProblem(action, error);
+  return `${p.title}. ${p.todo}`;
 }
 
 function dayKey(workerId: string, date: string): string {
@@ -214,33 +234,42 @@ export function WeeklyHoursCloseoutBoard({
     startTransition(() => router.refresh());
   }
 
-  async function approveWeek(worker: WeeklyWorkerHours) {
-    const entries = submittedWeekSelection(worker);
-    if (entries.length === 0 || bulkBusyWorker) return;
-    setBulkBusyWorker(worker.workerId);
+  /**
+   * One bulk approve + its outcome card — "Approve all N days", "Approve all
+   * clean" and "Try again" on the days that didn't go. A day the server says
+   * is ALREADY approved counts as done (that's what a retry after a dropped
+   * connection finds), never as a failure (2026-10-12).
+   */
+  async function runBulk(label: string, entries: Array<{ userId: string; date: string }>) {
     setAction({ kind: "idle" });
     setBulk(null);
     const result = await timesheetsClient.bulkApproveEntries({ entries });
-    setBulkBusyWorker(null);
     if (!result.ok) {
-      setAction({
-        kind: "error",
-        message:
-          result.error.status === 403
-            ? "You don't have permission to approve these entries."
-            : result.error.message || "Couldn't approve the week. Try again.",
-      });
+      setAction({ kind: "error", message: plainProblem("approve", result.error) });
       return;
     }
+    const { done, failed } = settleApproveResult(result.data);
     bulkSeqRef.current += 1;
     const seq = bulkSeqRef.current;
+    // Undo reverts only what THIS call approved — never a day someone else had
+    // already approved.
     const undo = canUndo
       ? result.data.approved.map((a) => ({ userId: a.userId, date: a.date }))
       : [];
     setBulk({
-      workerName: worker.workerName,
-      approvedCount: result.data.approvedCount,
-      failed: result.data.failed.map((f) => ({ date: f.date, error: f.error })),
+      workerName: label,
+      approvedCount: done.length,
+      failed: failed.map((f) => {
+        const code = (f as { code?: unknown }).code;
+        const p = explainHoursProblem("approve", {
+          status: code === "conflict" ? 409 : 400,
+          body: { error: f.error, code },
+        });
+        return { date: f.date, error: `${p.title}. ${p.todo}` };
+      }),
+      retry: failed
+        .filter((f) => (f as { code?: unknown }).code === "conflict" || /read failed|write failed/.test(f.error))
+        .flatMap((f) => (f.userId && f.date ? [{ userId: f.userId, date: f.date }] : [])),
       undo,
     });
     if (undo.length > 0) {
@@ -253,6 +282,14 @@ export function WeeklyHoursCloseoutBoard({
     startTransition(() => router.refresh());
   }
 
+  async function approveWeek(worker: WeeklyWorkerHours) {
+    const entries = submittedWeekSelection(worker);
+    if (entries.length === 0 || bulkBusyWorker) return;
+    setBulkBusyWorker(worker.workerId);
+    await runBulk(worker.workerName, entries);
+    setBulkBusyWorker(null);
+  }
+
   /**
    * "Approve all clean" — one bulk call for every submitted day of every
    * CLEAN week (workers whose only open state is pending-approval). Flagged
@@ -263,38 +300,16 @@ export function WeeklyHoursCloseoutBoard({
     const entries = [...payRun.cleanApproval];
     if (entries.length === 0 || cleanSweepBusy || bulkBusyWorker) return;
     setCleanSweepBusy(true);
-    setAction({ kind: "idle" });
-    setBulk(null);
-    const result = await timesheetsClient.bulkApproveEntries({ entries });
+    const workers = new Set(entries.map((e) => e.userId)).size;
+    await runBulk(`${workers} ${workers === 1 ? "clean week" : "clean weeks"}`, entries);
     setCleanSweepBusy(false);
-    if (!result.ok) {
-      setAction({
-        kind: "error",
-        message:
-          result.error.status === 403
-            ? "You don't have permission to approve these entries."
-            : result.error.message || "Couldn't approve the clean weeks. Try again.",
-      });
-      return;
-    }
-    bulkSeqRef.current += 1;
-    const seq = bulkSeqRef.current;
-    const undo = canUndo
-      ? result.data.approved.map((a) => ({ userId: a.userId, date: a.date }))
-      : [];
-    const sweptWorkers = new Set(result.data.approved.map((a) => a.userId)).size;
-    setBulk({
-      workerName: `${sweptWorkers} ${sweptWorkers === 1 ? "clean week" : "clean weeks"}`,
-      approvedCount: result.data.approvedCount,
-      failed: result.data.failed.map((f) => ({ date: f.date, error: f.error })),
-      undo,
-    });
-    if (undo.length > 0) {
-      setTimeout(() => {
-        if (bulkSeqRef.current === seq) setBulk((b) => (b ? { ...b, undo: [] } : b));
-      }, 30_000);
-    }
-    startTransition(() => router.refresh());
+  }
+
+  async function retryBulk() {
+    if (!bulk || bulk.retry.length === 0 || cleanSweepBusy || bulkBusyWorker) return;
+    setCleanSweepBusy(true);
+    await runBulk(bulk.workerName, bulk.retry);
+    setCleanSweepBusy(false);
   }
 
   async function undoBulk() {
@@ -309,7 +324,7 @@ export function WeeklyHoursCloseoutBoard({
         date: ref.date,
         toStatus: "submitted",
       });
-      if (!r.ok) failures.push(`${ref.date}: ${r.error.message || `HTTP ${r.error.status}`}`);
+      if (!r.ok) failures.push(`${shortDayLabel(ref.date)}: ${plainProblem("undo", r.error)}`);
     }
     const total = bulk.undo.length;
     setUndoBusy(false);
@@ -369,9 +384,7 @@ export function WeeklyHoursCloseoutBoard({
     }
     // Keep the dialog open with the typed reason; the error sits inside it.
     setReopenError(
-      result.error.status === 403
-        ? "Reopening needs an office login."
-        : result.error.message || "Couldn't reopen. Try again.",
+      result.error.status === 403 ? "Reopening needs an office login." : plainProblem("undo", result.error),
     );
   }
 
@@ -390,13 +403,7 @@ export function WeeklyHoursCloseoutBoard({
       startTransition(() => router.refresh());
       return;
     }
-    setAction({
-      kind: "error",
-      message:
-        result.error.status === 403
-          ? "You don't have permission to approve this entry."
-          : result.error.message || "Couldn't approve. Try again.",
-    });
+    setAction({ kind: "error", message: plainProblem("approve", result.error) });
   }
 
   function closeReject() {
@@ -436,11 +443,7 @@ export function WeeklyHoursCloseoutBoard({
       return;
     }
     setAction({ kind: "idle" });
-    setRejectError(
-      result.error.status === 403
-        ? "You don't have permission to reject this entry."
-        : result.error.message || "Couldn't reject. Try again.",
-    );
+    setRejectError(plainProblem("sendBack", result.error));
   }
 
   return (
@@ -592,16 +595,28 @@ export function WeeklyHoursCloseoutBoard({
             <CardDescription className={bulk.failed.length > 0 ? "text-amber-900" : "text-emerald-900"}>
               {`Approved ${bulk.approvedCount} ${bulk.approvedCount === 1 ? "day" : "days"} for ${bulk.workerName}.${bulk.failed.length > 0 ? ` ${bulk.failed.length} failed:` : ""}`}
             </CardDescription>
-            {bulk.undo.length > 0 ? (
-              <Button size="sm" variant="secondary" onClick={undoBulk} disabled={undoBusy}>
-                {undoBusy ? "Undoing…" : `Undo (${bulk.undo.length})`}
-              </Button>
-            ) : null}
+            <div className="flex flex-wrap gap-2">
+              {bulk.retry.length > 0 ? (
+                <Button
+                  size="sm"
+                  data-testid="board-bulk-retry"
+                  onClick={retryBulk}
+                  disabled={cleanSweepBusy || bulkBusyWorker !== null}
+                >
+                  {`Try again (${bulk.retry.length})`}
+                </Button>
+              ) : null}
+              {bulk.undo.length > 0 ? (
+                <Button size="sm" variant="secondary" onClick={undoBulk} disabled={undoBusy}>
+                  {undoBusy ? "Undoing…" : `Undo (${bulk.undo.length})`}
+                </Button>
+              ) : null}
+            </div>
           </div>
           {bulk.failed.length > 0 ? (
             <ul className="mt-2 list-disc pl-5 text-sm text-amber-900">
               {bulk.failed.map((f, i) => (
-                <li key={`${f.date ?? "unknown"}-${i}`}>{`${f.date ?? "unknown day"} — ${f.error}`}</li>
+                <li key={`${f.date ?? "unknown"}-${i}`}>{`${f.date ? shortDayLabel(f.date) : "A day"} — ${f.error}`}</li>
               ))}
             </ul>
           ) : null}

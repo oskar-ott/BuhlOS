@@ -634,7 +634,8 @@ export function Notice({
   return (
     <div className={cn("rounded-card border p-3 text-xs", toneClass)}>
       <p className="font-display text-[13px] font-bold">{title}</p>
-      <p className="mt-1 leading-relaxed">{children}</p>
+      {/* A div, not a p: some notices carry a list of named days. */}
+      <div className="mt-1 leading-relaxed">{children}</div>
     </div>
   );
 }

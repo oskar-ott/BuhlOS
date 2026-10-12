@@ -18,6 +18,7 @@
  */
 
 import { explainHoursProblem, type HoursProblem } from "@/domains/timesheets/problem";
+import { parseUnreadableDays, type UnreadableDay } from "@/domains/timesheets/payroll-refusal";
 
 export interface NotOnSheetLine {
   workerName: string;
@@ -54,7 +55,14 @@ export type PeriodSendOutcome =
   | { ok: true; receipt: PeriodSendReceipt }
   /** `problem` is the plain-words pop-up (what went wrong, why, what to do);
    *  `error` keeps the server's own sentence for logs and older callers. */
-  | { ok: false; error: string; problem: HoursProblem };
+  | {
+      ok: false;
+      error: string;
+      problem: HoursProblem;
+      /** Days that couldn't be read, by name — the screen offers to send
+       *  without them (named on the sheet). Empty for any other refusal. */
+      unreadable: UnreadableDay[];
+    };
 
 /** Automatic re-sends after a 'settling' refusal before handing back to a person.
  *  With the server's 70s settle + 10s back-off this covers ~2 minutes after
@@ -66,6 +74,8 @@ export const MAX_SETTLE_WAIT_MS = 120_000;
 export interface SendPeriodOptions {
   fromDate: string;
   toDate: string;
+  /** "userId|date" keys the office chose to send without (named on the sheet). */
+  skipUnreadable?: string[];
   /** Called before each automatic wait, with how long it will be. */
   onSettling?: (waitMs: number) => void;
   /** False once the screen is gone — stop without sending again. */
@@ -84,6 +94,7 @@ function strings(value: unknown): string[] {
 export async function sendPeriodTimesheets({
   fromDate,
   toDate,
+  skipUnreadable,
   onSettling,
   isActive,
   fetchImpl = fetch,
@@ -93,7 +104,11 @@ export async function sendPeriodTimesheets({
     const res = await fetchImpl("/api/time-entries-email", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ fromDate, toDate }),
+      body: JSON.stringify({
+        fromDate,
+        toDate,
+        ...(skipUnreadable && skipUnreadable.length ? { skipUnreadable } : {}),
+      }),
     });
     const data = (await res.json().catch(() => null)) as Record<string, unknown> | null;
     if (res.ok) {
@@ -127,6 +142,7 @@ export async function sendPeriodTimesheets({
         (typeof data?.error === "string" && data.error) ||
         `The send failed (${res.status}) — nothing was emailed.`,
       problem: explainHoursProblem("send", { status: res.status, body: data }),
+      unreadable: data?.code === "unreadable" ? parseUnreadableDays(data) : [],
     };
   }
 }

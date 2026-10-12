@@ -74,6 +74,48 @@ State persists.                       Vercel Blob: users/<userId>/time-entries/<
   approve / send back / Fix / undo (replacing the "try again" toasts), the
   `/hours/approvals` queue, and both Send to Tia screens. The same words stay
   inline after the pop-up closes; nothing typed is lost.
+- **Nothing halts the pay run (owner pull 2026-10-12: "if any problems come
+  up approving and exporting timesheets it doesn't halt the process — clear
+  instructions and simple remedies").** Every hold-up comes with its fix,
+  where the boss already is:
+  - **The phone closeout's last screen** ("Week reviewed") lists every day
+    still holding the week up, by name and day, each with a one-tap fix
+    (`src/domains/timesheets/week-holdups.ts`): *waiting for approval* →
+    **Approve** · *approve didn't go through* (an approve this session that
+    failed, with why) → **Approve again** · *sent back for a fix* → **Take it
+    back** (reopen to submitted, then approve or Fix it) · *saved but not sent
+    in* → **Send it in for them** (submitted on the worker's behalf; the
+    server records the office as the sender) · *nothing logged* → named only.
+    **Check** opens that person's days and comes back. "Wait for the full
+    week" is gone; **Send without those N days** is always one tap (the sheet
+    names every day it leaves off). Which days hold the send is unchanged —
+    mid-flight days only; drafts and missing days inform (owner call
+    2026-08-17). Lines move the moment a write lands (a per-day session map),
+    never on a re-read that can trail the write by a minute.
+  - **A week's days are approved at the same time, not one after another.**
+    Each day is its own day-file (own verified read + compare-and-swap), so
+    `time-entries-bulk-approve` decides up to 6 at once; the worker's shared
+    audit file gets ONE append for the lot (`appendAuditMany`) — that shared
+    file was the only reason the loop was sequential. Measured on the stored
+    approvedAt stamps: ~2.6s per day on the 5 Oct run and ~16s per day for
+    four of the crew on 28 Sep, each day waiting for the one before. Each day
+    is still stamped right before its own write (2026-09-21 rule).
+  - **Every closeout write ends.** Bulk approve (60s), fix (30s) and reopen /
+    send-in (20s) carry timeouts — an unbounded approve on bad signal kept
+    "Saving approvals…", and the Send behind it, locked for good. A day the
+    server says is ALREADY approved counts as done, so a retry after "no
+    answer" never errors (phone and desktop board).
+  - **A send that fails always has a way through:** try again; **Send without
+    it/them** when days couldn't be read (named, then printed on the sheet as
+    "couldn't be read, check before paying"); or **Download the PDF** and email
+    it to Tia yourself — on both Send to Tia screens.
+  - **Downloads never open a page of JSON.** The /hours/period PDF / CSV
+    buttons fetch first: "still saving" is waited out by itself; a day that
+    can't be read is named with **Download without it** (PDF only — a CSV is
+    keyed into Xero and has no "Not on this sheet" list, so it never skips).
+  - **The desktop weekly board speaks the same words** (problem.ts) — no more
+    "Conflict" / "Bad Request" — and a bulk approve's failed days get **Try
+    again**.
 - **No hours reminder on a public holiday.** The weekday "Did you log your
   hours?" push (`send-daily-reminders`) skips NSW public holidays — the boards
   never ask for hours on one, and on Labour Day 2026 the push had the crew
