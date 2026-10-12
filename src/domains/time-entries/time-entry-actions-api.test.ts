@@ -575,3 +575,82 @@ describe("bulk approve/reject stamp each entry at its own write", () => {
     expect(new Set(rejectedAts).size).toBe(crew.length);
   });
 });
+
+/**
+ * 2026-10-12 (owner: "seems unnecessary"): a worker's week used to be approved
+ * one day after another — ~2.6s per day on the 5 Oct run, ~16s per day for
+ * four of the crew on 28 Sep (measured from the stored approvedAt stamps).
+ * Days are separate day-files, so they're decided in parallel; the worker's
+ * shared audit file gets ONE append for the lot, so no row is lost to a race.
+ */
+describe("bulk approve decides a week's days in parallel", () => {
+  const WEEK = ["2026-10-05", "2026-10-06", "2026-10-07", "2026-10-08", "2026-10-09"];
+  const dayPath = (userId: string, date: string) => `users/${userId}/time-entries/${date}.json`;
+
+  function seedWeek(userId: string) {
+    for (const date of WEEK) {
+      blob.set(dayPath(userId, date), { ...entry(userId, "tradie", "job-x"), id: `entry_${userId}_${date}`, date });
+    }
+  }
+
+  it("reads the days at the same time — not five round trips back to back", async () => {
+    seedWeek("u_field");
+    const readBlob = (requireFromHere.cache[blobPath]!.exports as { readBlob: ReturnType<typeof vi.fn> }).readBlob;
+    let inFlight = 0;
+    let peak = 0;
+    readBlob.mockImplementation(async (key: string, fallback: unknown) => {
+      const isDay = key.includes("/time-entries/2026-10-");
+      if (isDay) peak = Math.max(peak, ++inFlight);
+      await new Promise((r) => setTimeout(r, 20));
+      if (isDay) inFlight -= 1;
+      return blob.has(key) ? clone(blob.get(key)) : fallback;
+    });
+    const res = await call(bulkApprove, "u_office", "office", {
+      entries: WEEK.map((date) => ({ userId: "u_field", date })),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({ approvedCount: 5, failedCount: 0 });
+    expect(peak).toBe(5);
+    for (const date of WEEK) expect((blob.get(dayPath("u_field", date)) as { status: string }).status).toBe("approved");
+  });
+
+  it("every approved day is in the worker's audit file — one append, no row lost", async () => {
+    seedWeek("u_field");
+    const writeBlob = (requireFromHere.cache[blobPath]!.exports as { writeBlob: ReturnType<typeof vi.fn> }).writeBlob;
+    const res = await call(bulkApprove, "u_office", "office", {
+      entries: WEEK.map((date) => ({ userId: "u_field", date })),
+    });
+    expect(res.body).toMatchObject({ approvedCount: 5 });
+    const auditKeys = [...blob.keys()].filter((k) => k.startsWith("users/u_field/time-entries-audit/"));
+    const rows = auditKeys.flatMap((k) => blob.get(k) as Array<{ entryId: string; action: string; changedBy: string }>);
+    expect(rows.map((r) => r.entryId).sort()).toEqual(WEEK.map((d) => `entry_u_field_${d}`));
+    expect(rows.every((r) => r.action === "approved" && r.changedBy === "u_office")).toBe(true);
+    const auditWrites = writeBlob.mock.calls.filter(([k]) => String(k).startsWith("users/u_field/time-entries-audit/"));
+    expect(auditWrites).toHaveLength(1);
+  });
+
+  it("a day listed twice is decided once — two parallel writes to one day-file would race", async () => {
+    seedWeek("u_field");
+    const res = await call(bulkApprove, "u_office", "office", {
+      entries: [
+        { userId: "u_field", date: WEEK[0] },
+        { userId: "u_field", date: WEEK[0] },
+      ],
+    });
+    expect(res.body).toMatchObject({ approvedCount: 1, failedCount: 0 });
+  });
+
+  it("one day failing never holds up the rest, and results keep the order they were asked in", async () => {
+    seedWeek("u_field");
+    blob.set(dayPath("u_field", WEEK[2]!), {
+      ...(blob.get(dayPath("u_field", WEEK[2]!)) as object),
+      status: "rejected",
+    });
+    const res = await call(bulkApprove, "u_office", "office", {
+      entries: WEEK.map((date) => ({ userId: "u_field", date })),
+    });
+    const body = res.body as { approved: Array<{ date: string }>; failed: Array<{ date: string; error: string }> };
+    expect(body.approved.map((a) => a.date)).toEqual([WEEK[0], WEEK[1], WEEK[3], WEEK[4]]);
+    expect(body.failed).toEqual([expect.objectContaining({ date: WEEK[2], error: "entry is not submitted (status: rejected)" })]);
+  });
+});

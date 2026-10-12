@@ -255,7 +255,7 @@ async function composePayrollPdf(input) {
     text(`Not on this sheet - ${count} day${count === 1 ? '' : 's'}`, MARGIN, 12, { bold: true });
     y -= 17;
     for (const l of wrap(
-      'These days have no approved hours, so they are not in the totals above. Check them before the pay run.',
+      'These days are not in the totals above - each line says why. Check them before the pay run.',
       contentWidth,
       9,
     )) {

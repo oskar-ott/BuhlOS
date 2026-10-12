@@ -322,153 +322,15 @@ export function canAmendDay(day: WeeklyHoursDay, canAmend: boolean): boolean {
   return canAmend && day.status === "submitted" && day.hours != null;
 }
 
-/**
- * What is still OUTSTANDING across the week at the send finale — the honest
- * "is the week actually finished?" answer behind the wait-or-send choice
- * (owner pull 2026-08-16: after rejecting days, the boss wants to wait and
- * send only when everything is in).
- *
- * Day-level, computed over EVERY worker in the closeout (not just the ones
- * stepped through) merged with the session's optimistic overlay, so the
- * numbers are right both before and after the debounced refresh reconciles:
- *   - sentBackDays    — rejected days waiting on the worker's fix. A worker
- *     queried THIS session counts their (stale) submitted days here, because
- *     the reject has already landed server-side.
- *   - notReviewedDays — submitted days nobody has cleared yet (workers the
- *     boss skipped or hasn't reached; an overlay entry clears them).
- *   - notInYetDays    — draft + missing days: the worker never sent them.
- *
- * `actionableDays` (sent-back + not-reviewed) is what HOLDS the send: those
- * days are mid-flight — a fix is coming back, or the boss hasn't decided.
- * `notInYetDays` is informational ONLY (owner call 2026-08-17): crew on
- * holiday who never submit are NORMAL, their days will never arrive, and
- * waiting on them would block every real pay run — the finale names them
- * but sends first.
- *
- * `pendingCount` (un-logged weekdays in a week that hasn't ended) is
- * deliberately EXCLUDED — the model treats those as expected under weekly
- * logging, and counting them would make every mid-week review scream.
- */
-export interface OutstandingWeek {
-  sentBackDays: number;
-  notReviewedDays: number;
-  notInYetDays: number;
-  /** sentBackDays + notReviewedDays — the days that hold the send. */
-  actionableDays: number;
-  /** Sum of all three — 0 means the week is genuinely all in and cleared. */
-  total: number;
-}
-
-export function outstandingWeek(
-  workers: ReadonlyArray<WeeklyWorkerHours>,
-  overlay: Readonly<Record<string, { status: "approved" | "queried" } | undefined>>,
-): OutstandingWeek {
-  let sentBackDays = 0;
-  let notReviewedDays = 0;
-  let notInYetDays = 0;
-  for (const w of workers) {
-    const resolved = overlay[w.workerId]?.status;
-    sentBackDays += w.rejectedCount;
-    if (resolved === "queried") {
-      // Their submitted days were just rejected; the stale closeout still
-      // counts them under submittedCount until the refresh lands.
-      sentBackDays += w.submittedCount;
-    } else if (resolved !== "approved") {
-      notReviewedDays += w.submittedCount;
-    }
-    notInYetDays += w.draftCount + w.missingCount;
-  }
-  return {
-    sentBackDays,
-    notReviewedDays,
-    notInYetDays,
-    actionableDays: sentBackDays + notReviewedDays,
-    total: sentBackDays + notReviewedDays + notInYetDays,
-  };
-}
-
-/**
- * One site-language line for the finale's "week isn't finished" notice —
- * only the non-zero parts, e.g. "2 days sent back for a fix · 1 day still
- * waiting for review". Empty string when nothing is outstanding.
- */
-export function outstandingWeekLabel(o: OutstandingWeek): string {
-  const days = (n: number) => `${n} day${n === 1 ? "" : "s"}`;
-  const parts: string[] = [];
-  if (o.sentBackDays > 0) parts.push(`${days(o.sentBackDays)} sent back for a fix`);
-  if (o.notReviewedDays > 0) parts.push(`${days(o.notReviewedDays)} still waiting for review`);
-  if (o.notInYetDays > 0) parts.push(`${days(o.notInYetDays)} not in yet`);
-  return parts.join(" · ");
-}
-
-/**
- * WHO and WHICH DAYS — the names behind `outstandingWeek`'s counts (2026-10-09:
- * the 5 Oct finale said "2 days never came in" and nobody could tell it meant
- * Dylan's and Stephen's Fridays). One line per worker per reason, days in date
- * order. The reasons and the day format are the SAME words the sheet's own
- * "Not on this sheet" list prints (api/_lib/not-on-sheet.js), so what the boss
- * reads before sending is what accounts reads after.
- *
- * Same session rules as outstandingWeek: a worker approved this session has no
- * "waiting for approval" days left; one queried this session has their
- * submitted days "sent back for a fix". Pending days (a week that hasn't ended)
- * are excluded, exactly like the counts.
- */
-export type OutstandingKind = "sentBack" | "notReviewed" | "notInYet";
-
-export interface OutstandingLine {
-  workerName: string;
-  reason: string;
-  /** e.g. "Fri 2 Oct" or "Mon 28 Sep, Tue 29 Sep". */
-  days: string;
-  kind: OutstandingKind;
-}
-
 const SHORT_DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const SHORT_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-/** "Fri 2 Oct" — UTC arithmetic on the calendar string (matches the sheet). */
+/** "Fri 2 Oct" — UTC arithmetic on the calendar string (matches the sheet).
+ *  What's holding the week up, by name and day, lives in week-holdups.ts. */
 export function shortDayLabel(iso: string): string {
   const d = new Date(`${iso}T00:00:00Z`);
   if (Number.isNaN(d.getTime())) return iso;
   return `${SHORT_DAYS[d.getUTCDay()]} ${d.getUTCDate()} ${SHORT_MONTHS[d.getUTCMonth()]}`;
-}
-
-const REASON_ORDER = ["waiting for approval", "sent back for a fix", "not sent in (draft)", "nothing logged"];
-
-export function outstandingWeekLines(
-  workers: ReadonlyArray<WeeklyWorkerHours>,
-  overlay: Readonly<Record<string, { status: "approved" | "queried" } | undefined>>,
-): OutstandingLine[] {
-  const lines: OutstandingLine[] = [];
-  for (const w of workers) {
-    const resolved = overlay[w.workerId]?.status;
-    const byReason = new Map<string, { kind: OutstandingKind; dates: string[] }>();
-    const add = (reason: string, kind: OutstandingKind, date: string) => {
-      const g = byReason.get(reason) ?? { kind, dates: [] };
-      g.dates.push(date);
-      byReason.set(reason, g);
-    };
-    for (const d of w.days) {
-      if (d.status === "rejected") add("sent back for a fix", "sentBack", d.date);
-      else if (d.status === "submitted") {
-        if (resolved === "queried") add("sent back for a fix", "sentBack", d.date);
-        else if (resolved !== "approved") add("waiting for approval", "notReviewed", d.date);
-      } else if (d.status === "draft") add("not sent in (draft)", "notInYet", d.date);
-      else if (d.status === "missing") add("nothing logged", "notInYet", d.date);
-    }
-    const reasons = [...byReason.keys()].sort((a, b) => REASON_ORDER.indexOf(a) - REASON_ORDER.indexOf(b));
-    for (const reason of reasons) {
-      const g = byReason.get(reason)!;
-      lines.push({
-        workerName: w.workerName,
-        reason,
-        days: [...g.dates].sort().map(shortDayLabel).join(", "),
-        kind: g.kind,
-      });
-    }
-  }
-  return lines.sort((a, b) => a.workerName.localeCompare(b.workerName));
 }
 
 export interface AmendDayAllocation {

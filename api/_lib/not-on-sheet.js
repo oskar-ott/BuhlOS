@@ -35,7 +35,11 @@ const LEAVE_WORDS = {
   other: 'leave',
 };
 
-const REASON_ORDER = ['waiting for approval', 'sent back for a fix', 'not sent in (draft)', 'nothing logged'];
+// A day that couldn't be read leads: it may hold real hours (2026-10-12 — the
+// office chose to send without it rather than hold the pay run). No dash in
+// it: the PDF's WinAnsi fonts strip an em-dash.
+const UNREADABLE_REASON = "couldn't be read, check before paying";
+const REASON_ORDER = [UNREADABLE_REASON, 'waiting for approval', 'sent back for a fix', 'not sent in (draft)', 'nothing logged'];
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -54,15 +58,22 @@ function round2(n) {
 /**
  * Build the list for [fromDate, toDate].
  *
+ * `unreadable` — days the payroll read left off because they couldn't be read
+ * and the office chose to send without them (collectRows `skipped`). Each is
+ * named first, as "couldn't be read, check before paying" — never as "nothing
+ * logged", which is what a day-file with no readable entry would otherwise
+ * look like to the missing-day rule.
+ *
  * @param {{ fromDate: string, toDate: string, entries: object[], userById: Record<string, object>,
+ *           unreadable?: Array<{ userId: string, date: string }>,
  *           todayISO?: string, deps?: { readLeave?: Function } }} input
  * @returns {Promise<{ items: Array<{ workerId: string, workerName: string, date: string,
- *   kind: 'submitted'|'rejected'|'draft'|'missing'|'leave', reason: string, hours: number|null }>,
+ *   kind: 'submitted'|'rejected'|'draft'|'missing'|'leave'|'unreadable', reason: string, hours: number|null }>,
  *   leaveChecked: boolean, periodComplete: boolean }>}
  *   periodComplete — every day of the period is in the past, so "nothing
  *   listed" really means nothing is outstanding.
  */
-async function buildNotOnSheet({ fromDate, toDate, entries, userById, todayISO, deps = {} }) {
+async function buildNotOnSheet({ fromDate, toDate, entries, userById, unreadable = [], todayISO, deps = {} }) {
   const today = todayISO || new Date().toISOString().slice(0, 10);
   const users = userById || {};
   const nameOf = (userId, stamp) => {
@@ -72,6 +83,19 @@ async function buildNotOnSheet({ fromDate, toDate, entries, userById, todayISO, 
 
   const items = [];
   const hasEntry = new Set();
+  for (const u of unreadable || []) {
+    if (!u || !u.userId || !u.date) continue;
+    hasEntry.add(u.userId + '|' + u.date);
+    if (u.date < fromDate || u.date > toDate) continue;
+    items.push({
+      workerId: u.userId,
+      workerName: nameOf(u.userId, u.workerName),
+      date: u.date,
+      kind: 'unreadable',
+      reason: UNREADABLE_REASON,
+      hours: null,
+    });
+  }
   for (const e of entries || []) {
     if (!e || !e.userId || !e.date) continue;
     hasEntry.add(e.userId + '|' + e.date);
@@ -151,4 +175,4 @@ function notOnSheetLines(items) {
     .map((g) => ({ workerName: g.workerName, reason: g.reason, kind: g.kind, days: g.parts.join(', ') }));
 }
 
-module.exports = { buildNotOnSheet, notOnSheetLines, shortDay };
+module.exports = { buildNotOnSheet, notOnSheetLines, shortDay, UNREADABLE_REASON };

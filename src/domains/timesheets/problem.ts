@@ -25,7 +25,10 @@ export type HoursAction =
   | "approve"
   | "sendBack"
   | "undo"
-  | "send"; // emailing the week's timesheets to accounts
+  | "send" // emailing the week's timesheets to accounts
+  | "download" // the payroll PDF / CSV from the office
+  | "takeBack" // the office taking a sent-back day back to decide it
+  | "sendIn"; // the office sending a worker's saved draft in for them
 
 export interface HoursProblem {
   /** What didn't happen — "Fix not saved". Small caption above the title. */
@@ -58,18 +61,38 @@ const CAPTION: Record<HoursAction, string> = {
   sendBack: "Not sent back",
   undo: "Not undone",
   send: "Timesheets not sent",
+  download: "Download didn't start",
+  takeBack: "Not taken back",
+  sendIn: "Not sent in",
 };
 
 /** "Nothing was saved." — in the right verb for the action. */
 function nothingHappened(action: HoursAction): string {
   if (action === "send") return "Nothing was sent.";
+  if (action === "download") return "Nothing was downloaded.";
+  if (action === "takeBack") return "The day is still waiting on the worker.";
+  if (action === "sendIn") return "The day is still a draft.";
   if (action === "approve") return "Nothing was approved.";
   if (action === "sendBack") return "Nothing was sent back.";
   if (action === "undo") return "Nothing was undone.";
   return "Nothing was saved.";
 }
 
-const OFFICE_ACTIONS: ReadonlySet<HoursAction> = new Set(["fix", "approve", "sendBack", "undo"]);
+const OFFICE_ACTIONS: ReadonlySet<HoursAction> = new Set([
+  "fix",
+  "approve",
+  "sendBack",
+  "undo",
+  "takeBack",
+  "sendIn",
+]);
+
+/** How many days a payroll refusal named (its structured `days`), or 0. */
+function namedDayCount(body: unknown): number {
+  if (!body || typeof body !== "object") return 0;
+  const days = (body as Record<string, unknown>).days;
+  return Array.isArray(days) ? days.length : 0;
+}
 
 function field(body: unknown, key: string): string {
   if (!body || typeof body !== "object") return "";
@@ -112,16 +135,43 @@ export function explainHoursProblem(action: HoursAction, input: ProblemInput): H
     );
   }
 
-  // ── Sending the week to accounts ────────────────────────────────────
-  if (action === "send") {
+  // ── Sending the week to accounts / downloading the sheet ────────────
+  if (action === "send" || action === "download") {
+    const again = action === "send" ? "press Send again" : "download it again";
     if (code === "settling") {
       return say(
         "Hours are still saving",
         "Some days in this week changed in the last minute and are still settling.",
-        "Nothing was sent. Wait a minute, then press Send again.",
+        `${nothingHappened(action)} It's safe to ${again} in a minute.`,
         true,
       );
     }
+    // A day that waiting won't clear (2026-10-12): never a dead end — the
+    // screen names the days and offers to leave them off, named on the sheet.
+    if (code === "unreadable") {
+      const n = namedDayCount(input.body);
+      const days = n === 1 ? "1 day" : n > 1 ? `${n} days` : "some days";
+      return say(
+        `${n === 1 ? "A day" : "Some days"} couldn't be read`,
+        `BuhlOS couldn't open ${days} in this week cleanly — usually a storage hiccup that clears in a few minutes.`,
+        action === "send"
+          ? `${nothingHappened(action)} Try again in a few minutes — or send without ${n === 1 ? "it" : "them"}: ${n === 1 ? "it's" : "they're"} named on the sheet so Tia checks ${n === 1 ? "it" : "them"} before paying.`
+          : `${nothingHappened(action)} Try again in a few minutes — or download without ${n === 1 ? "it" : "them"}: the sheet names ${n === 1 ? "it" : "them"} so ${n === 1 ? "it isn't" : "they aren't"} missed.`,
+        true,
+      );
+    }
+  }
+  if (action === "download") {
+    if (status === 422 || code === "empty_period") {
+      return say(
+        "Nothing approved yet",
+        "This week has no approved hours, so there's nothing to put on the sheet.",
+        "Approve the days first, then download.",
+      );
+    }
+  }
+
+  if (action === "send") {
     if (code === "not_configured") {
       return say(
         "No one to send it to",
@@ -142,7 +192,7 @@ export function explainHoursProblem(action: HoursAction, input: ProblemInput): H
       return say(
         "The email didn't go",
         "The email service turned it down just then.",
-        "Nothing reached accounts. Try again in a few minutes.",
+        "Nothing reached accounts. Try again in a few minutes — or download the PDF and email it to Tia yourself. It's the same sheet.",
         true,
       );
     }
@@ -180,6 +230,20 @@ export function explainHoursProblem(action: HoursAction, input: ProblemInput): H
   }
 
   // ── The day isn't in a state this action works on ───────────────────
+  if (error.includes("cannot reopen entry with status")) {
+    return say(
+      "This day isn't sent back any more",
+      "The worker may have fixed it and sent it in again since this screen loaded.",
+      "Refresh to see where it's at.",
+    );
+  }
+  if (error.includes("status can only change to submitted")) {
+    return say(
+      "This day isn't a draft any more",
+      "It was sent in or decided since this screen loaded.",
+      "Refresh to see where it's at.",
+    );
+  }
   if (error.includes("not submitted") || currentStatus) {
     if (currentStatus === "approved") {
       return say(

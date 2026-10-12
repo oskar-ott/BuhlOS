@@ -44,6 +44,14 @@ const auditLog = require('./_lib/audit-log');
 
 const DEFAULT_FROM = 'BuhlOS Timesheets <timesheets@buhlos.com>';
 
+/** ["userId|YYYY-MM-DD", …] from a request body — anything else dropped, capped. */
+function dayKeys(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((k) => typeof k === 'string' && /^[^|]{1,80}\|\d{4}-\d{2}-\d{2}$/.test(k))
+    .slice(0, 100);
+}
+
 module.exports = async (req, res) => {
   setNoCache(res);
   if (req.method === 'OPTIONS') return res.status(200).end();
@@ -178,7 +186,15 @@ async function handleSend(req, res, me) {
   // quiet: the sheet that leaves the building is only ever read from a period
   // whose hours have stopped changing (no day-file written in the last ~70s) —
   // never mid-way through a batch of approvals, never inside the CDN window.
-  const ctx = await collectRows({ status: 'approved', fromDate, toDate, quiet: true });
+  // skipUnreadable: days the office was shown as unreadable and chose to send
+  // without (2026-10-12) — left off AND named on the sheet, never silently.
+  const ctx = await collectRows({
+    status: 'approved',
+    fromDate,
+    toDate,
+    quiet: true,
+    skipUnreadable: dayKeys(body.skipUnreadable),
+  });
   if (!ctx.ok) {
     // A refusal of days changed seconds ago (code 'settling') says WHEN it
     // will clear; the send surfaces wait that long and re-send by themselves
@@ -191,7 +207,11 @@ async function handleSend(req, res, me) {
         .status(ctx.status)
         .json({ error: ctx.error, code: ctx.code, retryAfterMs: ctx.retryAfterMs });
     }
-    return res.status(ctx.status).json({ error: ctx.error });
+    // A refusal waiting can't clear names its days, so the screen can offer
+    // "send without them — they're named on the sheet" (never a dead end).
+    return res
+      .status(ctx.status)
+      .json({ error: ctx.error, ...(ctx.code ? { code: ctx.code } : {}), ...(ctx.days ? { days: ctx.days } : {}) });
   }
   const rows = ctx.rows;
   if (!rows.length) {
@@ -211,6 +231,7 @@ async function handleSend(req, res, me) {
     toDate: ctx.toDate,
     entries: ctx.entries,
     userById: ctx.userById,
+    unreadable: ctx.skipped,
   });
   const notOnSheet = {
     lines: notOnSheetLines(nos.items),
@@ -288,6 +309,9 @@ async function handleSend(req, res, me) {
         overtimeHours: totals.overtimeHours,
         rowCount: rows.length,
         notOnSheetDays: notOnSheet.dayCount,
+        // Days sent WITHOUT because they couldn't be read (the office's call,
+        // named on the sheet) — so the journal shows which sends carried them.
+        unreadableLeftOff: (ctx.skipped || []).map((d) => `${d.userId}|${d.date}`),
       },
     })
     .catch(() => {});

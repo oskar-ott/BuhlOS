@@ -194,3 +194,48 @@ describe("explainHoursProblem — never jargon", () => {
     expect(p.todo.length).toBeGreaterThan(0);
   });
 });
+
+describe("explainHoursProblem — the pay run never dead-ends (2026-10-12)", () => {
+  it("a day that can't be read names how many and offers to send without it", () => {
+    const p = explainHoursProblem("send", {
+      status: 503,
+      body: { error: "payroll read refused — …", code: "unreadable", days: [{ userId: "u1", date: "2026-10-09" }] },
+    });
+    expect(p.title).toBe("A day couldn't be read");
+    expect(p.why).toContain("1 day");
+    expect(p.todo).toContain("send without it");
+    expect(p.todo).toContain("named on the sheet");
+    expect(p.canRetry).toBe(true);
+  });
+
+  it("the email service refusing points at the PDF as the way through", () => {
+    const p = explainHoursProblem("send", { status: 502, body: { error: "…", code: "rate_limited" } });
+    expect(p.todo).toContain("download the PDF and email it to Tia yourself");
+  });
+
+  it("a download speaks download, not send", () => {
+    const settling = explainHoursProblem("download", { status: 503, body: { code: "settling", retryAfterMs: 5000 } });
+    expect(settling.caption).toBe("Download didn't start");
+    expect(settling.todo).toContain("download it again");
+    expect(explainHoursProblem("download", { status: 422, body: { code: "empty_period" } }).todo).toBe(
+      "Approve the days first, then download.",
+    );
+  });
+
+  it("taking back a day the worker already re-sent says so in site words", () => {
+    const p = explainHoursProblem("takeBack", {
+      status: 400,
+      body: { error: 'cannot reopen entry with status "submitted" — only approved or rejected entries can be reopened' },
+    });
+    expect(p.title).toBe("This day isn't sent back any more");
+  });
+
+  it("sending in a day that's no longer a draft says so in site words", () => {
+    const p = explainHoursProblem("sendIn", {
+      status: 403,
+      body: { error: "status can only change to submitted after editing draft or rejected hours" },
+    });
+    expect(p.title).toBe("This day isn't a draft any more");
+  });
+});
+

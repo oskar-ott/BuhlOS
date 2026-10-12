@@ -28,12 +28,103 @@
 
 const { readBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, canApproveHours, isLeadingHandRole } = require('./_lib/auth');
-const { readEntryVerified, writeEntry, appendAudit } = require('./_lib/time-entries');
+const { readEntryVerified, writeEntry, appendAuditMany } = require('./_lib/time-entries');
 const { append: appendAuditLog } = require('./_lib/audit-log');
 const { buildHoursBulkAuditEntry } = require('./_lib/hours-audit');
 const { notify } = require('./_lib/notify');
 
 const MAX_ENTRIES = 50;
+
+// How many days are decided at once. A week is at most 7; "Approve all clean"
+// can send up to 50 — bounded so one request never fans out 50 store calls.
+const CONCURRENCY = 6;
+
+/** Run fn over items, at most `limit` at a time; results in input order. */
+async function mapLimit(items, limit, fn) {
+  const out = new Array(items.length);
+  let next = 0;
+  async function lane() {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, lane));
+  return out;
+}
+
+/**
+ * Decide ONE day: { approved, audit } or { failed }. Never throws — a failure
+ * on one day never blocks the others.
+ */
+async function approveOne({ userId, date, me, userById, myJobs }) {
+  if (!userId || !date) {
+    return { failed: { userId: userId || null, date: date || null, error: 'userId and date required' } };
+  }
+  if (userId === me.id) {
+    return { failed: { userId, date, error: 'cannot approve your own hours' } };
+  }
+
+  let entry;
+  // Decide on a version PROVEN current (never a stale CDN copy), and use
+  // it as the CAS baseline for the write below.
+  try { entry = await readEntryVerified(userId, date); }
+  catch (e) {
+    if (e && e.code === 'stale_write') {
+      // The day changed moments ago and its new version couldn't be
+      // confirmed yet — retryable, like a conflict; never decided on.
+      return { failed: { userId, date, error: 'changed moments ago — try again in a minute', code: 'conflict' } };
+    }
+    return { failed: { userId, date, error: 'read failed: ' + (e.message || 'unknown') } };
+  }
+  if (!entry) {
+    return { failed: { userId, date, error: 'not found' } };
+  }
+  if (entry.status !== 'submitted') {
+    return { failed: { userId, date, error: 'entry is not submitted (status: ' + entry.status + ')' } };
+  }
+
+  // LH gating — same rules as the single endpoint.
+  if (myJobs) {
+    const submitter = userById[userId];
+    if (!submitter || isLeadingHandRole(submitter.role)) {
+      return { failed: { userId, date, error: 'leading hands cannot approve other leading hands' } };
+    }
+    const allOnMyJobs = (entry.allocations || []).every(a => a.jobId && myJobs.has(a.jobId));
+    if (!allOnMyJobs) {
+      return { failed: { userId, date, error: 'one or more allocations are on jobs you do not run' } };
+    }
+  }
+
+  // Stamped PER ENTRY, immediately before its own write — never once for the
+  // whole batch (2026-09-21: a batch-wide stamp hoisted over a slow loop left
+  // the tail of the batch with a stamp a minute behind its own PUT, and the
+  // payroll freshness guard refused the run for good). Still true in
+  // parallel: each day stamps itself right before its own put.
+  const now = new Date().toISOString();
+  const updated = {
+    ...entry,
+    status: 'approved',
+    approvedBy: me.id,
+    approvedAt: now,
+    rejectedReason: null,
+    updatedAt: now,
+  };
+  try {
+    await writeEntry(userId, updated, { basedOn: entry });
+  } catch (e) {
+    if (e && e.code === 'stale_write') {
+      // #157: edited concurrently between read and write — report it as a
+      // typed, retryable conflict (not a generic failure) so the caller knows.
+      return { failed: { userId, date, error: 'conflict — edited while approving; retry', code: 'conflict', currentRev: e.currentRev } };
+    }
+    return { failed: { userId, date, error: 'write failed: ' + (e.message || 'unknown') } };
+  }
+  return {
+    approved: { userId, date, totalHours: Number(entry.totalHours) || 0 },
+    audit: { entryId: entry.id, action: 'approved', changedBy: me.id, at: now },
+  };
+}
 
 module.exports = async (req, res) => {
   setNoCache(res);
@@ -65,98 +156,51 @@ module.exports = async (req, res) => {
     ? new Set(me.assignedJobIds || [])
     : null;
 
-  const approved = [];
-  const failed   = [];
-
-  // Process sequentially. The per-entry writeEntry/appendAudit pair is
-  // cheap (single blob write + audit append) and serialising avoids any
-  // chance of fanned-out writes stepping on each other when two entries
-  // share a user (e.g. multiple dates for the same person in one batch).
+  // PARALLEL per day (2026-10-12, owner: "seems unnecessary" — one person's
+  // week took 11s at best and over a minute at worst on the last two pay runs,
+  // measured from the stored approvedAt stamps: ~2.6s per day on 5 Oct, ~16s
+  // per day for four of the crew on 28 Sep, each day waiting for the one
+  // before). Every day is its own day-file with its own verified read and
+  // compare-and-swap, so days never step on each other. The one thing they
+  // DID share is the worker's audit file (users/<id>/time-entries-audit/
+  // <yyyy-mm>.json, a read-modify-write) — appending to it from parallel
+  // writers would lose rows, which is why this loop used to be sequential.
+  // Those rows are now collected and appended ONCE per worker after the
+  // writes (appendAuditMany). A duplicate {userId, date} in the list is
+  // decided once — two parallel writes to the same day-file would race.
+  const seen = new Set();
+  const work = [];
   for (const ref of list) {
     const userId = ref && ref.userId;
     const date   = ref && ref.date;
-    if (!userId || !date) {
-      failed.push({ userId: userId || null, date: date || null, error: 'userId and date required' });
-      continue;
-    }
-    if (userId === me.id) {
-      failed.push({ userId, date, error: 'cannot approve your own hours' });
-      continue;
-    }
+    const key = userId && date ? userId + '|' + date : null;
+    if (key && seen.has(key)) continue;
+    if (key) seen.add(key);
+    work.push({ userId, date });
+  }
 
-    let entry;
-    // Decide on a version PROVEN current (never a stale CDN copy), and use
-    // it as the CAS baseline for the write below.
-    try { entry = await readEntryVerified(userId, date); }
-    catch (e) {
-      if (e && e.code === 'stale_write') {
-        // The day changed moments ago and its new version couldn't be
-        // confirmed yet — retryable, like a conflict; never decided on.
-        failed.push({ userId, date, error: 'changed moments ago — try again in a minute', code: 'conflict' });
-      } else {
-        failed.push({ userId, date, error: 'read failed: ' + (e.message || 'unknown') });
-      }
-      continue;
-    }
-    if (!entry) {
-      failed.push({ userId, date, error: 'not found' });
-      continue;
-    }
-    if (entry.status !== 'submitted') {
-      failed.push({ userId, date, error: 'entry is not submitted (status: ' + entry.status + ')' });
-      continue;
-    }
+  const outcomes = await mapLimit(work, CONCURRENCY, ({ userId, date }) =>
+    approveOne({ userId, date, me, userById, myJobs }),
+  );
 
-    // LH gating — same rules as the single endpoint.
-    if (isLeadingHandRole(me.role)) {
-      const submitter = userById[userId];
-      if (!submitter || isLeadingHandRole(submitter.role)) {
-        failed.push({ userId, date, error: 'leading hands cannot approve other leading hands' });
-        continue;
-      }
-      const allOnMyJobs = (entry.allocations || []).every(a => a.jobId && myJobs.has(a.jobId));
-      if (!allOnMyJobs) {
-        failed.push({ userId, date, error: 'one or more allocations are on jobs you do not run' });
-        continue;
-      }
-    }
+  const approved = [];
+  const failed   = [];
+  const auditByUser = new Map();
+  for (const o of outcomes) {
+    if (o.failed) { failed.push(o.failed); continue; }
+    approved.push(o.approved);
+    if (!auditByUser.has(o.approved.userId)) auditByUser.set(o.approved.userId, []);
+    auditByUser.get(o.approved.userId).push(o.audit);
+  }
 
-    // Stamped PER ENTRY, immediately before its own write — never once for the
-    // whole batch. This loop is sequential and every iteration costs several
-    // round trips (read, CAS re-read, put, PG mirror, audit append), so a
-    // batch-wide stamp drifts further behind real time with every entry. The
-    // payroll freshness guard (api/_lib/payroll-inputs.js) reads an entry whose
-    // newest stamp trails its blob's last-PUT time by more than the skew as a
-    // stale CDN read and REFUSES THE WHOLE PAYROLL RUN — permanently, because
-    // both values are then frozen in the stored document, so no retry can ever
-    // clear it. A hoisted stamp poisoned the tail of every long batch that way
-    // (owner, 2026-09-21: "the email didn't send", six times, naming the last
-    // days of two workers' weeks). It is also simply true: these entries were
-    // approved one after another, not all in the same instant.
-    const now = new Date().toISOString();
-    const updated = {
-      ...entry,
-      status: 'approved',
-      approvedBy: me.id,
-      approvedAt: now,
-      rejectedReason: null,
-      updatedAt: now,
-    };
-    try {
-      await writeEntry(userId, updated, { basedOn: entry });
-      await appendAudit(userId, entry.id, 'approved', me.id);
-    } catch (e) {
-      if (e && e.code === 'stale_write') {
-        // #157: edited concurrently between read and write — report it as a
-        // typed, retryable conflict (not a generic failure) so the caller knows.
-        failed.push({ userId, date, error: 'conflict — edited while approving; retry', code: 'conflict', currentRev: e.currentRev });
-      } else {
-        failed.push({ userId, date, error: 'write failed: ' + (e.message || 'unknown') });
-      }
-      continue;
-    }
-    approved.push({ userId, date, totalHours: Number(entry.totalHours) || 0 });
+  // One append per worker (their audit file), workers in parallel — each is
+  // a different file. Best-effort, like every audit append: the approvals
+  // above have landed whatever happens here.
+  await Promise.all(
+    [...auditByUser].map(([userId, rows]) => appendAuditMany(userId, rows)),
+  );
 
+  for (const a of approved) {
     // Fire-and-forget PER-ENTRY push via notify() (#162). Routing prefs are
     // applied per-recipient (the pre-loaded userById record carries
     // notificationPrefs), NOT per-batch — so muting `hoursApproved` suppresses
@@ -165,12 +209,12 @@ module.exports = async (req, res) => {
     // notification regardless of how Daniel approved it.
     notify({
       kind: 'hoursApproved',
-      audience: [userById[userId] || { id: userId }],
+      audience: [userById[a.userId] || { id: a.userId }],
       payload: {
         title: 'Hours approved',
-        body: `${Number(entry.totalHours).toFixed(1)} hrs on ${date} approved by ${me.username}.`,
+        body: `${Number(a.totalHours).toFixed(1)} hrs on ${a.date} approved by ${me.username}.`,
         url: '/phil/my-day',
-        tag: 'buhl-hours-approved-' + date,
+        tag: 'buhl-hours-approved-' + a.date,
       },
     }).catch(() => {});
   }

@@ -10,6 +10,12 @@ import { formatPeriodSend, usePeriodEmailStatus } from "./usePeriodEmailStatus";
 import { sendPeriodTimesheets } from "./sendPeriodTimesheets";
 import { ProblemDialog } from "@/components/ui/ProblemDialog";
 import { explainHoursProblem, type HoursProblem } from "@/domains/timesheets/problem";
+import {
+  allSkippable,
+  unreadableDayLabel,
+  type UnreadableDay,
+} from "@/domains/timesheets/payroll-refusal";
+import { PayrollDownloadButton } from "./PayrollDownloadButton";
 
 /**
  * Send-to-accounts card (owner pull 2026-08-15) — the pay-run handoff while
@@ -30,6 +36,9 @@ import { explainHoursProblem, type HoursProblem } from "@/domains/timesheets/pro
  * and the confirm names the real recipient list, not a hard-coded "Tia".
  * Days approved seconds ago can't be read back for up to a minute — the card
  * waits that out and sends by itself (sendPeriodTimesheets, 2026-10-05).
+ * A send that fails is never a dead end (owner pull 2026-10-12): try again,
+ * send without the days that couldn't be read (named on the sheet), or
+ * download the same PDF and email it yourself.
  */
 
 interface SentReceipt {
@@ -46,7 +55,7 @@ type Phase =
   /** settleWaitMs: set while waiting for just-approved days to settle. */
   | { kind: "sending"; settleWaitMs?: number }
   | { kind: "sent"; receipt: SentReceipt }
-  | { kind: "error"; message: string; problem: HoursProblem };
+  | { kind: "error"; message: string; problem: HoursProblem; unreadable: UnreadableDay[] };
 
 interface Props {
   fromDate: string;
@@ -84,12 +93,13 @@ export function SendTimesheetsCard({
     };
   }, []);
 
-  const send = async () => {
+  const send = async (skipUnreadable: string[] = []) => {
     setPhase({ kind: "sending" });
     try {
       const outcome = await sendPeriodTimesheets({
         fromDate,
         toDate,
+        skipUnreadable,
         onSettling: (ms) => {
           if (alive.current) setPhase({ kind: "sending", settleWaitMs: ms });
         },
@@ -98,7 +108,7 @@ export function SendTimesheetsCard({
       if (!alive.current || !outcome) return;
       if (!outcome.ok) {
         const p = outcome.problem;
-        setPhase({ kind: "error", message: `${p.title}. ${p.todo}`, problem: p });
+        setPhase({ kind: "error", message: `${p.title}. ${p.todo}`, problem: p, unreadable: outcome.unreadable });
         setProblemOpen(true);
         return;
       }
@@ -114,6 +124,7 @@ export function SendTimesheetsCard({
         message:
           "Lost the connection mid-send, so we can't tell if it went. Check the \u201cAlready emailed\u201d line below before sending again.",
         problem: explainHoursProblem("send", { status: 0, kind: "timeout" }),
+        unreadable: [],
       });
       setProblemOpen(true);
     }
@@ -204,12 +215,46 @@ export function SendTimesheetsCard({
       ) : null}
 
       {phase.kind === "error" ? (
-        <p
+        <div
           className="mt-3 rounded-card border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900"
           role="status"
+          data-testid="period-send-problem"
         >
-          {phase.message}
-        </p>
+          <p>{phase.message}</p>
+          {phase.unreadable.length > 0 ? (
+            <ul className="mt-1 list-disc pl-5">
+              {phase.unreadable.map((d) => (
+                <li key={d.key}>{unreadableDayLabel(d)}</li>
+              ))}
+            </ul>
+          ) : null}
+          <div className="mt-2 flex flex-wrap items-start gap-2">
+            {phase.problem.canRetry ? (
+              <Button size="sm" variant="secondary" onClick={() => void send()}>
+                Try again
+              </Button>
+            ) : null}
+            {allSkippable(phase.unreadable) ? (
+              <Button
+                size="sm"
+                data-testid="period-send-without"
+                onClick={() => void send(phase.unreadable.map((d) => d.key))}
+              >
+                Send without {phase.unreadable.length === 1 ? "it" : "them"}
+              </Button>
+            ) : null}
+            {/* The way through that never depends on the email service. */}
+            <PayrollDownloadButton
+              fromDate={fromDate}
+              toDate={toDate}
+              format="pdf"
+              label="Download the PDF to email yourself"
+              fallbackFilename={`buhlos-hours-${fromDate}-to-${toDate}.pdf`}
+              testId="period-send-fallback-pdf"
+              className="bg-surface py-1"
+            />
+          </div>
+        </div>
       ) : null}
       <ProblemDialog
         problem={phase.kind === "error" && problemOpen ? phase.problem : null}
@@ -231,7 +276,7 @@ export function SendTimesheetsCard({
             </p>
           ) : null}
           <div className="mt-3 flex flex-wrap gap-2">
-            <Button data-testid="period-send-confirm" onClick={send}>
+            <Button data-testid="period-send-confirm" onClick={() => void send()}>
               <Mail aria-hidden="true" className="h-4 w-4" />
               Yes, email it
             </Button>

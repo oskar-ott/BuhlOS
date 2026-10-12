@@ -41,18 +41,26 @@ import {
   workerOrdOtSplit,
   amendDayAllocations,
   canAmendDay,
-  outstandingWeek,
-  outstandingWeekLines,
   type MobileQueryReason,
   type MobileWorkerBands,
-  type OutstandingLine,
-  type OutstandingWeek,
 } from "@/domains/timesheets/weekly-review";
+import {
+  effectiveWorker,
+  sessionKey,
+  settleApproveResult,
+  weekHoldUps,
+  withSessionDays,
+  type HoldUpLine,
+  type SessionDayStatus,
+} from "@/domains/timesheets/week-holdups";
 import {
   WeeklyCloseoutXeroFinale,
   type XeroFinaleGate,
 } from "@/components/admin/WeeklyCloseoutXeroFinale";
-import { WeeklyCloseoutSendFinale } from "@/components/admin/WeeklyCloseoutSendFinale";
+import {
+  WeeklyCloseoutSendFinale,
+  type HoldUpRemedies,
+} from "@/components/admin/WeeklyCloseoutSendFinale";
 import { AmendHoursEditor, type AmendPayload } from "@/components/admin/AmendHoursEditor";
 import { officeDayTypeOptions } from "@/domains/timesheets/resubmit";
 import {
@@ -206,11 +214,43 @@ export function WeeklyHoursApprovalMobile({
   const router = useRouter();
   const summary = useMemo(() => mobileSummary(closeout), [closeout]);
   const bands = useMemo(() => partitionMobileWorkers(closeout), [closeout]);
+  // What each write THIS session made a day (approved / submitted / sent
+  // back) — the server already agreed; the page's copy can trail it by up to a
+  // minute (the Blob CDN window). Every hold-up line and every remedy reads
+  // through it, so a day moves the moment its write lands (2026-10-12).
+  const [session, setSession] = useState<Record<string, SessionDayStatus>>({});
+  const markDays = useCallback(
+    (workerId: string, dates: ReadonlyArray<string>, status: SessionDayStatus) => {
+      if (dates.length === 0) return;
+      setSession((cur) => {
+        const next = { ...cur };
+        for (const d of dates) next[sessionKey(workerId, d)] = status;
+        return next;
+      });
+    },
+    [],
+  );
+  // Why a worker's approve didn't go through (plain words) — their undecided
+  // days read "approve didn't go through" with Approve again, instead of
+  // passing for days nobody has looked at.
+  const [failedWhy, setFailedWhy] = useState<Record<string, string>>({});
+  const setFailed = useCallback((workerId: string, why: string | null) => {
+    setFailedWhy((cur) => {
+      if (why == null) {
+        if (!(workerId in cur)) return cur;
+        const next = { ...cur };
+        delete next[workerId];
+        return next;
+      }
+      return { ...cur, [workerId]: why };
+    });
+  }, []);
+
   const workerById = useMemo(() => {
     const m = new Map<string, WeeklyWorkerHours>();
-    for (const w of closeout.workers) m.set(w.workerId, w);
+    for (const w of closeout.workers) m.set(w.workerId, withSessionDays(w, session));
     return m;
-  }, [closeout]);
+  }, [closeout, session]);
 
   // Server-known: role + both Xero flags. NOT a promise that the push will
   // work — the finale still has to read the connection — but enough to stop
@@ -227,9 +267,11 @@ export function WeeklyHoursApprovalMobile({
   // What the Xero finale would send: everyone with approved hours this week.
   // Derived from the closeout already in memory — the finale never refetches
   // hours, so the numbers on the last screen are the ones the boss just saw.
+  const [overlay, setOverlay] = useState<Overlay>({});
   const xeroCandidates = useMemo<ReviewCandidate[]>(
     () =>
       closeout.workers
+        .map((w) => effectiveWorker(w, overlay, session))
         .filter((w) => w.approvedHours > 0)
         .map((w) => {
           const split = approvedOrdOtSplit(w);
@@ -241,24 +283,17 @@ export function WeeklyHoursApprovalMobile({
             hasOvertime: split.hasOvertime,
           };
         }),
-    [closeout],
+    [closeout, overlay, session],
   );
 
-  const [overlay, setOverlay] = useState<Overlay>({});
   const tile = useMemo(() => liveApprovalTile(bands, overlay), [bands, overlay]);
 
-  // The send finale's wait-or-send question (owner pull 2026-08-16): what is
-  // still to come in across the WHOLE week, session decisions included — so a
-  // boss who just rejected days is told the sheet would miss them.
-  // …and WHO / WHICH DAYS behind those counts (2026-10-09): the finale names
-  // them in the same words the emailed sheet's "Not on this sheet" list uses.
-  const outstandingLines = useMemo<OutstandingLine[]>(
-    () => outstandingWeekLines(closeout.workers, overlay),
-    [closeout.workers, overlay],
-  );
-  const outstanding = useMemo<OutstandingWeek>(
-    () => outstandingWeek(closeout.workers, overlay),
-    [closeout.workers, overlay],
+  // Everything holding the week up, by name and day, with this session's
+  // decisions and writes applied (week-holdups.ts) — the send finale names each
+  // one WITH its fix (owner pull 2026-10-12: a problem never halts the pay run).
+  const holdUps = useMemo<HoldUpLine[]>(
+    () => weekHoldUps(closeout.workers, overlay, session, failedWhy),
+    [closeout.workers, overlay, session, failedWhy],
   );
 
   // Per-worker in-flight guard. A ref is the source of truth (synchronous, so a
@@ -334,41 +369,80 @@ export function WeeklyHoursApprovalMobile({
     [],
   );
 
-  const approveWorker = useCallback(
-    async (worker: WeeklyWorkerHours) => {
-      const entries = submittedWeekSelection(worker);
+  /**
+   * Approve explicit days of one worker — the stepper's whole week, or one
+   * hold-up line on the finale. A day the server says is ALREADY approved is
+   * done (a retry after "no answer" finds exactly that), never an error. On a
+   * failure the worker's undecided days read "approve didn't go through" on
+   * the finale, with Approve again — and the pop-up says why.
+   */
+  const approveRefs = useCallback(
+    async (worker: WeeklyWorkerHours, entries: Array<{ userId: string; date: string }>) => {
       if (entries.length === 0 || busyRef.current.has(worker.workerId)) return;
       setBusy(worker.workerId, true);
       const res = await timesheetsClient.bulkApproveEntries({ entries });
       setBusy(worker.workerId, false);
+      const retry = () => void approveRefs(worker, entries);
       if (!res.ok) {
-        showProblem("approve", res.error, () => void approveWorker(worker));
+        const explained = explainHoursProblem("approve", res.error);
+        setFailed(worker.workerId, `${explained.title}.`);
+        showProblem("approve", res.error, retry);
         return;
       }
-      const { approvedCount, failed } = res.data;
+      const { done, failed } = settleApproveResult(res.data);
+      markDays(
+        worker.workerId,
+        done.map((d) => d.date),
+        "approved",
+      );
+      const hours = worker.days
+        .filter((d) => done.some((x) => x.date === d.date))
+        .reduce((n, d) => n + (d.hours ?? 0), 0);
       // HONESTY (P7): only claim "approved" on a FULL success. A partial or empty
       // result stays actionable and says exactly what happened — and why.
       if (failed.length > 0) {
         const first = failed[0]!;
         const firstCode = (first as { code?: unknown }).code;
+        const input = {
+          status: firstCode === "conflict" ? 409 : 400,
+          body: { error: first.error, code: firstCode },
+        };
+        setFailed(worker.workerId, `${explainHoursProblem("approve", input).title}.`);
         showProblem(
           "approve",
-          { status: firstCode === "conflict" ? 409 : 400, body: { error: first.error, code: firstCode } },
-          null,
-          approvedCount === 0
+          input,
+          firstCode === "conflict" ? retry : null,
+          done.length === 0
             ? `${firstName(worker.workerName)} not approved`
-            : `Approved ${approvedCount} of ${approvedCount + failed.length} days · ${failed.length} not approved`,
+            : `Approved ${done.length} of ${done.length + failed.length} days · ${failed.length} not approved`,
         );
         scheduleRefresh();
         return;
       }
-      const undo = canUndo ? res.data.approved.map((a) => ({ userId: a.userId, date: a.date })) : [];
-      setOverlay((o) => ({ ...o, [worker.workerId]: { status: "approved", undo } }));
-      toast(`Approved ${formatHoursLabel(submittedHoursOf(worker))} · ${firstName(worker.workerName)}`);
-      scheduleUndoExpiry(worker.workerId, undo);
+      setFailed(worker.workerId, null);
+      // The whole week is settled → the card shows it, with the 30s undo.
+      const stillWaiting = submittedWeekSelection(worker).filter(
+        (r) => !done.some((d) => d.date === r.date),
+      );
+      if (stillWaiting.length === 0) {
+        const undo = canUndo ? done : [];
+        setOverlay((o) => ({ ...o, [worker.workerId]: { status: "approved", undo } }));
+        scheduleUndoExpiry(worker.workerId, undo);
+      }
+      toast(`Approved ${formatHoursLabel(hours)} · ${firstName(worker.workerName)}`);
       scheduleRefresh();
     },
-    [canUndo, toast, scheduleRefresh, scheduleUndoExpiry, setBusy, showProblem],
+    [canUndo, toast, scheduleRefresh, scheduleUndoExpiry, setBusy, showProblem, markDays, setFailed],
+  );
+
+  const approveWorker = useCallback(
+    (worker: WeeklyWorkerHours) => {
+      // The worker as it stands now — a day taken back or sent in this session
+      // is approvable with the rest even before the page catches up.
+      const now = withSessionDays(worker, session);
+      return approveRefs(now, submittedWeekSelection(now));
+    },
+    [approveRefs, session],
   );
 
   const queryWorker = useCallback(
@@ -406,11 +480,17 @@ export function WeeklyHoursApprovalMobile({
       }
       const undo = canUndo ? days.map((d) => ({ userId: d.userId, date: d.date })) : [];
       setOverlay((o) => ({ ...o, [worker.workerId]: { status: "queried", undo } }));
+      markDays(
+        worker.workerId,
+        days.map((d) => d.date),
+        "rejected",
+      );
+      setFailed(worker.workerId, null);
       toast(`Sent back to ${firstName(worker.workerName)} · ${reason}`);
       scheduleUndoExpiry(worker.workerId, undo);
       scheduleRefresh();
     },
-    [canUndo, toast, scheduleRefresh, scheduleUndoExpiry, setBusy, showProblem],
+    [canUndo, toast, scheduleRefresh, scheduleUndoExpiry, setBusy, showProblem, markDays, setFailed],
   );
 
   /**
@@ -446,6 +526,7 @@ export function WeeklyHoursApprovalMobile({
         scheduleRefresh();
         return false;
       }
+      markDays(worker.workerId, [day.date], "approved");
       toast(
         payload.dayType
           ? `Fixed ${day.weekday} · now ${DAY_TYPE_LABELS[payload.dayType]} · ${formatHoursLabel(res.data.entry.totalHours)}`
@@ -454,7 +535,7 @@ export function WeeklyHoursApprovalMobile({
       scheduleRefresh();
       return true;
     },
-    [toast, scheduleRefresh, setBusy, showProblem],
+    [toast, scheduleRefresh, setBusy, showProblem, markDays],
   );
 
   const undoWorker = useCallback(
@@ -464,6 +545,7 @@ export function WeeklyHoursApprovalMobile({
       setBusy(worker.workerId, true);
       let failed = 0;
       let firstError: ProblemInput | null = null;
+      const reopened: string[] = [];
       for (const ref of entry.undo) {
         const r = await timesheetsClient.reopenEntry({
           userId: ref.userId,
@@ -473,9 +555,10 @@ export function WeeklyHoursApprovalMobile({
         if (!r.ok) {
           failed += 1;
           firstError ??= r.error;
-        }
+        } else reopened.push(ref.date);
       }
       setBusy(worker.workerId, false);
+      markDays(worker.workerId, reopened, "submitted");
       if (failed === entry.undo.length) {
         showProblem("undo", firstError ?? { status: 0 }, () => void undoWorker(worker));
         return;
@@ -488,7 +571,87 @@ export function WeeklyHoursApprovalMobile({
       toast(`Undone · ${firstName(worker.workerName)} back to submitted`);
       scheduleRefresh();
     },
-    [overlay, toast, scheduleRefresh, setBusy, showProblem],
+    [overlay, toast, scheduleRefresh, setBusy, showProblem, markDays],
+  );
+
+  /**
+   * "Take it back" — a day sent back that the worker hasn't fixed is reopened
+   * to submitted, so the office can approve it or fix it now instead of
+   * holding the pay run (2026-10-12). Admin tier (reopen is office-only). A day
+   * the worker has meanwhile re-sent is already where this wanted it: done.
+   */
+  const takeBackDays = useCallback(
+    async (line: HoldUpLine) => {
+      if (busyRef.current.has(line.workerId)) return;
+      setBusy(line.workerId, true);
+      const back: string[] = [];
+      let firstError: ProblemInput | null = null;
+      for (const date of line.dates) {
+        const r = await timesheetsClient.reopenEntry({ userId: line.workerId, date, toStatus: "submitted" });
+        const alreadyBack =
+          !r.ok && /status "submitted"/.test(String((r.error.body as { error?: unknown } | null)?.error ?? ""));
+        if (r.ok || alreadyBack) back.push(date);
+        else firstError ??= r.error;
+      }
+      setBusy(line.workerId, false);
+      markDays(line.workerId, back, "submitted");
+      // The overlay's "sent back" no longer describes this worker's week.
+      setOverlay((o) => {
+        if (o[line.workerId]?.status !== "queried") return o;
+        const next = { ...o };
+        delete next[line.workerId];
+        return next;
+      });
+      scheduleRefresh();
+      if (firstError) {
+        showProblem("takeBack", firstError, back.length === 0 ? () => void takeBackDays(line) : null);
+        return;
+      }
+      toast(`Taken back · ${firstName(line.workerName)} — approve or fix it now`);
+    },
+    [setBusy, markDays, scheduleRefresh, showProblem, toast],
+  );
+
+  /**
+   * "Send it in for them" — a day the worker saved but never sent is submitted
+   * on their behalf (the server records the office as the sender), so it can be
+   * approved for this pay run instead of being left off (2026-10-12). The
+   * hours are untouched; approving is still its own step.
+   */
+  const sendInDays = useCallback(
+    async (line: HoldUpLine) => {
+      if (busyRef.current.has(line.workerId)) return;
+      setBusy(line.workerId, true);
+      const sent: string[] = [];
+      let firstError: ProblemInput | null = null;
+      for (const date of line.dates) {
+        const r = await timesheetsClient.submitForWorker(line.workerId, date);
+        if (r.ok) sent.push(date);
+        else firstError ??= r.error;
+      }
+      setBusy(line.workerId, false);
+      markDays(line.workerId, sent, "submitted");
+      scheduleRefresh();
+      if (firstError) {
+        showProblem("sendIn", firstError, sent.length === 0 ? () => void sendInDays(line) : null);
+        return;
+      }
+      toast(`Sent in for ${firstName(line.workerName)} — approve it when you're ready`);
+    },
+    [setBusy, markDays, scheduleRefresh, showProblem, toast],
+  );
+
+  /** Approve one hold-up line's days, straight from the finale. */
+  const approveLine = useCallback(
+    (line: HoldUpLine) => {
+      const worker = workerById.get(line.workerId);
+      if (!worker) return;
+      void approveRefs(
+        worker,
+        line.dates.map((date) => ({ userId: line.workerId, date })),
+      );
+    },
+    [workerById, approveRefs],
   );
 
   // The stepper queue = to-approve workers not yet resolved this session.
@@ -660,8 +823,11 @@ export function WeeklyHoursApprovalMobile({
           periodLabel={summary.rangeLabel}
           xeroGate={xeroGate}
           xeroCandidates={xeroCandidates}
-          outstanding={outstanding}
-          outstandingLines={outstandingLines}
+          holdUps={holdUps}
+          holdUpActions={{
+            approve: approveLine,
+            ...(canUndo ? { takeBack: takeBackDays, sendIn: sendInDays } : {}),
+          }}
         />
       ) : null}
 
@@ -1268,8 +1434,8 @@ function ReviewSheet({
   periodLabel,
   xeroGate,
   xeroCandidates,
-  outstanding,
-  outstandingLines,
+  holdUps,
+  holdUpActions,
 }: {
   ids: string[];
   startId: string;
@@ -1294,10 +1460,10 @@ function ReviewSheet({
   periodLabel: string;
   xeroGate?: XeroFinaleGate;
   xeroCandidates: ReviewCandidate[];
-  /** Week-wide "still to come in" counts for the send finale's wait choice. */
-  outstanding: OutstandingWeek;
-  /** …and the names + days behind them, in the sheet's own words. */
-  outstandingLines: OutstandingLine[];
+  /** Everything holding the week up — the send finale names each with its fix. */
+  holdUps: HoldUpLine[];
+  /** The fixes (the parent owns the writes); "Check" is added here. */
+  holdUpActions: Omit<HoldUpRemedies, "check">;
 }) {
   const panelRef = useDialogFocus(true);
   const [shown, setShown] = useState(false);
@@ -1329,8 +1495,12 @@ function ReviewSheet({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose, finaleBusy]);
 
-  const id = ids[cursor]!;
+  // "Check" from the send finale: one person's days, then straight back to
+  // the finale — so settling a hold-up never means leaving the pay run.
+  const [visit, setVisit] = useState<string | null>(null);
+  const id = visit ?? ids[cursor]!;
   const worker = workerById.get(id);
+  const showOne = single || visit != null;
 
   const resetDay = () => {
     setMode("review");
@@ -1338,6 +1508,12 @@ function ReviewSheet({
     setNote("");
   };
   const advance = () => {
+    if (visit != null) {
+      setVisit(null);
+      resetDay();
+      setMode("done");
+      return;
+    }
     if (single) {
       onClose();
       return;
@@ -1358,8 +1534,26 @@ function ReviewSheet({
     advance();
   };
 
-  const alreadyResolved = worker ? overlay[worker.workerId]?.status : undefined;
+  // Approved this session AND nothing left to decide — a day taken back after
+  // the approve is decidable again.
+  const alreadyResolved =
+    worker && overlay[worker.workerId]?.status === "approved" && submittedWeekSelection(worker).length > 0
+      ? undefined
+      : worker
+        ? overlay[worker.workerId]?.status
+        : undefined;
   const canSendBack = reason != null && buildQueryReason(reason, note) != null;
+  const remedies: HoldUpRemedies = {
+    ...holdUpActions,
+    check: (workerId) => {
+      if (!workerById.has(workerId)) return;
+      resetDay();
+      setVisit(workerId);
+    },
+  };
+  const savingNames = busyIds
+    .map((b) => workerById.get(b)?.workerName)
+    .filter((n): n is string => Boolean(n));
 
   return (
     <div
@@ -1382,7 +1576,7 @@ function ReviewSheet({
           <span aria-hidden="true" className="h-1 w-10 rounded-pill bg-border" />
         </div>
 
-        {mode === "done" || !worker ? (
+        {(mode === "done" && visit == null) || !worker ? (
           xeroGate?.isAdmin && xeroGate.accountsConfigured ? (
             /* Owner pull 2026-08-15: while Xero is out of action the closeout
                ends by emailing the week to accounts — TIMESHEETS_EMAIL_TO set
@@ -1393,9 +1587,13 @@ function ReviewSheet({
               weekEnd={weekEnd}
               periodLabel={periodLabel}
               candidates={xeroCandidates}
-              outstanding={outstanding}
-              outstandingLines={outstandingLines}
+              holdUps={holdUps}
+              remedies={remedies}
+              busyIds={busyIds}
+              // Any write still saving holds the send (its day would be read
+              // in its old state); every write now ends, so it can't hold forever.
               savingCount={busyIds.length}
+              savingNames={savingNames}
               onClose={onClose}
               onBusyChange={setFinaleBusy}
             />
@@ -1414,7 +1612,7 @@ function ReviewSheet({
         ) : (
           <>
             <div className="border-b border-border px-5 pb-4 pt-3">
-              {!single ? (
+              {!showOne ? (
                 <div className="mb-3 flex items-center gap-3">
                   <div className="flex flex-1 gap-1">
                     {ids.map((x, i) => (
@@ -1493,7 +1691,7 @@ function ReviewSheet({
                     </Button>
                   ) : null}
                   <Button className="flex-1" onClick={advance}>
-                    {single ? "Close" : "Next →"}
+                    {visit != null ? "Back" : single ? "Close" : "Next →"}
                   </Button>
                 </>
               ) : (

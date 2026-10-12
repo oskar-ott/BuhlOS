@@ -155,6 +155,9 @@ export default async function HoursWeeklyCloseoutPage({
           below uses — no second status-transition path. */}
       <div className="mx-auto w-full max-w-xl lg:hidden">
         <WeeklyHoursApprovalMobile
+          // One review session per week: the per-person overlay, failed
+          // approvals and day map must not follow the boss into another week.
+          key={weekStart}
           closeout={closeout}
           weekNav={{
             prevWeek,

@@ -459,6 +459,38 @@ async function appendAudit(userId, entryId, action, changedBy, note, diff) {
   }
 }
 
+// Append SEVERAL audit rows for one worker in ONE read-modify-write — what a
+// parallel bulk decision uses (2026-10-12): rows written from parallel
+// appendAudit calls on the same file would race and lose rows. Rows are
+// grouped by the month of their own `at`. Best-effort, like appendAudit.
+async function appendAuditMany(userId, rows) {
+  const byMonth = new Map();
+  for (const r of rows || []) {
+    if (!r) continue;
+    const at = r.at || new Date().toISOString();
+    const yyyymm = ymOf(at.slice(0, 10));
+    if (!byMonth.has(yyyymm)) byMonth.set(yyyymm, []);
+    byMonth.get(yyyymm).push({
+      id: newId(),
+      entryId: r.entryId,
+      action: r.action,
+      changedBy: r.changedBy,
+      note: r.note || null,
+      diff: r.diff || null,
+      at,
+    });
+  }
+  for (const [yyyymm, add] of byMonth) {
+    try {
+      const log = (await readBlob(AUDIT_PATH(userId, yyyymm), [])) || [];
+      log.push(...add);
+      await writeBlob(AUDIT_PATH(userId, yyyymm), log);
+    } catch (e) {
+      console.error('audit append failed', e.message);
+    }
+  }
+}
+
 // Compute the diff between two versions of an entry (for audit log).
 function diffOf(before, after) {
   const fields = [
@@ -512,6 +544,7 @@ module.exports = {
   listAllEntriesForApprovers,
   listEntriesForDate,
   appendAudit,
+  appendAuditMany,
   diffOf,
   entryView,
 };
