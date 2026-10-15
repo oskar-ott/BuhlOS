@@ -154,6 +154,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 async function renderPage(fixDate?: string): Promise<string> {
@@ -223,6 +224,22 @@ describe("sharpened /phil/my-day — one hours affordance", () => {
     const html = await renderPage();
     expect(html).not.toContain("phil-my-day-log-hours-banner");
     expect(html).not.toContain("Today not logged");
+  });
+});
+
+describe("sharpened /phil/my-day — Workshop stock tile (workshop_stock)", () => {
+  it("is absent while the flag is off — no trace", async () => {
+    vi.stubEnv("FLAG_WORKSHOP_STOCK", "0");
+    const html = await renderPage();
+    expect(html).not.toContain("phil-my-day-stock");
+    expect(html).not.toContain("/phil/stock");
+  });
+
+  it("links the quick grid to /phil/stock while the flag is on", async () => {
+    vi.stubEnv("FLAG_WORKSHOP_STOCK", "1");
+    const html = await renderPage();
+    expect(html).toContain('data-testid="phil-my-day-stock"');
+    expect(html).toContain('href="/phil/stock"');
   });
 });
 
