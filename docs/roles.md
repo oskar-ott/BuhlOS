@@ -45,3 +45,19 @@ JS (`api/`): `require('./_lib/auth')`. TS (`src/`): `src/lib/auth/roles.ts`.
   `// role-literal-ok: <why>` — there are six today (job create/delete are
   deliberately literal-admin; credential-format policy; the `accounts` and
   `office` carve-outs in the activity feed; `apprenticeYear`).
+
+## Changing someone's role
+
+The office changes a role in the employee drawer (`/employees` → **Role** →
+Change role → `POST /api/employees?action=role`), which writes the users.json
+login every permission check reads and the linked HR row together.
+
+APIs read the role **live** from users.json on every request. The page gates
+(`src/middleware.ts`, landing) route by the role in the 30-day session cookie,
+so the landing pages — Phil My Day and the Command centre — compare the two on
+every load and, on a mismatch, send the browser once to
+`GET /api/auth?action=refresh`, which re-signs the session with the live role
+and routes to the right home (`src/lib/auth/role-sync.ts`). The person sees
+their new screens the next time they open the app; no signing out. The refresh
+only copies users.json into the cookie — it can't grant a role the login
+doesn't have — and signs out a login that is gone or disabled.

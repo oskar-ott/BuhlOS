@@ -140,6 +140,8 @@ interface FetchFixtures {
   overviewTotals?: JsonBody;
   /** Display name for the mobile greeting (resolved via /api/auth?action=me). */
   meName?: string | null;
+  /** The login's LIVE role from /api/auth?action=me (defaults to the cookie's "boss"). */
+  meRole?: string;
   /** Non-200 makes the jobs-with-stats fetch fail (board honest-degradation path). */
   jobsStatus?: number;
   /** Jobs rows for /api/jobs?withStats=1 (lean-reset leak tests feed stats). */
@@ -158,6 +160,7 @@ function stubFetch({
   overviewStatus = 200,
   overviewTotals,
   meName = null,
+  meRole = "boss",
   jobsStatus = 200,
   jobs = [],
   byRole,
@@ -192,7 +195,7 @@ function stubFetch({
       // /api/auth?action=me — the mobile greeting name. Must precede /api/jobs
       // (neither contains the other, but keep the auth check explicit).
       if (url.includes("/api/auth")) {
-        return jsonResponse({ user: meName ? { name: meName, role: "boss" } : null });
+        return jsonResponse({ user: meName ? { name: meName, role: meRole } : null });
       }
       if (url.includes("/api/jobs")) {
         if (jobsStatus !== 200) return jsonResponse({ error: "boom" }, jobsStatus);
@@ -205,7 +208,7 @@ function stubFetch({
 }
 
 async function renderPage(): Promise<string> {
-  const jsx = await CommandCentrePage();
+  const jsx = await CommandCentrePage({ searchParams: Promise.resolve({}) });
   return renderToString(jsx);
 }
 
@@ -369,5 +372,18 @@ describe("/command-centre lean-reset board", () => {
     expect(html).not.toContain("open snag");
     // ...and the queue is honestly calm — the removed work is absent, not "0".
     expect(html).toContain("All clear");
+  });
+});
+
+describe("/command-centre — a role change takes effect without signing out (2026-10-15)", () => {
+  it("someone the office moved off an office role is sent to re-sign their session", async () => {
+    stubFetch({ meName: "Dana Boss", meRole: "electrician" });
+    await expect(renderPage()).rejects.toThrow("unexpected redirect to /api/auth?action=refresh");
+  });
+
+  it("an unchanged role renders the page as before", async () => {
+    stubFetch({ meName: "Dana Boss" });
+    const html = await renderPage();
+    expect(html).toContain("Dana");
   });
 });

@@ -56,7 +56,7 @@ describe("ChangeRoleSection — honest initial states", () => {
       expect(html).toContain(title);
     }
     expect(html).toMatch(/Electrician<span[^>]*> · current<\/span>/);
-    expect(html).toContain("signing out and back in");
+    expect(html).toContain("next time they open the app");
     const idx = html.indexOf('data-testid="change-role-save"');
     expect(idx).toBeGreaterThan(-1);
     const btn = html.slice(Math.max(0, idx - 400), idx + 200);
