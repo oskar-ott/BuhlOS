@@ -24,6 +24,7 @@
 //   GET    /api/employees?id=<id>                 → one employee + invite
 //   POST   /api/employees                         → create (+ optional invite)
 //   PATCH  /api/employees?id=<id>                 → update role/details/jobs/gear
+//   POST   /api/employees?action=role&id=<id>     → change role on BOTH halves (login + HR row)
 //   POST   /api/employees?action=invite&id=<id>   → issue / re-issue invite link
 //   POST   /api/employees?action=revoke&id=<id>   → revoke invite (token dead)
 //   POST   /api/employees?action=disable&id=<id>  → soft-disable (reversible)
@@ -31,7 +32,7 @@
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
-const { getCurrentUser, isAdminRole } = require('./_lib/auth');
+const { getCurrentUser, isAdminRole, isDisabledUser } = require('./_lib/auth');
 const { isFlagEnabled } = require('./_lib/feature-flags');
 const audit = require('./_lib/audit-log');
 const email = require('./_lib/email');
@@ -142,7 +143,8 @@ function mapUserToEmployee(u) {
     email: u.email || '',
     phone: null,
     role,
-    apprenticeYear: null,
+    // A login-only apprentice keeps its year on the login (action=role writes it there).
+    apprenticeYear: role === 'apprentice' ? Number(u.apprenticeYear) || null : null,
     appAccess: deriveAppAccess(role),
     status: u.archived ? 'disabled' : 'active',
     assignedJobIds: Array.isArray(u.assignedJobIds) ? u.assignedJobIds : [],
@@ -413,6 +415,89 @@ module.exports = async (req, res) => {
       row: buildRow(employee, latestInviteFor(invBlob, employee.id)),
       emailConfigured: emailConfigured(),
     });
+  }
+
+  // ── POST ?action=role — change someone's role ───────────────────────────
+  // The roster shows ONE merged row per person, but the role lives twice: the
+  // users.json login (what every permission check reads, live, per request)
+  // and the linked employees.json HR row (what the roster displays). PATCH
+  // only touches the HR row, so a role change there would show "Project
+  // manager" on a login that is still an electrician. This action changes
+  // both halves together — the login first, because it is the authority.
+  // Accepts either id (HR row or login), like disable.
+  if (req.method === 'POST' && action === 'role') {
+    const body = req.body || {};
+    const role = String(body.role || '').toLowerCase();
+    if (!BIBLE_ROLES.includes(role)) return res.status(400).json({ error: 'invalid role' });
+    const apprenticeYear = role === 'apprentice' ? Number(body.apprenticeYear) : null;
+    if (role === 'apprentice' && !(apprenticeYear >= 1 && apprenticeYear <= 4)) {
+      return res.status(400).json({ error: 'Pick the apprentice year (1–4).' });
+    }
+
+    const usersBlob = await readBlob('users.json', { users: [] });
+    const users = usersBlob.users || [];
+    let employee = empBlob.employees.find((e) => e.id === id) || null;
+    let user = null;
+    if (employee) {
+      user = employee.userId ? users.find((u) => u.id === employee.userId) || null : null;
+    } else {
+      user = users.find((u) => u.id === id) || null;
+      // Clients and unknown roles are not employees (mapLegacyRoleToBible → null).
+      if (!user || !mapLegacyRoleToBible(user.role)) return res.status(404).json({ error: 'employee not found' });
+      employee = empBlob.employees.find((e) => e.userId === user.id) || null;
+    }
+    // Same rule as disable: nobody edits their own access from here.
+    if (user && user.id === me.id) return res.status(400).json({ error: 'You can’t change your own role.' });
+
+    // The login is the authority when there is one; the HR row only for a
+    // worker who hasn't finished setup.
+    const fromRole = user ? mapLegacyRoleToBible(user.role) : employee.role;
+    const fromYear = employee ? employee.apprenticeYear || null : Number(user.apprenticeYear) || null;
+    const respond = () => res.status(200).json({
+      row: employee
+        ? buildRow(overlayLinkedUser(employee, usersBlob), latestInviteFor(invBlob, employee.id))
+        : buildRow(mapUserToEmployee(user), null),
+      emailConfigured: emailConfigured(),
+    });
+    // Nothing to do only when BOTH halves already say so — a drifted HR row
+    // must not hide a login that still carries the old role.
+    const unchanged = fromRole === role && fromYear === apprenticeYear && (!employee || employee.role === role);
+    if (unchanged) return respond();
+
+    // Never strand the business without an admin (lifecycle-guard.ts
+    // validateRoleChange — the same rule, over the logins that grant access).
+    if (user && !isDisabledUser(user) && isAdminRole(user.role) && !isAdminRole(role)) {
+      const otherAdmins = users.filter((u) => u.id !== user.id && !isDisabledUser(u) && isAdminRole(u.role));
+      if (otherAdmins.length === 0) {
+        return res.status(409).json({
+          error: 'Cannot remove admin from the last active admin — promote another admin first.',
+        });
+      }
+    }
+
+    if (user) {
+      user.role = role;
+      if (apprenticeYear) user.apprenticeYear = apprenticeYear;
+      else delete user.apprenticeYear;
+      try {
+        await writeBlob('users.json', usersBlob, { expectedRev: usersBlob.__rev });
+      } catch (e) {
+        if (e && e.code === 'stale_write') {
+          return res.status(409).json({ error: 'The team list changed while you were saving. Try again.' });
+        }
+        throw e;
+      }
+    }
+    if (employee) {
+      employee.role = role;
+      employee.appAccess = deriveAppAccess(role);
+      employee.apprenticeYear = apprenticeYear;
+      await writeBlob(EMPLOYEES_KEY, empBlob);
+    }
+    await writeAudit(me, 'employee.role_changed', 'employee', employee ? employee.id : user.id,
+      `Role changed ${fromRole} → ${role}`,
+      { from: fromRole, to: role, userId: user ? user.id : null });
+    return respond();
   }
 
   // ── POST ?action=invite — issue / re-issue ───────────────────────────────

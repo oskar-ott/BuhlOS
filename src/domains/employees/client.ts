@@ -9,6 +9,7 @@ import {
   UpdateEmployeePayloadSchema,
   IssueInvitePayloadSchema,
   DisableEmployeePayloadSchema,
+  ChangeRolePayloadSchema,
   ResetPinPayloadSchema,
 } from "./schema";
 import type {
@@ -33,6 +34,7 @@ import type {
  *   PATCH /api/employees?id=<id>                  → update role/details/jobs/gear
  *   POST  /api/employees?action=invite&id=<id>    → issue / resend invite
  *   POST  /api/employees?action=disable&id=<id>   → soft-disable (reversible)
+ *   POST  /api/employees?action=role&id=<id>      → change role (login + HR row)
  *
  * The plaintext invite link is returned ONLY on create / invite, once, for the
  * copy-link fallback — never persisted, never returned by any GET.
@@ -153,6 +155,30 @@ export function disableEmployee(
   );
 }
 
+type ChangeRolePayload = z.infer<typeof ChangeRolePayloadSchema>;
+
+/**
+ * Change someone's role — the employee drawer's "Change role". Unlike PATCH
+ * (HR row only), the server writes the users.json login every permission check
+ * reads AND the linked HR row, so the roster and the person's real access never
+ * disagree. Either id (HR row or login) works.
+ */
+export function changeEmployeeRole(
+  payload: ChangeRolePayload
+): Promise<HttpResult<EmployeeMutationResponse>> {
+  const parsed = ChangeRolePayloadSchema.safeParse(payload);
+  if (!parsed.success) {
+    return Promise.resolve(
+      badPayload(parsed.error.issues.map((i) => i.message).join("; "), parsed.error.format())
+    );
+  }
+  return httpPost<EmployeeMutationResponse>(
+    `/api/employees?action=role&id=${encodeURIComponent(parsed.data.id)}`,
+    parsed.data,
+    { schema: EmployeeMutationResponseSchema, init: { ...sameOrigin } }
+  );
+}
+
 type ResetPinPayload = z.infer<typeof ResetPinPayloadSchema>;
 type ResetPinResponse = z.infer<typeof UserMutationResponseSchema>;
 
@@ -187,5 +213,6 @@ export const employeesClient = {
   issueInvite,
   revokeInvite,
   disableEmployee,
+  changeEmployeeRole,
   resetWorkerPin,
 } as const;

@@ -9,6 +9,7 @@ import { InviteStatusCard } from "./InviteStatusCard";
 import { LicencesSection } from "./LicencesSection";
 import { CostRateSection } from "./CostRateSection";
 import { ResetPinSection } from "./ResetPinSection";
+import { ChangeRoleSection } from "./ChangeRoleSection";
 import { EmployeeStatusChip } from "./EmployeeStatusChip";
 import type { ActiveJobOption } from "./AddEmployeeDrawer";
 import { cn } from "@/lib/cn";
@@ -181,6 +182,13 @@ export function EmployeeDetailDrawer({
 
           {employee.notes ? (
             <DetailField label="Notes (admin only)" value={employee.notes} />
+          ) : null}
+
+          {/* Change role — writes the login AND the HR row together
+              (POST /api/employees?action=role). Hidden for a disabled employee
+              (re-enable first; access is the question there, not the role). */}
+          {employee.status !== "disabled" ? (
+            <ChangeRoleSection key={employee.id} employee={employee} onUpdated={onUpdated} />
           ) : null}
 
           {/* Licences & tickets (#331) — keyed by the worker account id. */}

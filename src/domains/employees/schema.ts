@@ -315,6 +315,25 @@ export const IssueInvitePayloadSchema = z.object({
   inviteNote: z.string().trim().max(280).nullable().optional(),
 });
 
+/** POST /api/employees?action=role&id= — change role on the login AND the
+ *  HR row together (the employee drawer's "Change role"). */
+export const ChangeRolePayloadSchema = z
+  .object({
+    id: z.string().min(1),
+    role: EmployeeRoleSchema,
+    apprenticeYear: z.number().int().min(1).max(4).nullable().optional(),
+  })
+  .superRefine((val, ctx) => {
+    // eslint-disable-next-line no-restricted-syntax -- apprenticeYear belongs to the literal apprentice role, not a tier
+    if (val.role === "apprentice" && val.apprenticeYear == null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["apprenticeYear"],
+        message: "Apprentice year (1–4) is required for apprentices",
+      });
+    }
+  });
+
 /** POST /api/employees?action=disable&id= — soft-disable (reversible). */
 export const DisableEmployeePayloadSchema = z.object({
   id: z.string().min(1),
