@@ -23,6 +23,7 @@ interface AuthModule {
   isFieldRole: (r: unknown) => boolean;
   isStaffRole: (r: unknown) => boolean;
   isHoursTrackedWorker: (u: unknown) => boolean;
+  isProjectManagerRole: (role: unknown) => boolean;
   roleSatisfies: (userRole: unknown, allowed: string[]) => boolean;
   signSession: (payload: Record<string, unknown>) => string;
   requireAuth: (
@@ -126,13 +127,26 @@ describe("isHoursTrackedWorker — who is EXPECTED to log hours (#114)", () => {
     }
   });
 
-  it("never tracks admin/office tier, clients, or unknown roles", () => {
-    for (const role of ["admin", "boss", "owner", "manager", "office", "pm", "estimator", "client", "accounts", ""]) {
+  it("never tracks the rest of the admin/office tier, clients, or unknown roles", () => {
+    for (const role of ["admin", "boss", "owner", "manager", "office", "estimator", "client", "accounts", ""]) {
       expect(auth.isHoursTrackedWorker(live(role))).toBe(false);
     }
   });
 
+  it("tracks the project manager — office access, but logs and is paid on their own hours (2026-10-15)", () => {
+    for (const role of ["pm", "PM"]) {
+      expect(auth.isHoursTrackedWorker(live(role))).toBe(true);
+    }
+    // Still admin tier for every permission; the narrowing grants nothing.
+    expect(auth.isAdminRole("pm")).toBe(true);
+    expect(auth.isProjectManagerRole("pm")).toBe(true);
+    for (const role of ["admin", "office", "estimator", "electrician", ""]) {
+      expect(auth.isProjectManagerRole(role)).toBe(false);
+    }
+  });
+
   it("never tracks archived or disabled accounts (not expected to submit)", () => {
+    expect(auth.isHoursTrackedWorker({ ...live("pm"), archived: true })).toBe(false);
     expect(auth.isHoursTrackedWorker({ ...live("tradie"), archived: true })).toBe(false);
     expect(auth.isHoursTrackedWorker({ ...live("electrician"), disabled: true })).toBe(false);
     expect(auth.isHoursTrackedWorker({ ...live("leadingHand"), status: "disabled" })).toBe(false);

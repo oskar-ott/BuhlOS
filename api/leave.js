@@ -174,7 +174,7 @@ module.exports = async (req, res) => {
       if (!target) return res.status(404).json({ error: 'worker not found' });
     }
     // Leave only means something for workers missing-day detection tracks
-    // (field tier + leading hands). For anyone else — office, admin — an
+    // (field tier + leading hands + project managers). For anyone else — office, admin — an
     // "approved" leave row would be a silent no-op, so refuse honestly.
     if (!isHoursTrackedWorker(target)) {
       return res.status(400).json({ error: 'leave applies to hours-tracked workers' });

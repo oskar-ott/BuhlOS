@@ -29,7 +29,7 @@
 
 const { readBlob, writeBlob, setNoCache } = require('./_lib/blob');
 const { isFlagEnabled } = require('./_lib/feature-flags');
-const { getCurrentUser, isAdminRole, isLeadingHandRole, isFieldRole, isClientRole, isDisabledUser } = require('./_lib/auth');
+const { getCurrentUser, isAdminRole, isLeadingHandRole, isFieldRole, isProjectManagerRole, isClientRole, isDisabledUser } = require('./_lib/auth');
 const { getWebPush, sendPushToUserId } = require('./_lib/push');
 const { notify } = require('./_lib/notify');
 // #381: fail-closed cron gate (503 in production when CRON_SECRET unset).
@@ -136,8 +136,10 @@ module.exports = async (req, res) => {
     let sent = 0, skipped = 0, pruned = 0;
 
     for (const u of users) {
-      // Tradies + LHs both self-log via My Day; both should get the reminder.
-      if (!isFieldRole(u.role) && !isLeadingHandRole(u.role)) continue;
+      // Tradies + LHs self-log via My Day; project managers log their own
+      // hours too (2026-10-15). All three get the reminder.
+      const pm = isProjectManagerRole(u.role);
+      if (!isFieldRole(u.role) && !isLeadingHandRole(u.role) && !pm) continue;
       if (!u.pushSubscriptions || !u.pushSubscriptions.length) continue;
 
       // Skip if they already logged hours for today
@@ -146,7 +148,9 @@ module.exports = async (req, res) => {
       // #333: never nag a worker on approved leave today.
       if (leaveToday[u.id + '|' + today]) { skipped++; continue; }
 
-      const r = await sendPushToUserId(u.id, payload);
+      // My Day sends the admin tier on to /command-centre, so a PM's tap
+      // opens the field app's hours screen instead.
+      const r = await sendPushToUserId(u.id, pm ? { ...payload, url: '/phil/hours' } : payload);
       sent   += (r.sent   || 0);
       pruned += (r.pruned || 0);
     }
@@ -447,7 +451,7 @@ module.exports = async (req, res) => {
 
     const usersData = await readBlob(USERS_KEY, { users: [] });
     const candidates = (usersData.users || []).filter(u =>
-      (isFieldRole(u.role) || isLeadingHandRole(u.role)) &&
+      (isFieldRole(u.role) || isLeadingHandRole(u.role) || isProjectManagerRole(u.role)) &&
       !u.archived);
 
     // Only flag users who have actually been around long enough to have logged.

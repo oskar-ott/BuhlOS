@@ -112,3 +112,26 @@ describe("send-daily-reminders — public holidays", () => {
     expect(sendPush.mock.calls[0]![0]).toBe("u_dylan");
   });
 });
+
+describe("send-daily-reminders — who is reminded", () => {
+  it("a project manager is reminded too (they log their own hours, 2026-10-15); the rest of the office is not", async () => {
+    const sub = (who: string) => [{ endpoint: `https://push.example/${who}` }];
+    blob.set("users.json", {
+      users: [
+        { id: "u_dylan", role: "electrician", pushSubscriptions: sub("dylan") },
+        { id: "u_pm", role: "pm", pushSubscriptions: sub("pm") },
+        { id: "u_office", role: "office", pushSubscriptions: sub("office") },
+      ],
+    });
+    const res = await remindAt("2026-10-06T05:30:00Z");
+    expect(res.statusCode).toBe(200);
+    const byUser = Object.fromEntries(
+      sendPush.mock.calls.map((c) => [c[0] as string, c[1] as { url: string }]),
+    );
+    expect(Object.keys(byUser).sort()).toEqual(["u_dylan", "u_pm"]);
+    // My Day sends the admin tier on to /command-centre, so the PM's tap
+    // opens the field app's hours screen; the crew still lands on My Day.
+    expect(byUser.u_pm!.url).toBe("/phil/hours");
+    expect(byUser.u_dylan!.url).toBe("/phil/my-day");
+  });
+});

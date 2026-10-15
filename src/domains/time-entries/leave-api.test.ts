@@ -322,6 +322,16 @@ describe("POST /api/leave — worker self-request", () => {
     // them would be a silent no-op — refuse instead of pretending.
     expect(res.statusCode).toBe(400);
   });
+
+  it("a project manager logs their own hours, so they can ask for leave too (2026-10-15)", async () => {
+    (blob.get("users.json") as { users: unknown[] }).users.push(user("u_pm", "pm"));
+    const res = await call("u_pm", "pm", {
+      method: "POST",
+      body: { type: "annual", fromDate: d(1), toDate: d(1) },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(requestOf(res).userId).toBe("u_pm");
+  });
 });
 
 describe("POST /api/leave — admin record on behalf", () => {

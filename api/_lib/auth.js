@@ -138,6 +138,16 @@ function isSubcontractorRole(role) {
   return normaliseRole(role) === 'subcontractor';
 }
 
+// Narrowing WITHIN the admin tier (like owner): the project manager is office
+// staff for every permission, but — unlike the rest of the office — logs their
+// own hours and is paid on them like the crew (pull 2026-09-28: "oversees
+// every job, logs their own hours"; 2026-10-15: leave, missed-day chasing and
+// the payroll rate follow). Only isHoursTrackedWorker and the payroll/reminder
+// worker filters read this; it grants nothing.
+function isProjectManagerRole(role) {
+  return normaliseRole(role) === 'pm';
+}
+
 // "Staff" = anyone on the admin tier OR the leading-hand tier: the people
 // who manage jobs, approve hours, triage snags and see team-wide views.
 // Field workers and clients are not staff. This is the canonical
@@ -350,14 +360,17 @@ function canApproveHours(role) { return isStaffRole(role); }
 //
 //   tracked:     the whole field tier (tradie, electrician, apprentice,
 //                labourer) + leading hands in every spelling — the same
-//                normalised tiers canSubmitHours uses. Pre-#114 this rule
+//                normalised tiers canSubmitHours uses — + project managers
+//                (isProjectManagerRole: office access, but they log their own
+//                hours and are paid on them; 2026-10-15). Pre-#114 this rule
 //                literal-matched 'tradie'/'leadingHand' only, so onboarded
 //                electricians/apprentices/labourers AND lowercase
 //                'leadinghand' accounts were invisible to missing-hours,
 //                silently understating "not payroll-ready" weeks.
-//   not tracked: admin/office tier, clients, unknown roles, and any
-//                archived/disabled account (an archived tradie is not
-//                expected to submit — same liveness rule listTradies uses).
+//   not tracked: the rest of the admin/office tier, subcontractors, clients,
+//                unknown roles, and any archived/disabled account (an
+//                archived tradie is not expected to submit — same liveness
+//                rule listTradies uses).
 //
 // Takes the USER (not just the role) because expectation depends on account
 // liveness, not only tier.
@@ -367,7 +380,7 @@ function isHoursTrackedWorker(user) {
   // never flags them as "missing". Their LOGGED hours still flow through
   // approval and job costing like anyone's.
   if (isSubcontractorRole(user.role)) return false;
-  return isFieldRole(user.role) || isLeadingHandRole(user.role);
+  return isFieldRole(user.role) || isLeadingHandRole(user.role) || isProjectManagerRole(user.role);
 }
 
 // Evidence / gear — office/admin tier reviews + manages.
@@ -408,6 +421,7 @@ module.exports = {
   isLeadingHandRole,
   isFieldRole,
   isSubcontractorRole,
+  isProjectManagerRole,
   isStaffRole,
   roleSatisfies,
   signSession,
