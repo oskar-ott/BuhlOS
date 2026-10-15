@@ -18,8 +18,8 @@ import type { EmployeeRole, EmployeeRow } from "@/domains/employees/types";
  * over a login that is still an electrician. Non-optimistic: the drawer only
  * shows the new role once the server confirms it.
  *
- * The page gates read the role from the sign-in cookie, so the person sees
- * their new screens after signing out and back in — the confirmation says so.
+ * The person's next app open picks the new role up on its own (role-change
+ * sync, src/lib/auth/role-sync.ts) — no signing out — and the copy says so.
  */
 
 interface ChangeRoleSectionProps {
@@ -84,8 +84,8 @@ export function ChangeRoleSection({ employee, onUpdated, defaultOpen = false }: 
           data-testid="change-role-updated"
           className="mb-2 rounded-card border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900"
         >
-          {employee.firstName} is now {ROLE_DEFS[changedTo].title.toLowerCase()}. Ask them to sign out
-          and back in to see their new screens.
+          {employee.firstName} is now {ROLE_DEFS[changedTo].title.toLowerCase()}. They&rsquo;ll see their
+          new screens next time they open the app.
         </p>
       ) : null}
 
@@ -156,8 +156,8 @@ export function ChangeRoleSection({ employee, onUpdated, defaultOpen = false }: 
           ) : null}
 
           <p className="text-xs text-text-muted">
-            Their hours, jobs and sign-in stay as they are. {employee.firstName} sees the change after
-            signing out and back in.
+            Their hours, jobs and sign-in stay as they are. {employee.firstName} sees the change next
+            time they open the app.
           </p>
           <div className="flex justify-end gap-2">
             <Button size="sm" variant="ghost" onClick={cancel} disabled={busy}>

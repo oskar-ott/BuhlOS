@@ -15,8 +15,15 @@ import { landingFor } from "@/lib/auth/landing";
  * route) and therefore not known to typedRoutes. The cast goes away when the
  * modern client portal lands (issue #271 / Epic 16).
  */
-export default async function RootPage() {
+export default async function RootPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ synced?: string }>;
+}) {
   const user = await getCurrentUser();
   if (!user?.role) redirect("/v2/login");
-  redirect(landingFor(user.role) as Route);
+  // Back from a role-change sync (src/lib/auth/role-sync.ts): carry the marker
+  // to the landing page so it doesn't send the browser straight back.
+  const { synced } = await searchParams;
+  redirect(`${landingFor(user.role)}${synced === "1" ? "?synced=1" : ""}` as Route);
 }

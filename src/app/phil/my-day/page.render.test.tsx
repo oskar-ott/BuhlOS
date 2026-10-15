@@ -156,13 +156,38 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-async function renderPage(fixDate?: string): Promise<string> {
+async function renderPage(fixDate?: string, synced?: string): Promise<string> {
   const { default: MyDayPage } = await import("./page");
   const jsx = await MyDayPage({
-    searchParams: Promise.resolve(fixDate ? { fixDate } : {}),
+    searchParams: Promise.resolve({ ...(fixDate ? { fixDate } : {}), ...(synced ? { synced } : {}) }),
   });
   return renderToString(jsx);
 }
+
+describe("/phil/my-day — a role change takes effect without signing out (2026-10-15)", () => {
+  // The cookie keeps the role they signed in with for 30 days; the live
+  // users.json role is what the office just changed. A mismatch re-signs the
+  // session once (api/auth.js ?action=refresh) so they land on their new home.
+  it("an electrician the office made project manager is sent to re-sign their session", async () => {
+    COOKIE_VALUE = cookieFor("electrician");
+    inProcess.user = { role: "pm", name: "Sam Payne" };
+    await expect(renderPage()).rejects.toThrow("unexpected redirect to /api/auth?action=refresh");
+  });
+
+  it("back from the sync (?synced=1) it never loops, even if a read is still stale", async () => {
+    COOKIE_VALUE = cookieFor("electrician");
+    inProcess.user = { role: "pm", name: "Sam Payne" };
+    const html = await renderPage(undefined, "1");
+    expect(html).toContain('data-testid="phil-my-day-sharpened"');
+  });
+
+  it("a failed live lookup is not a role change", async () => {
+    COOKIE_VALUE = cookieFor("electrician");
+    inProcess.user = null;
+    const html = await renderPage();
+    expect(html).toContain('data-testid="phil-my-day-sharpened"');
+  });
+});
 
 describe("/phil/my-day — the admin tier is bounced to the office (owner pull 2026-08-16)", () => {
   // Belt-and-braces with src/middleware.ts (which owns the authoritative 307,
@@ -181,6 +206,7 @@ describe("/phil/my-day — the admin tier is bounced to the office (owner pull 2
 
   it("does NOT bounce a leading hand — field-tier home unchanged", async () => {
     COOKIE_VALUE = cookieFor("leadinghand");
+    inProcess.user = { role: "leadinghand", name: "Sam Payne" };
     const html = await renderPage();
     expect(html).toContain('data-testid="phil-my-day-sharpened"');
   });
