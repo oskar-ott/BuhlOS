@@ -524,6 +524,51 @@ export const BulkApproveResponseSchema = z
   })
   .passthrough();
 
+/** POST /api/time-entries-bulk-reject — body. One send-back for a worker's
+ *  whole week (2026-10-15; the endpoint sat uncalled while every surface
+ *  rejected a day at a time). `defaultReason` covers every entry without its
+ *  own; the endpoint refuses an entry that ends up with none. */
+export const BulkRejectPayloadSchema = z
+  .object({
+    entries: z
+      .array(
+        z.object({
+          userId: z.string().min(1),
+          date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD"),
+          reason: z.string().min(1).max(500).optional(),
+        })
+      )
+      .min(1, "entries cannot be empty")
+      .max(50, "too many entries (max 50)"),
+    defaultReason: z.string().min(1).max(500).optional(),
+  })
+  .refine(
+    (p) => p.defaultReason != null || p.entries.every((e) => e.reason != null),
+    { message: "Rejection reason is required" }
+  );
+
+/** Bulk-reject response — per-entry results, same shape as bulk-approve. */
+export const BulkRejectResponseSchema = z
+  .object({
+    rejectedCount: z.number(),
+    failedCount: z.number(),
+    rejected: z.array(
+      z
+        .object({ userId: z.string(), date: z.string(), totalHours: z.number(), reason: z.string() })
+        .passthrough()
+    ),
+    failed: z.array(
+      z
+        .object({
+          userId: z.string().nullable(),
+          date: z.string().nullable(),
+          error: z.string(),
+        })
+        .passthrough()
+    ),
+  })
+  .passthrough();
+
 /** POST /api/time-entries-reopen — flip a decided entry back (admin tier).
  *  Powers the 30s bulk-approve undo: reopen to "submitted". */
 export const ReopenEntryPayloadSchema = z.object({

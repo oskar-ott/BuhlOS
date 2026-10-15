@@ -45,8 +45,8 @@ scoped follow-up worth its own PR · `OWNER` needs a product decision first ·
 |---|---------|--------|
 | H1 | Desktop closeout → wrong week on the period page (= O2). | FIXED |
 | H2 | Every send/download waits up to 70 s after the last approval (`CDN_SETTLE_MS` quiet-window refusal), even though the on-screen rollup already uses a per-day verified read. | OWNER — this is the 2026-10-06 integrity rule; relaxing it to "wait only for a genuinely stale day" needs sign-off. |
-| H3 | Desktop board: every per-day Approve/Reject/Reopen/Leave is a full page re-render (overview walk + payroll-runs + N cost-rate reads) with no optimistic state; the wizard and the phone already overlay + debounce. | NEXT (M) — patch local closeout state, reuse the 700 ms debounced refresh. |
-| H4 | Send-back and Undo are one serial HTTP call per day; `api/time-entries-bulk-reject.js` has no callers. | NEXT (S) — wire bulk reject; parallel reopen with `appendAuditMany`. |
+| H3 | Desktop board: every per-day Approve/Reject/Reopen/Leave is a full page re-render (overview walk + payroll-runs + N cost-rate reads) with no optimistic state; the wizard and the phone already overlay + debounce. | FIXED — the entry each response returns is applied as a local day patch (`src/domains/timesheets/closeout-patches.ts`, same roll-up as the server build); one 700 ms debounced refresh reconciles; a patch retires when the page confirms it. Undo-leave stays reconcile-only (what the day becomes is the server's call). |
+| H4 | Send-back and Undo are one serial HTTP call per day; `api/time-entries-bulk-reject.js` has no callers. | PART-FIXED — send-back is ONE request on the wizard and the phone (`bulkRejectEntries`); the endpoint now decides days in parallel with per-worker `appendAuditMany`, like bulk approve. Undo (reopen) is still one call per day: there is no bulk reopen endpoint, and client-side parallel reopens would race the worker's audit file — NEXT (S). |
 | H5 | Single-day approve did three serial store writes before answering (entry, audit, activity). | FIXED — audit + activity overlap after the entry write (as bulk approve already did). |
 | H6 | Pay-period page fetched its own API over HTTP (two function hops, each walking the store). | FIXED — in-process reads. NEXT: derive readiness from the export's entries (one walk instead of two). |
 | H7 | Today tab: five full store walks per view, over HTTP; the approver walk reads every day-file ever. | FIXED (in-process). NEXT: one `statuses=` call, date-bound the approver walk. |
@@ -93,7 +93,7 @@ write paths) and **HTTP self-fetches** (one function wake per call).
 | D6 | `time-entries-overview` started the entry listing after the reference reads and ran the leave listing serially at the end. | FIXED — both start with the reference reads. |
 | D7 | Field "send day"/edit: two serial audit puts after the entry write (POST already overlapped them). | FIXED. |
 | D8 | Single-day approve: three serial puts (= H5). | FIXED. |
-| D9 | Closeout board re-renders after every row action (= H3). | NEXT |
+| D9 | Closeout board re-renders after every row action (= H3). | FIXED (= H3). |
 | D10 | Evidence capture pays an audit read-modify-write **before** the data write. | NEXT (M) — mint the id first, overlap the writes. |
 | D11 | Job save: one audit read+put per kind (status, basics, areas, tasks) on the same blob before the response. | FIXED — `appendAuditMany`, one read-modify-write (tested). |
 | D12 | Serial prefixes in front of parallel work: command-centre flag awaits; `day-pulse` (jobs → listing → per-job data); `job-glance` (four serial reads). | FIXED. |

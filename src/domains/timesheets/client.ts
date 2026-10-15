@@ -11,6 +11,8 @@ import {
   TodayPulseResponseSchema,
   BulkApprovePayloadSchema,
   BulkApproveResponseSchema,
+  BulkRejectPayloadSchema,
+  BulkRejectResponseSchema,
   ReopenEntryPayloadSchema,
   ReopenEntryResponseSchema,
   PayrollExportPreviewResponseSchema,
@@ -31,6 +33,8 @@ import type {
   TodayPulseResponse,
   BulkApprovePayload,
   BulkApproveResponse,
+  BulkRejectPayload,
+  BulkRejectResponse,
   ReopenEntryPayload,
   PayrollExportPreviewResponse,
   PayrollRunsResponse,
@@ -52,6 +56,7 @@ import type {
  *   PATCH  /api/time-entries?date=YYYY-MM-DD              → edit own draft/rejected
  *   POST   /api/time-entries-approve                      → approve a submitted entry
  *   POST   /api/time-entries-reject                       → reject with reason
+ *   POST   /api/time-entries-bulk-reject                  → send a week back in one call
  *
  * Cross-ref: docs/rebuild-audit/19-phase-b-hours-implementation-brief.md §API
  *            api/time-entries.js / api/time-entries-approve.js / api/time-entries-reject.js
@@ -352,6 +357,36 @@ export function bulkApproveEntries(
 }
 
 /**
+ * POST /api/time-entries-bulk-reject — send a worker's week back in ONE
+ * request (2026-10-15). Mirrors bulkApproveEntries: per-entry results, a
+ * failure on one day never blocks the rest, and a day the server says is no
+ * longer submitted comes back in `failed` with its reason. The worker gets
+ * the same push per day as a single reject.
+ */
+export function bulkRejectEntries(
+  payload: BulkRejectPayload
+): Promise<HttpResult<BulkRejectResponse>> {
+  const parsed = BulkRejectPayloadSchema.safeParse(payload);
+  if (!parsed.success) {
+    return Promise.resolve({
+      ok: false,
+      error: {
+        status: 0,
+        body: parsed.error.flatten(),
+        message: `invalid bulk reject payload: ${parsed.error.message}`,
+      },
+    });
+  }
+  return httpPost<BulkRejectResponse>("/api/time-entries-bulk-reject", parsed.data, {
+    schema: BulkRejectResponseSchema,
+    init: { cache: "no-store", credentials: "same-origin" },
+    // Same budget as bulk approve: it ends, and a retry is safe — a day that
+    // is already sent back comes back as a named failure, not a second push.
+    timeoutMs: 60000,
+  });
+}
+
+/**
  * POST /api/time-entries-reopen — flip an approved/rejected entry back to
  * submitted or draft (admin tier only; 409 if already exported). Powers the
  * bulk-approve undo.
@@ -410,6 +445,7 @@ export const timesheetsClient = {
   approveEntry,
   amendAndApproveEntry,
   bulkApproveEntries,
+  bulkRejectEntries,
   reopenEntry,
   rejectEntry,
   submitForWorker,

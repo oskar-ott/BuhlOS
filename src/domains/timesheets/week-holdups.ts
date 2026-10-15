@@ -241,3 +241,24 @@ export function settleApproveResult(result: {
   }
   return { done, failed };
 }
+
+/**
+ * Same settlement for a bulk send-back (2026-10-15): a day the server says is
+ * ALREADY rejected is done — a retry after "no answer" finds exactly that —
+ * never a failure the boss has to look at.
+ */
+export function settleRejectResult(result: {
+  rejected: ReadonlyArray<{ userId: string; date: string }>;
+  failed: ReadonlyArray<{ userId: string | null; date: string | null; error: string; code?: unknown }>;
+}): {
+  done: Array<{ userId: string; date: string }>;
+  failed: Array<{ userId: string | null; date: string | null; error: string; code?: unknown }>;
+} {
+  const done = result.rejected.map((r) => ({ userId: r.userId, date: r.date }));
+  const failed: Array<{ userId: string | null; date: string | null; error: string; code?: unknown }> = [];
+  for (const f of result.failed) {
+    if (f.userId && f.date && /status: rejected\)/.test(f.error)) done.push({ userId: f.userId, date: f.date });
+    else failed.push(f);
+  }
+  return { done, failed };
+}

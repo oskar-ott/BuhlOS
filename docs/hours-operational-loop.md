@@ -169,7 +169,8 @@ State persists.                       Vercel Blob: users/<userId>/time-entries/<
 ```text
 draft     → submitted          worker (or staff on behalf)
 submitted → approved           admin/LH via /api/time-entries-approve (never self)
-submitted → rejected           admin/LH via /api/time-entries-reject (reason required; 30s undo)
+submitted → rejected           admin/LH via /api/time-entries-reject, or a whole week in one
+                               call via /api/time-entries-bulk-reject (reason required; 30s undo)
 submitted → submitted          worker content-edits a sent, undecided day (2026-07-26
                                owner-directed); stamps editedWhileSubmittedAt, journals
                                hours.edited_while_submitted; attribution gate applies

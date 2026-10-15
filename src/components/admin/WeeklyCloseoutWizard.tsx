@@ -12,6 +12,7 @@ import { useDialogFocus } from "@/components/ui/useDialogFocus";
 import { pctWidthClass } from "@/components/admin/pct-width";
 import { timesheetsClient } from "@/domains/timesheets/client";
 import { formatHoursLabel } from "@/domains/timesheets/format";
+import { settleRejectResult } from "@/domains/timesheets/week-holdups";
 import {
   submittedWeekSelection,
   weeklyDayStatusLabel,
@@ -39,9 +40,9 @@ import {
  * endpoints — no second status-transition path:
  *   - Approve → POST /api/time-entries-bulk-approve (the worker's submitted
  *     days via submittedWeekSelection).
- *   - Send back → POST /api/time-entries-reject per submitted day, with the
- *     boss's note (or the named default — the endpoint requires a reason and
- *     the worker reads it in a push).
+ *   - Send back → POST /api/time-entries-bulk-reject, the worker's submitted
+ *     days in ONE call, with the boss's note (or the named default — the
+ *     endpoint requires a reason and the worker reads it in a push).
  *   - Undo → POST /api/time-entries-reopen back to submitted (admin tier only,
  *     30s window — same contract as the board and the phone).
  *
@@ -214,31 +215,37 @@ export function WeeklyCloseoutWizard({
       if (days.length === 0 || busyRef.current.has(worker.workerId)) return;
       const reason = closeoutRejectReason(noteText);
       setBusy(worker.workerId, true);
-      let failed = 0;
-      for (const d of days) {
-        const r = await timesheetsClient.rejectEntry({
-          userId: d.userId,
-          date: d.date,
-          reason,
-        });
-        if (!r.ok) failed += 1;
-      }
+      // ONE request for the whole week (2026-10-15) — it used to be one
+      // reject per day, each a full store round trip the boss waited on.
+      const res = await timesheetsClient.bulkRejectEntries({ entries: days, defaultReason: reason });
       setBusy(worker.workerId, false);
-      const succeeded = days.length - failed;
-      if (succeeded === 0) {
+      if (!res.ok) {
+        setNotice({
+          tone: "warn",
+          msg:
+            res.error.status === 403
+              ? `Couldn't send it back — office login needed`
+              : "Couldn't send it back — try again",
+        });
+        scheduleRefresh();
+        return;
+      }
+      const { done, failed } = settleRejectResult(res.data);
+      if (done.length === 0) {
         setNotice({ tone: "warn", msg: "Couldn't send it back — try again" });
         scheduleRefresh();
         return;
       }
-      if (failed > 0) {
+      if (failed.length > 0) {
         setNotice({
           tone: "warn",
-          msg: `Sent ${succeeded} of ${days.length} days back · ${firstName(worker.workerName)} — ${failed} didn't send`,
+          msg: `Sent ${done.length} of ${days.length} days back · ${firstName(worker.workerName)} — ${failed.length} didn't send`,
         });
         scheduleRefresh();
         return;
       }
-      const undo = canUndo ? days.map((d) => ({ userId: d.userId, date: d.date })) : [];
+      // Undo covers what THIS call sent back — never a day already sent back.
+      const undo = canUndo ? res.data.rejected.map((r) => ({ userId: r.userId, date: r.date })) : [];
       setOverlay((o) => ({ ...o, [worker.workerId]: { status: "queried", undo } }));
       setNotice({ tone: "ok", msg: `Sent back to ${firstName(worker.workerName)} with your note` });
       scheduleUndoExpiry(worker.workerId, undo);
