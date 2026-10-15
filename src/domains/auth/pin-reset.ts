@@ -6,10 +6,12 @@ import { httpGet, httpPost, type HttpResult, type HttpError } from "@/lib/http";
  * (owner pull 2026-09-14: "I want the worker to be able to reset the pin if
  * they have logged out").
  *
- * The gate is inbox control, never a typed address: asking for a link always
- * reports the same thing whether or not the address has an account, so this
- * surface can't be used to discover who works here. The screens must therefore
- * NEVER say "no account with that email" — see `requestPinReset`.
+ * The gate is inbox control: a link only ever goes to the address ON FILE, so
+ * naming an account grants nobody anything. Asking DOES now say which of four
+ * things happened (owner decision 2026-09-15) — the earlier
+ * same-answer-every-time design left a worker who mistyped their address
+ * waiting on a link that was never sent. See the header of api/pin-reset.js for
+ * what protects the accounts instead.
  */
 
 /** What a token is worth right now. Anything but `valid` is a dead end. */
@@ -27,7 +29,19 @@ export const PinResetResolveResponseSchema = z.object({
 });
 export type PinResetResolveResponse = z.infer<typeof PinResetResolveResponseSchema>;
 
-export const PinResetRequestResponseSchema = z.object({ ok: z.literal(true) });
+/** What the request actually did. Each one gets its own screen. */
+export const PIN_RESET_OUTCOMES = ["sent", "no_account", "unavailable", "throttled"] as const;
+export const PinResetOutcomeSchema = z.enum(PIN_RESET_OUTCOMES);
+export type PinResetOutcome = z.infer<typeof PinResetOutcomeSchema>;
+
+export const PinResetRequestResponseSchema = z.object({
+  ok: z.literal(true),
+  /** Optional so a reply from an older deploy still parses — treated as 'sent'. */
+  outcome: PinResetOutcomeSchema.optional(),
+  /** Present on 'throttled' only. */
+  retryAfterSec: z.number().optional(),
+});
+export type PinResetRequestResponse = z.infer<typeof PinResetRequestResponseSchema>;
 
 export const PinResetAcceptResponseSchema = z.object({
   ok: z.literal(true),
@@ -49,12 +63,13 @@ export function pinResetErrorText(err: HttpError): string {
 }
 
 /**
- * Ask for a reset link. Resolves the same way for a real address and an unknown
- * one — callers MUST show one neutral "if that address is on file, the link is
- * on its way" message and must not branch on the result to imply otherwise.
+ * Ask for a reset link. `outcome` says what happened, and the screen says it
+ * plainly — including "there's no account with that email", which is the whole
+ * point of the 2026-09-15 change: a worker who mistypes finds out immediately
+ * instead of waiting on a link that was never coming.
  */
-export function requestPinReset(email: string): Promise<HttpResult<{ ok: true }>> {
-  return httpPost<{ ok: true }>(
+export function requestPinReset(email: string): Promise<HttpResult<PinResetRequestResponse>> {
+  return httpPost<PinResetRequestResponse>(
     "/api/pin-reset?action=request",
     { email },
     { schema: PinResetRequestResponseSchema, init: { ...sameOrigin }, timeoutMs: 15000 }
