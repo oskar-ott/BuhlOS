@@ -59,7 +59,7 @@ const {
   FRESHNESS_SKEW_MS,
   CDN_SETTLE_MS,
 } = require('./source-freshness');
-const { isLeadingHandRole, isFieldRole } = require('./auth');
+const { isLeadingHandRole, isFieldRole, isProjectManagerRole } = require('./auth');
 const { prorateAllocations } = require('./payroll-rows');
 
 // ── Freshness-verified entry reads ───────────────────────────────────────────
@@ -425,7 +425,10 @@ async function collectRows({ status, userId, jobId, fromDate, toDate, quiet = fa
   const rows = [];
   for (const e of filtered) {
     const u = userById[e.userId] || {};
-    const rate = (isFieldRole(u.role) || isLeadingHandRole(u.role)) ? Number(u.hourlyRate) || 0 : 0;
+    // Project managers are paid on their logged hours like the crew (2026-10-15).
+    const rate = (isFieldRole(u.role) || isLeadingHandRole(u.role) || isProjectManagerRole(u.role))
+      ? Number(u.hourlyRate) || 0
+      : 0;
     const allAllocations = e.allocations || [];
     const prorated = prorateAllocations(e, allAllocations);
     const allocations = allAllocations
