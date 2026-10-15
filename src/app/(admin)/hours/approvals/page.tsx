@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { inProcessFetch } from "../../../../../api/_lib/in-process-api.js";
 import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
@@ -85,7 +86,7 @@ async function loadPendingQueue(cookieValue: string | undefined): Promise<{
   const base = host ? `${proto}://${host}` : "http://localhost:3000";
 
   try {
-    const res = await fetch(`${base}/api/time-entries?scope=approver&status=submitted`, {
+    const res = await inProcessFetch(`${base}/api/time-entries?scope=approver&status=submitted`, {
       cache: "no-store",
       headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
     });

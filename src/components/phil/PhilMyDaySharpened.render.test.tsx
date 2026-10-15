@@ -55,9 +55,11 @@ describe("PhilMyDaySharpenedHeader", () => {
 });
 
 describe("PhilMyDayLogHoursBanner", () => {
-  it("is a link to the Hours tab with the real standard-day figure — never a submit", () => {
+  it("is a link to the Hours tab's LOG SHEET with the real standard-day figure — never a submit", () => {
     const html = renderToString(createElement(PhilMyDayLogHoursBanner, {}));
-    expect(html).toContain('href="/phil/hours"');
+    // `?log=1` lands on the mounted log sheet (today preselected), not the top
+    // of the week history — the banner promised logging (2026-10-15).
+    expect(html).toContain('href="/phil/hours?log=1"');
     expect(html).toContain("Log hours now");
     // The subline's figure is the REAL STANDARD_DAY_HOURS (7.6h), not copy.
     expect(html).toContain("Today not logged · 7h 36m standard");

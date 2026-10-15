@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import { inProcessFetch } from "../../../../../api/_lib/in-process-api.js";
 import { redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { isFlagEnabled, isFlagOn } from "../../../../../api/_lib/feature-flags.js";
@@ -297,7 +298,7 @@ async function loadJobShell(
   const proto = h.get("x-forwarded-proto") ?? "http";
   const base = host ? `${proto}://${host}` : "http://localhost:3000";
   try {
-    const res = await fetch(`${base}/api/jobs`, {
+    const res = await inProcessFetch(`${base}/api/jobs`, {
       cache: "no-store",
       headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
     });
@@ -335,7 +336,7 @@ async function loadJob(
   const base = host ? `${proto}://${host}` : "http://localhost:3000";
 
   try {
-    const res = await fetch(`${base}/api/jobs?id=${encodeURIComponent(jobId)}`, {
+    const res = await inProcessFetch(`${base}/api/jobs?id=${encodeURIComponent(jobId)}`, {
       cache: "no-store",
       headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
     });
@@ -376,7 +377,7 @@ async function loadInitialEvidence(
   const proto = h.get("x-forwarded-proto") ?? "http";
   const base = host ? `${proto}://${host}` : "http://localhost:3000";
   try {
-    const res = await fetch(
+    const res = await inProcessFetch(
       `${base}/api/evidence?jobId=${encodeURIComponent(jobId)}`,
       {
         cache: "no-store",
@@ -422,7 +423,7 @@ async function loadInitialTags(
   const proto = h.get("x-forwarded-proto") ?? "http";
   const base = host ? `${proto}://${host}` : "http://localhost:3000";
   try {
-    const res = await fetch(`${base}/api/tags?jobId=${encodeURIComponent(jobId)}`, {
+    const res = await inProcessFetch(`${base}/api/tags?jobId=${encodeURIComponent(jobId)}`, {
       cache: "no-store",
       headers: cookieValue
         ? { cookie: `${SESSION_COOKIE}=${cookieValue}` }
@@ -449,7 +450,7 @@ async function loadInitialContacts(
   const proto = h.get("x-forwarded-proto") ?? "http";
   const base = host ? `${proto}://${host}` : "http://localhost:3000";
   try {
-    const res = await fetch(`${base}/api/contacts?jobId=${encodeURIComponent(jobId)}`, {
+    const res = await inProcessFetch(`${base}/api/contacts?jobId=${encodeURIComponent(jobId)}`, {
       cache: "no-store",
       headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
     });
@@ -477,7 +478,7 @@ async function loadInitialMyInduction(
   const proto = h.get("x-forwarded-proto") ?? "http";
   const base = host ? `${proto}://${host}` : "http://localhost:3000";
   try {
-    const res = await fetch(
+    const res = await inProcessFetch(
       `${base}/api/job-inductions?jobId=${encodeURIComponent(jobId)}&mine=1`,
       {
         cache: "no-store",

@@ -65,6 +65,15 @@ module.exports = async (req, res) => {
   }
 
   // ── Reference data (single fetch each) ─────────────────────────────
+  // The entry listing (a paginated store walk) and the leave read (another
+  // listing) don't depend on the reference data — start all five together so
+  // the two slow listings overlap the three cheap reads instead of following
+  // them. Both are consumed further down; failures stay fail-soft there.
+  const entryBlobsPromise = listTimeEntryBlobs().then(
+    (blobs) => ({ ok: true, blobs }),
+    (e) => ({ ok: false, error: e }),
+  );
+  const leavePromise = readLeave().catch(() => null);
   const [usersBlob, jobsBlob, empBlob] = await Promise.all([
     readBlob('users.json', { users: [] }),
     readBlob('jobs.json',  { jobs: [] }),
@@ -110,12 +119,11 @@ module.exports = async (req, res) => {
   // 1000 blobs and which never followed the cursor — would one day have
   // started silently reporting real logged days as "missing" (2026-09-22
   // payroll audit: 352 blobs under users/ and growing ~50 a week).
-  let entryBlobs = [];
-  try {
-    entryBlobs = await listTimeEntryBlobs();
-  } catch (e) {
-    return res.status(502).json({ error: 'blob list failed: ' + e.message });
+  const listed = await entryBlobsPromise;
+  if (!listed.ok) {
+    return res.status(502).json({ error: 'blob list failed: ' + listed.error.message });
   }
+  const entryBlobs = listed.blobs;
 
   // Date-prefix filter (cheap, before fetch): pathname looks like
   //   users/<uid>/time-entries/<date>.json
@@ -244,8 +252,10 @@ module.exports = async (req, res) => {
   // consumer (weekly board, Phil week, reminder crons) agrees.
   let leaveByUserDate = {};
   try {
-    const leaveData = await readLeave();
-    leaveByUserDate = approvedLeaveByUserDate(leaveData.requests, fromDate, toDate);
+    const leaveData = await leavePromise;
+    leaveByUserDate = leaveData
+      ? approvedLeaveByUserDate(leaveData.requests, fromDate, toDate)
+      : {};
   } catch { leaveByUserDate = {}; }
   const leave = [];
 

@@ -287,12 +287,12 @@ function JobBuildCard({ job, canBuild }: { job: Job; canBuild: boolean }) {
       )}
       <div className="mt-4 flex flex-wrap items-center gap-2">
         {canBuild ? (
-          <a
+          <Link
             href={`/v2/jobs/${encodeURIComponent(job.id)}/builder` as Route}
             className="inline-flex shrink-0 items-center gap-1.5 rounded-[4px] bg-brand-navy px-3.5 py-2 text-sm font-semibold text-text-inverse transition-colors hover:bg-accent-ink focus:outline-none focus:ring-2 focus:ring-brand-navy"
           >
             <PencilRuler aria-hidden="true" className="h-4 w-4" /> Open builder
-          </a>
+          </Link>
         ) : null}
         {/* #190 — copy structure + site basics into a new draft. */}
         <DuplicateJobButton jobId={job.id} />
@@ -311,12 +311,12 @@ function SiteContextCard({ job, canBuild }: { job: Job; canBuild: boolean }) {
       <div className="flex items-center justify-between gap-3">
         <CardKicker>Site</CardKicker>
         {canBuild ? (
-          <a
+          <Link
             href={`/v2/jobs/${encodeURIComponent(job.id)}/builder?tab=basics` as Route}
             className="text-sm font-medium text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-4 focus:outline-none focus:ring-2 focus:ring-brand-navy"
           >
             Edit
-          </a>
+          </Link>
         ) : null}
       </div>
       <dl className="mt-4 grid gap-4 text-sm">

@@ -53,7 +53,7 @@ const { areaProgressPct, jobTaskCounts } = require('./_lib/job-tasks');
 const { createJob } = require('./_lib/job-create');
 const { append: appendAuditLog } = require('./_lib/audit-log');
 const { buildJobCreatedEntry } = require('./_lib/job-create-audit');
-const { appendAudit } = require('./_lib/job-audit');
+const { appendAudit, appendAuditMany } = require('./_lib/job-audit');
 const { testJobDeleteEligibility } = require('./_lib/test-data');
 const { buildDuplicatePayload, copyName } = require('./_lib/job-duplicate');
 
@@ -1391,13 +1391,14 @@ module.exports = async (req, res) => {
           after: JSON.parse(_now.basicsJson),
         });
       }
-      for (const a of audits) {
-        await appendAudit(job.id, {
-          byUserId: me.id, byUsername: me.username,
-          kind: a.kind, summary: a.summary,
-          before: a.before, after: a.after,
-        });
-      }
+      // One read-modify-write for every kind this save produced (status +
+      // basics + areas + tasks used to be four serial puts on the same blob
+      // before the save could answer). Best-effort, as before.
+      await appendAuditMany(job.id, audits.map((a) => ({
+        byUserId: me.id, byUsername: me.username,
+        kind: a.kind, summary: a.summary,
+        before: a.before, after: a.after,
+      }))).catch((e) => console.error('job audit append failed', e && e.message));
 
       // #235: handover / defect-period change → a dedicated canonical-journal
       // verb so the cross-job activity feed shows "set/cleared the handover

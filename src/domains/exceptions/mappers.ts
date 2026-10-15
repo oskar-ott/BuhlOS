@@ -124,8 +124,9 @@ export function jobExceptions(jobs: ReadonlyArray<Job>): ExceptionItem[] {
         severity: "critical",
         status: "blocked",
         ownerRole: "office",
-        // Deep-link straight to the PR #67 assignment section on the builder.
-        ...withAction(resolveAction("jobBuilder", { jobId: j.id }, { label: "Assign field workers", fragment: "assigned-field-workers" })),
+        // The hub's crew band is where workers are put on a job (2026-10-15);
+        // the old builder anchor `#assigned-field-workers` never existed.
+        ...withAction(resolveAction("jobHub", { jobId: j.id }, { label: "Assign workers" })),
         tags: ["job", "crew"],
       });
     }

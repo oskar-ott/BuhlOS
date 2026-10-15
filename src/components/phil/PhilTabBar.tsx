@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import type { Route } from "next";
 import {
   Calendar,
@@ -342,6 +342,7 @@ export function PhilTabBar({
   jobRoomsEnabled,
 }: PhilTabBarProps) {
   const pathname = usePathname() ?? "";
+  const router = useRouter();
   // The job id when we're exactly on a job-detail route (/phil/jobs/<id>) —
   // used by the FAB (capture preselect) and the rooms-memory fallback below.
   const currentJobId = philJobDetailId(pathname);
@@ -572,6 +573,9 @@ export function PhilTabBar({
         initialJobId={preselectFromRecent ?? currentJobId}
         incoming={incoming}
         onRequestCamera={fireCamera}
+        // The page under the sheet (job: "Today's captures"; My Day: the
+        // evidence tiles) learns about the filed photo without a pull-to-refresh.
+        onSaved={() => router.refresh()}
       />
     </>
   );

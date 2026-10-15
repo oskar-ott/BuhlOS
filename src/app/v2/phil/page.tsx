@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { inProcessFetch } from "../../../../api/_lib/in-process-api.js";
 import type { Route } from "next";
 import { cookies, headers } from "next/headers";
 import { isFlagEnabled } from "../../../../api/_lib/feature-flags.js";
@@ -177,7 +178,7 @@ async function loadMyLicences(): Promise<{
     const host = h.get("x-forwarded-host") ?? h.get("host");
     const proto = h.get("x-forwarded-proto") ?? "http";
     const base = host ? `${proto}://${host}` : "http://localhost:3000";
-    const res = await fetch(`${base}/api/licences?mine=1`, {
+    const res = await inProcessFetch(`${base}/api/licences?mine=1`, {
       cache: "no-store",
       headers: { cookie: `${SESSION_COOKIE}=${raw}` },
     });
@@ -206,7 +207,7 @@ async function loadMyInductions(): Promise<{
     const host = h.get("x-forwarded-host") ?? h.get("host");
     const proto = h.get("x-forwarded-proto") ?? "http";
     const base = host ? `${proto}://${host}` : "http://localhost:3000";
-    const res = await fetch(`${base}/api/job-inductions?mine=1`, {
+    const res = await inProcessFetch(`${base}/api/job-inductions?mine=1`, {
       cache: "no-store",
       headers: { cookie: `${SESSION_COOKIE}=${raw}` },
     });
@@ -240,7 +241,7 @@ async function loadMyRecord(): Promise<{
     const host = h.get("x-forwarded-host") ?? h.get("host");
     const proto = h.get("x-forwarded-proto") ?? "http";
     const base = host ? `${proto}://${host}` : "http://localhost:3000";
-    const res = await fetch(`${base}/api/my-stats`, {
+    const res = await inProcessFetch(`${base}/api/my-stats`, {
       cache: "no-store",
       headers: { cookie: `${SESSION_COOKIE}=${raw}` },
     });

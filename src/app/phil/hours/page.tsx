@@ -69,7 +69,7 @@ export const dynamic = "force-dynamic";
 export default async function PhilHoursPage({
   searchParams,
 }: {
-  searchParams: Promise<{ week?: string; job?: string }>;
+  searchParams: Promise<{ week?: string; job?: string; log?: string }>;
 }) {
   const cookieStore = await cookies();
   const raw = cookieStore.get(SESSION_COOKIE)?.value;
@@ -91,6 +91,10 @@ export default async function PhilHoursPage({
   // History + the worker's active assigned jobs in parallel — the jobs feed
   // the resubmit form's attribution guard so a fix can't land jobId:null.
   const launchJobId = typeof sp.job === "string" && sp.job ? sp.job : null;
+  // `?log=1` — My Day's "Log hours now" banner: a request to log, so the page
+  // lands on the log sheet (today preselected) instead of the top of the
+  // history, the same arrival rule as `?job=` (2026-10-15).
+  const launchLog = sp.log === "1";
   const [{ entries, fetchError }, loadedJobs, sharpenedFlags, canLogTafe] =
     await Promise.all([
       loadHistory(raw),
@@ -144,6 +148,7 @@ export default async function PhilHoursPage({
               viewerId={session.userId ?? null}
               canLogTafe={canLogTafe}
               launchJobId={launchJobId}
+              launchLog={launchLog}
             />
           )}
         </div>

@@ -1,4 +1,6 @@
 import Link from "next/link";
+import type { Route } from "next";
+import { inProcessFetch } from "../../../../../../api/_lib/in-process-api.js";
 import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
@@ -108,10 +110,10 @@ export default async function AdminEvidenceReviewPage({ params }: PageParams) {
       title={`Evidence · ${jobResult.job.name}`}
       breadcrumb={
         <Link
-          href="/command-centre"
+          href={`/v2/jobs/${encodeURIComponent(jobId)}` as Route}
           className="underline decoration-accent-yellow decoration-2 underline-offset-2"
         >
-          ← Command Centre
+          ← Job
         </Link>
       }
     >
@@ -149,7 +151,7 @@ async function loadJob(
   const proto = h.get("x-forwarded-proto") ?? "http";
   const base = host ? `${proto}://${host}` : "http://localhost:3000";
   try {
-    const res = await fetch(`${base}/api/jobs?id=${encodeURIComponent(jobId)}`, {
+    const res = await inProcessFetch(`${base}/api/jobs?id=${encodeURIComponent(jobId)}`, {
       cache: "no-store",
       headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
     });
@@ -187,7 +189,7 @@ async function loadEvidence(
   const proto = h.get("x-forwarded-proto") ?? "http";
   const base = host ? `${proto}://${host}` : "http://localhost:3000";
   try {
-    const res = await fetch(
+    const res = await inProcessFetch(
       `${base}/api/evidence?jobId=${encodeURIComponent(jobId)}`,
       {
         cache: "no-store",

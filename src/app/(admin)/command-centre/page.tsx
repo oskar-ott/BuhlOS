@@ -89,8 +89,13 @@ export default async function CommandCentrePage({
     redirect("/v2/login");
   }
 
-  const sm8Enabled = await isFlagEnabled("servicem8_sync", session);
-
+  // The two flag reads and the data snapshot are independent — start them
+  // together so the home never waits on flags.json before its first read.
+  const [sm8Enabled, showFlagsReadout, snapshot] = await Promise.all([
+    isFlagEnabled("servicem8_sync", session),
+    isFlagEnabled("admin_flags_readout", session),
+    loadSnapshot(raw),
+  ]);
   const {
     hoursPending,
     hoursRejected,
@@ -106,7 +111,7 @@ export default async function CommandCentrePage({
     hoursMissingError,
     jobsError,
     todayPulseError,
-  } = await loadSnapshot(raw);
+  } = snapshot;
 
   // Role-change sync (src/lib/auth/role-sync.ts): the login's live role no
   // longer matches the one they signed in with (e.g. moved off an office
@@ -130,7 +135,6 @@ export default async function CommandCentrePage({
   // only reads the blob — it never talks to ServiceM8.
   const sm8Report = sm8Enabled ? await loadServiceM8SyncReport() : null;
 
-  const showFlagsReadout = await isFlagEnabled("admin_flags_readout", session);
   const flagStates = showFlagsReadout
     ? await Promise.all(
         listFlags().map(async (f) => ({ key: f.key, on: await isFlagOn(f.key), target: f.target }))
@@ -207,9 +211,11 @@ export default async function CommandCentrePage({
   // Active-but-no-crew criticals from the SAME exceptions projection the
   // mobile home ranks (source "job" emits critical only for no-crew; draft
   // jobs are info) — one judgement, one number.
-  const noCrewJobs = exceptions.filter(
+  const noCrewExceptions = exceptions.filter(
     (e) => e.source === "job" && e.severity === "critical",
-  ).length;
+  );
+  const noCrewJobs = noCrewExceptions.length;
+  const noCrewJobId = noCrewJobs === 1 ? noCrewExceptions[0]?.jobId ?? undefined : undefined;
   // Rejected days live on the weekly board ("Sent back"), not the approvals
   // queue — land it on the week of the oldest one so it's actually on screen.
   const oldestRejectedDate = hoursRejected.reduce<string | null>(
@@ -224,6 +230,7 @@ export default async function CommandCentrePage({
     // the last complete Mon–Sun week (same window loadSnapshot queried).
     missingWeekStart: addDays(weekStartOf(localDateString(new Date(), BUSINESS_TIMEZONE)), -7),
     noCrewJobs,
+    ...(noCrewJobId ? { noCrewJobId } : {}),
     pending: hoursPending.length,
   });
   // Weekly-first (owner directive 2026-08-08): the strip counts the CURRENT

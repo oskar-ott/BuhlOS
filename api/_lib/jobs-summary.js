@@ -97,14 +97,13 @@ async function readJobsSummary(deps = realDeps()) {
   // caller (a test) injects no fresh reader.
   const readSourceFresh = deps.readBlobFresh || readBlob;
 
-  const uploadedAt = await blobUploadedAt(SUMMARY_SOURCE_KEY);
-
-  let summary = null;
-  try {
-    summary = await readBlob(SUMMARY_KEY, null);
-  } catch {
-    summary = null; // corrupt/unreadable → rebuild
-  }
+  // The freshness probe (a store listing, ~1 s cross-region) and the summary
+  // read are independent — the comparison needs both, so start them together
+  // rather than paying the listing before the read even begins.
+  const [uploadedAt, summary] = await Promise.all([
+    blobUploadedAt(SUMMARY_SOURCE_KEY),
+    readBlob(SUMMARY_KEY, null).catch(() => null), // corrupt/unreadable → rebuild
+  ]);
 
   const fresh =
     summary &&

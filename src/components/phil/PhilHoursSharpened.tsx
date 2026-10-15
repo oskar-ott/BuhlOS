@@ -94,6 +94,10 @@ interface Props {
    *  they were standing in isn't rediscovered on a dial (P13/P14). Ignored
    *  when unknown — never a guessed job. */
   launchJobId?: string | null;
+  /** Arrived from My Day's "Log hours now" (`?log=1`): land on the log sheet
+   *  (today preselected) rather than the top of the history — the banner
+   *  promised logging, so the first tap here is the day type, not a scroll. */
+  launchLog?: boolean;
 }
 
 type SendState =
@@ -151,6 +155,7 @@ export function PhilHoursSharpened({
   viewerId,
   canLogTafe = false,
   launchJobId = null,
+  launchLog = false,
 }: Props) {
   const router = useRouter();
 
@@ -278,10 +283,10 @@ export function PhilHoursSharpened({
   // (with that job picked), not the top of the history. Once, on arrival.
   const launchScrolled = useRef(false);
   useEffect(() => {
-    if (!launchJob || launchScrolled.current) return;
+    if (!(launchJob || launchLog) || launchScrolled.current) return;
     launchScrolled.current = true;
     logSheetRef.current?.scrollIntoView({ block: "start" });
-  }, [launchJob]);
+  }, [launchJob, launchLog]);
   const initialTodayEntry = mergedEntries.find((e) => e.date === todayISO) ?? null;
 
   return (

@@ -89,14 +89,12 @@ function realDeps() {
 async function readJobDetailProjection(jobId, deps = realDeps()) {
   const { readBlob, writeBlob, blobUploadedAt } = deps;
 
-  const uploadedAt = await blobUploadedAt(DETAIL_SOURCE_KEY);
-
-  let stored = null;
-  try {
-    stored = await readBlob(detailKey(jobId), null);
-  } catch {
-    stored = null; // corrupt/unreadable → rebuild
-  }
+  // Probe and projection read are independent — overlap them (the probe is a
+  // store listing, the slow half of this path).
+  const [uploadedAt, stored] = await Promise.all([
+    blobUploadedAt(DETAIL_SOURCE_KEY),
+    readBlob(detailKey(jobId), null).catch(() => null), // corrupt/unreadable → rebuild
+  ]);
 
   const fresh =
     stored &&

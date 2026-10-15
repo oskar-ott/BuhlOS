@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { inProcessFetch } from "../../../../../api/_lib/in-process-api.js";
 import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { ArrowLeft, ArrowRight } from "lucide-react";
@@ -512,7 +513,7 @@ async function loadWeekCloseout(
   const base = await apiBase();
   const weekEnd = weekEndOf(weekStart);
   try {
-    const res = await fetch(
+    const res = await inProcessFetch(
       `${base}/api/time-entries-overview?fromDate=${weekStart}&toDate=${weekEnd}`,
       {
         cache: "no-store",
@@ -543,7 +544,7 @@ async function loadExportRows(
 ): Promise<{ rows: ReturnType<typeof toPayPeriodRows>; error: string | null }> {
   const base = await apiBase();
   try {
-    const res = await fetch(
+    const res = await inProcessFetch(
       `${base}/api/time-entries-export?dryRun=1&format=json&status=approved` +
         `&fromDate=${range.fromDate}&toDate=${range.toDate}`,
       {

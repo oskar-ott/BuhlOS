@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { inProcessFetch } from "../../../../../../api/_lib/in-process-api.js";
 import { redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
@@ -146,7 +147,7 @@ async function loadJob(
   const proto = h.get("x-forwarded-proto") ?? "http";
   const base = host ? `${proto}://${host}` : "http://localhost:3000";
   try {
-    const res = await fetch(`${base}/api/jobs?id=${encodeURIComponent(jobId)}`, {
+    const res = await inProcessFetch(`${base}/api/jobs?id=${encodeURIComponent(jobId)}`, {
       cache: "no-store",
       headers: cookieValue
         ? { cookie: `${SESSION_COOKIE}=${cookieValue}` }
@@ -182,7 +183,7 @@ async function loadPlans(
   const proto = h.get("x-forwarded-proto") ?? "http";
   const base = host ? `${proto}://${host}` : "http://localhost:3000";
   try {
-    const res = await fetch(
+    const res = await inProcessFetch(
       `${base}/api/plans?jobId=${encodeURIComponent(jobId)}`,
       {
         cache: "no-store",

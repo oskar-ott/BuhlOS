@@ -1,4 +1,5 @@
 import type { Route } from "next";
+import Link from "next/link";
 import { AlertTriangle, Info } from "lucide-react";
 import { Card, CardKicker } from "@/components/ui/Card";
 import { cn } from "@/lib/cn";
@@ -13,6 +14,7 @@ import { formatMoneyCents } from "@/domains/jobs/profitability-client";
 import { classifyTimeOverrun, timeOverrunView } from "@/domains/analytics/time-overrun";
 import type { CostRateEntry } from "@/domains/cost-rates/schema";
 import type { TimeEntry } from "@/domains/timesheets/types";
+import { weekStartOf } from "@/domains/timesheets/service";
 
 /**
  * Admin Job hub — Labour card: the labour spent on this job AND what it cost,
@@ -70,6 +72,18 @@ export function JobLabourSummary({
   const costing = costJobHours(entries, jobId, ratesByUser);
   const rows = listJobHoursRows(entries, jobId);
   const pending = summary.pendingHours > 0;
+  // The week board opens on LAST week by default; the pending days may sit in
+  // another one. Land it on the week of the oldest submitted day on this job
+  // so "Approve on the week board" shows the rows it promises (2026-10-15).
+  const oldestPendingDate = entries
+    .filter(
+      (e) =>
+        e.status === "submitted" && (e.allocations ?? []).some((a) => a.jobId === jobId),
+    )
+    .reduce<string | null>((min, e) => (min === null || e.date < min ? e.date : min), null);
+  const weekBoardHref = (
+    oldestPendingDate ? `/hours/weekly?week=${weekStartOf(oldestPendingDate)}` : "/hours/weekly"
+  ) as Route;
 
   // #343 time-overrun flag: hours consumed (approved + submitted) vs the
   // canonical completion %, against an injected labour-HOURS estimate.
@@ -105,12 +119,12 @@ export function JobLabourSummary({
     <Card>
       <div className="flex items-center justify-between gap-3">
         <CardKicker>Labour</CardKicker>
-        <a
-          href={"/hours/weekly" as Route}
+        <Link
+          href={weekBoardHref}
           className="text-sm font-medium text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-4 focus:outline-none focus:ring-2 focus:ring-brand-navy"
         >
           {pending ? "Approve on the week board →" : "Week board →"}
-        </a>
+        </Link>
       </div>
 
       {fetchError ? (
@@ -189,7 +203,7 @@ export function JobLabourSummary({
                             ) : null}
                           </>
                         ) : !w.rated ? (
-                          <a
+                          <Link
                             href={
                               (employeeIdByUserId[w.userId]
                                 ? `/employees/${encodeURIComponent(employeeIdByUserId[w.userId]!)}`
@@ -198,7 +212,7 @@ export function JobLabourSummary({
                             className="text-xs font-medium text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-2 focus:outline-none focus:ring-2 focus:ring-brand-navy"
                           >
                             Set rate →
-                          </a>
+                          </Link>
                         ) : (
                           <span className="text-text-muted">—</span>
                         )}

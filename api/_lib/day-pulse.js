@@ -29,6 +29,9 @@ function sydneyToday() {
  */
 async function computeDayPulse(viewer, date) {
   // Resolve which jobs this user can see (LH gets a subset).
+  // jobs.json and the day's entry listing are independent — overlap them
+  // (the listing is the slow half; this is the Today strip's heaviest read).
+  const entryBlobsPromise = listTimeEntryBlobsForDate(date); // #935: never the silent cap
   const jobsBlob = await readBlob('jobs.json', { jobs: [] });
   const allJobs  = jobsBlob.jobs || [];
   const active   = allJobs.filter(j => (j.status || 'active') === 'active');
@@ -50,7 +53,7 @@ async function computeDayPulse(viewer, date) {
   const jobsWithHoursToday = new Set();
 
   try {
-    const blobs = await listTimeEntryBlobsForDate(date); // #935: never the silent cap
+    const blobs = await entryBlobsPromise;
 
     const entries = (await Promise.all(blobs.map(async b => {
       try {

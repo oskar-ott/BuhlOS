@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { inProcessFetch } from "../../../../api/_lib/in-process-api.js";
 import { cookies, headers } from "next/headers";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { PhilJobsList } from "@/components/phil/PhilJobsList";
@@ -143,7 +144,7 @@ async function loadJobs(cookieValue: string | undefined): Promise<{
     // site" chips. The enrichment fails soft server-side (api/jobs.js): on a
     // bad read the core job still returns with zeroed stats, so the list keeps
     // working and the chips just don't render.
-    const res = await fetch(`${base}/api/jobs?withStats=1`, {
+    const res = await inProcessFetch(`${base}/api/jobs?withStats=1`, {
       cache: "no-store",
       headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
     });

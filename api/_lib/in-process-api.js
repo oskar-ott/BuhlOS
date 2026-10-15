@@ -35,6 +35,17 @@ const HANDLERS = {
   'payroll-runs': () => require('../payroll-runs'),
   'job-hours': () => require('../job-hours'),
   evidence: () => require('../evidence'),
+  // 2026-10-15 (shorter-paths audit): the office pages #1096 missed, the Phil
+  // job/photos pages and the More tab still woke one function per call.
+  'time-entries-export': () => require('../time-entries-export'),
+  leave: () => require('../leave'),
+  users: () => require('../users'),
+  'my-stats': () => require('../my-stats'),
+  'job-inductions': () => require('../job-inductions'),
+  plans: () => require('../plans'),
+  'photos-catalog': () => require('../photos-catalog'),
+  tags: () => require('../tags'),
+  contacts: () => require('../contacts'),
 };
 
 /** `/api/<name>` → the handler key, or null. */

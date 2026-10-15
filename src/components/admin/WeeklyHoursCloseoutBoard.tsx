@@ -704,7 +704,7 @@ export function WeeklyHoursCloseoutBoard({
         ) : null}
         <div className="mt-3.5">
           <Link
-            href={HOURS_PERIOD}
+            href={`${HOURS_PERIOD}?period=week&anchor=${closeout.weekStart}` as Route}
             className="inline-flex items-center rounded-card border border-border px-4 py-2 text-sm font-semibold text-text hover:border-brand-navy"
           >
             Open pay period →
