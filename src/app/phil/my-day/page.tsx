@@ -136,7 +136,7 @@ export default async function MyDayPage({
   // The sharpened-chrome flags ride the same parallel wave (cached flags.json
   // reads, not per-page blob round-trips). Resolved server-side; only booleans
   // reach the client (docs/feature-flags.md).
-  const [{ todayEntry, recentEntries, fetchError }, assignedJobs, profile, sharpenedFlags, receiptsOn] =
+  const [{ todayEntry, recentEntries, fetchError }, assignedJobs, profile, sharpenedFlags, receiptsOn, stockOn] =
     await Promise.all([
       loadEntries(raw, fixDate),
       loadAssignedJobs(raw),
@@ -146,6 +146,8 @@ export default async function MyDayPage({
       Promise.all([isFlagEnabled("receipt_capture", session), isFlagOn("invoice_capture")])
         .then(([a, b]) => a && b)
         .catch(() => false),
+      // Workshop Stock: the quick-grid tile to /phil/stock (owner pull 2026-10-15).
+      isFlagEnabled("workshop_stock", session).catch(() => false),
     ]);
 
   // Role-change sync (src/lib/auth/role-sync.ts): the live login role differs
@@ -354,6 +356,7 @@ export default async function MyDayPage({
                 ? { jobs: jobs.map((j) => ({ id: j.id, name: j.name, code: j.code ?? null })), defaultJobId: soleJobId }
                 : null
             }
+            stock={stockOn}
           />
 
         </div>

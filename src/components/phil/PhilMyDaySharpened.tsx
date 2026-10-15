@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Clock,
   MapPin,
+  Package,
   Phone,
 } from "lucide-react";
 import { PhilOfflineLink } from "./PhilOfflineLink";
@@ -376,10 +377,14 @@ export function PhilMyDayQuickGrid({
   todayISO,
   viewerId,
   receipts = null,
+  stock = false,
 }: {
   /** Receipts from the field (receipt_capture + invoice_capture, resolved by
    *  the server page). null = the tile is absent — the feature leaves no trace. */
   receipts?: { jobs: ReadonlyArray<PhilReceiptJob>; defaultJobId: string | null } | null;
+  /** Workshop Stock (workshop_stock, resolved by the server page). false = the
+   *  tile is absent — the feature leaves no trace. */
+  stock?: boolean;
   /** True only when today genuinely has no time entry (the page's real
    *  todayEntry === null) — drives the amber "Due" chip. */
   hoursDue: boolean;
@@ -434,6 +439,22 @@ export function PhilMyDayQuickGrid({
         {/* Log a receipt — a card purchase recorded where it happens (P13).
             Enters this existing slot; no new section (P10). */}
         {receipts ? <PhilReceiptEntry jobs={receipts.jobs} defaultJobId={receipts.defaultJobId} tileClassName={tileClass} /> : null}
+
+        {/* Workshop stock — check the shelf before buying more (owner pull
+            2026-10-15). Enters this existing slot; no new section (P10). */}
+        {stock ? (
+          <PhilOfflineLink
+            href={"/phil/stock" as Route}
+            data-testid="phil-my-day-stock"
+            className={tileClass}
+          >
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-[10px] bg-surface-subtle text-brand-navy">
+              <Package className="h-[18px] w-[18px]" aria-hidden="true" />
+            </span>
+            <span className="text-sm font-semibold leading-tight text-text">Workshop stock</span>
+            <span className="text-xs leading-tight text-text-muted">Take, add or bring back</span>
+          </PhilOfflineLink>
+        ) : null}
       </div>
     </section>
   );
