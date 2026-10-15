@@ -19,6 +19,7 @@
 // (scripts/importers/job-read-parity.js).
 
 const { decomposeLegacyId } = require('../../scripts/importers/lib/structure-legacy-id');
+const { defaultPgReadCache } = require('./pg-read-cache');
 
 const STAGE_KEYS = { roughIn: 'roughInTasks', fitOff: 'fitOffTasks' };
 
@@ -387,6 +388,15 @@ const EMPTY_DIAG_BLOB = (reason, latencyMs, flagOn) => ({
 async function runJobsOverlay(flagKey, input = {}, opts = {}) {
   const { blobJobs = [], getDb = realGetDb, isFlagOn = realIsFlagOn, tenantSlug = 'buhl', now = Date.now } = input;
   const eligibleIds = opts.eligibleIds || null; // null → all jobs (admin); array → scoped (Phil)
+  // Perf: the tenant lookup + mirror walk are process-cached (see
+  // ./pg-read-cache.js for why a stale mirror can never change served output —
+  // the parity gate below re-checks against THIS request's fresh Blob spine).
+  // Cache is ON only for the real runtime: a caller that injects `getDb` (unit
+  // tests, probes) owns its database, so the shared cache defaults OFF for it
+  // unless the caller passes its own `pgCache`. Probes pass `pgCache: null`.
+  const pgCache = Object.prototype.hasOwnProperty.call(input, 'pgCache')
+    ? input.pgCache
+    : (Object.prototype.hasOwnProperty.call(input, 'getDb') ? null : defaultPgReadCache);
   const started = now();
   const elapsed = () => Math.max(0, now() - started);
 
@@ -399,13 +409,18 @@ async function runJobsOverlay(flagKey, input = {}, opts = {}) {
     if (!flagOn) return { jobs: blobJobs, diag: EMPTY_DIAG_BLOB('flag off', elapsed(), false) };
 
     const sql = getDb({ mode: 'read' });
-    const tenant = await sql`select id from public.tenants where slug = ${tenantSlug}`;
-    if (!tenant.length) {
+    const tenantId = pgCache
+      ? await pgCache.tenantId(sql, tenantSlug)
+      : (await sql`select id from public.tenants where slug = ${tenantSlug}`)
+          .map((r) => r.id)[0] ?? null;
+    if (tenantId == null) {
       // PG was reached but the tenant is absent — Blob fallback (PG was attempted).
       return { jobs: blobJobs, diag: { ...EMPTY_DIAG_BLOB('no tenant', elapsed(), true), fallbackUsed: true } };
     }
 
-    const sources = await loadJobStructureFromPg(sql, tenant[0].id);
+    const sources = pgCache
+      ? await pgCache.memoize(`jobs-structure:${tenantSlug}`, () => loadJobStructureFromPg(sql, tenantId))
+      : await loadJobStructureFromPg(sql, tenantId);
     const pgJobs = (sources && sources.jobs && sources.jobs.jobs) || [];
     const o = eligibleIds ? overlayPhilJobs(blobJobs, pgJobs, eligibleIds) : overlayAdminJobs(blobJobs, pgJobs);
     const servedFromPg = o.pgFaithfulCount > 0;
@@ -465,7 +480,9 @@ async function probeAdminJobsRead(deps = {}) {
   const started = now();
   try {
     const blob = await readBlob('jobs.json', { jobs: [] });
-    const { diag } = await readAdminJobsWithPgOverlay({ ...deps, blobJobs: (blob && blob.jobs) || [] });
+    // pgCache: null — the probe exists to measure LIVE parity + latency, so it
+    // must never read through the process cache the serving path uses.
+    const { diag } = await readAdminJobsWithPgOverlay({ pgCache: null, ...deps, blobJobs: (blob && blob.jobs) || [] });
     return diag;
   } catch (err) {
     const msg = err && err.message ? err.message : String(err);
