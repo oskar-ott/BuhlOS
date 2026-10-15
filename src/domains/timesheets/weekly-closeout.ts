@@ -269,16 +269,7 @@ export function buildWeeklyHoursCloseout(input: WeeklyCloseoutInput): WeeklyHour
   const workers: WeeklyWorkerHours[] = [];
   for (const [workerId, who] of names) {
     const days: WeeklyHoursDay[] = [];
-    let approvedHours = 0;
     let loggedHours = 0;
-    let approvedCount = 0;
-    let submittedCount = 0;
-    let rejectedCount = 0;
-    let draftCount = 0;
-    let missingCount = 0;
-    let pendingCount = 0;
-    const blockers: string[] = [];
-    const needsLookReasons: string[] = [];
     // §5 job-split chips: logged hours per job across the week, allocation-level
     // so split days attribute correctly. Insertion-ordered for a stable palette.
     const jobHours = new Map<string, { jobId: string | null; jobName: string; hours: number }>();
@@ -348,55 +339,10 @@ export function buildWeeklyHoursCloseout(input: WeeklyCloseoutInput): WeeklyHour
         }
       }
 
-      if (status === "approved") {
-        approvedCount += 1;
-        approvedHours += entry?.totalHours ?? 0;
-      } else if (status === "submitted") {
-        submittedCount += 1;
-        blockers.push(`${weekday} waiting for review`);
-      } else if (status === "rejected") {
-        rejectedCount += 1;
-        blockers.push(`${weekday} rejected`);
-        needsLookReasons.push(
-          entry?.rejectedReason
-            ? `${weekday} bounced back — "${entry.rejectedReason}". Waiting on the worker.`
-            : `${weekday} was rejected — waiting on the worker to fix it.`,
-        );
-      } else if (status === "draft") {
-        draftCount += 1;
-        blockers.push(`${weekday} draft — not submitted`);
-        needsLookReasons.push(`${weekday} is still a draft — not sent in yet.`);
-      } else if (status === "missing") {
-        missingCount += 1;
-        blockers.push(`${weekday} missing`);
-        needsLookReasons.push(`No entry for ${weekday} — were they on site?`);
-      } else if (status === "pending") {
-        // Expected under weekly logging — counted so pay-run can refuse to
-        // sweep an unfinished week, but never a blocker or a "needs a look".
-        pendingCount += 1;
-      }
-
-      // §5 overtime flag — a long day the boss should eyeball. Read straight off
-      // the stored entry (overtimeHours > 0, or a >10h day) — never re-derived.
-      if (entry && isLogged) {
-        const ot = entry.overtimeHours ?? 0;
-        const long = (entry.totalHours ?? 0) > 10;
-        if (ot > 0 || long) {
-          needsLookReasons.push(
-            ot > 0
-              ? `${weekday} carries ${round2(ot)}h overtime — needs your nod.`
-              : `${weekday} ran over 10h — overtime needs your nod.`,
-          );
-        }
-      }
-
+      // Counts, blockers, "needs a look" lines and readiness come from the
+      // finished days below (rollupWorkerDays) — the same roll-up the
+      // desktop board re-runs over a day it just decided.
       const leaveType = leaveByKey.get(`${workerId}|${date}`) ?? null;
-      if (entry && leaveType) {
-        // Logged hours on an approved-leave day still count as WORK, but the
-        // office should see the collision (#333).
-        blockers.push(`${weekday} logged while on leave`);
-        needsLookReasons.push(`${weekday} logged while on ${leaveType} leave.`);
-      }
 
       days.push({
         date,
@@ -420,14 +366,7 @@ export function buildWeeklyHoursCloseout(input: WeeklyCloseoutInput): WeeklyHour
       });
     }
 
-    const readiness: WorkerWeekReadiness =
-      submittedCount > 0
-        ? "needs-review"
-        : rejectedCount > 0 || draftCount > 0
-          ? "needs-worker"
-          : missingCount > 0
-            ? "missing-hours"
-            : "payroll-ready";
+    const rollup = rollupWorkerDays(days);
 
     const roundedLogged = round2(loggedHours);
     // §5 labour $: hours × rate, integer cents. null exactly when no rate is
@@ -451,16 +390,7 @@ export function buildWeeklyHoursCloseout(input: WeeklyCloseoutInput): WeeklyHour
       workerId,
       workerName: who.name,
       workerRole: who.role,
-      readiness,
-      approvedHours: round2(approvedHours),
-      approvedCount,
-      submittedCount,
-      rejectedCount,
-      draftCount,
-      missingCount,
-      pendingCount,
-      blockers,
-      needsLookReasons,
+      ...rollup,
       days,
       loggedHours: roundedLogged,
       jobBreakdown,
@@ -500,7 +430,131 @@ export function buildWeeklyHoursCloseout(input: WeeklyCloseoutInput): WeeklyHour
     .map((j) => ({ ...j, hours: round2(j.hours) }))
     .sort((a, b) => b.hours - a.hours);
 
-  const summary = {
+  return { weekStart, weekEnd, workers, approvedByJob, summary: summarizeWorkers(workers) };
+}
+
+/** The per-worker figures that follow from the seven days alone. */
+export type WorkerDayRollup = Pick<
+  WeeklyWorkerHours,
+  | "readiness"
+  | "approvedHours"
+  | "approvedCount"
+  | "submittedCount"
+  | "rejectedCount"
+  | "draftCount"
+  | "missingCount"
+  | "pendingCount"
+  | "blockers"
+  | "needsLookReasons"
+>;
+
+/**
+ * Counts, blockers, "needs a look" lines and readiness for one worker's week,
+ * from the seven finished day cells. ONE roll-up for two readers: the server
+ * build above and the desktop board, which re-runs it over a day it just
+ * approved / sent back / reopened so the row and the chip move at once
+ * instead of after the next page read (2026-10-15).
+ */
+export function rollupWorkerDays(days: ReadonlyArray<WeeklyHoursDay>): WorkerDayRollup {
+  let approvedHours = 0;
+  let approvedCount = 0;
+  let submittedCount = 0;
+  let rejectedCount = 0;
+  let draftCount = 0;
+  let missingCount = 0;
+  let pendingCount = 0;
+  const blockers: string[] = [];
+  const needsLookReasons: string[] = [];
+
+  for (const day of days) {
+    const { weekday, status } = day;
+    const isLogged =
+      status === "approved" ||
+      status === "submitted" ||
+      status === "rejected" ||
+      status === "draft";
+    // A day with an entry behind it — the overtime and leave-collision flags
+    // below only ever read a REAL entry (never a missing / leave cell).
+    const logged = isLogged && day.entryId != null;
+
+    if (status === "approved") {
+      approvedCount += 1;
+      approvedHours += day.hours ?? 0;
+    } else if (status === "submitted") {
+      submittedCount += 1;
+      blockers.push(`${weekday} waiting for review`);
+    } else if (status === "rejected") {
+      rejectedCount += 1;
+      blockers.push(`${weekday} rejected`);
+      needsLookReasons.push(
+        day.rejectedReason
+          ? `${weekday} bounced back — "${day.rejectedReason}". Waiting on the worker.`
+          : `${weekday} was rejected — waiting on the worker to fix it.`,
+      );
+    } else if (status === "draft") {
+      draftCount += 1;
+      blockers.push(`${weekday} draft — not submitted`);
+      needsLookReasons.push(`${weekday} is still a draft — not sent in yet.`);
+    } else if (status === "missing") {
+      missingCount += 1;
+      blockers.push(`${weekday} missing`);
+      needsLookReasons.push(`No entry for ${weekday} — were they on site?`);
+    } else if (status === "pending") {
+      // Expected under weekly logging — counted so pay-run can refuse to
+      // sweep an unfinished week, but never a blocker or a "needs a look".
+      pendingCount += 1;
+    }
+
+    // §5 overtime flag — a long day the boss should eyeball. Read straight off
+    // the stored entry (overtimeHours > 0, or a >10h day) — never re-derived.
+    if (logged) {
+      const ot = day.overtimeHours ?? 0;
+      const long = (day.hours ?? 0) > 10;
+      if (ot > 0 || long) {
+        needsLookReasons.push(
+          ot > 0
+            ? `${weekday} carries ${round2(ot)}h overtime — needs your nod.`
+            : `${weekday} ran over 10h — overtime needs your nod.`,
+        );
+      }
+    }
+
+    if (logged && day.leaveType) {
+      // Logged hours on an approved-leave day still count as WORK, but the
+      // office should see the collision (#333).
+      blockers.push(`${weekday} logged while on leave`);
+      needsLookReasons.push(`${weekday} logged while on ${day.leaveType} leave.`);
+    }
+  }
+
+  const readiness: WorkerWeekReadiness =
+    submittedCount > 0
+      ? "needs-review"
+      : rejectedCount > 0 || draftCount > 0
+        ? "needs-worker"
+        : missingCount > 0
+          ? "missing-hours"
+          : "payroll-ready";
+
+  return {
+    readiness,
+    approvedHours: round2(approvedHours),
+    approvedCount,
+    submittedCount,
+    rejectedCount,
+    draftCount,
+    missingCount,
+    pendingCount,
+    blockers,
+    needsLookReasons,
+  };
+}
+
+/** The week's summary — every field follows from the workers. */
+export function summarizeWorkers(
+  workers: ReadonlyArray<WeeklyWorkerHours>,
+): WeeklyHoursCloseout["summary"] {
+  return {
     workersReady: workers.filter((w) => w.readiness === "payroll-ready").length,
     workersNeedAction: workers.filter((w) => w.readiness !== "payroll-ready").length,
     submittedDays: workers.reduce((n, w) => n + w.submittedCount, 0),
@@ -517,8 +571,6 @@ export function buildWeeklyHoursCloseout(input: WeeklyCloseoutInput): WeeklyHour
     payrollReady:
       workers.length > 0 && workers.every((w) => w.readiness === "payroll-ready"),
   };
-
-  return { weekStart, weekEnd, workers, approvedByJob, summary };
 }
 
 /** Boss-facing label for a worker's week. */

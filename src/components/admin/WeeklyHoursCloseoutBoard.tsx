@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { Route } from "next";
@@ -23,6 +23,13 @@ import {
   type ProblemInput,
 } from "@/domains/timesheets/problem";
 import { settleApproveResult } from "@/domains/timesheets/week-holdups";
+import {
+  applyCloseoutPatches,
+  pruneConfirmedPatches,
+  withDayPatch,
+  withDayPatches,
+  type DayPatches,
+} from "@/domains/timesheets/closeout-patches";
 import { shortDayLabel } from "@/domains/timesheets/weekly-review";
 import {
   submittedWeekSelection,
@@ -49,8 +56,17 @@ import { WeeklyCloseoutWizard } from "@/components/admin/WeeklyCloseoutWizard";
  * (week total + status chip + the seven-day strip + in-place approve/reject on
  * each submitted day) and the pay-period pointer — and fires the SAME
  * approve / reject endpoints the approvals queue uses (timesheetsClient) — no
- * second status-transition implementation. After every action it refreshes the
- * route so the model is rebuilt from persisted state, never locally guessed.
+ * second status-transition implementation.
+ *
+ * SPEED + HONESTY (2026-10-15, shorter-paths audit H3): a decided day moves
+ * the moment the server answers — the entry the approve / reject / reopen
+ * response returns is applied to the week as a local patch (closeout-patches)
+ * and the row, the chip and the Week-of hero re-roll from it with the same
+ * roll-up the server build uses. ONE debounced router.refresh() (700 ms, the
+ * wizard's and the phone's pattern) then rebuilds the model from persisted
+ * state; a patch is dropped the moment the page confirms it. Before this
+ * every click re-ran the page (overview walk + payroll runs + a cost-rate
+ * read per worker) and the row sat stale for two to four seconds.
  *
  * Lives in src/components/admin/ (not next to the page) for the same
  * Next.js 15.5 React Client Manifest bug that bit /hours/approvals — see
@@ -111,6 +127,15 @@ function dayKey(workerId: string, date: string): string {
   return `${workerId}:${date}`;
 }
 
+/** The status the reopen endpoint says the entry is now in (its response is
+ *  `{ entry }`, typed loosely) — only ever one of the two it can reopen to. */
+function reopenedStatus(data: Record<string, unknown>): "submitted" | "draft" | null {
+  const entry = data.entry;
+  if (!entry || typeof entry !== "object") return null;
+  const status = (entry as { status?: unknown }).status;
+  return status === "submitted" || status === "draft" ? status : null;
+}
+
 /** "Mon 8" — board row label, UTC-parsed like the field-app strip. */
 function dayLabel(day: WeeklyHoursDay): string {
   const num = new Date(day.date + "T00:00:00Z").toLocaleDateString("en-AU", {
@@ -141,12 +166,23 @@ function bulkApproveLabel(submittedCount: number): string {
 }
 
 export function WeeklyHoursCloseoutBoard({
-  closeout,
+  closeout: serverCloseout,
   fetchError,
   canUndo = false,
   weekNav,
 }: WeeklyHoursCloseoutBoardProps) {
   const router = useRouter();
+  // What this session's writes made each day, until the page's copy agrees.
+  const [patches, setPatches] = useState<DayPatches>({});
+  const closeout = useMemo(
+    () => applyCloseoutPatches(serverCloseout, patches),
+    [serverCloseout, patches],
+  );
+  // A fresh page read confirms (and so retires) the patches it now agrees
+  // with — from then on the page is the truth for those days again.
+  useEffect(() => {
+    setPatches((p) => pruneConfirmedPatches(p, serverCloseout));
+  }, [serverCloseout]);
   const payRun = buildPayRun(closeout);
   const [action, setAction] = useState<ActionState>({ kind: "idle" });
   const [bulk, setBulk] = useState<BulkOutcome | null>(null);
@@ -186,6 +222,24 @@ export function WeeklyHoursCloseoutBoard({
   const [reopenError, setReopenError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
+  // Debounced reconcile — one refresh after a burst of decisions (the
+  // wizard's / phone's 700 ms), never one per click. The patches above keep
+  // every decided row honest in the meantime.
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleRefresh = useCallback(() => {
+    if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    refreshTimer.current = setTimeout(() => {
+      refreshTimer.current = null;
+      startTransition(() => router.refresh());
+    }, 700);
+  }, [router, startTransition]);
+  useEffect(
+    () => () => {
+      if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    },
+    [],
+  );
+
   const weekLabel = `${formatDateLabel(closeout.weekStart)} – ${formatDateLabel(closeout.weekEnd)}`;
 
   // Distinct strip tones present in the run — drives the legend (we only show
@@ -220,7 +274,14 @@ export function WeeklyHoursCloseoutBoard({
       return;
     }
     setAction({ kind: "success", label: `${dayLabel(day)} marked not worked for ${worker.workerName}.` });
-    startTransition(() => router.refresh());
+    // The leave row the server recorded — the day stops counting as missing now.
+    setPatches((p) =>
+      withDayPatch(p, worker.workerId, day.date, {
+        status: "leave",
+        leaveType: res.data.request.type || markType,
+      }),
+    );
+    scheduleRefresh();
   }
 
   async function undoLeave(worker: WeeklyWorkerHours, day: WeeklyHoursDay) {
@@ -231,7 +292,9 @@ export function WeeklyHoursCloseoutBoard({
       return;
     }
     setAction({ kind: "success", label: `Cleared ${dayLabel(day)} for ${worker.workerName}.` });
-    startTransition(() => router.refresh());
+    // What the day becomes without the leave row (missing / pending / not
+    // required) is the server's call — no local guess, just the reconcile.
+    scheduleRefresh();
   }
 
   /**
@@ -249,6 +312,8 @@ export function WeeklyHoursCloseoutBoard({
       return;
     }
     const { done, failed } = settleApproveResult(result.data);
+    // Every day the server says is approved (this call's, or already) moves now.
+    setPatches((p) => withDayPatches(p, done, { status: "approved", rejectedReason: null }));
     bulkSeqRef.current += 1;
     const seq = bulkSeqRef.current;
     // Undo reverts only what THIS call approved — never a day someone else had
@@ -279,7 +344,7 @@ export function WeeklyHoursCloseoutBoard({
         if (bulkSeqRef.current === seq) setBulk((b) => (b ? { ...b, undo: [] } : b));
       }, 30_000);
     }
-    startTransition(() => router.refresh());
+    scheduleRefresh();
   }
 
   async function approveWeek(worker: WeeklyWorkerHours) {
@@ -316,6 +381,7 @@ export function WeeklyHoursCloseoutBoard({
     if (!bulk || bulk.undo.length === 0 || undoBusy) return;
     setUndoBusy(true);
     const failures: string[] = [];
+    const reopened: Array<{ userId: string; date: string }> = [];
     // Sequential — same reasoning as the endpoint: per-user day blobs are
     // cheap and serial writes can't step on each other.
     for (const ref of bulk.undo) {
@@ -324,17 +390,19 @@ export function WeeklyHoursCloseoutBoard({
         date: ref.date,
         toStatus: "submitted",
       });
-      if (!r.ok) failures.push(`${shortDayLabel(ref.date)}: ${plainProblem("undo", r.error)}`);
+      if (r.ok) reopened.push(ref);
+      else failures.push(`${shortDayLabel(ref.date)}: ${plainProblem("undo", r.error)}`);
     }
     const total = bulk.undo.length;
     setUndoBusy(false);
     setBulk(null);
+    setPatches((p) => withDayPatches(p, reopened, { status: "submitted", rejectedReason: null }));
     setAction(
       failures.length === 0
         ? { kind: "success", label: `Undo complete — ${total} ${total === 1 ? "day" : "days"} back to submitted.` }
         : { kind: "error", message: `Undo incomplete — ${failures.length} of ${total} couldn't be reopened: ${failures.join("; ")}` }
     );
-    startTransition(() => router.refresh());
+    scheduleRefresh();
   }
 
   function openReopen(worker: WeeklyWorkerHours, day: WeeklyHoursDay) {
@@ -373,7 +441,13 @@ export function WeeklyHoursCloseoutBoard({
             ? `Reopened ${worker.workerName}'s ${dayLabel(day)} — back in the approvals queue.`
             : `Reopened ${worker.workerName}'s ${dayLabel(day)} as a draft — back with the worker.`,
       });
-      startTransition(() => router.refresh());
+      setPatches((p) =>
+        withDayPatch(p, worker.workerId, day.date, {
+          status: reopenedStatus(result.data) ?? reopenToStatus,
+          rejectedReason: null,
+        }),
+      );
+      scheduleRefresh();
       return;
     }
     if (result.error.status === 409 && !force) {
@@ -400,7 +474,14 @@ export function WeeklyHoursCloseoutBoard({
         kind: "success",
         label: `Approved ${formatHoursLabel(day.hours ?? 0)} for ${worker.workerName} on ${dayLabel(day)}.`,
       });
-      startTransition(() => router.refresh());
+      // The entry the server returned — its status, not the click's hope.
+      setPatches((p) =>
+        withDayPatch(p, worker.workerId, day.date, {
+          status: result.data.entry.status,
+          rejectedReason: result.data.entry.rejectedReason ?? null,
+        }),
+      );
+      scheduleRefresh();
       return;
     }
     setAction({ kind: "error", message: plainProblem("approve", result.error) });
@@ -439,7 +520,13 @@ export function WeeklyHoursCloseoutBoard({
         kind: "success",
         label: `Rejected ${worker.workerName}'s ${dayLabel(day)}. They'll see the reason and a Fix button in their app.`,
       });
-      startTransition(() => router.refresh());
+      setPatches((p) =>
+        withDayPatch(p, worker.workerId, day.date, {
+          status: result.data.entry.status,
+          rejectedReason: result.data.entry.rejectedReason ?? trimmed,
+        }),
+      );
+      scheduleRefresh();
       return;
     }
     setAction({ kind: "idle" });

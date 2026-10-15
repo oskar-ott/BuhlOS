@@ -124,13 +124,28 @@ not the tracked-worker rule, and widening it deserves its own reviewed PR.
 The board calls the **same** endpoints as `/hours/approvals` via
 `timesheetsClient` — `POST /api/time-entries-approve` and
 `POST /api/time-entries-reject` (reason required; pushes the reason to the
-worker with the `?fixDate=` deep link). After every action the route is
-refreshed so the model is rebuilt from persisted state. Nothing else is
-mutated from this surface; everything #112 guarantees (approved lock,
-attribution gate, duplicate 409, LH scoping, self-approval block) is
-untouched. Bulk "approve worker's week" stays out — the bulk API exists but
-wiring it here was deferred to keep this PR's write path identical to the
-proven queue.
+worker with the `?fixDate=` deep link), plus `POST /api/time-entries-bulk-approve`
+for "Approve all N days" / "Approve all clean" and `POST /api/time-entries-reopen`
+for Undo / Reopen.
+
+**A decided day moves at once; one refresh reconciles (2026-10-15, shorter-paths
+audit H3).** The entry each approve / reject / reopen response returns — the
+server's answer, never the click — is applied to the week as a local day patch
+(`src/domains/timesheets/closeout-patches.ts`), and the worker's counts, blockers,
+"needs a look" lines, readiness and the Week-of hero re-roll from the patched
+days with the **same** roll-up the server build uses (`rollupWorkerDays`), so
+the board can never say something the model wouldn't. ONE debounced
+`router.refresh()` (700 ms — the wizard's and the phone's pattern) then rebuilds
+the model from persisted state; a patch retires the moment the page confirms
+it, and from then on the page is the truth for that day again. Undo of a
+not-worked mark is reconcile-only: what the day becomes without the leave row
+(missing / pending / not required) is the server's call. Before this every
+click re-ran the page (overview walk + payroll runs + a cost-rate read per
+worker) and the row sat stale for two to four seconds.
+
+Nothing else is mutated from this surface; everything #112 guarantees
+(approved lock, attribution gate, duplicate 409, LH scoping, self-approval
+block) is untouched.
 
 ## Tests
 

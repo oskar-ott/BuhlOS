@@ -10,6 +10,7 @@ import {
   holdUpHelp,
   sessionKey,
   settleApproveResult,
+  settleRejectResult,
   weekHoldUps,
   withSessionDays,
 } from "./week-holdups";
@@ -189,6 +190,21 @@ describe("settleApproveResult — an already-approved day is done, not a failure
         { userId: "u1", date: "2024-05-21", error: "entry is not submitted (status: approved)" },
         { userId: "u1", date: "2024-05-22", error: "changed moments ago — try again in a minute", code: "conflict" },
         { userId: "u1", date: "2024-05-23", error: "entry is not submitted (status: rejected)" },
+      ],
+    });
+    expect(out.done.map((d) => d.date)).toEqual(["2024-05-20", "2024-05-21"]);
+    expect(out.failed.map((f) => f.date)).toEqual(["2024-05-22", "2024-05-23"]);
+  });
+});
+
+describe("settleRejectResult — an already-sent-back day is done, not a failure", () => {
+  it("counts a retry that finds the day rejected as done; everything else stays a failure", () => {
+    const out = settleRejectResult({
+      rejected: [{ userId: "u1", date: "2024-05-20" }],
+      failed: [
+        { userId: "u1", date: "2024-05-21", error: "entry is not submitted (status: rejected)" },
+        { userId: "u1", date: "2024-05-22", error: "conflict — edited while rejecting; retry", code: "conflict" },
+        { userId: "u1", date: "2024-05-23", error: "entry is not submitted (status: approved)" },
       ],
     });
     expect(out.done.map((d) => d.date)).toEqual(["2024-05-20", "2024-05-21"]);

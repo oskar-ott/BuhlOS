@@ -48,6 +48,7 @@ import {
   effectiveWorker,
   sessionKey,
   settleApproveResult,
+  settleRejectResult,
   weekHoldUps,
   withSessionDays,
   type HoldUpLine,
@@ -85,8 +86,9 @@ import type { ReviewCandidate } from "@/domains/timesheets/xero-closeout";
  * second status-transition path, no new API:
  *   - Approve week  → POST /api/time-entries-bulk-approve (the worker's
  *     submitted days).
- *   - Query (send back) → POST /api/time-entries-reject per submitted day, with
- *     the chosen reason (the worker gets a push + a one-tap fix link). There is
+ *   - Query (send back) → POST /api/time-entries-bulk-reject, the submitted
+ *     days in ONE call, with the chosen reason (the worker gets a push per day
+ *     + a one-tap fix link). There is
  *     no separate two-way "ask" backend, so "Query" IS the reject flow — never a
  *     faked query thread (P7).
  *   - Undo → POST /api/time-entries-reopen back to submitted (admin tier only).
@@ -451,40 +453,45 @@ export function WeeklyHoursApprovalMobile({
       const reasonText = buildQueryReason(reason, note);
       if (days.length === 0 || !reasonText || busyRef.current.has(worker.workerId)) return;
       setBusy(worker.workerId, true);
-      let failed = 0;
-      let firstError: ProblemInput | null = null;
-      for (const d of days) {
-        const r = await timesheetsClient.rejectEntry({
-          userId: d.userId,
-          date: d.date,
-          reason: reasonText,
-        });
-        if (!r.ok) {
-          failed += 1;
-          firstError ??= r.error;
-        }
-      }
+      // ONE request for the whole week (2026-10-15) — it used to be one
+      // reject per day, each a full store round trip on the boss's signal.
+      const res = await timesheetsClient.bulkRejectEntries({
+        entries: days,
+        defaultReason: reasonText,
+      });
       setBusy(worker.workerId, false);
-      const succeeded = days.length - failed;
-      if (failed > 0 && firstError) {
+      const retry = () => void queryWorker(worker, reason, note);
+      if (!res.ok) {
+        showProblem("sendBack", res.error, retry);
+        return;
+      }
+      const { done, failed } = settleRejectResult(res.data);
+      markDays(
+        worker.workerId,
+        done.map((d) => d.date),
+        "rejected",
+      );
+      if (failed.length > 0) {
+        const first = failed[0]!;
+        const firstCode = (first as { code?: unknown }).code;
+        const input: ProblemInput = {
+          status: firstCode === "conflict" ? 409 : 400,
+          body: { error: first.error, code: firstCode },
+        };
         showProblem(
           "sendBack",
-          firstError,
-          succeeded === 0 ? () => void queryWorker(worker, reason, note) : null,
-          succeeded === 0
+          input,
+          done.length === 0 ? retry : null,
+          done.length === 0
             ? undefined
-            : `Sent ${succeeded} of ${days.length} days back · ${failed} didn't go`,
+            : `Sent ${done.length} of ${days.length} days back · ${failed.length} didn't go`,
         );
         scheduleRefresh();
         return;
       }
-      const undo = canUndo ? days.map((d) => ({ userId: d.userId, date: d.date })) : [];
+      // Undo covers what THIS call sent back — never a day already sent back.
+      const undo = canUndo ? res.data.rejected.map((r) => ({ userId: r.userId, date: r.date })) : [];
       setOverlay((o) => ({ ...o, [worker.workerId]: { status: "queried", undo } }));
-      markDays(
-        worker.workerId,
-        days.map((d) => d.date),
-        "rejected",
-      );
       setFailed(worker.workerId, null);
       toast(`Sent back to ${firstName(worker.workerName)} · ${reason}`);
       scheduleUndoExpiry(worker.workerId, undo);
