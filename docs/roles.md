@@ -16,7 +16,8 @@ missing-hours) and #123 (office/boss saw blank hours boards) happened.
 | `isFieldRole(role)` | tradie / electrician / apprentice / labourer |
 | `isStaffRole(role)` | admin tier OR leading hand |
 | `isClientRole(role)` | the client role (single role, predicate for consistency) |
-| `isHoursTrackedWorker(user)` | *expected to log hours*: field tier + LHs, live accounts |
+| `isHoursTrackedWorker(user)` | *expected to log hours*: field tier (not subcontractors) + LHs + project managers, live accounts — drives missing-hours, weekly readiness, leave, crew week, cost-rate coverage and the Xero mapping board |
+| `isProjectManagerRole(role)` | the project manager (`pm`) — a **narrowing within** the admin tier, like owner. Office access for every permission; read only where the PM is treated like the crew because they log and are paid on their own hours (hours tracking, payroll rate, hours reminders). Grants nothing. |
 | `isOwnerRole(role)` | the product/platform owner — a **narrowing within** the admin tier (`owner` ∈ admin tier, so `isAdminRole('owner')` is also true). Gates the Owner Console only; never replaces the admin-tier checks. |
 
 The **Owner Console** (`docs/owner-console.md`, `/owner`) is gated to the owner —
@@ -44,3 +45,19 @@ JS (`api/`): `require('./_lib/auth')`. TS (`src/`): `src/lib/auth/roles.ts`.
   `// role-literal-ok: <why>` — there are six today (job create/delete are
   deliberately literal-admin; credential-format policy; the `accounts` and
   `office` carve-outs in the activity feed; `apprenticeYear`).
+
+## Changing someone's role
+
+The office changes a role in the employee drawer (`/employees` → **Role** →
+Change role → `POST /api/employees?action=role`), which writes the users.json
+login every permission check reads and the linked HR row together.
+
+APIs read the role **live** from users.json on every request. The page gates
+(`src/middleware.ts`, landing) route by the role in the 30-day session cookie,
+so the landing pages — Phil My Day and the Command centre — compare the two on
+every load and, on a mismatch, send the browser once to
+`GET /api/auth?action=refresh`, which re-signs the session with the live role
+and routes to the right home (`src/lib/auth/role-sync.ts`). The person sees
+their new screens the next time they open the app; no signing out. The refresh
+only copies users.json into the cookie — it can't grant a role the login
+doesn't have — and signs out a login that is gone or disabled.

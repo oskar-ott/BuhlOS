@@ -277,6 +277,28 @@ describe("GET /api/time-entries-export — read-only (#895)", () => {
 
 // #131 — CSV shape selection (review / xero) over the SAME rows. Shape changes
 // only columns + filename; shared with the locked-batch CSV via payroll-csv.js.
+describe("payroll rate — project managers are paid on their own hours (2026-10-15)", () => {
+  it("a PM's row carries their hourly rate; the rest of the office still reads 0", async () => {
+    const users = blob.get("users.json") as { users: Array<Record<string, unknown>> };
+    users.users.push(
+      { id: "w_pm", username: "pm", role: "pm", hourlyRate: 60, passwordHash: "$2a$10$x" },
+      { id: "w_office", username: "office2", role: "office", hourlyRate: 40, passwordHash: "$2a$10$x" },
+    );
+    blob.set("users/w_pm/time-entries/2026-06-11.json", entry("w_pm", "2026-06-11"));
+    blob.set("users/w_office/time-entries/2026-06-12.json", entry("w_office", "2026-06-12"));
+
+    const res = await call("u_admin", "office", { ...WEEK, dryRun: "1", format: "json" });
+    expect(res.statusCode).toBe(200);
+    const rows = (res.body as { rows: Array<{ workerId: string; rateExGst: number; lineCostExGst: number }> }).rows;
+    const pm = rows.find((r) => r.workerId === "w_pm")!;
+    expect(pm.rateExGst).toBe(60);
+    expect(pm.lineCostExGst).toBe(480);
+    expect(rows.find((r) => r.workerId === "w_office")!.rateExGst).toBe(0);
+    // The crew is unchanged.
+    expect(rows.find((r) => r.workerId === "w1")!.rateExGst).toBe(50);
+  });
+});
+
 describe("GET /api/time-entries-export — CSV shapes (#131)", () => {
   const headerOf = (res: Res) => String(res.sent).split("\n")[0];
   const dataRows = (res: Res) => String(res.sent).trim().split("\n").slice(1).map((l) => l.split(","));

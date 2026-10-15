@@ -26,6 +26,33 @@ module.exports = async (req, res) => {
     return res.status(200).json({ user });
   }
 
+  // Role-change sync (2026-10-15). The session cookie carries the role the
+  // person signed in with and lasts SESSION_DAYS, while the page gates
+  // (middleware, landing) route by that cookie role — so after the office
+  // changed someone's role (/employees → Change role) they kept the OLD
+  // role's screens until they happened to sign out (an electrician made
+  // project manager still landed in the field app, with no job hours or
+  // materials). The landing pages (My Day, Command centre) read the LIVE
+  // users.json role on every load; when it differs from the cookie they send
+  // the browser here once: re-sign the session with the live role, then "/"
+  // routes to the right home. It only ever copies users.json into the cookie —
+  // it can't grant a role the stored login doesn't have. A login that is gone
+  // or disabled is signed out.
+  if (req.method === 'GET' && action === 'refresh') {
+    const user = await getCurrentUser(req);
+    res.statusCode = 307;
+    if (!user) {
+      clearSessionCookie(res);
+      res.setHeader('Location', '/v2/login');
+      return res.end();
+    }
+    setSessionCookie(res, { userId: user.id, role: user.role });
+    // ?synced=1 rides through "/" to the landing page so a briefly stale
+    // users.json read can't bounce the browser back here in a loop.
+    res.setHeader('Location', '/?synced=1');
+    return res.end();
+  }
+
   if (req.method === 'POST' && action === 'login') {
     const { username, secret } = req.body || {};
     if (!username || !secret) return res.status(400).json({ error: 'username and secret required' });

@@ -26,6 +26,7 @@ import {
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { isAdminRole } from "@/lib/auth/roles";
 import { landingFor } from "@/lib/auth/landing";
+import { needsRoleSync, ROLE_SYNC_PATH } from "@/lib/auth/role-sync";
 import { parseTimeEntryListLenient } from "@/domains/timesheets/parse-entries";
 import type { TimeEntry } from "@/domains/timesheets/types";
 import {
@@ -98,7 +99,7 @@ function formatFixDayLabel(isoDate: string): string {
 export default async function MyDayPage({
   searchParams,
 }: {
-  searchParams: Promise<{ fixDate?: string }>;
+  searchParams: Promise<{ fixDate?: string; synced?: string }>;
 }) {
   const cookieStore = await cookies();
   const raw = cookieStore.get(SESSION_COOKIE)?.value;
@@ -148,6 +149,14 @@ export default async function MyDayPage({
       // Workshop Stock: the quick-grid tile to /phil/stock (owner pull 2026-10-15).
       isFlagEnabled("workshop_stock", session).catch(() => false),
     ]);
+
+  // Role-change sync (src/lib/auth/role-sync.ts): the live login role differs
+  // from the one they signed in with — e.g. an electrician the office just
+  // made project manager. Re-sign the session once so they land on their new
+  // home instead of keeping the old role's screens until they sign out.
+  if (needsRoleSync(session.role, profile?.role, sp.synced === "1")) {
+    redirect(ROLE_SYNC_PATH as Route);
+  }
 
   // Hero priority state ("a day was sent back") is driven by REJECTED HOURS,
   // which buildPhilNeedsYou derives purely from the time entries already loaded

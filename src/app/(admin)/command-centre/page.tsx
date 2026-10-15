@@ -10,6 +10,7 @@ import { PushNotificationsCard } from "@/components/pwa/PushNotificationsCard";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { RefreshButton } from "@/components/ui/RefreshButton";
 import { SESSION_COOKIE, decodeSessionCookie, verifyViaApi } from "@/lib/auth/session";
+import { needsRoleSync, ROLE_SYNC_PATH } from "@/lib/auth/role-sync";
 import { isFlagEnabled, listFlags, isFlagOn } from "../../../../api/_lib/feature-flags.js";
 import { partOfDayForHour, firstNameFrom, hourInTimeZone } from "@/domains/phil/greeting";
 import { MobileToday } from "./MobileToday";
@@ -73,7 +74,11 @@ export const dynamic = "force-dynamic";
  * is the operational morning view; analytics tiles / the six-numbers board
  * are #316's separate surface and must not creep in here.
  */
-export default async function CommandCentrePage() {
+export default async function CommandCentrePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ synced?: string }>;
+}) {
   const cookieStore = await cookies();
   const raw = cookieStore.get(SESSION_COOKIE)?.value;
   const session = decodeSessionCookie(raw);
@@ -95,12 +100,20 @@ export default async function CommandCentrePage() {
     todayPulse,
     rosterTotal,
     displayName,
+    liveRole,
     hoursError,
     hoursRejectedError,
     hoursMissingError,
     jobsError,
     todayPulseError,
   } = await loadSnapshot(raw);
+
+  // Role-change sync (src/lib/auth/role-sync.ts): the login's live role no
+  // longer matches the one they signed in with (e.g. moved off an office
+  // role). Re-sign the session once so they land on their new home.
+  if (needsRoleSync(session.role, liveRole, (await searchParams).synced === "1")) {
+    redirect(ROLE_SYNC_PATH as Route);
+  }
 
   // #185 Today strip — pure derivation from the pulse payload. Null model
   // (failed fetch) renders the strip's own error chip; the queues are
@@ -562,6 +575,8 @@ async function loadSnapshot(
   rosterTotal: number | null;
   /** The admin's display name (cookie has none) — for the mobile greeting. */
   displayName: string | null;
+  /** The login's LIVE role (users.json) — null when the lookup failed. */
+  liveRole: string | null;
   hoursError: string | null;
   hoursRejectedError: string | null;
   hoursMissingError: string | null;
@@ -623,6 +638,7 @@ async function loadSnapshot(
     todayPulse: todayPulseResult.pulse,
     rosterTotal,
     displayName,
+    liveRole: profile?.role ?? null,
     hoursError: hoursResult.error,
     hoursRejectedError: hoursRejectedResult.error,
     hoursMissingError: hoursMissingResult.error,

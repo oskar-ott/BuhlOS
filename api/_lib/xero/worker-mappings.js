@@ -28,7 +28,7 @@ const { readBlob } = require('../blob');
 const { getDb } = require('../supabase-db');
 const store = require('./token-store');
 const { XeroError } = require('./errors');
-const { isHoursTrackedWorker, isFieldRole, isLeadingHandRole, isDisabledUser } = require('../auth');
+const { isHoursTrackedWorker, isFieldRole, isLeadingHandRole, isProjectManagerRole, isDisabledUser } = require('../auth');
 const { suggestEmployeeMatches } = require('./employee-matching');
 
 const KIND = 'worker_employee';
@@ -93,8 +93,8 @@ function boardWorkers(users, { mappedIds, legacyIds }) {
       out.push({ user: u, disabled: false });
       continue;
     }
-    // disabled field/LH accounts stay visible while payroll links linger
-    const fieldish = isFieldRole(u.role) || isLeadingHandRole(u.role);
+    // disabled field/LH/PM accounts stay visible while payroll links linger
+    const fieldish = isFieldRole(u.role) || isLeadingHandRole(u.role) || isProjectManagerRole(u.role);
     if (fieldish && isDisabledUser(u) && (mappedIds.has(u.id) || (u.xeroEmployeeId && String(u.xeroEmployeeId).trim()))) {
       out.push({ user: u, disabled: true });
     }
