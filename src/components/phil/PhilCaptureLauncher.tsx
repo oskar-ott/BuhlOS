@@ -56,6 +56,9 @@ interface Props {
   /** Re-fires the global camera input. Must be invoked from a direct tap so
    *  the browser treats it as a user gesture (iOS requirement). */
   onRequestCamera?: () => void;
+  /** A confirmed save happened (sharpened capture) — the host refreshes the
+   *  page under the sheet so it reflects the photo. */
+  onSaved?: () => void;
 }
 
 type JobsState =
@@ -99,6 +102,7 @@ export function PhilCaptureLauncher({
   initialJobId,
   incoming,
   onRequestCamera,
+  onSaved,
 }: Props) {
   const [jobsState, setJobsState] = useState<JobsState>({ v: "loading" });
   const [photos, setPhotos] = useState<TrayPhoto[]>([]);
@@ -455,6 +459,7 @@ export function PhilCaptureLauncher({
               photoHint={photoHint}
               maxPhotos={MAX_PHOTOS}
               onRequestCamera={onRequestCamera}
+              onSaved={onSaved}
               jobsLoading={jobsState.v === "loading"}
               jobsError={jobsState.v === "error" ? jobsState.message : null}
               onRetryJobs={() => void loadJobs()}

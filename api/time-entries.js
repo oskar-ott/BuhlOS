@@ -466,7 +466,10 @@ async function handlePatch(req, res, user) {
     }
     throw e;
   }
-  await appendAudit(
+  // Per-user audit trail and the canonical journal below live in separate
+  // stores (both best-effort read-modify-writes) — run them overlapped, as the
+  // create path does, so a field "send day" doesn't pay two puts back to back.
+  const auditWrite = appendAudit(
     targetUserId,
     updated.id,
     transitioningToSubmitted ? 'submitted' : 'edited',
@@ -483,8 +486,9 @@ async function handlePatch(req, res, user) {
   // changes payroll-adjacent numbers the office may already have looked at).
   // Best-effort after the write so a journal failure never affects the saved
   // entry. A draft/rejected edit with no transition still writes nothing here.
+  let journalWrite = null;
   if (transitioningToSubmitted) {
-    await appendAuditLog(
+    journalWrite = appendAuditLog(
       buildHoursAuditEntry({
         action: wasRejected ? 'hours.resubmitted' : 'hours.submitted',
         actor: user,
@@ -492,7 +496,7 @@ async function handlePatch(req, res, user) {
       }),
     ).catch(() => {});
   } else if (editedWhileSubmitted) {
-    await appendAuditLog(
+    journalWrite = appendAuditLog(
       buildHoursAuditEntry({
         action: 'hours.edited_while_submitted',
         actor: user,
@@ -500,6 +504,7 @@ async function handlePatch(req, res, user) {
       }),
     ).catch(() => {});
   }
+  await Promise.all([auditWrite, journalWrite]);
 
   return res.status(200).json({ entry: entryView(updated) });
 }

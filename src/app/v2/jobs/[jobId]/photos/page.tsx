@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { inProcessFetch } from "../../../../../../api/_lib/in-process-api.js";
 import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { AdminShell } from "@/components/admin/AdminShell";
@@ -184,7 +185,7 @@ async function loadJob(
 ): Promise<JobResult> {
   const base = await apiBase();
   try {
-    const res = await fetch(`${base}/api/jobs?id=${encodeURIComponent(jobId)}`, {
+    const res = await inProcessFetch(`${base}/api/jobs?id=${encodeURIComponent(jobId)}`, {
       cache: "no-store",
       headers: cookieHeader(cookieValue),
     });
@@ -210,7 +211,7 @@ async function loadEvidence(
 ): Promise<{ evidence: EvidenceItem[]; error: string | null }> {
   const base = await apiBase();
   try {
-    const res = await fetch(`${base}/api/evidence?jobId=${encodeURIComponent(jobId)}`, {
+    const res = await inProcessFetch(`${base}/api/evidence?jobId=${encodeURIComponent(jobId)}`, {
       cache: "no-store",
       headers: cookieHeader(cookieValue),
     });
@@ -237,7 +238,7 @@ async function loadCatalog(
 ): Promise<{ photos: PhotoCatalogEntry[]; error: string | null }> {
   const base = await apiBase();
   try {
-    const res = await fetch(
+    const res = await inProcessFetch(
       `${base}/api/photos-catalog?jobId=${encodeURIComponent(jobId)}`,
       {
         cache: "no-store",

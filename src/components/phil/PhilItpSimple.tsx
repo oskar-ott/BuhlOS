@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PhilActionButton } from "@/components/phil/ui/PhilActionButton";
 import { PhilNotice } from "@/components/phil/ui/PhilNotice";
@@ -70,6 +71,7 @@ export function PhilItpReportsList({ jobId }: { jobId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false);
+  const router = useRouter();
 
   const load = useCallback(async () => {
     setError(null);
@@ -94,11 +96,19 @@ export function PhilItpReportsList({ jobId }: { jobId: string }) {
     setBusy(true);
     setError(null);
     try {
-      await api(`/api/itp-simple?jobId=${encodeURIComponent(jobId)}`, {
+      const created = (await api(`/api/itp-simple?jobId=${encodeURIComponent(jobId)}`, {
         method: "POST",
         body: JSON.stringify({ title: clean }),
-      });
+      })) as { report?: { id?: unknown } } | null;
       setTitle("");
+      // Straight into the new report — naming an area and adding photos is the
+      // next thing, not finding the row on the list (2026-10-15). Fall back to
+      // the refreshed list only if the response carried no id.
+      const newId = typeof created?.report?.id === "string" ? created.report.id : null;
+      if (newId) {
+        router.push(`/phil/jobs/${encodeURIComponent(jobId)}/itp-reports/${encodeURIComponent(newId)}`);
+        return;
+      }
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't start the ITP");

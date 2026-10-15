@@ -373,7 +373,7 @@ export function WeeklyCloseoutWizard({
         ) : null}
 
         {done || !worker ? (
-          <DonePanel onClose={close} />
+          <DonePanel onClose={close} weekStart={closeout.weekStart} />
         ) : (
           <>
             {/* Scrollable body */}
@@ -661,7 +661,7 @@ function ResolvedNote({ tone, label }: { tone: "ok" | "warn"; label: string }): 
   );
 }
 
-function DonePanel({ onClose }: { onClose: () => void }): ReactNode {
+function DonePanel({ onClose, weekStart }: { onClose: () => void; weekStart: string }): ReactNode {
   return (
     <div className="px-6 py-9 text-center">
       <span className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 text-emerald-700">
@@ -675,7 +675,7 @@ function DonePanel({ onClose }: { onClose: () => void }): ReactNode {
       <div className="mt-5 flex justify-center gap-2">
         <Button onClick={onClose}>Done</Button>
         <Link
-          href={HOURS_PERIOD}
+          href={`${HOURS_PERIOD}?period=week&anchor=${weekStart}` as Route}
           className="inline-flex items-center rounded-card border border-border px-4 py-2 text-sm font-semibold text-text hover:border-brand-navy"
         >
           Open pay period →

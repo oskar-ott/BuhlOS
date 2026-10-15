@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { inProcessFetch } from "../../../../../api/_lib/in-process-api.js";
 import type { Route } from "next";
 import { notFound, redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
@@ -1103,7 +1104,7 @@ async function readLeave(
   headersInit: { cookie: string } | undefined
 ): Promise<{ requests: LeaveRequest[]; error: string | null }> {
   try {
-    const res = await fetch(`${base}/api/leave`, {
+    const res = await inProcessFetch(`${base}/api/leave`, {
       cache: "no-store",
       headers: headersInit,
     });
@@ -1130,7 +1131,7 @@ async function readWorkers(
   headersInit: { cookie: string } | undefined
 ): Promise<{ workers: Array<{ id: string; username: string }> }> {
   try {
-    const res = await fetch(`${base}/api/users?action=listTradies`, {
+    const res = await inProcessFetch(`${base}/api/users?action=listTradies`, {
       cache: "no-store",
       headers: headersInit,
     });
@@ -1151,7 +1152,7 @@ async function readList(
   status: "submitted" | "approved" | "rejected"
 ): Promise<{ entries: ReadonlyArray<TimeEntry>; error: string | null }> {
   try {
-    const res = await fetch(`${base}/api/time-entries?scope=approver&status=${status}`, {
+    const res = await inProcessFetch(`${base}/api/time-entries?scope=approver&status=${status}`, {
       cache: "no-store",
       headers: headersInit,
     });
@@ -1174,7 +1175,7 @@ async function readOverview(
   toDate: string
 ): Promise<{ overview: TimeEntryOverviewResponse | null; error: string | null }> {
   try {
-    const res = await fetch(
+    const res = await inProcessFetch(
       `${base}/api/time-entries-overview?fromDate=${fromDate}&toDate=${toDate}`,
       { cache: "no-store", headers: headersInit }
     );
@@ -1197,7 +1198,7 @@ async function readExportPreview(
   toDate: string
 ): Promise<{ preview: PayrollExportPreviewResponse | null; error: string | null }> {
   try {
-    const res = await fetch(
+    const res = await inProcessFetch(
       `${base}/api/time-entries-export?dryRun=1&format=json&fromDate=${fromDate}&toDate=${toDate}`,
       { cache: "no-store", headers: headersInit }
     );
@@ -1219,7 +1220,7 @@ async function readPulse(
   date: string
 ): Promise<{ pulse: TodayPulseResponse | null; error: string | null }> {
   try {
-    const res = await fetch(`${base}/api/today-pulse?date=${date}`, {
+    const res = await inProcessFetch(`${base}/api/today-pulse?date=${date}`, {
       cache: "no-store",
       headers: headersInit,
     });

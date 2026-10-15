@@ -2,35 +2,27 @@
 // Preserves original behaviour: base64 dataUrl upload, per-dwelling index,
 // DELETE by photoId.
 const { put, del } = require('@vercel/blob');
-const { setNoCache } = require('./_lib/blob');
+const { setNoCache, readBlob, writeBlob } = require('./_lib/blob');
 const { requireAuth, canWrite } = require('./_lib/auth');
 
 function indexKey(jobId) {
   return `jobs/${jobId}/photos-index.json`;
 }
 
+// The index goes through api/_lib/blob (deterministic-URL read, short TTL
+// cache, write primes the cache) instead of a raw store listing + fetch on
+// every gallery open and every upload — the listing alone was ~1 s.
 async function readIndex(jobId) {
   try {
-    const { list } = require('@vercel/blob');
-    const key = indexKey(jobId);
-    const { blobs } = await list({ prefix: key, token: process.env.BLOB_READ_WRITE_TOKEN });
-    const match = blobs.find(b => b.pathname === key);
-    if (!match) return {};
-    const res = await fetch(match.url + '?t=' + Date.now(), { cache: 'no-store' });
-    if (!res.ok) return {};
-    return await res.json();
+    const index = await readBlob(indexKey(jobId), {});
+    return index && typeof index === 'object' && !Array.isArray(index) ? index : {};
   } catch (e) {
     return {};
   }
 }
 
 async function writeIndex(jobId, index) {
-  await put(indexKey(jobId), JSON.stringify(index), {
-    access: 'public',
-    contentType: 'application/json',
-    addRandomSuffix: false,
-    token: process.env.BLOB_READ_WRITE_TOKEN,
-  });
+  await writeBlob(indexKey(jobId), index);
 }
 
 // ── Snag photo storage ─────────────────────────────────────────────

@@ -78,6 +78,28 @@ describe("buildNeedsYouQueue", () => {
     expect(rows.map((r) => r.tone)).toEqual(["block", "block", "wait"]);
   });
 
+  it("opens the one crew-less job directly when there is exactly one", () => {
+    const rows = buildNeedsYouQueue({
+      rejected: 0,
+      missingDays: 0,
+      noCrewJobs: 1,
+      noCrewJobId: "job-7",
+      pending: 0,
+    });
+    expect(rows.map((r) => [r.key, r.cta, r.href])).toEqual([
+      ["no-crew", "Open job", "/v2/jobs/job-7"],
+    ]);
+    // Several → the list, whatever id is offered.
+    const many = buildNeedsYouQueue({
+      rejected: 0,
+      missingDays: 0,
+      noCrewJobs: 2,
+      noCrewJobId: "job-7",
+      pending: 0,
+    });
+    expect(many[0]?.href).toBe("/v2/jobs");
+  });
+
   it("never carries a photos-to-review row — it blocks no one (owner pull 2026-10-06)", () => {
     const rows = buildNeedsYouQueue({ rejected: 0, missingDays: 0, noCrewJobs: 0, pending: 0 });
     expect(rows).toEqual([]);

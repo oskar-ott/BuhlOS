@@ -158,7 +158,7 @@ export function PhilMyDayLogHoursBanner({
       : `Today not logged · ${formatHoursLabel(STANDARD_DAY_HOURS)} standard`;
   return (
     <PhilOfflineLink
-      href={"/phil/hours" as Route}
+      href={"/phil/hours?log=1" as Route}
       data-testid="phil-my-day-log-hours-banner"
       className="flex min-h-[72px] items-center gap-3 rounded-card bg-accent-yellow p-4 shadow-card active:scale-[0.99]"
     >

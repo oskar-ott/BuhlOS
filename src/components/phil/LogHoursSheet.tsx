@@ -590,10 +590,9 @@ export function LogHoursSheet({
                 jobs={pickableJobs}
                 onDiscoverJobs={discoverJobs}
                 selectedJobId={selectedJobId}
-                onSelect={(id) => {
-                  setSelectedJobId(id);
-                  setMoreOpen(true); // open the note disclosure once a job is chosen
-                }}
+                // Picking a job is the choice, not a request for a note — the
+                // notes disclosure stays tucked away (P10; 2026-10-15 audit).
+                onSelect={setSelectedJobId}
                 lastLoggedJobId={lastLoggedJobId}
                 lastLoggedDate={lastLoggedDate}
                 jobsError={jobsError}

@@ -35,19 +35,33 @@ async function readAudit(jobId) {
  * @param {{ byUserId: string, byUsername: string, kind: string, summary: string, before?: any, after?: any }} entry
  */
 async function appendAudit(jobId, entry) {
-  if (!jobId || !entry || !entry.kind || !entry.summary) return;
+  return appendAuditMany(jobId, [entry]);
+}
+
+/**
+ * Append several entries in ONE read-modify-write. A single job save can
+ * produce three or four kinds (status, basics, areas, tasks); writing them one
+ * at a time cost a serial read+put per kind on the same blob before the save
+ * could respond. Same shape, same trim rule, same best-effort contract.
+ */
+async function appendAuditMany(jobId, items) {
+  const valid = (items || []).filter((e) => e && e.kind && e.summary);
+  if (!jobId || valid.length === 0) return;
   const entries = await readAudit(jobId);
-  entries.push({
-    ts: new Date().toISOString(),
-    byUserId:   String(entry.byUserId || ''),
-    byUsername: String(entry.byUsername || ''),
-    kind:       String(entry.kind).slice(0, 40),
-    summary:    String(entry.summary).slice(0, 240),
-    // before/after are stored as-is but stringified to ~2KB each so a
-    // huge areaGroups payload can't bloat the log.
-    ...(entry.before !== undefined ? { before: _shrink(entry.before) } : {}),
-    ...(entry.after  !== undefined ? { after:  _shrink(entry.after)  } : {}),
-  });
+  const ts = new Date().toISOString();
+  for (const entry of valid) {
+    entries.push({
+      ts,
+      byUserId:   String(entry.byUserId || ''),
+      byUsername: String(entry.byUsername || ''),
+      kind:       String(entry.kind).slice(0, 40),
+      summary:    String(entry.summary).slice(0, 240),
+      // before/after are stored as-is but stringified to ~2KB each so a
+      // huge areaGroups payload can't bloat the log.
+      ...(entry.before !== undefined ? { before: _shrink(entry.before) } : {}),
+      ...(entry.after  !== undefined ? { after:  _shrink(entry.after)  } : {}),
+    });
+  }
   // Trim if needed.
   let trimmed = entries;
   if (entries.length > MAX_ENTRIES) {
@@ -78,4 +92,4 @@ function diffStrings(before, after) {
   return out;
 }
 
-module.exports = { readAudit, appendAudit, diffStrings };
+module.exports = { readAudit, appendAudit, appendAuditMany, diffStrings };

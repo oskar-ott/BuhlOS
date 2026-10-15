@@ -1,7 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import { JobCrewNames } from "./JobCrewNames";
+
+// The component refreshes the page after an assign/unassign; renderToString
+// has no App Router context, so stub the hook (same pattern as sibling tests).
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: () => undefined, push: () => undefined }),
+}));
 
 /**
  * Honest-or-absent contract: before the register fetch resolves (renderToString

@@ -47,6 +47,10 @@ export interface NeedsYouCounts {
   missingWeekStart?: string;
   /** Active jobs with no field crew assigned (jobs stats). */
   noCrewJobs: number;
+  /** When exactly one job has no crew, its id — the row opens that job's hub
+   *  (where crew is assigned) instead of the whole jobs list. Optional so
+   *  existing callers/tests keep working. */
+  noCrewJobId?: string;
   /** Submitted days awaiting approver action. */
   pending: number;
   // No evidence row (owner pull 2026-10-06): photos / tags to review block no
@@ -93,8 +97,11 @@ export function buildNeedsYouQueue(c: NeedsYouCounts): NeedsYouRow[] {
           ? "Active job with no crew assigned"
           : "Active jobs with no crew assigned",
       sub: "The field can’t see these jobs — assign workers so hours can be logged.",
-      cta: "Jobs",
-      href: "/v2/jobs",
+      cta: c.noCrewJobs === 1 && c.noCrewJobId ? "Open job" : "Jobs",
+      href:
+        c.noCrewJobs === 1 && c.noCrewJobId
+          ? `/v2/jobs/${encodeURIComponent(c.noCrewJobId)}`
+          : "/v2/jobs",
     },
     {
       key: "pending",

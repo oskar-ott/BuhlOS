@@ -78,11 +78,15 @@ module.exports = async (req, res) => {
     }
     throw e;
   }
-  await appendAudit(userId, entry.id, 'approved', user.id);
+  // Per-entry audit (the primary record) and the global activity row are
+  // separate stores — overlapped, so a per-day approve on the closeout board
+  // pays one round trip after the write, not two in a row (bulk approve
+  // already batches these).
+  const auditWrite = appendAudit(userId, entry.id, 'approved', user.id);
   // Phase 09 (brief §14): global activity log row. Best-effort —
   // failure here doesn't fail the approval. The per-entry audit
   // above remains the primary record.
-  await appendActivity({
+  const activityWrite = appendActivity({
     action: 'hours.approved',
     scope:  'hours',
     actor:  user.id,
@@ -95,6 +99,7 @@ module.exports = async (req, res) => {
       jobIds: (entry.allocations || []).map(a => a.jobId).filter(Boolean),
     },
   });
+  await Promise.all([auditWrite, activityWrite]);
 
   // #390: canonical audit-log entry (the journal #220 reads + per-job history).
   // Best-effort — never blocks the approval. `updated` carries the new status.

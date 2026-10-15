@@ -66,6 +66,10 @@ export interface PhilCaptureSharpenedProps {
   photoHint: string | null;
   maxPhotos: number;
   onRequestCamera?: () => void;
+  /** Fires once per confirmed save — the launcher re-renders the page under
+   *  the sheet so the job's "Today's captures" strip shows the photo the
+   *  receipt just reported (2026-10-15; it used to stay stale until a pull). */
+  onSaved?: () => void;
 
   jobsLoading: boolean;
   jobsError: string | null;
@@ -117,6 +121,7 @@ export function PhilCaptureSharpened({
   photoHint,
   maxPhotos,
   onRequestCamera,
+  onSaved,
   jobsLoading,
   jobsError,
   onRetryJobs,
@@ -264,10 +269,12 @@ export function PhilCaptureSharpened({
     });
     savedEvidenceIdsRef.current = [];
     onNoteChange("");
+    onSaved?.();
   }, [
     canSave,
     selectedJob,
     purpose,
+    onSaved,
     note,
     areaName,
     saveBatch,

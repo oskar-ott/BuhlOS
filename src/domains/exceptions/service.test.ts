@@ -106,11 +106,11 @@ describe("jobExceptions", () => {
     expect(ids).toEqual(expect.arrayContaining(["job-no-crew:j2", "job-draft:j3"]));
     expect(ids.some((id) => id.startsWith("evidence"))).toBe(false);
     expect(items.some((i) => /evidence to review/i.test(i.title))).toBe(false);
-    // no-crew deep-links to the assignment section anchor; draft to the publish tab
+    // no-crew deep-links to the job hub (its crew band assigns); draft to the publish tab
     expect(items.find((i) => i.id === "job-no-crew:j2")).toMatchObject({
       severity: "critical",
-      actionHref: "/v2/jobs/j2/builder#assigned-field-workers",
-      actionLabel: "Assign field workers",
+      actionHref: "/v2/jobs/j2",
+      actionLabel: "Assign workers",
     });
     expect(items.find((i) => i.id === "job-draft:j3")).toMatchObject({
       severity: "info",
@@ -123,7 +123,7 @@ describe("jobExceptions", () => {
     const items = jobExceptions([
       job({ id: "j/1#frag", name: "Odd id", status: "active", statsCrewCount: 0 }),
     ]);
-    expect(items[0]!.actionHref).toBe("/v2/jobs/j%2F1%23frag/builder#assigned-field-workers");
+    expect(items[0]!.actionHref).toBe("/v2/jobs/j%2F1%23frag");
     expect(isSafeActionHref(items[0]!.actionHref)).toBe(true);
   });
 });

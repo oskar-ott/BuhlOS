@@ -66,11 +66,19 @@ module.exports = async (req, res) => {
     return res.status(403).json({ error: 'no access to job' });
   }
 
-  const jobsBlob = await readBlob('jobs.json', { jobs: [] });
+  // All four reads are independent of each other — the job record, its
+  // data.json, my own day-file and the day's entry listing — so they start
+  // together instead of one after the other (a missing job still 404s; the
+  // extra reads for it are harmless defaults).
+  const today = sydneyToday();
+  const [jobsBlob, data, mine, todayBlobs] = await Promise.all([
+    readBlob('jobs.json', { jobs: [] }),
+    readBlob(`jobs/${jobId}/data.json`, { dwellings: {}, snags: [] }),
+    readBlob(`users/${me.id}/time-entries/${today}.json`, null).catch(() => null),
+    listTimeEntryBlobsForDate(today).catch((e) => { console.error('job-glance: hours walk failed', e); return []; }),
+  ]);
   const job = (jobsBlob.jobs || []).find(j => j.id === jobId);
   if (!job) return res.status(404).json({ error: 'job not found' });
-
-  const data = await readBlob(`jobs/${jobId}/data.json`, { dwellings: {}, snags: [] });
 
   // ── Progress (mirrors client.html math) ──────────────────────────────
   const areas = (job.areaGroups || []).flatMap(g => g.areas || []);
@@ -119,13 +127,11 @@ module.exports = async (req, res) => {
   }
 
   // ── Hours: my today's allocation to THIS job + how many others on site
-  const today = sydneyToday();
   let myHoursToday = 0;
   let myHoursEntryStatus = null;
   let onSiteToday = 0;
   try {
-    // My entry (single direct read by path)
-    const mine = await readBlob(`users/${me.id}/time-entries/${today}.json`, null);
+    // My entry (single direct read by path, started above)
     if (mine) {
       myHoursEntryStatus = mine.status || 'draft';
       for (const a of (mine.allocations || [])) {
@@ -134,7 +140,7 @@ module.exports = async (req, res) => {
     }
 
     // Crew on site (excluding me) — paginated walk (#935), never the silent cap.
-    const blobs = await listTimeEntryBlobsForDate(today);
+    const blobs = todayBlobs;
     const others = await Promise.all(blobs.map(async b => {
       // Skip my own blob; we already read it.
       if (b.pathname === `users/${me.id}/time-entries/${today}.json`) return null;
