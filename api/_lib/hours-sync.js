@@ -19,9 +19,12 @@ const { loadAllHoursFromPg } = require('./hours-read');
 const FETCH_CONCURRENCY = 8;
 const ENTRY_KEY_RE = /^users\/([^/]+)\/time-entries\/(\d{4}-\d{2}-\d{2})\.json$/;
 
-// List + fetch every users/<id>/time-entries/<date>.json blob, normalised to the
-// comparison shape (so the blob side matches how alloc-pg wrote the PG rows).
-async function loadBlobHoursEntries() {
+// List + fetch every users/<id>/time-entries/<date>.json blob. The snapshot
+// keeps, per `<userId>|<date>` key, the RAW entry and the blob's uploadedAt (the
+// mirror repair needs both: the raw entry to re-mirror, the upload time to skip
+// days still inside the CDN window), plus the keys whose body could NOT be read
+// — those are unknown, never "absent" (a repair must not delete their PG row).
+async function loadBlobHoursSnapshot() {
   const token = process.env.BLOB_READ_WRITE_TOKEN;
   if (!token) throw new Error('BLOB_READ_WRITE_TOKEN is not set');
   const { list } = require('@vercel/blob');
@@ -31,12 +34,14 @@ async function loadBlobHoursEntries() {
     const res = await list({ prefix: 'users/', token, limit: 1000, cursor });
     for (const b of res.blobs || []) {
       const m = ENTRY_KEY_RE.exec(b.pathname);
-      if (m) dayBlobs.push({ userId: m[1], date: m[2], url: b.url });
+      if (m) dayBlobs.push({ userId: m[1], date: m[2], url: b.url, uploadedAt: b.uploadedAt });
     }
     cursor = res.cursor;
   } while (cursor);
 
   const entries = [];
+  const byKey = new Map();
+  const unreadable = [];
   for (let i = 0; i < dayBlobs.length; i += FETCH_CONCURRENCY) {
     const chunk = dayBlobs.slice(i, i + FETCH_CONCURRENCY);
     const fetched = await Promise.all(
@@ -52,10 +57,21 @@ async function loadBlobHoursEntries() {
     );
     chunk.forEach((b, idx) => {
       const e = fetched[idx];
-      if (e && typeof e === 'object') entries.push(normaliseEntry(b.userId, b.date, e));
+      const key = `${b.userId}|${b.date}`;
+      if (e && typeof e === 'object') {
+        entries.push(normaliseEntry(b.userId, b.date, e));
+        byKey.set(key, { userId: b.userId, date: b.date, raw: e, uploadedAt: b.uploadedAt || null });
+      } else {
+        unreadable.push(key);
+      }
     });
   }
-  return entries;
+  return { entries, byKey, unreadable, listedKeys: dayBlobs.map((b) => `${b.userId}|${b.date}`) };
+}
+
+// The comparison shape only (so the blob side matches how alloc-pg wrote the PG rows).
+async function loadBlobHoursEntries() {
+  return (await loadBlobHoursSnapshot()).entries;
 }
 
 // Append-only INSERT into public.sync_checks. The ONLY write this module makes.
@@ -108,4 +124,4 @@ async function runHoursSyncCheck(sql, { record = false, deps = {} } = {}) {
   return report;
 }
 
-module.exports = { loadBlobHoursEntries, recordSyncCheck, runHoursSyncCheck };
+module.exports = { loadBlobHoursEntries, loadBlobHoursSnapshot, recordSyncCheck, runHoursSyncCheck };
