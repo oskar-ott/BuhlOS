@@ -22,6 +22,7 @@ const clone = <T,>(v: T): T => (v === undefined ? v : JSON.parse(JSON.stringify(
 let auth: { signSession: (p: Record<string, unknown>) => string };
 let handler: (req: Record<string, unknown>, res: ReturnType<typeof createRes>) => Promise<unknown>;
 let capturedStatuses: string[] | undefined;
+let capturedWrittenSince: string | undefined;
 
 function createRes() {
   return {
@@ -61,6 +62,7 @@ const ALL_ENTRIES = [
 beforeEach(() => {
   process.env.SESSION_SECRET = "test-session-secret-long-enough";
   capturedStatuses = undefined;
+  capturedWrittenSince = undefined;
   const blob = new Map<string, unknown>([
     ["users.json", { users: [
       { id: "u_boss", username: "boss", role: "boss", assignedJobIds: [] },
@@ -89,8 +91,9 @@ beforeEach(() => {
   requireFromHere.cache[tePath] = {
     id: tePath, filename: tePath, loaded: true,
     exports: {
-      listAllEntriesForApprovers: vi.fn(async ({ statuses }: { statuses?: string[] }) => {
+      listAllEntriesForApprovers: vi.fn(async ({ statuses, writtenSince }: { statuses?: string[]; writtenSince?: string }) => {
         capturedStatuses = statuses;
+        capturedWrittenSince = writtenSince;
         const wanted = statuses || ["submitted"];
         return clone(ALL_ENTRIES.filter((e) => wanted.includes(e.status)));
       }),
@@ -101,7 +104,7 @@ beforeEach(() => {
   handler = requireFromHere(handlerPath);
 });
 
-type JobHours = { jobId: string; entries: Array<{ id: string; userId: string; userName: string; status: string; allocations: Array<{ jobId: string | null; hours: number }> }>; asOf: string };
+type JobHours = { jobId: string; entries: Array<{ id: string; userId: string; userName: string; status: string; allocations: Array<{ jobId: string | null; hours: number }> }>; writtenSince: string | null; asOf: string };
 
 describe("GET /api/job-hours", () => {
   it("returns this job's submitted+approved entries (split day included), excluding other-job/null-job", async () => {
@@ -154,5 +157,35 @@ describe("GET /api/job-hours", () => {
   it("403 for a field worker, 401 for anon (job labour is office data)", async () => {
     expect((await call({ userId: "u_field", role: "electrician", query: { jobId: "job-1" } })).statusCode).toBe(403);
     expect((await call({ anon: true, query: { jobId: "job-1" } })).statusCode).toBe(401);
+  });
+});
+
+/**
+ * 2026-10-15 (shorter-paths audit D2): the hub passes the job's own createdAt
+ * and the scan fetches only the day-files WRITTEN since then (less a day of
+ * slack). Exact, not a heuristic — a file can only name a job after the job
+ * exists — so an old day an amendment re-filed onto the job is still read.
+ */
+describe("GET /api/job-hours — the store scan is bounded by the job's createdAt", () => {
+  it("jobCreatedAt → the scan is asked for files written since a day before it, and the bound is echoed", async () => {
+    const res = await call({ query: { jobId: "job-1", jobCreatedAt: "2026-06-01T10:00:00.000Z" } });
+    expect(res.statusCode).toBe(200);
+    expect(capturedWrittenSince).toBe("2026-05-31T10:00:00.000Z");
+    expect((res.body as JobHours).writtenSince).toBe("2026-05-31T10:00:00.000Z");
+    // Still ONE scan for both statuses.
+    expect(capturedStatuses).toEqual(["submitted", "approved"]);
+  });
+
+  it("no jobCreatedAt (a job without one) → the full walk, as before, and writtenSince is null", async () => {
+    const res = await call({ query: { jobId: "job-1" } });
+    expect(res.statusCode).toBe(200);
+    expect(capturedWrittenSince).toBeUndefined();
+    expect((res.body as JobHours).writtenSince).toBeNull();
+  });
+
+  it("a malformed jobCreatedAt is a 400 — never a silent full walk, never a silent empty card", async () => {
+    const res = await call({ query: { jobId: "job-1", jobCreatedAt: "yesterday" } });
+    expect(res.statusCode).toBe(400);
+    expect(capturedWrittenSince).toBeUndefined();
   });
 });

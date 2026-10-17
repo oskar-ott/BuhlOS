@@ -135,6 +135,7 @@ export default async function HoursOverviewPage({
     leaveError,
     workers,
     errors,
+    pendingError,
   } = await loadHours(raw, weekStart, weekEnd, today, isAdmin);
 
   const missing = overview ? summariseMissing(overview.missing) : null;
@@ -151,7 +152,11 @@ export default async function HoursOverviewPage({
   ]);
 
   return (
-    <AdminShell title="Hours">
+    <AdminShell
+      title="Hours"
+      // The pending queue IS the nav's "Hours" badge — seed it (audit D1).
+      navCounts={pendingError ? undefined : { hours: pending.length }}
+    >
       {/* Section tabs (#415 → lean-reset: Today · This week · Pay period). */}
       <HoursTabs />
       <div className="mx-auto max-w-4xl space-y-4">
@@ -1033,6 +1038,9 @@ interface LoadResult {
   leaveError: string | null;
   workers: ReadonlyArray<{ id: string; username: string }>;
   errors: string[];
+  /** The pending queue's own failure — the nav badge seed must stay absent
+   *  (not 0) when this read failed, while `errors` carries it to the banner. */
+  pendingError: string | null;
 }
 
 async function loadHours(
@@ -1096,6 +1104,7 @@ async function loadHours(
     leaveError: leaveRes.error,
     workers: workersRes.workers,
     errors,
+    pendingError: pendingRes.error,
   };
 }
 

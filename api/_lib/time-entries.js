@@ -368,9 +368,65 @@ function recentDatesWithin(fromDate, toDate) {
 // asks for submitted AND rejected at the same moment — two identical walks.
 // Concurrent callers share the in-flight walk (same rule as the listing: never
 // cached past settling); each caller filters its own copy.
-let inflightApproverWalk = null;
+//
+// Bounded walks (2026-10-15, shorter-paths audit D2). Prod, 485 day-files:
+// the listing costs ~1.8 s and the 485 fetches another ~1.7 s per call. The
+// listing is paid regardless (status isn't in the path — a status index is
+// the next step if this isn't enough); what a bound saves is the fetches.
+// Two bounds, both decided from the listing alone, so no file is read to be
+// discarded:
+//   · fromDate / toDate — the day in the pathname
+//     (users/<uid>/time-entries/<date>.json), for a caller that wants a date
+//     window of work.
+//   · writtenSince — the blob's storage `uploadedAt`. A day-file can only
+//     mention a job if it was written — or re-written: edited, amended,
+//     approved — after that job existed, so "files written since the job was
+//     created" is an EXACT superset of the job's entries, including an old day
+//     an office amendment re-filed onto the job, which a date-of-work bound
+//     would miss (api/job-hours.js).
+// No bound → the full walk, exactly as before. Callers share an in-flight walk
+// only when their bounds match. A file whose date or stamp can't be read is
+// KEPT: an unreadable stamp widens the walk, never drops an entry.
+const PATH_DATE_RE = /\/time-entries\/(\d{4}-\d{2}-\d{2})\.json$/;
 
-async function walkAllEntriesForApprovers() {
+function pathDateOf(pathname) {
+  const m = PATH_DATE_RE.exec(pathname || '');
+  return m ? m[1] : null;
+}
+
+function uploadedAtMs(b) {
+  const v = b && b.uploadedAt;
+  if (v == null) return null;
+  const t = v instanceof Date ? v.getTime() : Date.parse(String(v));
+  return Number.isNaN(t) ? null : t;
+}
+
+/** The listed day-files a bounded walk fetches (see the note above). */
+function selectEntryBlobs(blobs, { fromDate, toDate, writtenSince } = {}) {
+  const sinceMs = writtenSince ? Date.parse(writtenSince) : NaN;
+  return (blobs || []).filter((b) => {
+    if (fromDate || toDate) {
+      const d = pathDateOf(b && b.pathname);
+      if (d) {
+        if (fromDate && d < fromDate) return false;
+        if (toDate && d > toDate) return false;
+      }
+    }
+    if (!Number.isNaN(sinceMs)) {
+      const t = uploadedAtMs(b);
+      if (t != null && t < sinceMs) return false;
+    }
+    return true;
+  });
+}
+
+function boundsKey({ fromDate, toDate, writtenSince } = {}) {
+  return `${fromDate || ''}|${toDate || ''}|${writtenSince || ''}`;
+}
+
+const inflightApproverWalks = new Map(); // boundsKey → promise
+
+async function walkAllEntriesForApprovers(bounds = {}) {
   let entryBlobs;
   try {
     entryBlobs = await listTimeEntryBlobs(); // #935: fully paginated — never the silent 5000 cap
@@ -378,26 +434,32 @@ async function walkAllEntriesForApprovers() {
     console.error('list error', e.message);
     return [];
   }
+  const selected = selectEntryBlobs(entryBlobs, bounds);
   const started = Date.now();
-  const entries = await Promise.all(entryBlobs.map(async b => {
+  const entries = await Promise.all(selected.map(async b => {
     try {
       const r = await fetch(b.url + '?t=' + Date.now(), { cache: 'no-store' });
       if (!r.ok) return null;
       return await r.json();
     } catch { return null; }
   }));
-  console.log(`[perf] approver walk fetched ${entryBlobs.length} entries ${Date.now() - started}ms`);
+  const key = boundsKey(bounds);
+  console.log(`[perf] approver walk fetched ${selected.length} entries ${Date.now() - started}ms (${entryBlobs.length} listed${key === '||' ? '' : `, bounds ${key}`})`);
   return entries.filter(Boolean);
 }
 
-async function listAllEntriesForApprovers({ status = 'submitted', statuses } = {}) {
+async function listAllEntriesForApprovers({ status = 'submitted', statuses, fromDate, toDate, writtenSince } = {}) {
   const wanted = Array.isArray(statuses) && statuses.length ? statuses : [status];
-  if (!inflightApproverWalk) {
-    inflightApproverWalk = walkAllEntriesForApprovers().finally(() => {
-      inflightApproverWalk = null;
+  const bounds = { fromDate, toDate, writtenSince };
+  const key = boundsKey(bounds);
+  let walk = inflightApproverWalks.get(key);
+  if (!walk) {
+    walk = walkAllEntriesForApprovers(bounds).finally(() => {
+      inflightApproverWalks.delete(key);
     });
+    inflightApproverWalks.set(key, walk);
   }
-  const all = await inflightApproverWalk;
+  const all = await walk;
   return all
     .filter(e => wanted.includes(e.status))
     .sort((a, b) => (a.submittedAt || '').localeCompare(b.submittedAt || ''));
@@ -542,6 +604,7 @@ module.exports = {
   deleteEntry,
   listUserEntries,
   listAllEntriesForApprovers,
+  selectEntryBlobs,
   listEntriesForDate,
   appendAudit,
   appendAuditMany,

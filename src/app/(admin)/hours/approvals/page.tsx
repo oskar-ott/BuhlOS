@@ -45,6 +45,8 @@ export default async function HoursApprovalsPage() {
   return (
     <AdminShell
       title="Hours · approvals"
+      // The queue below IS the nav's "Hours" badge — seed it (audit D1).
+      navCounts={fetchError ? undefined : { hours: entries.length }}
       breadcrumb={
         <Link
           href="/hours"

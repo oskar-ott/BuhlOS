@@ -7,7 +7,7 @@ import type { Route } from "next";
 import { Briefcase, ClipboardCheck, LayoutGrid, MoreHorizontal, Users } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { AdminMoreSheet } from "./AdminMoreSheet";
-import { useNavCounts } from "./useNavCounts";
+import { useNavCounts, type NavCounts } from "./useNavCounts";
 
 /**
  * BuhlOS admin bottom tab bar — the calm mobile office nav (the audit's
@@ -62,15 +62,18 @@ interface AdminMobileTabBarProps {
   /** Optional honest badge counts, rendered only when > 0. Overrides the
    *  self-served useNavCounts figure when supplied. */
   badges?: { today?: number; week?: number };
+  /** Counts the page already computed (AdminShell `navCounts`) — seeds the
+   *  shared useNavCounts so those sources are not re-fetched on load. */
+  navCounts?: NavCounts;
   /** #760: owner-disabled feature hrefs — hide the matching primary tab, and
    *  filter the "More" sheet's full IA. Undefined = show everything. */
   hiddenHrefs?: ReadonlyArray<string>;
 }
 
-export function AdminMobileTabBar({ badges, hiddenHrefs }: AdminMobileTabBarProps = {}) {
+export function AdminMobileTabBar({ badges, navCounts: seed, hiddenHrefs }: AdminMobileTabBarProps = {}) {
   const pathname = usePathname() ?? "";
   const [moreOpen, setMoreOpen] = useState(false);
-  const navCounts = useNavCounts();
+  const navCounts = useNavCounts(seed);
   const hidden = hiddenHrefs && hiddenHrefs.length > 0 ? new Set(hiddenHrefs) : null;
   const tabs = hidden ? TAB_ITEMS.filter((t) => !hidden.has(t.href)) : TAB_ITEMS;
   // Hours submitted and awaiting the approver — the weekly closeout's real

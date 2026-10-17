@@ -1,7 +1,7 @@
 // Per-job hours read (#134) — recompute-on-read foundation for job labour burn.
 //
-//   GET /api/job-hours?jobId=X        (admin tier only)
-//     → { jobId, entries: [...], asOf }
+//   GET /api/job-hours?jobId=X[&jobCreatedAt=<ISO>]   (admin tier only)
+//     → { jobId, entries: [...], writtenSince, asOf }
 //
 // Returns THIS job's time entries in {submitted, approved} (never draft/rejected),
 // across all workers, with their allocations — the input the pure
@@ -16,13 +16,26 @@
 // must read "Jonathan Borg" like the payroll PDF does. Identity stays `userId`.
 //
 // v1 STORAGE NOTE (accepted, documented): there is no per-job hours index, so
-// this RECOMPUTES from a full users/ blob scan per call
-// (listAllEntriesForApprovers). Acceptable at current scale; a maintained index
-// is a deliberate later step only if the scan cost bites — and recompute-from-
-// source stays the source of truth regardless, since the blob store has no
-// atomic CAS. Blob remains authoritative; no Postgres read here.
+// this RECOMPUTES from a users/ blob scan per call (listAllEntriesForApprovers).
+// Recompute-from-source stays the source of truth regardless, since the blob
+// store has no atomic CAS. Blob remains authoritative; no Postgres read here.
+//
+// Bounded scan (2026-10-15, shorter-paths audit D2): with `jobCreatedAt` (the
+// job's own createdAt, passed by the hub page that already holds the job) the
+// scan fetches only the day-files whose storage `uploadedAt` is on or after
+// the job's creation, less a day of slack for clocks. That is exact, not a
+// heuristic: a day-file can only name this job if it was written — or
+// re-written by an edit, amendment or approval — after the job existed. A
+// bound on the DAY OF WORK would miss an old day an office amendment re-filed
+// onto this job; this bound keeps it. Without the parameter (a job with no
+// createdAt) the scan is the full walk, as before. Prod, 2026-10-15: the full
+// walk fetched ~485 files in 1.2–2.0 s per hub view.
 
 const { readBlob, setNoCache } = require('./_lib/blob');
+
+/** Slack between a job's createdAt stamp and the storage uploadedAt of the
+ *  first day-file that could name it — generous; the clocks are seconds apart. */
+const WRITTEN_SINCE_SLACK_MS = 24 * 60 * 60 * 1000;
 const { requireAuth, isAdminRole } = require('./_lib/auth');
 const { listAllEntriesForApprovers } = require('./_lib/time-entries');
 const { buildWorkerLabeller } = require('./_lib/worker-names');
@@ -34,6 +47,13 @@ module.exports = async (req, res) => {
 
   const jobId = (req.query && req.query.jobId) || '';
   if (!jobId) return res.status(400).json({ error: 'jobId required' });
+  const jobCreatedAt = (req.query && req.query.jobCreatedAt) || '';
+  let writtenSince = null;
+  if (jobCreatedAt) {
+    const t = Date.parse(String(jobCreatedAt));
+    if (Number.isNaN(t)) return res.status(400).json({ error: 'jobCreatedAt must be an ISO date-time' });
+    writtenSince = new Date(t - WRITTEN_SINCE_SLACK_MS).toISOString();
+  }
 
   // Job labour/cost is office data — admin tier only.
   const viewer = await requireAuth(req, res);
@@ -43,7 +63,7 @@ module.exports = async (req, res) => {
   let all, usersBlob, empBlob;
   try {
     [all, usersBlob, empBlob] = await Promise.all([
-      listAllEntriesForApprovers({ statuses: ['submitted', 'approved'] }),
+      listAllEntriesForApprovers({ statuses: ['submitted', 'approved'], writtenSince: writtenSince || undefined }),
       readBlob('users.json', { users: [] }),
       readBlob('employees.json', { employees: [] }),
     ]);
@@ -64,5 +84,5 @@ module.exports = async (req, res) => {
     .filter(e => Array.isArray(e.allocations) && e.allocations.some(a => a && a.jobId === jobId))
     .map(e => ({ ...e, userName: labelFor(e.userId, e.userName) }));
 
-  return res.status(200).json({ jobId, entries, asOf: new Date().toISOString() });
+  return res.status(200).json({ jobId, entries, writtenSince, asOf: new Date().toISOString() });
 };
