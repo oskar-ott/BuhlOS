@@ -257,7 +257,13 @@ export default async function CommandCentrePage({
   };
 
   return (
-    <AdminShell title="Command Centre">
+    <AdminShell
+      title="Command Centre"
+      // The nav's "Hours" badge is this same queue — hand it over instead of
+      // letting the nav walk the whole store again after hydration (audit D1).
+      // A failed hours read passes nothing: no badge, never a fabricated 0.
+      navCounts={hoursError ? undefined : { hours: hoursPending.length }}
+    >
       {/* Mobile home — the calm single-screen "what needs me first?". Desktop
           (the strip + 9-card grid + inbox below) is untouched, hidden < md. */}
       <div className="md:hidden">

@@ -1,5 +1,5 @@
 import { createRequire } from "node:module";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * Integration tests for api/time-entries.js — focused on the role/permission
@@ -944,5 +944,121 @@ describe("day-type days (TAFE / sick / holiday) — job-less by design", () => {
     };
     expect(stored.dayType).toBeNull();
     expect(stored.allocations.map((a) => a.jobId)).toEqual(["job-x"]);
+  });
+});
+
+/**
+ * 2026-10-15 (shorter-paths audit D2): the approver walk lists every day-file
+ * (status is not in the path) but a caller with a day-of-work window gets only
+ * the files inside it FETCHED. Prod, 485 files: the listing is ~1.8 s and the
+ * fetches another ~1.7 s per call; the bound removes the second number.
+ */
+describe("GET ?scope=approver — the store walk is bounded before the per-file fetches", () => {
+  const shift = (iso: string, days: number) => {
+    const d = new Date(iso + "T00:00:00.000Z");
+    d.setUTCDate(d.getUTCDate() + days);
+    return d.toISOString().slice(0, 10);
+  };
+  const D0 = TODAY;
+  const D10 = shift(TODAY, -10);
+  const D40 = shift(TODAY, -40);
+  const dayFile = (date: string) => ({
+    pathname: `users/u_field/time-entries/${date}.json`,
+    url: `https://blob.test/users/u_field/time-entries/${date}.json`,
+    uploadedAt: new Date(`${date}T09:00:00.000Z`),
+  });
+  const entryOn = (date: string) => ({
+    id: `e_${date}`,
+    userId: "u_field",
+    userName: "sparky",
+    userRole: "electrician",
+    date,
+    totalHours: 8,
+    ordinaryHours: 8,
+    overtimeHours: 0,
+    status: "submitted",
+    submittedAt: `${date}T08:00:00.000Z`,
+    approvedBy: null,
+    approvedAt: null,
+    rejectedReason: null,
+    allocations: [{ jobId: "job-x", hours: 8, notes: null, sortOrder: 0 }],
+    createdAt: `${date}T07:00:00.000Z`,
+    updatedAt: `${date}T08:00:00.000Z`,
+  });
+  let fetchedDates: string[];
+
+  beforeEach(() => {
+    const files = [D0, D10, D40].map(dayFile);
+    (requireFromHere(vercelBlobPath) as { list: ReturnType<typeof vi.fn> }).list.mockImplementation(
+      async () => ({ blobs: files, hasMore: false })
+    );
+    fetchedDates = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const m = /time-entries\/(\d{4}-\d{2}-\d{2})\.json/.exec(url);
+        const date = m ? m[1]! : "";
+        fetchedDates.push(date);
+        return { ok: true, json: async () => entryOn(date) };
+      })
+    );
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const dates = (res: { body: unknown }) =>
+    ((res.body as { entries: Array<{ date: string }> }).entries ?? []).map((e) => e.date).sort();
+
+  it("no window → every listed day-file is fetched (the whole queue, as before)", async () => {
+    const res = await call({ method: "GET", userId: "u_admin", role: "admin", query: { scope: "approver", status: "submitted" } });
+    expect(res.statusCode).toBe(200);
+    expect(fetchedDates.sort()).toEqual([D0, D10, D40].sort());
+    expect(dates(res)).toEqual([D0, D10, D40].sort());
+  });
+
+  it("fromDate/toDate → only the day-files inside the window are fetched, and only those come back", async () => {
+    const res = await call({
+      method: "GET", userId: "u_admin", role: "admin",
+      query: { scope: "approver", status: "submitted", fromDate: shift(TODAY, -14), toDate: TODAY },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(fetchedDates.sort()).toEqual([D0, D10].sort()); // the 40-day-old file was never read
+    expect(dates(res)).toEqual([D0, D10].sort());
+  });
+
+  it("an open-ended fromDate works alone", async () => {
+    const res = await call({
+      method: "GET", userId: "u_admin", role: "admin",
+      query: { scope: "approver", status: "submitted", fromDate: shift(TODAY, -5) },
+    });
+    expect(fetchedDates).toEqual([D0]);
+    expect(dates(res)).toEqual([D0]);
+  });
+
+  it("a malformed date is a 400 — never a silent full walk answered as if it were the window", async () => {
+    const res = await call({
+      method: "GET", userId: "u_admin", role: "admin",
+      query: { scope: "approver", status: "submitted", fromDate: "last week" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(fetchedDates).toEqual([]);
+  });
+
+  it("selectEntryBlobs: writtenSince keeps files written on/after the stamp, and any file whose stamp it cannot read", () => {
+    const { selectEntryBlobs } = requireFromHere(teLibPath) as {
+      selectEntryBlobs: (blobs: unknown[], bounds: Record<string, string>) => Array<{ pathname: string }>;
+    };
+    const old = { ...dayFile(D40), uploadedAt: new Date("2026-01-01T00:00:00.000Z") };
+    // An old day RE-FILED onto a job by an amendment: date of work is old, the
+    // write is new — the written-since bound keeps it where a date bound would not.
+    const refiled = { ...dayFile(D40), uploadedAt: "2026-06-02T00:00:00.000Z" };
+    const unstamped = { pathname: dayFile(D10).pathname, url: dayFile(D10).url };
+    const picked = selectEntryBlobs([old, refiled, unstamped], { writtenSince: "2026-06-01T00:00:00.000Z" });
+    expect(picked).toEqual([refiled, unstamped]);
+    // No bounds → everything, untouched.
+    expect(selectEntryBlobs([old, refiled, unstamped], {})).toHaveLength(3);
+    // A pathname without a date is kept by a date window (never dropped unread).
+    expect(selectEntryBlobs([{ pathname: "users/u/time-entries/odd.json" }], { fromDate: D0 })).toHaveLength(1);
   });
 });

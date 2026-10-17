@@ -18,6 +18,17 @@ import type { NavCountKey } from "./nav";
  *    fabricated 0. Honest degradation over a false all-clear (CLAUDE.md P7).
  *  - The reducer is pure (deriveNavCounts) and unit-tested; the hook only adds
  *    fetching + caching around it.
+ *  - Seeds (2026-10-15, shorter-paths audit D1). The module cache dies on every
+ *    full page load, so each load re-fired all three sources — including the
+ *    hours queue, whose server walk lists and fetches every day-file in the
+ *    store (~485 files, ~3.5 s of function time in prod) for one badge number.
+ *    An office page that has ALREADY computed a count for its own content
+ *    (the command centre's pending hours, the approvals queue) passes it in as
+ *    a seed through AdminShell; the hook then fetches only the sources the
+ *    seed does not answer. A seed carries the page's own honesty: a page whose
+ *    source failed passes nothing for that key, so no badge — never a 0.
+ *    The planner (applySeed / sourcesToFetch / mergeFetched) is pure and
+ *    unit-tested; the hook is the thin React wrapper around it.
  *
  * Counts wired here are the subset with a cheap, already-shipped source. Loops
  * without one (Command-centre criticals) carry no countKey in ./nav and
@@ -34,6 +45,24 @@ export interface NavCountPayloads {
   /** /api/tags-expiring → tags[] + calibrations[] */
   gear: unknown;
 }
+
+export type NavSource = keyof NavCountPayloads;
+
+export const NAV_SOURCES: ReadonlyArray<NavSource> = ["stats", "hours", "gear"];
+
+const SOURCE_URL: Record<NavSource, string> = {
+  stats: "/api/admin-stats",
+  hours: "/api/time-entries?scope=approver&status=submitted",
+  gear: "/api/tags-expiring",
+};
+
+/** Which badge keys each source answers — a seed covers a source only when it
+ *  carries EVERY one of them (admin-stats answers both jobs and people). */
+export const SOURCE_KEYS: Record<NavSource, ReadonlyArray<NavCountKey>> = {
+  stats: ["jobs", "people"],
+  hours: ["hours"],
+  gear: ["gear"],
+};
 
 function asObj(v: unknown): Record<string, unknown> | null {
   return v && typeof v === "object" && !Array.isArray(v)
@@ -100,57 +129,140 @@ async function fetchJson(url: string): Promise<unknown> {
   }
 }
 
-/** Fan out to the cheap summary endpoints in parallel and reduce. */
-export async function loadNavCounts(): Promise<NavCounts> {
-  const [stats, hours, gear] = await Promise.all([
-    fetchJson("/api/admin-stats"),
-    fetchJson("/api/time-entries?scope=approver&status=submitted"),
-    fetchJson("/api/tags-expiring"),
-  ]);
-  return deriveNavCounts({ stats, hours, gear });
+// One in-flight request per source, shared by every mounted nav (the desktop
+// pills and the mobile tab bar mount together on every office page).
+const inflight: Partial<Record<NavSource, Promise<unknown>>> = {};
+
+function fetchSource(source: NavSource): Promise<unknown> {
+  let p = inflight[source];
+  if (!p) {
+    p = fetchJson(SOURCE_URL[source]).finally(() => {
+      delete inflight[source];
+    });
+    inflight[source] = p;
+  }
+  return p;
 }
 
-const STALE_MS = 60_000;
-let cache: { at: number; counts: NavCounts } | null = null;
-let inflight: Promise<NavCounts> | null = null;
+/** Fan out to the given summary endpoints in parallel and reduce. Sources not
+ *  asked for are left null, so their keys are simply absent from the result. */
+export async function loadNavCounts(
+  sources: ReadonlyArray<NavSource> = NAV_SOURCES
+): Promise<NavCounts> {
+  const payloads: NavCountPayloads = { stats: null, hours: null, gear: null };
+  await Promise.all(
+    sources.map(async (s) => {
+      payloads[s] = await fetchSource(s);
+    })
+  );
+  return deriveNavCounts(payloads);
+}
+
+export const STALE_MS = 60_000;
+
+export interface NavCountsCache {
+  /** When the cache was first filled this STALE_MS window. */
+  at: number;
+  counts: NavCounts;
+  /** Sources already answered — by a fetch (even a failed one, so a dead
+   *  source isn't re-hit on every navigation) or by a page seed. */
+  covered: ReadonlySet<NavSource>;
+}
+
+function isFresh(cache: NavCountsCache | null, now: number): cache is NavCountsCache {
+  return cache != null && now - cache.at < STALE_MS;
+}
+
+/** The sources a seed answers in full (a real number for every key). */
+export function sourcesCoveredBy(counts: NavCounts | undefined): NavSource[] {
+  if (!counts) return [];
+  return NAV_SOURCES.filter((s) => SOURCE_KEYS[s].every((k) => typeof counts[k] === "number"));
+}
+
+/**
+ * Pure: fold a page's server-computed seed into the cache. A stale cache is
+ * dropped first; seed values win over cached ones (the page render that just
+ * happened computed them). No seed and no fresh cache → null.
+ */
+export function applySeed(
+  cache: NavCountsCache | null,
+  seed: NavCounts | undefined,
+  now: number
+): NavCountsCache | null {
+  const base = isFresh(cache, now) ? cache : null;
+  const seeded: NavCounts = {};
+  for (const k of Object.keys(seed ?? {}) as NavCountKey[]) {
+    const v = seed?.[k];
+    if (typeof v === "number" && Number.isFinite(v)) seeded[k] = v;
+  }
+  const covered = sourcesCoveredBy(seeded);
+  if (covered.length === 0) return base;
+  return {
+    at: base ? base.at : now,
+    counts: { ...(base?.counts ?? {}), ...seeded },
+    covered: new Set([...(base?.covered ?? []), ...covered]),
+  };
+}
+
+/** Pure: the sources still to fetch — everything the cache doesn't cover. */
+export function sourcesToFetch(cache: NavCountsCache | null): NavSource[] {
+  return NAV_SOURCES.filter((s) => !cache?.covered.has(s));
+}
+
+/** Pure: fold a fan-out's result into the cache. Fetched values only ever fill
+ *  gaps — a seed's number for the same key is never overwritten by a fetch
+ *  that was planned without it. */
+export function mergeFetched(
+  cache: NavCountsCache | null,
+  fetched: NavCounts,
+  sources: ReadonlyArray<NavSource>,
+  now: number
+): NavCountsCache {
+  const base = isFresh(cache, now) ? cache : null;
+  return {
+    at: base ? base.at : now,
+    counts: { ...fetched, ...(base?.counts ?? {}) },
+    covered: new Set([...(base?.covered ?? []), ...sources]),
+  };
+}
+
+let cache: NavCountsCache | null = null;
 
 /** Test-only: drop the module cache so each case starts clean. */
 export function __resetNavCountsCache(): void {
   cache = null;
-  inflight = null;
+  for (const s of NAV_SOURCES) delete inflight[s];
 }
 
 /**
- * Sidebar badge counts. Returns `{}` until the first fan-out resolves, then the
- * derived counts; seeds synchronously from the module cache on remount so
- * navigations don't flash empty badges.
+ * Sidebar badge counts. `seed` is what the page already computed server-side
+ * (AdminShell's `navCounts`); those keys render at once (and in SSR) and their
+ * sources are not fetched. Everything else is fetched once per STALE_MS; until
+ * it lands the key is absent, so no badge.
  */
-export function useNavCounts(): NavCounts {
-  const [counts, setCounts] = useState<NavCounts>(() => (cache ? cache.counts : {}));
+export function useNavCounts(seed?: NavCounts): NavCounts {
+  // The seed is a per-render object from server props; key the effect on its
+  // content so a re-render with the same numbers doesn't replan.
+  const seedKey = seed ? JSON.stringify(seed) : "";
+  const [counts, setCounts] = useState<NavCounts>(
+    () => applySeed(cache, seed, Date.now())?.counts ?? {}
+  );
 
   useEffect(() => {
     let alive = true;
-    if (cache && Date.now() - cache.at < STALE_MS) {
-      setCounts(cache.counts);
-      return;
-    }
-    if (!inflight) {
-      inflight = loadNavCounts()
-        .then((c) => {
-          cache = { at: Date.now(), counts: c };
-          return c;
-        })
-        .finally(() => {
-          inflight = null;
-        });
-    }
-    void inflight.then((c) => {
-      if (alive) setCounts(c);
+    cache = applySeed(cache, seed, Date.now());
+    if (cache) setCounts(cache.counts);
+    const todo = sourcesToFetch(cache);
+    if (todo.length === 0) return;
+    void loadNavCounts(todo).then((fetched) => {
+      cache = mergeFetched(cache, fetched, todo, Date.now());
+      if (alive) setCounts(cache.counts);
     });
     return () => {
       alive = false;
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- seedKey IS the seed's identity
+  }, [seedKey]);
 
   return counts;
 }

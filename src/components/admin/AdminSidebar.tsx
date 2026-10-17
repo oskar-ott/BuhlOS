@@ -10,7 +10,7 @@ import { cn } from "@/lib/cn";
 // #760 — hiddenHrefs (resolved server-side in AdminShell) drops owner-disabled
 // features from the office IA via visibleNavGroups.
 import { visibleNavGroups, activeHref } from "./nav";
-import { useNavCounts } from "./useNavCounts";
+import { useNavCounts, type NavCounts } from "./useNavCounts";
 
 /**
  * The BuhlOS admin primary navigation — since the lean-reset redesign
@@ -30,14 +30,22 @@ import { useNavCounts } from "./useNavCounts";
  * (overflow-x-auto + shrink-0 items, active item scrolled into view; the
  * scrollIntoView effect is inert under SSR).
  */
-export function AdminSidebar({ hiddenHrefs }: { hiddenHrefs?: ReadonlyArray<string> }) {
+export function AdminSidebar({
+  hiddenHrefs,
+  counts: seed,
+}: {
+  hiddenHrefs?: ReadonlyArray<string>;
+  /** Counts the page already computed (AdminShell `navCounts`) — rendered at
+   *  once and not re-fetched; the rest self-serve via useNavCounts. */
+  counts?: NavCounts;
+}) {
   const pathname = usePathname() ?? "";
   const active = activeHref(pathname);
   const groups = visibleNavGroups(hiddenHrefs);
   const items = groups.flatMap((g) => g.items);
   // Live loop counts for the nav badges (brief §1). Best-effort + module-cached;
   // empty until the first fan-out resolves, so SSR renders labels with no badge.
-  const counts = useNavCounts();
+  const counts = useNavCounts(seed);
   const activeRef = useRef<HTMLLIElement | null>(null);
 
   // Keep the active pill in view when the row overflows (deep link / many

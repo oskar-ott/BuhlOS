@@ -8,6 +8,7 @@ import { PwaRegistrar } from "@/components/pwa/PwaRegistrar";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { isFlagEnabled } from "../../../api/_lib/feature-flags.js";
 import type { SessionPayload } from "@/lib/auth/session";
+import type { NavCounts } from "./useNavCounts";
 
 interface AdminShellProps {
   children: ReactNode;
@@ -17,6 +18,12 @@ interface AdminShellProps {
    *  (the job hub) skip the shell's page-head block — the hero carries the
    *  page's h1 instead, so the title never renders twice. */
   hideHead?: boolean;
+  /** Nav badge counts this page ALREADY computed for its own content (e.g. the
+   *  command centre's pending-hours queue). Seeds useNavCounts so the nav does
+   *  not re-fetch those sources on load — the hours one is a full store walk
+   *  (audit D1, 2026-10-15). Pass only honest numbers: a key whose source
+   *  failed is left out, and the badge stays absent rather than reading 0. */
+  navCounts?: NavCounts;
 }
 
 /**
@@ -83,7 +90,13 @@ function viewerInitials(viewer: SessionPayload | null): string | null {
  * client child (same pattern as AdminSidebar) so this stays a server
  * component. It renders nothing until ⌘K / Ctrl+K opens it.
  */
-export async function AdminShell({ children, title, breadcrumb, hideHead }: AdminShellProps) {
+export async function AdminShell({
+  children,
+  title,
+  breadcrumb,
+  hideHead,
+  navCounts,
+}: AdminShellProps) {
   const viewer = await getCurrentUser().catch(() => null);
   const hiddenHrefs = await resolveHiddenNavHrefs(viewer);
   const initials = viewerInitials(viewer);
@@ -111,7 +124,7 @@ export async function AdminShell({ children, title, breadcrumb, hideHead }: Admi
         />
         {/* Horizontal nav pills (desktop). Named AdminSidebar for continuity —
             shell guards and the render suite key off the component name. */}
-        <AdminSidebar hiddenHrefs={hiddenHrefs} />
+        <AdminSidebar hiddenHrefs={hiddenHrefs} counts={navCounts} />
         <AdminTopbar viewerInitials={initials} />
       </header>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -144,7 +157,7 @@ export async function AdminShell({ children, title, breadcrumb, hideHead }: Admi
             md, where the top-bar nav pills are hidden. A flex sibling of
             <main> (mirrors PhilShell) so it reserves its own space rather than
             overlaying the scroll region; gone entirely on desktop. */}
-        <AdminMobileTabBar hiddenHrefs={hiddenHrefs} />
+        <AdminMobileTabBar hiddenHrefs={hiddenHrefs} navCounts={navCounts} />
       </div>
       <CommandPalette hiddenHrefs={hiddenHrefs} />
       <PwaRegistrar />

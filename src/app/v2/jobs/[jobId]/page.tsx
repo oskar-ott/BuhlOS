@@ -455,9 +455,13 @@ async function LabourSection({
   job: Job;
   progressPct: number | null;
 }) {
-  const [hoursRes] = await Promise.allSettled([
-    inProcessFetch(`${base}/api/job-hours?jobId=${encodeURIComponent(job.id)}`, authInit(cookieValue)),
-  ]);
+  // jobCreatedAt bounds the store walk to the day-files written since this job
+  // existed (api/job-hours.js) — exact, and ~485 fewer fetches than the full
+  // walk in prod. A job with no createdAt gets the full walk.
+  const hoursUrl =
+    `${base}/api/job-hours?jobId=${encodeURIComponent(job.id)}` +
+    (job.createdAt ? `&jobCreatedAt=${encodeURIComponent(job.createdAt)}` : "");
+  const [hoursRes] = await Promise.allSettled([inProcessFetch(hoursUrl, authInit(cookieValue))]);
   const hours = await parseHoursResult(hoursRes);
   const workerIds = [
     ...new Set(

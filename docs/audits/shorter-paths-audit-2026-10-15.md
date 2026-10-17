@@ -85,8 +85,8 @@ write paths) and **HTTP self-fetches** (one function wake per call).
 
 | # | Finding | Status |
 |---|---------|--------|
-| D1 | Every office page mounts `useNavCounts`, which fires three API functions per full load, including the full approver walk. | NEXT (S) — pass server counts as props; or one cheap counts endpoint. |
-| D2 | `walkAllEntriesForApprovers` fetches every day-file in history (~500, +50/week) for the approvals queue, the nav badge and the job Labour card. | NEXT (M) — date-bound the walk for `job-hours`; a status index for the queue. |
+| D1 | Every office page mounts `useNavCounts`, which fires three API functions per full load, including the full approver walk. | FIXED — pages that already hold the pending-hours queue (command centre, Today, approvals) seed the badge through `AdminShell navCounts`; the nav fetches only the sources no seed covers. Measured prod 2026-10-15: the nav's walk fired ~10 s after every command-centre render. |
+| D2 | `walkAllEntriesForApprovers` fetches every day-file in history (~500, +50/week) for the approvals queue, the nav badge and the job Labour card. | FIXED (bounded) — the walk takes `fromDate/toDate` (path date) and `writtenSince` (storage `uploadedAt`); the job hub passes the job's `createdAt` so Labour fetches only files written since the job existed (exact: an amendment that re-files an old day onto the job still counts). Prod 2026-10-15: listing ~1.8 s + 485 fetches ~1.7 s per walk; the listing is still paid. NEXT: a submitted-status index for the queue. |
 | D3 | Phil job page read the whole jobs list over HTTP for its header, then five more HTTP self-calls. | FIXED — in-process. |
 | D4 | Pages #1096 missed still self-fetched over HTTP: period, today, approvals, More tab, office photos/plans/evidence, Phil jobs list, Phil photos. | FIXED — nine more handlers registered in `in-process-api.js`; ten pages switched. |
 | D5 | Summary freshness probe (a listing) ran **before** the summary read on my-day, Phil jobs, Today and People. Same in the job-detail projection. | FIXED — both in parallel. |

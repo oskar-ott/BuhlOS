@@ -6,6 +6,9 @@
 //                                                → all submitted (admin) or only those
 //                                                  with at least one allocation on a job
 //                                                  the LH is assigned to
+//          &fromDate=YYYY-MM-DD&toDate=YYYY-MM-DD → optional day-of-work window; bounds
+//                                                  the store walk BEFORE the per-file
+//                                                  fetches (2026-10-15, audit D2)
 //   POST   /api/time-entries     body: entry     → create draft or submit
 //   PATCH  /api/time-entries?date=YYYY-MM-DD     → edit (own draft/rejected, or admin any)
 //   DELETE /api/time-entries?date=YYYY-MM-DD     → delete own draft
@@ -58,7 +61,17 @@ async function handleGet(req, res, user) {
       return res.status(403).json({ error: 'forbidden' });
     }
     const status = q.status || 'submitted';
-    const all = await listAllEntriesForApprovers({ status });
+    // Optional day-of-work window — a bad date is a caller bug, not a reason to
+    // answer with the (slow, unbounded) whole queue as if it had been asked for.
+    const range = {};
+    for (const k of ['fromDate', 'toDate']) {
+      if (q[k] == null || q[k] === '') continue;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(q[k]))) {
+        return res.status(400).json({ error: `${k} must be YYYY-MM-DD` });
+      }
+      range[k] = String(q[k]);
+    }
+    const all = await listAllEntriesForApprovers({ status, ...range });
     const enriched = await enrichEntries(all, user);
     const visible = isAdminRole(user.role)
       ? enriched
