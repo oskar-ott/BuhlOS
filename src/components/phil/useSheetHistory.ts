@@ -112,7 +112,7 @@ export interface SheetHistoryResult {
  */
 export function sheetHistoryReducer(
   state: SheetHistoryState,
-  event: SheetHistoryEvent,
+  event: SheetHistoryEvent
 ): SheetHistoryResult {
   switch (event.type) {
     case "open":
@@ -203,7 +203,7 @@ export function useSheetHistory({ open, onClose }: UseSheetHistoryOptions): Shee
       case "push":
         window.history.pushState(
           { ...(window.history.state ?? {}), [SHEET_HISTORY_MARKER]: true },
-          "",
+          ""
         );
         dispatchRef.current({ type: "pushed" });
         break;
@@ -222,11 +222,24 @@ export function useSheetHistory({ open, onClose }: UseSheetHistoryOptions): Shee
   // pops our marker (handled by the popstate listener); if the sheet is closed
   // any other way the cleanup just disarms — it does NOT call back() (that is
   // the explicit closeWithHistory path), so we never fight a real navigation.
+  // The close is deferred one tick so React's dev-only double-invoke of
+  // effects (StrictMode: effect → cleanup → effect) can't push a marker, pop it
+  // with history.back() and then — when that async pop lands — read it as the
+  // worker's back gesture and close the sheet the instant it opened. A real
+  // close (unmount / open=false) still unwinds the marker on the next tick.
+  const pendingCloseRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (!open) return;
-    dispatchRef.current({ type: "open" });
+    if (pendingCloseRef.current) {
+      clearTimeout(pendingCloseRef.current);
+      pendingCloseRef.current = null;
+    }
+    dispatchRef.current({ type: "open" }); // idempotent while still marked
     return () => {
-      dispatchRef.current({ type: "close" });
+      pendingCloseRef.current = setTimeout(() => {
+        pendingCloseRef.current = null;
+        dispatchRef.current({ type: "close" });
+      }, 0);
     };
   }, [open]);
 

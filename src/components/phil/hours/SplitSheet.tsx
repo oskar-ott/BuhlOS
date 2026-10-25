@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { Minus, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { formatHoursLabel } from "@/domains/timesheets/format";
 import {
@@ -123,9 +123,6 @@ export function SplitSheet({
       }))
     );
   }
-
-  const step =
-    "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-card border border-border-strong bg-surface text-text active:bg-surface-subtle disabled:opacity-40";
 
   return (
     <HoursSheet
@@ -249,48 +246,24 @@ export function SplitSheet({
                       </p>
                     </div>
                   ) : (
-                    <div className="mt-2 flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setRows((p) =>
-                            p.map((r, k) =>
-                              k === i ? { ...r, minutes: Math.max(0, r.minutes - 15) } : r
-                            )
-                          )
+                    <div className="mt-2">
+                      <HmField
+                        label={`Hours on ${name ?? "this job"}`}
+                        minutes={row.minutes}
+                        onChange={(m) =>
+                          setRows((p) => p.map((r, k) => (k === i ? { ...r, minutes: m } : r)))
                         }
-                        disabled={row.minutes <= 0}
-                        aria-label={`Take 15 minutes off ${name ?? "this job"}`}
-                        className={step}
-                      >
-                        <Minus aria-hidden="true" className="h-5 w-5" />
-                      </button>
-                      <span
-                        className="min-w-0 flex-1 text-center font-display text-[18px] font-bold tabular-nums"
-                        aria-live="polite"
-                      >
-                        {formatHoursLabel(hoursFromMinutes(row.minutes))}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setRows((p) =>
-                            p.map((r, k) => (k === i ? { ...r, minutes: r.minutes + 15 } : r))
-                          )
-                        }
-                        disabled={usedMinutes + 15 >= totalMinutes}
-                        aria-label={`Add 15 minutes to ${name ?? "this job"}`}
-                        className={step}
-                      >
-                        <Plus aria-hidden="true" className="h-5 w-5" />
-                      </button>
+                        minuteStep={15}
+                        maxMinutes={Math.max(0, totalMinutes - 15)}
+                        testId={`hours-split-field-${i}`}
+                      />
                       {rows.length > 2 ? (
                         <button
                           type="button"
                           onClick={() => setRows((p) => p.filter((_r, k) => k !== i))}
-                          className="min-h-[44px] shrink-0 px-2 text-[14px] font-semibold text-text-muted"
+                          className="mt-1 min-h-[44px] px-2 text-[14px] font-semibold text-text-muted"
                         >
-                          Remove
+                          Remove this job
                         </button>
                       ) : null}
                     </div>

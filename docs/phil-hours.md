@@ -57,9 +57,9 @@ or concepts. Payloads come from the existing builders in `service.ts` and
 - **No delete.** The day-detail sheet says: "Logged days can't be deleted.
   Change the hours instead, or ask the office."
 - **No promises**: no "you'll be notified", no approval ETAs, no reviewer
-  names, no queueing claims. Offline: "No signal — showing what's on this
-  phone" and the button's sub-line "Needs signal to send · you'll see if it
-  fails".
+  names, no queueing claims. Offline: the shell's own notice leads the screen
+  ("You're offline — showing your last loaded data") and the button's sub-line
+  reads "Needs signal to send · you'll see if it fails".
 - **A failed load is never an empty state.** `loading.tsx` is the skeleton (no
   numbers); `loadFailed` renders the failed screen (no summary, no rows, no
   zeros); an empty week is "Nothing logged yet this week".

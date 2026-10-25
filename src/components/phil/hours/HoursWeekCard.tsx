@@ -128,25 +128,27 @@ function LoggedRow({
       className="flex min-h-[72px] w-full items-center gap-3 px-4 py-3 text-left active:bg-surface-subtle"
     >
       <span className="min-w-0 flex-1">
-        <span className="block whitespace-nowrap font-display text-[16px] font-bold text-text">
-          {dayDate(entry.date)}
-        </span>
-        <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[14px]">
-          <span className="shrink-0 whitespace-nowrap font-display font-bold tabular-nums text-text">
+        <span className="flex min-w-0 items-baseline gap-2">
+          <span className="shrink-0 whitespace-nowrap font-display text-[16px] font-bold text-text">
+            {dayDate(entry.date)}
+          </span>
+          <span className="min-w-0 truncate font-display text-[15px] font-bold tabular-nums text-text">
             {splitLabel(entry)}
           </span>
-          {leave && LeaveIcon ? (
-            <span className="inline-flex shrink-0 items-center gap-1 rounded-pill border border-border-strong px-2 py-0.5 text-[12px] font-semibold text-text">
-              <LeaveIcon aria-hidden="true" className="h-3.5 w-3.5" />
-              {LEAVE_LABELS[leave]}
-            </span>
-          ) : (
-            <span className="min-w-0 truncate text-text-muted">
-              {`· ${target}`}
-              {waiting ? " · tap to change" : ""}
-            </span>
-          )}
         </span>
+        {leave && LeaveIcon ? (
+          <span className="mt-1 inline-flex items-center gap-1 rounded-pill border border-border-strong px-2 py-0.5 text-[12px] font-semibold text-text">
+            <LeaveIcon aria-hidden="true" className="h-3.5 w-3.5" />
+            {LEAVE_LABELS[leave]}
+          </span>
+        ) : (
+          // The job on its own line, so a long name is never squeezed to "…"
+          // by the status pill beside it.
+          <span className="mt-0.5 block truncate text-[14px] text-text-muted">
+            {target}
+            {waiting ? " · tap to change" : ""}
+          </span>
+        )}
       </span>
       <StatusPill state={entry.status} />
       <ChevronRight aria-hidden="true" className="h-5 w-5 shrink-0 text-text-muted" />

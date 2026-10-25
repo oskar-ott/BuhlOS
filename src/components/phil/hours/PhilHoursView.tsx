@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { AlertCircle, ChevronRight, RotateCw, WifiOff } from "lucide-react";
+import { AlertCircle, ChevronRight, RotateCw } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { timesheetsClient } from "@/domains/timesheets/client";
 import { readSavedEntries, recordSavedEntry } from "@/domains/timesheets/saved-entries-journal";
@@ -543,16 +543,9 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
       <Header
         subline={view === "week" ? `This week · ${weekRangeLabel(currentMonday)}` : "Earlier weeks"}
       />
-      {!online ? (
-        <p
-          className="-mx-4 flex items-center gap-2 bg-surface-subtle px-4 py-2 text-[13px] font-medium text-text-muted"
-          role="status"
-          data-testid="hours-no-signal"
-        >
-          <WifiOff aria-hidden="true" className="h-4 w-4" />
-          No signal — showing what&rsquo;s on this phone
-        </p>
-      ) : null}
+      {/* Offline: the shell's own notice (PhilOfflineBanner) already leads every
+          field screen with "You're offline — showing your last loaded data";
+          this screen adds only the button's sub-line, so there is one banner. */}
 
       <div className="flex-1 space-y-3 pb-4 pt-4">
         {view === "week" ? (
