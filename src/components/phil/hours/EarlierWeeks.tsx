@@ -4,16 +4,8 @@ import type { ReactNode } from "react";
 import { ArrowLeft, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { formatHoursLabel } from "@/domains/timesheets/format";
-import {
-  dayDate,
-  oldestLoggableDate,
-  weekRows,
-  type EarlierWeek,
-} from "@/domains/timesheets/hours-view";
+import { EARLIER_WEEKS_SHOWN, weekRows, type EarlierWeek } from "@/domains/timesheets/hours-view";
 import { HoursWeekCard, type WeekCardProps } from "./HoursWeekCard";
-
-/** How many folded weeks the screen shows — the page reads back exactly this far. */
-export const EARLIER_WEEKS_SHOWN = 12;
 
 /**
  * Earlier weeks (docs/phil-hours.md): `Back to this week`, then a card of
@@ -50,10 +42,6 @@ export function EarlierWeeks({
         <ArrowLeft aria-hidden="true" className="h-4 w-4" />
         Back to this week
       </button>
-      <div>
-        <h2 className="font-display text-[20px] font-bold tracking-tight">Earlier weeks</h2>
-        <p className="text-[14px] text-text-muted">{`Days back to ${dayDate(oldestLoggableDate(todayISO))} can still be logged`}</p>
-      </div>
 
       {weeks.length === 0 ? (
         <p className="rounded-[16px] border border-border bg-surface p-4 text-[14px] text-text-muted">
