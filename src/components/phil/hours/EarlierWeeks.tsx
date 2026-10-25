@@ -4,16 +4,8 @@ import type { ReactNode } from "react";
 import { ArrowLeft, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { formatHoursLabel } from "@/domains/timesheets/format";
-import {
-  dayDate,
-  oldestLoggableDate,
-  weekRows,
-  type EarlierWeek,
-} from "@/domains/timesheets/hours-view";
+import { EARLIER_WEEKS_SHOWN, weekRows, type EarlierWeek } from "@/domains/timesheets/hours-view";
 import { HoursWeekCard, type WeekCardProps } from "./HoursWeekCard";
-
-/** How many folded weeks the screen shows — the page reads back exactly this far. */
-export const EARLIER_WEEKS_SHOWN = 12;
 
 /**
  * Earlier weeks (docs/phil-hours.md): `Back to this week`, then a card of
