@@ -113,6 +113,14 @@ const REGISTRY = {
     target: 'global',
     expires: '2026-12-31',
   },
+  // Hours mirror REPAIR (2026-10-11): /api/internal/mirror-hours re-mirrors any
+  // day whose Postgres copy differs from Blob (lost live-mirror writes: 67
+  // approvals timed out, split days raced their job's mirror). Ops kill-switch
+  // (protected, env-only): ON by default; off → the sweep only logs its plan.
+  supabase_repair_hours: {
+    description: 'Hours mirror repair sweep — /api/internal/mirror-hours re-mirrors every day whose Postgres copy differs from Blob (Blob authoritative; settling/unreadable/mass-delete guards). Off → dry run (plan logged, nothing written).',
+    default: true, killSwitch: true, target: 'global', expires: '2027-03-31',
+  },
   // Phil task-status READ cutover (J10): when on, the FIELD/Phil task-status read
   // (/api/data) is served from the Postgres mirror, parity-gated per job
   // (byte-faithful or Blob fallback) so a not-yet-mirrored toggle can never show a
