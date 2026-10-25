@@ -108,22 +108,21 @@ Send).
 "Hours rejected" push still lands on `/phil/my-day?fixDate=`, whose card hands
 on). `/phil/my-day` no longer mounts a log form in either chrome.
 
-## Decisions taken without the owner (flagged in the PR; change on pull)
+## Owner rulings (2026-10-25)
 
-The design left these open. The build keeps **today's behaviour** rather than
-inventing a rule:
+The design left these open; the owner ruled on the PR, and each matches what
+was built:
 
 1. A leave day (sick / holiday / TAFE) carries **7h 36m** and pays ordinary.
-2. A weekday **shorter** than 7h 36m: the Custom or OT sheet keeps a quiet
-   "Worked less than a standard day?" expander with hours worked (h + m).
-3. A **split day can total more than 7h 36m** (up to 16h); OT is split on the
-   day total, as the server does.
+2. A weekday **shorter** than 7h 36m is allowed: the Custom or OT sheet keeps
+   the "Worked less than a standard day?" expander with hours worked (h + m).
+3. A **split day can carry OT** — the total may exceed 7h 36m (up to 16h);
+   OT is split on the day total, as the server does.
 4. A **"Not sent" office draft** can be sent from its day detail ("Send
    Thursday to the office") when every job on it is still assigned.
-5. A **waiting leave day's hours can be changed** (plain hours, no OT) from its
-   day detail.
-6. **Pull-to-refresh** already exists (PhilShell) — "Pull to refresh and try
-   again" is true.
+5. A **waiting day's hours can be changed** by the worker — a job day through
+   Change these hours, a leave day with plain hours (no OT).
+6. **Pull-to-refresh** exists on every field screen (PhilShell).
 
 ## Tests
 
