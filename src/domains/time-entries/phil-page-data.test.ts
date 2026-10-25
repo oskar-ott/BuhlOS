@@ -33,7 +33,7 @@ const {
   loadFieldJobsInProcess: (
     cookie: string | undefined,
     deps?: unknown
-  ) => Promise<{ ok: boolean; jobs: unknown[] }>;
+  ) => Promise<{ ok: boolean; jobs: unknown[]; openable: Array<{ id: string }> }>;
   loadIsApprenticeInProcess: (cookie: string | undefined, deps?: unknown) => Promise<boolean>;
 };
 
@@ -95,7 +95,7 @@ describe("loadFieldJobsInProcess", () => {
   it("returns ok:false without touching storage when unauthenticated", async () => {
     const d = deps({ getCurrentUser: vi.fn(async () => null) });
     const res = await loadFieldJobsInProcess(undefined, d);
-    expect(res).toEqual({ ok: false, jobs: [] });
+    expect(res).toEqual({ ok: false, jobs: [], openable: [] });
     expect(d.readJobsSummary).not.toHaveBeenCalled();
     expect(d.readBlob).not.toHaveBeenCalled();
   });
@@ -115,6 +115,11 @@ describe("loadFieldJobsInProcess", () => {
     expect(res.ok).toBe(true);
     expect(res.jobs).toEqual([{ id: "j1", name: "Active", status: "active" }]);
     expect(d.readBlob).not.toHaveBeenCalled(); // no monolith read on the field path
+    // `openable` rides along from the SAME read (2026-10-26): the closed job a
+    // past day was logged on can be named without a second storage wave —
+    // draft and archived never.
+    expect(res.openable.map((j) => j.id)).toEqual(["j1", "j4"]);
+    expect(d.readJobsSummary).toHaveBeenCalledTimes(1);
   });
 
   it("field role: a summary failure falls back to the full jobs.json read (same recovery as api/jobs.js)", async () => {
@@ -144,6 +149,7 @@ describe("loadFieldJobsInProcess", () => {
     const res = await loadFieldJobsInProcess("c", d);
     expect(res.ok).toBe(true);
     expect(res.jobs).toEqual([{ id: "j8", name: "Live", status: "active" }]);
+    expect(res.openable.map((j) => j.id)).toEqual(["j8", "j7"]);
     expect(d.readJobsSummary).not.toHaveBeenCalled();
   });
 });

@@ -13,7 +13,11 @@ export interface InProcessEntriesResult {
 
 export interface InProcessJobsResult {
   ok: boolean;
+  /** The crew's default set: active / on-hold / finishing. */
   jobs: unknown[];
+  /** Every job the crew may still open, closed ones included — from the same
+   *  read, so a page can name a finished job without a second storage wave. */
+  openable: unknown[];
 }
 
 /** Fresh users.json user (password hash stripped) or null — shape-gate with parseSessionUser. */

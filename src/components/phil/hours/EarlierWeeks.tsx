@@ -12,6 +12,9 @@ import {
 } from "@/domains/timesheets/hours-view";
 import { HoursWeekCard, type WeekCardProps } from "./HoursWeekCard";
 
+/** How many folded weeks the screen shows — the page reads back exactly this far. */
+export const EARLIER_WEEKS_SHOWN = 12;
+
 /**
  * Earlier weeks (docs/phil-hours.md): `Back to this week`, then a card of
  * folded weeks ("5–11 Oct · 30h 24m" / "4 days · all approved"). Opening one
@@ -106,8 +109,10 @@ export function EarlierWeeks({
           })}
         </ul>
       )}
-      {hidden > 0 ? (
-        <p className="text-[13px] text-text-muted">{`Showing your last ${weeks.length} weeks — the office keeps the rest.`}</p>
+      {hidden > 0 || weeks.length >= EARLIER_WEEKS_SHOWN ? (
+        <p className="text-[13px] text-text-muted">
+          {`Showing your last ${weeks.length} weeks — the office keeps the rest.`}
+        </p>
       ) : null}
     </div>
   );
