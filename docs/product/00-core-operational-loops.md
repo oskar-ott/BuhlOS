@@ -54,7 +54,7 @@ The first end-to-end loop. Per [[project_buhlos_phil_hours_pipeline]] this is th
 - **Standard-day = 7h 36m (decimal 7.6).** One-tap submission. Per [[project_buhlos_phil_hours_pipeline]].
 - **Job context** — every entry must attach to a JobStage (and ideally a JobArea / JobTask).
 - **No deletion** of approved entries — adjustments are new entries that reference the original.
-- **Independent approver** — a worker cannot approve their own hours; rule enforced server-side.
+- **Independent approver** — a worker cannot approve their own hours; rule enforced server-side. The one exception is the Admin / Owner approving their own (nobody sits above them to do it — owner pull 2026-10-25); see `canApproveOwnHours` in `api/_lib/auth.js`.
 
 ### Acceptance
 
