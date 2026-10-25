@@ -747,14 +747,14 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
 function Header({ title, subline }: { title: string; subline?: string | null }): ReactNode {
   return (
     <header
-      className="-mx-4 -mt-4 bg-brand-navy px-4 pb-4 pt-3 text-white"
+      className="-mx-4 -mt-4 flex min-h-[44px] items-baseline gap-2 bg-brand-navy px-4 py-2.5 text-white"
       data-testid="hours-header"
     >
-      <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-[-0.02em]">
-        {title}
-      </h1>
+      <h1 className="font-display text-[16px] font-bold leading-tight tracking-tight">{title}</h1>
       {subline ? (
-        <p className="mt-0.5 text-[14px] font-medium tabular-nums text-white/75">{subline}</p>
+        <p className="min-w-0 truncate text-[14px] font-medium tabular-nums text-white/75">
+          {subline}
+        </p>
       ) : null}
     </header>
   );

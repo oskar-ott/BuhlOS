@@ -26,11 +26,11 @@ export default function Loading() {
         aria-live="polite"
         data-testid="hours-view-loading"
       >
-        <header className="-mx-4 -mt-4 bg-brand-navy px-4 pb-4 pt-3 text-white">
-          <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-[-0.02em]">
+        <header className="-mx-4 -mt-4 flex min-h-[44px] items-baseline gap-2 bg-brand-navy px-4 py-2.5 text-white">
+          <h1 className="font-display text-[16px] font-bold leading-tight tracking-tight">
             This week
           </h1>
-          <p className="mt-0.5 text-[14px] font-medium tabular-nums text-white/75">
+          <p className="min-w-0 truncate text-[14px] font-medium tabular-nums text-white/75">
             {weekRangeLabel(monday)}
           </p>
         </header>
