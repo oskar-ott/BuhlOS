@@ -188,6 +188,16 @@ describe("PhilMyDayQuickGrid", () => {
     expect(on).not.toContain("$"); // no figures before anything is sent
   });
 
+  it("Workshop stock appears only when the server says stock is on — no trace otherwise", () => {
+    const off = renderGrid({ hoursDue: false, callJobId: null });
+    expect(off).not.toContain("Workshop stock");
+    expect(off).not.toContain("/phil/stock");
+    const on = renderGrid({ hoursDue: false, callJobId: null, stock: true });
+    expect(on).toContain("Workshop stock");
+    expect(on).toContain('href="/phil/stock"');
+    expect(on).toContain('data-testid="phil-my-day-stock"');
+  });
+
   it("adds NO duplicate Capture tile (the FAB is capture)", () => {
     const html = renderGrid({ hoursDue: true, callJobId: "job-1" });
     // Capture stays the tab bar FAB — no lookalike tile in the grid.

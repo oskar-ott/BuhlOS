@@ -387,8 +387,11 @@ export).
 
 ## Surfaces and navigation
 
-- Phone: one card in the More screen's reference group (`/v2/phil`), shown
-  only while the flag is on — **no tab, no My Day tile** (P10). Level one of
+- Phone: one card in the More screen's reference group (`/v2/phil`) and a
+  **Workshop stock** tile in My Day's existing Quick grid (sharpened layout;
+  owner pull 2026-10-15), both shown only while the flag is on — **no tab, no
+  new section** (P10). My Day bounces the admin tier to the office, so only
+  crew and leading hands see the tile; admins use the More card. Level one of
   `/phil/stock` is one decision: Take stock or Add stock; Return and per-item
   actions are one tap down. Quantities are labelled as recorded (P7); copy is
   site language (P11); undo sits apart from the primary action and archive sits
