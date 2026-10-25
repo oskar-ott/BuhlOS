@@ -181,7 +181,7 @@ function PanelBody({ state, offline }: { state: PanelState; offline: boolean }):
               Ask the office to assign you to a job. Until then you can log a sick day or holiday.
             </p>
           </div>
-          <ActionBar items={leaveItems(state, ["sick", "holiday"])} />
+          <ActionBar items={leaveItems(state, leaveOptions(state.canLogTafe))} />
         </div>
       );
 
@@ -211,7 +211,7 @@ function PanelBody({ state, offline }: { state: PanelState; offline: boolean }):
           <p className="text-center text-[14px] text-text-muted">
             Tap a job and the log button appears here.
           </p>
-          <ActionBar items={leaveItems(state, ["sick", "holiday"])} />
+          <ActionBar items={leaveItems(state, leaveOptions(state.canLogTafe))} />
         </div>
       );
 
