@@ -50,10 +50,6 @@ export function EarlierWeeks({
         <ArrowLeft aria-hidden="true" className="h-4 w-4" />
         Back to this week
       </button>
-      <div>
-        <h2 className="font-display text-[20px] font-bold tracking-tight">Earlier weeks</h2>
-        <p className="text-[14px] text-text-muted">{`Days back to ${dayDate(oldestLoggableDate(todayISO))} can still be logged`}</p>
-      </div>
 
       {weeks.length === 0 ? (
         <p className="rounded-[16px] border border-border bg-surface p-4 text-[14px] text-text-muted">

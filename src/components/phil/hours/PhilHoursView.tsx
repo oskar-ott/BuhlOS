@@ -26,6 +26,7 @@ import {
 import {
   buildDraftSendPayload,
   buildEarlierWeeks,
+  dayDate,
   defaultJobId,
   entriesInWeek,
   entryTarget,
@@ -34,6 +35,7 @@ import {
   isLoggableDate,
   mergeSavedEntries,
   nextPickAfterSave,
+  oldestLoggableDate,
   weekRangeLabel,
   weekRows,
   weekSummaryLine,
@@ -380,7 +382,7 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
   if (loadFailed) {
     return (
       <div className="flex min-h-full flex-col" data-testid="hours-view-failed">
-        <Header subline="This week" />
+        <Header title="This week" />
         <div className="mt-4 space-y-3">
           <div role="alert" className="rounded-[16px] border border-[#f4c9c9] bg-[#fee2e2] p-4">
             <div className="flex items-start gap-3">
@@ -541,7 +543,12 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
   return (
     <div className="flex min-h-full flex-col" data-testid="hours-view">
       <Header
-        subline={view === "week" ? `This week · ${weekRangeLabel(currentMonday)}` : "Earlier weeks"}
+        title={view === "week" ? "This week" : "Earlier weeks"}
+        subline={
+          view === "week"
+            ? weekRangeLabel(currentMonday)
+            : `Days back to ${dayDate(oldestLoggableDate(todayISO))} can still be logged`
+        }
       />
       {/* Offline: the shell's own notice (PhilOfflineBanner) already leads every
           field screen with "You're offline — showing your last loaded data";
@@ -735,16 +742,20 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
   }
 }
 
-function Header({ subline }: { subline: string }): ReactNode {
+/** The navy band under the app bar. The app bar already says "Hours", so the
+ *  band names the WEEK, never the screen again (owner, 2026-10-26). */
+function Header({ title, subline }: { title: string; subline?: string | null }): ReactNode {
   return (
     <header
       className="-mx-4 -mt-4 bg-brand-navy px-4 pb-4 pt-3 text-white"
       data-testid="hours-header"
     >
-      <h1 className="font-display text-[24px] font-extrabold leading-tight tracking-[-0.02em]">
-        Hours
+      <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-[-0.02em]">
+        {title}
       </h1>
-      <p className="mt-0.5 text-[14px] font-medium tabular-nums text-white/75">{subline}</p>
+      {subline ? (
+        <p className="mt-0.5 text-[14px] font-medium tabular-nums text-white/75">{subline}</p>
+      ) : null}
     </header>
   );
 }

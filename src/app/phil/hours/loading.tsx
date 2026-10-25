@@ -27,11 +27,11 @@ export default function Loading() {
         data-testid="hours-view-loading"
       >
         <header className="-mx-4 -mt-4 bg-brand-navy px-4 pb-4 pt-3 text-white">
-          <h1 className="font-display text-[24px] font-extrabold leading-tight tracking-[-0.02em]">
-            Hours
+          <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-[-0.02em]">
+            This week
           </h1>
           <p className="mt-0.5 text-[14px] font-medium tabular-nums text-white/75">
-            {`This week · ${weekRangeLabel(monday)}`}
+            {weekRangeLabel(monday)}
           </p>
         </header>
         <div className="flex-1 space-y-3 pb-4 pt-4">
