@@ -428,6 +428,10 @@ export function statusWordFor(entry: Pick<TimeEntry, "status">): string {
 
 /* ── Earlier weeks ────────────────────────────────────────────────────── */
 
+/** How many folded earlier weeks the screen shows — the page reads back
+ *  exactly this far; older days are the office's. */
+export const EARLIER_WEEKS_SHOWN = 12;
+
 export interface EarlierWeek {
   weekStart: string;
   /** "5–11 Oct" */
@@ -449,7 +453,7 @@ export interface EarlierWeek {
 export function buildEarlierWeeks(
   entries: ReadonlyArray<TimeEntry>,
   todayISO: string,
-  maxWeeks = 12
+  maxWeeks = EARLIER_WEEKS_SHOWN
 ): { weeks: EarlierWeek[]; hidden: number } {
   const currentMonday = weekStartOf(todayISO);
   const mondays = new Set<string>();

@@ -88,25 +88,38 @@ async function loadWorkerEntriesInProcess(cookieValue, { fromDate, toDate } = {}
  */
 async function loadFieldJobsInProcess(cookieValue, deps = realDeps()) {
   const user = await deps.getCurrentUser(reqFromCookieValue(cookieValue));
-  if (!user) return { ok: false, jobs: [] };
+  if (!user) return { ok: false, jobs: [], openable: [] };
+  let records = null;
   if (deps.isFieldRole(user.role) || deps.isLeadingHandRole(user.role)) {
     try {
-      const { records } = await deps.readJobsSummary();
-      // The crew's default set (docs/job-lifecycle.md): active / on-hold /
-      // finishing. Closed jobs are reached through the history search only.
-      return {
-        ok: true,
-        jobs: (records || []).filter((j) => isFieldListedByDefault(j)),
-      };
+      records = (await deps.readJobsSummary()).records;
     } catch (e) {
       console.error('phil-page-data: jobs-summary read failed; falling back to jobs.json', e && e.message);
       // fall through to the full read below — same recovery as api/jobs.js
     }
   }
-  const blob = await deps.readBlob('jobs.json', { jobs: [] });
+  if (!records) {
+    const blob = await deps.readBlob('jobs.json', { jobs: [] });
+    records = blob.jobs || [];
+  }
+  // The crew's default set (docs/job-lifecycle.md): active / on-hold /
+  // finishing. Closed jobs are reached through the history search only.
   // Same lifecycle rule on the fallback read — the summary failing must not
   // widen what the log sheet offers (it used to hand back every job).
-  return { ok: true, jobs: (blob.jobs || []).filter((j) => isFieldListedByDefault(j)) };
+  //
+  // `openable` rides along from the SAME read (2026-10-26): every job the crew
+  // may still open, closed ones included, so a page can name the finished job
+  // an old day was logged on WITHOUT a second storage wave. The Hours screen
+  // used to go back for those by id after its entries arrived — on a ~1.5s
+  // store that second wave (user record again, jobs stamp, summary) cost as
+  // much as the first. Never sent to the client as-is: pages project to the
+  // few fields they render.
+  const all = records.filter((j) => j);
+  return {
+    ok: true,
+    jobs: all.filter((j) => isFieldListedByDefault(j)),
+    openable: all.filter((j) => isFieldOpenable(j)),
+  };
 }
 
 /**

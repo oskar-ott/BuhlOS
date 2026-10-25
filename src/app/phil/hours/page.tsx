@@ -3,7 +3,6 @@ import { cookies } from "next/headers";
 import {
   loadWorkerEntriesInProcess,
   loadFieldJobsInProcess,
-  loadFieldJobsByIdInProcess,
   loadIsApprenticeInProcess,
 } from "../../../../api/_lib/phil-page-data.js";
 import { PhilShell } from "@/components/phil/PhilShell";
@@ -12,8 +11,14 @@ import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { parseTimeEntryListLenient } from "@/domains/timesheets/parse-entries";
 import type { TimeEntry } from "@/domains/timesheets/types";
-import type { HoursJob } from "@/domains/timesheets/hours-view";
-import { BUSINESS_TIMEZONE, localDateString, parseFixDate } from "@/domains/timesheets/service";
+import { EARLIER_WEEKS_SHOWN, type HoursJob } from "@/domains/timesheets/hours-view";
+import {
+  BUSINESS_TIMEZONE,
+  addDays,
+  localDateString,
+  parseFixDate,
+  weekStartOf,
+} from "@/domains/timesheets/service";
 import { JobListResponseSchema } from "@/domains/jobs/schema";
 import { isVisibleToField } from "@/domains/jobs/builder";
 import { philInitials, philSharpenedFlags } from "@/lib/phil/sharpened";
@@ -25,10 +30,15 @@ export const dynamic = "force-dynamic";
  * rows, one bottom panel that names the whole decision, sheets for everything
  * else. Logging, changing a sent day and fixing a sent-back day all live here.
  *
- * Data: the worker's full entry history and their assigned jobs, read
- * in-process (api/_lib/phil-page-data.js), plus the apprentice flag for the
- * TAFE option. A failed hours read renders the FAILED state — never an empty
- * week, never a zero. The phil_sharpened flag only picks the shell chrome.
+ * Data: the worker's entries back to the oldest week the screen can show
+ * (this week + the 12 folded Earlier weeks — the office keeps the rest) and
+ * their jobs, read in-process (api/_lib/phil-page-data.js) in ONE wave, plus
+ * the apprentice flag for the TAFE option. The finished jobs an old day was
+ * logged on are named from the same jobs read (`openable`) — no second trip
+ * to the store once the entries are known (2026-10-26: on a ~1.5s store that
+ * second wave doubled the load). A failed hours read renders the FAILED
+ * state — never an empty week, never a zero. The phil_sharpened flag only
+ * picks the shell chrome.
  *
  * Arrival params: `?log=1` (My Day's "Log hours now" — today is picked),
  * `?job=` (a job screen's "Log hours" — that job picked for today),
@@ -55,18 +65,22 @@ export default async function PhilHoursPage({
   const launchLog = sp.log === "1";
   const launchFixDate = parseFixDate(sp.fix);
 
+  const started = Date.now();
   const [{ entries, loadFailed }, loadedJobs, sharpenedFlags, canLogTafe] = await Promise.all([
-    loadHistory(raw),
+    loadHistory(raw, todayISO),
     loadAssignedJobs(raw),
     philSharpenedFlags(session),
     // Apprentice (employee-record role) → the TAFE-day option. Fail-closed.
     loadIsApprenticeInProcess(raw),
   ]);
+  // One line per load so production logs show what this screen costs.
+  console.log(`[perf] phil/hours data ${Date.now() - started}ms entries=${entries.length}`);
 
   // Jobs this screen must NAME that are no longer in the default set
   // (docs/job-lifecycle.md): the `?job=` the worker came from and any closed
   // job their own hours reference, so a past row reads the job's name, not
-  // "a job you're no longer on". Loaded by id; only openable jobs come back.
+  // "a job you're no longer on". Resolved from the jobs read above — only
+  // openable jobs are there, so draft/archived never leak in.
   const listed = new Set(loadedJobs.jobs.map((j) => j.id));
   const referenced = new Set<string>();
   if (launchJobId && !listed.has(launchJobId)) referenced.add(launchJobId);
@@ -75,9 +89,10 @@ export default async function PhilHoursPage({
       if (a.jobId && !listed.has(a.jobId)) referenced.add(a.jobId);
     }
   }
-  const extraRecords =
-    referenced.size > 0 ? await loadFieldJobsByIdInProcess(raw, [...referenced]) : [];
-  const jobs = withExtraJobs(loadedJobs, extraRecords);
+  const jobs = withExtraJobs(
+    loadedJobs,
+    loadedJobs.openable.filter((j) => referenced.has(j.id))
+  );
 
   return (
     <PhilShell
@@ -103,14 +118,19 @@ export default async function PhilHoursPage({
   );
 }
 
-async function loadHistory(cookieValue: string | undefined): Promise<{
+async function loadHistory(
+  cookieValue: string | undefined,
+  todayISO: string
+): Promise<{
   entries: ReadonlyArray<TimeEntry>;
   loadFailed: boolean;
 }> {
   // In-process read (2026-08-03): same auth + read path as GET
   // /api/time-entries, without a second serverless function's cold start.
+  // Bounded to the weeks the screen can show: older days are the office's.
+  const fromDate = addDays(weekStartOf(todayISO), -7 * EARLIER_WEEKS_SHOWN);
   try {
-    const res = await loadWorkerEntriesInProcess(cookieValue);
+    const res = await loadWorkerEntriesInProcess(cookieValue, { fromDate });
     if (!res.ok) return { entries: [], loadFailed: true };
     const parsed = parseTimeEntryListLenient({ entries: res.entries });
     if (!parsed.ok) return { entries: [], loadFailed: true };
@@ -129,23 +149,31 @@ async function loadHistory(cookieValue: string | undefined): Promise<{
 /** Append openable jobs the screen must name that aren't in the default set. */
 function withExtraJobs(
   loaded: { jobs: ReadonlyArray<HoursJob>; error: boolean },
-  records: ReadonlyArray<Record<string, unknown>>
+  extra: ReadonlyArray<HoursJob>
 ): { jobs: ReadonlyArray<HoursJob>; error: boolean } {
-  if (records.length === 0) return loaded;
-  const parsed = JobListResponseSchema.safeParse({ jobs: records });
-  if (!parsed.success) return loaded;
   const have = new Set(loaded.jobs.map((j) => j.id));
-  const extra: HoursJob[] = parsed.data.jobs
-    .filter((job) => !have.has(job.id))
-    .map((job) => ({
-      id: job.id,
-      name: job.name,
-      ref: job.code ?? job.ref ?? null,
-      address: job.siteAddress ?? null,
-      completedAt: job.completedAt ?? null,
-      status: job.status ?? null,
-    }));
-  return extra.length === 0 ? loaded : { ...loaded, jobs: [...loaded.jobs, ...extra] };
+  const add = extra.filter((job) => !have.has(job.id));
+  return add.length === 0 ? loaded : { ...loaded, jobs: [...loaded.jobs, ...add] };
+}
+
+/** The few fields a job record needs on this screen. */
+function toHoursJob(j: {
+  id: string;
+  name: string;
+  code?: string | null;
+  ref?: string | null;
+  siteAddress?: string | null;
+  completedAt?: string | null;
+  status?: string | null;
+}): HoursJob {
+  return {
+    id: j.id,
+    name: j.name,
+    ref: j.code ?? j.ref ?? null,
+    address: j.siteAddress ?? null,
+    completedAt: j.completedAt ?? null,
+    status: j.status ?? null,
+  };
 }
 
 /**
@@ -156,25 +184,20 @@ function withExtraJobs(
  */
 async function loadAssignedJobs(cookieValue: string | undefined): Promise<{
   jobs: ReadonlyArray<HoursJob>;
+  /** Every job the crew may still open (closed ones too) — from the same read. */
+  openable: ReadonlyArray<HoursJob>;
   error: boolean;
 }> {
   try {
     const res = await loadFieldJobsInProcess(cookieValue);
-    if (!res.ok) return { jobs: [], error: true };
+    if (!res.ok) return { jobs: [], openable: [], error: true };
     const parsed = JobListResponseSchema.safeParse({ jobs: res.jobs });
-    if (!parsed.success) return { jobs: [], error: true };
-    const jobs = parsed.data.jobs
-      .filter((j) => isVisibleToField(j))
-      .map((j) => ({
-        id: j.id,
-        name: j.name,
-        ref: j.code ?? j.ref ?? null,
-        address: j.siteAddress ?? null,
-        completedAt: j.completedAt ?? null,
-        status: j.status ?? null,
-      }));
-    return { jobs, error: false };
+    if (!parsed.success) return { jobs: [], openable: [], error: true };
+    const jobs = parsed.data.jobs.filter((j) => isVisibleToField(j)).map(toHoursJob);
+    const openableParsed = JobListResponseSchema.safeParse({ jobs: res.openable ?? [] });
+    const openable = openableParsed.success ? openableParsed.data.jobs.map(toHoursJob) : [];
+    return { jobs, openable, error: false };
   } catch {
-    return { jobs: [], error: true };
+    return { jobs: [], openable: [], error: true };
   }
 }

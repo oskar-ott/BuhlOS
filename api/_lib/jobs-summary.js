@@ -97,14 +97,12 @@ async function readJobsSummary(deps = realDeps()) {
   // caller (a test) injects no fresh reader.
   const readSourceFresh = deps.readBlobFresh || readBlob;
 
-  const uploadedAt = await blobUploadedAt(SUMMARY_SOURCE_KEY);
-
-  let summary = null;
-  try {
-    summary = await readBlob(SUMMARY_KEY, null);
-  } catch {
-    summary = null; // corrupt/unreadable → rebuild
-  }
+  // The source stamp and the summary are independent reads — one round trip,
+  // not two in a row (2026-10-26: every field page paid the pair serially).
+  const [uploadedAt, summary] = await Promise.all([
+    blobUploadedAt(SUMMARY_SOURCE_KEY),
+    readBlob(SUMMARY_KEY, null).catch(() => null), // corrupt/unreadable → rebuild
+  ]);
 
   const fresh =
     summary &&
