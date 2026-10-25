@@ -9,7 +9,7 @@ import type { TimeEntry } from "./types";
  * (2026-08-03), the write-primed cache in the API function no longer covers
  * the very next render: a worker could log a day, open My Day, and be told
  * "Today not logged". The in-memory overlay from 2026-07-28
- * (PhilHoursSharpened.savedEntries + mergeSavedEntries) already fixes this
+ * (PhilHoursView.savedEntries + mergeSavedEntries) already fixes this
  * WITHIN one mounted screen; this journal persists the same server-confirmed
  * entries across navigations and reloads until the store catches up.
  *
@@ -80,7 +80,7 @@ function readRecords(store: StorageLike, nowMs: number): JournalRecord[] {
 /**
  * Record a server-confirmed save. `entry` MUST be the entry body a successful
  * POST/PATCH response returned (the same contract as
- * PhilHoursSharpened.recordSaved). Replaces any previous record for the same
+ * PhilHoursView.recordSaved). Replaces any previous record for the same
  * user + date. Never throws — a full or disabled storage silently degrades to
  * the existing in-memory behaviour.
  */

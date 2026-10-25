@@ -33,29 +33,12 @@ payroll-focused home that opens straight into the week timesheet.
    a week total, and a "Today not logged" flag. Pure logic in `philWeek.ts`.
    The strip is also a **directory**: today + every past day is a link to
    `/phil/my-day?fixDate=<date>` (the same deep-link the "Hours rejected" push
-   uses), so a missed day is one tap from the hours form preselected to that
-   date — no scrolling to the date chip and picking the day by hand. A rejected
-   day auto-opens fix-and-resubmit; future days are inert (nothing to act on).
-   The log action's title flips to "Log hours for this day" when the selected
-   date isn't today.
-   **Soft-navigation contract:** the page keys `LogHoursSheet` by `fixDate`
-   (`key={fixDate ?? "no-fix-date"}`) so a SAME-PAGE client-side navigation
-   (strip tap / Needs You item while already on My Day) remounts the sheet and
-   its `useState` initialisers re-seed from the new date. Without the key the
-   URL changes but the form silently keeps the old date — the original v1 bug,
-   guarded by the strip-tap smoke test in `phil.spec.ts`.
-4. **Log today's hours** — `LogHoursSheet`, restyled to the design's **compact
-   yellow action** (`md-act.log`) instead of a screen-filling navy block. There
-   is **no form-card wrapper** — the elements sit as standalone bars on the page
-   surface, like the design's action bars: a quiet inline job line (`{job}` +
-   "Assigned job" pill, not a boxed field — the job already headlines the
-   greeting), the yellow "Log today's hours" button, a compact "Day" date **chip**,
-   and a quiet "Custom hours or a note" disclosure. **Behaviour is unchanged** —
-   the same submit handler, disabled gating, "Submit Standard day" aria-label and
-   `{id,name}` payload; only the presentation moved. The redundant "No entry yet"
-   card was dropped (the week strip already shows today's state).
-   - **Smoke-required, kept visible:** the date `input[type=date]` (the
-     field-readiness helper fills it) and the "Assigned job" pill text.
+   uses). Since 2026-10-25 that lands on a card that hands the day on to the
+   **Hours tab** (`/phil/hours?fix=<date>`), where logging, changing a sent day
+   and fixing a sent-back day all live ([phil-hours.md](phil-hours.md)).
+4. **Log my hours** — one yellow link card to the Hours tab. The old mounted
+   log form (`LogHoursSheet`: day dial, job dial, the "Custom / overtime hours"
+   modal) was deleted on 2026-10-25; there is one logging home, not two.
 5. **Heads-up note** — a quiet honest line about one-allocation-per-submission
    (replaces the loud yellow/black under-construction hazard tape, which was not
    in the design).
@@ -109,16 +92,13 @@ the parity lives in a **scoped CSS module** — `src/components/phil/myDay.modul
   (`--md-green-bg` etc., from the prototype `ops-base.css`) and the mono face —
   live scoped in the module. Everything else reuses the global brand tokens
   (`--brand-navy`, `--accent-yellow`, `--text`, `--border`) so My Day stays
-  consistent with the shell and the unchanged `LogHoursSheet`.
+  consistent with the shell and the Hours screen.
 - `PhilWeekStrip` renders the design's filled cells (green logged · yellow-ring
   today · dashed amber `miss` · faded `off`) at the design's exact dimensions
   (46px cells, 9px radius, mono 7–8.5px labels), and the greeting gets the
   Inter-Tight name + mono subtitle + yellow initials avatar.
 
-**Known divergence (honest):** the hours area is the unchanged `LogHoursSheet`
-(its own navy "Standard day" card), not restyled to the design's compact
-"Log today's hours" button — it's the real, tested write surface and restyling
-its internals is out of scope. Yellow uses the app token `#ffcc00` (vs the
+**Known divergence (honest):** yellow uses the app token `#ffcc00` (vs the
 design's softer `#f5d020`) to stay consistent with the shell's Capture FAB.
 
 ## Tests
@@ -130,5 +110,5 @@ design's softer `#f5d020`) to stay consistent with the shell's Capture FAB.
   day-cell directory links (today + past days link to `?fixDate=<date>`,
   future days don't).
 - The hours flow + shell + Capture FAB stay covered by Preview Smoke
-  (`phil.spec.ts`, `field-readiness.spec.ts`); their selectors (`phil-shell`,
-  "Submit Standard day", the job radiogroup, the Capture FAB) are untouched.
+  (`phil.spec.ts`, `field-readiness.spec.ts`); the hours helper now drives the
+  Hours screen's `hours-log-primary` button and job chips (phil-hours.md).

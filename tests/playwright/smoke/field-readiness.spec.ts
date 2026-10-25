@@ -90,7 +90,7 @@ test.describe("Field-readiness smoke — BuhlOS → Phil critical flow", () => {
       // merely to "some" non-null job. Strict Preview Smoke requires the fixture;
       // locally it is best-effort (null → fall back to a non-null check).
       const expectedJobId = await resolveAssignedFixtureJobId(page);
-      await page.goto("/phil/my-day");
+      await page.goto("/phil/hours");
       await prepareAttributedStandardDay(page);
       const jobId = await submitStandardDayAndCaptureAttribution(page, { expectedJobId });
       expect(

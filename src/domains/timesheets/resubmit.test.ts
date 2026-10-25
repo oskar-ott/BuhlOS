@@ -137,7 +137,7 @@ describe("splitChangeInitialRows", () => {
     const stale = te({ allocations: [{ jobId: "job-z", hours: 7.6, notes: null }] });
     expect(splitChangeInitialRows(stale, JOBS).rows[0]).toEqual({ jobId: null, hours: 7.6 });
   });
-  it("always seeds TWO rows — SplitDaySheet only honours initialRows with 2+ rows", () => {
+  it("always seeds TWO rows — the split sheet only honours initialRows with 2+ rows", () => {
     expect(splitChangeInitialRows(te(), JOBS).rows).toHaveLength(2);
   });
 });

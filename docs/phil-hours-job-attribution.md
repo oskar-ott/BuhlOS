@@ -1,5 +1,13 @@
 # Phil hours — job attribution
 
+> **Superseded 2026-10-25.** The worker's Hours screen was rebuilt
+> (`src/components/phil/hours/`, see [phil-hours.md](phil-hours.md)). The
+> components this page names — `RejectedHoursResubmitSheet`, `LogHoursSheet`,
+> `SplitDaySheet` — were deleted. The **rules** below still hold (attribution,
+> the rejected → submitted transition, the resubmit payload builders in
+> `src/domains/timesheets/resubmit.ts`); the UI that applies them is now the
+> Fix sheet and the Change-these-hours sheet described in phil-hours.md.
+
 _Status: shipped in `fix/phil-hours-job-attribution`. Scope: field hours job attribution only — not payroll, Xero, reports, rostering, stage/task allocation, or GPS._
 
 ## The rule

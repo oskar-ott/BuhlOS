@@ -8,9 +8,8 @@ import {
   loadFieldJobsInProcess,
 } from "../../../../api/_lib/phil-page-data.js";
 import { PhilShell } from "@/components/phil/PhilShell";
-import { LogHoursSheet } from "@/components/phil/LogHoursSheet";
 import { PhilWeekStrip } from "@/components/phil/PhilWeekStrip";
-import { RejectedHoursResubmitSheet } from "@/components/phil/RejectedHoursResubmitSheet";
+import { PhilOfflineLink } from "@/components/phil/PhilOfflineLink";
 import {
   PhilNeedsYouSection,
   PhilNeedsYouSectionFallback,
@@ -31,7 +30,6 @@ import { parseTimeEntryListLenient } from "@/domains/timesheets/parse-entries";
 import type { TimeEntry } from "@/domains/timesheets/types";
 import {
   BUSINESS_TIMEZONE,
-  lastLoggedJobFor,
   localDateString,
   parseFixDate,
 } from "@/domains/timesheets/service";
@@ -81,7 +79,7 @@ function formatFixDayLabel(isoDate: string): string {
  * home that opens straight into the week timesheet:
  *   greeting ("Arvo, {name}" + date + the job they're on)
  *   → This week (the Mon–Sun PhilWeekStrip)
- *   → log today's hours (the unchanged LogHoursSheet)
+ *   → a "Log my hours" card to the Hours tab (the one logging home)
  *   → "Needs you" feed (PhilNeedsYouFeed — real attention only).
  * The centre Capture shutter stays on the shell (PhilTabBar).
  *
@@ -131,8 +129,8 @@ export default async function MyDayPage({
   const fixDate = parseFixDate(sp.fixDate);
 
   // Load the worker's recent entries AND their active assigned jobs in
-  // parallel. The jobs feed the LogHoursSheet job-attribution block so a
-  // field submission is tied to a real active job instead of jobId: null.
+  // parallel. The jobs feed the greeting's "on {job}" line and the sharpened
+  // On-the-job card / receipt sheet (hours themselves log on the Hours tab).
   // The sharpened-chrome flags ride the same parallel wave (cached flags.json
   // reads, not per-page blob round-trips). Resolved server-side; only booleans
   // reach the client (docs/feature-flags.md).
@@ -198,15 +196,6 @@ export default async function MyDayPage({
   });
   const jobs = assignedJobs.jobs;
   const soleJob = jobs.length === 1 ? jobs[0]! : null;
-  // The worker's most-recently-logged job (only if it's still assignable), so
-  // the hours picker defaults to "same job as last time" — derived from the
-  // already-loaded recent entries, with a REAL entry date for the sub-line
-  // (never fabricated). Null when they haven't logged recently → the sheet
-  // falls back to the sole job or an explicit pick.
-  const lastLogged = lastLoggedJobFor(
-    recentEntries,
-    jobs.map((j) => j.id)
-  );
   const { heading, subtitle, initials } = buildPhilGreeting({
     displayName,
     hour: hourInTimeZone(new Date(), BUSINESS_TIMEZONE),
@@ -215,8 +204,6 @@ export default async function MyDayPage({
   });
 
   const todayISO = localDateString(new Date(), BUSINESS_TIMEZONE);
-  // The hours sheet keeps its own minimal {id,name} list and is preselected
-  // when there's exactly one job, so the write/attribution path is unchanged.
   const soleJobId = soleJob?.id ?? null;
 
   // ── Sharpened My Day (phil_sharpened, dark — Wave 2a) ────────────────────
@@ -232,19 +219,16 @@ export default async function MyDayPage({
     // 2026-08-08) — real entries in the current Mon–Sun week vs weekdays
     // elapsed; the 7-day entries window always covers Monday→today.
     const weekProgress = weekLoggedProgress(recentEntries, todayISO);
-    // ?fixDate= deep link (push notifications, needs-you rows — both point at
-    // REJECTED days): the Hours tab (W2c) is the logging home now, so this
-    // screen no longer mounts the week strip / day-logger — but the one-tap
-    // fix contract must hold. When the linked day's entry is rejected and
-    // fixable, a focused fixer card renders below with the SAME tested
-    // resubmit sheet auto-opened. Any other fixDate (already fixed, never
-    // rejected) has nothing to fix here — the attention hero and the Hours
-    // tab carry the day's real status.
+    // ?fixDate= deep link (the "Hours rejected" push still points here): the
+    // Hours tab is the one logging AND fixing home (docs/phil-hours.md), so
+    // this card names the sent-back day with the office's reason and hands
+    // the worker to its Fix sheet in one tap. Any other fixDate (already
+    // fixed, never rejected) has nothing to fix here — the attention hero and
+    // the Hours tab carry the day's real status.
     const fixEntry = fixDate ? (recentEntries.find((e) => e.date === fixDate) ?? null) : null;
     // Rejected-only here: canResubmitInPhil also covers submitted days now
     // (2026-07-26 owner-directed), but THIS card's "was sent back" framing is
-    // a rejection story — a submitted day's change affordance lives on the
-    // Hours tab / LogHoursSheet instead.
+    // a rejection story — a submitted day is changed from the Hours tab.
     const showFixCard =
       fixEntry !== null && fixEntry.status === "rejected" && canResubmitInPhil(fixEntry);
     return (
@@ -313,13 +297,13 @@ export default async function MyDayPage({
                     {fixEntry.rejectedReason}
                   </p>
                 ) : null}
-                <RejectedHoursResubmitSheet
-                  key={fixEntry.id}
-                  entry={fixEntry}
-                  assignedJobs={jobs}
-                  jobsError={assignedJobs.error}
-                  defaultOpen
-                />
+                <PhilOfflineLink
+                  href={`/phil/hours?fix=${encodeURIComponent(fixEntry.date)}` as Route}
+                  data-testid="phil-my-day-fix-link"
+                  className="flex min-h-[48px] items-center justify-center rounded-card bg-accent-yellow px-4 font-display text-[15px] font-bold text-accent-ink active:scale-[0.99]"
+                >
+                  {`Fix ${formatFixDayLabel(fixEntry.date)} on the Hours tab`}
+                </PhilOfflineLink>
               </div>
             </section>
           ) : null}
@@ -340,8 +324,8 @@ export default async function MyDayPage({
               with 0 or 2+ jobs the card is honestly absent (never guessed). */}
           {soleJob ? <PhilMyDayOnJobCard job={soleJob} /> : null}
 
-          {/* Hours live on the Hours tab (W2c — LogHoursSheet is mounted
-              there): the quick grid's "Log hours now" tile is THE hours
+          {/* Hours live on the Hours tab (docs/phil-hours.md): the quick
+              grid's "Log hours now" tile is THE hours
               affordance here. The old week strip + day-logger are gone from
               this screen — one logging home, not three competing forms. */}
           <PhilMyDayQuickGrid
@@ -397,25 +381,22 @@ export default async function MyDayPage({
 
         <PhilWeekStrip entries={recentEntries} todayISO={todayISO} selectedDate={fixDate} />
 
-        <LogHoursSheet
-          // Remount when the deep-linked day changes. The sheet seeds its date
-          // (and the resubmit sheet's open state) in useState INITIALISERS, so
-          // on a same-page soft navigation — tapping a week-strip day, or a
-          // Needs You item, while already on /phil/my-day — React would keep
-          // the existing instance and silently ignore the new initialDate. The
-          // key makes the ?fixDate= contract hold for client-side navigations
-          // too, not just fresh document loads (push notifications).
-          key={fixDate ?? "no-fix-date"}
-          initialTodayEntry={todayEntry}
-          recentEntries={recentEntries}
-          assignedJobs={jobs}
-          jobsError={assignedJobs.error}
-          initialJobId={soleJobId}
-          lastLoggedJobId={lastLogged?.jobId ?? null}
-          lastLoggedDate={lastLogged?.date ?? null}
-          initialDate={fixDate}
-          autoOpenFix={fixDate !== null}
-        />
+        {/* Hours are logged, changed and fixed on the Hours tab
+            (docs/phil-hours.md). A week-strip tap (?fixDate=) hands that day
+            on: a sent-back day opens its Fix sheet; any other day lands on the
+            Hours screen. */}
+        <PhilOfflineLink
+          href={
+            (fixDate
+              ? `/phil/hours?fix=${encodeURIComponent(fixDate)}`
+              : "/phil/hours?log=1") as Route
+          }
+          data-testid="phil-my-day-hours-link"
+          className="flex min-h-[64px] items-center justify-between gap-3 rounded-card bg-accent-yellow px-4 font-display text-[17px] font-bold text-accent-ink shadow-card active:scale-[0.99]"
+        >
+          {fixDate ? `Open ${formatFixDayLabel(fixDate)} on the Hours tab` : "Log my hours"}
+          <span aria-hidden="true">→</span>
+        </PhilOfflineLink>
 
         {fetchError ? (
           <PhilNotice tone="warning" title="Couldn’t load recent entries" role="alert">
@@ -471,9 +452,7 @@ async function loadEntries(
   fetchError: string | null;
 }> {
   // Server-side "today" must use the business timezone so a Vercel UTC server
-  // doesn't compute yesterday's date for a Sydney worker. The browser-local
-  // date is still used inside the LogHoursSheet client form (it initialises
-  // its date state in the worker's actual timezone). The rolling 7-day window
+  // doesn't compute yesterday's date for a Sydney worker. The rolling 7-day window
   // always covers this week's Monday→today, so PhilWeekStrip needs no extra
   // fetch. A ?fixDate= deep link can point outside that window (rejections can
   // be up to 14 days back), so the range stretches to include it — otherwise
@@ -534,14 +513,13 @@ async function loadEntries(
  * caller to their assignedJobIds and strips draft/archived (api/jobs.js); the
  * isVisibleToField filter here is defence-in-depth so an admin previewing My
  * Day never sees a draft/archived job as a log target. Returns `error: true`
- * on any failure so the sheet can block submission rather than fall back to an
- * unattributed entry. Feeds both the LogHoursSheet attribution and the
- * greeting's "on {job}" line (shown only for a single assigned job).
+ * on any failure so the receipt sheet can block rather than fall back to an
+ * unattributed entry. Feeds the greeting's "on {job}" line (shown only for a
+ * single assigned job) and the sharpened On-the-job card.
  */
 async function loadAssignedJobs(cookieValue: string | undefined): Promise<{
   /** ref/siteAddress ride along for the sharpened "On the job" card — the
-   *  same single /api/jobs read, no extra call. Consumers that only need
-   *  {id,name} (LogHoursSheet, needs-you) are structurally unaffected. */
+   *  same single /api/jobs read, no extra call. */
   jobs: ReadonlyArray<{
     id: string;
     name: string;

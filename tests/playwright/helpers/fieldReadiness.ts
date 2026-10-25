@@ -120,89 +120,65 @@ export async function assertFieldLockedOutOfAdminBuilder(page: Page): Promise<vo
   await expect(page).toHaveURL(/\/phil\/my-day(?:\?|$)/);
 }
 
-/** Local-date YYYY-MM-DD `back` days before today (matches the app's localDateString). */
-function localISODaysAgo(back: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() - back);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
 /**
- * On /phil/my-day, satisfy the LogHoursSheet job-attribution block and select a
- * date whose Standard Day button is ENABLED:
- *   - multiple active jobs → pick the fixture radio (strict: it must exist);
- *   - exactly one active job → already preselected ("Assigned job" pill);
- *   - zero jobs → throw (a real fixture problem, surfaced, never skipped).
- * Then scan in-window dates for one not locked by an existing submitted/approved
- * entry, so the click is deterministic across reruns. Throws (does not skip) if
- * the whole backdate window is already filled.
+ * On /phil/hours (docs/phil-hours.md), get the screen to a state where the
+ * primary "Log <day> · 7h 36m" button is showing for the fixture job:
+ *   - pick an unlogged weekday row of this week (the screen picks one itself;
+ *     any "Not logged" / "Today · not logged" row will do);
+ *   - several jobs → tap the fixture's job chip (strict: it must exist);
+ *   - one job → it is already the job field; nothing to pick;
+ *   - zero jobs / jobs failed → throw (a real fixture problem, surfaced, never
+ *     skipped).
+ * Throws (does not skip) if every weekday of this week is already logged —
+ * the fixture account needs a clear day to prove the attribution.
  */
 export async function prepareAttributedStandardDay(page: Page): Promise<void> {
   await expect(page.getByTestId("phil-shell")).toBeVisible();
+  await expect(page.getByTestId("hours-view")).toBeVisible();
 
-  const radiogroup = page.getByRole("radiogroup", { name: /Choose the job for these hours/i });
-  const assignedPill = page.getByText("Assigned job", { exact: true });
-
-  // A worker with several active jobs now lands with their last-logged job
-  // preselected and the list COLLAPSED to one line. If neither the open list
-  // nor the single-job "Assigned job" pill is showing, reopen the list via
-  // "Pick a different job" so we can pick the fixture explicitly (the
-  // last-logged default may be a different job). No-op in the strict
-  // single-job fixture path (the pill is present, so this is skipped).
-  if ((await radiogroup.count()) === 0 && (await assignedPill.count()) === 0) {
-    const reopen = page.getByRole("button", { name: /Pick a different job/i });
-    if ((await reopen.count()) > 0) await reopen.first().click();
-  }
-
-  if ((await radiogroup.count()) > 0) {
-    const radio = page.getByRole("radio", { name: FIXTURE_JOB_NAME, exact: true });
-    if (isStrict()) {
-      await expect(
-        radio,
-        `Strict smoke needs the fixture "${FIXTURE_JOB_NAME}" among QA Field's active assigned jobs.`
-      ).toHaveCount(1);
-    }
-    if ((await radio.count()) > 0) await radio.first().click();
-    else await page.getByRole("radio").first().click(); // local fallback: any job
-  } else if ((await assignedPill.count()) > 0) {
-    // Exactly one active assigned job — preselected, no friction.
-  } else {
+  // A pickable weekday row. The screen already picks the earliest unlogged
+  // weekday; tapping the first pickable row makes the choice explicit.
+  const pickable = page.locator('[data-testid^="hours-day-"][data-kind="pickable"]');
+  if ((await pickable.count()) === 0) {
     throw new Error(
-      `LogHoursSheet shows no attributable job for QA Field. The fixture ` +
+      "No unlogged day in this week — QA Field already has a logged entry on every day up to " +
+        "today. Clear QA time entries or check the fixture; not skipping."
+    );
+  }
+  await pickable.first().locator("button").click();
+
+  const panel = page.getByTestId("hours-panel");
+  await expect(panel).toBeVisible();
+
+  const kind = await panel.getAttribute("data-panel");
+  if (kind === "noJobs" || kind === "jobsFailed") {
+    throw new Error(
+      `The Hours screen shows no attributable job for QA Field (panel: ${kind}). The fixture ` +
         `"${FIXTURE_JOB_NAME}" must be Active + assigned (docs/testing/Seeded-Authenticated-QA.md). ` +
         `Hours must never submit jobId:null when active jobs exist.`
     );
   }
 
-  const button = page.getByRole("button", { name: /Submit Standard day/i });
-  // The date picker lives under the "More options" disclosure (collapsed by
-  // default; it auto-opens once a job is picked). The <details> is React-
-  // controlled, so open it with a real summary CLICK (which flows through
-  // onToggle into state) rather than setting .open imperatively — only when
-  // it's still closed, so we never accidentally toggle an already-open one.
-  const moreOptions = page.locator("details", { has: page.locator('input[type="date"]') }).first();
-  if ((await moreOptions.count()) > 0) {
-    const isOpen = await moreOptions.evaluate((d) => (d as HTMLDetailsElement).open);
-    if (!isOpen) {
-      await page.locator("summary", { hasText: /More options/i }).first().click();
+  // Several jobs → the chips. Pick the fixture explicitly (the default may be
+  // the last-logged job). One job → the job field already names it.
+  const chips = panel.getByRole("radiogroup", { name: /^Job for / });
+  if ((await chips.count()) > 0) {
+    const chip = chips.getByRole("radio", { name: FIXTURE_JOB_NAME, exact: true });
+    if (isStrict()) {
+      await expect(
+        chip,
+        `Strict smoke needs the fixture "${FIXTURE_JOB_NAME}" among QA Field's active assigned jobs.`
+      ).toHaveCount(1);
     }
+    if ((await chip.count()) > 0) await chip.first().click();
+    else await chips.getByRole("radio").first().click(); // local fallback: any job
   }
-  const dateInput = page.locator('input[type="date"]');
-  for (let back = 0; back < 14; back++) {
-    await dateInput.fill(localISODaysAgo(back));
-    if (await button.isEnabled()) return;
-  }
-  throw new Error(
-    "No submittable date in the backdate window — QA Field already has a logged entry " +
-      "on every in-window day. Clear QA time entries or check the fixture; not skipping."
-  );
+
+  await expect(page.getByTestId("hours-log-primary")).toBeEnabled();
 }
 
 /**
- * Click Standard Day, capture the POST /api/time-entries request, assert it
+ * Click the primary log button, capture the POST /api/time-entries request, assert it
  * attributes the hours to the assigned job, then ABORT it before it reaches the
  * server.
  *
@@ -243,8 +219,10 @@ export async function submitStandardDayAndCaptureAttribution(
     await route.abort(); // prod-safety: never let the write reach the (shared) Blob
   });
 
-  const button = page.getByRole("button", { name: /Submit Standard day/i });
+  // The one primary action: "Log <day> · 7h 36m · <job> · sends to the office".
+  const button = page.getByTestId("hours-log-primary");
   await expect(button).toBeEnabled();
+  await expect(button).toHaveText(/Log \w+ · 7h 36m/);
   await button.click();
   await expect
     .poll(() => capturedBody !== undefined, { timeout: 15_000 })
