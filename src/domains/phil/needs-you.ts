@@ -12,9 +12,9 @@ import type { TimeEntry } from "@/domains/timesheets/types";
  *
  *   - rejected-hours: a time entry the office rejected (status "rejected").
  *       Source: GET /api/time-entries (self-scoped to the worker).
- *       Action: /phil/my-day?fixDate=<date> — selects that day and auto-opens
- *       the inline fix-and-resubmit sheet (same deep link the "Hours rejected"
- *       push notification uses).
+ *       Action: /phil/hours?fix=<date> — opens that day's Fix sheet on the
+ *       Hours tab (docs/phil-hours.md). The "Hours rejected" push still lands
+ *       on /phil/my-day?fixDate=, whose fix card hands on to the same sheet.
  *   - calibration: a test instrument THIS WORKER currently holds whose
  *       calibration is expired or due within 14 days (#305). Source:
  *       GET /api/tags-expiring `calibrations` (already holder-filtered
@@ -83,8 +83,8 @@ export function buildPhilNeedsYou(input: PhilNeedsYouInput): PhilNeedsYouItem[] 
 
   // A. Rejected hours — real and blocks pay; the most urgent thing a worker
   //    can clear. A rejection always carries a date; the reason is shown when
-  //    the office left one. The link is the same ?fixDate= deep link the push
-  //    notification uses: one tap opens that day with the fix sheet expanded.
+  //    the office left one. The link opens that day's Fix sheet on the Hours
+  //    tab: one tap from here to the office's reason and the fix.
   for (const e of input.entries) {
     if (e.status !== "rejected") continue;
     items.push({
@@ -93,7 +93,7 @@ export function buildPhilNeedsYou(input: PhilNeedsYouInput): PhilNeedsYouItem[] 
       title: `${shortDay(e.date)} hours need a fix`,
       detail: e.rejectedReason ?? undefined,
       meta: hoursLabel(e.totalHours) || undefined,
-      href: `/phil/my-day?fixDate=${encodeURIComponent(e.date)}`,
+      href: `/phil/hours?fix=${encodeURIComponent(e.date)}`,
       actionLabel: "Fix hours",
       severity: "urgent",
     });

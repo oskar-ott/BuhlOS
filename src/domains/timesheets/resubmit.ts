@@ -5,7 +5,7 @@ import type { PatchTimeEntryPayload, TimeEntry, TimeEntryMutationResponse } from
 /**
  * Pure helpers for the Phil "fix a rejected entry and resubmit it" flow.
  *
- * No I/O, no React — the component (RejectedHoursResubmitSheet) and its tests
+ * No I/O, no React — the Hours screen's change / fix sheets and their tests
  * both build on these so the attribution invariant lives in one tested place.
  *
  * The hard rule this slice protects (the #77/#80/#81 guarantee, see
@@ -25,9 +25,9 @@ import type { PatchTimeEntryPayload, TimeEntry, TimeEntryMutationResponse } from
  * clears `rejectedReason`, and stamps `submittedAt`. No API change is needed.
  *
  * Cross-ref:
- *   src/components/phil/LogHoursSheet.tsx — the sibling create-path guard
- *     (`jobAttributionError` / `jobReady`); this mirrors its rules for the
- *     resubmit path without modifying it.
+ *   src/components/phil/hours/PhilHoursView.tsx — the create path; the
+ *     Hours screen blocks an unattributed day the same way (no job picked →
+ *     no log button, with the reason in words).
  *   docs/buhlos-hours-safe-foundation.md — #92 deferred this slice to here.
  */
 
@@ -99,7 +99,7 @@ export function splitResubmitInitialRows(
  * jobs from inside the change/fix flow (2026-07-26 owner-directed). Row 1 is
  * the day's current job carrying the day's full hours; row 2 is the empty
  * remainder row the worker moves hours into. Two rows are seeded on purpose —
- * SplitDaySheet only honours `initialRows` with 2+ rows (a split is 2+ jobs
+ * the split sheet only honours `initialRows` with 2+ rows (a split is 2+ jobs
  * by definition), and its last row is always the computed remainder.
  *
  * Same attribution rule as `splitResubmitInitialRows`: a current job that is
@@ -180,7 +180,7 @@ export type ResubmitJobResolution =
 
 /**
  * Resolve the job a resubmission will attribute to, or an honest blocked
- * reason. Mirrors LogHoursSheet's `jobAttributionError` rules:
+ * reason. The same rules the Hours screen's panel applies:
  *   - jobs failed to load        → block (never fall back to null)
  *   - no active assigned job      → block
  *   - selection missing / unknown → block (covers "multiple, none picked")

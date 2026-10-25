@@ -22,7 +22,7 @@ import {
  * capability was a worker typing "8.36" meaning 8h 36m into a decimal field
  * that read it as 8h 22m; the office's fix-it tool must not be able to repeat
  * the same mistake, so it speaks the site's duration dialect exactly as the
- * field app now does (src/components/phil/LogHoursSheet.tsx).
+ * field app now does (src/components/phil/hours/HmField.tsx).
  *
  * A day split across jobs edits EACH job's time and derives the total; a
  * single-job day edits the one time. Either way the reason is REQUIRED — it

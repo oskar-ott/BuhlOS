@@ -4,7 +4,7 @@ import { renderToString } from "react-dom/server";
 import { PhilNewJobSheet } from "./PhilNewJobSheet";
 
 // The sheet reads the app router (push to the new job on success); SSR smoke
-// runs outside the app-router context, so mock it (LogHoursSheet precedent).
+// runs outside the app-router context, so mock it (same pattern as the other Phil render tests).
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: () => {}, push: () => {}, replace: () => {} }),
 }));

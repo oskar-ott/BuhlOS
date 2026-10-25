@@ -1,0 +1,54 @@
+/*
+ * Hours screen motion + the few shapes Tailwind utilities don't carry
+ * (docs/phil-hours.md). Colours stay on the global tokens; nothing here is a
+ * one-off hex except the design's named tints.
+ */
+
+/* Sheets slide up 250ms; the backdrop fades with them. */
+.sheetPanel {
+  animation: hours-sheet-up 250ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.sheetBackdrop {
+  animation: hours-fade-in 250ms ease;
+}
+@keyframes hours-sheet-up {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+@keyframes hours-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* A row that just became a receipt cross-fades in over 200ms. */
+.receiptIn {
+  animation: hours-fade-in 200ms ease;
+}
+
+/* The saving spinner. */
+.spin {
+  animation: hours-spin 0.8s linear infinite;
+}
+@keyframes hours-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheetPanel,
+  .sheetBackdrop,
+  .receiptIn {
+    animation: none;
+  }
+}

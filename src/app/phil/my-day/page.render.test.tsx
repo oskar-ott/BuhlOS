@@ -253,17 +253,16 @@ describe("sharpened /phil/my-day — one hours affordance", () => {
 });
 
 describe("sharpened /phil/my-day — the ?fixDate= deep-link contract", () => {
-  it("a rejected day's link renders the fix card with the REAL reason and the resubmit sheet open", async () => {
+  it("a rejected day's link renders the fix card with the REAL reason and a one-tap way to its Fix sheet", async () => {
     const html = await renderPage(REJECTED_DATE);
     expect(html).toContain('data-testid="phil-my-day-fix-card"');
     expect(html).toContain("was sent back");
     expect(html).toContain("Wrong job — this was the bakery day.");
-    // The SAME tested resubmit flow, auto-opened: its submit action renders.
-    expect(html).toContain("Submit correction");
-    // Still no day-logger — the fixer is focused, not a third hours form.
-    // (The fix sheet's own "Standard day · 7h 36m" preset chip is expected;
-    // what must NOT render is the log sheet's submit action.)
-    expect(html).not.toContain("Submit Standard day");
+    // The fix lives on the Hours tab (docs/phil-hours.md): the card hands the
+    // day on to its Fix sheet — no second fix form on this screen.
+    expect(html).toContain(`href="/phil/hours?fix=${REJECTED_DATE}"`);
+    expect(html).not.toContain("Submit correction");
+    expect(html).not.toContain("Standard day");
   });
 
   it("a non-rejected day's link renders NO fix card (nothing to fix — honest absence)", async () => {

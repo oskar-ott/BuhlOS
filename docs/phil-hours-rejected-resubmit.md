@@ -1,5 +1,13 @@
 # Phil — fix & resubmit a rejected hours entry
 
+> **Superseded 2026-10-25.** The worker's Hours screen was rebuilt
+> (`src/components/phil/hours/`, see [phil-hours.md](phil-hours.md)). The
+> components this page names — `RejectedHoursResubmitSheet`, `LogHoursSheet`,
+> `SplitDaySheet` — were deleted. The **rules** below still hold (attribution,
+> the rejected → submitted transition, the resubmit payload builders in
+> `src/domains/timesheets/resubmit.ts`); the UI that applies them is now the
+> Fix sheet and the Change-these-hours sheet described in phil-hours.md.
+
 _Branch `feat/phil-hours-rejected-resubmit`. Built on the #92 safe-hours
 foundation and reviewed against current `main` after #95. The one
 genuinely-missing Phil hours feature #57 promised, kept separate because it

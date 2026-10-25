@@ -59,7 +59,7 @@ test.describe("Phil field smoke", () => {
     await expect(launcher).toBeHidden();
   });
 
-  test("tapping a week-strip day preselects that date in the hours form", async ({
+  test("tapping a week-strip day hands that date on to the Hours tab", async ({
     page,
   }) => {
     await loginAsField(page);
@@ -78,12 +78,11 @@ test.describe("Phil field smoke", () => {
 
     await dayLink.click();
     await expect(page).toHaveURL(new RegExp(`fixDate=${date}`));
-    // The regression this guards: a SAME-PAGE soft navigation must actually
-    // move the form's date. The sheet seeds its date in a useState initialiser,
-    // so without the key={fixDate} remount on the page, React keeps the old
-    // instance and the tap changes the URL but not the form (the date input is
-    // the same selector the field-readiness helper drives).
-    await expect(page.locator('input[type="date"]')).toHaveValue(date);
+    // Hours are logged on the Hours tab (docs/phil-hours.md): the tapped day is
+    // handed on — the card names THAT day and links to the Hours screen.
+    const handOn = page.getByTestId("phil-my-day-hours-link");
+    await expect(handOn).toBeVisible();
+    await expect(handOn).toHaveAttribute("href", new RegExp(`/phil/hours\\?fix=${date}`));
   });
 
   test("field user can open an assigned active job when the QA account has one", async ({
