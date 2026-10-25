@@ -34,6 +34,7 @@
 const crypto = require('node:crypto');
 const { isFlagOn } = require('./feature-flags');
 const { getDb } = require('./supabase-db');
+const { defaultPgReadCache } = require('./pg-read-cache');
 const { buildTaskProjection } = require('../../scripts/importers/lib/task-projection');
 const { decomposeLegacyId } = require('../../scripts/importers/lib/structure-legacy-id');
 
@@ -68,6 +69,14 @@ const BLOB_DIAG = (reason, latencyMs, flagOn) => ({
  */
 async function readTaskStatusOverlay(input = {}) {
   const { jobId, data, flagKey = 'supabase_read_phil_tasks', getDb: db = getDb, isFlagOn: flagOn = isFlagOn, readBlob = realReadBlob, tenantSlug = 'buhl', now = Date.now } = input;
+  // Perf: tenant id + the per-job PG task-state read are process-cached (see
+  // ./pg-read-cache.js — the parity gate below re-checks against THIS request's
+  // fresh Blob projection, so a stale mirror can only fall back to Blob, never
+  // serve wrong statuses). Cache defaults OFF whenever the caller injects
+  // `getDb` (unit tests, the J12 probe) unless it passes its own `pgCache`.
+  const pgCache = Object.prototype.hasOwnProperty.call(input, 'pgCache')
+    ? input.pgCache
+    : (Object.prototype.hasOwnProperty.call(input, 'getDb') ? null : defaultPgReadCache);
   const started = now();
   const elapsed = () => Math.max(0, now() - started);
 
@@ -88,18 +97,33 @@ async function readTaskStatusOverlay(input = {}) {
     }
 
     const sql = db({ mode: 'read' }); // read cutover — never a write
-    const tenant = await sql`select id from public.tenants where slug = ${tenantSlug}`;
-    if (!tenant.length) return { data, diag: { ...BLOB_DIAG('no tenant', elapsed(), true), fallbackUsed: true } };
-    const tenantId = tenant[0].id;
-    const jobUuid = (await sql`select id from public.jobs where tenant_id = ${tenantId} and legacy_id = ${jobId} and deleted_at is null`)[0];
-    if (!jobUuid) return { data, diag: { ...BLOB_DIAG('job not in pg', elapsed(), true), fallbackUsed: true } };
-    const areaMap = await legacyIdMap(sql, 'site_areas', tenantId);
+    const tenantId = pgCache
+      ? await pgCache.tenantId(sql, tenantSlug)
+      : (await sql`select id from public.tenants where slug = ${tenantSlug}`)
+          .map((r) => r.id)[0] ?? null;
+    if (tenantId == null) return { data, diag: { ...BLOB_DIAG('no tenant', elapsed(), true), fallbackUsed: true } };
 
-    const pgRows = await sql`
-      select site_area_id, stage, legacy_template_id, status
-      from public.tasks
-      where tenant_id = ${tenantId} and job_id = ${jobUuid.id} and deleted_at is null
-        and site_area_id is not null and legacy_template_id is not null`;
+    // The per-job PG task state, as one memoisable read. Query ORDER inside is
+    // unchanged from the pre-cache code (job uuid → area map → task rows) so
+    // injected test fakes keep observing the same sequence. `null` (job not in
+    // PG) is a legitimate cached value — a just-created Blob job simply keeps
+    // its Blob fallback for the TTL.
+    const fetchTaskState = async () => {
+      const jobUuid = (await sql`select id from public.jobs where tenant_id = ${tenantId} and legacy_id = ${jobId} and deleted_at is null`)[0];
+      if (!jobUuid) return null;
+      const areaMap = await legacyIdMap(sql, 'site_areas', tenantId);
+      const pgRows = await sql`
+        select site_area_id, stage, legacy_template_id, status
+        from public.tasks
+        where tenant_id = ${tenantId} and job_id = ${jobUuid.id} and deleted_at is null
+          and site_area_id is not null and legacy_template_id is not null`;
+      return { areaMap, pgRows };
+    };
+    const taskState = pgCache
+      ? await pgCache.memoize(`task-state:${tenantSlug}:${jobId}`, fetchTaskState)
+      : await fetchTaskState();
+    if (!taskState) return { data, diag: { ...BLOB_DIAG('job not in pg', elapsed(), true), fallbackUsed: true } };
+    const { areaMap, pgRows } = taskState;
     const pgByKey = new Map(pgRows.map((r) => [`${r.site_area_id}|${r.stage}|${r.legacy_template_id}`, r.status]));
 
     // Per-task parity (whole-job gate): every blob instance must resolve to a PG
