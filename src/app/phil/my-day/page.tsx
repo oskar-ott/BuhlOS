@@ -134,7 +134,7 @@ export default async function MyDayPage({
   // The sharpened-chrome flags ride the same parallel wave (cached flags.json
   // reads, not per-page blob round-trips). Resolved server-side; only booleans
   // reach the client (docs/feature-flags.md).
-  const [{ todayEntry, recentEntries, fetchError }, assignedJobs, profile, sharpenedFlags, receiptsOn] =
+  const [{ todayEntry, recentEntries, fetchError }, assignedJobs, profile, sharpenedFlags, receiptsOn, stockOn] =
     await Promise.all([
       loadEntries(raw, fixDate),
       loadAssignedJobs(raw),
@@ -144,6 +144,8 @@ export default async function MyDayPage({
       Promise.all([isFlagEnabled("receipt_capture", session), isFlagOn("invoice_capture")])
         .then(([a, b]) => a && b)
         .catch(() => false),
+      // Workshop stock: a Today tile while the flag is on for this viewer.
+      isFlagEnabled("workshop_stock", session).catch(() => false),
     ]);
 
   // Role-change sync (src/lib/auth/role-sync.ts): the live login role differs
@@ -338,6 +340,7 @@ export default async function MyDayPage({
                 ? { jobs: jobs.map((j) => ({ id: j.id, name: j.name, code: j.code ?? null })), defaultJobId: soleJobId }
                 : null
             }
+            stock={stockOn}
           />
 
         </div>
@@ -397,6 +400,22 @@ export default async function MyDayPage({
           {fixDate ? `Open ${formatFixDayLabel(fixDate)} on the Hours tab` : "Log my hours"}
           <span aria-hidden="true">→</span>
         </PhilOfflineLink>
+
+        {/* Workshop stock — the same tile the redesigned Today carries in its
+            Quick grid; absent while the flag is off for this viewer. */}
+        {stockOn ? (
+          <PhilOfflineLink
+            href={"/phil/stock" as Route}
+            data-testid="phil-my-day-stock"
+            className="flex min-h-[64px] items-center justify-between gap-3 rounded-card border-2 border-brand-navy bg-surface-raised px-4 shadow-card active:scale-[0.99]"
+          >
+            <span className="min-w-0">
+              <span className="block font-display text-[17px] font-bold text-brand-navy">Workshop stock</span>
+              <span className="block text-sm text-text-muted">Take, add or return</span>
+            </span>
+            <span aria-hidden="true" className="font-display text-[17px] font-bold text-brand-navy">→</span>
+          </PhilOfflineLink>
+        ) : null}
 
         {fetchError ? (
           <PhilNotice tone="warning" title="Couldn’t load recent entries" role="alert">

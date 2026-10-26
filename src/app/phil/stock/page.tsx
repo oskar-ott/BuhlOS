@@ -13,8 +13,8 @@ export const dynamic = "force-dynamic";
 /**
  * /phil/stock — Workshop Stock on the phone (workshop_stock, dark).
  *
- * Entered from the More / account screen's reference group (P10: no new tab,
- * no My Day widget). The list loads client-side from /api/workshop-stock, which
+ * Entered from the Today tile (and the More screen card) — P10: no new tab,
+ * the tile enters Today's existing Quick slot. The list loads client-side from /api/workshop-stock, which
  * re-checks the session, the flag and the role on every call — this page only
  * decides whether the surface exists for this viewer (404 while off).
  *
@@ -43,7 +43,7 @@ export default async function PhilStockPage() {
       accountInitials={philInitials(session.name ?? session.username)}
     >
       <div className="space-y-4">
-        <PhilBackLink href="/v2/phil">More</PhilBackLink>
+        <PhilBackLink href="/phil/my-day">Today</PhilBackLink>
         <PhilWorkshopStock />
       </div>
     </PhilShell>

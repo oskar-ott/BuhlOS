@@ -405,8 +405,12 @@ export).
 
 ## Surfaces and navigation
 
-- Phone: one card in the More screen's reference group (`/v2/phil`), shown
-  only while the flag is on — **no tab, no My Day tile** (P10). Level one of
+- Phone: a **Workshop stock tile on Today** (`/phil/my-day` — in the Quick
+  grid of the redesigned Today, as a card under "Log my hours" on the default
+  one; owner pull, 2026-10-26: "a tile on the today page, not hidden behind
+  profile"), plus the card in the More screen's reference group (`/v2/phil`).
+  Both show only while the flag is on. **No tab** — the tile enters Today's
+  existing Quick slot, the way Log a receipt did (P10). Level one of
   `/phil/stock` is one decision: Take stock or Add or return, two doors pinned
   at the bottom; Return and per-item actions are one tap down. Quantities are
   labelled as recorded (P7); copy is site language (P11); undo sits on the
