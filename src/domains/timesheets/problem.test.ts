@@ -42,7 +42,7 @@ describe("explainHoursProblem — the boss's Fix", () => {
     const p = explainHoursProblem("fix", err(403, "cannot amend your own hours"));
     expect(p.caption).toBe("Fix not saved");
     expect(p.title).toBe("You can't do this to your own hours");
-    expect(p.why).toBe("Nobody fixes or approves their own pay.");
+    expect(p.why).toBe("Nobody fixes their own pay from the office side.");
     expect(p.todo).toMatch(/Change these hours/);
     expect(p.canRetry).toBe(false);
   });

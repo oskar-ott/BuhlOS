@@ -110,6 +110,20 @@ export function isOwnerRole(role: unknown): boolean {
 }
 
 /**
+ * May approve their OWN hours. Nobody approves their own pay — except the
+ * person at the top of the tree, who has nobody above them to do it: the
+ * "Admin / Owner" role card (`admin`, plus its legacy aliases `boss` and
+ * `owner`). The rest of the office and every leading hand stay blocked.
+ * Approve only — fixing or sending back your own hours is refused for all.
+ * Mirrors `canApproveOwnHours` in api/_lib/auth.js (keep both in sync), which
+ * is the enforced gate; this copy exists for UI affordances.
+ */
+export const SELF_APPROVE_ROLES: ReadonlyArray<string> = ["admin", "boss", "owner"];
+export function canApproveOwnHours(role: unknown): boolean {
+  return SELF_APPROVE_ROLES.includes(normaliseRole(role));
+}
+
+/**
  * "Staff" = admin tier OR leading-hand tier: the people who manage jobs,
  * approve hours, triage snags/observations and see team-wide views. Field
  * workers and clients are not staff. Mirrors `isStaffRole` in
