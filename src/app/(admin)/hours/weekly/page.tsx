@@ -26,10 +26,7 @@ import {
 } from "@/domains/timesheets/service";
 import { formatDateLabel } from "@/domains/timesheets/format";
 import { buildWeeklyHoursCloseout } from "@/domains/timesheets/weekly-closeout";
-import {
-  CostRateHistoryResponseSchema,
-  effectiveCostRateOn,
-} from "@/domains/cost-rates/schema";
+import { CostRateHistoryResponseSchema, effectiveCostRateOn } from "@/domains/cost-rates/schema";
 
 export const dynamic = "force-dynamic";
 
@@ -64,29 +61,6 @@ export default async function HoursWeeklyCloseoutPage({
   if (!canAccessSurface(session.role, "admin")) {
     redirect("/v2/login");
   }
-  // #760: Hours kill-switch — hide the office surface when the owner turns it off.
-  if (!(await isFlagEnabled("hours", session))) notFound();
-
-  // #249: the phone closeout can finish by sending the week to Xero as draft
-  // timesheets. Same two gates the desktop batch surface (/hours/period) uses —
-  // `xero_connection` for the feature, `xero_payroll_export` for the WRITE —
-  // plus admin tier, because the Xero endpoints are admin-only and this page
-  // also renders for leading hands.
-  const [xeroConnectionEnabled, xeroExportEnabled] = await Promise.all([
-    isFlagEnabled("xero_connection", session),
-    isFlagEnabled("xero_payroll_export", session),
-  ]);
-  const xeroGate = {
-    isAdmin: isAdminRole(session.role),
-    connectionFlag: xeroConnectionEnabled,
-    exportFlag: xeroExportEnabled,
-    // Owner pull 2026-08-15/16: recipients on /settings → the phone closeout
-    // ends at the send-to-accounts finale (the period PDF emailed to Tia)
-    // instead of the Xero push, whatever the Xero flags say. Empty the list
-    // and the Xero finale takes the slot back.
-    accountsConfigured: (await readTimesheetRecipients()).length > 0,
-  };
-
   // `?week=` is any date inside the desired week (nav links pass a Monday).
   // DEFAULT to the most recent COMPLETE week (last week), not the in-progress
   // current week — the closeout is a pay-run ritual run AFTER a week ends, so
@@ -95,18 +69,49 @@ export default async function HoursWeeklyCloseoutPage({
   const sp = await searchParams;
   const todayISO = localDateString(new Date(), BUSINESS_TIMEZONE);
   const lastCompleteWeekStart = addDays(weekStartOf(todayISO), -7);
-  const anchor =
-    sp.week && /^\d{4}-\d{2}-\d{2}$/.test(sp.week) ? sp.week : lastCompleteWeekStart;
+  const anchor = sp.week && /^\d{4}-\d{2}-\d{2}$/.test(sp.week) ? sp.week : lastCompleteWeekStart;
   const weekStart = weekStartOf(anchor);
   const weekEnd = weekEndOf(anchor);
   const prevWeek = addDays(weekStart, -7);
   const nextWeek = addDays(weekStart, 7);
   const isCurrentWeek = weekStart === weekStartOf(todayISO);
 
-  const [{ overview, fetchError }, runsResult] = await Promise.all([
+  // ONE wave (2026-10-26): the kill-switch, the Xero gates, the accounts
+  // recipients, the week and the run log are independent reads. They used to
+  // run one after another — flags, then recipients, then the week — and on a
+  // ~1.5s store the closeout paid every step in turn.
+  const [
+    hoursOn,
+    xeroConnectionEnabled,
+    xeroExportEnabled,
+    recipients,
+    { overview, fetchError },
+    runsResult,
+  ] = await Promise.all([
+    // #760: Hours kill-switch — hide the office surface when the owner turns it off.
+    isFlagEnabled("hours", session),
+    // #249: the phone closeout can finish by sending the week to Xero as draft
+    // timesheets. Same two gates the desktop batch surface (/hours/period) uses —
+    // `xero_connection` for the feature, `xero_payroll_export` for the WRITE —
+    // plus admin tier, because the Xero endpoints are admin-only and this page
+    // also renders for leading hands.
+    isFlagEnabled("xero_connection", session),
+    isFlagEnabled("xero_payroll_export", session),
+    readTimesheetRecipients(),
     loadWeek(raw, weekStart, weekEnd),
     loadRuns(raw),
   ]);
+  if (!hoursOn) notFound();
+  const xeroGate = {
+    isAdmin: isAdminRole(session.role),
+    connectionFlag: xeroConnectionEnabled,
+    exportFlag: xeroExportEnabled,
+    // Owner pull 2026-08-15/16: recipients on /settings → the phone closeout
+    // ends at the send-to-accounts finale (the period PDF emailed to Tia)
+    // instead of the Xero push, whatever the Xero flags say. Empty the list
+    // and the Xero finale takes the slot back.
+    accountsConfigured: recipients.length > 0,
+  };
 
   // Worker universe of the week (anyone with an entry or a server-flagged
   // missing day) — the ids we need cost rates for. Built from the same data the
@@ -241,7 +246,7 @@ async function loadRuns(
 async function loadCostRates(
   cookieValue: string | undefined,
   workerIds: string[],
-  weekStart: string,
+  weekStart: string
 ): Promise<Record<string, number>> {
   if (workerIds.length === 0) return {};
   const h = await headers();
@@ -257,7 +262,7 @@ async function loadCostRates(
           {
             cache: "no-store",
             headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
-          },
+          }
         );
         if (!res.ok) return null;
         const parsed = CostRateHistoryResponseSchema.safeParse(await res.json());
@@ -268,7 +273,7 @@ async function loadCostRates(
       } catch {
         return null;
       }
-    }),
+    })
   );
 
   const out: Record<string, number> = {};

@@ -2,15 +2,13 @@ import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { isFlagEnabled, isFlagOn } from "../../../../../api/_lib/feature-flags.js";
+import { loadFieldJobsInProcess } from "../../../../../api/_lib/phil-page-data.js";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { PhilJobDetail } from "@/components/phil/PhilJobDetail";
 import { PhilJobViewRecorder } from "@/components/phil/PhilJobViewRecorder";
 import { PhilJobDetailShell, type JobShellHeader } from "@/components/phil/PhilJobDetailShell";
-import {
-  MyInductionResponseSchema,
-  type InductionRecord,
-} from "@/domains/jobs/induction";
+import { MyInductionResponseSchema, type InductionRecord } from "@/domains/jobs/induction";
 import { PhilNotice } from "@/components/phil/ui/PhilNotice";
 import { PhilBackLink } from "@/components/phil/ui/PhilBackLink";
 import { RefreshButton } from "@/components/ui/RefreshButton";
@@ -79,7 +77,22 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
   // philSharpenedFlags enforces jobRooms ⇒ sharpened, so with either flag off
   // the job screen (and its chrome) renders exactly as today. Booleans only —
   // never the flags blob (docs/feature-flags.md).
-  const [sharpenedFlags, itpSimpleEnabled, photosGalleryEnabled, purchasesFlag, invoicesOn] = await Promise.all([
+  // Env-only check (no blob read), matching api/_lib/feature-flags
+  // isFlagOnSync / parseEnv — see the gate note below.
+  const flagRaw = (process.env.FLAG_PHIL_JOBS_SUMMARY_READ ?? "").toLowerCase();
+  const summaryShellOn = flagRaw === "1" || flagRaw === "true" || flagRaw === "on";
+
+  // The flags and the shell header are independent reads — one wave, not
+  // flags-then-shell (2026-10-26: on a ~1.5s store the serial pair cost a
+  // round trip per page open). The shell read is skipped with the gate off.
+  const [
+    sharpenedFlags,
+    itpSimpleEnabled,
+    photosGalleryEnabled,
+    purchasesFlag,
+    invoicesOn,
+    shellHeader,
+  ] = await Promise.all([
     philSharpenedFlags(session),
     isFlagEnabled("itp_simple", session),
     // #915: the gallery card is data-driven — without the flag it would
@@ -89,6 +102,7 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
     // supplier invoices, so it also needs invoice_capture on.
     isFlagEnabled("job_purchases", session),
     isFlagOn("invoice_capture"),
+    summaryShellOn ? loadJobShell(raw, jobId) : Promise.resolve(null),
   ]);
   const purchasesEnabled = purchasesFlag && invoicesOn;
   const accountInitials = philInitials(session.name ?? session.username);
@@ -99,11 +113,7 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
   // is a full read, so shell-then-stream would be TWO full reads (a regression).
   // So flag-off = the prior single-read behaviour exactly (no shell, no stream);
   // flag-on (prod) = summary-backed shell + streamed detail. This also makes the
-  // flag a clean rollback for the whole job-detail change. Env-only check (no
-  // blob read), matching api/_lib/feature-flags isFlagOnSync / parseEnv.
-  const flagRaw = (process.env.FLAG_PHIL_JOBS_SUMMARY_READ ?? "").toLowerCase();
-  const summaryShellOn = flagRaw === "1" || flagRaw === "true" || flagRaw === "on";
-
+  // flag a clean rollback for the whole job-detail change.
   if (!summaryShellOn) {
     // Flag off → prior behaviour: block on the full load, render directly.
     return (
@@ -144,7 +154,6 @@ export default async function PhilJobDetailPage({ params, searchParams }: PagePa
   // detail below behind <Suspense>. Mirrors the My Day streaming pattern (#673).
   // The full read in <PhilJobDetailFull> stays authoritative for visibility +
   // the complete task/stage/proof structure; PhilJobDetail itself is unchanged.
-  const shellHeader = await loadJobShell(raw, jobId);
 
   return (
     <PhilShell
@@ -292,17 +301,14 @@ async function loadJobShell(
   cookieValue: string | undefined,
   jobId: string
 ): Promise<JobShellHeader | null> {
-  const h = await headers();
-  const host = h.get("x-forwarded-host") ?? h.get("host");
-  const proto = h.get("x-forwarded-proto") ?? "http";
-  const base = host ? `${proto}://${host}` : "http://localhost:3000";
+  // In-process (2026-10-26): this was an HTTP fetch of our own /api/jobs — a
+  // second serverless function with its own cold start and its own user and
+  // flag reads, just to get the header fields the summary list already holds.
+  // Same role-scoped summary read the list page uses; same fields.
   try {
-    const res = await fetch(`${base}/api/jobs`, {
-      cache: "no-store",
-      headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
-    });
+    const res = await loadFieldJobsInProcess(cookieValue);
     if (!res.ok) return null;
-    const parsed = JobListResponseSchema.safeParse(await res.json());
+    const parsed = JobListResponseSchema.safeParse({ jobs: res.jobs });
     if (!parsed.success) return null;
     const job = parsed.data.jobs.find((j) => j.id === jobId);
     if (!job) return null;
@@ -325,10 +331,7 @@ type LoadResult =
   | { kind: "forbidden" }
   | { kind: "error"; message: string };
 
-async function loadJob(
-  cookieValue: string | undefined,
-  jobId: string
-): Promise<LoadResult> {
+async function loadJob(cookieValue: string | undefined, jobId: string): Promise<LoadResult> {
   const h = await headers();
   const host = h.get("x-forwarded-host") ?? h.get("host");
   const proto = h.get("x-forwarded-proto") ?? "http";
@@ -376,15 +379,10 @@ async function loadInitialEvidence(
   const proto = h.get("x-forwarded-proto") ?? "http";
   const base = host ? `${proto}://${host}` : "http://localhost:3000";
   try {
-    const res = await fetch(
-      `${base}/api/evidence?jobId=${encodeURIComponent(jobId)}`,
-      {
-        cache: "no-store",
-        headers: cookieValue
-          ? { cookie: `${SESSION_COOKIE}=${cookieValue}` }
-          : undefined,
-      }
-    );
+    const res = await fetch(`${base}/api/evidence?jobId=${encodeURIComponent(jobId)}`, {
+      cache: "no-store",
+      headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
+    });
     if (!res.ok) return [];
     const body = await res.json();
     const parsed = EvidenceListResponseSchema.safeParse(body);
@@ -424,9 +422,7 @@ async function loadInitialTags(
   try {
     const res = await fetch(`${base}/api/tags?jobId=${encodeURIComponent(jobId)}`, {
       cache: "no-store",
-      headers: cookieValue
-        ? { cookie: `${SESSION_COOKIE}=${cookieValue}` }
-        : undefined,
+      headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
     });
     if (!res.ok) {
       return { tags: [], error: res.status !== 403 };
@@ -462,7 +458,6 @@ async function loadInitialContacts(
   }
 }
 
-
 /**
  * #332: this worker's latest induction record on this job. Fail-soft to
  * null — the site card then shows the static "required" warning, which is
@@ -492,5 +487,3 @@ async function loadInitialMyInduction(
     return null;
   }
 }
-
-

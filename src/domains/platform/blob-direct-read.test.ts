@@ -19,6 +19,8 @@ const blob = requireFromHere(requireFromHere.resolve("../../../api/_lib/blob.js"
   __learnPublicHost: (url: string, pathname: string) => void;
   __getPublicHost: () => string | null;
   __encodeKey: (key: string) => string;
+  __seedPublicHost: (raw: unknown) => string | null;
+  __ttlFor: (key: string) => number;
 };
 
 const HOST = "store123.public.blob.vercel-storage.com";
@@ -30,7 +32,7 @@ afterEach(() => blob.__setTestOverrides(null));
 describe("__encodeKey / __learnPublicHost", () => {
   it("encodes segments but preserves slashes", () => {
     expect(blob.__encodeKey("users/u 1/time-entries/2026-07-20.json")).toBe(
-      "users/u%201/time-entries/2026-07-20.json",
+      "users/u%201/time-entries/2026-07-20.json"
     );
   });
 
@@ -63,7 +65,7 @@ describe("readBlob fast path", () => {
   it("404 on the derived URL falls through to list() — legacy suffix blob still resolves", async () => {
     const legacyUrl = `https://${HOST}/k2-RANDOM.json`;
     const fetch = vi.fn(async (url: string) =>
-      url.startsWith(legacyUrl) ? jsonRes({ legacy: true }) : statusRes(404),
+      url.startsWith(legacyUrl) ? jsonRes({ legacy: true }) : statusRes(404)
     );
     const list = vi.fn(async () => ({ blobs: [{ pathname: "k2.json", url: legacyUrl }] }));
     blob.__setTestOverrides({ fetch, list });
@@ -93,7 +95,9 @@ describe("readBlob fast path", () => {
 
   it("with no learned host, behaves exactly like the old list-then-fetch path", async () => {
     const url = `https://${HOST}/k5.json`;
-    const fetch = vi.fn(async (u: string) => (u.startsWith(url) ? jsonRes({ v: 5 }) : statusRes(404)));
+    const fetch = vi.fn(async (u: string) =>
+      u.startsWith(url) ? jsonRes({ v: 5 }) : statusRes(404)
+    );
     const list = vi.fn(async () => ({ blobs: [{ pathname: "k5.json", url }] }));
     blob.__setTestOverrides({ fetch, list }); // resets host to null
     expect(await blob.readBlobFresh("k5.json", null)).toEqual({ v: 5 });
@@ -118,5 +122,40 @@ describe("readBlob fast path", () => {
     };
     await writeBlob("k6.json", { w: 1 });
     expect(blob.__getPublicHost()).toBe(HOST);
+  });
+});
+
+describe("BLOB_PUBLIC_HOST seed + self-healing fast path (2026-10-26)", () => {
+  it("accepts a store host, rejects anything else (a wrong seed can only cost a round trip, never a read)", () => {
+    expect(blob.__seedPublicHost(` ${HOST} `)).toBe(HOST);
+    expect(blob.__seedPublicHost("Store123.PUBLIC.blob.vercel-storage.com")).toBe(HOST);
+    expect(blob.__seedPublicHost("https://store123.public.blob.vercel-storage.com")).toBeNull();
+    expect(blob.__seedPublicHost("evil.example.com")).toBeNull();
+    expect(blob.__seedPublicHost("")).toBeNull();
+    expect(blob.__seedPublicHost(undefined)).toBeNull();
+  });
+
+  it("a derived-URL fetch that gets NO answer forgets the host and falls back to list() — never a failed read", async () => {
+    const url = `https://${HOST}/k7.json`;
+    let calls = 0;
+    const fetch = vi.fn(async (u: string) => {
+      calls += 1;
+      if (calls === 1) throw new Error("getaddrinfo ENOTFOUND"); // the seeded host is wrong
+      return u.startsWith(url) ? jsonRes({ v: 7 }) : statusRes(404);
+    });
+    const list = vi.fn(async () => ({ blobs: [{ pathname: "k7.json", url }] }));
+    blob.__setTestOverrides({ fetch, list });
+    blob.__learnPublicHost("https://wrong.public.blob.vercel-storage.com/k7.json", "k7.json");
+    expect(await blob.readBlobFresh("k7.json", "FB")).toEqual({ v: 7 });
+    expect(list).toHaveBeenCalledTimes(1);
+    // ...and the real host is learned from that list() for the next read.
+    expect(blob.__getPublicHost()).toBe(HOST);
+  });
+
+  it("slow-changing config stores keep for 30s; everything else for 5s", () => {
+    expect(blob.__ttlFor("users.json")).toBe(30000);
+    expect(blob.__ttlFor("flags.json")).toBe(30000);
+    expect(blob.__ttlFor("jobs.json")).toBe(5000);
+    expect(blob.__ttlFor("users/u1/time-entries/2026-10-26.json")).toBe(5000);
   });
 });
