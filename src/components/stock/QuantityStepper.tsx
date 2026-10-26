@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
-import { Minus, Plus } from "lucide-react";
+import { Lock } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { formatNumber, parseTypedQuantity, UNIT_LABEL } from "@/domains/workshop-stock/format";
 import { inputModeFor, stepQuantity } from "@/domains/workshop-stock/flow";
@@ -10,11 +10,12 @@ import type { StockUnit } from "@/domains/workshop-stock/schema";
 /**
  * Big −/+ quantity control with direct entry (Workshop Stock).
  *
- * 56px gloved-thumb targets (P8), the unit always beside the number, the
- * numeric keypad for whole units and the decimal one for metres. Typing is
- * parsed exactly (no floats) and an unparseable entry says so instead of
- * silently snapping. `unitLabel` overrides the unit text — e.g. "boxes" when
- * the worker is counting packs.
+ * 56px gloved-thumb targets (P8), the number the largest thing on the screen,
+ * the unit always beside it, the numeric keypad for whole units and the
+ * decimal one for metres. Typing is parsed exactly (no floats) and an
+ * unparseable entry says so instead of silently snapping. `unitLabel`
+ * overrides the unit text — e.g. "boxes" when the worker is counting packs.
+ * `lockedNote` names why the control is off ("Locked so it can't record twice").
  */
 export function QuantityStepper({
   label,
@@ -25,6 +26,8 @@ export function QuantityStepper({
   min = 0,
   allowZero = false,
   disabled = false,
+  lockedNote,
+  invalid: invalidOutside = false,
   testId,
 }: {
   label: string;
@@ -35,6 +38,9 @@ export function QuantityStepper({
   min?: number;
   allowZero?: boolean;
   disabled?: boolean;
+  lockedNote?: string | null;
+  /** the number is refused for a reason shown elsewhere (more than is recorded) */
+  invalid?: boolean;
   testId?: string;
 }) {
   const id = useId();
@@ -60,23 +66,23 @@ export function QuantityStepper({
     onChange(milli);
   }
 
+  const side = "inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-[14px] border-2 border-brand-navy bg-surface font-display text-[28px] font-bold leading-none text-brand-navy hover:bg-surface-subtle disabled:border-border-strong disabled:text-text-muted disabled:opacity-60";
+
   return (
     <div className="space-y-1.5" data-testid={testId}>
-      <label htmlFor={id} className="font-display text-sm font-semibold text-text">
+      <label htmlFor={id} className="flex flex-wrap items-center gap-2 text-[15px] font-semibold text-text">
         {label}
+        {disabled && lockedNote ? (
+          <span className="inline-flex items-center gap-1 text-[13px] font-semibold text-text-muted">
+            <Lock aria-hidden="true" className="h-3.5 w-3.5" /> {lockedNote}
+          </span>
+        ) : null}
       </label>
-      <div className="flex items-stretch gap-2">
-        <button
-          type="button"
-          aria-label={`One less ${UNIT_LABEL[unit].singular}`}
-          disabled={disabled || valueMilli <= floor}
-          onClick={() => onChange(stepQuantity(valueMilli, unit, -1, floor))}
-          className="inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-card border border-border-strong bg-surface text-text hover:bg-surface-subtle disabled:opacity-40"
-          data-testid={testId ? `${testId}-minus` : undefined}
-        >
-          <Minus aria-hidden="true" className="h-6 w-6" />
+      <div className="flex items-stretch gap-2.5">
+        <button type="button" aria-label={`One less ${UNIT_LABEL[unit].singular}`} disabled={disabled || valueMilli <= floor} onClick={() => onChange(stepQuantity(valueMilli, unit, -1, floor))} className={side} data-testid={testId ? `${testId}-minus` : undefined}>
+          −
         </button>
-        <div className={cn("flex min-w-0 flex-1 items-center rounded-card border bg-surface px-3", invalid ? "border-state-danger" : "border-border-strong")}>
+        <div className={cn("flex h-14 min-w-0 flex-1 items-center rounded-[14px] border-2 bg-surface px-3", invalid || invalidOutside ? "border-state-danger" : "border-border-strong")}>
           <input
             id={id}
             type="text"
@@ -86,22 +92,15 @@ export function QuantityStepper({
             disabled={disabled}
             onChange={(e) => commit(e.target.value)}
             onBlur={() => { if (invalid || text.trim() === "") { setText(formatNumber(valueMilli)); setInvalid(false); } }}
-            aria-invalid={invalid}
+            aria-invalid={invalid || invalidOutside}
             aria-describedby={invalid ? `${id}-hint` : undefined}
-            className="h-14 w-full min-w-0 bg-transparent text-center font-display text-2xl font-semibold text-text outline-none"
+            className={cn("h-14 w-full min-w-0 bg-transparent text-center font-display text-[30px] font-extrabold tabular-nums outline-none", disabled ? "text-text-muted" : "text-text")}
             data-testid={testId ? `${testId}-input` : undefined}
           />
-          <span className="shrink-0 pl-2 text-base text-text-muted">{unitText}</span>
+          <span className="shrink-0 pl-1.5 text-[17px] font-semibold text-text-muted">{unitText}</span>
         </div>
-        <button
-          type="button"
-          aria-label={`One more ${UNIT_LABEL[unit].singular}`}
-          disabled={disabled}
-          onClick={() => onChange(stepQuantity(valueMilli, unit, 1, floor))}
-          className="inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-card border border-border-strong bg-surface text-text hover:bg-surface-subtle disabled:opacity-40"
-          data-testid={testId ? `${testId}-plus` : undefined}
-        >
-          <Plus aria-hidden="true" className="h-6 w-6" />
+        <button type="button" aria-label={`One more ${UNIT_LABEL[unit].singular}`} disabled={disabled} onClick={() => onChange(stepQuantity(valueMilli, unit, 1, floor))} className={side} data-testid={testId ? `${testId}-plus` : undefined}>
+          +
         </button>
       </div>
       {invalid ? (

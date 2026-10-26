@@ -302,3 +302,72 @@ export function timeAgo(iso: string | null | undefined, now = Date.now()): strin
 export function photoUrl(photoId: string, size: "full" | "thumb" = "full"): string {
   return `/api/workshop-stock?action=photo&id=${encodeURIComponent(photoId)}${size === "thumb" ? "&size=thumb" : ""}`;
 }
+
+// ── time and receipt copy (the redesigned screens) ─────────────────────────────
+
+/** "7:42am" — a clock time in site language (lower-case am/pm, Sydney). */
+export function clockTime(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return null;
+  return new Date(t).toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit", timeZone: "Australia/Sydney" }).replace(/\s?([ap])\.?m\.?/i, "$1m").toLowerCase();
+}
+
+/**
+ * When something happened, the way a worker says it: a clock time today
+ * ("7:42am"), the day and date inside a week ("Fri 23 Oct"), the date after
+ * ("12 Oct"). Never "never" — that is the caller's word for a missing date.
+ */
+export function whenLabel(iso: string | null | undefined, now = Date.now()): string {
+  if (!iso) return "—";
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return "—";
+  const tz = "Australia/Sydney";
+  const day = (ms: number) => new Date(ms).toLocaleDateString("en-AU", { year: "numeric", month: "2-digit", day: "2-digit", timeZone: tz });
+  if (day(t) === day(now)) return clockTime(iso) ?? "—";
+  if (now - t < 7 * 24 * 3600_000 && t <= now) return new Date(t).toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short", timeZone: tz }).replace(",", "");
+  return new Date(t).toLocaleDateString("en-AU", { day: "numeric", month: "short", timeZone: tz });
+}
+
+/** "You can undo this until 8:12am." — only while the server says this viewer may undo it. */
+export function undoUntilLabel(undo: { allowed: boolean; until?: string | null } | null | undefined): string | null {
+  if (!undo?.allowed) return null;
+  const at = clockTime(undo.until);
+  return at ? `You can undo this until ${at}.` : null;
+}
+
+/** "Undo take" / "Undo add" / "Undo return" / "Undo count" — the mini button on a receipt or a movement row. */
+export function undoLabelFor(kind: MovementKind): string {
+  switch (kind) {
+    case "take": return "Undo take";
+    case "add": return "Undo add";
+    case "return": return "Undo return";
+    case "count": return "Undo count";
+    case "opening": return "Undo opening count";
+    default: return "Undo";
+  }
+}
+
+export const VERIFICATION_SHORT: Record<VerificationStatus, string> = {
+  manufacturer_code_matched: "Code matched",
+  possible_match: "Possible match",
+  unverified: "Not verified",
+};
+
+/**
+ * The product-code status WITH its reason when there is one: "Possible match —
+ * colour not confirmed". A clean match or an unverified item is just its label.
+ */
+export function verificationLine(item: Pick<StockItem, "verificationStatus" | "verification">): string {
+  const label = VERIFICATION_LABEL[item.verificationStatus];
+  const reason = item.verificationStatus === "possible_match" ? item.verification?.reasons?.[0] : null;
+  if (!reason) return label;
+  const r = reason.replace(/\.$/, "");
+  return `${label} — ${r.charAt(0).toLowerCase()}${r.slice(1)}`;
+}
+
+/** "Dan · 7:42am · note: IV1240 Mascot fit-off" — who, when, and the optional job note. */
+export function movementWho(m: Pick<StockMovement, "actorId" | "actorName" | "createdAt" | "jobLabel">, viewerId?: string | null, now = Date.now()): string {
+  const who = viewerId && m.actorId === viewerId ? "You" : m.actorName ?? "Someone";
+  return [who, whenLabel(m.createdAt, now), m.jobLabel ? `note: ${m.jobLabel}` : null].filter(Boolean).join(" · ");
+}

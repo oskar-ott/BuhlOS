@@ -1,17 +1,17 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { MapPin } from "lucide-react";
-import { PhilActionButton } from "@/components/phil/ui/PhilActionButton";
-import { PhilNotice } from "@/components/phil/ui/PhilNotice";
+import { Loader2 } from "lucide-react";
 import { fetchItem, fetchOperation, newOperationKey, recordMove, type MoveInput, type PackPick } from "@/domains/workshop-stock/client";
-import { balanceLabel, errorCopy, formatQuantity, packLabel, recordedNow, toQuantityString } from "@/domains/workshop-stock/format";
+import { balanceLabel, errorCopy, formatQuantity, identityLine, packLabel } from "@/domains/workshop-stock/format";
 import { clearPending, isUncertain, rememberPending } from "@/domains/workshop-stock/pending";
 import type { JobOption, StockIdentifier, StockItem, StockUnit, WriteResult } from "@/domains/workshop-stock/schema";
 import { JobPicker } from "./JobPicker";
 import { QuantityStepper } from "./QuantityStepper";
+import { RecordedQuantity } from "./StockItemRow";
+import { StockReceipt } from "./StockReceipt";
 import { StockThumb } from "./StockThumb";
-import { UndoControl } from "./UndoControl";
+import { BigButton, LinkButton, SavesLine, Slot } from "./ui";
 
 export interface MoveItem {
   id: string;
@@ -34,10 +34,10 @@ export interface MoveItem {
 
 type Kind = "take" | "add" | "return";
 
-const VERB: Record<Kind, { button: string; field: string; done: string }> = {
-  take: { button: "Confirm take", field: "Taking", done: "Taken" },
-  add: { button: "Add to stock", field: "Adding", done: "Added" },
-  return: { button: "Return to stock", field: "Returning", done: "Returned" },
+const COPY: Record<Kind, { button: string; howMany: string; packs: string; done: string; job: string }> = {
+  take: { button: "Confirm take", howMany: "How many are you taking?", packs: "Taking full", done: "Taken", job: "Note a job" },
+  add: { button: "Add to stock", howMany: "How many are going on the shelf?", packs: "Adding full, unopened", done: "Added", job: "Note a job" },
+  return: { button: "Return to stock", howMany: "How many came back unused?", packs: "Returning full, unopened", done: "Returned", job: "From job" },
 };
 
 function asMoveItem(i: StockItem): MoveItem {
@@ -49,9 +49,11 @@ function asMoveItem(i: StockItem): MoveItem {
 }
 
 /**
- * Confirm the item and quantity, then save ONE movement (Workshop Stock).
+ * The one confirmation every route reaches (Workshop Stock): the item on top,
+ * what is recorded on the shelf, then — pinned at the bottom — how many, and
+ * ONE named button that says what it writes ("Confirm take · 2 each").
  *
- *   • only this explicit confirmation writes stock — a photo, a reading or a
+ *   • only this explicit confirmation writes stock — a photo, a code read or a
  *     candidate tap never does
  *   • the item is re-read when the screen opens: the recorded balance and the
  *     pack sizes shown are the server's current ones, not the list's from
@@ -61,10 +63,11 @@ function asMoveItem(i: StockItem): MoveItem {
  *   • one operation key per logical save: a retry after a timeout re-sends the
  *     same key and the server replays the saved result; the pending save is
  *     remembered on the phone so a reload can ask the server what happened
- *   • after an UNCERTAIN failure (no signal, 5xx) the form stays locked until
- *     the outcome is settled — changing the quantity then could double-record —
- *     and "Check if it saved" never unlocks it on a mere "not yet"
- *   • a done save shows the new recorded balance and an immediate Undo
+ *   • after an UNCERTAIN failure (no signal, 5xx) the form stays locked — and
+ *     says why — until the outcome is settled; "Check if it saved" never
+ *     unlocks it on a mere "not yet"; a definite refusal unlocks it and says
+ *     nothing was saved
+ *   • a done save is a receipt with its Undo on it, then Take another / Done
  */
 export function MoveConfirm({
   item: initial,
@@ -73,6 +76,12 @@ export function MoveConfirm({
   packIdentifierId,
   onSaved,
   onAnother,
+  anotherLabel,
+  anotherSub,
+  onWrongItem,
+  wrongItemLabel = "Wrong item? Back to the camera",
+  doneLabel = "Done",
+  doneSub = "back to the list · receipt stays at the top",
   onClose,
 }: {
   item: MoveItem;
@@ -81,6 +90,13 @@ export function MoveConfirm({
   packIdentifierId?: string | null;
   onSaved: (r: WriteResult) => void;
   onAnother?: () => void;
+  anotherLabel?: string;
+  anotherSub?: string;
+  /** the "this isn't it" way out, before anything is written */
+  onWrongItem?: () => void;
+  wrongItemLabel?: string;
+  doneLabel?: string;
+  doneSub?: string;
   onClose: () => void;
 }) {
   const [item, setItem] = useState<MoveItem>(initial);
@@ -126,10 +142,15 @@ export function MoveConfirm({
   // the server (which has the real balance) decides.
   const blockedShort = short && fresh;
   const locked = phase === "saving" || phase === "uncertain" || phase === "done";
+  const copy = COPY[kind];
+  const qtyText = formatQuantity(totalMilli, unit);
+  const packText = usePacks && packChoice ? `${packCount} ${packLabel(packChoice.unit, packCount)}` : null;
+  const afterMilli = kind === "take" ? item.balanceMilli - totalMilli : item.balanceMilli + totalMilli;
+  const afterLabel = balanceLabel({ balanceMilli: Math.max(0, afterMilli), baseUnit: unit, estimated: item.estimated || (kind !== "take" && estimated) });
 
   function buildRequest(): MoveInput {
     const base: MoveInput = { itemId: item.id, kind, jobId: job ? job.id : null, estimated: kind !== "take" && estimated };
-    return usePacks && packChoice ? { ...base, packCount, pack: packChoice.pick } : { ...base, quantity: toQuantityString(qtyMilli) };
+    return usePacks && packChoice ? { ...base, packCount, pack: packChoice.pick } : { ...base, quantity: String(totalMilli / 1000) };
   }
 
   function finish(r: WriteResult) {
@@ -167,12 +188,12 @@ export function MoveConfirm({
   }
 
   function submit() {
-    if (locked || blockedShort) return;
+    if (locked || blockedShort || totalMilli <= 0) return;
     const request = buildRequest();
     const key = keyRef.current ?? newOperationKey();
     keyRef.current = key;
     requestRef.current = request;
-    rememberPending({ key, kind, itemId: item.id, itemName: item.name, quantityLabel: formatQuantity(totalMilli, unit), request: request as unknown as Record<string, unknown>, startedAt: new Date().toISOString() });
+    rememberPending({ key, kind, itemId: item.id, itemName: item.name, quantityLabel: qtyText, request: request as unknown as Record<string, unknown>, startedAt: new Date().toISOString() });
     void send(request, key);
   }
 
@@ -192,103 +213,122 @@ export function MoveConfirm({
   }
 
   if (phase === "done" && result) {
-    const m = result.movement;
-    const shownItem = undone ? undone.item : result.item;
     return (
-      <div className="space-y-4" data-testid="stock-move-done">
-        <PhilNotice tone="success" title={undone ? "Undone" : `${VERB[kind].done}: ${formatQuantity(Math.abs(m.quantityMilli), unit)}${m.pack ? ` (${m.pack.count} ${packLabel(m.pack.unit, m.pack.count)})` : ""}`}>
-          <span data-testid="stock-move-balance">
-            {item.name} — {recordedNow(shownItem)}{result.replayed && !undone ? " (already saved earlier)" : ""}.
-          </span>
-        </PhilNotice>
-        {!undone ? (
-          <UndoControl movement={m} onUndone={(r) => { setUndone(r); onSaved(r); }} testId="stock-move-undo" />
-        ) : null}
-        <div className="grid grid-cols-2 gap-2">
-          {onAnother ? (
-            <button type="button" onClick={onAnother} className="min-h-[56px] rounded-card border border-border-strong px-3 font-semibold text-text" data-testid="stock-move-another">
-              {kind === "take" ? "Take another" : kind === "add" ? "Add another" : "Return another"}
-            </button>
-          ) : <span />}
-          <PhilActionButton size="lg" onClick={onClose} className="min-h-[56px]" data-testid="stock-move-close">Done</PhilActionButton>
+      <div className="flex min-h-0 flex-1 flex-col gap-3" data-testid="stock-move-done">
+        <StockReceipt result={result} undone={undone} onUndone={(r) => { setUndone(r); onSaved(r); }} balanceTestId="stock-move-balance" undoTestId="stock-move-undo" />
+        <div className="mt-auto space-y-2.5 pt-2">
+          {onAnother ? <BigButton variant="pri" label={anotherLabel ?? `${copy.done === "Taken" ? "Take" : copy.done === "Added" ? "Add" : "Return"} another item`} sub={anotherSub ?? "back to the camera"} onClick={onAnother} data-testid="stock-move-another" /> : null}
+          <BigButton variant={onAnother ? "sec" : "pri"} label={doneLabel} sub={doneSub} onClick={onClose} data-testid="stock-move-close" />
         </div>
       </div>
     );
   }
 
+  const definiteError = error && phase === "edit";
+  const uncertain = phase === "uncertain";
+  const saving = phase === "saving";
+  const lockedNote = uncertain ? "Locked so it can't record twice" : saving ? "Saving…" : null;
+
   return (
-    <div className="space-y-4" data-testid="stock-move-confirm" data-kind={kind} data-fresh={fresh ? "1" : "0"}>
-      <div className="flex gap-3 rounded-card border border-border bg-surface-raised p-3">
-        <StockThumb photoId={item.photoId} alt="" size="md" />
-        <div className="min-w-0 flex-1">
-          <p className="font-display text-base font-semibold text-text" data-testid="stock-move-item">{item.name}</p>
-          <p className="text-sm text-text-muted">
-            {[item.brand, item.manufacturerCode ? `Code ${item.manufacturerCode}` : null, item.colourFinish, item.variant].filter(Boolean).join(" · ")}
-          </p>
-          {item.supplierSku ? <p className="text-sm text-text-muted">Supplier SKU {item.supplierSku}{item.supplierName ? ` (${item.supplierName})` : ""}</p> : null}
-          <p className="mt-1 flex items-center gap-1 text-sm text-text">
-            <MapPin aria-hidden="true" className="h-3.5 w-3.5" /> Workshop: {item.location || "no location set"}
-          </p>
-          <p className="text-sm text-text" data-testid="stock-move-recorded">Recorded stock: {balanceLabel(item)}</p>
-          {matchedBy ? <p className="mt-1 text-xs font-semibold text-state-success">{matchedBy}</p> : null}
+    <div className="flex min-h-0 flex-1 flex-col gap-3" data-testid="stock-move-confirm" data-kind={kind} data-fresh={fresh ? "1" : "0"}>
+      <div className="rounded-[14px] border border-border bg-surface p-3">
+        <div className="flex gap-3">
+          <StockThumb photoId={item.photoId} alt="" size="lg" />
+          <div className="min-w-0 flex-1">
+            <p className="text-base font-semibold leading-tight text-text" data-testid="stock-move-item">{item.name}</p>
+            {identityLine(item) ? <p className="mt-0.5 text-[13px] text-text-muted">{identityLine(item)}</p> : null}
+            {item.supplierSku ? <p className="text-[13px] text-text-muted">Supplier SKU {item.supplierSku}{item.supplierName ? ` (${item.supplierName})` : ""}</p> : null}
+            <p className="mt-1 text-[13px] font-semibold text-text">{item.location || "No shelf set"}</p>
+            {matchedBy ? <p className="mt-1 text-xs font-semibold text-state-success">{matchedBy}</p> : null}
+          </div>
+        </div>
+        <div className="mt-2.5 flex items-baseline justify-between gap-3 border-t border-border pt-2.5" data-testid="stock-move-recorded">
+          <span className="text-[15px] font-semibold text-text-muted">{uncertain ? "Recorded when you opened this" : "Recorded on the shelf"}</span>
+          <RecordedQuantity item={item} size="lg" />
         </div>
       </div>
+      {onWrongItem && !locked ? <LinkButton onClick={onWrongItem}>{wrongItemLabel}</LinkButton> : null}
 
-      {packChoice ? (
-        <label className="flex min-h-[48px] cursor-pointer items-center gap-3 rounded-card border border-border px-3">
-          <input type="checkbox" checked={usePacks} disabled={locked} onChange={(e) => setUsePacks(e.target.checked)} className="h-5 w-5" data-testid="stock-move-packs" />
-          <span className="text-sm text-text">Count in {packLabel(packChoice.unit, 2)} (1 {packChoice.unit} = {formatQuantity(packChoice.sizeMilli, unit)})</span>
-        </label>
-      ) : null}
+      <div className="sticky bottom-0 -mx-4 -mb-3 mt-auto space-y-2.5 border-t border-border bg-surface px-4 pb-3 pt-3">
+        {definiteError ? (
+          <Slot tone="bad" role="alert" title="That didn't save">
+            <span data-testid="stock-move-error">{error}</span>
+          </Slot>
+        ) : null}
 
-      {usePacks && packChoice ? (
-        <div className="space-y-1">
-          <QuantityStepper label={VERB[kind].field} valueMilli={packCount * 1000} onChange={(m) => setPackCount(Math.max(1, Math.round(m / 1000)))} unit="each" unitLabel={packLabel(packChoice.unit, packCount)} disabled={locked} testId="stock-move-qty" />
-          <p className="text-sm font-semibold text-text" data-testid="stock-move-pack-total">= {formatQuantity(totalMilli, unit)}</p>
-        </div>
-      ) : (
-        <QuantityStepper label={VERB[kind].field} valueMilli={qtyMilli} onChange={setQtyMilli} unit={unit} disabled={locked} testId="stock-move-qty" />
-      )}
+        {packChoice ? (
+          <label className="flex min-h-[48px] cursor-pointer items-center gap-3 rounded-xl border border-border px-3">
+            <input type="checkbox" checked={usePacks} disabled={locked} onChange={(e) => setUsePacks(e.target.checked)} className="h-5 w-5 accent-brand-navy" data-testid="stock-move-packs" />
+            <span className="text-sm text-text">Count in {packLabel(packChoice.unit, 2)} (1 {packChoice.unit} = {formatQuantity(packChoice.sizeMilli, unit)})</span>
+          </label>
+        ) : null}
 
-      {short ? (
-        <PhilNotice tone="warning" role="status">
-          <span data-testid="stock-move-short">
-            {item.balanceMilli === 0
-              ? "None recorded. If there's some on the shelf, ask the office to correct the count."
-              : `Only ${balanceLabel(item)} recorded. If there's more on the shelf, ask the office to correct the count.`}
-          </span>
-        </PhilNotice>
-      ) : null}
+        {usePacks && packChoice ? (
+          <div className="space-y-1">
+            <QuantityStepper label={`${copy.packs} ${packLabel(packChoice.unit, 2)}`} valueMilli={packCount * 1000} onChange={(m) => setPackCount(Math.max(1, Math.round(m / 1000)))} unit="each" unitLabel={packLabel(packChoice.unit, packCount)} disabled={locked} lockedNote={lockedNote} invalid={blockedShort} testId="stock-move-qty" />
+            <p className="text-sm font-semibold text-text" data-testid="stock-move-pack-total">= {qtyText}</p>
+          </div>
+        ) : (
+          <QuantityStepper label={copy.howMany} valueMilli={qtyMilli} onChange={setQtyMilli} unit={unit} disabled={locked} lockedNote={lockedNote} invalid={blockedShort} testId="stock-move-qty" />
+        )}
 
-      {kind !== "take" ? (
-        <label className="flex min-h-[48px] cursor-pointer items-center gap-3 rounded-card border border-border px-3">
-          <input type="checkbox" checked={estimated} disabled={locked} onChange={(e) => setEstimated(e.target.checked)} className="h-5 w-5" data-testid="stock-move-estimated" />
-          <span className="text-sm text-text">This is an estimate (e.g. a part-used roll)</span>
-        </label>
-      ) : null}
+        {kind !== "take" ? (
+          <label className="flex min-h-[44px] cursor-pointer items-center gap-3 px-1">
+            <input type="checkbox" checked={estimated} disabled={locked} onChange={(e) => setEstimated(e.target.checked)} className="h-5 w-5 accent-brand-navy" data-testid="stock-move-estimated" />
+            <span className="text-sm text-text">It&rsquo;s a rough count — save as an estimate (e.g. a part-used roll)</span>
+          </label>
+        ) : null}
 
-      <JobPicker value={job} onChange={setJob} disabled={locked} />
+        {!locked ? <JobPicker value={job} onChange={setJob} disabled={locked} label={copy.job} /> : job ? <p className="text-[13px] text-text-muted">{copy.job}: {job.code ? `${job.code} · ` : ""}{job.name} · a note only, not a charge</p> : null}
 
-      {error ? (
-        <PhilNotice tone={phase === "uncertain" ? "warning" : "danger"} role="alert">
-          <span data-testid="stock-move-error">{error}</span>
-        </PhilNotice>
-      ) : null}
+        {short ? (
+          <Slot tone="bad" role="status" title={item.balanceMilli === 0 ? "None recorded." : `Only ${balanceLabel(item)} recorded.`}>
+            <span data-testid="stock-move-short">{item.balanceMilli === 0 ? "If there's some on the shelf, ask the office to correct the count." : "If there's more on the shelf, ask the office to correct the count."}</span>
+          </Slot>
+        ) : null}
 
-      {phase === "uncertain" ? (
-        <div className="grid grid-cols-2 gap-2">
-          <PhilActionButton size="lg" onClick={() => { if (keyRef.current && requestRef.current) void send(requestRef.current, keyRef.current); }} data-testid="stock-move-retry">
-            Try again
-          </PhilActionButton>
-          <button type="button" onClick={() => void checkSaved()} className="min-h-[48px] rounded-card border border-border-strong px-3 font-semibold text-text" data-testid="stock-move-check">
-            Check if it saved
-          </button>
-        </div>
-      ) : (
-        <PhilActionButton size="lg" onClick={submit} disabled={locked || blockedShort || totalMilli <= 0} aria-busy={phase === "saving"} className="min-h-[56px]" data-testid="stock-move-submit">
-          {phase === "saving" ? "Saving…" : VERB[kind].button}
-        </PhilActionButton>
-      )}
+        {uncertain && error ? (
+          <Slot tone="warn" role="alert" title={error.split(". ")[0]}>
+            <span data-testid="stock-move-error">{error}</span>
+          </Slot>
+        ) : null}
+
+        {!short && !uncertain && !saving && totalMilli > 0 ? (
+          <SavesLine>
+            Saves: {copy.done} {qtyText}{packText ? ` (${packText})` : ""} · {afterLabel} recorded after this
+          </SavesLine>
+        ) : null}
+
+        {uncertain ? (
+          <>
+            <BigButton variant="pri" label={`Try again · ${kind} ${qtyText}`} sub="safe · can never record twice" onClick={() => { if (keyRef.current && requestRef.current) void send(requestRef.current, keyRef.current); }} data-testid="stock-move-retry" />
+            <BigButton variant="sec" label="Check if it saved" onClick={() => void checkSaved()} data-testid="stock-move-check" />
+          </>
+        ) : (
+          <>
+            <BigButton
+              variant="pri"
+              onClick={submit}
+              disabled={locked || blockedShort || totalMilli <= 0}
+              aria-busy={saving}
+              label={saving ? <span className="flex items-center gap-2"><Loader2 aria-hidden="true" className="h-5 w-5 animate-spin" />Saving…</span> : `${copy.button} · ${qtyText}`}
+              sub={saving ? "waiting for the office to say saved" : blockedShort ? "can't run: more than is recorded" : item.name}
+              data-testid="stock-move-submit"
+            />
+            {blockedShort && item.balanceMilli > 0 ? (
+              <BigButton
+                variant="ter"
+                label={`Change to ${balanceLabel(item)}`}
+                onClick={() => {
+                  if (usePacks && packChoice) setPackCount(Math.max(1, Math.floor(item.balanceMilli / packChoice.sizeMilli)));
+                  else setQtyMilli(item.balanceMilli);
+                }}
+                data-testid="stock-move-fit"
+              />
+            ) : null}
+          </>
+        )}
+      </div>
     </div>
   );
 }

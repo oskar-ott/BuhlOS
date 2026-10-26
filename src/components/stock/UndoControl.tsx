@@ -2,12 +2,12 @@
 
 import { useRef, useState } from "react";
 import { Undo2 } from "lucide-react";
-import { PhilNotice } from "@/components/phil/ui/PhilNotice";
 import { cn } from "@/lib/cn";
 import { newOperationKey, undoMovement } from "@/domains/workshop-stock/client";
 import { errorCopy } from "@/domains/workshop-stock/format";
 import { isUncertain } from "@/domains/workshop-stock/pending";
 import type { StockMovement, WriteResult } from "@/domains/workshop-stock/schema";
+import { MiniButton, Slot } from "./ui";
 
 /**
  * Undo one movement (Workshop Stock) — the one control every screen uses, so
@@ -19,6 +19,9 @@ import type { StockMovement, WriteResult } from "@/domains/workshop-stock/schema
  *   • ONE operation key per movement until there's a definite answer: a tap
  *     after "not sure it went through" re-sends the same key and the server
  *     replays — it can never record a second undo
+ *
+ * It sits on the movement it undoes (a receipt, a history row), never beside
+ * the doors.
  */
 export function UndoControl({
   movement,
@@ -29,7 +32,7 @@ export function UndoControl({
 }: {
   movement: Pick<StockMovement, "id" | "undo">;
   onUndone: (r: WriteResult) => void;
-  size?: "lg" | "sm";
+  size?: "lg" | "sm" | "mini";
   label?: string;
   testId?: string;
 }) {
@@ -61,43 +64,66 @@ export function UndoControl({
     setError(uncertain ? "Not sure the undo went through — tap Undo again (it won't double up)." : errorCopy(r.error.status, r.error.body));
   }
 
-  const button = cn(
-    "flex items-center justify-center gap-2 rounded-card border-2 border-brand-navy bg-surface font-semibold text-brand-navy disabled:opacity-60",
-    size === "lg" ? "min-h-[56px] w-full px-4" : "ml-auto min-h-[44px] w-fit px-3 text-sm",
-  );
+  const asking = phase === "asking" || (needsReason && phase === "undoing");
+
+  if (asking) {
+    return (
+      <div className="w-full space-y-2" data-testid={`${testId}-reason-form`}>
+        <label className="block">
+          <span className="text-sm font-semibold text-text">Why undo it? <span className="font-normal text-text-muted">(the office records a reason)</span></span>
+          <input
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="e.g. wrong item picked"
+            maxLength={200}
+            autoFocus
+            disabled={phase === "undoing"}
+            className="mt-1 h-12 w-full rounded-xl border border-border-strong bg-surface px-3 text-base text-text"
+            data-testid={`${testId}-reason`}
+          />
+        </label>
+        <div className="flex gap-2">
+          <MiniButton variant="nav" onClick={() => void send()} disabled={phase === "undoing" || reason.trim().length < 3} data-testid={`${testId}-confirm`}>
+            {phase === "undoing" ? "Undoing…" : "Undo it"}
+          </MiniButton>
+          <MiniButton onClick={() => { setPhase("idle"); setError(null); }} disabled={phase === "undoing"}>
+            Keep it
+          </MiniButton>
+        </div>
+        {error ? <Slot tone="bad" role="alert">{error}</Slot> : null}
+      </div>
+    );
+  }
+
+  const start = () => (needsReason ? setPhase("asking") : void send());
+  const text = phase === "undoing" ? "Undoing…" : label;
+
+  if (size === "mini") {
+    return (
+      <div className="flex flex-col items-end gap-1">
+        <MiniButton onClick={start} disabled={phase === "undoing"} data-testid={testId}>
+          <Undo2 aria-hidden="true" className="h-4 w-4" /> {text}
+        </MiniButton>
+        {error ? <p role="alert" className="max-w-[200px] text-right text-xs text-state-danger">{error}</p> : null}
+      </div>
+    );
+  }
 
   return (
     <div className={size === "lg" ? "space-y-2" : "space-y-1"}>
-      {phase === "asking" || (needsReason && phase === "undoing") ? (
-        <div className="space-y-2" data-testid={`${testId}-reason-form`}>
-          <label className="block">
-            <span className="text-sm font-semibold text-text">Why undo it?</span>
-            <input
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="e.g. wrong item picked"
-              maxLength={200}
-              autoFocus
-              disabled={phase === "undoing"}
-              className="mt-1 h-12 w-full rounded-card border border-border-strong bg-surface px-3 text-base text-text"
-              data-testid={`${testId}-reason`}
-            />
-          </label>
-          <div className="grid grid-cols-2 gap-2">
-            <button type="button" onClick={() => void send()} disabled={phase === "undoing" || reason.trim().length < 3} className={button} data-testid={`${testId}-confirm`}>
-              {phase === "undoing" ? "Undoing…" : "Undo it"}
-            </button>
-            <button type="button" onClick={() => { setPhase("idle"); setError(null); }} disabled={phase === "undoing"} className="min-h-[44px] rounded-card border border-border-strong px-3 font-semibold text-text">
-              Keep it
-            </button>
-          </div>
-        </div>
-      ) : (
-        <button type="button" onClick={() => (needsReason ? setPhase("asking") : void send())} disabled={phase === "undoing"} className={button} data-testid={testId}>
-          <Undo2 aria-hidden="true" className="h-4 w-4" /> {phase === "undoing" ? "Undoing…" : label}
-        </button>
-      )}
-      {error ? <PhilNotice tone="danger" role="alert">{error}</PhilNotice> : null}
+      <button
+        type="button"
+        onClick={start}
+        disabled={phase === "undoing"}
+        className={cn(
+          "flex items-center justify-center gap-2 rounded-[14px] border-2 border-brand-navy bg-surface font-display font-bold text-brand-navy disabled:opacity-60",
+          size === "lg" ? "min-h-[56px] w-full px-4 text-[17px]" : "ml-auto min-h-[44px] w-fit px-3 text-sm",
+        )}
+        data-testid={testId}
+      >
+        <Undo2 aria-hidden="true" className="h-4 w-4" /> {text}
+      </button>
+      {error ? <Slot tone="bad" role="alert">{error}</Slot> : null}
     </div>
   );
 }

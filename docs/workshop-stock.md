@@ -38,32 +38,50 @@ recorded, and where they live.
 
 **Workers (phone, `/phil/stock`)**
 
-- Search the list by name, code, barcode or shelf — in trade names too ("power
-  point" finds the GPO, "twin and earth" the TPS); each row shows a small copy
-  of the photo, the recorded quantity with its unit, and the shelf/bin.
-- **Take stock** — photograph the item; when its barcode or code identifies one
-  of our items, confirm the quantity and save. Several products in the photo →
-  "which one?". Not recognised → search the list, take a closer photo, or add
-  it as new stock (explicitly).
-- **Add stock** — photograph the item or its box: if it is already in the
-  workshop, add to it; if not, one short form pre-filled from the label,
-  checked against a public listing, then quantity + location → save. "Save and
-  add another" goes straight back to the camera (setting up the workshop).
-- **Return unused stock** — find the item, confirm the quantity.
+- The list is read **by shelf** (the shelf is the group header, the bin sits
+  on the row) and the **recorded quantity is the largest thing on a row**;
+  search by name, code, barcode or shelf — in trade names too ("power point"
+  finds the GPO, "twin and earth" the TPS). Level one is one decision, two
+  doors pinned at the bottom: **Take stock** (out) or **Add or return** (in).
+  Return lives behind "Add or return"; per-item actions sit one tap down.
+- **Take stock** — one screen with three ways in: **live code reading** (the
+  phone's camera looks for a barcode on its own, about 1–2 s, no shutter —
+  the browser's built-in detector, matched against the list already on the
+  phone, so it works with no signal), **search**, and **"You often take"**
+  (the items this worker has taken most, remembered per worker on the phone;
+  shown only when there is something to show). The label photo is the backup
+  when there is no code. Several items share a code → "Is it one of these?";
+  not on the list → search, a closer photo, or add it as new stock
+  (explicitly). After the receipt: **Take another item** (the round so far
+  stays visible, each save already saved) or **Done**.
+- **Add or return** — photograph the item or its box, or search: if it is
+  already in the workshop, **"What's going in?"** — add to it, return to it,
+  or it's a different product; if not, one short form pre-filled from the
+  label (name, unit, shelf — the last shelf used is filled in — how many),
+  with brand, codes, colour, size and the online check folded under
+  "Details read from the label — check them", and the **"Saves as"** code
+  status pinned above Save. "Save and add another" shows the receipt and the
+  shelf filling up and goes straight back to the camera (setting up the
+  workshop); "Done for now" ends it with nothing waiting.
 - Note a job on a movement if they like (optional, informational — **never a
-  job cost**).
-- Undo their own movement for 30 minutes (the office can undo from the same
-  screens, with a reason).
+  job cost**, said every time).
+- Undo their own movement for 30 minutes, from the receipt it sits on (the
+  office can undo from the same screens, with a reason).
 
 **Office (`/stock`, desktop and phone)**
 
-- The full list with filters (None recorded · Estimates · Code not confirmed ·
-  Archived), last movement and last count per item.
-- Per item: **correct the count** (with a stale-count guard), the full movement
-  history with **Undo** (any movement, a reason required), catalogue edits
-  (compare-and-set), codes / barcodes / pack sizes, the online code check, the
-  photo, archive / restore.
-- Add items the same way the crew does.
+- The full list read by shelf with filters (None recorded · Estimates · Code
+  not confirmed · Archived — counts read "—" when the list didn't load), when
+  each item last moved and was last counted, and the product-code status with
+  its reason ("Possible match — colour not confirmed"). No KPI row, no gauges.
+- Per item, ordered by use: what's recorded and **correct the count** (counting
+  starts when the drawer opens; a stale-count guard shows what moved
+  meanwhile), the full movement history with **Undo** (any movement, a reason
+  required, written into the history), the **catalogue folded** (details with
+  a compare-and-set conflict block, codes / barcodes / pack sizes, the online
+  code check, the photo, the item's own history), and **archive last and
+  apart** (confirmed; read-only after; restore says which codes come back).
+- Add items the same way the crew does, by hand or with a photo.
 
 **Not gear.** Gear (tools and equipment) has custody, serials, test-and-tag and
 "who has it". Workshop stock has none of that: an item is a quantity on a shelf
@@ -389,11 +407,19 @@ export).
 
 - Phone: one card in the More screen's reference group (`/v2/phil`), shown
   only while the flag is on — **no tab, no My Day tile** (P10). Level one of
-  `/phil/stock` is one decision: Take stock or Add stock; Return and per-item
-  actions are one tap down. Quantities are labelled as recorded (P7); copy is
-  site language (P11); undo sits apart from the primary action and archive sits
-  apart from everything (P12); the phone's back gesture closes an open sheet
-  instead of leaving the page (P8).
+  `/phil/stock` is one decision: Take stock or Add or return, two doors pinned
+  at the bottom; Return and per-item actions are one tap down. Quantities are
+  labelled as recorded (P7); copy is site language (P11); undo sits on the
+  receipt it undoes, never by the doors, and archive sits apart from
+  everything (P12); the phone's back gesture closes an open sheet instead of
+  leaving the page (P8). Every state is a designed slot in the flow — a
+  waiting save, a refused take, a photo reader that is off — never an error
+  page; several waiting saves collapse into one card so the doors never move.
+- Live code reading runs in the browser (`BarcodeDetector`, Chrome on Android
+  today); where it isn't available the viewfinder says so in one sentence and
+  search, "You often take" and the label photo carry on. "You often take" and
+  the pending-save memory live in the phone's storage per worker and are
+  cleared on sign-out.
 - Office: "Workshop stock" in the People & gear nav group, flag-gated.
 - Routes: [route-ownership.md](route-ownership.md) §4/§8/§9.
 

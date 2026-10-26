@@ -44,8 +44,8 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
     >
       <div className="mx-auto max-w-6xl space-y-4">
         <p className="text-sm text-text-muted">
-          Materials and consumables kept in the workshop, where they live, and every movement in and out. Balances are what&rsquo;s been
-          recorded — correct them with a count. Taking stock never adds a job cost.
+          What the crew have recorded in the workshop. Recorded — not a guarantee of what&rsquo;s on the shelf; correct it with a count.
+          Taking stock never adds a job cost.
         </p>
         <StockAdminClient initialItemId={itemId} />
       </div>
