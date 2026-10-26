@@ -37,6 +37,25 @@ const token = () => process.env.BLOB_READ_WRITE_TOKEN;
 const BLOB_TTL_MS = 5000;
 const BLOB_CACHE_DISABLED = process.env.BLOB_CACHE_DISABLE === '1';
 
+// Slow-changing config stores keep for longer (2026-10-26): a page whose read
+// chain runs past 5s on a slow store was re-reading users.json and flags.json
+// mid-request — two more round trips (~3s) for documents that change a few
+// times a week. 30s is still tighter than the CDN's own ~60s lag on these
+// keys; a role change or a flag flip reaches a warm instance within it, and
+// every decision read (readBlobVerified / expectedRev) bypasses this cache.
+const LONG_TTL_MS = 30000;
+const LONG_TTL_KEYS = new Set([
+  'users.json',
+  'flags.json',
+  'feature-settings.json',
+  'employees.json',
+  'job-types.json',
+  'timesheet-email-settings.json',
+]);
+function _ttlFor(key) {
+  return LONG_TTL_KEYS.has(key) ? LONG_TTL_MS : BLOB_TTL_MS;
+}
+
 // LRU-ish cap so the cache can't grow unbounded for organisations
 // with hundreds of per-job blobs. When the cap is hit we evict the
 // oldest entries first.
@@ -65,7 +84,7 @@ function _cacheSet(key, value) {
     const oldest = _cache.keys().next().value;
     if (oldest !== undefined) _cache.delete(oldest);
   }
-  _cache.set(key, { value, expiresAt: Date.now() + BLOB_TTL_MS });
+  _cache.set(key, { value, expiresAt: Date.now() + _ttlFor(key) });
 }
 
 function _cacheInvalidate(key) {
@@ -108,7 +127,18 @@ class BlobReadError extends Error {
 // WITH random suffixes (e.g. legend-crop PNG uploads) still resolve, and
 // "genuine absence → fallback" is still decided by list(), never by a bare
 // 404 (#576 discipline).
-let _publicHost = null;
+// Seeded from BLOB_PUBLIC_HOST when set (2026-10-26): the store's public host
+// (e.g. "abc123.public.blob.vercel-storage.com" — the host of any blob URL in
+// the Vercel Blob dashboard). With it, even a COLD instance skips the list()
+// round trip on its very first read; without it the host is learned as
+// before. A wrong value can't break reads: a network failure on the derived
+// URL forgets the host and falls back to list() (below).
+let _publicHost = _seedPublicHost(process.env.BLOB_PUBLIC_HOST);
+
+function _seedPublicHost(raw) {
+  const host = String(raw || '').trim().toLowerCase();
+  return /^[a-z0-9][a-z0-9.-]*\.vercel-storage\.com$/.test(host) ? host : null;
+}
 
 function _encodeKey(key) {
   return String(key).split('/').map(encodeURIComponent).join('/');
@@ -137,22 +167,26 @@ async function _doReadBlob(key, fallback) {
   // in-memory cache above is what prevents repeated network calls in the
   // common case.
   if (_publicHost) {
-    let r;
+    let r = null;
     try {
       r = await doFetch(`https://${_publicHost}/${_encodeKey(key)}?t=${Date.now()}`, { cache: 'no-store' });
     } catch (e) {
-      throw new BlobReadError(key, `fetch: ${e && e.message}`);
+      // The derived host didn't answer at all (a wrong BLOB_PUBLIC_HOST, DNS,
+      // a dropped connection): forget it and let list() re-learn the real
+      // one — one extra round trip, never a failed read.
+      console.error('readBlob: derived host unreachable — re-learning via list()', _publicHost, e && e.message);
+      _publicHost = null;
     }
-    if (r.ok) {
+    if (r && r.ok) {
       try {
         return await r.json();
       } catch (e) {
         throw new BlobReadError(key, `json: ${e && e.message}`);
       }
     }
-    if (r.status !== 404) throw new BlobReadError(key, `http ${r.status}`);
-    // 404 → fall through: legacy random-suffix blob or genuine absence —
-    // only list() can tell them apart.
+    if (r && r.status !== 404) throw new BlobReadError(key, `http ${r.status}`);
+    // 404 (or no answer) → fall through: legacy random-suffix blob or genuine
+    // absence — only list() can tell them apart.
   }
 
   let blobs;
@@ -569,5 +603,7 @@ module.exports = {
   __setVerifiedReadDelaysForTests,
   __learnPublicHost: _learnPublicHost,
   __getPublicHost: () => _publicHost,
+  __seedPublicHost: _seedPublicHost,
+  __ttlFor: _ttlFor,
   __encodeKey: _encodeKey,
 };
