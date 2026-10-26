@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { Route } from "next";
 import {
   ArrowRight,
+  Boxes,
   ChevronRight,
   Clock,
   MapPin,
@@ -376,7 +377,11 @@ export function PhilMyDayQuickGrid({
   todayISO,
   viewerId,
   receipts = null,
+  stock = false,
 }: {
+  /** Workshop Stock (workshop_stock, resolved by the server page). false = the
+   *  tile is absent — the feature leaves no trace. */
+  stock?: boolean;
   /** Receipts from the field (receipt_capture + invoice_capture, resolved by
    *  the server page). null = the tile is absent — the feature leaves no trace. */
   receipts?: { jobs: ReadonlyArray<PhilReceiptJob>; defaultJobId: string | null } | null;
@@ -434,6 +439,18 @@ export function PhilMyDayQuickGrid({
         {/* Log a receipt — a card purchase recorded where it happens (P13).
             Enters this existing slot; no new section (P10). */}
         {receipts ? <PhilReceiptEntry jobs={receipts.jobs} defaultJobId={receipts.defaultJobId} tileClassName={tileClass} /> : null}
+
+        {/* Workshop stock — take what you need, add or return what's in. Enters
+            this existing slot; no new section (P10). */}
+        {stock ? (
+          <PhilOfflineLink href={"/phil/stock" as Route} data-testid="phil-my-day-stock" className={tileClass}>
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-[10px] bg-brand-navy text-accent-yellow">
+              <Boxes className="h-[18px] w-[18px]" aria-hidden="true" />
+            </span>
+            <span className="text-sm font-semibold leading-tight text-text">Workshop stock</span>
+            <span className="text-xs leading-tight text-text-muted">Take, add or return</span>
+          </PhilOfflineLink>
+        ) : null}
       </div>
     </section>
   );
