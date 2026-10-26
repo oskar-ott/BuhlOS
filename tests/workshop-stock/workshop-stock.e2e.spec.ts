@@ -261,9 +261,11 @@ test.describe("worker on a phone", () => {
     // Not in the workshop yet → the new-item form, pre-filled from the label.
     const form = page.getByTestId("stock-new-item");
     await expect(form).toBeVisible({ timeout: 30_000 });
+    await expect(form.getByText("Read from photo").first()).toBeVisible();
+    // brand, codes, colour and size fold under "Details read from the label — check them"
+    await page.getByTestId("stock-new-details").click();
     await expect(page.getByTestId("stock-new-brand")).toHaveValue("Clipsal");
     await expect(page.getByTestId("stock-new-code")).toHaveValue("2025WE");
-    await expect(form.getByText("read from photo").first()).toBeVisible();
 
     // The online check ran on its own for the code it read.
     await expect(page.getByTestId("stock-lookup-status")).toHaveText("Manufacturer code matched", { timeout: 30_000 });
@@ -286,7 +288,7 @@ test.describe("worker on a phone", () => {
     await page.getByTestId("stock-new-packs-plus").click();
     await expect(page.getByTestId("stock-new-pack-total")).toHaveText("= 20 each going on the shelf");
     await page.getByTestId("stock-new-location").fill("Shelf A2");
-    await expect(page.getByTestId("stock-new-code-status")).toHaveText("Code status: Manufacturer code matched (the listing you accepted)");
+    await expect(page.getByTestId("stock-new-code-status")).toHaveText("Saves as: Manufacturer code matched");
     await shot(page, "phone-02-new-item-form");
     await page.getByTestId("stock-new-save").click();
 
@@ -295,7 +297,7 @@ test.describe("worker on a phone", () => {
     await expect(page.getByTestId("stock-last-write")).toContainText("20 each recorded now");
     const row = page.getByTestId("stock-list").getByTestId("stock-row").first();
     await expect(row).toContainText(GPO_NAME);
-    await expect(row).toContainText("Shelf A2");
+    await expect(page.getByTestId("stock-list")).toContainText("Shelf A2"); // the shelf is the group header
     await expect(row).toContainText("20");
     // the list loads the small copy of the photo, not the full label shot
     await expect(row.locator("img")).toHaveAttribute("src", /action=photo&id=[^&]+&size=thumb$/);
@@ -339,13 +341,13 @@ test.describe("worker on a phone", () => {
     await expect(confirm).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId("stock-move-item")).toHaveText(GPO_NAME);
     await expect(confirm).toContainText(/Matched in workshop · (barcode 9300704010017|code 2025WE)/);
-    await expect(page.getByTestId("stock-move-recorded")).toHaveText("Recorded stock: 20 each");
+    await expect(page.getByTestId("stock-move-recorded")).toContainText("20 each");
     await expect(page.getByTestId("stock-move-packs")).not.toBeChecked(); // a unit barcode starts in units
     await page.getByTestId("stock-move-qty-input").fill("3");
     await shot(page, "phone-04-take-confirm");
     await page.getByTestId("stock-move-submit").click();
 
-    await expect(page.getByTestId("stock-move-done")).toContainText("Taken: 3 each");
+    await expect(page.getByTestId("stock-move-done")).toContainText("Taken 3 each");
     await expect(page.getByTestId("stock-move-balance")).toContainText("17 each recorded now");
     await shot(page, "phone-05-take-done");
 
@@ -356,7 +358,6 @@ test.describe("worker on a phone", () => {
 
     // Take again, found by searching the list this time.
     await page.getByTestId("stock-move-another").click();
-    await page.getByTestId("stock-take-search").click();
     await pickFromList(page, GPO_RE);
     await page.getByTestId("stock-move-qty-input").fill("5");
     await page.getByTestId("stock-move-submit").click();
@@ -378,13 +379,14 @@ test.describe("worker on a phone", () => {
     const w = await wire(page);
     await openStock(page);
 
-    await page.getByTestId("stock-return-button").click();
-    await expect(page.getByTestId("stock-return-flow")).toBeVisible();
+    await page.getByTestId("stock-add-button").click(); // Return lives behind "Add or return"
+    await expect(page.getByTestId("stock-add-flow")).toBeVisible();
     await pickFromList(page, GPO_RE);
-    await expect(page.getByTestId("stock-move-submit")).toHaveText("Return to stock");
+    await page.getByTestId("stock-going-return").click();
+    await expect(page.getByTestId("stock-move-submit")).toContainText("Return to stock");
     await page.getByTestId("stock-move-qty-input").fill("2");
     await page.getByTestId("stock-move-submit").click();
-    await expect(page.getByTestId("stock-move-done")).toContainText("Returned: 2 each");
+    await expect(page.getByTestId("stock-move-done")).toContainText("Returned 2 each");
     await expect(page.getByTestId("stock-move-balance")).toContainText("17 each recorded now");
 
     const { item } = await itemNamed(GPO_RE);
@@ -399,7 +401,6 @@ test.describe("worker on a phone", () => {
     await openStock(page);
 
     await page.getByTestId("stock-take-button").click();
-    await page.getByTestId("stock-take-search").click();
     await pickFromList(page, GPO_RE);
     await page.getByTestId("stock-move-qty-input").fill("4");
     w.dropNext = (u, method) => method === "POST" && u.searchParams.get("action") === "move";
@@ -427,7 +428,6 @@ test.describe("worker on a phone", () => {
     await openStock(page);
 
     await page.getByTestId("stock-take-button").click();
-    await page.getByTestId("stock-take-search").click();
     await pickFromList(page, GPO_RE);
     w.dropNext = (u, method) => method === "POST" && u.searchParams.get("action") === "move";
     await page.getByTestId("stock-move-submit").click(); // 1 each
@@ -469,11 +469,12 @@ test.describe("worker on a phone", () => {
     await expect(page.getByTestId("stock-outcome-none")).toBeVisible({ timeout: 30_000 });
     await page.getByTestId("stock-outcome-add-new").click();
 
+    await page.getByTestId("stock-new-details").click();
     await expect(page.getByTestId("stock-new-code")).toHaveValue("E-TEST-30");
     await expect(page.getByTestId("stock-lookup-status")).toHaveText("No listing found", { timeout: 30_000 });
     await page.getByTestId("stock-new-qty-input").fill("6");
     await page.getByTestId("stock-new-location").fill("Bin 7");
-    await expect(page.getByTestId("stock-new-code-status")).toHaveText("Code status: Saved without external verification");
+    await expect(page.getByTestId("stock-new-code-status")).toHaveText("Saves as: Saved without external verification");
     await page.getByTestId("stock-new-save").click();
     await expect(page.getByTestId("stock-last-write")).toContainText("6 each recorded now", { timeout: 20_000 });
 
@@ -509,7 +510,7 @@ test.describe("worker on a phone", () => {
       await expect(page.getByTestId("stock-new-unit-hint")).toHaveCount(0);
       await page.getByTestId("stock-new-qty-input").fill("12");
       await page.getByTestId("stock-new-location").fill("Rack C");
-      await expect(page.getByTestId("stock-new-code-status")).toHaveText("Code status: Saved without external verification");
+      await expect(page.getByTestId("stock-new-code-status")).toHaveText("Saves as: Saved without external verification");
       await shot(page, "phone-10-manual-form");
       await page.getByTestId("stock-new-save").click();
       await expect(page.getByTestId("stock-last-write")).toContainText("TEST conduit 20mm grey", { timeout: 20_000 });
@@ -543,7 +544,7 @@ test.describe("office on a desktop", () => {
     await expect(table.getByTestId("stock-admin-row")).toHaveCount(3);
     const gpoRow = table.getByTestId("stock-admin-row").filter({ hasText: "Clipsal Double power point" });
     await expect(gpoRow).toContainText("12 each");
-    await expect(gpoRow).toContainText("Shelf A2");
+    await expect(table).toContainText("Shelf A2"); // the shelf is the group row
     await page.getByRole("tab", { name: /Code not confirmed/ }).click();
     await expect(table.getByTestId("stock-admin-row")).toHaveCount(2);
     await page.getByRole("tab", { name: /^All/ }).click();
@@ -566,8 +567,7 @@ test.describe("office on a desktop", () => {
     await expect(history).toContainText("Undone by Olive Tester");
     await expect(history).toContainText("Wrong item scanned");
 
-    // Count: start counting, someone takes one meanwhile, the save is refused and explained.
-    await page.getByTestId("stock-count-begin").click();
+    // Count: counting started when the drawer opened; someone takes one meanwhile, the save is refused and explained.
     await page.getByTestId("stock-count-qty").fill("15");
     await page.getByTestId("stock-count-reason").fill("Monthly shelf count");
     const { item } = await itemNamed(GPO_RE);
@@ -609,6 +609,7 @@ test.describe("office on a desktop", () => {
     expect(actions).toEqual(expect.arrayContaining(["workshop_stock.count_corrected", "workshop_stock.movement_undone"]));
     // the crew's creates live in the item's own history, not the shared audit journal
     expect(actions).not.toContain("workshop_stock.item_created");
+    await page.getByTestId("stock-catalogue-toggle").click();
     await expect(drawer).toContainText("Added to the catalogue · Sam Tester");
     // The stale count's 409 is the guard doing its job (the browser logs any non-2xx).
     clean(w, [/^api 409: POST \?action=count$/, /status of 409 \(Conflict\) @ .*action=count$/]);
@@ -669,17 +670,16 @@ test.describe("phone: what the review found", () => {
     expect((await api("worker2", "POST", "action=move", { itemId: gpoId, kind: "take", quantity: "38" })).status).toBe(201);
 
     await page.getByTestId("stock-take-button").click();
-    await page.getByTestId("stock-take-search").click();
     await page.getByTestId("stock-picker-search").fill("TEST double");
     await page.getByTestId("stock-picker-row").first().click();
     await expect(page.getByTestId("stock-move-confirm")).toHaveAttribute("data-fresh", "1", { timeout: 20_000 });
-    await expect(page.getByTestId("stock-move-recorded")).toHaveText("Recorded stock: 2 each");
+    await expect(page.getByTestId("stock-move-recorded")).toContainText("2 each");
     await page.getByTestId("stock-move-qty-input").fill("5");
     await expect(page.getByTestId("stock-move-short")).toContainText("Only 2 each recorded");
     await expect(page.getByTestId("stock-move-submit")).toBeDisabled();
     await page.getByTestId("stock-move-qty-input").fill("2");
     await page.getByTestId("stock-move-submit").click();
-    await expect(page.getByTestId("stock-move-balance")).toContainText("TEST double GPO — none recorded now");
+    await expect(page.getByTestId("stock-move-balance")).toContainText("none recorded now");
     const after = await state();
     expect(after.items.find((i) => i.id === gpoId)?.balance_milli).toBe(0);
     clean(w);
@@ -708,7 +708,7 @@ test.describe("phone: what the review found", () => {
     expect((await itemNamed(/TEST double GPO/)).movements.filter((m) => m.kind === "add")).toHaveLength(0);
 
     await page.getByTestId("stock-move-submit").click();
-    await expect(page.getByTestId("stock-move-done")).toContainText("Added: 12 each (1 box)");
+    await expect(page.getByTestId("stock-move-done")).toContainText("Added 12 each (1 box)");
     const { item, movements } = await itemNamed(/TEST double GPO/);
     expect(item.balance_milli).toBe(12_000);
     expect(movements.filter((m) => m.kind === "add").map((m) => m.quantity_milli)).toEqual([12_000]);
@@ -722,7 +722,6 @@ test.describe("phone: what the review found", () => {
     await openStock(page);
     const before = await itemNamed(/TEST double GPO/);
     await page.getByTestId("stock-take-button").click();
-    await page.getByTestId("stock-take-search").click();
     await page.getByTestId("stock-picker-search").fill("TEST double");
     await page.getByTestId("stock-picker-row").first().click();
     await expect(page.getByTestId("stock-move-confirm")).toHaveAttribute("data-fresh", "1", { timeout: 20_000 });
@@ -736,7 +735,7 @@ test.describe("phone: what the review found", () => {
     expect((await itemNamed(/TEST double GPO/)).movements).toHaveLength(before.movements.length); // nothing landed
 
     await page.getByTestId("stock-move-retry").click();
-    await expect(page.getByTestId("stock-move-done")).toContainText("Taken: 1 each");
+    await expect(page.getByTestId("stock-move-done")).toContainText("Taken 1 each");
     const after = await itemNamed(/TEST double GPO/);
     expect(after.movements).toHaveLength(before.movements.length + 1);
     expect(after.movements[after.movements.length - 1]).toMatchObject({ kind: "take", quantity_milli: -1000, actor_name: "Sam Tester" });
@@ -753,7 +752,6 @@ test.describe("phone: what the review found", () => {
 
     // 1. a take the server saved, but the phone never heard back
     await page.getByTestId("stock-take-button").click();
-    await page.getByTestId("stock-take-search").click();
     await page.getByTestId("stock-picker-search").fill("TEST double");
     await page.getByTestId("stock-picker-row").first().click();
     await expect(page.getByTestId("stock-move-confirm")).toHaveAttribute("data-fresh", "1", { timeout: 20_000 });
@@ -765,9 +763,10 @@ test.describe("phone: what the review found", () => {
     await expect(page.getByTestId("stock-reconcile-saved")).toContainText("Your save went through", { timeout: 20_000 });
 
     // 2. a return that never reached the server
-    await page.getByTestId("stock-return-button").click();
+    await page.getByTestId("stock-add-button").click();
     await page.getByTestId("stock-picker-search").fill("TEST double");
     await page.getByTestId("stock-picker-row").first().click();
+    await page.getByTestId("stock-going-return").click();
     await expect(page.getByTestId("stock-move-confirm")).toHaveAttribute("data-fresh", "1", { timeout: 20_000 });
     await page.getByTestId("stock-move-qty-input").fill("3");
     w.dropBeforeNext = (u, method) => method === "POST" && u.searchParams.get("action") === "move";
@@ -799,7 +798,6 @@ test.describe("phone: what the review found", () => {
     await openStock(page);
     const before = await itemNamed(/TEST double GPO/);
     await page.getByTestId("stock-take-button").click();
-    await page.getByTestId("stock-take-search").click();
     await page.getByTestId("stock-picker-search").fill("TEST double");
     await page.getByTestId("stock-picker-row").first().click();
     await expect(page.getByTestId("stock-move-confirm")).toHaveAttribute("data-fresh", "1", { timeout: 20_000 });
@@ -865,12 +863,11 @@ test.describe("phone: what the review found", () => {
     const w = await wire(page);
     await openStock(page);
     await page.getByTestId("stock-take-button").click();
-    await page.getByTestId("stock-take-search").click();
     await page.getByTestId("stock-picker-search").fill("TEST double");
     await page.getByTestId("stock-picker-row").first().click();
     await expect(page.getByTestId("stock-move-confirm")).toHaveAttribute("data-fresh", "1", { timeout: 20_000 });
     await page.getByTestId("stock-move-submit").click();
-    await expect(page.getByTestId("stock-move-done")).toContainText("Taken: 1 each");
+    await expect(page.getByTestId("stock-move-done")).toContainText("Taken 1 each");
     await page.getByTestId("stock-move-undo").click();
     await page.getByTestId("stock-move-undo-reason").fill("picked the wrong box");
     await page.getByTestId("stock-move-undo-confirm").click();
@@ -929,6 +926,7 @@ test.describe("office: what the review found", () => {
     await expect(page.getByTestId("stock-edit-form")).toHaveCount(0); // read-only while archived
     await page.getByTestId("stock-restore").click();
     await expect(page.getByTestId("stock-restore-note")).toContainText("Restored without 9300704010024 (now on “TEST new switch”)", { timeout: 20_000 });
+    await page.getByTestId("stock-catalogue-toggle").click();
     await expect(page.getByTestId("stock-edit-form")).toBeVisible();
     await shot(page, "desktop-04-restore-note");
     clean(w);
@@ -941,6 +939,7 @@ test.describe("office: what the review found", () => {
     await page.goto("/stock", { timeout: 120_000 });
     await page.getByTestId("stock-admin-row").filter({ hasText: "TEST double GPO" }).click();
     await expect(page.getByTestId("stock-drawer")).toBeVisible({ timeout: 20_000 });
+    await page.getByTestId("stock-catalogue-toggle").click();
     await page.getByTestId("stock-edit-location").fill("Shelf T9");
 
     // a photo change reloads the drawer: the half-typed edit is still there

@@ -7,6 +7,7 @@ import { cn } from "@/lib/cn";
 import { purgePhilPageCaches } from "@/domains/phil/page-cache";
 import { boundedFetch } from "@/domains/phil/write-client";
 import { purgeJobListPrefs } from "./jobListPrefs";
+import { clearAllOften as clearWorkshopStockOften } from "@/domains/workshop-stock/often";
 import { clearAllPending as clearWorkshopStockPending } from "@/domains/workshop-stock/pending";
 
 /**
@@ -62,6 +63,7 @@ export function PhilSignOutButton({
     // …and any Workshop Stock save still pending on this phone (it is only ever
     // read back for its owner, but a shared device starts the next shift clean).
     clearWorkshopStockPending();
+    clearWorkshopStockOften();
     router.replace("/v2/login");
     router.refresh();
   }
