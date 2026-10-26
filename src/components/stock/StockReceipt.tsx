@@ -59,6 +59,11 @@ export function StockReceipt({
       </p>
       {until ? <p className="text-[13px] text-text-muted">{until}</p> : null}
       {note ? <p className="text-[13px] text-text-muted">{note}</p> : null}
+      {result.locationPhotoAttached === false && !undone ? (
+        <p className="text-[13px] text-text-muted" data-testid="stock-receipt-location-photo-missing">
+          The photo of where it lives couldn&rsquo;t be attached — the office can add one.
+        </p>
+      ) : null}
     </Slot>
   );
 }

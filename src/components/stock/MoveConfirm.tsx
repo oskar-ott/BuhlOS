@@ -7,6 +7,7 @@ import { balanceLabel, errorCopy, formatQuantity, identityLine, packLabel } from
 import { clearPending, isUncertain, rememberPending } from "@/domains/workshop-stock/pending";
 import type { JobOption, StockIdentifier, StockItem, StockUnit, WriteResult } from "@/domains/workshop-stock/schema";
 import { JobPicker } from "./JobPicker";
+import { LocationPhoto } from "./LocationPhoto";
 import { QuantityStepper } from "./QuantityStepper";
 import { RecordedQuantity } from "./StockItemRow";
 import { StockReceipt } from "./StockReceipt";
@@ -28,6 +29,8 @@ export interface MoveItem {
   estimated: boolean;
   version: number;
   photoId: string | null;
+  /** a photo of where it lives, when the item has one */
+  locationPhotoId?: string | null;
   defaultPack: { unit: string; sizeMilli: number } | null;
   identifiers: StockIdentifier[];
 }
@@ -44,7 +47,7 @@ function asMoveItem(i: StockItem): MoveItem {
   return {
     id: i.id, name: i.name, brand: i.brand, manufacturerCode: i.manufacturerCode, supplierSku: i.supplierSku, supplierName: i.supplierName,
     colourFinish: i.colourFinish, variant: i.variant, location: i.location, baseUnit: i.baseUnit, balanceMilli: i.balanceMilli,
-    estimated: i.estimated, version: i.version, photoId: i.photoId, defaultPack: i.defaultPack, identifiers: i.identifiers,
+    estimated: i.estimated, version: i.version, photoId: i.photoId, locationPhotoId: i.locationPhotoId ?? null, defaultPack: i.defaultPack, identifiers: i.identifiers,
   };
 }
 
@@ -242,6 +245,7 @@ export function MoveConfirm({
             {matchedBy ? <p className="mt-1 text-xs font-semibold text-state-success">{matchedBy}</p> : null}
           </div>
         </div>
+        {item.locationPhotoId ? <LocationPhoto photoId={item.locationPhotoId} location={item.location} className="mt-2.5" /> : null}
         <div className="mt-2.5 flex items-baseline justify-between gap-3 border-t border-border pt-2.5" data-testid="stock-move-recorded">
           <span className="text-[15px] font-semibold text-text-muted">{uncertain ? "Recorded when you opened this" : "Recorded on the shelf"}</span>
           <RecordedQuantity item={item} size="lg" />

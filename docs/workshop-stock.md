@@ -116,6 +116,28 @@ a nav group; the Gear workflow is untouched.
    If the photo couldn't be uploaded the item still saves, and the result says
    the photo isn't attached.
 
+### A photo of where it lives
+
+For stock that isn't in an obvious place (owner pull, 2026-10-26: "an option
+to take a photo for the location if it isnt in a general place and when
+someone wants to check it out they look at the photo to help find it"):
+
+- **Adding a new item**, under "Where it lives in the workshop": "Hard to
+  find? Photograph where it lives" — optional, one tap, shown in the form's
+  "Saves:" line. It uploads with the item; if only this photo fails, the item
+  still saves and the receipt says the photo isn't attached.
+- **Whoever comes to take it** sees "Where to find it" — the photo beside the
+  shelf text — on the take/return/add confirmation and on the item sheet; one
+  tap opens it full screen. A list row with one carries a small camera mark.
+- **The office** sees it in the item drawer and can add, replace or remove it
+  (catalogue → "Photo of where it lives"). The crew sets it when adding an item;
+  changing it later is the office's, like the shelf text itself.
+- It is the item's second photo, stored and served exactly like the product
+  photo (`items.location_photo_id`, migration
+  `20261026100000_workshop_stock_location_photo.sql`). The option appears only
+  once that migration is applied — before then nothing breaks and nothing is
+  offered (reads go through `to_jsonb`, writes wait for the column).
+
 ### Take stock: photo → identify → confirm → deduct
 
 The photo is read for identification only and **not stored**. Only an exact
@@ -395,7 +417,9 @@ known until real use — watch the usage counters (`workshop_stock_usage`).
 
 ## Data
 
-Migration `supabase/migrations/20261009100000_workshop_stock.sql` (additive):
+Migrations (additive): `supabase/migrations/20261009100000_workshop_stock.sql`,
+then `20261026100000_workshop_stock_location_photo.sql` (one nullable column,
+`workshop_stock_items.location_photo_id`, re-runnable). Tables from the first:
 `workshop_stock_items`, `_identifiers`, `_movements`, `_item_events`, `_photos`,
 `_lookup_cache`, `_usage`. RLS on, no policies (service-role only — the house
 pattern; see [architecture/supabase-rls-access-matrix.md](architecture/supabase-rls-access-matrix.md)).
@@ -430,7 +454,10 @@ export).
 ## Activation (operator steps — none performed by the PR)
 
 1. Merge the PR (squashed, `main` only).
-2. Apply `20261009100000_workshop_stock.sql` to the **dev** project, then to
+2. Apply `20261009100000_workshop_stock.sql` — and, for the photo of where an
+   item lives, `20261026100000_workshop_stock_location_photo.sql` (safe to
+   apply before or after the code ships; the option appears within a minute
+   of it) — to the **dev** project, then to
    **production** as an operator release step (Supabase migration process —
    never from an agent session). Confirm the seven tables exist with RLS on.
 3. **Production writes are opt-in for every Supabase-backed feature**: the env

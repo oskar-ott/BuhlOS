@@ -71,6 +71,7 @@ function mapItem(r, identifiers) {
     baseUnit: r.base_unit,
     location: r.location || null,
     photoId: r.photo_id || null,
+    locationPhotoId: r.location_photo_id || null,
     defaultPack: r.default_pack_unit ? { unit: r.default_pack_unit, sizeMilli: toMilli(r.default_pack_size_milli) } : null,
     balanceMilli: toMilli(r.balance_milli),
     estimated: r.estimated === true,
@@ -118,7 +119,32 @@ const ITEM_COLUMNS = (sql) => sql`
   i.id, i.name, i.brand, i.manufacturer_code, i.supplier_sku, i.supplier_name, i.variant, i.colour_finish,
   i.base_unit, i.location, i.photo_id, i.default_pack_unit, i.default_pack_size_milli, i.balance_milli,
   i.estimated, i.version, i.meta_revision, i.verification_status, i.verification, i.last_movement_at,
-  i.last_counted_at, i.last_counted_by_name, i.archived_at, i.created_at, i.created_by_name, i.updated_at`;
+  i.last_counted_at, i.last_counted_by_name, i.archived_at, i.created_at, i.created_by_name, i.updated_at,
+  (to_jsonb(i) ->> 'location_photo_id') as location_photo_id`;
+
+// ── the location photo column (20261026100000_workshop_stock_location_photo.sql) ──
+//
+// Reads go through to_jsonb(i) above, which is null while the column doesn't
+// exist — so this code can deploy before the migration is applied. Writes, and
+// the capability the screens show the option by, wait until the column is
+// there. Found once per warm instance; a "not yet" is re-checked after a minute
+// so applying the migration lights the option up without a redeploy.
+let locationPhotoColumn = null;
+let locationPhotoCheckedAt = 0;
+async function hasLocationPhoto(sql) {
+  if (locationPhotoColumn === true) return true;
+  if (locationPhotoColumn === false && Date.now() - locationPhotoCheckedAt < 60_000) return false;
+  try {
+    const rows = await sql`
+      select 1 from information_schema.columns
+      where table_schema = 'public' and table_name = 'workshop_stock_items' and column_name = 'location_photo_id'`;
+    locationPhotoColumn = rows.length > 0;
+  } catch {
+    locationPhotoColumn = false;
+  }
+  locationPhotoCheckedAt = Date.now();
+  return locationPhotoColumn;
+}
 
 async function identifiersFor(sql, tenantId, itemIds) {
   if (!itemIds.length) return new Map();
@@ -494,6 +520,21 @@ async function createItemWithOpening(sql, tenantId, input) {
            ${input.actor.id}, ${input.actor.name || null}, ${input.actor.id}, ${input.actor.name || null})
         returning id`;
       const itemId = rows[0].id;
+      // The location photo: claimed exactly like the product photo. Only sent
+      // when the column exists (the API asks hasLocationPhoto first).
+      let locationPhotoId = null;
+      if (input.locationPhotoId) {
+        const claimed = await tx`
+          update public.workshop_stock_photos set purpose = 'item', expires_at = null
+          where tenant_id = ${tenantId} and id = ${input.locationPhotoId} and purpose = 'pending' and deleted_at is null
+            and expires_at > now()
+            and (uploaded_by_legacy_id = ${input.actor.id} or ${input.actorIsOffice === true})
+          returning id`;
+        if (claimed.length) {
+          locationPhotoId = claimed[0].id;
+          await tx`update public.workshop_stock_items set location_photo_id = ${locationPhotoId} where tenant_id = ${tenantId} and id = ${itemId}`;
+        }
+      }
       for (const idf of input.identifiers || []) {
         await tx`
           insert into public.workshop_stock_identifiers
@@ -507,10 +548,11 @@ async function createItemWithOpening(sql, tenantId, input) {
       });
       await insertEvent(tx, tenantId, itemId, 'created', {
         photo: photoId ? 'attached' : input.photoId ? 'not_available' : 'none',
+        ...(input.locationPhotoId ? { locationPhoto: locationPhotoId ? 'attached' : 'not_available' } : {}),
         verificationStatus: input.verificationStatus || 'unverified',
         identifiers: (input.identifiers || []).map((i) => ({ kind: i.kind, value: i.value })),
       }, input.actor);
-      return { ok: true, created: true, movementRow: row, photoAttached: Boolean(photoId) || !input.photoId };
+      return { ok: true, created: true, movementRow: row, photoAttached: Boolean(photoId) || !input.photoId, locationPhotoAttached: Boolean(locationPhotoId) || !input.locationPhotoId };
     });
   } catch (e) {
     const c = constraintOf(e);
@@ -840,21 +882,35 @@ async function getPhotoForServing(sql, tenantId, photoId, { viewerId, office, si
   return { id: p.id, blobUrl: p.blob_url, contentType: p.content_type, byteSize: Number(p.byte_size), thumb: false };
 }
 
-/** Office: point an item at a new (pending) photo; the old one is retired and expires. */
-async function replaceItemPhoto(sql, tenantId, itemId, photoId, actor) {
+/**
+ * Office: point an item at a new (pending) photo; the old one is retired and
+ * expires. `slot` 'location' is the photo of where it lives — which can also be
+ * removed (photoId null). Neither moves meta_revision: a photo never
+ * invalidates an open edit form.
+ */
+async function replaceItemPhoto(sql, tenantId, itemId, photoId, actor, slot = 'product') {
+  const location = slot === 'location';
+  if (location && !(await hasLocationPhoto(sql))) return { error: 'location_photo_unavailable' };
+  if (!location && !photoId) return { error: 'photo_not_available' };
   return sql.begin(async (tx) => {
-    const items = await tx`select id, photo_id, archived_at from public.workshop_stock_items where tenant_id = ${tenantId} and id = ${itemId} for update`;
+    const items = location
+      ? await tx`select id, location_photo_id as old_id, archived_at from public.workshop_stock_items where tenant_id = ${tenantId} and id = ${itemId} for update`
+      : await tx`select id, photo_id as old_id, archived_at from public.workshop_stock_items where tenant_id = ${tenantId} and id = ${itemId} for update`;
     if (!items.length) return { error: 'item_not_found' };
     if (items[0].archived_at) return { error: 'item_archived' };
-    const claimed = await tx`
-      update public.workshop_stock_photos set purpose = 'item', expires_at = null
-      where tenant_id = ${tenantId} and id = ${photoId} and purpose = 'pending' and deleted_at is null and expires_at > now()
-      returning id`;
-    if (!claimed.length) return { error: 'photo_not_available' };
-    const old = items[0].photo_id;
-    await tx`update public.workshop_stock_items set photo_id = ${photoId}, updated_by_legacy_id = ${actor.id}, updated_by_name = ${actor.name || null} where tenant_id = ${tenantId} and id = ${itemId}`;
-    if (old) await tx`update public.workshop_stock_photos set purpose = 'retired', expires_at = now() + interval '1 day' where tenant_id = ${tenantId} and id = ${old}`;
-    await insertEvent(tx, tenantId, itemId, 'photo_changed', { from: old, to: photoId }, actor);
+    if (photoId) {
+      const claimed = await tx`
+        update public.workshop_stock_photos set purpose = 'item', expires_at = null
+        where tenant_id = ${tenantId} and id = ${photoId} and purpose = 'pending' and deleted_at is null and expires_at > now()
+        returning id`;
+      if (!claimed.length) return { error: 'photo_not_available' };
+    }
+    const old = items[0].old_id;
+    if (location) await tx`update public.workshop_stock_items set location_photo_id = ${photoId}, updated_by_legacy_id = ${actor.id}, updated_by_name = ${actor.name || null} where tenant_id = ${tenantId} and id = ${itemId}`;
+    else await tx`update public.workshop_stock_items set photo_id = ${photoId}, updated_by_legacy_id = ${actor.id}, updated_by_name = ${actor.name || null} where tenant_id = ${tenantId} and id = ${itemId}`;
+    if (old && old !== photoId) await tx`update public.workshop_stock_photos set purpose = 'retired', expires_at = now() + interval '1 day' where tenant_id = ${tenantId} and id = ${old}`;
+    // one event name for both slots (the events table allows a fixed set); the slot says which
+    await insertEvent(tx, tenantId, itemId, 'photo_changed', location ? { slot: 'location', from: old, to: photoId } : { from: old, to: photoId }, actor);
     return { ok: true };
   });
 }
@@ -948,6 +1004,7 @@ module.exports = {
   setPhotoReading,
   getPhotoForServing,
   replaceItemPhoto,
+  hasLocationPhoto,
   photosDueForDeletion,
   markPhotoDeleted,
   markBlobDeleted,

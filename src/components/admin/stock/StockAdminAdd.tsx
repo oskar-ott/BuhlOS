@@ -19,7 +19,7 @@ import { Block } from "./StockAdminForms";
  * that turns out to be an item already listed says so and points at its row;
  * nothing is created twice. Same "Saves as" line, same single transaction.
  */
-export function StockAdminAdd({ items, capabilities, onSaved, onOpenItem, onClose }: { items: StockItem[]; capabilities: { photoRead: boolean; lookup: boolean }; onSaved: (r: WriteResult) => void; onOpenItem: (id: string) => void; onClose: () => void }) {
+export function StockAdminAdd({ items, capabilities, onSaved, onOpenItem, onClose }: { items: StockItem[]; capabilities: { photoRead: boolean; lookup: boolean; locationPhoto?: boolean }; onSaved: (r: WriteResult) => void; onOpenItem: (id: string) => void; onClose: () => void }) {
   const [seed, setSeed] = useState<NewItemSeed>({ product: null, photoId: null, dataUrl: null });
   const [formKey, setFormKey] = useState(1);
   const [reading, setReading] = useState(false);
@@ -100,7 +100,7 @@ export function StockAdminAdd({ items, capabilities, onSaved, onOpenItem, onClos
             </div>
           </Block>
         ) : (
-          <NewItemForm key={formKey} seed={seed} items={items} lookupEnabled={capabilities.lookup} defaultLocation={lastLocation} emphasis="save" onSaved={onFormSaved} onUseExisting={(item) => onOpenItem(item.id)} />
+          <NewItemForm key={formKey} seed={seed} items={items} lookupEnabled={capabilities.lookup} locationPhotoEnabled={capabilities.locationPhoto === true} defaultLocation={lastLocation} emphasis="save" onSaved={onFormSaved} onUseExisting={(item) => onOpenItem(item.id)} />
         )}
       </div>
     </Drawer>

@@ -196,7 +196,7 @@ export function StockAdminClient({ initialItemId }: { initialItemId?: string | n
         </>
       )}
 
-      {openId && list ? <StockItemDrawer itemId={openId} lookupEnabled={list.capabilities.lookup} onClose={() => setOpenId(null)} onChanged={() => void load(filter === "archived")} /> : null}
+      {openId && list ? <StockItemDrawer itemId={openId} lookupEnabled={list.capabilities.lookup} locationPhotoEnabled={list.capabilities.locationPhoto === true} onClose={() => setOpenId(null)} onChanged={() => void load(filter === "archived")} /> : null}
       {adding && list ? <StockAdminAdd items={items} capabilities={list.capabilities} onSaved={() => void load(filter === "archived")} onOpenItem={(id) => { setAdding(false); setOpenId(id); }} onClose={() => setAdding(false)} /> : null}
     </div>
   );

@@ -107,6 +107,8 @@ export interface CreateInput {
   baseUnit: StockUnit;
   location?: string | null;
   photoId?: string | null;
+  /** a photo of where it lives (uploaded with storePhoto first) */
+  locationPhotoId?: string | null;
   openingQuantity?: string;
   packCount?: number;
   packUnit?: PackUnit;
@@ -147,8 +149,9 @@ export function setArchived(itemId: string, archived: boolean) {
   return httpPost(`${BASE}?action=${archived ? "archive" : "restore"}`, { itemId }, { schema: ItemOnlySchema, init: INIT, timeoutMs: WRITE_TIMEOUT_MS });
 }
 
-export function replaceItemPhoto(itemId: string, photoId: string) {
-  return httpPost(`${BASE}?action=item-photo`, { itemId, photoId }, { schema: ItemOnlySchema, init: INIT, timeoutMs: WRITE_TIMEOUT_MS });
+/** Office: replace the product photo, or (slot 'location') replace or remove (null) the photo of where it lives. */
+export function replaceItemPhoto(itemId: string, photoId: string | null, slot: "product" | "location" = "product") {
+  return httpPost(`${BASE}?action=item-photo`, { itemId, photoId, slot }, { schema: ItemOnlySchema, init: INIT, timeoutMs: WRITE_TIMEOUT_MS });
 }
 
 export function recordVerification(itemId: string) {

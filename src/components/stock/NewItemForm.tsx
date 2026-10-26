@@ -10,8 +10,9 @@ import { packSuggestion, suggestName } from "@/domains/workshop-stock/flow";
 import { clearPending, isUncertain, rememberPending } from "@/domains/workshop-stock/pending";
 import { PACK_UNITS, UNIT_KEYS, type LookupResult, type PackUnit, type ReadProduct, type StockItem, type StockUnit, type VerificationStatus, type WriteResult } from "@/domains/workshop-stock/schema";
 import { LookupCard } from "./LookupCard";
+import { PhotoCapture } from "./PhotoCapture";
 import { QuantityStepper } from "./QuantityStepper";
-import { BigButton, FIELD, FieldLabel, FoldButton, LinkButton, SavesLine, Slot, Tag } from "./ui";
+import { BigButton, FIELD, FieldLabel, FoldButton, LinkButton, MiniButton, SavesLine, Slot, Tag } from "./ui";
 
 type Source = "photo" | "lookup" | "typed";
 
@@ -61,6 +62,7 @@ export function NewItemForm({
   seed,
   items,
   lookupEnabled,
+  locationPhotoEnabled = false,
   defaultLocation,
   emphasis = "another",
   onSaved,
@@ -69,6 +71,8 @@ export function NewItemForm({
   seed: NewItemSeed;
   items: StockItem[];
   lookupEnabled: boolean;
+  /** the server can keep a photo of where it lives (after its migration) */
+  locationPhotoEnabled?: boolean;
   /** the shelf the last item went on (set-up rhythm) */
   defaultLocation?: string | null;
   /** phone: "Save and add another" leads; office: "Save item" leads */
@@ -111,6 +115,10 @@ export function NewItemForm({
   const [error, setError] = useState<string | null>(null);
   const [duplicates, setDuplicates] = useState<Array<{ itemId: string; itemName: string; value: string }>>([]);
   const [photoId, setPhotoId] = useState<string | null>(seed.photoId);
+  // A photo of WHERE it lives — for stock that isn't in an obvious place.
+  const [locationShot, setLocationShot] = useState<{ dataUrl: string; thumbDataUrl: string | null } | null>(null);
+  const [locationPhotoId, setLocationPhotoId] = useState<string | null>(null);
+  const locationFailedRef = useRef(false);
   const keyRef = useRef<string | null>(null);
   const requestRef = useRef<CreateInput | null>(null);
   const againRef = useRef(false);
@@ -194,7 +202,11 @@ export function NewItemForm({
     savingRef.current = false;
     setPhase("edit");
     // a photo that couldn't be uploaded is "not attached", even though the save asked for none
-    onSaved(photoFailedRef.current ? { ...r, photoAttached: false } : r, againRef.current);
+    onSaved({
+      ...r,
+      ...(photoFailedRef.current ? { photoAttached: false } : {}),
+      ...(locationFailedRef.current ? { locationPhotoAttached: false } : {}),
+    }, againRef.current);
   }
 
   async function send(request: CreateInput, key: string) {
@@ -237,6 +249,13 @@ export function NewItemForm({
       if (s.ok) { pid = s.data.photoId; setPhotoId(pid); }
       else photoFailedRef.current = true; // the item still saves; the result says the photo isn't on it
     }
+    let lid = locationPhotoId;
+    locationFailedRef.current = false;
+    if (!lid && locationShot) {
+      const s = await storePhoto(locationShot.dataUrl, locationShot.thumbDataUrl);
+      if (s.ok) { lid = s.data.photoId; setLocationPhotoId(lid); }
+      else locationFailedRef.current = true; // the item still saves; the receipt says this photo isn't on it
+    }
     const request: CreateInput = {
       name: name.trim(),
       brand: brand.trim() || null,
@@ -249,6 +268,7 @@ export function NewItemForm({
       baseUnit: unit,
       location: location.trim(),
       photoId: pid,
+      ...(lid ? { locationPhotoId: lid } : {}),
       estimated,
       ...(listingStatus && lookup?.check ? { lookupCheck: lookup.check } : {}),
       provenance: Object.fromEntries(Object.entries(sources).filter(([k]) => ["name", "brand", "manufacturerCode", "supplierSku", "barcode", "variant", "colourFinish"].includes(k))) as CreateInput["provenance"],
@@ -299,6 +319,7 @@ export function NewItemForm({
   const savesLine = packMode && packSizeMilli
     ? `Saves: Opening count ${formatQuantity(totalMilli, unit)} (${packCount} ${packLabel(packUnit, packCount)} × ${formatQuantity(packSizeMilli, unit)})${location.trim() ? ` · ${location.trim()}` : ""}`
     : `Saves: Opening count ${estimated ? balanceLabel({ balanceMilli: qtyMilli, baseUnit: unit, estimated: true }) : formatQuantity(qtyMilli, unit)}${location.trim() ? ` · ${location.trim()}` : ""}`;
+  const savesWithPhoto = locationShot ? `${savesLine} · with a photo of where it lives` : savesLine;
 
   const saveAnother = (
     <BigButton variant={emphasis === "another" ? "pri" : "sec"} onClick={() => void save(true)} disabled={!canSave} aria-busy={phase === "saving" && againRef.current} label={phase === "saving" && againRef.current ? "Saving…" : "Save and add another"} sub={emphasis === "another" ? (canSave ? `saves Opening count ${formatQuantity(totalMilli, unit)} · back to the camera` : dupe ? "can't run: code already listed" : "needs a name and a shelf") : undefined} data-testid="stock-new-save-another" />
@@ -364,6 +385,29 @@ export function NewItemForm({
               <button key={l} type="button" onClick={() => { setLocation(l); setLocationFromLast(false); }} disabled={locked} className="min-h-[36px] rounded-pill border border-border px-3 text-[13px] text-text hover:border-brand-navy">{l}</button>
             ))}
           </div>
+        ) : null}
+        {locationPhotoEnabled ? (
+          locationShot ? (
+            <div className="flex items-center gap-3 rounded-xl border border-border bg-surface-subtle p-2.5" data-testid="stock-new-location-photo-set">
+              {/* eslint-disable-next-line @next/next/no-img-element -- local preview */}
+              <img src={locationShot.dataUrl} alt="Your photo of where it lives" className="h-16 w-16 shrink-0 rounded-lg border border-border object-cover" />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-text">Photo of where it lives</p>
+                <p className="text-[13px] text-text-muted">Shown to whoever comes to take it</p>
+              </div>
+              <MiniButton onClick={() => { setLocationShot(null); setLocationPhotoId(null); }} disabled={locked} data-testid="stock-new-location-photo-remove">Remove</MiniButton>
+            </div>
+          ) : (
+            <PhotoCapture
+              variant="single"
+              tone="ter"
+              label="Hard to find? Photograph where it lives"
+              sub="shown to whoever comes to take it"
+              disabled={locked}
+              onPhoto={(dataUrl, _dark, thumbDataUrl) => { setLocationShot({ dataUrl, thumbDataUrl }); setLocationPhotoId(null); }}
+              testId="stock-new-location-photo"
+            />
+          )
         ) : null}
       </div>
 
@@ -459,7 +503,7 @@ export function NewItemForm({
               </span>
             </p>
             {dupe ? <p className="text-sm font-medium text-state-danger-subtle-text">Can&rsquo;t save a new item with code {dupe.manufacturerCode ?? code.trim()} — another item already uses it.</p> : null}
-            {canSave ? <SavesLine>{savesLine}</SavesLine> : null}
+            {canSave ? <SavesLine>{savesWithPhoto}</SavesLine> : null}
             {emphasis === "another" ? (
               <>
                 {saveAnother}

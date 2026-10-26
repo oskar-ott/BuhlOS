@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { Camera } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { formatNumber, identityLine, UNIT_LABEL } from "@/domains/workshop-stock/format";
 import { binOf } from "@/domains/workshop-stock/location";
@@ -19,6 +20,7 @@ export interface StockRowItem {
   balanceMilli: number;
   estimated: boolean;
   photoId: string | null;
+  locationPhotoId?: string | null;
   archivedAt?: string | null;
 }
 
@@ -97,7 +99,17 @@ export function StockItemRow({
       </span>
       <span className="shrink-0 text-right">
         <RecordedQuantity item={item} />
-        {under ? <span className="mt-1 block text-xs font-medium text-text-muted">{under}</span> : null}
+        {under || item.locationPhotoId ? (
+          <span className="mt-1 flex items-center justify-end gap-1 text-xs font-medium text-text-muted">
+            {item.locationPhotoId ? (
+              <>
+                <Camera aria-hidden="true" className="h-3.5 w-3.5" />
+                <span className="sr-only">has a photo of where it lives</span>
+              </>
+            ) : null}
+            {under ? <span>{under}</span> : null}
+          </span>
+        ) : null}
       </span>
     </button>
   );
