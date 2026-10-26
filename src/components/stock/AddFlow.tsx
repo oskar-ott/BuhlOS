@@ -49,7 +49,7 @@ export function AddFlow({
   onClose,
 }: {
   items: StockItem[];
-  capabilities: { photoRead: boolean; lookup: boolean };
+  capabilities: { photoRead: boolean; lookup: boolean; locationPhoto?: boolean };
   seed?: { dataUrl: string | null; thumbDataUrl?: string | null; product: ReadProduct | null } | null;
   onSaved: (r: WriteResult) => void;
   onClose: () => void;
@@ -340,6 +340,7 @@ export function AddFlow({
         seed={step.seed}
         items={items}
         lookupEnabled={capabilities.lookup}
+        locationPhotoEnabled={capabilities.locationPhoto === true}
         defaultLocation={lastLocation}
         emphasis="another"
         onSaved={savedNew}

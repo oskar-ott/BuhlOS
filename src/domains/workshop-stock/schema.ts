@@ -53,6 +53,8 @@ export const StockItemSchema = z.object({
   baseUnit: z.enum(UNIT_KEYS),
   location: z.string().nullable(),
   photoId: z.string().nullable(),
+  /** a photo of where it lives (a hard-to-find spot); absent before the migration */
+  locationPhotoId: z.string().nullable().optional(),
   defaultPack: z.object({ unit: z.string(), sizeMilli: z.number() }).nullable(),
   balanceMilli: z.number(),
   estimated: z.boolean(),
@@ -112,7 +114,8 @@ export type StockMovement = z.infer<typeof MovementSchema>;
 export const StockListSchema = z.object({
   items: z.array(StockItemSchema),
   viewer: z.object({ id: z.string(), office: z.boolean() }),
-  capabilities: z.object({ photoRead: z.boolean(), lookup: z.boolean() }),
+  /** locationPhoto: the server can store a photo of where an item lives */
+  capabilities: z.object({ photoRead: z.boolean(), lookup: z.boolean(), locationPhoto: z.boolean().optional() }),
   undoMinutes: z.number(),
   asOf: z.string(),
 });
@@ -141,6 +144,8 @@ export const WriteResultSchema = z.object({
   movement: MovementSchema,
   replayed: z.boolean().optional(),
   photoAttached: z.boolean().optional(),
+  /** create only: false when a photo of where it lives was sent but isn't on the item */
+  locationPhotoAttached: z.boolean().optional(),
   /** create only: the code status the server actually recorded */
   verificationStatus: z.enum(VERIFICATION_STATUSES).optional(),
 });
@@ -191,7 +196,7 @@ export type MatchCandidate = z.infer<typeof MatchCandidateSchema>;
 export const CandidateItemSchema = StockItemSchema.pick({
   id: true, name: true, brand: true, manufacturerCode: true, supplierSku: true, supplierName: true, variant: true,
   colourFinish: true, location: true, baseUnit: true, balanceMilli: true, estimated: true, version: true, photoId: true,
-  defaultPack: true, identifiers: true,
+  locationPhotoId: true, defaultPack: true, identifiers: true,
 });
 export type CandidateItem = z.infer<typeof CandidateItemSchema>;
 

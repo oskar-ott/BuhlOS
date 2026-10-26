@@ -5,6 +5,7 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 import { Drawer } from "@/components/ui/Drawer";
 import { Button } from "@/components/ui/Button";
 import { Pill } from "@/components/ui/Pill";
+import { LocationPhoto } from "@/components/stock/LocationPhoto";
 import { PhotoCapture } from "@/components/stock/PhotoCapture";
 import { StockThumb } from "@/components/stock/StockThumb";
 import { cn } from "@/lib/cn";
@@ -59,7 +60,7 @@ const EVENT_LABEL: Record<string, string> = {
  * and archive last and apart (P12: the destructive action never sits beside
  * routine ones). An archived item is read-only until it is restored.
  */
-export function StockItemDrawer({ itemId, lookupEnabled, onClose, onChanged }: { itemId: string; lookupEnabled: boolean; onClose: () => void; onChanged: () => void }) {
+export function StockItemDrawer({ itemId, lookupEnabled, locationPhotoEnabled = false, onClose, onChanged }: { itemId: string; lookupEnabled: boolean; locationPhotoEnabled?: boolean; onClose: () => void; onChanged: () => void }) {
   const [detail, setDetail] = useState<ItemDetail | null>(null);
   const [older, setOlder] = useState<StockMovement[]>([]);
   const [next, setNext] = useState<{ before: string; beforeId: string } | null>(null);
@@ -70,6 +71,7 @@ export function StockItemDrawer({ itemId, lookupEnabled, onClose, onChanged }: {
   const [catalogueOpen, setCatalogueOpen] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [photoMsg, setPhotoMsg] = useState<string | null>(null);
+  const [locationMsg, setLocationMsg] = useState<string | null>(null);
   const [restoreNote, setRestoreNote] = useState<string | null>(null);
   // one operation key per movement until its undo has a definite answer
   const undoKeys = useRef(new Map<string, string>());
@@ -123,6 +125,20 @@ export function StockItemDrawer({ itemId, lookupEnabled, onClose, onChanged }: {
     if (!s.ok) { setPhotoMsg(errorCopy(s.error.status, s.error.body)); return; }
     const r = await replaceItemPhoto(itemId, s.data.photoId);
     setPhotoMsg(r.ok ? "Photo changed." : errorCopy(r.error.status, r.error.body));
+    if (r.ok) changed();
+  }
+
+  // The photo of where it lives: replace with a new one, or remove (null).
+  async function setLocationPhoto(dataUrl: string | null, thumbDataUrl: string | null) {
+    setLocationMsg(dataUrl ? "Saving photo…" : "Removing…");
+    let id: string | null = null;
+    if (dataUrl) {
+      const s = await storePhoto(dataUrl, thumbDataUrl);
+      if (!s.ok) { setLocationMsg(errorCopy(s.error.status, s.error.body)); return; }
+      id = s.data.photoId;
+    }
+    const r = await replaceItemPhoto(itemId, id, "location");
+    setLocationMsg(r.ok ? (id ? "Photo of where it lives changed." : "Photo of where it lives removed.") : (r.error.body as { error?: string } | null)?.error === "location_photo_unavailable" ? "Photos of where items live aren't set up yet." : errorCopy(r.error.status, r.error.body));
     if (r.ok) changed();
   }
 
@@ -225,6 +241,7 @@ export function StockItemDrawer({ itemId, lookupEnabled, onClose, onChanged }: {
                     <p className="mt-1 text-xs text-text-muted">Recorded — not a guarantee of what&rsquo;s on the shelf.</p>
                   </div>
                 </div>
+                {item.locationPhotoId ? <LocationPhoto photoId={item.locationPhotoId} location={item.location} /> : null}
                 <dl className="grid grid-cols-2 gap-2 text-sm">
                   <div>
                     <dt className={LABEL}>Last counted</dt>
@@ -260,12 +277,27 @@ export function StockItemDrawer({ itemId, lookupEnabled, onClose, onChanged }: {
                         </div>
                       </div>
                     </Section>
+                    {locationPhotoEnabled ? (
+                      <Section kicker="Photo of where it lives">
+                        <p className="text-xs text-text-muted">For stock that isn&rsquo;t in an obvious place — shown to whoever comes to take it, beside the shelf.</p>
+                        {item.locationPhotoId ? <LocationPhoto photoId={item.locationPhotoId} location={item.location} /> : <p className="text-sm text-text-muted">None yet.</p>}
+                        <div className="flex flex-wrap items-start gap-2">
+                          <div className="min-w-0 flex-1">
+                            <PhotoCapture label={item.locationPhotoId ? "Replace photo" : "Add photo"} onPhoto={(u, _d, t) => void setLocationPhoto(u, t)} testId="stock-drawer-location-photo" />
+                          </div>
+                          {item.locationPhotoId ? (
+                            <Button type="button" variant="secondary" size="sm" onClick={() => void setLocationPhoto(null, null)} data-testid="stock-drawer-location-photo-remove">Remove</Button>
+                          ) : null}
+                        </div>
+                        {locationMsg ? <p className="text-sm text-text-muted" role="status">{locationMsg}</p> : null}
+                      </Section>
+                    ) : null}
                     {detail?.events?.length ? (
                       <Section kicker="Catalogue history" className="border-b-0">
                         <ul className="divide-y divide-border text-sm">
                           {detail.events.map((e) => (
                             <li key={e.id} className="py-1.5">
-                              <span className="font-semibold text-text">{EVENT_LABEL[e.event] ?? e.event}</span>
+                              <span className="font-semibold text-text">{e.event === "photo_changed" && (e.detail as { slot?: string } | null)?.slot === "location" ? ((e.detail as { to?: string | null }).to ? "Photo of where it lives changed" : "Photo of where it lives removed") : EVENT_LABEL[e.event] ?? e.event}</span>
                               <span className="text-text-muted"> · {e.actorName ?? "someone"} · {whenLabel(e.at)}{e.event === "updated" && e.detail && typeof e.detail === "object" && "changes" in e.detail ? ` (${Object.keys(e.detail.changes as Record<string, unknown>).join(", ")})` : ""}</span>
                             </li>
                           ))}

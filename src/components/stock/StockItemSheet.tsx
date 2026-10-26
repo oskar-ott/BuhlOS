@@ -5,6 +5,7 @@ import { fetchItem } from "@/domains/workshop-stock/client";
 import { balanceLabel, errorCopy, formatQuantity, identityLine, movementSummary, movementWho, undoLabelFor, undoUntilLabel, whenLabel } from "@/domains/workshop-stock/format";
 import type { ItemDetail, StockItem, WriteResult } from "@/domains/workshop-stock/schema";
 import { FlowSheet } from "./FlowSheet";
+import { LocationPhoto } from "./LocationPhoto";
 import { MoveConfirm, type MoveItem } from "./MoveConfirm";
 import { StockReceipt } from "./StockReceipt";
 import { StockThumb } from "./StockThumb";
@@ -82,6 +83,8 @@ export function StockItemSheet({ item: initial, viewerId, onChanged, onClose }: 
           <p className="mt-1 text-[13px] font-semibold text-text">{item.location || "No shelf set"}</p>
         </div>
       </div>
+
+      {item.locationPhotoId ? <LocationPhoto photoId={item.locationPhotoId} location={item.location} size="lg" /> : null}
 
       <div className="grid grid-cols-3 gap-2 rounded-[14px] border border-border bg-surface-subtle p-3">
         <div>

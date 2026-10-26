@@ -490,6 +490,53 @@ describe.skipIf(!ENABLED)("workshop stock store — real Postgres", () => {
     expect(await store.replaceItemPhoto(sql, tenantA, item.id, otherPhoto, office)).toEqual({ error: "item_archived" });
   });
 
+  it("a photo of where it lives: claimed with the item, shown on every read, replaceable and removable — and before the migration nothing breaks", async () => {
+    const col = await sql`select 1 from information_schema.columns where table_schema = 'public' and table_name = 'workshop_stock_items' and column_name = 'location_photo_id'`;
+    const migrated = col.length > 0;
+    expect(await store.hasLocationPhoto(sql)).toBe(migrated);
+    const pending = (tag: string, actor = worker) => store.insertPhoto(sql, tenantA, { blobUrl: `https://blob.invalid/loc-${tag}`, blobPathname: `loc-${tag}`, contentType: "image/jpeg", byteSize: 100, width: 800, height: 600, sha256: createHash("sha256").update(`loc-${tag}-${marker}`).digest("hex"), actor });
+    const shelfShot = await pending("a");
+    const created = await makeItem({ name: "Anchors behind the door", location: "Top of the rack" }, 1000, worker, { locationPhotoId: migrated ? shelfShot : null });
+    // every read carries the field — null until the column exists
+    expect(created.item).toHaveProperty("locationPhotoId");
+    const listed = (await store.listItems(sql, tenantA, {})).find((i: { id: string }) => i.id === created.item.id);
+    if (!migrated) {
+      expect(created.item.locationPhotoId).toBeNull();
+      expect(listed.locationPhotoId).toBeNull();
+      expect(await store.replaceItemPhoto(sql, tenantA, created.item.id, shelfShot, office, "location")).toEqual({ error: "location_photo_unavailable" });
+      // the product photo path is untouched
+      expect((await store.replaceItemPhoto(sql, tenantA, created.item.id, shelfShot, office)).ok).toBe(true);
+      return;
+    }
+    expect(created.locationPhotoAttached).toBe(true);
+    expect(created.item.locationPhotoId).toBe(shelfShot);
+    expect(listed.locationPhotoId).toBe(shelfShot);
+    const claimed = await sql`select purpose, expires_at from public.workshop_stock_photos where tenant_id = ${tenantA} and id = ${shelfShot}`;
+    expect(claimed[0]).toMatchObject({ purpose: "item", expires_at: null }); // the clean-up never touches it
+    // someone else's pending photo can't be claimed by the crew
+    const notMine = await pending("b", office);
+    const other = await makeItem({ name: "Not my photo" }, 0, worker, { locationPhotoId: notMine });
+    expect(other.locationPhotoAttached).toBe(false);
+    expect(other.item.locationPhotoId).toBeNull();
+    // replace: the old one retires and expires; the edit revision doesn't move
+    const newer = await pending("c", office);
+    expect((await store.replaceItemPhoto(sql, tenantA, created.item.id, newer, office, "location")).ok).toBe(true);
+    const after = await store.getItem(sql, tenantA, created.item.id);
+    expect(after.locationPhotoId).toBe(newer);
+    expect(after.photoId).toBeNull(); // the product photo is a separate slot
+    expect(after.metaRevision).toBe(created.item.metaRevision);
+    const retired = await sql`select purpose, expires_at from public.workshop_stock_photos where tenant_id = ${tenantA} and id = ${shelfShot}`;
+    expect(retired[0]!.purpose).toBe("retired");
+    expect(retired[0]!.expires_at).toBeTruthy();
+    // remove
+    expect((await store.replaceItemPhoto(sql, tenantA, created.item.id, null, office, "location")).ok).toBe(true);
+    expect((await store.getItem(sql, tenantA, created.item.id)).locationPhotoId).toBeNull();
+    const events = await store.itemEvents(sql, tenantA, created.item.id);
+    expect(events.filter((e: { event: string; detail: { slot?: string } }) => e.event === "photo_changed" && e.detail.slot === "location")).toHaveLength(2);
+    // a product photo can't be removed by passing null
+    expect(await store.replaceItemPhoto(sql, tenantA, created.item.id, null, office)).toEqual({ error: "photo_not_available" });
+  });
+
   it("the item's code fields follow its codes: removing the main code moves to the next one (or empties) and clears the check; a first code fills the field", async () => {
     const main = codes.identifierFor("manufacturer_code", "MAIN-1", { brand: "Acme" });
     const { item } = await makeItem({ name: "Two codes", brand: "Acme", manufacturerCode: "MAIN-1" }, 0, worker, { identifiers: [main], verificationStatus: "possible_match", verification: { sourceUrl: "https://example.invalid/m" } });

@@ -46,7 +46,7 @@ type Res = { statusCode: number; body: unknown; headers: Record<string, string>;
 let blob: Map<string, unknown>;
 let auth: { signSession: (p: Record<string, unknown>) => string };
 let handler: (req: Record<string, unknown>, res: Res) => Promise<unknown>;
-type StoreFn = "resolveTenant" | "listItems" | "getItem" | "listMovements" | "itemEvents" | "getOperation" | "replayOperation" | "recordMovement" | "recordCount" | "reverseMovement" | "createItemWithOpening" | "updateItem" | "setArchived" | "addIdentifier" | "retireIdentifier" | "recordVerification" | "insertPhoto" | "setPhotoReading" | "getPhotoForServing" | "replaceItemPhoto" | "photosDueForDeletion" | "markPhotoDeleted" | "markBlobDeleted" | "consumeUsage" | "getCachedLookup" | "putCachedLookup";
+type StoreFn = "resolveTenant" | "listItems" | "getItem" | "listMovements" | "itemEvents" | "getOperation" | "replayOperation" | "recordMovement" | "recordCount" | "reverseMovement" | "createItemWithOpening" | "updateItem" | "setArchived" | "addIdentifier" | "retireIdentifier" | "recordVerification" | "insertPhoto" | "setPhotoReading" | "getPhotoForServing" | "replaceItemPhoto" | "hasLocationPhoto" | "photosDueForDeletion" | "markPhotoDeleted" | "markBlobDeleted" | "consumeUsage" | "getCachedLookup" | "putCachedLookup";
 let store: Record<StoreFn, ReturnType<typeof vi.fn>>;
 let audit: { append: ReturnType<typeof vi.fn> };
 let lookupProduct: ReturnType<typeof vi.fn>;
@@ -149,6 +149,7 @@ beforeEach(() => {
     setPhotoReading: vi.fn(async () => undefined),
     getPhotoForServing: vi.fn(async () => ({ id: PHOTO_ID, blobUrl: "https://secret.blob.example/x.jpg", contentType: "image/jpeg", byteSize: 3 })),
     replaceItemPhoto: vi.fn(async () => ({ ok: true })),
+    hasLocationPhoto: vi.fn(async () => true),
     photosDueForDeletion: vi.fn(async () => []),
     markPhotoDeleted: vi.fn(async () => true),
     markBlobDeleted: vi.fn(async () => undefined),
@@ -637,5 +638,54 @@ describe("reconciling a lost response", () => {
     expect((await call({ query: { action: "operation", key: KEY } })).body).toEqual({ found: false });
     store.getOperation.mockResolvedValueOnce(null);
     expect((await call({ query: { action: "operation", key: KEY } })).body).toEqual({ found: false });
+  });
+});
+
+describe("a photo of where the item lives", () => {
+  const LOC_ID = "55555555-5555-4555-8555-555555555555";
+  const create = (body: Record<string, unknown>, user = "u_field") => post("create", { name: "Ramset anchors", baseUnit: "each", location: "Top of the rack, behind the door", openingQuantity: "100", ...body }, user);
+
+  it("the list says whether the option exists — only once the column is there", async () => {
+    expect((await call({ query: { action: "list" } })).body).toMatchObject({ capabilities: { locationPhoto: true } });
+    store.hasLocationPhoto.mockResolvedValueOnce(false);
+    expect((await call({ query: { action: "list" } })).body).toMatchObject({ capabilities: { locationPhoto: false } });
+  });
+
+  it("a new item carries its location photo to the store; before the migration it is dropped and said to be not attached", async () => {
+    store.createItemWithOpening.mockResolvedValueOnce({ ok: true, created: true, item: item({ locationPhotoId: LOC_ID }), movement: movement({ kind: "opening", quantityMilli: 100_000 }), locationPhotoAttached: true });
+    const ok = await create({ locationPhotoId: LOC_ID });
+    expect(ok.statusCode).toBe(201);
+    expect(store.createItemWithOpening.mock.calls[0]![2]).toMatchObject({ locationPhotoId: LOC_ID });
+    expect(ok.body).toMatchObject({ locationPhotoAttached: true });
+
+    store.hasLocationPhoto.mockResolvedValueOnce(false);
+    const before = await create({ locationPhotoId: LOC_ID }, "u_lh");
+    expect(before.statusCode).toBe(201);
+    expect(store.createItemWithOpening.mock.calls[1]![2]).toMatchObject({ locationPhotoId: null });
+    expect(before.body).toMatchObject({ locationPhotoAttached: false });
+
+    // without one, nothing is asked of the column and nothing is "missing"
+    const none = await create({}, "u_office");
+    expect(store.createItemWithOpening.mock.calls[2]![2]).toMatchObject({ locationPhotoId: null });
+    expect(none.body).toMatchObject({ locationPhotoAttached: true });
+  });
+
+  it("the office can replace or remove it; the product photo can't be removed this way; the crew can't change either", async () => {
+    expect((await post("item-photo", { itemId: ITEM_ID, photoId: LOC_ID, slot: "location" }, "u_office")).statusCode).toBe(200);
+    expect(store.replaceItemPhoto).toHaveBeenLastCalledWith(expect.anything(), TENANT.id, ITEM_ID, LOC_ID, expect.objectContaining({ id: "u_office" }), "location");
+    expect((await post("item-photo", { itemId: ITEM_ID, photoId: null, slot: "location" }, "u_office")).statusCode).toBe(200);
+    expect(store.replaceItemPhoto).toHaveBeenLastCalledWith(expect.anything(), TENANT.id, ITEM_ID, null, expect.anything(), "location");
+    expect((await post("item-photo", { itemId: ITEM_ID, photoId: null }, "u_office")).statusCode).toBe(400);
+    // an unchanged caller still means the product photo
+    await post("item-photo", { itemId: ITEM_ID, photoId: PHOTO_ID }, "u_office");
+    expect(store.replaceItemPhoto).toHaveBeenLastCalledWith(expect.anything(), TENANT.id, ITEM_ID, PHOTO_ID, expect.anything(), "product");
+    const calls = store.replaceItemPhoto.mock.calls.length;
+    expect((await post("item-photo", { itemId: ITEM_ID, photoId: LOC_ID, slot: "location" })).statusCode).toBe(403);
+    expect(store.replaceItemPhoto.mock.calls.length).toBe(calls);
+    // before the migration the store says so, and the office sees a stable code
+    store.replaceItemPhoto.mockResolvedValueOnce({ error: "location_photo_unavailable" });
+    const early = await post("item-photo", { itemId: ITEM_ID, photoId: LOC_ID, slot: "location" }, "u_office");
+    expect(early.statusCode).toBe(503);
+    expect(early.body).toEqual({ error: "location_photo_unavailable" });
   });
 });

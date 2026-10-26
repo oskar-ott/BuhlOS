@@ -25,7 +25,7 @@
 //   POST   ?action=identifier  { itemId, kind, value, supplierName?, packUnit?, packSize? }   OFFICE
 //   DELETE ?action=identifier&id=                                        OFFICE
 //   POST   ?action=archive | restore  { itemId }                         OFFICE (restore says which codes another item now holds)
-//   POST   ?action=item-photo  { itemId, photoId }                       OFFICE
+//   POST   ?action=item-photo  { itemId, photoId, slot?: product|location }   OFFICE (location: photoId may be null = remove)
 //   POST   ?action=verify      { itemId }   OFFICE — record the cached online check on an item
 //
 // Rules every path follows: the actor, role and company scope come from the
@@ -230,6 +230,8 @@ const CreateBody = z.object({
   baseUnit: z.enum(Q.UNIT_KEYS),
   location: optText(60),
   photoId: uuid.nullish(),
+  // an optional photo of WHERE it lives (a hard-to-find spot), stored like photoId
+  locationPhotoId: uuid.nullish(),
   openingQuantity: qty.optional(),
   packCount: z.number().int().min(1).max(Q.MAX_PACK_COUNT).optional(),
   packUnit: packUnit.optional(),
@@ -288,7 +290,10 @@ const LookupBody = z.object({
   refresh: z.boolean().optional(),
 });
 const ItemIdBody = z.object({ itemId: uuid });
-const ItemPhotoBody = z.object({ itemId: uuid, photoId: uuid });
+// slot 'location' = the photo of where it lives, which may also be removed (photoId null)
+const ItemPhotoBody = z
+  .object({ itemId: uuid, photoId: uuid.nullable(), slot: z.enum(['product', 'location']).default('product') })
+  .refine((b) => b.slot === 'location' || b.photoId !== null, { path: ['photoId'] });
 
 function parseOr400(schema, body, res) {
   if (!body) { bad(res, 'body_required'); return null; }
@@ -310,7 +315,7 @@ async function list(sql, tenant, me, req, res) {
   return res.status(200).json({
     items,
     viewer: { id: me.id, office },
-    capabilities: { photoRead: vision.enabled(), lookup: search.enabled() },
+    capabilities: { photoRead: vision.enabled(), lookup: search.enabled(), locationPhoto: (await store.hasLocationPhoto(sql)) === true },
     undoMinutes: policy.WORKER_UNDO_MINUTES,
     asOf: new Date().toISOString(),
   });
@@ -426,7 +431,7 @@ function itemSummary(item) {
     id: item.id, name: item.name, brand: item.brand, manufacturerCode: item.manufacturerCode, supplierSku: item.supplierSku,
     supplierName: item.supplierName, variant: item.variant, colourFinish: item.colourFinish, location: item.location,
     baseUnit: item.baseUnit, balanceMilli: item.balanceMilli, estimated: item.estimated, version: item.version,
-    photoId: item.photoId, defaultPack: item.defaultPack, identifiers: item.identifiers,
+    photoId: item.photoId, locationPhotoId: item.locationPhotoId ?? null, defaultPack: item.defaultPack, identifiers: item.identifiers,
   };
 }
 
@@ -591,7 +596,7 @@ async function create(sql, tenant, me, req, body, res) {
   const actor = actorOf(me);
   const hash = requestHash('create', { ...input, actorId: actor.id });
   // A retried create returns the item it made — with its photo, if it claimed one.
-  if (await answeredByReplay(sql, tenant, me, key, hash, res, (r) => ({ photoAttached: !input.photoId || Boolean(r.item.photoId), verificationStatus: r.item.verificationStatus }))) return;
+  if (await answeredByReplay(sql, tenant, me, key, hash, res, (r) => ({ photoAttached: !input.photoId || Boolean(r.item.photoId), locationPhotoAttached: !input.locationPhotoId || Boolean(r.item.locationPhotoId), verificationStatus: r.item.verificationStatus }))) return;
   const unit = input.baseUnit;
 
   const manufacturerCode = input.manufacturerCode ? codes.cleanCode(input.manufacturerCode) : null;
@@ -644,6 +649,10 @@ async function create(sql, tenant, me, req, body, res) {
     }
   }
 
+  // The location photo is only written once its column exists (the migration
+  // can land after this code); before that it is simply not attached.
+  const locationPhotoId = input.locationPhotoId && (await store.hasLocationPhoto(sql)) === true ? input.locationPhotoId : null;
+
   const result = await store.createItemWithOpening(sql, tenant.id, {
     item: {
       name: input.name, brand: input.brand, manufacturerCode, supplierSku, supplierName: supplierSku ? input.supplierName : null,
@@ -651,6 +660,7 @@ async function create(sql, tenant, me, req, body, res) {
     },
     identifiers,
     photoId: input.photoId || null,
+    locationPhotoId,
     openingMilli,
     pack,
     estimated: input.estimated === true,
@@ -679,6 +689,7 @@ async function create(sql, tenant, me, req, body, res) {
     movement: { ...result.movement, undo: undoInfo(result.movement, me, Date.now()) },
     replayed: result.replayed === true,
     photoAttached: result.replayed ? !input.photoId || Boolean(result.item.photoId) : result.photoAttached !== false,
+    locationPhotoAttached: result.replayed ? !input.locationPhotoId || Boolean(result.item.locationPhotoId) : Boolean(locationPhotoId || !input.locationPhotoId) && result.locationPhotoAttached !== false,
     verificationStatus: result.item.verificationStatus,
   });
 }
@@ -929,9 +940,10 @@ async function itemPhoto(sql, tenant, me, body, res) {
   if (!policy.isOffice(me.role)) return res.status(403).json({ error: 'office_only' });
   const input = parseOr400(ItemPhotoBody, body, res);
   if (!input) return;
-  const r = await store.replaceItemPhoto(sql, tenant.id, input.itemId, input.photoId, actorOf(me));
-  if (r.error) return res.status(r.error === 'item_not_found' ? 404 : 409).json({ error: r.error });
-  await journal(me, 'workshop_stock.photo_changed', input.itemId, 'Changed a workshop item photo', {});
+  const r = await store.replaceItemPhoto(sql, tenant.id, input.itemId, input.photoId, actorOf(me), input.slot);
+  if (r.error) return res.status(r.error === 'item_not_found' ? 404 : r.error === 'location_photo_unavailable' ? 503 : 409).json({ error: r.error });
+  const where = input.slot === 'location';
+  await journal(me, 'workshop_stock.photo_changed', input.itemId, where ? (input.photoId ? 'Changed where a workshop item lives (photo)' : 'Removed the photo of where a workshop item lives') : 'Changed a workshop item photo', { slot: input.slot });
   return res.status(200).json({ item: await store.getItem(sql, tenant.id, input.itemId) });
 }
 

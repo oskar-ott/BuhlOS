@@ -9,6 +9,8 @@ import { MoveConfirm } from "./MoveConfirm";
 import { LookupCard } from "./LookupCard";
 import { QuantityStepper } from "./QuantityStepper";
 import { StockReceipt } from "./StockReceipt";
+import { NewItemForm } from "./NewItemForm";
+import { LocationPhoto } from "./LocationPhoto";
 import { PhilWorkshopStock } from "@/components/phil/PhilWorkshopStock";
 
 /**
@@ -145,5 +147,46 @@ describe("PhilWorkshopStock", () => {
     expect(html).toContain("Loading workshop stock");
     expect(html).not.toMatch(/\b\d+ items\b/); // no invented count before the list loads
     expect(html).not.toContain("Return it"); // Return is a door one level down, not a text link
+  });
+});
+
+describe("a photo of where it lives", () => {
+  const LOC = "55555555-5555-4555-8555-555555555555";
+  const seed = { product: null, photoId: null, dataUrl: null };
+  const form = (locationPhotoEnabled: boolean) => flat(renderToString(createElement(NewItemForm, { seed, items: [], lookupEnabled: false, locationPhotoEnabled, onSaved: () => undefined, onUseExisting: () => undefined })));
+
+  it("the add form offers it only once the server can keep it", () => {
+    const on = form(true);
+    expect(on).toContain("Hard to find? Photograph where it lives");
+    expect(on).toContain("shown to whoever comes to take it");
+    expect(on).toContain('data-testid="stock-new-location-photo-camera"');
+    expect(form(false)).not.toContain("Photograph where it lives");
+  });
+
+  it("whoever comes to take it sees it beside the shelf on the confirmation — and nothing when there isn't one", () => {
+    const html = flat(renderToString(createElement(MoveConfirm, { item: { ...base, location: "Top of the rack, behind the door", locationPhotoId: LOC }, kind: "take", onSaved: () => undefined, onClose: () => undefined })));
+    expect(html).toContain("Where to find it");
+    expect(html).toContain("Tap to see the photo");
+    expect(html).toContain(`action=photo&amp;id=${LOC}&amp;size=thumb`);
+    const none = flat(renderToString(createElement(MoveConfirm, { item: base, kind: "take", onSaved: () => undefined, onClose: () => undefined })));
+    expect(none).not.toContain("Where to find it");
+  });
+
+  it("the viewer link and the list marker say what they are in words", () => {
+    const tile = flat(renderToString(createElement(LocationPhoto, { photoId: LOC, location: "Behind the door" })));
+    expect(tile).toContain("Where to find it");
+    expect(tile).toContain("Behind the door");
+    const row = flat(renderToString(createElement(StockItemRow, { item: { ...base, locationPhotoId: LOC }, onClick: () => undefined })));
+    expect(row).toContain("has a photo of where it lives");
+    expect(flat(renderToString(createElement(StockItemRow, { item: base, onClick: () => undefined })))).not.toContain("photo of where it lives");
+  });
+
+  it("a receipt says so when the photo of where it lives didn't attach", () => {
+    const result = {
+      item: { ...base, verificationStatus: "unverified" as const, verification: null, metaRevision: 1, lastMovementAt: null, lastCountedAt: null, lastCountedByName: null, archivedAt: null, createdAt: null, createdByName: null, updatedAt: null },
+      movement: { id: "m1", itemId: "i1", kind: "opening" as const, quantityMilli: 42_000, balanceAfterMilli: 42_000, itemVersionAfter: 1, countedMilli: null, pack: null, estimated: false, jobId: null, jobLabel: null, reason: null, note: null, reversesMovementId: null, actorId: "u1", actorName: "Dan", createdAt: "2026-10-26T07:42:00+11:00", reversedBy: null },
+    };
+    expect(flat(renderToString(createElement(StockReceipt, { result: { ...result, locationPhotoAttached: false } })))).toContain("The photo of where it lives couldn’t be attached");
+    expect(flat(renderToString(createElement(StockReceipt, { result: { ...result, locationPhotoAttached: true } })))).not.toContain("couldn’t be attached");
   });
 });
