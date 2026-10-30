@@ -7,6 +7,7 @@ import { STANDARD_DAY_HOURS } from "@/domains/timesheets/service";
 import {
   dayDate,
   entryTarget,
+  jobTiles,
   leaveOptions,
   receiptLine,
   splitLabel,
@@ -22,7 +23,7 @@ import {
 import type { HoursProblem } from "@/domains/timesheets/problem";
 import type { PatchTimeEntryPayload, TimeEntry } from "@/domains/timesheets/types";
 import { HoursSheet } from "./HoursSheet";
-import { JobChips } from "./JobChips";
+import { JobTiles } from "./JobTiles";
 import { LeavePills } from "./LeavePills";
 import { OtSheet } from "./OtSheet";
 import { SplitSheet } from "./SplitSheet";
@@ -82,6 +83,14 @@ export function FixSheet({
   const allJobs: HoursJob[] =
     foundJob && !jobs.some((j) => j.id === foundJob.id) ? [...jobs, foundJob] : [...jobs];
   const targetName = leave ? null : (allJobs.find((j) => j.id === effectiveJobId)?.name ?? null);
+  // The same capped grid as the dock: the sent job leads, then by recency
+  // (`jobs` arrives ranked); a found job takes the oldest unpicked tile.
+  const grid = jobTiles({
+    ranked: jobs,
+    pickedJobId: leave ? null : effectiveJobId,
+    lead: sentJobId,
+    found: foundJob ? [foundJob] : [],
+  });
 
   function payload(): PatchTimeEntryPayload | null {
     if (leave)
@@ -184,12 +193,12 @@ export function FixSheet({
             <p className="font-display text-[15px] font-bold">Change what&rsquo;s wrong</p>
 
             {!split ? (
-              <JobChips
-                jobs={jobs}
+              <JobTiles
+                tiles={grid.tiles}
+                more={grid.more}
                 pickedJobId={leave ? null : effectiveJobId}
                 lastJobId={sentJobId}
                 sentJobId={sentJobId}
-                foundJob={foundJob ?? null}
                 date={entry.date}
                 onPick={(id) => {
                   setJobId(id);

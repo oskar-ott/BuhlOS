@@ -51,6 +51,16 @@ const JOBS = [
   { id: "mascot", name: "Mascot warehouse", address: "4 Bourke Rd, Mascot" },
 ];
 
+/** Nine jobs: the grid must not grow with them. */
+const NINE = ["a", "b", "c", "d", "e", "f", "g", "h", "i"].map((id) => ({
+  id,
+  name: `Job ${id.toUpperCase()}`,
+  address: `${id} Street, Suburb ${id.toUpperCase()}`,
+}));
+
+const tileCount = (html: string) => (html.match(/data-testid="hours-job-tile-/g) ?? []).length;
+const findCount = (html: string) => (html.match(/data-testid="hours-find-job"/g) ?? []).length;
+
 /** Visible words only: tags stripped, both apostrophe encodings normalised. */
 function words(html: string): string {
   return html
@@ -140,7 +150,7 @@ describe("PhilHoursView — this week", () => {
     expect(html).not.toContain('data-testid="hours-action-tafe"');
   });
 
-  it("several jobs with a last job: chips with the last job picked, Split jobs offered, TAFE for apprentices only", () => {
+  it("several jobs with a last job: tiles with the last job picked, Split jobs offered, TAFE for apprentices only", () => {
     const html = render({
       jobs: JOBS,
       entries: [entry({ date: "2026-10-09", allocations: [{ jobId: "mascot", hours: 7.6 }] })],
@@ -152,6 +162,67 @@ describe("PhilHoursView — this week", () => {
     expect(html).toContain('data-testid="hours-action-split"');
     expect(html).toContain('data-testid="hours-action-tafe"');
     expect(html).toContain("Find another job");
+  });
+
+  it("two jobs: two tiles plus the Find tile, no 'more' line", () => {
+    const html = render({
+      jobs: JOBS,
+      entries: [entry({ date: "2026-10-09", allocations: [{ jobId: "mascot", hours: 7.6 }] })],
+    });
+    expect(tileCount(html)).toBe(2);
+    expect(findCount(html)).toBe(1);
+    expect(html).not.toContain("more of yours");
+    expect(html).toContain('aria-label="Find another job"');
+    expect(html).toContain('role="radiogroup" aria-label="Job for Monday"');
+  });
+
+  it("three jobs: three tiles plus the Find tile, no 'more' line", () => {
+    const html = render({
+      jobs: NINE.slice(0, 3),
+      entries: [entry({ date: "2026-10-09", allocations: [{ jobId: "b", hours: 7.6 }] })],
+    });
+    expect(tileCount(html)).toBe(3);
+    expect(findCount(html)).toBe(1);
+    expect(html).not.toContain("more of yours");
+  });
+
+  it("nine jobs: still exactly three tiles plus Find · 6 more of yours — the same grid as for three", () => {
+    const html = render({
+      jobs: NINE,
+      entries: [
+        entry({ date: "2026-10-09", allocations: [{ jobId: "g", hours: 7.6 }] }),
+        entry({ date: "2026-10-08", allocations: [{ jobId: "b", hours: 7.6 }] }),
+        entry({ date: "2026-10-07", allocations: [{ jobId: "c", hours: 7.6 }] }),
+        entry({ date: "2026-10-01", allocations: [{ jobId: "a", hours: 7.6 }] }),
+      ],
+    });
+    expect(tileCount(html)).toBe(3);
+    expect(findCount(html)).toBe(1);
+    // The last logged job leads and is the default; one tap logs to it.
+    expect(html).toMatch(/hours-job-tile-g"[^>]*/);
+    expect(html.indexOf("hours-job-tile-g")).toBeLessThan(html.indexOf("hours-job-tile-b"));
+    expect(html.indexOf("hours-job-tile-b")).toBeLessThan(html.indexOf("hours-job-tile-c"));
+    expect(html).toContain("Your last job");
+    expect(html).toContain("Log Monday · 7h 36m");
+    expect(html).toContain("Job G · sends to the office");
+    expect(html).toContain("6 more of yours");
+    expect(html).toContain('aria-label="Find another job, 6 more of yours"');
+    // Not a tile: the other six are behind Find, never in the dock.
+    expect(html).not.toContain("hours-job-tile-a");
+    expect(html).not.toContain("hours-job-tile-i");
+  });
+
+  it("the tile grid is the same shape for three jobs and for nine — never more than four cells", () => {
+    const three = render({
+      jobs: NINE.slice(0, 3),
+      entries: [entry({ date: "2026-10-09", allocations: [{ jobId: "b", hours: 7.6 }] })],
+    });
+    const nine = render({
+      jobs: NINE,
+      entries: [entry({ date: "2026-10-09", allocations: [{ jobId: "b", hours: 7.6 }] })],
+    });
+    expect(tileCount(three) + findCount(three)).toBe(4);
+    expect(tileCount(nine) + findCount(nine)).toBe(4);
   });
 
   it("no assigned job: the reason in words plus Sick day · Holiday", () => {
@@ -212,27 +283,60 @@ describe("PhilHoursView — failed load is its own screen", () => {
   });
 });
 
-describe("FindJobSheet — leave days are never jobs", () => {
-  it("lists jobs by name and address only; Sick day / Holiday / TAFE never appear", () => {
-    const html = renderToString(
+describe("FindJobSheet — the job sheet behind the Find tile", () => {
+  const sheet = (over: Partial<Parameters<typeof FindJobSheet>[0]> = {}) =>
+    renderToString(
       createElement(FindJobSheet, {
         open: true,
         onClose: () => {},
         date: TODAY,
+        tiles: JOBS,
         jobs: JOBS,
         currentJobId: "bondi",
         entries: [entry({ date: "2026-10-13", allocations: [{ jobId: "mascot", hours: 7.6 }] })],
         onPick: () => {},
+        ...over,
       })
     );
+
+  it("search at the top, the tiled jobs under 'On your week now' with the picked one ticked", () => {
+    const html = sheet();
     expect(html).toContain("Search all jobs, finished ones too");
+    expect(html).toContain('placeholder="Job name or address, finished too"');
+    expect(html).toContain("On your week now");
     expect(html).toContain("Bondi switchboard");
-    expect(html).toContain("Your last job");
-    expect(html).toContain("Logged Tue 13 Oct");
+    expect(html).toMatch(/aria-current="true"[^>]*hours-job-row-bondi"/);
+    expect(html).toContain("Picked · Bondi · not logged yet");
+    expect(html).toContain("Mascot · Logged Tue 13 Oct");
+    // Two jobs, both tiled: there is no "Your other jobs" section at all.
+    expect(html).not.toContain("Your other jobs");
+  });
+
+  it("nine jobs: the three tiled, then 'Your other jobs · 6' with suburb and last-logged date", () => {
+    const html = sheet({
+      tiles: [NINE[6]!, NINE[1]!, NINE[2]!],
+      jobs: [NINE[6]!, NINE[1]!, NINE[2]!, ...NINE.filter((j) => !["g", "b", "c"].includes(j.id))],
+      currentJobId: "g",
+      entries: [entry({ date: "2026-10-09", allocations: [{ jobId: "g", hours: 7.6 }] })],
+    });
+    expect(html).toContain("Your other jobs · 6");
+    const others = html.slice(html.indexOf('data-testid="hours-find-others"'));
+    expect(others).toContain("hours-job-row-a");
+    expect(others).toContain("Suburb A · not logged yet");
+    expect(others).not.toContain("hours-job-row-g");
+    const onWeek = html.slice(
+      html.indexOf('data-testid="hours-find-on-week"'),
+      html.indexOf('data-testid="hours-find-others"')
+    );
+    expect(onWeek).toContain("Picked · Suburb G · Logged Fri 9 Oct");
+  });
+
+  it("lists jobs by name and address only; Sick day / Holiday / TAFE never appear", () => {
+    const html = sheet();
     // The job list holds jobs only — no leave row can be tapped by someone
     // looking for a job (the footer merely NAMES the Sick day / Holiday buttons).
     const list = html.slice(
-      html.indexOf('<section aria-label="Your jobs"'),
+      html.indexOf('<section aria-label="On your week now"'),
       html.indexOf("</section>")
     );
     expect(list).toContain("hours-job-row-bondi");

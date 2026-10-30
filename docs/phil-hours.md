@@ -23,8 +23,8 @@ P12 (leave days never sit beside jobs; every consequence is said first).
 | The screen | `src/components/phil/hours/PhilHoursView.tsx` |
 | Week rows · bottom panel · earlier weeks | `HoursWeekCard.tsx` · `HoursBottomPanel.tsx` · `EarlierWeeks.tsx` |
 | Sheets | `OtSheet.tsx` (weekday OT / weekend / change) · `FindJobSheet.tsx` · `LeaveSheet.tsx` · `SplitSheet.tsx` · `DayDetailSheet.tsx` · `FixSheet.tsx` |
-| Shell + fields | `HoursSheet.tsx` · `HmField.tsx` (h + m with steppers) · `JobChips.tsx` · `LeavePills.tsx` · `StatusPill.tsx` · `ProblemBlock.tsx` |
-| Pure rules | `src/domains/timesheets/hours-view.ts` (window, OT maths, auto-advance, summary, receipts, job search) |
+| Shell + fields | `HoursSheet.tsx` · `HmField.tsx` (h + m with steppers) · `JobTiles.tsx` (the capped grid) · `LeavePills.tsx` · `StatusPill.tsx` · `ProblemBlock.tsx` |
+| Pure rules | `src/domains/timesheets/hours-view.ts` (window, OT maths, auto-advance, summary, receipts, job ranking + the tile cap, job search) |
 | Sending + Try again | `src/domains/timesheets/hours-save.ts` (re-read first; never send twice) |
 
 Data is the existing model, unchanged: `GET /api/time-entries` (full history,
@@ -52,8 +52,44 @@ or concepts. Payloads come from the existing builders in `service.ts` and
   23h 48m` or `Nothing logged yet this week`. Never "Off", "3 of 4", "to go",
   "week done".
 - **Jobs are never fixed.** Every worker can change the job for the day they're
-  logging (one job → a field with Change ›; several → chips). A pick applies to
-  the picked day only.
+  logging. A pick applies to the picked day only.
+- **The job picker is a fixed, capped grid — the standard (2026-10-30).** The
+  dock shows at most **3 job tiles plus a 4th "Find another job" tile** in a
+  2-column grid — never more, whatever the job count — so the dock is the same
+  height for 3 jobs as for 30 and the week and the Log button stay on screen
+  (P10). It replaces the earlier "several jobs → chips that grow with the
+  count" rule. `rankJobsByRecency` + `jobTiles` in `hours-view.ts`:
+  - **Which 3:** the worker's **last logged job** (the default selection; its
+    tile says "Your last job"), then the next two most recently logged. Ties
+    (a split day) and never-logged jobs order by **the order the office
+    assigned them, newest first** (users.json `assignedJobIds`), then by name.
+    _The design asked for "assigned this week first, then most recently
+    assigned"; no assigned-at date is stored, so assignment order is the
+    nearest real fact and "this week" cannot be told. Add an assigned-at
+    stamp before claiming it._
+  - **The Find tile** reads "Find another job"; when more of the worker's own
+    jobs exist beyond the 3 shown, a subline says "N more of yours" (never
+    "0 more"). Its accessible name carries the count.
+  - **Counts:** 1 job → no grid, the single "Job for ‹day› · Change" row.
+    2 jobs → 2 tiles + Find. 3 jobs → 3 tiles + Find, no subline. 4+ → 3
+    tiles + "Find another job · N more of yours".
+  - **The job sheet** (behind Find, and behind Change): search at the top
+    ("Job name or address, finished too" — every job, finished ones through
+    the history search), then **On your week now** (the tiled jobs, the picked
+    one ticked), then **Your other jobs · N** (every other assigned job with
+    suburb and last-logged date, or "not logged yet"), scrolling inside the
+    sheet. Picking closes the sheet and selects the job for the picked day.
+  - **A found job takes the place of the oldest unpicked tile — for this
+    session only.** The next load ranks the tiles from recency again; there
+    is no pinning. The Log button restates the pick.
+  - **Split jobs** and the **Fix sheet** use the same capped set: a split
+    row's picker is the tiles plus "Find another job" (the same sheet); the
+    Fix sheet's tiles lead with the job that was sent.
+  - Sick day, Holiday and TAFE day are never tiles and never in search; they
+    stay in the action bar (P12).
+  - Tiles are a radiogroup labelled "Job for ‹day›"; the Find tile is its own
+    button. Targets ≥ 44px, tiles ≥ 52px; at 130% text the tiles grow and
+    labels wrap — the cap holds.
 - **No delete.** The day-detail sheet says: "Logged days can't be deleted.
   Change the hours instead, or ask the office."
 - **No promises**: no "you'll be notified", no approval ETAs, no reviewer
@@ -97,8 +133,8 @@ catches up, so the row never vanishes on refresh.
 ## Tap counts
 
 Standard day 1 · Mon–Fri catch-up 5 · +1h OT 3 (Custom or OT → chip → Send) ·
-log on a different listed job 2 · sick day 2 · fix a wrong job 3 (Fix → chip →
-Send).
+log on a tiled job 2 · log on a job without a tile 3 (Find → job → Log) · sick
+day 2 · fix a wrong job 3 (Fix → tile → Send).
 
 ## Arrival
 
@@ -124,15 +160,28 @@ was built:
    Change these hours, a leave day with plain hours (no OT).
 6. **Pull-to-refresh** exists on every field screen (PhilShell).
 
+Owner rulings on the capped grid (2026-10-30):
+
+7. A job picked from search **replaces a tile for the session only**, never
+   permanently — the next load ranks from recency (no pinning yet).
+8. With **2 jobs the Find tile still shows** (it is the only way to a
+   finished job for callback work).
+9. With **exactly 3 jobs the "N more" subline is left off** — nothing is
+   hidden, so there is nothing to count.
+
 ## Tests
 
 - `hours-view.test.ts` — the 14-day window, OT maths and the 16h cap, the
   weekend all-OT rule, the summary that counts only what's logged, initial
   pick + auto-advance (weekdays only, never a weekend), receipts, earlier
-  weeks, job search never returning a leave day.
+  weeks, job search never returning a leave day, the job tiles (recency
+  first, the assignment-order tie-break, the cap at 3, a found job taking the
+  oldest unpicked tile, the Find tile's words).
 - `hours-save.test.ts` — refused vs unconfirmed, and Try again re-reads first
   and never sends twice (same key when it does resend).
 - `PhilHoursView.render.test.tsx` — SSR smoke: every panel state, the fix line,
-  the failed-load screen shows **no numbers**, Find another job lists no leave.
+  the failed-load screen shows **no numbers**, 2 / 3 / 9 jobs render 3, 4 and
+  4 cells (never more), the job sheet's two sections, Find another job lists
+  no leave.
 - Preview Smoke (`tests/playwright/helpers/fieldReadiness.ts`) drives the
   `hours-log-primary` button and asserts the POST carries the assigned job.

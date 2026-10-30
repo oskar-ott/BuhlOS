@@ -108,6 +108,7 @@ export default async function PhilHoursPage({
         todayISO={todayISO}
         jobs={jobs.jobs}
         jobsError={jobs.error}
+        assignedJobOrder={loadedJobs.assignedJobIds}
         viewerId={session.userId ?? null}
         canLogTafe={canLogTafe}
         launchLog={launchLog}
@@ -186,18 +187,25 @@ async function loadAssignedJobs(cookieValue: string | undefined): Promise<{
   jobs: ReadonlyArray<HoursJob>;
   /** Every job the crew may still open (closed ones too) — from the same read. */
   openable: ReadonlyArray<HoursJob>;
+  /** The order the office assigned them (users.json assignedJobIds, newest
+   *  last) — the tie-break between jobs never logged (hours-view.ts). */
+  assignedJobIds: ReadonlyArray<string>;
   error: boolean;
 }> {
+  const failed = { jobs: [], openable: [], assignedJobIds: [], error: true };
   try {
     const res = await loadFieldJobsInProcess(cookieValue);
-    if (!res.ok) return { jobs: [], openable: [], error: true };
+    if (!res.ok) return failed;
     const parsed = JobListResponseSchema.safeParse({ jobs: res.jobs });
-    if (!parsed.success) return { jobs: [], openable: [], error: true };
+    if (!parsed.success) return failed;
     const jobs = parsed.data.jobs.filter((j) => isVisibleToField(j)).map(toHoursJob);
     const openableParsed = JobListResponseSchema.safeParse({ jobs: res.openable ?? [] });
     const openable = openableParsed.success ? openableParsed.data.jobs.map(toHoursJob) : [];
-    return { jobs, openable, error: false };
+    const assignedJobIds = (res.assignedJobIds ?? []).filter(
+      (id): id is string => typeof id === "string"
+    );
+    return { jobs, openable, assignedJobIds, error: false };
   } catch {
-    return { jobs: [], openable: [], error: true };
+    return failed;
   }
 }

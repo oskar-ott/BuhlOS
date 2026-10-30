@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { Plus } from "lucide-react";
+import { Plus, Search } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { formatHoursLabel } from "@/domains/timesheets/format";
 import {
@@ -12,11 +12,14 @@ import {
 import {
   dayDate,
   hoursFromMinutes,
+  jobTiles,
   minutesFromHours,
   weekdayName,
   type HoursJob,
 } from "@/domains/timesheets/hours-view";
 import type { HoursProblem } from "@/domains/timesheets/problem";
+import type { TimeEntry } from "@/domains/timesheets/types";
+import { FindJobSheet } from "./FindJobSheet";
 import { HmField } from "./HmField";
 import { HoursSheet } from "./HoursSheet";
 
@@ -27,6 +30,12 @@ import { HoursSheet } from "./HoursSheet";
  * the remainder ("Worked out for you: day total minus the jobs before it"),
  * and `Add another job`. The worker never does the subtraction. OT is a
  * property of the day: the server splits it on the total.
+ *
+ * A row's job picker is the same capped set as the dock (`jobTiles` over
+ * `jobs`, which arrives ranked by recency) plus "Find another job", which
+ * opens the same job sheet for anything beyond those tiles; a job picked
+ * there joins the row and is reported up (`onFound`) so the dock's tiles
+ * agree for the rest of the session.
  *
  * `onSubmit` hands back the total and the allocations (every row a real job,
  * every row > 0, rows summing to the total). In `pick` mode (the Fix sheet)
@@ -42,6 +51,9 @@ export function SplitSheet({
   onClose,
   date,
   jobs,
+  found = [],
+  entries = [],
+  onFound,
   defaultJobId,
   initialTotal = STANDARD_DAY_HOURS,
   initialRows,
@@ -53,7 +65,14 @@ export function SplitSheet({
   open: boolean;
   onClose: () => void;
   date: string;
+  /** The worker's jobs by recency (`rankJobsByRecency`). */
   jobs: ReadonlyArray<HoursJob>;
+  /** Jobs found through search this session (the dock's), oldest first. */
+  found?: ReadonlyArray<HoursJob>;
+  /** The worker's entries — the job sheet's "Logged Tue 13 Oct" lines. */
+  entries?: ReadonlyArray<Pick<TimeEntry, "date" | "allocations">>;
+  /** A job picked through Find another job from a row. */
+  onFound?: (job: HoursJob) => void;
   defaultJobId: string | null;
   initialTotal?: number;
   initialRows?: ReadonlyArray<SplitRowSeed>;
@@ -80,6 +99,11 @@ export function SplitSheet({
     ];
   });
   const [changingRow, setChangingRow] = useState<number | null>(null);
+  const [findingRow, setFindingRow] = useState<number | null>(null);
+  // Jobs found from a row this sheet is open — kept so a row can name them.
+  const [extra, setExtra] = useState<HoursJob[]>([]);
+  const foundAll = dedupe([...found, ...extra]);
+  const allJobs = dedupe([...jobs, ...foundAll]);
 
   const earlier = rows.slice(0, -1);
   const usedMinutes = earlier.reduce((s, r) => s + r.minutes, 0);
@@ -87,9 +111,24 @@ export function SplitSheet({
   const effectiveMinutes = (i: number) =>
     i === rows.length - 1 ? remainderMinutes : rows[i]!.minutes;
 
-  const jobName = (id: string | null) => jobs.find((j) => j.id === id)?.name ?? null;
+  const jobName = (id: string | null) => allJobs.find((j) => j.id === id)?.name ?? null;
   const taken = new Set(rows.map((r) => r.jobId).filter(Boolean) as string[]);
-  const canAdd = jobs.some((j) => !taken.has(j.id));
+  const canAdd = allJobs.some((j) => !taken.has(j.id));
+  /** The tiles a row can pick from: the dock's capped set, minus other rows' jobs. */
+  const tilesFor = (row: { jobId: string | null }) =>
+    jobTiles({ ranked: jobs, pickedJobId: row.jobId, found: foundAll }).tiles.filter(
+      (j) => !taken.has(j.id) || j.id === row.jobId
+    );
+  function setRowJob(i: number, job: HoursJob) {
+    setRows((prev) => prev.map((r, k) => (k === i ? { ...r, jobId: job.id } : r)));
+    setChangingRow(null);
+  }
+  function foundForRow(i: number, job: HoursJob) {
+    setExtra((prev) => (prev.some((j) => j.id === job.id) ? prev : [...prev, job]));
+    onFound?.(job);
+    setRowJob(i, job);
+    setFindingRow(null);
+  }
 
   // Why the day can't be sent yet, in order of what the worker fixes first.
   let reason: string | null = null;
@@ -125,101 +164,98 @@ export function SplitSheet({
   }
 
   return (
-    <HoursSheet
-      open={open}
-      onClose={onClose}
-      title="Split jobs"
-      subtitle={`${dayDate(date)} · ${rows.length} jobs`}
-      testId="hours-sheet-split"
-      nested={pick}
-      footer={{
-        problem: problem ?? null,
-        review: reason ? null : { lead: "You're sending", line: receipt },
-        reason,
-        send: {
-          label: pick
-            ? `Use these ${rows.length} jobs`
-            : `Send ${weekdayName(date)} · ${rows.length} jobs`,
-          sub: pick ? undefined : "Goes to the office",
-          onClick: submit,
-          busy,
-          testId: "hours-split-send",
-        },
-      }}
-    >
-      <div className="space-y-5">
-        <section>
-          <h3 className="mb-2 font-display text-[15px] font-bold">1 · Day total</h3>
-          <div role="radiogroup" aria-label="Day total" className="grid grid-cols-2 gap-2">
-            <Option
-              active={!differentTotal}
-              onClick={() => {
-                setDifferentTotal(false);
-                setTotalMinutes(STANDARD_DAY_MINUTES);
-              }}
-              label="Standard day"
-              caption={formatHoursLabel(STANDARD_DAY_HOURS)}
-            />
-            <Option
-              active={differentTotal}
-              onClick={() => setDifferentTotal(true)}
-              label="Different total"
-              caption="set hours + minutes"
-            />
-          </div>
-          {differentTotal ? (
-            <div className="mt-3">
-              <HmField
-                label="Day total"
-                minutes={totalMinutes}
-                onChange={setTotalMinutes}
-                minuteStep={15}
-                maxMinutes={MAX_HOURS_PER_DAY * 60}
-                testId="hours-split-total"
+    <>
+      <HoursSheet
+        open={open}
+        onClose={onClose}
+        title="Split jobs"
+        subtitle={`${dayDate(date)} · ${rows.length} jobs`}
+        testId="hours-sheet-split"
+        nested={pick}
+        footer={{
+          problem: problem ?? null,
+          review: reason ? null : { lead: "You're sending", line: receipt },
+          reason,
+          send: {
+            label: pick
+              ? `Use these ${rows.length} jobs`
+              : `Send ${weekdayName(date)} · ${rows.length} jobs`,
+            sub: pick ? undefined : "Goes to the office",
+            onClick: submit,
+            busy,
+            testId: "hours-split-send",
+          },
+        }}
+      >
+        <div className="space-y-5">
+          <section>
+            <h3 className="mb-2 font-display text-[15px] font-bold">1 · Day total</h3>
+            <div role="radiogroup" aria-label="Day total" className="grid grid-cols-2 gap-2">
+              <Option
+                active={!differentTotal}
+                onClick={() => {
+                  setDifferentTotal(false);
+                  setTotalMinutes(STANDARD_DAY_MINUTES);
+                }}
+                label="Standard day"
+                caption={formatHoursLabel(STANDARD_DAY_HOURS)}
+              />
+              <Option
+                active={differentTotal}
+                onClick={() => setDifferentTotal(true)}
+                label="Different total"
+                caption="set hours + minutes"
               />
             </div>
-          ) : null}
-        </section>
+            {differentTotal ? (
+              <div className="mt-3">
+                <HmField
+                  label="Day total"
+                  minutes={totalMinutes}
+                  onChange={setTotalMinutes}
+                  minuteStep={15}
+                  maxMinutes={MAX_HOURS_PER_DAY * 60}
+                  testId="hours-split-total"
+                />
+              </div>
+            ) : null}
+          </section>
 
-        <section>
-          <h3 className="mb-2 font-display text-[15px] font-bold">2 · Hours on each job</h3>
-          <ul className="space-y-2">
-            {rows.map((row, i) => {
-              const last = i === rows.length - 1;
-              const name = jobName(row.jobId);
-              return (
-                <li
-                  key={i}
-                  className="rounded-[16px] border border-border bg-surface p-3"
-                  data-testid={`hours-split-row-${i}`}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="min-w-0 font-display text-[16px] font-bold">
-                      {name ?? <span className="text-state-warning">Pick a job</span>}
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => setChangingRow(changingRow === i ? null : i)}
-                      aria-expanded={changingRow === i}
-                      className="min-h-[44px] shrink-0 px-2 font-display text-[14px] font-semibold text-brand-navy underline-offset-2 active:underline"
-                    >
-                      {name ? "Change job" : "Pick job"}
-                    </button>
-                  </div>
-                  {changingRow === i ? (
-                    <ul className="mt-2 divide-y divide-[#eef2f6] overflow-hidden rounded-card border border-border">
-                      {jobs
-                        .filter((j) => !taken.has(j.id) || j.id === row.jobId)
-                        .map((j) => (
+          <section>
+            <h3 className="mb-2 font-display text-[15px] font-bold">2 · Hours on each job</h3>
+            <ul className="space-y-2">
+              {rows.map((row, i) => {
+                const last = i === rows.length - 1;
+                const name = jobName(row.jobId);
+                return (
+                  <li
+                    key={i}
+                    className="rounded-[16px] border border-border bg-surface p-3"
+                    data-testid={`hours-split-row-${i}`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="min-w-0 font-display text-[16px] font-bold">
+                        {name ?? <span className="text-state-warning">Pick a job</span>}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setChangingRow(changingRow === i ? null : i)}
+                        aria-expanded={changingRow === i}
+                        className="min-h-[44px] shrink-0 px-2 font-display text-[14px] font-semibold text-brand-navy underline-offset-2 active:underline"
+                      >
+                        {name ? "Change job" : "Pick job"}
+                      </button>
+                    </div>
+                    {changingRow === i ? (
+                      <ul
+                        className="mt-2 divide-y divide-[#eef2f6] overflow-hidden rounded-card border border-border"
+                        data-testid={`hours-split-picker-${i}`}
+                      >
+                        {tilesFor(row).map((j) => (
                           <li key={j.id}>
                             <button
                               type="button"
-                              onClick={() => {
-                                setRows((prev) =>
-                                  prev.map((r, k) => (k === i ? { ...r, jobId: j.id } : r))
-                                );
-                                setChangingRow(null);
-                              }}
+                              onClick={() => setRowJob(i, j)}
                               className={cn(
                                 "flex min-h-[48px] w-full items-center px-3 text-left text-[15px]",
                                 j.id === row.jobId
@@ -231,65 +267,96 @@ export function SplitSheet({
                             </button>
                           </li>
                         ))}
-                    </ul>
-                  ) : null}
-                  {last ? (
-                    <div className="mt-2">
-                      <p
-                        className="font-display text-[18px] font-bold tabular-nums"
-                        data-testid="hours-split-remainder"
-                      >
-                        {`remainder · ${formatHoursLabel(hoursFromMinutes(remainderMinutes))}`}
-                      </p>
-                      <p className="text-[13px] text-text-muted">
-                        Worked out for you: day total minus the jobs before it
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="mt-2">
-                      <HmField
-                        label={`Hours on ${name ?? "this job"}`}
-                        minutes={row.minutes}
-                        onChange={(m) =>
-                          setRows((p) => p.map((r, k) => (k === i ? { ...r, minutes: m } : r)))
-                        }
-                        minuteStep={15}
-                        maxMinutes={Math.max(0, totalMinutes - 15)}
-                        testId={`hours-split-field-${i}`}
-                      />
-                      {rows.length > 2 ? (
-                        <button
-                          type="button"
-                          onClick={() => setRows((p) => p.filter((_r, k) => k !== i))}
-                          className="mt-1 min-h-[44px] px-2 text-[14px] font-semibold text-text-muted"
+                        <li>
+                          <button
+                            type="button"
+                            onClick={() => setFindingRow(i)}
+                            data-testid={`hours-split-find-${i}`}
+                            className="flex min-h-[48px] w-full items-center gap-2 px-3 text-left text-[15px] font-semibold text-text active:bg-surface-subtle"
+                          >
+                            <Search aria-hidden="true" className="h-4 w-4 text-text-muted" />
+                            Find another job
+                          </button>
+                        </li>
+                      </ul>
+                    ) : null}
+                    {last ? (
+                      <div className="mt-2">
+                        <p
+                          className="font-display text-[18px] font-bold tabular-nums"
+                          data-testid="hours-split-remainder"
                         >
-                          Remove this job
-                        </button>
-                      ) : null}
-                    </div>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-          {canAdd ? (
-            <button
-              type="button"
-              onClick={() => {
-                const next = jobs.find((j) => !taken.has(j.id));
-                if (next) setRows((p) => [...p, { jobId: next.id, minutes: 0 }]);
-              }}
-              data-testid="hours-split-add"
-              className="mt-2 flex min-h-[48px] w-full items-center justify-center gap-2 rounded-card border border-dashed border-border-strong font-display text-[15px] font-semibold text-text active:bg-surface-subtle"
-            >
-              <Plus aria-hidden="true" className="h-4 w-4" />
-              Add another job
-            </button>
-          ) : null}
-        </section>
-      </div>
-    </HoursSheet>
+                          {`remainder · ${formatHoursLabel(hoursFromMinutes(remainderMinutes))}`}
+                        </p>
+                        <p className="text-[13px] text-text-muted">
+                          Worked out for you: day total minus the jobs before it
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="mt-2">
+                        <HmField
+                          label={`Hours on ${name ?? "this job"}`}
+                          minutes={row.minutes}
+                          onChange={(m) =>
+                            setRows((p) => p.map((r, k) => (k === i ? { ...r, minutes: m } : r)))
+                          }
+                          minuteStep={15}
+                          maxMinutes={Math.max(0, totalMinutes - 15)}
+                          testId={`hours-split-field-${i}`}
+                        />
+                        {rows.length > 2 ? (
+                          <button
+                            type="button"
+                            onClick={() => setRows((p) => p.filter((_r, k) => k !== i))}
+                            className="mt-1 min-h-[44px] px-2 text-[14px] font-semibold text-text-muted"
+                          >
+                            Remove this job
+                          </button>
+                        ) : null}
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+            {canAdd ? (
+              <button
+                type="button"
+                onClick={() => {
+                  const next = allJobs.find((j) => !taken.has(j.id));
+                  if (next) setRows((p) => [...p, { jobId: next.id, minutes: 0 }]);
+                }}
+                data-testid="hours-split-add"
+                className="mt-2 flex min-h-[48px] w-full items-center justify-center gap-2 rounded-card border border-dashed border-border-strong font-display text-[15px] font-semibold text-text active:bg-surface-subtle"
+              >
+                <Plus aria-hidden="true" className="h-4 w-4" />
+                Add another job
+              </button>
+            ) : null}
+          </section>
+        </div>
+      </HoursSheet>
+      {findingRow !== null && open ? (
+        <FindJobSheet
+          key={`split-find-${findingRow}`}
+          open
+          nested
+          onClose={() => setFindingRow(null)}
+          date={date}
+          tiles={tilesFor(rows[findingRow] ?? { jobId: null })}
+          jobs={jobs}
+          currentJobId={rows[findingRow]?.jobId ?? null}
+          entries={entries}
+          onPick={(job) => foundForRow(findingRow, job)}
+        />
+      ) : null}
+    </>
   );
+}
+
+function dedupe(jobs: ReadonlyArray<HoursJob>): HoursJob[] {
+  const seen = new Set<string>();
+  return jobs.filter((j) => (seen.has(j.id) ? false : (seen.add(j.id), true)));
 }
 
 function Option({

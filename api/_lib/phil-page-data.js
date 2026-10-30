@@ -88,7 +88,7 @@ async function loadWorkerEntriesInProcess(cookieValue, { fromDate, toDate } = {}
  */
 async function loadFieldJobsInProcess(cookieValue, deps = realDeps()) {
   const user = await deps.getCurrentUser(reqFromCookieValue(cookieValue));
-  if (!user) return { ok: false, jobs: [], openable: [] };
+  if (!user) return { ok: false, jobs: [], openable: [], assignedJobIds: [] };
   let records = null;
   if (deps.isFieldRole(user.role) || deps.isLeadingHandRole(user.role)) {
     try {
@@ -114,11 +114,17 @@ async function loadFieldJobsInProcess(cookieValue, deps = realDeps()) {
   // store that second wave (user record again, jobs stamp, summary) cost as
   // much as the first. Never sent to the client as-is: pages project to the
   // few fields they render.
+  //
+  // `assignedJobIds` (2026-10-30) is the worker's own assignment list in the
+  // order the office built it (api/crew.js appends) — the only assignment
+  // order that exists, since no assigned-at date is stored. The Hours
+  // screen's job tiles use it to order jobs that have never been logged.
   const all = records.filter((j) => j);
   return {
     ok: true,
     jobs: all.filter((j) => isFieldListedByDefault(j)),
     openable: all.filter((j) => isFieldOpenable(j)),
+    assignedJobIds: Array.isArray(user.assignedJobIds) ? user.assignedJobIds.map(String) : [],
   };
 }
 

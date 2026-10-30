@@ -8,16 +8,20 @@ import {
   defaultJobId,
   draftSendBlockReason,
   entryTarget,
+  findTileWords,
   fixNeededLine,
   initialPick,
   isLoggableDate,
+  jobTiles,
   leaveOptions,
   nextPickAfterSave,
   oldestLoggableDate,
   otPresetLabel,
+  rankJobsByRecency,
   receiptLine,
   searchJobs,
   splitLabel,
+  suburbOf,
   weekRangeLabel,
   weekRows,
   weekSummaryLine,
@@ -275,6 +279,128 @@ describe("jobs", () => {
   it("TAFE is offered to apprentices only", () => {
     expect(leaveOptions(false)).toEqual(["sick", "holiday"]);
     expect(leaveOptions(true)).toEqual(["sick", "holiday", "tafe"]);
+  });
+});
+
+describe("the job tiles — which jobs get one of the three", () => {
+  const job = (id: string, name = id) => ({ id, name });
+  /** Nine jobs: more than the grid can ever show. */
+  const NINE = ["a", "b", "c", "d", "e", "f", "g", "h", "i"].map((id) => job(id, `Job ${id}`));
+  const on = (date: string, ...jobIds: string[]) =>
+    entry({
+      date,
+      allocations: jobIds.map((jobId) => ({ jobId, hours: 7.6 / jobIds.length })),
+    });
+
+  it("recency first: the job logged last leads, then the next most recent", () => {
+    const ranked = rankJobsByRecency(NINE, [
+      on("2026-10-01", "c"),
+      on("2026-10-14", "g"),
+      on("2026-10-09", "b"),
+      on("2026-10-13", "g"), // an older day on the same job doesn't demote it
+    ]);
+    expect(ranked.slice(0, 3).map((j) => j.id)).toEqual(["g", "b", "c"]);
+  });
+
+  it("a split day ties its jobs on the date; the tie-break is the office's assignment order, newest first", () => {
+    const assigned = ["a", "b", "c", "d", "e", "f", "g", "h", "i"];
+    const ranked = rankJobsByRecency(NINE, [on("2026-10-14", "b", "h")], assigned);
+    // h was assigned after b, so h leads the tie.
+    expect(ranked.slice(0, 2).map((j) => j.id)).toEqual(["h", "b"]);
+  });
+
+  it("jobs never logged come after logged ones, by assignment order (newest first), then by name", () => {
+    const assigned = ["a", "b", "c", "d"];
+    const ranked = rankJobsByRecency(NINE, [on("2026-10-14", "e")], assigned);
+    // e is the only logged job; then d, c, b, a by assignment (newest first);
+    // the rest were never in the assignment list → by name.
+    expect(ranked.map((j) => j.id)).toEqual(["e", "d", "c", "b", "a", "f", "g", "h", "i"]);
+  });
+
+  it("without an assignment order, never-logged jobs fall back to name order", () => {
+    expect(rankJobsByRecency(JOBS, []).map((j) => j.id)).toEqual(["bondi", "castle", "mascot"]);
+  });
+
+  it("caps at three tiles however many jobs there are, and counts the rest as 'more of yours'", () => {
+    const ranked = rankJobsByRecency(NINE, [
+      on("2026-10-14", "g"),
+      on("2026-10-13", "b"),
+      on("2026-10-12", "c"),
+      on("2026-10-09", "a"),
+    ]);
+    const grid = jobTiles({ ranked, pickedJobId: "g", lead: "g" });
+    expect(grid.tiles.map((j) => j.id)).toEqual(["g", "b", "c"]);
+    expect(grid.more).toBe(6);
+    // Two or three jobs: every one has a tile, nothing more.
+    expect(jobTiles({ ranked: JOBS.slice(0, 2), pickedJobId: null })).toMatchObject({ more: 0 });
+    expect(jobTiles({ ranked: JOBS, pickedJobId: null }).tiles).toHaveLength(3);
+    expect(jobTiles({ ranked: JOBS, pickedJobId: null }).more).toBe(0);
+  });
+
+  it("the last logged job leads even when it's a split day's second job", () => {
+    const ranked = rankJobsByRecency(NINE, [on("2026-10-14", "a", "b")]);
+    expect(jobTiles({ ranked, pickedJobId: null, lead: "b" }).tiles[0]!.id).toBe("b");
+  });
+
+  it("a job found through search takes the place of the oldest tile that isn't the picked one", () => {
+    const ranked = rankJobsByRecency(NINE, [
+      on("2026-10-14", "g"),
+      on("2026-10-13", "b"),
+      on("2026-10-12", "c"),
+    ]);
+    const finished = { id: "old", name: "Old callback", completedAt: "2026-06-01" };
+    // The found job is the picked one: it replaces the third tile.
+    let grid = jobTiles({ ranked, pickedJobId: "old", lead: "g", found: [finished] });
+    expect(grid.tiles.map((j) => j.id)).toEqual(["g", "b", "old"]);
+    expect(grid.more).toBe(7); // c lost its tile, and it's one of theirs
+    // The worker then taps the third tile back... no: taps g — the found job stays this session.
+    grid = jobTiles({ ranked, pickedJobId: "g", lead: "g", found: [finished] });
+    expect(grid.tiles.map((j) => j.id)).toEqual(["g", "b", "old"]);
+    // Picked the oldest tile, then found another: the middle tile gives way.
+    grid = jobTiles({ ranked, pickedJobId: "c", lead: "g", found: [finished] });
+    expect(grid.tiles.map((j) => j.id)).toEqual(["g", "old", "c"]);
+    // One of their own jobs picked from "Your other jobs" behaves the same, and
+    // is still one of theirs — the count only drops for the tile it took.
+    grid = jobTiles({ ranked, pickedJobId: "h", lead: "g", found: [NINE[7]!] });
+    expect(grid.tiles.map((j) => j.id)).toEqual(["g", "b", "h"]);
+    expect(grid.more).toBe(6);
+    // A found job already on a tile changes nothing.
+    grid = jobTiles({ ranked, pickedJobId: "b", lead: "g", found: [NINE[1]!] });
+    expect(grid.tiles.map((j) => j.id)).toEqual(["g", "b", "c"]);
+  });
+
+  it("several found this session: the picked one always has a tile, then the newest picks", () => {
+    const ranked = rankJobsByRecency(NINE, [
+      on("2026-10-14", "g"),
+      on("2026-10-13", "b"),
+      on("2026-10-12", "c"),
+    ]);
+    const found = [job("f1"), job("f2"), job("f3"), job("f4")];
+    const grid = jobTiles({ ranked, pickedJobId: "f1", lead: "g", found });
+    expect(grid.tiles).toHaveLength(3);
+    expect(grid.tiles.map((j) => j.id)).toContain("f1");
+    expect(grid.tiles.map((j) => j.id)).toContain("f4");
+  });
+
+  it("the Find tile says how many more are theirs — never '0 more'", () => {
+    expect(findTileWords(6)).toEqual({
+      label: "Find another job",
+      sub: "6 more of yours",
+      ariaLabel: "Find another job, 6 more of yours",
+    });
+    expect(findTileWords(0)).toEqual({
+      label: "Find another job",
+      sub: null,
+      ariaLabel: "Find another job",
+    });
+  });
+
+  it("the suburb from a site address", () => {
+    expect(suburbOf("12 Campbell Pde, Bondi")).toBe("Bondi");
+    expect(suburbOf("12 Campbell Pde, Bondi NSW 2026")).toBe("Bondi");
+    expect(suburbOf("9 Old Northern Rd")).toBe("9 Old Northern Rd");
+    expect(suburbOf("")).toBeNull();
+    expect(suburbOf(null)).toBeNull();
   });
 });
 

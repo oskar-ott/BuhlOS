@@ -18,6 +18,9 @@ export interface InProcessJobsResult {
   /** Every job the crew may still open, closed ones included — from the same
    *  read, so a page can name a finished job without a second storage wave. */
   openable: unknown[];
+  /** The worker's own assignment list in the order the office built it
+   *  (newest last) — there is no assigned-at date. Empty when not ok. */
+  assignedJobIds: string[];
 }
 
 /** Fresh users.json user (password hash stripped) or null — shape-gate with parseSessionUser. */

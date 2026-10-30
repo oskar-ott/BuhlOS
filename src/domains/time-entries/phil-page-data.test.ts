@@ -22,8 +22,16 @@ const {
   loadFieldJobsByIdInProcess,
   loadIsApprenticeInProcess,
 } = requireFromHere(requireFromHere.resolve("../../../api/_lib/phil-page-data.js")) as {
-  loadFieldJobInProcess: (cookie: string | undefined, jobId: string, deps?: unknown) => Promise<Record<string, unknown> | null>;
-  loadFieldJobsByIdInProcess: (cookie: string | undefined, ids: string[], deps?: unknown) => Promise<Array<{ id: string }>>;
+  loadFieldJobInProcess: (
+    cookie: string | undefined,
+    jobId: string,
+    deps?: unknown
+  ) => Promise<Record<string, unknown> | null>;
+  loadFieldJobsByIdInProcess: (
+    cookie: string | undefined,
+    ids: string[],
+    deps?: unknown
+  ) => Promise<Array<{ id: string }>>;
   loadCurrentUserInProcess: (cookie: string | undefined, deps?: unknown) => Promise<unknown>;
   loadWorkerEntriesInProcess: (
     cookie: string | undefined,
@@ -33,7 +41,12 @@ const {
   loadFieldJobsInProcess: (
     cookie: string | undefined,
     deps?: unknown
-  ) => Promise<{ ok: boolean; jobs: unknown[]; openable: Array<{ id: string }> }>;
+  ) => Promise<{
+    ok: boolean;
+    jobs: unknown[];
+    openable: Array<{ id: string }>;
+    assignedJobIds: string[];
+  }>;
   loadIsApprenticeInProcess: (cookie: string | undefined, deps?: unknown) => Promise<boolean>;
 };
 
@@ -81,7 +94,11 @@ describe("loadWorkerEntriesInProcess", () => {
         { id: "e1", date: "2026-08-01", __idempotency: { key: "secret" } },
       ]),
     });
-    const res = await loadWorkerEntriesInProcess("c", { fromDate: "2026-07-27", toDate: "2026-08-03" }, d);
+    const res = await loadWorkerEntriesInProcess(
+      "c",
+      { fromDate: "2026-07-27", toDate: "2026-08-03" },
+      d
+    );
     expect(res.ok).toBe(true);
     expect(d.listUserEntries).toHaveBeenCalledWith("u1", {
       fromDate: "2026-07-27",
@@ -95,7 +112,7 @@ describe("loadFieldJobsInProcess", () => {
   it("returns ok:false without touching storage when unauthenticated", async () => {
     const d = deps({ getCurrentUser: vi.fn(async () => null) });
     const res = await loadFieldJobsInProcess(undefined, d);
-    expect(res).toEqual({ ok: false, jobs: [], openable: [] });
+    expect(res).toEqual({ ok: false, jobs: [], openable: [], assignedJobIds: [] });
     expect(d.readJobsSummary).not.toHaveBeenCalled();
     expect(d.readBlob).not.toHaveBeenCalled();
   });
@@ -200,7 +217,12 @@ describe("loadIsApprenticeInProcess", () => {
 describe("loadFieldJobsByIdInProcess / loadFieldJobInProcess", () => {
   const records = [
     { id: "live", name: "Live", status: "active" },
-    { id: "closed", name: "Old Depot", status: "complete", completedAt: "2025-11-02T00:00:00.000Z" },
+    {
+      id: "closed",
+      name: "Old Depot",
+      status: "complete",
+      completedAt: "2025-11-02T00:00:00.000Z",
+    },
     { id: "archived", name: "Gone", status: "archived" },
     { id: "draft", name: "Unpublished", status: "draft" },
   ];
@@ -220,10 +242,14 @@ describe("loadFieldJobsByIdInProcess / loadFieldJobInProcess", () => {
   it("falls back to jobs.json when the summary read fails; empty ids read nothing", async () => {
     const d = deps({
       getCurrentUser: vi.fn(async () => ({ id: "u1", role: "tradie" })),
-      readJobsSummary: vi.fn(async () => { throw new Error("summary down"); }),
+      readJobsSummary: vi.fn(async () => {
+        throw new Error("summary down");
+      }),
       readBlob: vi.fn(async () => ({ jobs: records })),
     });
-    expect((await loadFieldJobsByIdInProcess("c", ["closed"], d)).map((j) => j.id)).toEqual(["closed"]);
+    expect((await loadFieldJobsByIdInProcess("c", ["closed"], d)).map((j) => j.id)).toEqual([
+      "closed",
+    ]);
     expect(await loadFieldJobsByIdInProcess("c", [], d)).toEqual([]);
     expect(d.readBlob).toHaveBeenCalledTimes(1);
   });

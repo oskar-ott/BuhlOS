@@ -351,6 +351,131 @@ export function defaultJobId(input: {
   return null;
 }
 
+/* ── The job tiles (the capped grid) ───────────────────────────────────── */
+
+/**
+ * How many job tiles the dock shows, whatever the job count. A 4th tile is
+ * always "Find another job", so the grid is two rows for 2, 3 or 30 jobs and
+ * the dock's height never depends on how many jobs someone is on (P10).
+ */
+export const JOB_TILE_CAP = 3;
+
+/**
+ * The worker's jobs by recency: the job logged most recently first, then
+ * the next most recent, and so on. Jobs that tie (a split day logs two on
+ * one date) or have never been logged are ordered by the order the office
+ * assigned them, newest first (`assignedOrder` is users.json
+ * assignedJobIds — the only assignment order that exists; an assigned-at
+ * date is not stored, so "assigned this week" cannot be told apart from
+ * "assigned last month"), then by name. Pure and stable.
+ */
+export function rankJobsByRecency<J extends HoursJob>(
+  jobs: ReadonlyArray<J>,
+  entries: ReadonlyArray<Pick<TimeEntry, "date" | "allocations">>,
+  assignedOrder: ReadonlyArray<string> = []
+): J[] {
+  const lastLogged = new Map<string, string>();
+  for (const e of entries) {
+    for (const a of e.allocations ?? []) {
+      if (!a.jobId) continue;
+      const best = lastLogged.get(a.jobId);
+      if (!best || e.date > best) lastLogged.set(a.jobId, e.date);
+    }
+  }
+  const assignedRank = new Map(assignedOrder.map((id, i) => [id, i]));
+  return jobs
+    .map((job, i) => ({ job, i }))
+    .sort((a, b) => {
+      const la = lastLogged.get(a.job.id) ?? "";
+      const lb = lastLogged.get(b.job.id) ?? "";
+      if (la !== lb) return la > lb ? -1 : 1; // logged more recently first; never-logged last
+      const ra = assignedRank.get(a.job.id) ?? -1;
+      const rb = assignedRank.get(b.job.id) ?? -1;
+      if (ra !== rb) return rb - ra; // assigned later (further down the list) first
+      const byName = a.job.name.localeCompare(b.job.name);
+      return byName !== 0 ? byName : a.i - b.i;
+    })
+    .map((x) => x.job);
+}
+
+/**
+ * Which jobs get a tile (docs/phil-hours.md): the first `cap` of `ranked`,
+ * with `lead` (the last logged job, or the job a sent-back day was sent on)
+ * moved to the front. A job picked through Find another job (`found`,
+ * oldest pick first) takes the place of the oldest tile that isn't the
+ * picked job — for this session only; the next load ranks afresh. `more`
+ * is how many of the worker's own jobs have no tile — the Find tile's
+ * "N more of yours".
+ */
+export function jobTiles<J extends HoursJob>(input: {
+  ranked: ReadonlyArray<J>;
+  pickedJobId: string | null;
+  lead?: string | null;
+  found?: ReadonlyArray<J>;
+  cap?: number;
+}): { tiles: J[]; more: number } {
+  const cap = input.cap ?? JOB_TILE_CAP;
+  const order = [...input.ranked];
+  const leadAt = input.lead ? order.findIndex((j) => j.id === input.lead) : -1;
+  if (leadAt > 0) order.unshift(...order.splice(leadAt, 1));
+  const tiles: J[] = order.slice(0, cap);
+  const placed = new Set<string>();
+  // The picked job first (it must have a tile), then newest pick first, so
+  // when more were found than there are tiles the oldest pick drops.
+  const found = [...(input.found ?? [])].reverse();
+  const pickedAt = found.findIndex((j) => j.id === input.pickedJobId);
+  if (pickedAt > 0) found.unshift(...found.splice(pickedAt, 1));
+  for (const job of found) {
+    if (tiles.some((t) => t.id === job.id)) continue;
+    if (tiles.length < cap) {
+      tiles.push(job);
+      placed.add(job.id);
+      continue;
+    }
+    let at = -1;
+    for (let i = tiles.length - 1; i >= 0; i--) {
+      if (tiles[i]!.id !== input.pickedJobId && !placed.has(tiles[i]!.id)) {
+        at = i;
+        break;
+      }
+    }
+    if (at < 0) continue;
+    tiles[at] = job;
+    placed.add(job.id);
+  }
+  const shown = new Set(tiles.map((t) => t.id));
+  const more = input.ranked.filter((j) => !shown.has(j.id)).length;
+  return { tiles, more };
+}
+
+/** The Find tile's words: its label, the "N more of yours" subline (null when
+ *  every job has a tile — never "0 more"), and its accessible name. */
+export function findTileWords(more: number): {
+  label: string;
+  sub: string | null;
+  ariaLabel: string;
+} {
+  const label = "Find another job";
+  const sub = more > 0 ? `${more} more of yours` : null;
+  return { label, sub, ariaLabel: sub ? `${label}, ${sub}` : label };
+}
+
+/** The suburb from a site address ("12 Campbell Pde, Bondi" → "Bondi"); the
+ *  whole address when it has no comma; null when there is none. */
+export function suburbOf(address: string | null | undefined): string | null {
+  const a = (address ?? "").trim();
+  if (!a) return null;
+  const parts = a
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (parts.length < 2) return a;
+  // "12 Campbell Pde, Bondi NSW 2026" → "Bondi": drop a trailing state + postcode.
+  return (
+    parts[1]!.replace(/\s+(?:NSW|VIC|QLD|SA|WA|TAS|NT|ACT)(?:\s+\d{4})?$/i, "").trim() || parts[1]!
+  );
+}
+
 /** Jobs matching a query by name, code or address. Leave days are not jobs
  *  and are never in the input, so they can never be in the output. */
 export function searchJobs<J extends HoursJob>(jobs: ReadonlyArray<J>, query: string): J[] {

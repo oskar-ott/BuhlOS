@@ -25,7 +25,7 @@ import {
 } from "@/domains/timesheets/hours-view";
 import type { HoursProblem } from "@/domains/timesheets/problem";
 import type { TimeEntry } from "@/domains/timesheets/types";
-import { JobChips } from "./JobChips";
+import { JobTiles } from "./JobTiles";
 import { LEAVE_ICON } from "./LeavePills";
 import { ProblemBlock } from "./ProblemBlock";
 import styles from "./hours.module.css";
@@ -57,7 +57,11 @@ export type PanelState =
   | ({
       kind: "noDefault";
       date: string;
-      jobs: ReadonlyArray<HoursJob>;
+      /** How many jobs the worker is on — the reason there's no default. */
+      jobCount: number;
+      /** The capped tile set (`jobTiles`) and how many of theirs have no tile. */
+      tiles: ReadonlyArray<HoursJob>;
+      more: number;
       onPickJob: (jobId: string) => void;
       onFind: () => void;
     } & PanelLeaveActions)
@@ -67,10 +71,12 @@ export type PanelState =
       weekend: boolean;
       /** The picked day sits in an earlier week. */
       backdated: boolean;
-      jobs: ReadonlyArray<HoursJob>;
+      /** The capped tile set (`jobTiles`) and how many of theirs have no tile.
+       *  One tile and none more → the single "Job for <day> · Change" row. */
+      tiles: ReadonlyArray<HoursJob>;
+      more: number;
       pickedJob: HoursJob;
       lastJobId: string | null;
-      foundJob: HoursJob | null;
       onPickJob: (jobId: string) => void;
       onFind: () => void;
       onLog: () => void;
@@ -195,13 +201,14 @@ function PanelBody({ state, offline }: { state: PanelState; offline: boolean }):
                 Pick which job these hours are for
               </p>
               <p className="mt-1 text-[14px] text-text">
-                {`You're on ${state.jobs.length} jobs and haven't logged one yet, so there's no default.`}
+                {`You're on ${state.jobCount} jobs and haven't logged one yet, so there's no default.`}
               </p>
             </div>
           </div>
           <SectionLabel>{`Job for ${weekdayName(state.date)}`}</SectionLabel>
-          <JobChips
-            jobs={state.jobs}
+          <JobTiles
+            tiles={state.tiles}
+            more={state.more}
             pickedJobId={null}
             lastJobId={null}
             date={state.date}
@@ -217,7 +224,9 @@ function PanelBody({ state, offline }: { state: PanelState; offline: boolean }):
 
     case "ready": {
       const day = weekdayName(state.date);
-      const several = state.jobs.length > 1 || state.foundJob !== null;
+      // The grid once a second job is in play (assigned, or found through
+      // search); one job alone keeps the single field with Change.
+      const several = state.tiles.length > 1 || state.more > 0;
       return (
         <div className="space-y-3">
           {state.problem ? (
@@ -231,11 +240,11 @@ function PanelBody({ state, offline }: { state: PanelState; offline: boolean }):
           {several ? (
             <>
               <SectionLabel>{`Job for ${day}`}</SectionLabel>
-              <JobChips
-                jobs={state.jobs}
+              <JobTiles
+                tiles={state.tiles}
+                more={state.more}
                 pickedJobId={state.pickedJob.id}
                 lastJobId={state.lastJobId}
-                foundJob={state.foundJob}
                 date={state.date}
                 onPick={state.onPickJob}
                 onFind={state.onFind}

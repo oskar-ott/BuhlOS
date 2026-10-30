@@ -111,4 +111,4 @@ design's softer `#f5d020`) to stay consistent with the shell's Capture FAB.
   future days don't).
 - The hours flow + shell + Capture FAB stay covered by Preview Smoke
   (`phil.spec.ts`, `field-readiness.spec.ts`); the hours helper now drives the
-  Hours screen's `hours-log-primary` button and job chips (phil-hours.md).
+  Hours screen's `hours-log-primary` button and job tiles (phil-hours.md).

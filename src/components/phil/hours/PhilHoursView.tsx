@@ -33,9 +33,11 @@ import {
   fixNeededLine,
   initialPick,
   isLoggableDate,
+  jobTiles,
   mergeSavedEntries,
   nextPickAfterSave,
   oldestLoggableDate,
+  rankJobsByRecency,
   weekRangeLabel,
   weekRows,
   weekSummaryLine,
@@ -86,6 +88,9 @@ export interface PhilHoursViewProps {
   /** Assigned jobs (plus any finished job the history names). */
   jobs: ReadonlyArray<HoursJob>;
   jobsError: boolean;
+  /** The order the office assigned the jobs (users.json assignedJobIds, newest
+   *  last) — the tie-break for jobs never logged. */
+  assignedJobOrder?: ReadonlyArray<string>;
   viewerId: string | null;
   canLogTafe: boolean;
   /** `?log=1` — arrived to log: today is picked. */
@@ -127,7 +132,16 @@ function haptic() {
 }
 
 export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
-  const { entries, loadFailed, todayISO, jobs, jobsError, viewerId, canLogTafe } = props;
+  const {
+    entries,
+    loadFailed,
+    todayISO,
+    jobs,
+    jobsError,
+    viewerId,
+    canLogTafe,
+    assignedJobOrder = [],
+  } = props;
   const router = useRouter();
   const online = useOnline();
   const submissionKey = useSubmissionKey();
@@ -157,13 +171,16 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
     if ((props.launchLog || props.launchJobId) && todayOpen) return todayISO;
     return initialPick(entries, todayISO);
   });
-  // A job picked for ONE day (chips / Find another job) — never carried over.
+  // A job picked for ONE day (tiles / Find another job) — never carried over.
   const [jobPicks, setJobPicks] = useState<Record<string, string>>(() =>
     props.launchJobId && jobs.some((j) => j.id === props.launchJobId)
       ? { [todayISO]: props.launchJobId }
       : {}
   );
-  const [foundJobs, setFoundJobs] = useState<Record<string, HoursJob>>({});
+  // Jobs picked through Find another job THIS SESSION, oldest first: each
+  // takes the place of the oldest unpicked tile (jobTiles) until the next
+  // load, which ranks the tiles from recency again — no pinning.
+  const [found, setFound] = useState<HoursJob[]>([]);
 
   // ── In-flight / unanswered days, and the panel's last result ────────────
   const [rowState, setRowState] = useState<Record<string, RowUiState | undefined>>({});
@@ -188,8 +205,8 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
   // ── Derived ─────────────────────────────────────────────────────────────
   const allJobs = useMemo<HoursJob[]>(() => {
     const have = new Set(jobs.map((j) => j.id));
-    return [...jobs, ...Object.values(foundJobs).filter((j) => !have.has(j.id))];
-  }, [jobs, foundJobs]);
+    return [...jobs, ...found.filter((j) => !have.has(j.id))];
+  }, [jobs, found]);
   const lastJob = useMemo(
     () =>
       lastLoggedJobFor(
@@ -197,6 +214,11 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
         jobs.map((j) => j.id)
       ),
     [merged, jobs]
+  );
+  // The worker's jobs by recency — the order the tiles and the job sheet use.
+  const ranked = useMemo(
+    () => rankJobsByRecency(jobs, merged, assignedJobOrder),
+    [jobs, merged, assignedJobOrder]
   );
   const weekEntries = useMemo(() => entriesInWeek(merged, currentMonday), [merged, currentMonday]);
   const rows = useMemo(
@@ -210,14 +232,24 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
   // A picked day that gained an entry (saved here, or elsewhere) is no longer pickable.
   const pickedOpen = picked !== null && !entryFor(picked) && isLoggableDate(picked, todayISO);
   const pickedDate = pickedOpen ? picked : null;
+  // This day's own pick (a tile, or a job found through search) wins; else
+  // the default — the last job, else the sole assigned job, else none.
+  const explicitPick =
+    pickedDate && jobPicks[pickedDate] && allJobs.some((j) => j.id === jobPicks[pickedDate])
+      ? jobPicks[pickedDate]!
+      : null;
   const pickedJobId = pickedDate
-    ? defaultJobId({
-        picked: jobPicks[pickedDate],
-        lastJobId: lastJob?.jobId ?? null,
-        jobs: foundJobs[pickedDate] ? [...jobs, foundJobs[pickedDate]!] : jobs,
-      })
+    ? (explicitPick ?? defaultJobId({ picked: null, lastJobId: lastJob?.jobId ?? null, jobs }))
     : null;
   const pickedJob = pickedJobId ? (allJobs.find((j) => j.id === pickedJobId) ?? null) : null;
+  /** The found job this day was pointed at, if any (for the Fix sheet). */
+  const foundFor = (date: string | null): HoursJob | null =>
+    date && jobPicks[date] ? (found.find((j) => j.id === jobPicks[date]) ?? null) : null;
+  // The dock's tiles: the last job leads, then by recency, capped; a found
+  // job takes the oldest unpicked tile for this session.
+  const dock = jobTiles({ ranked, pickedJobId, lead: lastJob?.jobId ?? null, found });
+  const addFound = (job: HoursJob) =>
+    setFound((prev) => [...prev.filter((j) => j.id !== job.id), job]);
 
   // ── Sending ─────────────────────────────────────────────────────────────
   function attemptFor(
@@ -373,7 +405,7 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
     setJobPicks((p) => ({ ...p, [date]: jobId }));
   }
   function foundJobForDay(date: string, job: HoursJob) {
-    setFoundJobs((f) => ({ ...f, [date]: job }));
+    addFound(job);
     setJobPicks((p) => ({ ...p, [date]: job.id }));
     setFindJobFor(null);
   }
@@ -470,15 +502,17 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
           line: "Every day up to today is logged",
           sub: "To log another day, tap it, or open Earlier weeks.",
         };
-  } else if (jobsError && !foundJobs[pickedDate]) {
+  } else if (jobsError && !foundFor(pickedDate)) {
     panel = { kind: "jobsFailed", onRetry: () => startRefresh(() => router.refresh()) };
-  } else if (jobs.length === 0 && !foundJobs[pickedDate]) {
+  } else if (jobs.length === 0 && !foundFor(pickedDate)) {
     panel = { kind: "noJobs", date: pickedDate, ...leaveActions };
   } else if (!pickedJob) {
     panel = {
       kind: "noDefault",
       date: pickedDate,
-      jobs,
+      jobCount: jobs.length,
+      tiles: dock.tiles,
+      more: dock.more,
       onPickJob: (id) => pickJobForDay(pickedDate, id),
       onFind: () => setFindJobFor(pickedDate),
       ...leaveActions,
@@ -491,10 +525,10 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
       date: pickedDate,
       weekend,
       backdated: weekStartOf(pickedDate) !== currentMonday,
-      jobs,
+      tiles: dock.tiles,
+      more: dock.more,
       pickedJob,
       lastJobId: lastJob?.jobId ?? null,
-      foundJob: foundJobs[pickedDate] ?? null,
       onPickJob: (id) => pickJobForDay(pickedDate, id),
       onFind: () => setFindJobFor(pickedDate),
       onLog: logStandard,
@@ -635,7 +669,10 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
           open
           onClose={closeSheet}
           date={sheet.date}
-          jobs={jobs}
+          jobs={ranked}
+          found={found}
+          entries={merged}
+          onFound={addFound}
           defaultJobId={pickedJob?.id ?? null}
           busy={busyFor(sheet.date)}
           problem={problemFor(sheet.date)}
@@ -666,11 +703,14 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
             open
             onClose={closeSheet}
             date={sheetEntry.date}
-            jobs={jobs}
+            jobs={ranked}
+            found={found}
+            entries={merged}
+            onFound={addFound}
             defaultJobId={primaryJobId(sheetEntry)}
             initialTotal={sheetEntry.totalHours}
             initialRows={(sheetEntry.allocations ?? []).map((a) => ({
-              jobId: a.jobId && jobs.some((j) => j.id === a.jobId) ? a.jobId : null,
+              jobId: a.jobId && allJobs.some((j) => j.id === a.jobId) ? a.jobId : null,
               hours: a.hours,
             }))}
             busy={busyFor(sheetEntry.date)}
@@ -697,16 +737,16 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
 
       {sheet.kind === "fix" && sheetEntry && sheetEntry.status === "rejected" ? (
         <FixSheet
-          key={`fix-${sheetEntry.id}-${foundJobs[sheetEntry.date]?.id ?? ""}`}
+          key={`fix-${sheetEntry.id}-${foundFor(sheetEntry.date)?.id ?? ""}`}
           open
           onClose={closeSheet}
           entry={sheetEntry}
-          jobs={jobs}
+          jobs={ranked}
           canLogTafe={canLogTafe}
           busy={busyFor(sheetEntry.date)}
           problem={problemFor(sheetEntry.date)}
           onFindJob={() => setFindJobFor(sheetEntry.date)}
-          foundJob={foundJobs[sheetEntry.date] ?? null}
+          foundJob={foundFor(sheetEntry.date)}
           onSend={(payload) => sendFix(sheetEntry, payload)}
         />
       ) : null}
@@ -717,9 +757,12 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
           open
           onClose={() => setFindJobFor(null)}
           date={findJobFor}
-          jobs={jobs}
+          tiles={findTilesFor(findJobFor)}
+          jobs={ranked}
           currentJobId={
-            jobPicks[findJobFor] ?? lastJob?.jobId ?? (jobs.length === 1 ? jobs[0]!.id : null)
+            findJobFor === pickedDate
+              ? pickedJobId
+              : (jobPicks[findJobFor] ?? primaryJobId(entryFor(findJobFor) ?? { allocations: [] }))
           }
           entries={merged}
           onPick={(job) => foundJobForDay(findJobFor, job)}
@@ -728,6 +771,20 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
       ) : null}
     </div>
   );
+
+  /** The tiles the job sheet lists as "On your week now": the dock's for the
+   *  picked day; for a sent-back day, the Fix sheet's (the sent job leads). */
+  function findTilesFor(date: string): ReadonlyArray<HoursJob> {
+    if (date === pickedDate) return dock.tiles;
+    const entry = entryFor(date);
+    const sent = entry ? primaryJobId(entry) : null;
+    return jobTiles({
+      ranked,
+      pickedJobId: jobPicks[date] ?? sent,
+      lead: sent,
+      found: foundFor(date) ? [foundFor(date)!] : [],
+    }).tiles;
+  }
 
   /** The last problem recorded for an unanswered attempt, re-derived as a timeout. */
   function lastProblemFor(attempt: SaveAttempt): HoursProblem {

@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { MapPin, Search } from "lucide-react";
+import { Check, MapPin, Search } from "lucide-react";
 import { cn } from "@/lib/cn";
 import {
   dayDate,
   isFinishedJob,
   lastLoggedDateForJob,
   searchJobs,
+  suburbOf,
   weekdayName,
   type HoursJob,
 } from "@/domains/timesheets/hours-view";
@@ -16,16 +17,20 @@ import { useJobHistorySearch } from "../useJobHistorySearch";
 import { HoursSheet } from "./HoursSheet";
 
 /**
- * Find another job (docs/phil-hours.md): the worker's jobs as a list (the
- * current one navy, "Your last job"), a search over name or address, and
- * finished jobs — found only through search, tagged `finished` — for callback
- * work. Leave days are not jobs: they never appear here or in the results;
- * the footer points at the Sick day / Holiday buttons instead.
+ * Find another job (docs/phil-hours.md — the job sheet behind the 4th tile):
+ * a search over name or address at the top (all jobs, finished ones too),
+ * then "On your week now" — the tiled jobs, the picked one ticked — and
+ * "Your other jobs · N" — every other assigned job with its suburb and the
+ * day it was last logged (or "not logged yet"), scrolling inside the sheet.
+ * Finished jobs are found only through search, tagged `finished`, for
+ * callback work. Leave days are not jobs: they never appear here or in the
+ * results; the footer points at the Sick day / Holiday buttons instead.
  */
 export function FindJobSheet({
   open,
   onClose,
   date,
+  tiles,
   jobs,
   currentJobId,
   entries,
@@ -35,18 +40,24 @@ export function FindJobSheet({
   open: boolean;
   onClose: () => void;
   date: string;
+  /** The jobs with a tile right now, in tile order. */
+  tiles: ReadonlyArray<HoursJob>;
+  /** Every assigned job, by recency (`rankJobsByRecency`). */
   jobs: ReadonlyArray<HoursJob>;
   currentJobId: string | null;
   entries: ReadonlyArray<Pick<TimeEntry, "date" | "allocations">>;
   onPick: (job: HoursJob) => void;
-  /** Opened from inside the Fix sheet — stacks above it. */
+  /** Opened from inside another sheet — stacks above it. */
   nested?: boolean;
 }): ReactNode {
   const [query, setQuery] = useState("");
   const q = query.trim();
-  const mine = searchJobs(jobs, q);
+  const tileIds = new Set(tiles.map((j) => j.id));
+  const onWeek = searchJobs(tiles, q);
+  const otherJobs = jobs.filter((j) => !tileIds.has(j.id));
+  const others = searchJobs(otherJobs, q);
   const history = useJobHistorySearch(query, open && q.length >= 2);
-  const known = new Set(jobs.map((j) => j.id));
+  const known = new Set([...tiles, ...jobs].map((j) => j.id));
   const found: HoursJob[] =
     history.kind === "ready"
       ? history.jobs
@@ -60,7 +71,8 @@ export function FindJobSheet({
             status: j.status ?? null,
           }))
       : [];
-  const matchCount = mine.length + found.length;
+  const matchCount = onWeek.length + others.length + found.length;
+  const line = (job: HoursJob) => loggedLine(entries, job);
 
   return (
     <HoursSheet
@@ -93,7 +105,7 @@ export function FindJobSheet({
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Job name or address"
+              placeholder="Job name or address, finished too"
               autoComplete="off"
               data-testid="hours-job-search"
               className="h-12 w-full rounded-card border border-border-strong bg-surface pl-10 pr-3 text-[15px] text-text focus:border-brand-navy focus:outline-none"
@@ -109,47 +121,53 @@ export function FindJobSheet({
           </p>
         ) : null}
 
-        <section aria-label="Your jobs">
-          <h3 className="mb-2 text-[13px] font-semibold uppercase tracking-[0.06em] text-text-muted">
-            Your jobs
-          </h3>
-          {mine.length === 0 ? (
-            <p className="text-[14px] text-text-muted">
-              {q ? `None of your jobs match “${q}”.` : "No jobs assigned to you."}
-            </p>
-          ) : (
-            <ul className="divide-y divide-[#eef2f6] overflow-hidden rounded-[16px] border border-border bg-surface">
-              {mine.map((job) => (
-                <JobRow
-                  key={job.id}
-                  job={job}
-                  current={job.id === currentJobId}
-                  loggedLine={loggedLine(entries, job.id, "Logged")}
-                  onPick={() => onPick(job)}
-                />
-              ))}
-            </ul>
-          )}
-        </section>
+        {jobs.length === 0 && tiles.length === 0 ? (
+          <p className="text-[14px] text-text-muted">No jobs assigned to you.</p>
+        ) : null}
+
+        {onWeek.length > 0 ? (
+          <JobSection label="On your week now" testId="hours-find-on-week">
+            {onWeek.map((job) => (
+              <JobRow
+                key={job.id}
+                job={job}
+                current={job.id === currentJobId}
+                line={line(job)}
+                onPick={() => onPick(job)}
+              />
+            ))}
+          </JobSection>
+        ) : null}
+
+        {others.length > 0 ? (
+          <JobSection label={`Your other jobs · ${others.length}`} testId="hours-find-others">
+            {others.map((job) => (
+              <JobRow
+                key={job.id}
+                job={job}
+                current={job.id === currentJobId}
+                line={line(job)}
+                onPick={() => onPick(job)}
+              />
+            ))}
+          </JobSection>
+        ) : q && otherJobs.length > 0 ? (
+          <p className="text-[14px] text-text-muted">{`None of your other jobs match “${q}”.`}</p>
+        ) : null}
 
         {found.length > 0 ? (
-          <section aria-label="Finished jobs">
-            <h3 className="mb-2 text-[13px] font-semibold uppercase tracking-[0.06em] text-text-muted">
-              Finished jobs
-            </h3>
-            <ul className="divide-y divide-[#eef2f6] overflow-hidden rounded-[16px] border border-border bg-surface">
-              {found.map((job) => (
-                <JobRow
-                  key={job.id}
-                  job={job}
-                  current={false}
-                  finished
-                  loggedLine={loggedLine(entries, job.id, "Last logged")}
-                  onPick={() => onPick(job)}
-                />
-              ))}
-            </ul>
-          </section>
+          <JobSection label="Finished jobs" testId="hours-find-finished">
+            {found.map((job) => (
+              <JobRow
+                key={job.id}
+                job={job}
+                current={false}
+                finished
+                line={line(job)}
+                onPick={() => onPick(job)}
+              />
+            ))}
+          </JobSection>
         ) : null}
 
         {history.kind === "failed" ? (
@@ -162,26 +180,49 @@ export function FindJobSheet({
   );
 }
 
+/** "Bondi · Logged Tue 13 Oct" / "Bondi · not logged yet" / "not logged yet". */
 function loggedLine(
   entries: ReadonlyArray<Pick<TimeEntry, "date" | "allocations">>,
-  jobId: string,
-  lead: string
-): string | null {
-  const d = lastLoggedDateForJob(entries, jobId);
-  return d ? `${lead} ${dayDate(d)}` : null;
+  job: HoursJob
+): string {
+  const d = lastLoggedDateForJob(entries, job.id);
+  const logged = d ? `Logged ${dayDate(d)}` : "not logged yet";
+  const suburb = suburbOf(job.address);
+  return suburb ? `${suburb} · ${logged}` : logged;
+}
+
+function JobSection({
+  label,
+  testId,
+  children,
+}: {
+  label: string;
+  testId: string;
+  children: ReactNode;
+}): ReactNode {
+  return (
+    <section aria-label={label} data-testid={testId}>
+      <h3 className="mb-2 text-[13px] font-semibold uppercase tracking-[0.06em] text-text-muted">
+        {label}
+      </h3>
+      <ul className="divide-y divide-[#eef2f6] overflow-hidden rounded-[16px] border border-border bg-surface">
+        {children}
+      </ul>
+    </section>
+  );
 }
 
 function JobRow({
   job,
   current,
   finished = false,
-  loggedLine,
+  line,
   onPick,
 }: {
   job: HoursJob;
   current: boolean;
   finished?: boolean;
-  loggedLine: string | null;
+  line: string;
   onPick: () => void;
 }): ReactNode {
   const isFinished = finished || isFinishedJob(job);
@@ -197,34 +238,33 @@ function JobRow({
           current ? "bg-brand-navy text-white" : "bg-surface text-text active:bg-surface-subtle"
         )}
       >
-        <MapPin
-          aria-hidden="true"
-          className={cn("h-5 w-5 shrink-0", current ? "text-white" : "text-text-muted")}
-        />
+        {current ? (
+          <Check aria-hidden="true" className="h-5 w-5 shrink-0 text-white" />
+        ) : (
+          <MapPin aria-hidden="true" className="h-5 w-5 shrink-0 text-text-muted" />
+        )}
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-2">
             <span className="truncate font-display text-[16px] font-bold">{job.name}</span>
             {isFinished ? (
-              <span className="shrink-0 rounded-pill border border-border-strong px-2 py-0.5 text-[12px] font-semibold text-text-muted">
+              <span
+                className={cn(
+                  "shrink-0 rounded-pill border px-2 py-0.5 text-[12px] font-semibold",
+                  current ? "border-white/60 text-white" : "border-border-strong text-text-muted"
+                )}
+              >
                 finished
               </span>
             ) : null}
           </span>
-          {job.address ? (
-            <span
-              className={cn(
-                "block truncate text-[13px]",
-                current ? "text-white/80" : "text-text-muted"
-              )}
-            >
-              {job.address}
-            </span>
-          ) : null}
-          {current ? (
-            <span className="block text-[13px] font-semibold text-white/90">Your last job</span>
-          ) : loggedLine ? (
-            <span className="block text-[13px] text-text-muted">{loggedLine}</span>
-          ) : null}
+          <span
+            className={cn(
+              "block truncate text-[13px]",
+              current ? "text-white/80" : "text-text-muted"
+            )}
+          >
+            {current ? `Picked · ${line}` : line}
+          </span>
         </span>
       </button>
     </li>
