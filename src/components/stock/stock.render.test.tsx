@@ -12,6 +12,8 @@ import { StockReceipt } from "./StockReceipt";
 import { NewItemForm } from "./NewItemForm";
 import { LocationPhoto } from "./LocationPhoto";
 import { PhilWorkshopStock } from "@/components/phil/PhilWorkshopStock";
+import { BrowseSheet } from "./BrowseSheet";
+import { LocationPhotoPrompt } from "./LocationPhotoPrompt";
 
 /**
  * SSR smoke for the Workshop Stock screens. Interaction flows (code read →
@@ -27,6 +29,12 @@ const base = {
   id: "i1", name: "Clipsal double GPO", brand: "Clipsal", manufacturerCode: "2025WE", supplierSku: "CLI-2025WE", supplierName: "Rexel",
   colourFinish: "white", variant: "10A", location: "Shelf A2, Bin 4", baseUnit: "each" as const, balanceMilli: 42_000, estimated: false, version: 3, photoId: null,
   defaultPack: null, identifiers: [],
+};
+
+/** a whole StockItem (the list's shape) */
+const full = {
+  ...base, supplierSku: null, supplierName: null, locationPhotoId: null, category: null, specs: {}, metaRevision: 1, verificationStatus: "unverified" as const, verification: null,
+  lastMovementAt: null, lastCountedAt: null, lastCountedByName: null, archivedAt: null, createdAt: null, createdByName: null, updatedAt: null,
 };
 
 describe("StockItemRow", () => {
@@ -153,14 +161,27 @@ describe("PhilWorkshopStock", () => {
 describe("a photo of where it lives", () => {
   const LOC = "55555555-5555-4555-8555-555555555555";
   const seed = { product: null, photoId: null, dataUrl: null };
-  const form = (locationPhotoEnabled: boolean) => flat(renderToString(createElement(NewItemForm, { seed, items: [], lookupEnabled: false, locationPhotoEnabled, onSaved: () => undefined, onUseExisting: () => undefined })));
+  const form = (locationPhotoEnabled: boolean, extra: Record<string, unknown> = {}) => flat(renderToString(createElement(NewItemForm, { seed, items: [], lookupEnabled: false, locationPhotoEnabled, onSaved: () => undefined, onUseExisting: () => undefined, ...extra })));
 
-  it("the add form offers it only once the server can keep it", () => {
+  it("the add form makes it a step of its own — once the server can keep it", () => {
     const on = form(true);
-    expect(on).toContain("Hard to find? Photograph where it lives");
+    expect(on).toContain("Photo of where it&rsquo;s going".replace("&rsquo;", "’"));
+    expect(on).toContain("Photograph where it&#x27;s going");
     expect(on).toContain("shown to whoever comes to take it");
     expect(on).toContain('data-testid="stock-new-location-photo-camera"');
-    expect(form(false)).not.toContain("Photograph where it lives");
+    expect(on).not.toContain("Hard to find?");
+    expect(form(false)).not.toContain("where it&#x27;s going");
+  });
+
+  it("setting up a shelf: the last item's photo is offered again for the same shelf — not for another", () => {
+    const last = { itemId: "i9", photoId: LOC, itemName: "Iconic 1 gang switch", location: "Shelf B, Bin 1" };
+    const same = form(true, { defaultLocation: "Shelf B, Bin 2", lastLocationPhoto: last });
+    expect(same).toContain("Same spot as the last item");
+    expect(same).toContain("Different spot");
+    expect(same).toContain(`action=photo&amp;id=${LOC}&amp;size=thumb`);
+    const other = form(true, { defaultLocation: "Cable bay", lastLocationPhoto: last });
+    expect(other).not.toContain("Same spot as the last item");
+    expect(other).toContain("Photograph where it&#x27;s going");
   });
 
   it("whoever comes to take it sees it beside the shelf on the confirmation — and nothing when there isn't one", () => {
@@ -188,5 +209,61 @@ describe("a photo of where it lives", () => {
     };
     expect(flat(renderToString(createElement(StockReceipt, { result: { ...result, locationPhotoAttached: false } })))).toContain("The photo of where it lives couldn’t be attached");
     expect(flat(renderToString(createElement(StockReceipt, { result: { ...result, locationPhotoAttached: true } })))).not.toContain("couldn’t be attached");
+  });
+});
+
+describe("item types", () => {
+  const seed = { product: null, photoId: null, dataUrl: null };
+  it("the new-item form asks what it is once the server keeps types — and not before", () => {
+    const on = flat(renderToString(createElement(NewItemForm, { seed, items: [], lookupEnabled: false, typesEnabled: true, onSaved: () => undefined, onUseExisting: () => undefined })));
+    expect(on).toContain("What is it?");
+    expect(on).toContain("Switches &amp; GPOs");
+    expect(on).toContain("LED strip");
+    const off = flat(renderToString(createElement(NewItemForm, { seed, items: [], lookupEnabled: false, onSaved: () => undefined, onUseExisting: () => undefined })));
+    expect(off).not.toContain("What is it?");
+  });
+  it("a label photo of an Iconic switch fills the type and its fields, tagged as read from the photo", () => {
+    const product = { brand: "Clipsal", manufacturerCode: "3042WE", supplierSku: null, supplierName: null, description: "ICONIC 2 GANG SWITCH", colourFinish: "Vivid white", variantDetails: ["10A"], barcode: null, packQuantity: null, packUnit: null, labelText: ["CLIPSAL", "ICONIC 2 GANG SWITCH 10A"], position: null };
+    const html = flat(renderToString(createElement(NewItemForm, { seed: { product, photoId: null, dataUrl: null }, items: [], lookupEnabled: false, typesEnabled: true, onSaved: () => undefined, onUseExisting: () => undefined })));
+    expect(html).toMatch(/aria-pressed="true"[^>]*data-testid="stock-type-switches"/);
+    expect(html).toContain('data-testid="stock-spec-range" value="Iconic"');
+    expect(html).toContain('data-testid="stock-spec-gang" value="2 gang"');
+    expect(html).toContain('data-testid="stock-spec-kind" value="Switch"');
+    expect(html).toContain("Read from photo");
+  });
+  it("a typed item's row reads in its fields", () => {
+    const row = flat(renderToString(createElement(StockItemRow, { item: { ...base, name: "Iconic 2 gang switch", category: "switches", specs: { range: "Iconic", gang: "2 gang", kind: "Switch" }, manufacturerCode: "3042WE" } as never, onClick: () => undefined })));
+    expect(row).toContain("Clipsal · Iconic · Switch · 2 gang · white · 10A · 3042WE");
+  });
+  it("browsing a type shows its fields as filter chips with counts, and the rows", () => {
+    const items = [
+      { ...full, id: "a", name: "Iconic 2 gang switch", category: "switches", specs: { range: "Iconic", gang: "2 gang" } },
+      { ...full, id: "b", name: "Classic 2 gang switch", category: "switches", specs: { range: "Classic", gang: "2 gang" } },
+      { ...full, id: "c", name: "Iconic 1 gang switch", category: "switches", specs: { range: "Iconic", gang: "1 gang" } },
+    ];
+    const html = flat(renderToString(createElement(BrowseSheet, { mode: { kind: "type", key: "switches" }, items, choice: { range: "iconic" }, onChoice: () => undefined, onPick: () => undefined, onClose: () => undefined })));
+    expect(html).toContain("Switches &amp; GPOs");
+    expect(html).toContain("2 of 3");
+    expect(html).toContain("Clear filters");
+    expect(html).toMatch(/aria-pressed="true"[^>]*>Iconic<span[^>]*>2</);
+    expect(html).toContain("Iconic 1 gang switch");
+    expect(html).not.toContain("Classic 2 gang switch");
+  });
+});
+
+describe("shopping lists", () => {
+  it("a take from a list starts at what it needs and says it ticks the line off", () => {
+    const html = flat(renderToString(createElement(MoveConfirm, { item: base, kind: "take", initialQtyMilli: 4000, listLineId: "l1", onSaved: () => undefined, onClose: () => undefined })));
+    expect(html).toContain("Confirm take · 4 each");
+    expect(html).toContain("ticks it off the list");
+  });
+  it("putting stock away doesn't prompt for a photo until the item has been read fresh — and never on a take", () => {
+    const add = flat(renderToString(createElement(MoveConfirm, { item: base, kind: "add", locationPhotoEnabled: true, onSaved: () => undefined, onClose: () => undefined })));
+    expect(add).not.toContain("No photo of where it lives yet");
+  });
+  it("the prompt itself says what it does", () => {
+    const html = flat(renderToString(createElement(LocationPhotoPrompt, { itemId: "i1", onSaved: () => undefined })));
+    expect(html).toContain("No photo of where it lives yet");
+    expect(html).toContain("Photograph where it&#x27;s going");
   });
 });

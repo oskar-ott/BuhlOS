@@ -4,7 +4,9 @@ import {
   ItemDetailSchema,
   ItemOnlySchema,
   JobPickerSchema,
+  ListsSchema,
   LookupResultSchema,
+  OneListSchema,
   OperationSchema,
   ReadPhotoSchema,
   StockListSchema,
@@ -89,6 +91,8 @@ export interface MoveInput {
   jobId?: string | null;
   note?: string | null;
   estimated?: boolean;
+  /** a shopping-list line this take collects (ticked in the same transaction) */
+  listLineId?: string;
 }
 
 export function recordMove(input: MoveInput, key: string): Promise<HttpResult<WriteResult>> {
@@ -109,6 +113,11 @@ export interface CreateInput {
   photoId?: string | null;
   /** a photo of where it lives (uploaded with storePhoto first) */
   locationPhotoId?: string | null;
+  /** …or the same photo another item already shows (setting up one shelf) */
+  locationPhotoFromItemId?: string | null;
+  /** the item's type (types.ts) and that type's fields */
+  category?: string | null;
+  specs?: Record<string, string>;
   openingQuantity?: string;
   packCount?: number;
   packUnit?: PackUnit;
@@ -149,7 +158,10 @@ export function setArchived(itemId: string, archived: boolean) {
   return httpPost(`${BASE}?action=${archived ? "archive" : "restore"}`, { itemId }, { schema: ItemOnlySchema, init: INIT, timeoutMs: WRITE_TIMEOUT_MS });
 }
 
-/** Office: replace the product photo, or (slot 'location') replace or remove (null) the photo of where it lives. */
+/**
+ * Office: replace the product photo, or (slot 'location') replace or remove (null) the photo of where it lives.
+ * The crew: slot 'location' only, to fill a MISSING photo of where it lives (409 location_photo_exists otherwise).
+ */
 export function replaceItemPhoto(itemId: string, photoId: string | null, slot: "product" | "location" = "product") {
   return httpPost(`${BASE}?action=item-photo`, { itemId, photoId, slot }, { schema: ItemOnlySchema, init: INIT, timeoutMs: WRITE_TIMEOUT_MS });
 }
@@ -162,4 +174,56 @@ export function recordVerification(itemId: string) {
 export function newOperationKey(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
   return `ws-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
+// ── shopping lists ───────────────────────────────────────────────────────────
+
+export function fetchLists() {
+  return httpGet(`${BASE}?action=lists`, { schema: ListsSchema, init: INIT, timeoutMs: 20_000 });
+}
+
+/** Start a list (the id is made here, so a retry is the same list) or change one. jobId null clears it. */
+export function saveList(input: { id: string; name?: string; jobId?: string | null; done?: boolean }) {
+  return httpPost(`${BASE}?action=list`, input, { schema: OneListSchema, init: INIT, timeoutMs: WRITE_TIMEOUT_MS });
+}
+
+export function deleteList(id: string) {
+  return httpDelete(`${BASE}?action=list&id=${encodeURIComponent(id)}`, { schema: z.object({ deleted: z.boolean() }), init: INIT, timeoutMs: WRITE_TIMEOUT_MS });
+}
+
+export interface ListLineInput {
+  listId: string;
+  id: string;
+  /** a workshop item — or `text` for something we don't stock */
+  itemId?: string | null;
+  text?: string;
+  /** how many are needed, as a decimal string (null clears it) */
+  quantity?: string | null;
+  unit?: StockUnit | null;
+  got?: boolean;
+  position?: number;
+}
+
+export function saveListLine(input: ListLineInput) {
+  return httpPost(`${BASE}?action=list-line`, input, { schema: OneListSchema, init: INIT, timeoutMs: WRITE_TIMEOUT_MS });
+}
+
+export function deleteListLine(id: string) {
+  return httpDelete(`${BASE}?action=list-line&id=${encodeURIComponent(id)}`, { schema: OneListSchema, init: INIT, timeoutMs: WRITE_TIMEOUT_MS });
+}
+
+/**
+ * A v4 UUID for a list or a line — made on the phone, so a retried save is the
+ * same row. crypto.randomUUID where there is one; the same shape from
+ * getRandomValues on older webviews (the server only accepts UUIDs here).
+ */
+export function newId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  const b = new Uint8Array(16);
+  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") crypto.getRandomValues(b);
+  else for (let i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256);
+  b[6] = (b[6]! & 0x0f) | 0x40;
+  b[8] = (b[8]! & 0x3f) | 0x80;
+  const h = [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
 }

@@ -55,6 +55,10 @@ export const StockItemSchema = z.object({
   photoId: z.string().nullable(),
   /** a photo of where it lives (a hard-to-find spot); absent before the migration */
   locationPhotoId: z.string().nullable().optional(),
+  /** the item's type (types.ts) — null = not sorted yet; absent before the migration */
+  category: z.string().nullable().optional(),
+  /** that type's own fields as short texts ({ range: "Iconic", gang: "2 gang" }) */
+  specs: z.record(z.string()).optional(),
   defaultPack: z.object({ unit: z.string(), sizeMilli: z.number() }).nullable(),
   balanceMilli: z.number(),
   estimated: z.boolean(),
@@ -114,8 +118,8 @@ export type StockMovement = z.infer<typeof MovementSchema>;
 export const StockListSchema = z.object({
   items: z.array(StockItemSchema),
   viewer: z.object({ id: z.string(), office: z.boolean() }),
-  /** locationPhoto: the server can store a photo of where an item lives */
-  capabilities: z.object({ photoRead: z.boolean(), lookup: z.boolean(), locationPhoto: z.boolean().optional() }),
+  /** locationPhoto / types / lists: the server has the migration for a photo of where an item lives, item types, shopping lists */
+  capabilities: z.object({ photoRead: z.boolean(), lookup: z.boolean(), locationPhoto: z.boolean().optional(), types: z.boolean().optional(), lists: z.boolean().optional() }),
   undoMinutes: z.number(),
   asOf: z.string(),
 });
@@ -148,6 +152,8 @@ export const WriteResultSchema = z.object({
   locationPhotoAttached: z.boolean().optional(),
   /** create only: the code status the server actually recorded */
   verificationStatus: z.enum(VERIFICATION_STATUSES).optional(),
+  /** take with a list line: whether that line is now ticked */
+  lineTicked: z.boolean().optional(),
 });
 export type WriteResult = z.infer<typeof WriteResultSchema>;
 
@@ -196,7 +202,7 @@ export type MatchCandidate = z.infer<typeof MatchCandidateSchema>;
 export const CandidateItemSchema = StockItemSchema.pick({
   id: true, name: true, brand: true, manufacturerCode: true, supplierSku: true, supplierName: true, variant: true,
   colourFinish: true, location: true, baseUnit: true, balanceMilli: true, estimated: true, version: true, photoId: true,
-  locationPhotoId: true, defaultPack: true, identifiers: true,
+  locationPhotoId: true, defaultPack: true, identifiers: true, category: true, specs: true,
 });
 export type CandidateItem = z.infer<typeof CandidateItemSchema>;
 
@@ -256,3 +262,44 @@ export const JobPickerSchema = z.object({
   jobs: z.array(z.object({ id: z.string(), name: z.string(), code: z.string().nullable(), status: z.string() })),
 });
 export type JobOption = z.infer<typeof JobPickerSchema>["jobs"][number];
+
+// ── shopping lists ───────────────────────────────────────────────────────────
+
+export const ListLineSchema = z.object({
+  id: z.string(),
+  listId: z.string(),
+  itemId: z.string().nullable(),
+  itemName: z.string().nullable(),
+  itemUnit: z.string().nullable(),
+  itemArchived: z.boolean(),
+  text: z.string().nullable(),
+  /** how many are needed (thousandths of the item's unit, or of `unit` for a text line) */
+  quantityMilli: z.number().nullable(),
+  unit: z.enum(UNIT_KEYS).nullable(),
+  gotAt: z.string().nullable(),
+  gotById: z.string().nullable(),
+  gotByName: z.string().nullable(),
+  /** the take that collected it from the workshop */
+  movementId: z.string().nullable(),
+  position: z.number(),
+  createdAt: z.string().nullable(),
+});
+export type ListLine = z.infer<typeof ListLineSchema>;
+
+export const ShoppingListSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  jobId: z.string().nullable(),
+  jobLabel: z.string().nullable(),
+  ownerId: z.string(),
+  ownerName: z.string().nullable(),
+  doneAt: z.string().nullable(),
+  createdAt: z.string().nullable(),
+  updatedAt: z.string().nullable(),
+  lines: z.array(ListLineSchema),
+});
+export type ShoppingList = z.infer<typeof ShoppingListSchema>;
+
+export const ListsSchema = z.object({ lists: z.array(ShoppingListSchema), viewer: z.object({ id: z.string(), office: z.boolean() }) });
+export type ListsResult = z.infer<typeof ListsSchema>;
+export const OneListSchema = z.object({ list: ShoppingListSchema });

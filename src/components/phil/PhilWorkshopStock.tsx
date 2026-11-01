@@ -1,25 +1,31 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, Camera, Loader2, RefreshCw, Search, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Camera, ChevronRight, ClipboardList, Loader2, RefreshCw, Search, X } from "lucide-react";
 import { PhilSkeleton } from "./ui/PhilSkeleton";
 import { useSheetHistory } from "./useSheetHistory";
 import { AddFlow } from "@/components/stock/AddFlow";
+import { BrowseSheet, type BrowseMode } from "@/components/stock/BrowseSheet";
+import { ListsFlow } from "@/components/stock/ListsFlow";
 import { StockItemRow } from "@/components/stock/StockItemRow";
 import { StockItemSheet } from "@/components/stock/StockItemSheet";
 import { StockReceipt } from "@/components/stock/StockReceipt";
 import { TakeFlow } from "@/components/stock/TakeFlow";
 import { BigButton, Kicker, MiniButton, Slot } from "@/components/stock/ui";
-import { createItem, fetchOperation, fetchStockList, recordMove, type CreateInput, type MoveInput } from "@/domains/workshop-stock/client";
+import { createItem, fetchLists, fetchOperation, fetchStockList, recordMove, type CreateInput, type MoveInput } from "@/domains/workshop-stock/client";
 import { errorCopy, matchesSearch, movementSummary, recordedNow } from "@/domains/workshop-stock/format";
+import { listSummary, viewList } from "@/domains/workshop-stock/lists";
 import { groupByShelf } from "@/domains/workshop-stock/location";
 import { clearPending, definitelyNotSaved, isUncertain, readPending, setPendingOwner, type PendingSave } from "@/domains/workshop-stock/pending";
-import type { ReadProduct, StockItem, StockList, WriteResult } from "@/domains/workshop-stock/schema";
+import type { ReadProduct, ShoppingList, StockItem, StockList, WriteResult } from "@/domains/workshop-stock/schema";
+import { typeTiles, type FacetChoice } from "@/domains/workshop-stock/types";
 
 type Flow =
   | { kind: "take" }
   | { kind: "add"; seed?: { dataUrl: string | null; thumbDataUrl?: string | null; product: ReadProduct | null } | null }
-  | { kind: "item"; item: StockItem };
+  | { kind: "item"; item: StockItem; from?: Extract<Flow, { kind: "browse" }> | null }
+  | { kind: "browse"; mode: BrowseMode; choice: FacetChoice }
+  | { kind: "lists"; listId?: string | null };
 
 type Reconcile =
   | { p: PendingSave; status: "checking" | "not_saved" | "unknown" | "retrying" }
@@ -35,6 +41,15 @@ const RECENT_MS = 3 * 60_000;
  * recorded quantity the largest thing on every row. Return lives behind "Add or
  * return"; per-item actions sit one tap down. Recorded stock is labelled as
  * recorded (P7): the shelf is the truth, the list is the log of it.
+ *
+ * What is read is a VIEW (owner pull 2026-11-01: "someone opens stock when they
+ * already know what they need — not to scroll a list"): once items have types,
+ * level one shows the search and one tile per type ("Switches & GPOs · 14");
+ * a tile opens that type with its fields as filter chips (Range · Gang ·
+ * Colour). The tiles replace the long shelf list in the same reading slot —
+ * the shelf list is one tap down ("Everything, by shelf"), and is still level
+ * one until anything has a type. Shopping lists enter as one row under the
+ * title (resume your latest list in one tap, P8/P14) and from an item.
  *
  * One slot at the top carries the receipt of the last save (with its Undo) or
  * the saves still waiting for an answer — several collapse into one card so the
@@ -53,6 +68,7 @@ export function PhilWorkshopStock() {
   const [lastUndone, setLastUndone] = useState<WriteResult | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
   const [reconciles, setReconciles] = useState<Reconcile[]>([]);
+  const [myList, setMyList] = useState<ShoppingList | null>(null);
   const viewerRef = useRef<string | null>(null);
   const checkingRef = useRef(false);
   const recheckRef = useRef(false);
@@ -94,11 +110,19 @@ export function PhilWorkshopStock() {
     }
   }, []);
 
+  // The latest open list of mine, for the one-tap "resume" row (only once lists exist).
+  const loadMyList = useCallback(async (viewerId: string) => {
+    const r = await fetchLists();
+    if (!r.ok) return;
+    setMyList(r.data.lists.find((l) => !l.doneAt && l.ownerId === viewerId) ?? null);
+  }, []);
+
   const load = useCallback(async () => {
     const r = await fetchStockList();
     setLoading(false);
     if (r.ok) {
       setList(r.data);
+      if (r.data.capabilities.lists) void loadMyList(r.data.viewer.id);
       setLoadError(null);
       setPendingOwner(r.data.viewer.id);
       const first = viewerRef.current === null;
@@ -107,7 +131,7 @@ export function PhilWorkshopStock() {
       return;
     }
     setLoadError(r.error.status === 401 ? "You've been signed out. Sign in again to see the workshop stock." : errorCopy(r.error.status, r.error.body, "The list didn't arrive — no signal, or the office server didn't answer."));
-  }, [checkPending]);
+  }, [checkPending, loadMyList]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -132,6 +156,8 @@ export function PhilWorkshopStock() {
   const items = useMemo(() => list?.items ?? [], [list]);
   const shown = useMemo(() => items.filter((i) => matchesSearch(i, query)), [items, query]);
   const groups = useMemo(() => groupByShelf(shown), [shown]);
+  // Browse by type once anything has one; until then the shelf list stays level one.
+  const tiles = useMemo(() => (list?.capabilities.types && items.some((i) => i.category) ? typeTiles(items) : null), [list, items]);
 
   function saved(r: WriteResult) {
     if (r.movement.kind === "reversal") {
@@ -181,6 +207,8 @@ export function PhilWorkshopStock() {
   // back closes the sheet instead of leaving the page, and a hand-over between
   // sheets (take → "add it as new", item → take) keeps the same marker.
   const { closeWithHistory } = useSheetHistory({ open: flowOpen, onClose: () => setFlow(null) });
+  const caps = list?.capabilities;
+  const openList = (listId?: string | null) => setFlow({ kind: "lists", listId: listId ?? null });
 
   const count = list ? `${items.length} ${items.length === 1 ? "item" : "items"}.` : null;
   const recentId = last && Date.now() - Date.parse(last.movement.createdAt ?? "") < RECENT_MS ? last.item.id : null;
@@ -193,6 +221,16 @@ export function PhilWorkshopStock() {
       <div className="px-4 pb-2.5 pt-1">
         <h1 className="font-display text-[26px] font-bold leading-tight tracking-tight text-brand-navy">Workshop stock</h1>
         <p className="mt-1 text-[15px] text-text-muted">What we have in the workshop, and where it is.{count ? ` ${count}` : ""}</p>
+        {caps?.lists && !loadError ? (
+          <button type="button" onClick={() => openList(myList?.id)} className="mt-2.5 flex min-h-[52px] w-full items-center gap-3 rounded-xl border border-border bg-surface-subtle px-3 text-left hover:border-brand-navy" data-testid="stock-lists-entry">
+            <ClipboardList aria-hidden="true" className="h-5 w-5 shrink-0 text-brand-navy" />
+            <span className="min-w-0 flex-1">
+              <span className="block text-[15px] font-semibold text-brand-navy">{myList ? `Your list: ${myList.name}` : "Shopping lists"}</span>
+              <span className="block truncate text-[13px] text-text-muted">{myList ? listSummary(viewList(myList, items)) : "what you need — from the workshop or the wholesaler"}</span>
+            </span>
+            <ChevronRight aria-hidden="true" className="h-5 w-5 shrink-0 text-brand-navy" />
+          </button>
+        ) : null}
       </div>
 
       {/* the one slot at the top: waiting saves, else the last receipt */}
@@ -207,7 +245,7 @@ export function PhilWorkshopStock() {
                 undone={lastUndone}
                 onUndone={saved}
                 undoTestId="stock-last-undo"
-                note={last.photoAttached === false ? <span data-testid="stock-last-photo-missing">The photo couldn&rsquo;t be attached — the office can add one later.</span> : null}
+                note={last.photoAttached === false ? <span data-testid="stock-last-photo-missing">The photo couldn&rsquo;t be attached — the office can add one later.</span> : last.locationPhotoAttached === false ? <span data-testid="stock-last-photo-missing">The photo of where it lives couldn&rsquo;t be attached — add it from the item.</span> : null}
               />
             </div>
           ) : null}
@@ -276,6 +314,32 @@ export function PhilWorkshopStock() {
                 </div>
               ))}
             </div>
+          ) : tiles && !query.trim() ? (
+            <div className="flex-1 px-4 pb-3" data-testid="stock-type-tiles">
+              <Kicker className="pb-2 pt-1">What are you after?</Kicker>
+              <div className="grid grid-cols-2 gap-2">
+                {tiles.map((t) => (
+                  <button
+                    key={t.key ?? "unsorted"}
+                    type="button"
+                    onClick={() => setFlow({ kind: "browse", mode: t.key ? { kind: "type", key: t.key } : { kind: "unsorted" }, choice: {} })}
+                    className={t.key ? "flex min-h-[84px] flex-col justify-between rounded-[14px] border border-border-strong bg-surface p-3 text-left hover:border-brand-navy" : "flex min-h-[84px] flex-col justify-between rounded-[14px] border border-dashed border-border-strong bg-surface-subtle p-3 text-left hover:border-brand-navy"}
+                    data-testid="stock-type-tile"
+                    data-type={t.key ?? "unsorted"}
+                  >
+                    <span className="font-display text-[17px] font-bold leading-tight text-brand-navy">{t.label}</span>
+                    <span className="mt-1 block text-[13px] text-text-muted">
+                      <span className="font-semibold text-text">{t.count} {t.count === 1 ? "item" : "items"}</span>
+                      {t.sample.length ? <span className="block truncate">{t.sample.join(" · ")}</span> : null}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <button type="button" onClick={() => setFlow({ kind: "browse", mode: { kind: "shelf" }, choice: {} })} className="mt-2 flex min-h-[48px] w-full items-center justify-between rounded-[14px] border border-border px-3 text-left text-[15px] font-semibold text-brand-navy hover:border-brand-navy" data-testid="stock-by-shelf">
+                Everything, by shelf
+                <ChevronRight aria-hidden="true" className="h-5 w-5" />
+              </button>
+            </div>
           ) : shown.length ? (
             <div className="flex-1" data-testid="stock-list">
               {groups.map((g) => (
@@ -325,7 +389,40 @@ export function PhilWorkshopStock() {
         <TakeFlow items={items} viewerId={viewerId} photoReading={Boolean(list?.capabilities.photoRead)} onSaved={saved} onAddNew={(seed) => setFlow({ kind: "add", seed })} onClose={closeWithHistory} />
       ) : null}
       {flow?.kind === "add" && list ? <AddFlow items={items} capabilities={list.capabilities} seed={flow.seed ?? null} onSaved={saved} onClose={closeWithHistory} /> : null}
-      {flow?.kind === "item" ? <StockItemSheet item={flow.item} viewerId={viewerId} onChanged={(r) => { if (r) saved(r); else void load(); }} onClose={closeWithHistory} /> : null}
+      {flow?.kind === "item" ? (
+        <StockItemSheet
+          key={flow.item.id}
+          item={flow.item}
+          viewerId={viewerId}
+          locationPhotoEnabled={caps?.locationPhoto === true}
+          listsEnabled={caps?.lists === true}
+          onOpenList={openList}
+          onBack={flow.from ? () => setFlow(flow.from ?? null) : null}
+          onChanged={(r) => { if (r) saved(r); else void load(); }}
+          onClose={closeWithHistory}
+        />
+      ) : null}
+      {flow?.kind === "browse" ? (
+        <BrowseSheet
+          mode={flow.mode}
+          items={items}
+          choice={flow.choice}
+          onChoice={(choice) => setFlow({ ...flow, choice })}
+          onPick={(item) => setFlow({ kind: "item", item, from: flow })}
+          recentId={recentId}
+          onClose={closeWithHistory}
+        />
+      ) : null}
+      {flow?.kind === "lists" ? (
+        <ListsFlow
+          items={items}
+          viewerId={viewerId}
+          initialListId={flow.listId ?? null}
+          locationPhotoEnabled={caps?.locationPhoto === true}
+          onSaved={saved}
+          onClose={() => { if (viewerId) void loadMyList(viewerId); closeWithHistory(); }}
+        />
+      ) : null}
     </div>
   );
 }

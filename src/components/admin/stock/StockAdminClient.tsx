@@ -12,16 +12,18 @@ import { errorCopy, formatNumber, identityLine, matchesSearch, UNIT_LABEL, verif
 import { binOf, groupByShelf } from "@/domains/workshop-stock/location";
 import { setPendingOwner } from "@/domains/workshop-stock/pending";
 import type { StockItem, StockList, VerificationStatus } from "@/domains/workshop-stock/schema";
+import { STOCK_TYPES, typeOf } from "@/domains/workshop-stock/types";
 import { StockAdminAdd } from "./StockAdminAdd";
 import { StockItemDrawer } from "./StockItemDrawer";
 
-type Filter = "all" | "zero" | "estimated" | "check" | "archived";
+type Filter = "all" | "zero" | "estimated" | "check" | "unsorted" | "archived";
 
-const FILTERS: Array<{ value: Filter; label: string }> = [
+const FILTERS: Array<{ value: Filter; label: string; types?: true }> = [
   { value: "all", label: "All" },
   { value: "zero", label: "None recorded" },
   { value: "estimated", label: "Estimates" },
   { value: "check", label: "Code not confirmed" },
+  { value: "unsorted", label: "Not sorted", types: true },
   { value: "archived", label: "Archived" },
 ];
 
@@ -29,6 +31,7 @@ const EXPLAIN: Partial<Record<Filter, string>> = {
   zero: "Items where nothing is recorded on the shelf. That is what's logged, not a check of the shelf.",
   estimated: "Items whose recorded quantity is an estimate — a rough count or a part-used roll. A count clears it.",
   check: "Items whose product code the online check couldn't fully confirm. Open one to re-run the check or correct the details.",
+  unsorted: "Items without a type yet. The crew browse the phone by type (Switches & GPOs, LED strip, Cable…) — open one, Catalogue → Details, and pick what it is; its fields fill in from the name for you to check.",
   archived: "Archived items are off the crew's list and their codes don't match photos. Open one to read its history or restore it.",
 };
 
@@ -58,6 +61,7 @@ export function StockAdminClient({ initialItemId }: { initialItemId?: string | n
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
   const [q, setQ] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
   const [openId, setOpenId] = useState<string | null>(initialItemId ?? null);
   const [adding, setAdding] = useState(false);
 
@@ -75,6 +79,7 @@ export function StockAdminClient({ initialItemId }: { initialItemId?: string | n
     zero: items.filter((i) => !i.archivedAt && i.balanceMilli === 0).length,
     estimated: items.filter((i) => !i.archivedAt && i.estimated).length,
     check: items.filter((i) => !i.archivedAt && i.verificationStatus !== "manufacturer_code_matched").length,
+    unsorted: items.filter((i) => !i.archivedAt && !i.category).length,
     archived: items.filter((i) => Boolean(i.archivedAt)).length,
   }), [items]);
   const shown = useMemo(() => items.filter((i) => {
@@ -83,8 +88,10 @@ export function StockAdminClient({ initialItemId }: { initialItemId?: string | n
     if (filter === "zero") return i.balanceMilli === 0;
     if (filter === "estimated") return i.estimated;
     if (filter === "check") return i.verificationStatus !== "manufacturer_code_matched";
+    if (filter === "unsorted") return !i.category;
     return true;
-  }).filter((i) => matchesSearch(i, q)), [items, filter, q]);
+  }).filter((i) => !typeFilter || (i.category ? typeOf(i.category)!.key === typeFilter : false)).filter((i) => matchesSearch(i, q)), [items, filter, typeFilter, q]);
+  const typesEnabled = list?.capabilities.types === true;
   const groups = useMemo(() => groupByShelf(shown), [shown]);
   const archivedView = filter === "archived";
   const nothingYet = state === "ready" && !items.length && !archivedView;
@@ -93,7 +100,7 @@ export function StockAdminClient({ initialItemId }: { initialItemId?: string | n
     <div className="space-y-4" data-testid="stock-admin">
       <div className="flex flex-wrap items-center gap-2">
         <div role="tablist" aria-label="Filter workshop stock" className="flex flex-wrap gap-1.5">
-          {FILTERS.map((f) => {
+          {FILTERS.filter((f) => !f.types || typesEnabled).map((f) => {
             const active = f.value === filter;
             const n = failed || !list ? null : filter === "archived" && f.value !== "archived" ? counts[f.value] : f.value === "archived" && filter !== "archived" ? null : counts[f.value];
             return (
@@ -112,6 +119,12 @@ export function StockAdminClient({ initialItemId }: { initialItemId?: string | n
           })}
         </div>
         <span className="flex-1" />
+        {typesEnabled ? (
+          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} aria-label="Type of item" className="h-9 rounded-[4px] border border-border-strong bg-surface px-2 text-sm" data-testid="stock-admin-type">
+            <option value="">All types</option>
+            {STOCK_TYPES.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
+          </select>
+        ) : null}
         <div className="relative w-full sm:w-[300px]">
           <Search aria-hidden="true" className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
           <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name, code, barcode or shelf" aria-label="Search workshop stock" className="h-9 w-full rounded-[4px] border border-border-strong bg-surface pl-8 pr-3 text-sm" data-testid="stock-admin-search" />
@@ -196,7 +209,7 @@ export function StockAdminClient({ initialItemId }: { initialItemId?: string | n
         </>
       )}
 
-      {openId && list ? <StockItemDrawer itemId={openId} lookupEnabled={list.capabilities.lookup} locationPhotoEnabled={list.capabilities.locationPhoto === true} onClose={() => setOpenId(null)} onChanged={() => void load(filter === "archived")} /> : null}
+      {openId && list ? <StockItemDrawer itemId={openId} lookupEnabled={list.capabilities.lookup} locationPhotoEnabled={list.capabilities.locationPhoto === true} typesEnabled={typesEnabled} onClose={() => setOpenId(null)} onChanged={() => void load(filter === "archived")} /> : null}
       {adding && list ? <StockAdminAdd items={items} capabilities={list.capabilities} onSaved={() => void load(filter === "archived")} onOpenItem={(id) => { setAdding(false); setOpenId(id); }} onClose={() => setAdding(false)} /> : null}
     </div>
   );

@@ -46,7 +46,7 @@ type Res = { statusCode: number; body: unknown; headers: Record<string, string>;
 let blob: Map<string, unknown>;
 let auth: { signSession: (p: Record<string, unknown>) => string };
 let handler: (req: Record<string, unknown>, res: Res) => Promise<unknown>;
-type StoreFn = "resolveTenant" | "listItems" | "getItem" | "listMovements" | "itemEvents" | "getOperation" | "replayOperation" | "recordMovement" | "recordCount" | "reverseMovement" | "createItemWithOpening" | "updateItem" | "setArchived" | "addIdentifier" | "retireIdentifier" | "recordVerification" | "insertPhoto" | "setPhotoReading" | "getPhotoForServing" | "replaceItemPhoto" | "hasLocationPhoto" | "photosDueForDeletion" | "markPhotoDeleted" | "markBlobDeleted" | "consumeUsage" | "getCachedLookup" | "putCachedLookup";
+type StoreFn = "resolveTenant" | "listItems" | "getItem" | "listMovements" | "itemEvents" | "getOperation" | "replayOperation" | "recordMovement" | "recordCount" | "reverseMovement" | "createItemWithOpening" | "updateItem" | "setArchived" | "addIdentifier" | "retireIdentifier" | "recordVerification" | "insertPhoto" | "setPhotoReading" | "getPhotoForServing" | "replaceItemPhoto" | "hasLocationPhoto" | "hasTypes" | "hasLists" | "listLists" | "getList" | "saveList" | "deleteList" | "saveListLine" | "deleteListLine" | "photosDueForDeletion" | "markPhotoDeleted" | "markBlobDeleted" | "consumeUsage" | "getCachedLookup" | "putCachedLookup";
 let store: Record<StoreFn, ReturnType<typeof vi.fn>>;
 let audit: { append: ReturnType<typeof vi.fn> };
 let lookupProduct: ReturnType<typeof vi.fn>;
@@ -76,6 +76,13 @@ const movement = (over: Record<string, unknown> = {}) => ({
   id: MOVE_ID, itemId: ITEM_ID, kind: "take", quantityMilli: -1000, balanceAfterMilli: 4000, itemVersionAfter: 4, countedMilli: null, pack: null,
   estimated: false, jobId: null, jobLabel: null, reason: null, note: null, reversesMovementId: null, actorId: "u_field", actorName: "Sam Sparky",
   createdAt: new Date().toISOString(), reversedBy: null, ...over,
+});
+
+const LIST_ID = "66666666-6666-4666-8666-666666666666";
+const LINE_ID = "77777777-7777-4777-8777-777777777777";
+const shoppingList = (over: Record<string, unknown> = {}) => ({
+  id: LIST_ID, name: "Smith reno", jobId: null, jobLabel: null, ownerId: "u_field", ownerName: "Sam Sparky", doneAt: null,
+  createdAt: null, updatedAt: null, lines: [], ...over,
 });
 
 async function call({ method = "GET", user = "u_field", query = {}, body, headers = {} }: { method?: string; user?: string | null; query?: Record<string, string>; body?: unknown; headers?: Record<string, string> }) {
@@ -150,6 +157,14 @@ beforeEach(() => {
     getPhotoForServing: vi.fn(async () => ({ id: PHOTO_ID, blobUrl: "https://secret.blob.example/x.jpg", contentType: "image/jpeg", byteSize: 3 })),
     replaceItemPhoto: vi.fn(async () => ({ ok: true })),
     hasLocationPhoto: vi.fn(async () => true),
+    hasTypes: vi.fn(async () => true),
+    hasLists: vi.fn(async () => true),
+    listLists: vi.fn(async () => []),
+    getList: vi.fn(async () => null),
+    saveList: vi.fn(async () => ({ ok: true, created: true, list: shoppingList() })),
+    deleteList: vi.fn(async () => ({ ok: true })),
+    saveListLine: vi.fn(async () => ({ ok: true, list: shoppingList() })),
+    deleteListLine: vi.fn(async () => ({ ok: true, list: shoppingList() })),
     photosDueForDeletion: vi.fn(async () => []),
     markPhotoDeleted: vi.fn(async () => true),
     markBlobDeleted: vi.fn(async () => undefined),
@@ -670,22 +685,144 @@ describe("a photo of where the item lives", () => {
     expect(none.body).toMatchObject({ locationPhotoAttached: true });
   });
 
-  it("the office can replace or remove it; the product photo can't be removed this way; the crew can't change either", async () => {
+  it("the office can replace or remove it; the product photo can't be removed this way; the crew can only FILL a missing one", async () => {
     expect((await post("item-photo", { itemId: ITEM_ID, photoId: LOC_ID, slot: "location" }, "u_office")).statusCode).toBe(200);
-    expect(store.replaceItemPhoto).toHaveBeenLastCalledWith(expect.anything(), TENANT.id, ITEM_ID, LOC_ID, expect.objectContaining({ id: "u_office" }), "location");
+    expect(store.replaceItemPhoto).toHaveBeenLastCalledWith(expect.anything(), TENANT.id, ITEM_ID, LOC_ID, expect.objectContaining({ id: "u_office" }), "location", { onlyIfEmpty: false });
     expect((await post("item-photo", { itemId: ITEM_ID, photoId: null, slot: "location" }, "u_office")).statusCode).toBe(200);
-    expect(store.replaceItemPhoto).toHaveBeenLastCalledWith(expect.anything(), TENANT.id, ITEM_ID, null, expect.anything(), "location");
+    expect(store.replaceItemPhoto).toHaveBeenLastCalledWith(expect.anything(), TENANT.id, ITEM_ID, null, expect.anything(), "location", { onlyIfEmpty: false });
     expect((await post("item-photo", { itemId: ITEM_ID, photoId: null }, "u_office")).statusCode).toBe(400);
     // an unchanged caller still means the product photo
     await post("item-photo", { itemId: ITEM_ID, photoId: PHOTO_ID }, "u_office");
-    expect(store.replaceItemPhoto).toHaveBeenLastCalledWith(expect.anything(), TENANT.id, ITEM_ID, PHOTO_ID, expect.anything(), "product");
+    expect(store.replaceItemPhoto).toHaveBeenLastCalledWith(expect.anything(), TENANT.id, ITEM_ID, PHOTO_ID, expect.anything(), "product", { onlyIfEmpty: false });
+    const audited = audit.append.mock.calls.length;
+
+    // the crew, putting stock away: fill a missing one (the store refuses to replace), never remove or touch the product photo
+    expect((await post("item-photo", { itemId: ITEM_ID, photoId: LOC_ID, slot: "location" })).statusCode).toBe(200);
+    expect(store.replaceItemPhoto).toHaveBeenLastCalledWith(expect.anything(), TENANT.id, ITEM_ID, LOC_ID, expect.objectContaining({ id: "u_field" }), "location", { onlyIfEmpty: true });
+    expect(audit.append.mock.calls.length).toBe(audited); // in the item's own history, not the shared journal
+    store.replaceItemPhoto.mockResolvedValueOnce({ error: "location_photo_exists" });
+    const taken = await post("item-photo", { itemId: ITEM_ID, photoId: LOC_ID, slot: "location" }, "u_lh");
+    expect(taken.statusCode).toBe(409);
+    expect(taken.body).toEqual({ error: "location_photo_exists" });
     const calls = store.replaceItemPhoto.mock.calls.length;
-    expect((await post("item-photo", { itemId: ITEM_ID, photoId: LOC_ID, slot: "location" })).statusCode).toBe(403);
+    expect((await post("item-photo", { itemId: ITEM_ID, photoId: null, slot: "location" })).statusCode).toBe(403);
+    expect((await post("item-photo", { itemId: ITEM_ID, photoId: PHOTO_ID })).statusCode).toBe(403);
     expect(store.replaceItemPhoto.mock.calls.length).toBe(calls);
     // before the migration the store says so, and the office sees a stable code
     store.replaceItemPhoto.mockResolvedValueOnce({ error: "location_photo_unavailable" });
     const early = await post("item-photo", { itemId: ITEM_ID, photoId: LOC_ID, slot: "location" }, "u_office");
     expect(early.statusCode).toBe(503);
     expect(early.body).toEqual({ error: "location_photo_unavailable" });
+  });
+});
+
+describe("item types and their fields", () => {
+  it("the list says whether types exist yet", async () => {
+    expect((await call({ query: { action: "list" } })).body).toMatchObject({ capabilities: { types: true, lists: true } });
+    store.hasTypes.mockResolvedValueOnce(false);
+    store.hasLists.mockResolvedValueOnce(false);
+    expect((await call({ query: { action: "list" } })).body).toMatchObject({ capabilities: { types: false, lists: false } });
+  });
+
+  it("a new item carries its type and tidied fields; before the migration both are dropped; bad keys are refused", async () => {
+    const make = (body: Record<string, unknown>) => post("create", { name: "Clipsal Iconic 2 gang switch", baseUnit: "each", location: "Shelf B", openingQuantity: "4", ...body });
+    expect((await make({ category: "switches", specs: { range: "  Iconic ", gang: "2 gang", kind: "" } })).statusCode).toBe(201);
+    expect(store.createItemWithOpening.mock.calls[0]![2]).toMatchObject({ category: "switches", specs: { range: "Iconic", gang: "2 gang" } });
+    expect(Object.keys(store.createItemWithOpening.mock.calls[0]![2].specs)).toEqual(["range", "gang"]);
+
+    store.hasTypes.mockResolvedValueOnce(false);
+    await make({ category: "switches", specs: { range: "Iconic" } });
+    expect(store.createItemWithOpening.mock.calls[1]![2]).toMatchObject({ category: null, specs: {} });
+
+    expect((await make({ category: "Switches!" })).statusCode).toBe(400);
+    expect((await make({ category: "switches", specs: { "Bad Key": "x" } })).statusCode).toBe(400);
+    expect((await make({ category: "switches", specs: { range: "x".repeat(61) } })).statusCode).toBe(400);
+  });
+
+  it("the same photo of where it lives as another item — setting up one shelf", async () => {
+    const OTHER = "88888888-8888-4888-8888-888888888888";
+    store.createItemWithOpening.mockResolvedValueOnce({ ok: true, created: true, item: item({ locationPhotoId: "p" }), movement: movement({ kind: "opening", quantityMilli: 1000 }), locationPhotoAttached: true });
+    const r = await post("create", { name: "Iconic blank plate", baseUnit: "each", location: "Shelf B", openingQuantity: "1", locationPhotoFromItemId: OTHER });
+    expect(r.statusCode).toBe(201);
+    expect(store.createItemWithOpening.mock.calls[0]![2]).toMatchObject({ locationPhotoId: null, locationPhotoFromItemId: OTHER });
+    expect(r.body).toMatchObject({ locationPhotoAttached: true });
+  });
+
+  it("the office edits the type and fields (compare-and-set like the rest); the crew can't; before the migration they're ignored", async () => {
+    const put = (body: Record<string, unknown>, user = "u_office") => call({ method: "PUT", user, query: { action: "item", id: ITEM_ID }, body: { expectedRevision: 1, ...body } });
+    expect((await put({ category: "switches", specs: { range: "Iconic", gang: "2 gang" } })).statusCode).toBe(200);
+    expect(store.updateItem.mock.calls[0]![3]).toMatchObject({ patch: { category: "switches", specs: { range: "Iconic", gang: "2 gang" } }, expectedRevision: 1 });
+    expect((await put({ category: null })).statusCode).toBe(200);
+    expect(store.updateItem.mock.calls[1]![3].patch).toEqual({ category: null });
+    store.hasTypes.mockResolvedValueOnce(false);
+    await put({ category: "switches", name: "Plate" });
+    expect(store.updateItem.mock.calls[2]![3].patch).toEqual({ name: "Plate" });
+    expect((await put({ category: "switches" }, "u_field")).statusCode).toBe(403);
+  });
+});
+
+describe("shopping lists", () => {
+  it("before the migration every list path says so and touches nothing", async () => {
+    store.hasLists.mockResolvedValue(false);
+    expect((await call({ query: { action: "lists" } })).statusCode).toBe(503);
+    expect((await post("list", { id: LIST_ID, name: "Smith reno" })).body).toEqual({ error: "lists_unavailable" });
+    expect(store.saveList).not.toHaveBeenCalled();
+    expect(store.listLists).not.toHaveBeenCalled();
+  });
+
+  it("anyone on the crew reads them and starts one; the owner is the session, never the body", async () => {
+    store.listLists.mockResolvedValueOnce([shoppingList()]);
+    const r = await call({ query: { action: "lists" } });
+    expect(r.statusCode).toBe(200);
+    expect(r.body).toMatchObject({ lists: [{ id: LIST_ID }], viewer: { id: "u_field", office: false } });
+    const start = await post("list", { id: LIST_ID, name: "Smith reno", ownerId: "u_office" });
+    expect(start.statusCode).toBe(201);
+    expect(store.saveList).toHaveBeenLastCalledWith(expect.anything(), TENANT.id, LIST_ID, { name: "Smith reno", job: undefined, done: undefined }, expect.objectContaining({ id: "u_field" }));
+    expect((await call({ query: { action: "lists" }, user: "u_client" })).statusCode).toBe(403);
+    expect((await post("list", { id: "not-a-uuid", name: "x" })).statusCode).toBe(400);
+  });
+
+  it("a job on a list is resolved like a movement's — open jobs only for the crew; null clears it", async () => {
+    await post("list", { id: LIST_ID, name: "Birdwood", jobId: "j_live" });
+    expect(store.saveList.mock.calls[0]![3]).toMatchObject({ job: { id: "j_live", label: "IV3232 · Birdwood" } });
+    expect((await post("list", { id: LIST_ID, jobId: "j_draft" })).body).toEqual({ error: "job_not_available" });
+    await post("list", { id: LIST_ID, jobId: null, done: true });
+    expect(store.saveList.mock.calls[1]![3]).toEqual({ name: undefined, job: null, done: true });
+  });
+
+  it("a line: an item's quantity is parsed in the item's unit; a text line in its own; empty lines and other people's deletes are refused", async () => {
+    await post("list-line", { listId: LIST_ID, id: LINE_ID, itemId: ITEM_ID, quantity: "4" });
+    expect(store.saveListLine.mock.calls[0]![2]).toMatchObject({ listId: LIST_ID, id: LINE_ID, itemId: ITEM_ID, quantityMilli: 4000, text: undefined });
+    store.getItem.mockResolvedValueOnce(item({ baseUnit: "metre" }));
+    await post("list-line", { listId: LIST_ID, id: LINE_ID, itemId: ITEM_ID, quantity: "12.5" });
+    expect(store.saveListLine.mock.calls[1]![2]).toMatchObject({ quantityMilli: 12_500 });
+    expect((await post("list-line", { listId: LIST_ID, id: LINE_ID, itemId: ITEM_ID, quantity: "1.5" })).statusCode).toBe(400); // each: whole numbers
+    await post("list-line", { listId: LIST_ID, id: LINE_ID, text: "Blank plates", quantity: "3", unit: "each" });
+    expect(store.saveListLine.mock.calls[2]![2]).toMatchObject({ itemId: null, text: "Blank plates", quantityMilli: 3000, unit: "each" });
+    await post("list-line", { listId: LIST_ID, id: LINE_ID, got: true });
+    expect(store.saveListLine.mock.calls[3]![2]).toMatchObject({ got: true, quantityMilli: undefined });
+
+    store.saveListLine.mockResolvedValueOnce({ error: "line_empty" });
+    expect((await post("list-line", { listId: LIST_ID, id: LINE_ID })).statusCode).toBe(400);
+    store.deleteList.mockResolvedValueOnce({ error: "list_not_yours" });
+    expect((await call({ method: "DELETE", query: { action: "list", id: LIST_ID } })).statusCode).toBe(403);
+    expect(store.deleteList).toHaveBeenLastCalledWith(expect.anything(), TENANT.id, LIST_ID, expect.objectContaining({ id: "u_field" }), { office: false });
+    expect((await call({ method: "DELETE", user: "u_office", query: { action: "list", id: LIST_ID } })).statusCode).toBe(200);
+    expect(store.deleteList).toHaveBeenLastCalledWith(expect.anything(), TENANT.id, LIST_ID, expect.anything(), { office: true });
+    expect((await call({ method: "DELETE", query: { action: "list-line", id: LINE_ID } })).statusCode).toBe(200);
+  });
+
+  it("a TAKE ticks the line it collects, in the same save; only a take, and only once the lists exist", async () => {
+    store.recordMovement.mockResolvedValueOnce({ ok: true, item: item({ balanceMilli: 4000 }), movement: movement(), lineTicked: true });
+    const r = await post("move", { itemId: ITEM_ID, kind: "take", quantity: "1", listLineId: LINE_ID });
+    expect(r.statusCode).toBe(201);
+    expect(store.recordMovement.mock.calls[0]![2]).toMatchObject({ listLineId: LINE_ID, kind: "take" });
+    expect(r.body).toMatchObject({ lineTicked: true });
+
+    await post("move", { itemId: ITEM_ID, kind: "add", quantity: "1", listLineId: LINE_ID }, "u_field", { "idempotency-key": "op-key-0002" });
+    expect(store.recordMovement.mock.calls[1]![2]).toMatchObject({ listLineId: null });
+    store.hasLists.mockResolvedValueOnce(false);
+    await post("move", { itemId: ITEM_ID, kind: "take", quantity: "1", listLineId: LINE_ID }, "u_field", { "idempotency-key": "op-key-0003" });
+    expect(store.recordMovement.mock.calls[2]![2]).toMatchObject({ listLineId: null });
   });
 });

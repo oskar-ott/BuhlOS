@@ -9,6 +9,7 @@ import { cn } from "@/lib/cn";
 import { addIdentifier, editItem, lookupCode, newOperationKey, recordCount, recordVerification, removeIdentifier } from "@/domains/workshop-stock/client";
 import { clockTime, errorCopy, formatNumber, formatQuantity, movementSummary, movementWho, parseTypedQuantity, toQuantityString, UNIT_LABEL, VERIFICATION_LABEL, whenLabel } from "@/domains/workshop-stock/format";
 import { PACK_UNITS, UNIT_KEYS, type LookupResult, type PackUnit, type StockItem, type StockMovement, type StockUnit, type WriteResult } from "@/domains/workshop-stock/schema";
+import { guessSpecs, guessType, normaliseValue, specsForType, STOCK_TYPES, typeLabel, typeOf } from "@/domains/workshop-stock/types";
 import { CODE_TONE } from "./StockAdminClient";
 
 export const INPUT = "h-9 w-full rounded-[4px] border border-border-strong bg-surface px-2.5 text-sm text-text disabled:bg-surface-subtle disabled:text-text-muted";
@@ -135,17 +136,28 @@ export function CountForm({ item, onSaved }: { item: StockItem; onSaved: (r: Wri
 type EditFields = {
   name: string; brand: string; manufacturerCode: string; supplierSku: string; supplierName: string; variant: string; colourFinish: string;
   location: string; baseUnit: StockUnit; packUnit: PackUnit | ""; packSize: string;
+  /** the type key ("" = not sorted) and its fields as one comparable string (stableSpecs) */
+  category: string; specs: string;
 };
 
 const FIELD_NAME: Record<keyof EditFields, string> = {
   name: "Name", brand: "Brand", manufacturerCode: "Maker's code", supplierSku: "Supplier SKU", supplierName: "Supplier", variant: "Size / rating", colourFinish: "Colour / finish", location: "Shelf", baseUnit: "Counted in", packUnit: "Default pack", packSize: "Per pack",
+  category: "Type", specs: "Type's fields",
 };
+
+/** A type's fields as a string that compares equal when the values do (sorted keys, empty ones dropped). */
+function stableSpecs(o: Record<string, string> | undefined): string {
+  const src = o ?? {};
+  return JSON.stringify(Object.fromEntries(Object.keys(src).sort().filter((k) => src[k]?.trim()).map((k) => [k, src[k]])));
+}
+const parseSpecs = (s: string): Record<string, string> => JSON.parse(s || "{}") as Record<string, string>;
 
 function fieldsOf(item: StockItem): EditFields {
   return {
     name: item.name, brand: item.brand ?? "", manufacturerCode: item.manufacturerCode ?? "", supplierSku: item.supplierSku ?? "",
     supplierName: item.supplierName ?? "", variant: item.variant ?? "", colourFinish: item.colourFinish ?? "", location: item.location ?? "",
     baseUnit: item.baseUnit, packUnit: (item.defaultPack?.unit ?? "") as PackUnit | "", packSize: item.defaultPack ? formatNumber(item.defaultPack.sizeMilli) : "",
+    category: item.category ?? "", specs: stableSpecs(item.specs),
   };
 }
 
@@ -154,14 +166,34 @@ function fieldsOf(item: StockItem): EditFields {
  * remembers the revision it started from: a reload with nothing typed simply
  * shows the new details; with edits in progress they are kept, and the form
  * says someone else changed the item (the server would refuse a blind save).
+ *
+ * The TYPE and its fields (once the server has them): picking a type for an
+ * unsorted item fills its fields from the name and details for the office to
+ * check ("Clipsal Iconic 2 gang switch" → Range Iconic, Gang 2 gang), and a
+ * not-yet-sorted item says what it looks like, one click to use it.
  */
-export function EditForm({ item, unitLocked, onSaved }: { item: StockItem; unitLocked: boolean; onSaved: (i: StockItem) => void }) {
+export function EditForm({ item, unitLocked, typesEnabled = false, onSaved }: { item: StockItem; unitLocked: boolean; typesEnabled?: boolean; onSaved: (i: StockItem) => void }) {
   const [base, setBase] = useState<StockItem>(item);
   const [f, setF] = useState<EditFields>(() => fieldsOf(item));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedNote, setSavedNote] = useState<string | null>(null);
+  const [filledFromName, setFilledFromName] = useState(false);
   const set = (k: keyof EditFields) => (e: { target: { value: string } }) => { setSavedNote(null); setF((x) => ({ ...x, [k]: e.target.value })); };
+  const looksLike = typesEnabled && !f.category ? guessType([item.name, item.variant, item.brand]) : null;
+
+  function chooseCategory(key: string) {
+    setSavedNote(null);
+    // fill the new type's empty fields from the name and details — the office checks them
+    const guessed = key ? guessSpecs(key, [f.name, f.variant, f.colourFinish]) : {};
+    const kept = Object.fromEntries(Object.entries(parseSpecs(f.specs)).filter(([, v]) => v.trim()));
+    setFilledFromName(Object.keys(guessed).some((k) => !(k in kept)));
+    setF((x) => ({ ...x, category: key, specs: stableSpecs({ ...guessed, ...kept }) }));
+  }
+  function setSpec(key: string, value: string) {
+    setSavedNote(null);
+    setF((x) => ({ ...x, specs: stableSpecs({ ...parseSpecs(x.specs), [key]: value }) }));
+  }
   const baseFields = fieldsOf(base);
   const changed = (Object.keys(f) as Array<keyof EditFields>).filter((k) => f[k] !== baseFields[k]);
   const dirty = changed.length > 0;
@@ -191,11 +223,18 @@ export function EditForm({ item, unitLocked, onSaved }: { item: StockItem; unitL
     if (f.baseUnit !== base.baseUnit) patch.baseUnit = f.baseUnit;
     const packChanged = (f.packUnit || null) !== (base.defaultPack?.unit ?? null) || (f.packSize || "") !== (base.defaultPack ? formatNumber(base.defaultPack.sizeMilli) : "");
     if (packChanged) patch.defaultPack = f.packUnit && f.packSize ? { unit: f.packUnit, size: f.packSize } : null;
+    if (typesEnabled) {
+      const categoryChanged = f.category !== (base.category ?? "");
+      if (categoryChanged) patch.category = f.category || null;
+      // a changed type drops the old type's fields; otherwise only what changed
+      if (categoryChanged || f.specs !== stableSpecs(base.specs)) patch.specs = specsForType(f.category || null, parseSpecs(f.specs));
+    }
     const r = await editItem(base.id, patch);
     setBusy(false);
     if (r.ok) {
       setBase(r.data.item);
       setF(fieldsOf(r.data.item));
+      setFilledFromName(false);
       setSavedNote(r.data.unchanged ? "Nothing changed." : "Saved.");
       onSaved(r.data.item);
       return;
@@ -224,6 +263,7 @@ export function EditForm({ item, unitLocked, onSaved }: { item: StockItem; unitL
       ) : null}
       <div className="grid grid-cols-2 gap-2">
         {text("name", true)}
+        {typesEnabled ? <TypeSection category={f.category} specs={parseSpecs(f.specs)} looksLike={looksLike} filledFromName={filledFromName} onCategory={chooseCategory} onSpec={setSpec} /> : null}
         {text("brand")}
         {text("manufacturerCode")}
         {text("colourFinish")}
@@ -262,6 +302,53 @@ export function EditForm({ item, unitLocked, onSaved }: { item: StockItem; unitL
         {stale && dirty ? <span className="text-xs text-text-muted">Can&rsquo;t save over their change — load their version first.</span> : savedNote ? <span className="text-sm text-text-muted">{savedNote}</span> : null}
       </div>
       <Err text={error} />
+    </div>
+  );
+}
+
+/** The office's type picker and the type's own fields (brand and colour stay in the grid). */
+function TypeSection({ category, specs, looksLike, filledFromName, onCategory, onSpec }: {
+  category: string; specs: Record<string, string>; looksLike: string | null; filledFromName: boolean;
+  onCategory: (key: string) => void; onSpec: (key: string, value: string) => void;
+}) {
+  const type = typeOf(category || null);
+  const fields = type ? type.fields.filter((x) => !x.column) : [];
+  return (
+    <div className="col-span-2 space-y-2 rounded-[4px] border border-border bg-surface-subtle p-2.5" data-testid="stock-edit-type">
+      <label className="block">
+        <span className={LABEL}>Type — the crew browse by it</span>
+        <select value={category} onChange={(e) => onCategory(e.target.value)} className={cn(INPUT, "mt-1")} data-testid="stock-edit-category">
+          <option value="">Not sorted yet</option>
+          {STOCK_TYPES.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
+          {category && !STOCK_TYPES.some((t) => t.key === category) ? <option value={category}>{category}</option> : null}
+        </select>
+      </label>
+      {looksLike ? (
+        <p className="flex flex-wrap items-center gap-2 text-sm text-text">
+          Looks like {typeLabel(looksLike)}.
+          <Button type="button" variant="secondary" size="sm" onClick={() => onCategory(looksLike)} data-testid="stock-edit-category-guess">Use it</Button>
+        </p>
+      ) : null}
+      {fields.length ? (
+        <div className="grid grid-cols-2 gap-2">
+          {fields.map((fd) => (
+            <label key={fd.key} className="block">
+              <span className={LABEL}>{fd.label}</span>
+              <input
+                value={specs[fd.key] ?? ""}
+                onChange={(e) => onSpec(fd.key, e.target.value)}
+                onBlur={(e) => { const t = normaliseValue(fd, e.target.value); if (t !== e.target.value) onSpec(fd.key, t); }}
+                list={`stock-spec-options-${fd.key}`}
+                placeholder={fd.placeholder ?? fd.options[0] ?? ""}
+                className={cn(INPUT, "mt-1")}
+                data-testid={`stock-edit-spec-${fd.key}`}
+              />
+              <datalist id={`stock-spec-options-${fd.key}`}>{fd.options.map((o) => <option key={o} value={o} />)}</datalist>
+            </label>
+          ))}
+        </div>
+      ) : null}
+      {filledFromName ? <p className="text-xs text-text-muted">Filled in from the name and details — check them before saving.</p> : null}
     </div>
   );
 }

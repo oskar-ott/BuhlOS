@@ -60,7 +60,7 @@ const EVENT_LABEL: Record<string, string> = {
  * and archive last and apart (P12: the destructive action never sits beside
  * routine ones). An archived item is read-only until it is restored.
  */
-export function StockItemDrawer({ itemId, lookupEnabled, locationPhotoEnabled = false, onClose, onChanged }: { itemId: string; lookupEnabled: boolean; locationPhotoEnabled?: boolean; onClose: () => void; onChanged: () => void }) {
+export function StockItemDrawer({ itemId, lookupEnabled, locationPhotoEnabled = false, typesEnabled = false, onClose, onChanged }: { itemId: string; lookupEnabled: boolean; locationPhotoEnabled?: boolean; typesEnabled?: boolean; onClose: () => void; onChanged: () => void }) {
   const [detail, setDetail] = useState<ItemDetail | null>(null);
   const [older, setOlder] = useState<StockMovement[]>([]);
   const [next, setNext] = useState<{ before: string; beforeId: string } | null>(null);
@@ -264,7 +264,7 @@ export function StockItemDrawer({ itemId, lookupEnabled, locationPhotoEnabled = 
                   <div className="space-y-4 pt-3" data-testid="stock-catalogue">
                     <Section kicker="Details">
                       {/* keyed on the item, not its revision: a reload never wipes what the office is typing */}
-                      <EditForm key={item.id} item={item} unitLocked={unitLocked} onSaved={changed} />
+                      <EditForm key={item.id} item={item} unitLocked={unitLocked} typesEnabled={typesEnabled} onSaved={changed} />
                     </Section>
                     <Section kicker="Codes, barcodes and packs"><IdentifiersEditor item={item} onChanged={changed} /></Section>
                     <Section kicker="Online product check"><CheckSection item={item} lookupEnabled={lookupEnabled} onChanged={changed} /></Section>

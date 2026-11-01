@@ -58,6 +58,16 @@ function mapIdentifier(r) {
   };
 }
 
+/** The type's own fields as { key: text } — anything that isn't a short text is dropped. */
+function specsOf(v) {
+  const out = {};
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return out;
+  for (const [k, val] of Object.entries(v)) {
+    if (typeof val === 'string' && val.trim()) out[k] = val;
+  }
+  return out;
+}
+
 function mapItem(r, identifiers) {
   return {
     id: r.id,
@@ -72,6 +82,9 @@ function mapItem(r, identifiers) {
     location: r.location || null,
     photoId: r.photo_id || null,
     locationPhotoId: r.location_photo_id || null,
+    // the item's type and that type's fields (20261101100000); null / {} before the migration
+    category: r.category || null,
+    specs: specsOf(r.specs),
     defaultPack: r.default_pack_unit ? { unit: r.default_pack_unit, sizeMilli: toMilli(r.default_pack_size_milli) } : null,
     balanceMilli: toMilli(r.balance_milli),
     estimated: r.estimated === true,
@@ -120,30 +133,54 @@ const ITEM_COLUMNS = (sql) => sql`
   i.base_unit, i.location, i.photo_id, i.default_pack_unit, i.default_pack_size_milli, i.balance_milli,
   i.estimated, i.version, i.meta_revision, i.verification_status, i.verification, i.last_movement_at,
   i.last_counted_at, i.last_counted_by_name, i.archived_at, i.created_at, i.created_by_name, i.updated_at,
-  (to_jsonb(i) ->> 'location_photo_id') as location_photo_id`;
+  (to_jsonb(i) ->> 'location_photo_id') as location_photo_id,
+  (to_jsonb(i) ->> 'category') as category,
+  (to_jsonb(i) -> 'specs') as specs`;
 
-// ── the location photo column (20261026100000_workshop_stock_location_photo.sql) ──
+// ── later, additive migrations: what this database has yet ───────────────────
 //
-// Reads go through to_jsonb(i) above, which is null while the column doesn't
-// exist — so this code can deploy before the migration is applied. Writes, and
-// the capability the screens show the option by, wait until the column is
-// there. Found once per warm instance; a "not yet" is re-checked after a minute
-// so applying the migration lights the option up without a redeploy.
-let locationPhotoColumn = null;
-let locationPhotoCheckedAt = 0;
-async function hasLocationPhoto(sql) {
-  if (locationPhotoColumn === true) return true;
-  if (locationPhotoColumn === false && Date.now() - locationPhotoCheckedAt < 60_000) return false;
+//   locationPhoto  items.location_photo_id            (20261026100000)
+//   types          items.category + items.specs       (20261101100000)
+//   lists          workshop_stock_lists + _list_lines (20261101100000)
+//
+// Reads go through to_jsonb(i) above, which is null while a column doesn't
+// exist — so this code can deploy before a migration is applied. Writes, and
+// the capabilities the screens offer an option by, wait until it is there.
+// Found once per warm instance; a "not yet" is re-checked after a minute so
+// applying a migration lights its option up without a redeploy.
+const SCHEMA_RECHECK_MS = 60_000;
+let schemaSeen = null;
+let schemaCheckedAt = 0;
+async function schemaFeatures(sql) {
+  if (schemaSeen && schemaSeen.locationPhoto && schemaSeen.types && schemaSeen.lists) return schemaSeen;
+  if (schemaSeen && Date.now() - schemaCheckedAt < SCHEMA_RECHECK_MS) return schemaSeen;
   try {
     const rows = await sql`
-      select 1 from information_schema.columns
-      where table_schema = 'public' and table_name = 'workshop_stock_items' and column_name = 'location_photo_id'`;
-    locationPhotoColumn = rows.length > 0;
+      select table_name, column_name from information_schema.columns
+      where table_schema = 'public' and (
+        (table_name = 'workshop_stock_items' and column_name in ('location_photo_id', 'category', 'specs'))
+        or (table_name in ('workshop_stock_lists', 'workshop_stock_list_lines') and column_name = 'id'))`;
+    const has = (t, c) => rows.some((r) => r.table_name === t && r.column_name === c);
+    schemaSeen = {
+      locationPhoto: has('workshop_stock_items', 'location_photo_id'),
+      types: has('workshop_stock_items', 'category') && has('workshop_stock_items', 'specs'),
+      lists: has('workshop_stock_lists', 'id') && has('workshop_stock_list_lines', 'id'),
+    };
   } catch {
-    locationPhotoColumn = false;
+    // keep what was already seen (a column never disappears); otherwise "not yet"
+    schemaSeen = schemaSeen || { locationPhoto: false, types: false, lists: false };
   }
-  locationPhotoCheckedAt = Date.now();
-  return locationPhotoColumn;
+  schemaCheckedAt = Date.now();
+  return schemaSeen;
+}
+async function hasLocationPhoto(sql) {
+  return (await schemaFeatures(sql)).locationPhoto === true;
+}
+async function hasTypes(sql) {
+  return (await schemaFeatures(sql)).types === true;
+}
+async function hasLists(sql) {
+  return (await schemaFeatures(sql)).lists === true;
 }
 
 async function identifiersFor(sql, tenantId, itemIds) {
@@ -341,8 +378,41 @@ function ledgerRefusal(e) {
 // ── movements ─────────────────────────────────────────────────────────────────
 
 /**
+ * A shopping-list line collected by this take: ticked in the SAME transaction
+ * as the movement, so the list never says "got it" for a take that didn't land
+ * (nor misses one that did). Only a line for this item, not already collected
+ * by another take. A take of LESS than the line needs collects what it took:
+ * the line becomes that much, ticked, and the rest stays on the list as a line
+ * of its own (it isn't lost because the shelf ran short). Returns whether it
+ * ticked.
+ */
+async function tickLineByMovement(tx, tenantId, lineId, itemId, movementId, takenMilli, actor) {
+  const rows = await tx`
+    select list_id, quantity_milli, position from public.workshop_stock_list_lines
+    where tenant_id = ${tenantId} and id = ${lineId} and item_id = ${itemId} and movement_id is null
+    for update`;
+  if (!rows.length) return false;
+  const line = rows[0];
+  const needed = line.quantity_milli == null ? null : toMilli(line.quantity_milli);
+  if (needed !== null && takenMilli < needed) {
+    await tx`
+      insert into public.workshop_stock_list_lines (id, tenant_id, list_id, item_id, quantity_milli, position)
+      values (gen_random_uuid(), ${tenantId}, ${line.list_id}, ${itemId}, ${needed - takenMilli}, ${line.position})`;
+  }
+  await tx`
+    update public.workshop_stock_list_lines
+       set got_at = now(), got_by_legacy_id = ${actor.id}, got_by_name = ${actor.name || null},
+           movement_id = ${movementId}, updated_at = now(),
+           quantity_milli = case when quantity_milli is not null and quantity_milli > ${takenMilli} then ${takenMilli} else quantity_milli end
+     where tenant_id = ${tenantId} and id = ${lineId}`;
+  await tx`update public.workshop_stock_lists set updated_at = now() where tenant_id = ${tenantId} and id = ${line.list_id}`;
+  return true;
+}
+
+/**
  * add / take / return on an existing item.
- * @param {{ itemId, kind, quantityMilli, pack?, estimated?, jobId?, jobLabel?, note?, actor, idempotencyKey, requestHash }} input
+ * @param {{ itemId, kind, quantityMilli, pack?, estimated?, jobId?, jobLabel?, note?, listLineId?, actor, idempotencyKey, requestHash }} input
+ *   listLineId: a shopping-list line this take collects (the API passes it only once the lists exist)
  */
 async function recordMovement(sql, tenantId, input) {
   let result;
@@ -358,7 +428,10 @@ async function recordMovement(sql, tenantId, input) {
       const delta = input.kind === 'take' ? -input.quantityMilli : input.quantityMilli;
       if (balance + delta < 0) return { error: 'insufficient_stock', balanceMilli: balance, unit: item.base_unit, requestedMilli: input.quantityMilli };
       const row = await insertMovement(tx, tenantId, { ...input, quantityMilli: delta });
-      return { ok: true, movementRow: row };
+      const lineTicked = input.listLineId && input.kind === 'take'
+        ? await tickLineByMovement(tx, tenantId, input.listLineId, input.itemId, row.id, input.quantityMilli, input.actor)
+        : undefined;
+      return { ok: true, movementRow: row, ...(lineTicked === undefined ? {} : { lineTicked }) };
     });
   } catch (e) {
     if (e && e.code === UNIQUE_VIOLATION && /idempotency/.test(constraintOf(e))) {
@@ -422,6 +495,8 @@ async function recordCount(sql, tenantId, input) {
  */
 async function reverseMovement(sql, tenantId, input, allow) {
   let result;
+  // a take that collected a shopping-list line un-ticks it when it is undone
+  const lists = await hasLists(sql);
   try {
     result = await sql.begin(async (tx) => {
       const origRows = await tx`select * from public.workshop_stock_movements where tenant_id = ${tenantId} and id = ${input.movementId}`;
@@ -452,6 +527,12 @@ async function reverseMovement(sql, tenantId, input, allow) {
         reason: input.reason || null, actor: input.actor, idempotencyKey: input.idempotencyKey, requestHash: input.requestHash,
         jobId: orig.job_legacy_id, jobLabel: orig.job_label,
       });
+      if (lists && orig.kind === 'take') {
+        await tx`
+          update public.workshop_stock_list_lines
+             set got_at = null, got_by_legacy_id = null, got_by_name = null, movement_id = null, updated_at = now()
+           where tenant_id = ${tenantId} and movement_id = ${orig.id}`;
+      }
       return { ok: true, movementRow: row, originalKind: orig.kind };
     });
   } catch (e) {
@@ -520,8 +601,15 @@ async function createItemWithOpening(sql, tenantId, input) {
            ${input.actor.id}, ${input.actor.name || null}, ${input.actor.id}, ${input.actor.name || null})
         returning id`;
       const itemId = rows[0].id;
-      // The location photo: claimed exactly like the product photo. Only sent
-      // when the column exists (the API asks hasLocationPhoto first).
+      // The type and its fields — only sent once their columns exist (the API
+      // asks hasTypes first).
+      if (input.category || (input.specs && Object.keys(input.specs).length)) {
+        await tx`update public.workshop_stock_items set category = ${input.category || null}, specs = ${tx.json(input.specs || {})}
+                 where tenant_id = ${tenantId} and id = ${itemId}`;
+      }
+      // The location photo: claimed exactly like the product photo — or, setting
+      // up a shelf, the SAME photo another item already shows (one shelf, one
+      // photo). Only sent when the column exists (the API asks hasLocationPhoto).
       let locationPhotoId = null;
       if (input.locationPhotoId) {
         const claimed = await tx`
@@ -530,11 +618,19 @@ async function createItemWithOpening(sql, tenantId, input) {
             and expires_at > now()
             and (uploaded_by_legacy_id = ${input.actor.id} or ${input.actorIsOffice === true})
           returning id`;
-        if (claimed.length) {
-          locationPhotoId = claimed[0].id;
-          await tx`update public.workshop_stock_items set location_photo_id = ${locationPhotoId} where tenant_id = ${tenantId} and id = ${itemId}`;
-        }
+        if (claimed.length) locationPhotoId = claimed[0].id;
+      } else if (input.locationPhotoFromItemId) {
+        const from = await tx`
+          select i.location_photo_id from public.workshop_stock_items i
+          join public.workshop_stock_photos p on p.tenant_id = i.tenant_id and p.id = i.location_photo_id
+          where i.tenant_id = ${tenantId} and i.id = ${input.locationPhotoFromItemId}
+            and p.purpose = 'item' and p.deleted_at is null`;
+        if (from.length) locationPhotoId = from[0].location_photo_id;
       }
+      if (locationPhotoId) {
+        await tx`update public.workshop_stock_items set location_photo_id = ${locationPhotoId} where tenant_id = ${tenantId} and id = ${itemId}`;
+      }
+      const askedForLocationPhoto = Boolean(input.locationPhotoId || input.locationPhotoFromItemId);
       for (const idf of input.identifiers || []) {
         await tx`
           insert into public.workshop_stock_identifiers
@@ -548,11 +644,12 @@ async function createItemWithOpening(sql, tenantId, input) {
       });
       await insertEvent(tx, tenantId, itemId, 'created', {
         photo: photoId ? 'attached' : input.photoId ? 'not_available' : 'none',
-        ...(input.locationPhotoId ? { locationPhoto: locationPhotoId ? 'attached' : 'not_available' } : {}),
+        ...(askedForLocationPhoto ? { locationPhoto: locationPhotoId ? (input.locationPhotoFromItemId ? 'same_as_item' : 'attached') : 'not_available' } : {}),
+        ...(input.category ? { category: input.category } : {}),
         verificationStatus: input.verificationStatus || 'unverified',
         identifiers: (input.identifiers || []).map((i) => ({ kind: i.kind, value: i.value })),
       }, input.actor);
-      return { ok: true, created: true, movementRow: row, photoAttached: Boolean(photoId) || !input.photoId, locationPhotoAttached: Boolean(locationPhotoId) || !input.locationPhotoId };
+      return { ok: true, created: true, movementRow: row, photoAttached: Boolean(photoId) || !input.photoId, locationPhotoAttached: Boolean(locationPhotoId) || !askedForLocationPhoto };
     });
   } catch (e) {
     const c = constraintOf(e);
@@ -593,6 +690,12 @@ const EDITABLE = {
 };
 
 const UNVERIFIED = { verification_status: 'unverified', verification: null };
+
+/** The fields as one comparable string (sorted keys, texts only). */
+function stableSpecs(v) {
+  const s = specsOf(v);
+  return JSON.stringify(Object.keys(s).sort().map((k) => [k, s[k]]));
+}
 
 /** Does the item's own code field name this identifier row (same value key AND scope)? */
 function columnHolds(item, row) {
@@ -672,7 +775,17 @@ async function updateItem(sql, tenantId, itemId, { patch, expectedRevision, acto
           changes.defaultPack = { from: cur.default_pack_unit ? { unit: cur.default_pack_unit, sizeMilli: toMilli(cur.default_pack_size_milli) } : null, to: patch.defaultPack || null };
         }
       }
-      if (!Object.keys(set).length) return { ok: true, unchanged: true };
+      // The type and its fields (the API sends these only once their columns exist).
+      if ('category' in patch && (cur.category ?? null) !== (patch.category || null)) {
+        set.category = patch.category || null;
+        changes.category = { from: cur.category ?? null, to: patch.category || null };
+      }
+      let nextSpecs = null;
+      if ('specs' in patch && stableSpecs(cur.specs) !== stableSpecs(patch.specs)) {
+        nextSpecs = specsOf(patch.specs);
+        changes.specs = { from: specsOf(cur.specs), to: nextSpecs };
+      }
+      if (!Object.keys(set).length && !nextSpecs) return { ok: true, unchanged: true };
       // The online check was for the old maker's code (or brand): it no longer applies.
       const retire = (identifierChanges && identifierChanges.retire) || [];
       const add = (identifierChanges && identifierChanges.add) || [];
@@ -684,6 +797,7 @@ async function updateItem(sql, tenantId, itemId, { patch, expectedRevision, acto
       set.updated_by_legacy_id = actor.id;
       set.updated_by_name = actor.name || null;
       await tx`update public.workshop_stock_items set ${tx(set)} where tenant_id = ${tenantId} and id = ${itemId}`;
+      if (nextSpecs) await tx`update public.workshop_stock_items set specs = ${tx.json(nextSpecs)} where tenant_id = ${tenantId} and id = ${itemId}`;
       // A changed code (or the brand/supplier that scopes it) moves its identifier
       // in the same transaction, so matching never runs on a stale code.
       for (const r of retire) {
@@ -883,32 +997,53 @@ async function getPhotoForServing(sql, tenantId, photoId, { viewerId, office, si
 }
 
 /**
- * Office: point an item at a new (pending) photo; the old one is retired and
- * expires. `slot` 'location' is the photo of where it lives — which can also be
- * removed (photoId null). Neither moves meta_revision: a photo never
- * invalidates an open edit form.
+ * Point an item at a new (pending) photo; the old one is retired and expires —
+ * unless another item still shows it (one shelf photo can serve several items).
+ * `slot` 'location' is the photo of where it lives — which the office can also
+ * remove (photoId null). Neither moves meta_revision: a photo never invalidates
+ * an open edit form.
+ *
+ * `onlyIfEmpty` (the crew): fill a MISSING photo of where it lives with a photo
+ * they uploaded themselves — never replace one. Replacing stays the office's,
+ * like the shelf text.
  */
-async function replaceItemPhoto(sql, tenantId, itemId, photoId, actor, slot = 'product') {
+async function replaceItemPhoto(sql, tenantId, itemId, photoId, actor, slot = 'product', { onlyIfEmpty = false } = {}) {
   const location = slot === 'location';
   if (location && !(await hasLocationPhoto(sql))) return { error: 'location_photo_unavailable' };
   if (!location && !photoId) return { error: 'photo_not_available' };
+  if (onlyIfEmpty && !photoId) return { error: 'photo_not_available' };
   return sql.begin(async (tx) => {
     const items = location
       ? await tx`select id, location_photo_id as old_id, archived_at from public.workshop_stock_items where tenant_id = ${tenantId} and id = ${itemId} for update`
       : await tx`select id, photo_id as old_id, archived_at from public.workshop_stock_items where tenant_id = ${tenantId} and id = ${itemId} for update`;
     if (!items.length) return { error: 'item_not_found' };
     if (items[0].archived_at) return { error: 'item_archived' };
+    if (onlyIfEmpty && items[0].old_id) return { error: 'location_photo_exists' };
     if (photoId) {
-      const claimed = await tx`
-        update public.workshop_stock_photos set purpose = 'item', expires_at = null
-        where tenant_id = ${tenantId} and id = ${photoId} and purpose = 'pending' and deleted_at is null and expires_at > now()
-        returning id`;
+      const claimed = onlyIfEmpty
+        ? await tx`
+            update public.workshop_stock_photos set purpose = 'item', expires_at = null
+            where tenant_id = ${tenantId} and id = ${photoId} and purpose = 'pending' and deleted_at is null and expires_at > now()
+              and uploaded_by_legacy_id = ${actor.id}
+            returning id`
+        : await tx`
+            update public.workshop_stock_photos set purpose = 'item', expires_at = null
+            where tenant_id = ${tenantId} and id = ${photoId} and purpose = 'pending' and deleted_at is null and expires_at > now()
+            returning id`;
       if (!claimed.length) return { error: 'photo_not_available' };
     }
     const old = items[0].old_id;
     if (location) await tx`update public.workshop_stock_items set location_photo_id = ${photoId}, updated_by_legacy_id = ${actor.id}, updated_by_name = ${actor.name || null} where tenant_id = ${tenantId} and id = ${itemId}`;
     else await tx`update public.workshop_stock_items set photo_id = ${photoId}, updated_by_legacy_id = ${actor.id}, updated_by_name = ${actor.name || null} where tenant_id = ${tenantId} and id = ${itemId}`;
-    if (old && old !== photoId) await tx`update public.workshop_stock_photos set purpose = 'retired', expires_at = now() + interval '1 day' where tenant_id = ${tenantId} and id = ${old}`;
+    if (old && old !== photoId) {
+      await tx`
+        update public.workshop_stock_photos p set purpose = 'retired', expires_at = now() + interval '1 day'
+        where p.tenant_id = ${tenantId} and p.id = ${old}
+          and not exists (
+            select 1 from public.workshop_stock_items i
+            where i.tenant_id = p.tenant_id and i.id <> ${itemId}
+              and (i.photo_id = p.id or (to_jsonb(i) ->> 'location_photo_id') = p.id::text))`;
+    }
     // one event name for both slots (the events table allows a fixed set); the slot says which
     await insertEvent(tx, tenantId, itemId, 'photo_changed', location ? { slot: 'location', from: old, to: photoId } : { from: old, to: photoId }, actor);
     return { ok: true };
@@ -926,7 +1061,8 @@ async function photosDueForDeletion(sql, tenantId, limit = 3) {
     where p.tenant_id = ${tenantId} and (
       (p.deleted_at is not null and p.blob_deleted_at is null)
       or (p.purpose <> 'item' and p.deleted_at is null and p.expires_at < now()
-          and not exists (select 1 from public.workshop_stock_items i where i.tenant_id = p.tenant_id and i.photo_id = p.id)))
+          and not exists (select 1 from public.workshop_stock_items i where i.tenant_id = p.tenant_id
+                            and (i.photo_id = p.id or (to_jsonb(i) ->> 'location_photo_id') = p.id::text))))
     order by p.expires_at nulls first limit ${limit}`;
   return rows.map((r) => ({ id: r.id, blobUrl: r.blob_url, thumbUrl: r.thumb_url || null, marked: r.marked === true }));
 }
@@ -939,7 +1075,8 @@ async function markPhotoDeleted(sql, tenantId, photoId) {
   const rows = await sql`
     update public.workshop_stock_photos p set deleted_at = now()
     where p.tenant_id = ${tenantId} and p.id = ${photoId} and p.purpose <> 'item' and p.deleted_at is null and p.expires_at < now()
-      and not exists (select 1 from public.workshop_stock_items i where i.tenant_id = p.tenant_id and i.photo_id = p.id)
+      and not exists (select 1 from public.workshop_stock_items i where i.tenant_id = p.tenant_id
+                        and (i.photo_id = p.id or (to_jsonb(i) ->> 'location_photo_id') = p.id::text))
     returning p.id`;
   return rows.length > 0;
 }
@@ -947,6 +1084,195 @@ async function markPhotoDeleted(sql, tenantId, photoId) {
 /** Step 2: the blob (and its small copy) are gone. */
 async function markBlobDeleted(sql, tenantId, photoId) {
   await sql`update public.workshop_stock_photos set blob_deleted_at = now() where tenant_id = ${tenantId} and id = ${photoId} and deleted_at is not null`;
+}
+
+// ── shopping lists (20261101100000) ───────────────────────────────────────────
+//
+// A list is a plan — what someone needs for a job — never a stock record: no
+// balance moves here. Lists are shared with the crew (anyone can add to or tick
+// a list; only its owner or the office deletes one). Ids come from the phone, so
+// a retried save is the same row; a line that a TAKE collected is ticked by the
+// take's own transaction (recordMovement) and un-ticked by its undo.
+
+const LIST_LINE_LIMIT = 200;
+const FOREIGN_KEY_VIOLATION = '23503';
+
+function mapLine(r) {
+  return {
+    id: r.id,
+    listId: r.list_id,
+    itemId: r.item_id || null,
+    itemName: r.item_name || null,
+    itemUnit: r.item_unit || null,
+    itemArchived: Boolean(r.item_archived_at),
+    text: r.text || null,
+    quantityMilli: r.quantity_milli == null ? null : toMilli(r.quantity_milli),
+    unit: r.unit || null,
+    gotAt: iso(r.got_at),
+    gotById: r.got_by_legacy_id || null,
+    gotByName: r.got_by_name || null,
+    movementId: r.movement_id || null,
+    position: Number(r.position),
+    createdAt: iso(r.created_at),
+  };
+}
+
+function mapList(r, lines) {
+  return {
+    id: r.id,
+    name: r.name,
+    jobId: r.job_legacy_id || null,
+    jobLabel: r.job_label || null,
+    ownerId: r.owner_legacy_id,
+    ownerName: r.owner_name || null,
+    doneAt: iso(r.done_at),
+    createdAt: iso(r.created_at),
+    updatedAt: iso(r.updated_at),
+    lines: lines || [],
+  };
+}
+
+async function linesFor(sql, tenantId, listIds) {
+  if (!listIds.length) return new Map();
+  const rows = await sql`
+    select l.*, i.name as item_name, i.base_unit as item_unit, i.archived_at as item_archived_at
+    from public.workshop_stock_list_lines l
+    left join public.workshop_stock_items i on i.tenant_id = l.tenant_id and i.id = l.item_id
+    where l.tenant_id = ${tenantId} and l.list_id in ${sql(listIds)}
+    order by l.position, l.created_at, l.id`;
+  const by = new Map();
+  for (const r of rows) {
+    if (!by.has(r.list_id)) by.set(r.list_id, []);
+    by.get(r.list_id).push(mapLine(r));
+  }
+  return by;
+}
+
+/** Open lists first, then those finished in the last week; newest first. */
+async function listLists(sql, tenantId, { doneWithinDays = 7 } = {}) {
+  const rows = await sql`
+    select * from public.workshop_stock_lists
+    where tenant_id = ${tenantId} and (done_at is null or done_at > now() - make_interval(days => ${doneWithinDays}))
+    order by (done_at is null) desc, updated_at desc
+    limit 50`;
+  const lines = await linesFor(sql, tenantId, rows.map((r) => r.id));
+  return rows.map((r) => mapList(r, lines.get(r.id)));
+}
+
+async function getList(sql, tenantId, listId) {
+  const rows = await sql`select * from public.workshop_stock_lists where tenant_id = ${tenantId} and id = ${listId}`;
+  if (!rows.length) return null;
+  const lines = await linesFor(sql, tenantId, [listId]);
+  return mapList(rows[0], lines.get(listId));
+}
+
+/**
+ * Start a list, or change one: { name?, job?: {id,label}|null, done?: boolean }.
+ * Starting needs a name; a retried start (same id) changes nothing twice.
+ */
+async function saveList(sql, tenantId, listId, patch, actor) {
+  const jobGiven = patch.job !== undefined;
+  const doneGiven = patch.done !== undefined;
+  let result;
+  try {
+    result = await sql.begin(async (tx) => {
+      const cur = await tx`select id from public.workshop_stock_lists where tenant_id = ${tenantId} and id = ${listId} for update`;
+      if (!cur.length) {
+        if (!patch.name) return { error: 'list_name_required' };
+        await tx`
+          insert into public.workshop_stock_lists (id, tenant_id, name, job_legacy_id, job_label, owner_legacy_id, owner_name, done_at)
+          values (${listId}, ${tenantId}, ${patch.name}, ${patch.job ? patch.job.id : null}, ${patch.job ? patch.job.label : null},
+                  ${actor.id}, ${actor.name || null}, ${patch.done ? new Date() : null})`;
+        return { ok: true, created: true };
+      }
+      await tx`
+        update public.workshop_stock_lists set
+          name = coalesce(${patch.name ?? null}::text, name),
+          job_legacy_id = case when ${jobGiven}::boolean then ${patch.job ? patch.job.id : null}::text else job_legacy_id end,
+          job_label = case when ${jobGiven}::boolean then ${patch.job ? patch.job.label : null}::text else job_label end,
+          done_at = case when ${doneGiven}::boolean then (case when ${patch.done === true}::boolean then coalesce(done_at, now()) else null end) else done_at end,
+          updated_at = now()
+        where tenant_id = ${tenantId} and id = ${listId}`;
+      return { ok: true };
+    });
+  } catch (e) {
+    // the id is taken: by our own start racing in (a retry) — fine — or by another company's list
+    if (!(e && e.code === UNIQUE_VIOLATION)) throw e;
+    result = (await getList(sql, tenantId, listId)) ? { ok: true } : { error: 'list_not_found' };
+  }
+  if (!result.ok) return result;
+  return { ...result, list: await getList(sql, tenantId, listId) };
+}
+
+/** Delete a list (its lines go with it; the stock ledger is untouched). Its owner or the office. */
+async function deleteList(sql, tenantId, listId, actor, { office = false } = {}) {
+  return sql.begin(async (tx) => {
+    const rows = await tx`select owner_legacy_id from public.workshop_stock_lists where tenant_id = ${tenantId} and id = ${listId} for update`;
+    if (!rows.length) return { error: 'list_not_found' };
+    if (rows[0].owner_legacy_id !== actor.id && !office) return { error: 'list_not_yours' };
+    await tx`delete from public.workshop_stock_lists where tenant_id = ${tenantId} and id = ${listId}`;
+    return { ok: true };
+  });
+}
+
+/**
+ * Add a line, or change one: { listId, id, itemId?, text?, quantityMilli? (null clears),
+ * unit?, got?: boolean, position? }. Ticking by hand (got) says "got it another
+ * way"; un-ticking clears the tick, never the take that may have collected it
+ * (that stays in the ledger — undo it there).
+ */
+async function saveListLine(sql, tenantId, input, actor) {
+  let result;
+  try {
+    result = await sql.begin(async (tx) => {
+      const list = await tx`select id from public.workshop_stock_lists where tenant_id = ${tenantId} and id = ${input.listId} for update`;
+      if (!list.length) return { error: 'list_not_found' };
+      const cur = await tx`select * from public.workshop_stock_list_lines where tenant_id = ${tenantId} and id = ${input.id} for update`;
+      if (!cur.length) {
+        if (!input.itemId && !input.text) return { error: 'line_empty' };
+        const counted = await tx`select count(*)::int as n, coalesce(max(position), -1)::int as last from public.workshop_stock_list_lines where tenant_id = ${tenantId} and list_id = ${input.listId}`;
+        if (counted[0].n >= LIST_LINE_LIMIT) return { error: 'list_full' };
+        const got = input.got === true;
+        await tx`
+          insert into public.workshop_stock_list_lines
+            (id, tenant_id, list_id, item_id, text, quantity_milli, unit, got_at, got_by_legacy_id, got_by_name, position)
+          values (${input.id}, ${tenantId}, ${input.listId}, ${input.itemId || null}, ${input.text || null},
+                  ${input.quantityMilli ?? null}, ${input.unit || null}, ${got ? new Date() : null},
+                  ${got ? actor.id : null}, ${got ? actor.name || null : null}, ${input.position ?? counted[0].last + 1})`;
+      } else {
+        const line = cur[0];
+        if (line.list_id !== input.listId) return { error: 'line_not_found' };
+        const set = { updated_at: new Date() };
+        if (input.text !== undefined && line.item_id == null) {
+          if (!input.text) return { error: 'line_empty' };
+          set.text = input.text;
+        }
+        if (input.quantityMilli !== undefined) set.quantity_milli = input.quantityMilli;
+        if (input.unit !== undefined && line.item_id == null) set.unit = input.unit || null;
+        if (input.position !== undefined) set.position = input.position;
+        if (input.got === true && !line.got_at) Object.assign(set, { got_at: new Date(), got_by_legacy_id: actor.id, got_by_name: actor.name || null });
+        if (input.got === false) Object.assign(set, { got_at: null, got_by_legacy_id: null, got_by_name: null, movement_id: null });
+        await tx`update public.workshop_stock_list_lines set ${tx(set)} where tenant_id = ${tenantId} and id = ${input.id}`;
+      }
+      await tx`update public.workshop_stock_lists set updated_at = now() where tenant_id = ${tenantId} and id = ${input.listId}`;
+      return { ok: true };
+    });
+  } catch (e) {
+    if (e && e.code === FOREIGN_KEY_VIOLATION) return { error: 'item_not_found' };
+    if (!(e && e.code === UNIQUE_VIOLATION)) throw e;
+    // the id is taken: by our own add racing in (a retry) — fine — or by another company's line
+    const mine = await sql`select 1 from public.workshop_stock_list_lines where tenant_id = ${tenantId} and id = ${input.id} and list_id = ${input.listId}`;
+    result = mine.length ? { ok: true } : { error: 'line_not_found' };
+  }
+  if (!result.ok) return result;
+  return { ok: true, list: await getList(sql, tenantId, input.listId) };
+}
+
+async function deleteListLine(sql, tenantId, lineId) {
+  const rows = await sql`delete from public.workshop_stock_list_lines where tenant_id = ${tenantId} and id = ${lineId} returning list_id`;
+  if (!rows.length) return { error: 'line_not_found' };
+  await sql`update public.workshop_stock_lists set updated_at = now() where tenant_id = ${tenantId} and id = ${rows[0].list_id}`;
+  return { ok: true, list: await getList(sql, tenantId, rows[0].list_id) };
 }
 
 // ── cost ceiling + lookup cache ───────────────────────────────────────────────
@@ -1005,6 +1331,14 @@ module.exports = {
   getPhotoForServing,
   replaceItemPhoto,
   hasLocationPhoto,
+  hasTypes,
+  hasLists,
+  listLists,
+  getList,
+  saveList,
+  deleteList,
+  saveListLine,
+  deleteListLine,
   photosDueForDeletion,
   markPhotoDeleted,
   markBlobDeleted,
