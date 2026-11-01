@@ -11,7 +11,7 @@ import type { CandidateItem, ReadPhotoResult, ReadProduct, StockItem, WriteResul
 import { FlowSheet } from "./FlowSheet";
 import { ItemPicker } from "./ItemPicker";
 import { MoveConfirm, type MoveItem } from "./MoveConfirm";
-import { NewItemForm, type NewItemSeed } from "./NewItemForm";
+import { NewItemForm, type LastLocationPhoto, type NewItemSeed } from "./NewItemForm";
 import { PhotoCapture } from "./PhotoCapture";
 import { NoneRecorded, RecordedQuantity } from "./StockItemRow";
 import { StockReceipt } from "./StockReceipt";
@@ -49,7 +49,7 @@ export function AddFlow({
   onClose,
 }: {
   items: StockItem[];
-  capabilities: { photoRead: boolean; lookup: boolean; locationPhoto?: boolean };
+  capabilities: { photoRead: boolean; lookup: boolean; locationPhoto?: boolean; types?: boolean };
   seed?: { dataUrl: string | null; thumbDataUrl?: string | null; product: ReadProduct | null } | null;
   onSaved: (r: WriteResult) => void;
   onClose: () => void;
@@ -63,6 +63,11 @@ export function AddFlow({
   const [session, setSession] = useState<WriteResult[]>([]);
   const [undone, setUndone] = useState<WriteResult | null>(null);
   const lastLocation = useMemo(() => [...session].reverse().find((r) => r.item.location)?.item.location ?? null, [session]);
+  // the last photo of where an item lives this session — offered again for the same shelf
+  const lastLocationPhoto = useMemo<LastLocationPhoto | null>(() => {
+    const r = [...session].reverse().find((x) => x.item.locationPhotoId);
+    return r && r.item.locationPhotoId ? { itemId: r.item.id, photoId: r.item.locationPhotoId, itemName: r.item.name, location: r.item.location } : null;
+  }, [session]);
 
   // The list's copy or the one the photo read just returned, whichever is newer
   // (the confirm screen re-reads it from the server either way).
@@ -261,6 +266,7 @@ export function AddFlow({
           kind={step.kind}
           matchedBy={f.matchedBy}
           packIdentifierId={f.packIdentifierId}
+          locationPhotoEnabled={capabilities.locationPhoto === true}
           onSaved={savedMove}
           onWrongItem={home}
           wrongItemLabel="Wrong item? Back to the search"
@@ -300,7 +306,17 @@ export function AddFlow({
         }
       >
         <div data-testid="stock-add-saved">
-          <StockReceipt result={last} undone={undone} onUndone={(r) => { setUndone(r); onSaved(r); }} note={last.photoAttached === false ? <span data-testid="stock-add-photo-missing">The photo couldn&rsquo;t be attached — the office can add one later.</span> : null} undoTestId="stock-add-undo" />
+          <StockReceipt
+            result={last}
+            undone={undone}
+            onUndone={(r) => { setUndone(r); onSaved(r); }}
+            note={last.photoAttached === false || last.locationPhotoAttached === false ? (
+              <span data-testid="stock-add-photo-missing">
+                {last.photoAttached === false ? "The photo couldn’t be attached — the office can add one later." : "The photo of where it lives couldn’t be attached — add it from the item."}
+              </span>
+            ) : null}
+            undoTestId="stock-add-undo"
+          />
         </div>
         {shelf ? (
           <div className="flex items-center gap-2 overflow-x-auto rounded-xl border border-border bg-surface-subtle px-3 py-2">
@@ -341,7 +357,9 @@ export function AddFlow({
         items={items}
         lookupEnabled={capabilities.lookup}
         locationPhotoEnabled={capabilities.locationPhoto === true}
+        typesEnabled={capabilities.types === true}
         defaultLocation={lastLocation}
+        lastLocationPhoto={lastLocationPhoto}
         emphasis="another"
         onSaved={savedNew}
         onUseExisting={(item) => setStep({ s: "existing", found: { item: asMoveItem(item), matchedBy: "Matched in workshop · same code", packIdentifierId: null, product: step.seed.product }, kind: "add" })}

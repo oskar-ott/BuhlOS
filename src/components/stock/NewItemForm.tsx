@@ -5,14 +5,17 @@ import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { brandKey, codeKey, checkApplies } from "@/domains/workshop-stock/check";
 import { createItem, fetchOperation, lookupCode, newOperationKey, storePhoto, type CreateInput } from "@/domains/workshop-stock/client";
-import { balanceLabel, errorCopy, formatQuantity, packLabel, toQuantityString, UNIT_LABEL, unitHint, VERIFICATION_LABEL } from "@/domains/workshop-stock/format";
+import { balanceLabel, errorCopy, formatQuantity, packLabel, photoUrl, toQuantityString, UNIT_LABEL, unitHint, VERIFICATION_LABEL } from "@/domains/workshop-stock/format";
 import { packSuggestion, suggestName } from "@/domains/workshop-stock/flow";
+import { splitLocation } from "@/domains/workshop-stock/location";
+import { guessSpecs, guessType, specsForType, suggestTypedName, typeOf } from "@/domains/workshop-stock/types";
 import { clearPending, isUncertain, rememberPending } from "@/domains/workshop-stock/pending";
 import { PACK_UNITS, UNIT_KEYS, type LookupResult, type PackUnit, type ReadProduct, type StockItem, type StockUnit, type VerificationStatus, type WriteResult } from "@/domains/workshop-stock/schema";
 import { LookupCard } from "./LookupCard";
 import { PhotoCapture } from "./PhotoCapture";
 import { QuantityStepper } from "./QuantityStepper";
-import { BigButton, FIELD, FieldLabel, FoldButton, LinkButton, MiniButton, SavesLine, Slot, Tag } from "./ui";
+import { TypeFields } from "./TypeFields";
+import { BigButton, FIELD, FieldLabel, FoldButton, Kicker, LinkButton, MiniButton, SavesLine, Slot, Tag } from "./ui";
 
 type Source = "photo" | "lookup" | "typed";
 
@@ -23,6 +26,20 @@ export interface NewItemSeed {
   /** the list-size copy made on the phone (kept with the photo) */
   thumbDataUrl?: string | null;
 }
+
+/** The photo of where the last item saved this session lives — offered again for the next item on that shelf. */
+export interface LastLocationPhoto {
+  itemId: string;
+  photoId: string;
+  itemName: string;
+  location: string | null;
+}
+
+const sameShelf = (a: string | null | undefined, b: string | null | undefined) => {
+  const x = splitLocation(a).shelf;
+  const y = splitLocation(b).shelf;
+  return Boolean(x && y && x.toLowerCase() === y.toLowerCase());
+};
 
 const SOURCE_TAG: Record<Exclude<Source, "typed">, { text: string; tone: "neu" | "inf" }> = { photo: { text: "Read from photo", tone: "neu" }, lookup: { text: "Listing", tone: "inf" } };
 
@@ -43,13 +60,17 @@ const STATUS_DOT: Record<VerificationStatus, string> = { manufacturer_code_match
 /**
  * The one short form for a NEW workshop item (Workshop Stock).
  *
- * The fast path asks only what a new item needs — the name (read from the
- * label), the unit, where it lives (the last shelf used is filled in), and how
- * many are going on the shelf — then "Save and add another". Brand, codes,
- * colour, size and the online check fold under "Details read from the label —
- * check them". A printed pack size is OFFERED as a conversion, never applied
- * silently. The item, its codes, its photo and its opening count save together
- * or not at all.
+ * The fast path asks what a new item needs — the name (read from the label),
+ * WHAT IT IS and that type's fields (a switch's range, gang and colour; an LED
+ * strip's colour temperature, voltage, width — read from the label where it
+ * says, a tap on a chip otherwise; the name follows the fields until someone
+ * types one), the unit, where it lives with a PHOTO of where it's going (the
+ * last shelf and its photo are offered again while setting up a shelf), and how
+ * many are going on the shelf — then "Save and add another". Codes, size and
+ * the online check fold under "Details read from the label — check them". A
+ * printed pack size is OFFERED as a conversion, never applied silently. The
+ * item, its codes, its photos and its opening count save together or not at
+ * all.
  *
  * "Use these details" only FILLS what's empty — the name the crew gave it is
  * kept (a wholesaler's catalogue title is not what anyone searches for) — and
@@ -63,7 +84,9 @@ export function NewItemForm({
   items,
   lookupEnabled,
   locationPhotoEnabled = false,
+  typesEnabled = false,
   defaultLocation,
+  lastLocationPhoto = null,
   emphasis = "another",
   onSaved,
   onUseExisting,
@@ -73,14 +96,28 @@ export function NewItemForm({
   lookupEnabled: boolean;
   /** the server can keep a photo of where it lives (after its migration) */
   locationPhotoEnabled?: boolean;
+  /** the server keeps item types and their fields (after their migration) */
+  typesEnabled?: boolean;
   /** the shelf the last item went on (set-up rhythm) */
   defaultLocation?: string | null;
+  /** …and the photo of where that item lives, offered again for the same shelf */
+  lastLocationPhoto?: LastLocationPhoto | null;
   /** phone: "Save and add another" leads; office: "Save item" leads */
   emphasis?: "another" | "save";
   onSaved: (r: WriteResult, again: boolean) => void;
   onUseExisting: (item: StockItem) => void;
 }) {
   const p = seed.product;
+  // What the label says, for guessing the type and its fields (a person checks them).
+  const labelTexts = p ? [p.description, ...p.labelText, ...p.variantDetails, p.colourFinish] : [];
+  const initialCategory = typesEnabled && p ? guessType([...labelTexts, suggestName(p)]) : null;
+  const [category, setCategory] = useState<string | null>(initialCategory);
+  const [categoryFromPhoto, setCategoryFromPhoto] = useState(Boolean(initialCategory));
+  const [specs, setSpecs] = useState<Record<string, string>>(() => (initialCategory ? guessSpecs(initialCategory, labelTexts) : {}));
+  const [specsFromPhoto, setSpecsFromPhoto] = useState<Set<string>>(() => new Set(Object.keys(initialCategory ? guessSpecs(initialCategory, labelTexts) : {})));
+  const [unitTouched, setUnitTouched] = useState(false);
+  // the name the fields last suggested: replaced as the fields change, until someone types a name
+  const autoNameRef = useRef<string | null>(null);
   const [name, setName] = useState(suggestName(p));
   const [brand, setBrand] = useState(p?.brand ?? "");
   const [code, setCode] = useState(p?.manufacturerCode ?? "");
@@ -89,7 +126,7 @@ export function NewItemForm({
   const [barcode, setBarcode] = useState<string | null>(p?.barcode ?? null);
   const [colour, setColour] = useState(p?.colourFinish ?? "");
   const [variant, setVariant] = useState((p?.variantDetails ?? []).join(" "));
-  const [unit, setUnit] = useState<StockUnit>(p?.packUnit === "metre" ? "metre" : "each");
+  const [unit, setUnit] = useState<StockUnit>(p?.packUnit === "metre" ? "metre" : typeOf(initialCategory)?.unit ?? "each");
   const [keepContainer, setKeepContainer] = useState<StockUnit | null>(null);
   const [location, setLocation] = useState(defaultLocation ?? "");
   const [locationFromLast, setLocationFromLast] = useState(Boolean(defaultLocation));
@@ -118,6 +155,8 @@ export function NewItemForm({
   // A photo of WHERE it lives — for stock that isn't in an obvious place.
   const [locationShot, setLocationShot] = useState<{ dataUrl: string; thumbDataUrl: string | null } | null>(null);
   const [locationPhotoId, setLocationPhotoId] = useState<string | null>(null);
+  // "Different spot" — don't offer the last item's photo again
+  const [reuseDeclined, setReuseDeclined] = useState(false);
   const locationFailedRef = useRef(false);
   const keyRef = useRef<string | null>(null);
   const requestRef = useRef<CreateInput | null>(null);
@@ -145,6 +184,43 @@ export function NewItemForm({
   const dupe = sameCode ?? (duplicates[0] ? items.find((i) => i.id === duplicates[0]!.itemId) ?? null : null);
 
   const typed = (k: string) => setSources((s) => ({ ...s, [k]: "typed" }));
+
+  // The name follows the fields ("Clipsal Iconic 2 gang switch") while it is
+  // empty or still the last suggestion — never over a name someone typed or the
+  // label gave.
+  function followName(nextCategory: string | null, values: Record<string, string>) {
+    if (!typesEnabled) return;
+    // (decided from this render's name, outside any state updater: an updater
+    // must stay pure — React may run it twice)
+    if (name.trim() && name !== autoNameRef.current) return;
+    const next = suggestTypedName(nextCategory, values);
+    autoNameRef.current = next;
+    setName(next ?? "");
+  }
+
+  function chooseCategory(key: string | null) {
+    setCategoryFromPhoto(false);
+    setCategory(key);
+    // fill the new type's empty fields from the label and the name — a person checks them
+    const guessed = key ? guessSpecs(key, [...labelTexts, name === autoNameRef.current ? null : name]) : {};
+    const kept = Object.fromEntries(Object.entries(specs).filter(([, v]) => v.trim()));
+    const next = { ...guessed, ...kept };
+    setSpecs(next);
+    setSpecsFromPhoto((s) => new Set([...s].filter((k) => k in kept)));
+    const t = typeOf(key);
+    if (t && !unitTouched && !packMode && t.unit !== unit) { setUnit(t.unit); setQtyMilli(1000); }
+    followName(key, { ...next, brand, colourFinish: colour });
+  }
+
+  function setTypeValue(key: string, value: string) {
+    if (key === "brand") { setBrand(value); typed("brand"); }
+    else if (key === "colourFinish") { setColour(value); typed("colourFinish"); }
+    else {
+      setSpecs((s) => ({ ...s, [key]: value }));
+      setSpecsFromPhoto((s) => { const n = new Set(s); n.delete(key); return n; });
+    }
+    followName(category, { ...specs, brand, colourFinish: colour, [key]: value });
+  }
   const packSizeMilli = (() => {
     const m = /^(\d{1,6})(?:[.,](\d))?$/.exec(packSizeText.trim());
     if (!m) return null;
@@ -154,6 +230,12 @@ export function NewItemForm({
   })();
   const totalMilli = packMode ? (packSizeMilli ? packCount * packSizeMilli : 0) : qtyMilli;
   const locked = phase !== "edit";
+  // Setting up a shelf: the last item's photo of where it lives is offered for
+  // the next item on the same shelf — one shelf, one photo.
+  const reuse = locationPhotoEnabled && lastLocationPhoto && !locationShot && !reuseDeclined && sameShelf(location, lastLocationPhoto.location) ? lastLocationPhoto : null;
+  const typeFieldsAbove = typesEnabled ? typeOf(category)?.fields ?? [] : [];
+  const brandAbove = typeFieldsAbove.some((f) => f.column === "brand");
+  const colourAbove = typeFieldsAbove.some((f) => f.column === "colourFinish");
 
   async function runLookup(refreshCode?: string) {
     const c = (refreshCode ?? code).trim();
@@ -251,6 +333,7 @@ export function NewItemForm({
     }
     let lid = locationPhotoId;
     locationFailedRef.current = false;
+    const reusing = !locationShot && reuse ? reuse : null;
     if (!lid && locationShot) {
       const s = await storePhoto(locationShot.dataUrl, locationShot.thumbDataUrl);
       if (s.ok) { lid = s.data.photoId; setLocationPhotoId(lid); }
@@ -268,7 +351,8 @@ export function NewItemForm({
       baseUnit: unit,
       location: location.trim(),
       photoId: pid,
-      ...(lid ? { locationPhotoId: lid } : {}),
+      ...(lid ? { locationPhotoId: lid } : reusing ? { locationPhotoFromItemId: reusing.itemId } : {}),
+      ...(typesEnabled && category ? { category, specs: specsForType(category, specs) } : {}),
       estimated,
       ...(listingStatus && lookup?.check ? { lookupCheck: lookup.check } : {}),
       provenance: Object.fromEntries(Object.entries(sources).filter(([k]) => ["name", "brand", "manufacturerCode", "supplierSku", "barcode", "variant", "colourFinish"].includes(k))) as CreateInput["provenance"],
@@ -314,12 +398,13 @@ export function NewItemForm({
   const printedForFix = packSuggestion(p, unit === "roll" ? "metre" : "each");
   const fixSub = printedForFix ? `${Math.max(1, Math.round(qtyMilli / 1000))} ${packLabel(unit, Math.max(1, Math.round(qtyMilli / 1000)))} × ${formatQuantity(printedForFix.sizeMilli, unit === "roll" ? "metre" : "each")} = ${formatQuantity(Math.max(1, Math.round(qtyMilli / 1000)) * printedForFix.sizeMilli, unit === "roll" ? "metre" : "each")}` : `then say how many in each ${UNIT_LABEL[unit].singular}`;
 
-  const detailSummary = [brand || null, code || null, variant || null, barcode ? "barcode" : null, lookupEnabled && code ? "online check" : null].filter(Boolean).join(" · ") || "brand, codes, colour, size, supplier";
+  const detailSummary = [brandAbove ? null : brand || null, code || null, variant || null, barcode ? "barcode" : null, lookupEnabled && code ? "online check" : null].filter(Boolean).join(" · ") || (brandAbove ? "codes, size, supplier" : "brand, codes, colour, size, supplier");
   const needsAttention = lookup && lookup.status !== "manufacturer_code_matched" && accepted !== true;
   const savesLine = packMode && packSizeMilli
     ? `Saves: Opening count ${formatQuantity(totalMilli, unit)} (${packCount} ${packLabel(packUnit, packCount)} × ${formatQuantity(packSizeMilli, unit)})${location.trim() ? ` · ${location.trim()}` : ""}`
     : `Saves: Opening count ${estimated ? balanceLabel({ balanceMilli: qtyMilli, baseUnit: unit, estimated: true }) : formatQuantity(qtyMilli, unit)}${location.trim() ? ` · ${location.trim()}` : ""}`;
-  const savesWithPhoto = locationShot ? `${savesLine} · with a photo of where it lives` : savesLine;
+  const savesWithPhoto = locationShot ? `${savesLine} · with a photo of where it lives` : reuse ? `${savesLine} · same photo of where it lives as ${reuse.itemName}` : savesLine;
+  const noLocationPhoto = locationPhotoEnabled && !locationShot && !reuse;
 
   const saveAnother = (
     <BigButton variant={emphasis === "another" ? "pri" : "sec"} onClick={() => void save(true)} disabled={!canSave} aria-busy={phase === "saving" && againRef.current} label={phase === "saving" && againRef.current ? "Saving…" : "Save and add another"} sub={emphasis === "another" ? (canSave ? `saves Opening count ${formatQuantity(totalMilli, unit)} · back to the camera` : dupe ? "can't run: code already listed" : "needs a name and a shelf") : undefined} data-testid="stock-new-save-another" />
@@ -336,9 +421,22 @@ export function NewItemForm({
           <img src={seed.dataUrl} alt="Your photo of the product" className="h-16 w-16 shrink-0 rounded-xl border border-border object-cover" />
         ) : null}
         <div className="min-w-0 flex-1">
-          <Field label="Name" value={name} onChange={(v) => { setName(v); typed("name"); }} placeholder="e.g. Clipsal double GPO white" source={sources.name} testId="stock-new-name" disabled={locked} />
+          <Field label="Name" value={name} onChange={(v) => { setName(v); typed("name"); }} placeholder={typesEnabled ? "e.g. Clipsal Iconic 2 gang switch" : "e.g. Clipsal double GPO white"} source={name && name === autoNameRef.current ? undefined : sources.name} tag={name && name === autoNameRef.current ? <Tag>From the fields below</Tag> : undefined} testId="stock-new-name" disabled={locked} />
         </div>
       </div>
+
+      {typesEnabled ? (
+        <TypeFields
+          category={category}
+          onCategory={chooseCategory}
+          values={{ ...specs, brand, colourFinish: colour }}
+          onValue={setTypeValue}
+          items={items}
+          readFromPhoto={new Set([...specsFromPhoto, ...(sources.brand === "photo" ? ["brand"] : []), ...(sources.colourFinish === "photo" ? ["colourFinish"] : [])])}
+          categoryFromPhoto={categoryFromPhoto}
+          disabled={locked}
+        />
+      ) : null}
 
       {dupe ? (
         <Slot
@@ -356,7 +454,7 @@ export function NewItemForm({
         <legend className="text-sm font-semibold text-text">Counted in</legend>
         <div className="mt-1 flex flex-wrap gap-1.5">
           {UNIT_KEYS.map((u) => (
-            <button key={u} type="button" onClick={() => { setUnit(u); setQtyMilli(1000); setKeepContainer(null); }} aria-pressed={unit === u} disabled={locked} className={cn("min-h-[40px] rounded-pill border px-3 text-sm font-semibold", unit === u ? "border-brand-navy bg-brand-navy text-text-inverse" : "border-border-strong bg-surface text-text")} data-testid={`stock-new-unit-${u}`}>
+            <button key={u} type="button" onClick={() => { setUnit(u); setUnitTouched(true); setQtyMilli(1000); setKeepContainer(null); }} aria-pressed={unit === u} disabled={locked} className={cn("min-h-[40px] rounded-pill border px-3 text-sm font-semibold", unit === u ? "border-brand-navy bg-brand-navy text-text-inverse" : "border-border-strong bg-surface text-text")} data-testid={`stock-new-unit-${u}`}>
               {UNIT_LABEL[u].chip}
             </button>
           ))}
@@ -386,8 +484,14 @@ export function NewItemForm({
             ))}
           </div>
         ) : null}
-        {locationPhotoEnabled ? (
-          locationShot ? (
+      </div>
+
+      {/* The photo of where it's going: the shelf text can be wrong or vague —
+          the photo is what the next person looks for (owner pull 2026-11-01). */}
+      {locationPhotoEnabled ? (
+        <section className="space-y-1.5" aria-label="Photo of where it's going" data-testid="stock-new-location-step">
+          <Kicker>Photo of where it&rsquo;s going</Kicker>
+          {locationShot ? (
             <div className="flex items-center gap-3 rounded-xl border border-border bg-surface-subtle p-2.5" data-testid="stock-new-location-photo-set">
               {/* eslint-disable-next-line @next/next/no-img-element -- local preview */}
               <img src={locationShot.dataUrl} alt="Your photo of where it lives" className="h-16 w-16 shrink-0 rounded-lg border border-border object-cover" />
@@ -397,19 +501,29 @@ export function NewItemForm({
               </div>
               <MiniButton onClick={() => { setLocationShot(null); setLocationPhotoId(null); }} disabled={locked} data-testid="stock-new-location-photo-remove">Remove</MiniButton>
             </div>
+          ) : reuse ? (
+            <div className="flex items-center gap-3 rounded-xl border border-border bg-surface-subtle p-2.5" data-testid="stock-new-location-photo-reuse">
+              {/* eslint-disable-next-line @next/next/no-img-element -- an authenticated same-origin proxy */}
+              <img src={photoUrl(reuse.photoId, "thumb")} alt="Where the last item lives" className="h-16 w-16 shrink-0 rounded-lg border border-border object-cover" />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-text">Same spot as the last item</p>
+                <p className="truncate text-[13px] text-text-muted">{reuse.itemName}{reuse.location ? ` · ${reuse.location}` : ""}</p>
+              </div>
+              <MiniButton onClick={() => setReuseDeclined(true)} disabled={locked} data-testid="stock-new-location-photo-different">Different spot</MiniButton>
+            </div>
           ) : (
             <PhotoCapture
               variant="single"
               tone="ter"
-              label="Hard to find? Photograph where it lives"
-              sub="shown to whoever comes to take it"
+              label="Photograph where it's going"
+              sub="the shelf and the spot · shown to whoever comes to take it"
               disabled={locked}
               onPhoto={(dataUrl, _dark, thumbDataUrl) => { setLocationShot({ dataUrl, thumbDataUrl }); setLocationPhotoId(null); }}
               testId="stock-new-location-photo"
             />
-          )
-        ) : null}
-      </div>
+          )}
+        </section>
+      ) : null}
 
       {packMode ? (
         <div className="space-y-2.5 rounded-[14px] border border-border p-3">
@@ -457,10 +571,10 @@ export function NewItemForm({
       {detailsOpen ? (
         <div className="space-y-3 rounded-[14px] border border-border p-3" data-testid="stock-new-details-open">
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Brand" value={brand} onChange={(v) => { setBrand(v); typed("brand"); }} source={sources.brand} testId="stock-new-brand" disabled={locked} />
+            {brandAbove ? null : <Field label="Brand" value={brand} onChange={(v) => { setBrand(v); typed("brand"); }} source={sources.brand} testId="stock-new-brand" disabled={locked} />}
             <Field label="Maker's code" value={code} onChange={(v) => { setCode(v); typed("manufacturerCode"); }} placeholder="as printed" source={sources.manufacturerCode} testId="stock-new-code" disabled={locked} invalid={Boolean(dupe)} />
-            <Field label="Size / rating" value={variant} onChange={(v) => { setVariant(v); typed("variant"); }} placeholder="as printed" source={sources.variant} testId="stock-new-variant" disabled={locked} />
-            <Field label="Colour / finish" value={colour} onChange={(v) => { setColour(v); typed("colourFinish"); }} source={sources.colourFinish} testId="stock-new-colour" disabled={locked} />
+            <Field label={typesEnabled && category ? "Other size / rating" : "Size / rating"} value={variant} onChange={(v) => { setVariant(v); typed("variant"); }} placeholder="as printed" source={sources.variant} testId="stock-new-variant" disabled={locked} />
+            {colourAbove ? null : <Field label="Colour / finish" value={colour} onChange={(v) => { setColour(v); typed("colourFinish"); }} source={sources.colourFinish} testId="stock-new-colour" disabled={locked} />}
             <Field label="Supplier SKU" value={sku} onChange={(v) => { setSku(v); typed("supplierSku"); }} placeholder="Optional" source={sources.supplierSku} testId="stock-new-sku" disabled={locked} />
             <Field label="Supplier" value={supplier} onChange={setSupplier} placeholder="Optional" testId="stock-new-supplier" disabled={locked} />
           </div>
@@ -504,6 +618,7 @@ export function NewItemForm({
             </p>
             {dupe ? <p className="text-sm font-medium text-state-danger-subtle-text">Can&rsquo;t save a new item with code {dupe.manufacturerCode ?? code.trim()} — another item already uses it.</p> : null}
             {canSave ? <SavesLine>{savesWithPhoto}</SavesLine> : null}
+            {canSave && noLocationPhoto ? <p className="text-[13px] font-medium text-state-warning-subtle-text" data-testid="stock-new-no-location-photo">No photo of where it lives — the next person only gets the shelf text.</p> : null}
             {emphasis === "another" ? (
               <>
                 {saveAnother}

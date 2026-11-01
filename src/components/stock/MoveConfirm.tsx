@@ -8,6 +8,7 @@ import { clearPending, isUncertain, rememberPending } from "@/domains/workshop-s
 import type { JobOption, StockIdentifier, StockItem, StockUnit, WriteResult } from "@/domains/workshop-stock/schema";
 import { JobPicker } from "./JobPicker";
 import { LocationPhoto } from "./LocationPhoto";
+import { LocationPhotoPrompt } from "./LocationPhotoPrompt";
 import { QuantityStepper } from "./QuantityStepper";
 import { RecordedQuantity } from "./StockItemRow";
 import { StockReceipt } from "./StockReceipt";
@@ -31,6 +32,8 @@ export interface MoveItem {
   photoId: string | null;
   /** a photo of where it lives, when the item has one */
   locationPhotoId?: string | null;
+  category?: string | null;
+  specs?: Record<string, string>;
   defaultPack: { unit: string; sizeMilli: number } | null;
   identifiers: StockIdentifier[];
 }
@@ -48,6 +51,7 @@ function asMoveItem(i: StockItem): MoveItem {
     id: i.id, name: i.name, brand: i.brand, manufacturerCode: i.manufacturerCode, supplierSku: i.supplierSku, supplierName: i.supplierName,
     colourFinish: i.colourFinish, variant: i.variant, location: i.location, baseUnit: i.baseUnit, balanceMilli: i.balanceMilli,
     estimated: i.estimated, version: i.version, photoId: i.photoId, locationPhotoId: i.locationPhotoId ?? null, defaultPack: i.defaultPack, identifiers: i.identifiers,
+    category: i.category ?? null, specs: i.specs ?? {},
   };
 }
 
@@ -71,6 +75,10 @@ function asMoveItem(i: StockItem): MoveItem {
  *     unlocks it on a mere "not yet"; a definite refusal unlocks it and says
  *     nothing was saved
  *   • a done save is a receipt with its Undo on it, then Take another / Done
+ *   • from a shopping list: the quantity and the job start as the list's, and
+ *     the take ticks the line off in the same transaction (`listLineId`)
+ *   • putting stock away (add / return) on an item with no photo of where it
+ *     lives offers one — saved to the item on its own, never part of the move
  */
 export function MoveConfirm({
   item: initial,
@@ -86,6 +94,10 @@ export function MoveConfirm({
   doneLabel = "Done",
   doneSub = "back to the list · receipt stays at the top",
   onClose,
+  initialQtyMilli,
+  initialJob = null,
+  listLineId = null,
+  locationPhotoEnabled = false,
 }: {
   item: MoveItem;
   kind: Kind;
@@ -101,6 +113,14 @@ export function MoveConfirm({
   doneLabel?: string;
   doneSub?: string;
   onClose: () => void;
+  /** how many to start at (a list's "need 4") */
+  initialQtyMilli?: number;
+  /** the job to start with (a list's job) */
+  initialJob?: JobOption | null;
+  /** a shopping-list line this take ticks off */
+  listLineId?: string | null;
+  /** the server keeps a photo of where an item lives */
+  locationPhotoEnabled?: boolean;
 }) {
   const [item, setItem] = useState<MoveItem>(initial);
   const [fresh, setFresh] = useState(false);
@@ -115,14 +135,15 @@ export function MoveConfirm({
     return null;
   })();
   const [usePacks, setUsePacks] = useState(Boolean(packBarcode));
-  const [qtyMilli, setQtyMilli] = useState(1000);
+  const [qtyMilli, setQtyMilli] = useState(initialQtyMilli && initialQtyMilli > 0 ? initialQtyMilli : 1000);
   const [packCount, setPackCount] = useState(1);
-  const [job, setJob] = useState<JobOption | null>(null);
+  const [job, setJob] = useState<JobOption | null>(initialJob);
   const [estimated, setEstimated] = useState(false);
   const [phase, setPhase] = useState<"edit" | "saving" | "uncertain" | "done">("edit");
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<WriteResult | null>(null);
   const [undone, setUndone] = useState<WriteResult | null>(null);
+  const [photoAdded, setPhotoAdded] = useState(false);
   const keyRef = useRef<string | null>(null);
   const requestRef = useRef<MoveInput | null>(null);
 
@@ -152,7 +173,7 @@ export function MoveConfirm({
   const afterLabel = balanceLabel({ balanceMilli: Math.max(0, afterMilli), baseUnit: unit, estimated: item.estimated || (kind !== "take" && estimated) });
 
   function buildRequest(): MoveInput {
-    const base: MoveInput = { itemId: item.id, kind, jobId: job ? job.id : null, estimated: kind !== "take" && estimated };
+    const base: MoveInput = { itemId: item.id, kind, jobId: job ? job.id : null, estimated: kind !== "take" && estimated, ...(kind === "take" && listLineId ? { listLineId } : {}) };
     return usePacks && packChoice ? { ...base, packCount, pack: packChoice.pick } : { ...base, quantity: String(totalMilli / 1000) };
   }
 
@@ -219,6 +240,9 @@ export function MoveConfirm({
     return (
       <div className="flex min-h-0 flex-1 flex-col gap-3" data-testid="stock-move-done">
         <StockReceipt result={result} undone={undone} onUndone={(r) => { setUndone(r); onSaved(r); }} balanceTestId="stock-move-balance" undoTestId="stock-move-undo" />
+        {listLineId && result.lineTicked ? <p className="text-sm font-semibold text-state-success" data-testid="stock-move-list-ticked">Ticked off the list.</p> : null}
+        {locationPhotoEnabled && kind !== "take" && !(result.item.locationPhotoId ?? item.locationPhotoId) ? <LocationPhotoPrompt itemId={item.id} onSaved={(i) => { setItem(asMoveItem(i)); setPhotoAdded(true); }} /> : null}
+        {photoAdded ? <p className="text-sm font-semibold text-state-success" role="status">Photo of where it lives saved — shown to whoever comes to take it.</p> : null}
         <div className="mt-auto space-y-2.5 pt-2">
           {onAnother ? <BigButton variant="pri" label={anotherLabel ?? `${copy.done === "Taken" ? "Take" : copy.done === "Added" ? "Add" : "Return"} another item`} sub={anotherSub ?? "back to the camera"} onClick={onAnother} data-testid="stock-move-another" /> : null}
           <BigButton variant={onAnother ? "sec" : "pri"} label={doneLabel} sub={doneSub} onClick={onClose} data-testid="stock-move-close" />
@@ -246,6 +270,8 @@ export function MoveConfirm({
           </div>
         </div>
         {item.locationPhotoId ? <LocationPhoto photoId={item.locationPhotoId} location={item.location} className="mt-2.5" /> : null}
+        {/* putting it away, and the item has no photo of where it lives (read just now): offer one */}
+        {locationPhotoEnabled && kind !== "take" && fresh && !item.locationPhotoId ? <LocationPhotoPrompt itemId={item.id} onSaved={(i) => { setItem(asMoveItem(i)); setPhotoAdded(true); }} className="mt-2.5" /> : null}
         <div className="mt-2.5 flex items-baseline justify-between gap-3 border-t border-border pt-2.5" data-testid="stock-move-recorded">
           <span className="text-[15px] font-semibold text-text-muted">{uncertain ? "Recorded when you opened this" : "Recorded on the shelf"}</span>
           <RecordedQuantity item={item} size="lg" />
@@ -299,7 +325,7 @@ export function MoveConfirm({
 
         {!short && !uncertain && !saving && totalMilli > 0 ? (
           <SavesLine>
-            Saves: {copy.done} {qtyText}{packText ? ` (${packText})` : ""} · {afterLabel} recorded after this
+            Saves: {copy.done} {qtyText}{packText ? ` (${packText})` : ""} · {afterLabel} recorded after this{kind === "take" && listLineId ? " · ticks it off the list" : ""}
           </SavesLine>
         ) : null}
 

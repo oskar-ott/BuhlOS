@@ -26,7 +26,16 @@
 //   DELETE ?action=identifier&id=                                        OFFICE
 //   POST   ?action=archive | restore  { itemId }                         OFFICE (restore says which codes another item now holds)
 //   POST   ?action=item-photo  { itemId, photoId, slot?: product|location }   OFFICE (location: photoId may be null = remove)
+//                              the crew: slot location only, to FILL a missing photo of where it lives with one they took
 //   POST   ?action=verify      { itemId }   OFFICE — record the cached online check on an item
+//
+// Shopping lists (a plan, never a stock record; shared with the crew — once 20261101100000 is applied):
+//   GET    ?action=lists                         open lists + those finished in the last week
+//   POST   ?action=list        { id, name?, jobId?, done? }                     start (id from the phone) or change a list
+//   DELETE ?action=list&id=                                                     its owner or the office
+//   POST   ?action=list-line   { listId, id, itemId? | text?, quantity?, unit?, got?, position? }   add or change a line
+//   DELETE ?action=list-line&id=
+//   (a TAKE ticks the line it collects: POST ?action=move { …, listLineId } — same transaction; its undo un-ticks it)
 //
 // Rules every path follows: the actor, role and company scope come from the
 // session and the server — never from the body; bodies are Zod-validated;
@@ -207,6 +216,22 @@ const LookupCheck = z.object({
   variantDetails,
 });
 
+// An item's type and that type's fields (the catalogue lives in the app,
+// src/domains/workshop-stock/types.ts): a lower-case key, and short texts.
+// Whitespace is collapsed and empty fields dropped; never refused for being blank.
+const Category = z.string().trim().regex(/^[a-z][a-z0-9_]{1,31}$/);
+const Specs = z
+  .record(z.string().regex(/^[a-z][a-z0-9_]{0,31}$/), z.string().max(60))
+  .refine((o) => Object.keys(o).length <= 16, { message: 'too_many_fields' })
+  .transform((o) => {
+    const out = {};
+    for (const [k, v] of Object.entries(o)) {
+      const t = v.replace(/\s+/g, ' ').trim();
+      if (t) out[k] = t;
+    }
+    return out;
+  });
+
 const MoveBody = z.object({
   itemId: uuid,
   kind: z.enum(['add', 'take', 'return']),
@@ -216,6 +241,8 @@ const MoveBody = z.object({
   jobId: optText(120),
   note: optText(200),
   estimated: z.boolean().optional(),
+  // a shopping-list line this take collects (ticked in the same transaction)
+  listLineId: uuid.optional(),
 });
 
 const CreateBody = z.object({
@@ -230,8 +257,12 @@ const CreateBody = z.object({
   baseUnit: z.enum(Q.UNIT_KEYS),
   location: optText(60),
   photoId: uuid.nullish(),
-  // an optional photo of WHERE it lives (a hard-to-find spot), stored like photoId
+  // a photo of WHERE it lives, stored like photoId — or the same photo another
+  // item already shows (setting up a shelf: one shelf, one photo)
   locationPhotoId: uuid.nullish(),
+  locationPhotoFromItemId: uuid.nullish(),
+  category: Category.nullish(),
+  specs: Specs.optional(),
   openingQuantity: qty.optional(),
   packCount: z.number().int().min(1).max(Q.MAX_PACK_COUNT).optional(),
   packUnit: packUnit.optional(),
@@ -267,6 +298,8 @@ const EditBody = z.object({
   location: optText(60).optional(),
   baseUnit: z.enum(Q.UNIT_KEYS).optional(),
   defaultPack: z.object({ unit: packUnit, size: qty }).nullable().optional(),
+  category: Category.nullable().optional(),
+  specs: Specs.optional(),
 });
 
 const IdentifierBody = z.object({
@@ -295,6 +328,25 @@ const ItemPhotoBody = z
   .object({ itemId: uuid, photoId: uuid.nullable(), slot: z.enum(['product', 'location']).default('product') })
   .refine((b) => b.slot === 'location' || b.photoId !== null, { path: ['photoId'] });
 
+const ListBody = z.object({
+  id: uuid,
+  name: z.string().trim().min(1).max(80).optional(),
+  // null clears the job; absent leaves it
+  jobId: z.string().trim().max(120).nullable().optional(),
+  done: z.boolean().optional(),
+});
+const ListLineBody = z.object({
+  listId: uuid,
+  id: uuid,
+  itemId: uuid.nullish(),
+  text: z.string().trim().max(160).optional(),
+  // how many are needed (null clears it)
+  quantity: qty.nullable().optional(),
+  unit: z.enum(Q.UNIT_KEYS).nullable().optional(),
+  got: z.boolean().optional(),
+  position: z.number().int().min(0).max(100000).optional(),
+});
+
 function parseOr400(schema, body, res) {
   if (!body) { bad(res, 'body_required'); return null; }
   const r = schema.safeParse(body);
@@ -311,11 +363,17 @@ function parseOr400(schema, body, res) {
 async function list(sql, tenant, me, req, res) {
   const office = policy.isOffice(me.role);
   const includeArchived = office && req.query && req.query.archived === '1';
-  const items = await store.listItems(sql, tenant.id, { includeArchived });
+  const [items, locationPhoto, types, lists] = await Promise.all([
+    store.listItems(sql, tenant.id, { includeArchived }),
+    store.hasLocationPhoto(sql),
+    store.hasTypes(sql),
+    store.hasLists(sql),
+  ]);
   return res.status(200).json({
     items,
     viewer: { id: me.id, office },
-    capabilities: { photoRead: vision.enabled(), lookup: search.enabled(), locationPhoto: (await store.hasLocationPhoto(sql)) === true },
+    // locationPhoto / types / lists: what this database has yet (later, additive migrations)
+    capabilities: { photoRead: vision.enabled(), lookup: search.enabled(), locationPhoto: locationPhoto === true, types: types === true, lists: lists === true },
     undoMinutes: policy.WORKER_UNDO_MINUTES,
     asOf: new Date().toISOString(),
   });
@@ -432,6 +490,7 @@ function itemSummary(item) {
     supplierName: item.supplierName, variant: item.variant, colourFinish: item.colourFinish, location: item.location,
     baseUnit: item.baseUnit, balanceMilli: item.balanceMilli, estimated: item.estimated, version: item.version,
     photoId: item.photoId, locationPhotoId: item.locationPhotoId ?? null, defaultPack: item.defaultPack, identifiers: item.identifiers,
+    category: item.category ?? null, specs: item.specs ?? {},
   };
 }
 
@@ -596,7 +655,7 @@ async function create(sql, tenant, me, req, body, res) {
   const actor = actorOf(me);
   const hash = requestHash('create', { ...input, actorId: actor.id });
   // A retried create returns the item it made — with its photo, if it claimed one.
-  if (await answeredByReplay(sql, tenant, me, key, hash, res, (r) => ({ photoAttached: !input.photoId || Boolean(r.item.photoId), locationPhotoAttached: !input.locationPhotoId || Boolean(r.item.locationPhotoId), verificationStatus: r.item.verificationStatus }))) return;
+  if (await answeredByReplay(sql, tenant, me, key, hash, res, (r) => ({ photoAttached: !input.photoId || Boolean(r.item.photoId), locationPhotoAttached: !(input.locationPhotoId || input.locationPhotoFromItemId) || Boolean(r.item.locationPhotoId), verificationStatus: r.item.verificationStatus }))) return;
   const unit = input.baseUnit;
 
   const manufacturerCode = input.manufacturerCode ? codes.cleanCode(input.manufacturerCode) : null;
@@ -649,9 +708,16 @@ async function create(sql, tenant, me, req, body, res) {
     }
   }
 
-  // The location photo is only written once its column exists (the migration
-  // can land after this code); before that it is simply not attached.
-  const locationPhotoId = input.locationPhotoId && (await store.hasLocationPhoto(sql)) === true ? input.locationPhotoId : null;
+  // The location photo, and the type with its fields, are only written once
+  // their columns exist (the migrations can land after this code); before that
+  // they are simply not kept.
+  const [locationColumn, typeColumns] = await Promise.all([
+    input.locationPhotoId || input.locationPhotoFromItemId ? store.hasLocationPhoto(sql) : false,
+    input.category || (input.specs && Object.keys(input.specs).length) ? store.hasTypes(sql) : false,
+  ]);
+  const locationPhotoId = input.locationPhotoId && locationColumn === true ? input.locationPhotoId : null;
+  const locationPhotoFromItemId = !input.locationPhotoId && input.locationPhotoFromItemId && locationColumn === true ? input.locationPhotoFromItemId : null;
+  const askedForLocation = Boolean(input.locationPhotoId || input.locationPhotoFromItemId);
 
   const result = await store.createItemWithOpening(sql, tenant.id, {
     item: {
@@ -661,6 +727,9 @@ async function create(sql, tenant, me, req, body, res) {
     identifiers,
     photoId: input.photoId || null,
     locationPhotoId,
+    locationPhotoFromItemId,
+    category: typeColumns === true ? input.category || null : null,
+    specs: typeColumns === true ? input.specs || {} : {},
     openingMilli,
     pack,
     estimated: input.estimated === true,
@@ -689,7 +758,7 @@ async function create(sql, tenant, me, req, body, res) {
     movement: { ...result.movement, undo: undoInfo(result.movement, me, Date.now()) },
     replayed: result.replayed === true,
     photoAttached: result.replayed ? !input.photoId || Boolean(result.item.photoId) : result.photoAttached !== false,
-    locationPhotoAttached: result.replayed ? !input.locationPhotoId || Boolean(result.item.locationPhotoId) : Boolean(locationPhotoId || !input.locationPhotoId) && result.locationPhotoAttached !== false,
+    locationPhotoAttached: result.replayed ? !askedForLocation || Boolean(result.item.locationPhotoId) : Boolean(locationPhotoId || locationPhotoFromItemId || !askedForLocation) && result.locationPhotoAttached !== false,
     verificationStatus: result.item.verificationStatus,
   });
 }
@@ -743,6 +812,8 @@ async function move(sql, tenant, me, req, body, res) {
 
   const jobRef = await resolveJob(input.jobId, me);
   if (jobRef.error) return bad(res, jobRef.error);
+  // Only a take collects a list line, and only once the lists exist.
+  const listLineId = input.listLineId && input.kind === 'take' && (await store.hasLists(sql)) === true ? input.listLineId : null;
 
   const result = await store.recordMovement(sql, tenant.id, {
     itemId: item.id,
@@ -753,6 +824,7 @@ async function move(sql, tenant, me, req, body, res) {
     jobId: jobRef.job ? jobRef.job.id : null,
     jobLabel: jobRef.job ? jobRef.job.label : null,
     note: input.note,
+    listLineId,
     actor,
     idempotencyKey: key,
     requestHash: hash,
@@ -765,6 +837,7 @@ async function move(sql, tenant, me, req, body, res) {
     item: result.item,
     movement: { ...result.movement, undo: undoInfo(result.movement, me, Date.now()) },
     replayed: result.replayed === true,
+    ...(listLineId && !result.replayed ? { lineTicked: result.lineTicked === true } : {}),
   });
 }
 
@@ -859,6 +932,10 @@ async function editItem(sql, tenant, me, id, body, res) {
       patch.defaultPack = { unit: input.defaultPack.unit, sizeMilli: s.milli };
     }
   }
+  if ((input.category !== undefined || input.specs !== undefined) && (await store.hasTypes(sql)) === true) {
+    if (input.category !== undefined) patch.category = input.category;
+    if (input.specs !== undefined) patch.specs = input.specs;
+  }
   // Keep the identifiers in step with the edited codes (and the brand/supplier that scope them).
   const identifierChanges = { retire: [], add: [] };
   const nextBrand = patch.brand !== undefined ? patch.brand : current.brand;
@@ -937,13 +1014,21 @@ async function archive(sql, tenant, me, body, res, archived) {
 }
 
 async function itemPhoto(sql, tenant, me, body, res) {
-  if (!policy.isOffice(me.role)) return res.status(403).json({ error: 'office_only' });
   const input = parseOr400(ItemPhotoBody, body, res);
   if (!input) return;
-  const r = await store.replaceItemPhoto(sql, tenant.id, input.itemId, input.photoId, actorOf(me), input.slot);
+  // The crew may FILL a missing photo of where an item lives (putting stock
+  // away, the shelf with no photo yet) with a photo they took — never replace
+  // or remove one: that stays the office's, like the shelf text.
+  const office = policy.isOffice(me.role);
+  const crewFill = !office && input.slot === 'location' && input.photoId !== null;
+  if (!office && !crewFill) return res.status(403).json({ error: 'office_only' });
+  const r = await store.replaceItemPhoto(sql, tenant.id, input.itemId, input.photoId, actorOf(me), input.slot, { onlyIfEmpty: crewFill });
   if (r.error) return res.status(r.error === 'item_not_found' ? 404 : r.error === 'location_photo_unavailable' ? 503 : 409).json({ error: r.error });
   const where = input.slot === 'location';
-  await journal(me, 'workshop_stock.photo_changed', input.itemId, where ? (input.photoId ? 'Changed where a workshop item lives (photo)' : 'Removed the photo of where a workshop item lives') : 'Changed a workshop item photo', { slot: input.slot });
+  // the crew's fill is in the item's own history (like their creates), not the shared journal
+  if (office) {
+    await journal(me, 'workshop_stock.photo_changed', input.itemId, where ? (input.photoId ? 'Changed where a workshop item lives (photo)' : 'Removed the photo of where a workshop item lives') : 'Changed a workshop item photo', { slot: input.slot });
+  }
   return res.status(200).json({ item: await store.getItem(sql, tenant.id, input.itemId) });
 }
 
@@ -964,6 +1049,92 @@ async function verify(sql, tenant, me, body, res) {
   if (r.error) return res.status(r.error === 'item_not_found' ? 404 : 409).json({ error: r.error });
   await journal(me, 'workshop_stock.verification_recorded', item.id, `Recorded the online check for ${item.name}: ${v ? v.status : 'unverified'}`, { status: v ? v.status : 'unverified' });
   return res.status(200).json({ item: await store.getItem(sql, tenant.id, item.id) });
+}
+
+// ── shopping lists ────────────────────────────────────────────────────────────
+
+const LIST_STATUS = { list_not_found: 404, line_not_found: 404, item_not_found: 404, list_not_yours: 403 };
+
+function listError(res, r) {
+  return res.status(LIST_STATUS[r.error] || (['list_name_required', 'line_empty'].includes(r.error) ? 400 : 409)).json({ error: r.error });
+}
+
+/** Lists need their tables: before the migration every list path says so (503), nothing else. */
+async function listsReady(sql, res) {
+  if ((await store.hasLists(sql)) === true) return true;
+  res.status(503).json({ error: 'lists_unavailable' });
+  return false;
+}
+
+async function lists(sql, tenant, me, res) {
+  if (!(await listsReady(sql, res))) return;
+  return res.status(200).json({ lists: await store.listLists(sql, tenant.id), viewer: { id: me.id, office: policy.isOffice(me.role) } });
+}
+
+async function saveList(sql, tenant, me, body, res) {
+  const input = parseOr400(ListBody, body, res);
+  if (!input) return;
+  if (!(await listsReady(sql, res))) return;
+  let job;
+  if (input.jobId !== undefined) {
+    if (input.jobId === null || input.jobId === '') job = null;
+    else {
+      const ref = await resolveJob(input.jobId, me);
+      if (ref.error) return bad(res, ref.error);
+      job = ref.job;
+    }
+  }
+  const r = await store.saveList(sql, tenant.id, input.id, { name: input.name, job, done: input.done }, actorOf(me));
+  if (r.error) return listError(res, r);
+  return res.status(r.created ? 201 : 200).json({ list: r.list });
+}
+
+async function deleteList(sql, tenant, me, id, res) {
+  if (!uuid.safeParse(id).success) return res.status(404).json({ error: 'list_not_found' });
+  if (!(await listsReady(sql, res))) return;
+  const r = await store.deleteList(sql, tenant.id, id, actorOf(me), { office: policy.isOffice(me.role) });
+  if (r.error) return listError(res, r);
+  return res.status(200).json({ deleted: true });
+}
+
+async function saveListLine(sql, tenant, me, body, res) {
+  const input = parseOr400(ListLineBody, body, res);
+  if (!input) return;
+  if (!(await listsReady(sql, res))) return;
+  // How many are needed, in the item's own unit (a text line: the unit it names, else each).
+  let quantityMilli;
+  if (input.quantity === null || input.quantity === '') quantityMilli = null;
+  else if (input.quantity !== undefined) {
+    let unit = input.unit || 'each';
+    if (input.itemId) {
+      const item = await store.getItem(sql, tenant.id, input.itemId);
+      if (!item) return res.status(404).json({ error: 'item_not_found' });
+      unit = item.baseUnit;
+    }
+    const q = Q.parseQuantity(input.quantity, unit);
+    if (q.error) return bad(res, q.error, { field: 'quantity' });
+    quantityMilli = q.milli;
+  }
+  const r = await store.saveListLine(sql, tenant.id, {
+    listId: input.listId,
+    id: input.id,
+    itemId: input.itemId || null,
+    text: input.itemId ? undefined : input.text,
+    quantityMilli,
+    unit: input.itemId ? undefined : input.unit,
+    got: input.got,
+    position: input.position,
+  }, actorOf(me));
+  if (r.error) return listError(res, r);
+  return res.status(200).json({ list: r.list });
+}
+
+async function deleteListLine(sql, tenant, id, res) {
+  if (!uuid.safeParse(id).success) return res.status(404).json({ error: 'line_not_found' });
+  if (!(await listsReady(sql, res))) return;
+  const r = await store.deleteListLine(sql, tenant.id, id);
+  if (r.error) return listError(res, r);
+  return res.status(200).json({ list: r.list });
 }
 
 // ── router ────────────────────────────────────────────────────────────────────
@@ -1001,6 +1172,7 @@ async function handler(req, res) {
       case 'history': return history(sql, tenant, me, q, res);
       case 'operation': return operation(sql, tenant, me, q.key, res);
       case 'photo': return servePhoto(sql, tenant, me, String(q.id || ''), String(q.size || ''), res);
+      case 'lists': return lists(sql, tenant, me, res);
       default: return res.status(400).json({ error: 'unknown_action' });
     }
   }
@@ -1018,11 +1190,15 @@ async function handler(req, res) {
       case 'restore': return archive(sql, tenant, me, body, res, false);
       case 'item-photo': return itemPhoto(sql, tenant, me, body, res);
       case 'verify': return verify(sql, tenant, me, body, res);
+      case 'list': return saveList(sql, tenant, me, body, res);
+      case 'list-line': return saveListLine(sql, tenant, me, body, res);
       default: return res.status(400).json({ error: 'unknown_action' });
     }
   }
   if (req.method === 'PUT' && action === 'item') return editItem(sql, tenant, me, String(q.id || ''), body, res);
   if (req.method === 'DELETE' && action === 'identifier') return identifier(sql, tenant, me, req, body, res);
+  if (req.method === 'DELETE' && action === 'list') return deleteList(sql, tenant, me, String(q.id || ''), res);
+  if (req.method === 'DELETE' && action === 'list-line') return deleteListLine(sql, tenant, String(q.id || ''), res);
   return res.status(405).json({ error: 'method_not_allowed' });
 }
 

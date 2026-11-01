@@ -1,5 +1,6 @@
 import type { LookupStatus, MovementKind, ReadStatus, StockItem, StockMovement, StockUnit, VerificationStatus } from "./schema";
 import { canonicalWords } from "./trade-terms";
+import { filledFields, typeOf, typeSearchText } from "./types";
 
 /**
  * Workshop Stock — display helpers and site-language copy (P11). Pure.
@@ -91,8 +92,17 @@ export function recordedNow(item: Pick<StockItem, "balanceMilli" | "baseUnit" | 
   return `${item.balanceMilli === 0 ? "none" : balanceLabel(item)} recorded ${at ? `at ${at}` : "now"}`;
 }
 
-/** Short identity line under a name: "Clipsal · 2025WE · White · 10A". */
-export function identityLine(item: Pick<StockItem, "brand" | "manufacturerCode" | "colourFinish" | "variant">): string {
+/**
+ * Short identity line under a name. An item with a type reads in its type's
+ * fields, in order, then the code: "Clipsal · Iconic · Switch · 2 gang · White ·
+ * 3042WE". One without: "Clipsal · 2025WE · White · 10A".
+ */
+export function identityLine(item: Pick<StockItem, "brand" | "manufacturerCode" | "colourFinish" | "variant"> & { category?: string | null; specs?: Record<string, string> }): string {
+  if (typeOf(item.category)) {
+    const fields = filledFields(item).map((f) => f.value);
+    const named = new Set(fields.map((v) => v.toLowerCase()));
+    return [...fields, item.variant && !named.has(item.variant.toLowerCase()) ? item.variant : null, item.manufacturerCode].filter(Boolean).join(" · ");
+  }
   return [item.brand, item.manufacturerCode, item.colourFinish, item.variant].filter(Boolean).join(" · ");
 }
 
@@ -255,6 +265,24 @@ export function errorCopy(status: number, body: unknown, fallback = "That didn't
       return "That barcode doesn't check out — leave it blank or re-read it.";
     case "office_only":
       return "Only the office can do that.";
+    case "location_photo_exists":
+      return "Someone already added a photo of where it lives. Ask the office if it's moved.";
+    case "location_photo_unavailable":
+      return "Photos of where items live aren't set up yet.";
+    case "lists_unavailable":
+      return "Shopping lists aren't set up yet — ask the office.";
+    case "list_not_found":
+      return "That list isn't there any more — someone may have deleted it.";
+    case "list_not_yours":
+      return "Only the person who started this list, or the office, can delete it.";
+    case "line_not_found":
+      return "That line isn't on the list any more.";
+    case "list_full":
+      return "That list is full (200 lines). Start another one.";
+    case "list_name_required":
+      return "Give the list a name.";
+    case "line_empty":
+      return "Say what's needed.";
     case "store_unavailable":
     case "store_unprovisioned":
       return "Workshop stock can't save right now — nothing was saved. Try again in a few minutes, or tell the office.";
@@ -269,11 +297,12 @@ export function errorCopy(status: number, body: unknown, fallback = "That didn't
  * whichever words the item was saved under. A confirmed listing's product name
  * is searchable as well (never shown in place of the name the crew gave it).
  */
-export function matchesSearch(item: Pick<StockItem, "name" | "brand" | "manufacturerCode" | "supplierSku" | "location" | "variant" | "colourFinish" | "identifiers"> & Partial<Pick<StockItem, "verificationStatus" | "verification">>, query: string): boolean {
+export function matchesSearch(item: Pick<StockItem, "name" | "brand" | "manufacturerCode" | "supplierSku" | "location" | "variant" | "colourFinish" | "identifiers"> & Partial<Pick<StockItem, "verificationStatus" | "verification" | "category" | "specs">>, query: string): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;
   const listingName = item.verificationStatus === "manufacturer_code_matched" && item.verification?.productName ? item.verification.productName : null;
-  const fields = [item.name, item.brand, item.manufacturerCode, item.supplierSku, item.location, item.variant, item.colourFinish, listingName, ...item.identifiers.map((i) => i.value)]
+  // the item's type and its fields count too: "iconic 2 gang", "led strip 24v"
+  const fields = [item.name, item.brand, item.manufacturerCode, item.supplierSku, item.location, item.variant, item.colourFinish, listingName, typeSearchText(item), ...item.identifiers.map((i) => i.value)]
     .filter(Boolean)
     .join(" ");
   const hay = fields.toLowerCase();
