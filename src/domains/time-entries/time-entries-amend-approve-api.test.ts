@@ -420,7 +420,10 @@ describe("audit trail", () => {
         meta: expect.objectContaining({ fromTotalHours: 8.37, totalHours: 8.6 }),
       })
     );
-    const auditKey = `users/u_field/time-entries-audit/${TODAY.slice(0, 7)}.json`;
+    // the audit log is filed under the month the change was MADE (now), not the
+    // entry's day — they differ on a weekend at the start of a month (TODAY is
+    // pinned back to the last weekday)
+    const auditKey = `users/u_field/time-entries-audit/${new Date().toISOString().slice(0, 7)}.json`;
     const log = blob.get(auditKey) as Array<Record<string, unknown>>;
     expect(log).toHaveLength(1);
     expect(log[0]).toMatchObject({ action: "amended-approved", changedBy: "u_admin" });

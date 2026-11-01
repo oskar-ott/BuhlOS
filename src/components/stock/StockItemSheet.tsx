@@ -4,8 +4,10 @@ import { useCallback, useEffect, useState } from "react";
 import { fetchItem } from "@/domains/workshop-stock/client";
 import { balanceLabel, errorCopy, formatQuantity, identityLine, movementSummary, movementWho, undoLabelFor, undoUntilLabel, whenLabel } from "@/domains/workshop-stock/format";
 import type { ItemDetail, StockItem, WriteResult } from "@/domains/workshop-stock/schema";
+import { AddToList } from "./AddToList";
 import { FlowSheet } from "./FlowSheet";
 import { LocationPhoto } from "./LocationPhoto";
+import { LocationPhotoPrompt } from "./LocationPhotoPrompt";
 import { MoveConfirm, type MoveItem } from "./MoveConfirm";
 import { StockReceipt } from "./StockReceipt";
 import { StockThumb } from "./StockThumb";
@@ -21,9 +23,29 @@ const DIRECTION = { take: "out", return: "return", add: "in" } as const;
  * with its own Undo while the server allows it. Take / Return / Add on THIS
  * item sit in the footer and go one level deeper to the same confirmation.
  * Where a worker would look for edit or delete, the sentence says the office
- * can.
+ * can. With no photo of where it lives yet, anyone can add one; and it can go
+ * on a shopping list from here.
  */
-export function StockItemSheet({ item: initial, viewerId, onChanged, onClose }: { item: StockItem; viewerId?: string | null; onChanged: (r?: WriteResult) => void; onClose: () => void }) {
+export function StockItemSheet({
+  item: initial,
+  viewerId,
+  onChanged,
+  onClose,
+  onBack,
+  locationPhotoEnabled = false,
+  listsEnabled = false,
+  onOpenList,
+}: {
+  item: StockItem;
+  viewerId?: string | null;
+  onChanged: (r?: WriteResult) => void;
+  onClose: () => void;
+  /** back to where it was opened from (a type being browsed) */
+  onBack?: (() => void) | null;
+  locationPhotoEnabled?: boolean;
+  listsEnabled?: boolean;
+  onOpenList?: (listId: string) => void;
+}) {
   const [detail, setDetail] = useState<ItemDetail | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [action, setAction] = useState<"take" | "return" | "add" | null>(null);
@@ -50,7 +72,7 @@ export function StockItemSheet({ item: initial, viewerId, onChanged, onClose }: 
     const back = () => { setAction(null); void load(); };
     return (
       <FlowSheet title={TITLE[action]} direction={DIRECTION[action]} onClose={onClose} onBack={back} testId="stock-item-action">
-        <MoveConfirm item={item as MoveItem} kind={action} onSaved={saved} onWrongItem={back} wrongItemLabel="Wrong item? Back to the item" doneLabel="Done" doneSub="back to the item" onClose={back} />
+        <MoveConfirm item={item as MoveItem} kind={action} locationPhotoEnabled={locationPhotoEnabled} onSaved={saved} onWrongItem={back} wrongItemLabel="Wrong item? Back to the item" doneLabel="Done" doneSub="back to the item" onClose={back} />
       </FlowSheet>
     );
   }
@@ -61,6 +83,7 @@ export function StockItemSheet({ item: initial, viewerId, onChanged, onClose }: 
     <FlowSheet
       title="Workshop item"
       onClose={onClose}
+      onBack={onBack ?? null}
       testId="stock-item-sheet"
       footer={
         <div className="grid grid-cols-3 gap-2">
@@ -85,6 +108,7 @@ export function StockItemSheet({ item: initial, viewerId, onChanged, onClose }: 
       </div>
 
       {item.locationPhotoId ? <LocationPhoto photoId={item.locationPhotoId} location={item.location} size="lg" /> : null}
+      {locationPhotoEnabled && detail && !item.locationPhotoId && !archived ? <LocationPhotoPrompt itemId={item.id} onSaved={() => { void load(); onChanged(); }} /> : null}
 
       <div className="grid grid-cols-3 gap-2 rounded-[14px] border border-border bg-surface-subtle p-3">
         <div>
@@ -101,6 +125,7 @@ export function StockItemSheet({ item: initial, viewerId, onChanged, onClose }: 
         </div>
       </div>
       <p className="text-[13px] text-text-muted">Recorded stock is what&rsquo;s been logged — the shelf is the truth. Tell the office if they don&rsquo;t match.</p>
+      {listsEnabled && !archived && onOpenList ? <AddToList item={item} viewerId={viewerId ?? null} onOpenList={onOpenList} /> : null}
 
       <section className="space-y-1">
         <Kicker className="pt-1">Latest movements</Kicker>

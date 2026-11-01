@@ -287,6 +287,12 @@ async function resetStock() {
   await sql.begin(async (tx) => {
     // The ledger is append-only by trigger; a local superuser reset bypasses it.
     await tx`set local session_replication_role = replica`;
+    // shopping lists (20261101100000) — only where that migration is applied
+    const [lists] = await tx`select to_regclass('public.workshop_stock_lists') is not null as present`;
+    if (lists && lists.present) {
+      await tx`delete from public.workshop_stock_list_lines where tenant_id = ${t}`;
+      await tx`delete from public.workshop_stock_lists where tenant_id = ${t}`;
+    }
     await tx`delete from public.workshop_stock_movements where tenant_id = ${t}`;
     await tx`delete from public.workshop_stock_item_events where tenant_id = ${t}`;
     await tx`delete from public.workshop_stock_identifiers where tenant_id = ${t}`;

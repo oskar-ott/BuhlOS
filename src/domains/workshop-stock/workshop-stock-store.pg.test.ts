@@ -6,8 +6,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
  * Workshop Stock — the REAL store + ledger triggers against a real Postgres.
  *
  * Runs only with WORKSHOP_STOCK_PG_TEST=1 and SUPABASE_ENV=local (a throwaway
- * local database with supabase/migrations/20260611142758_phase1_core_schema.sql
- * and 20261009100000_workshop_stock.sql applied — see docs/workshop-stock.md
+ * local database with supabase/migrations/20260611142758_phase1_core_schema.sql,
+ * 20261009100000_workshop_stock.sql, 20261026100000_workshop_stock_location_photo.sql
+ * and 20261101100000_workshop_stock_types_and_lists.sql applied — see docs/workshop-stock.md
  * "Testing"). Local only on purpose: the ledger is append-only by trigger, so
  * cleanup needs session_replication_role (superuser), which a shared dev
  * project must not hand out. Skipped in CI.
@@ -75,6 +76,8 @@ describe.skipIf(!ENABLED)("workshop stock store — real Postgres", () => {
     await sql.begin(async (tx) => {
       await tx`set local session_replication_role = replica`;
       for (const t of [tenantA, tenantB]) {
+        await tx`delete from public.workshop_stock_list_lines where tenant_id = ${t}`;
+        await tx`delete from public.workshop_stock_lists where tenant_id = ${t}`;
         await tx`delete from public.workshop_stock_movements where tenant_id = ${t}`;
         await tx`delete from public.workshop_stock_item_events where tenant_id = ${t}`;
         await tx`delete from public.workshop_stock_identifiers where tenant_id = ${t}`;
@@ -568,5 +571,141 @@ describe.skipIf(!ENABLED)("workshop stock store — real Postgres", () => {
     expect(hit).toMatchObject({ status: "manufacturer_code_matched", cached: true });
     expect(await store.getCachedLookup(sql, tenantA, black)).toBeNull(); // a check for the white one isn't one for the black one
     expect(await store.getCachedLookup(sql, tenantB, white)).toBeNull();
+  });
+
+  // ── 20261101100000: types, the shared/filled location photo, shopping lists ──
+
+  const pendingPhoto = (tag: string, actor = worker) => store.insertPhoto(sql, tenantA, { blobUrl: `https://blob.invalid/t-${tag}`, blobPathname: `t-${tag}`, contentType: "image/jpeg", byteSize: 100, width: 800, height: 600, sha256: createHash("sha256").update(`t-${tag}-${marker}`).digest("hex"), actor });
+
+  it("an item's type and fields: saved with the item, read everywhere, edited compare-and-set; the same fields in another order are no change", async () => {
+    expect(await store.hasTypes(sql)).toBe(true);
+    const { item } = await makeItem({ name: "Iconic 2 gang switch", brand: "Clipsal", colourFinish: "White" }, 4000, worker, { category: "switches", specs: { range: "Iconic", gang: "2 gang" } });
+    expect(item).toMatchObject({ category: "switches", specs: { range: "Iconic", gang: "2 gang" } });
+    expect((await store.listItems(sql, tenantA)).find((i: { id: string }) => i.id === item.id)).toMatchObject({ category: "switches", specs: { gang: "2 gang" } });
+    const { item: plain } = await makeItem({ name: "No type" });
+    expect(plain).toMatchObject({ category: null, specs: {} });
+
+    const same = await store.updateItem(sql, tenantA, item.id, { patch: { specs: { gang: "2 gang", range: "Iconic" } }, expectedRevision: item.metaRevision, actor: office });
+    expect(same).toMatchObject({ ok: true, unchanged: true });
+    const edited = await store.updateItem(sql, tenantA, item.id, { patch: { category: "switches", specs: { range: "Classic", gang: "2 gang", kind: "Switch" } }, expectedRevision: item.metaRevision, actor: office });
+    expect(edited.item).toMatchObject({ category: "switches", specs: { range: "Classic", gang: "2 gang", kind: "Switch" }, metaRevision: item.metaRevision + 1 });
+    expect(edited.changes.specs).toEqual({ from: { range: "Iconic", gang: "2 gang" }, to: { range: "Classic", gang: "2 gang", kind: "Switch" } });
+    expect(await store.updateItem(sql, tenantA, item.id, { patch: { category: null }, expectedRevision: item.metaRevision, actor: office })).toMatchObject({ error: "item_changed" });
+    const unsorted = await store.updateItem(sql, tenantA, item.id, { patch: { category: null, specs: {} }, expectedRevision: item.metaRevision + 1, actor: office });
+    expect(unsorted.item).toMatchObject({ category: null, specs: {} });
+    // the database keeps the shape honest
+    await expect(sql`update public.workshop_stock_items set category = ${"Bad Key"} where id = ${item.id}`).rejects.toThrow();
+  });
+
+  it("one shelf, one photo: a new item can show the last item's photo of where it lives; a shared photo is never retired while another item shows it", async () => {
+    const shelfPhoto = await pendingPhoto("shelf");
+    const a = await makeItem({ name: "Iconic 1 gang" }, 0, worker, { locationPhotoId: shelfPhoto });
+    expect(a.item.locationPhotoId).toBe(shelfPhoto);
+    const b = await makeItem({ name: "Iconic 2 gang" }, 0, worker, { locationPhotoFromItemId: a.item.id });
+    expect(b).toMatchObject({ locationPhotoAttached: true });
+    expect(b.item.locationPhotoId).toBe(shelfPhoto);
+    const created = (await store.itemEvents(sql, tenantA, b.item.id)).find((e: { event: string }) => e.event === "created");
+    expect(created.detail).toMatchObject({ locationPhoto: "same_as_item" });
+    // an item without a photo gives nothing to share — said, not invented
+    const none = await makeItem({ name: "Nothing to copy" }, 0, worker, { locationPhotoFromItemId: (await makeItem({ name: "bare" })).item.id });
+    expect(none).toMatchObject({ locationPhotoAttached: false });
+    expect(none.item.locationPhotoId).toBeNull();
+
+    // the office moves A: the shared photo stays (B still shows it)
+    const moved = await pendingPhoto("moved", office);
+    expect((await store.replaceItemPhoto(sql, tenantA, a.item.id, moved, office, "location")).ok).toBe(true);
+    const [kept] = await sql`select purpose from public.workshop_stock_photos where id = ${shelfPhoto}`;
+    expect(kept!.purpose).toBe("item");
+    // …and once B moves too, nothing shows it: retired
+    expect((await store.replaceItemPhoto(sql, tenantA, b.item.id, null, office, "location")).ok).toBe(true);
+    const [retired] = await sql`select purpose from public.workshop_stock_photos where id = ${shelfPhoto}`;
+    expect(retired!.purpose).toBe("retired");
+  });
+
+  it("the crew can FILL a missing photo of where it lives with their own photo — never replace one, never use someone else's", async () => {
+    const { item } = await makeItem({ name: "Tub of wall plugs" });
+    const someoneElses = await pendingPhoto("else", { id: "u_other", name: "Other", role: "electrician" });
+    expect(await store.replaceItemPhoto(sql, tenantA, item.id, someoneElses, worker, "location", { onlyIfEmpty: true })).toEqual({ error: "photo_not_available" });
+    const mine = await pendingPhoto("mine");
+    expect((await store.replaceItemPhoto(sql, tenantA, item.id, mine, worker, "location", { onlyIfEmpty: true })).ok).toBe(true);
+    expect((await store.getItem(sql, tenantA, item.id)).locationPhotoId).toBe(mine);
+    const another = await pendingPhoto("another");
+    expect(await store.replaceItemPhoto(sql, tenantA, item.id, another, worker, "location", { onlyIfEmpty: true })).toEqual({ error: "location_photo_exists" });
+    expect((await store.getItem(sql, tenantA, item.id)).locationPhotoId).toBe(mine);
+  });
+
+  it("a shopping list: started once however often it's retried, lines added once, ids from another company refused", async () => {
+    expect(await store.hasLists(sql)).toBe(true);
+    const listId = crypto.randomUUID();
+    const first = await store.saveList(sql, tenantA, listId, { name: "Smith reno", job: { id: "j_live", label: "IV3232 · Birdwood" } }, worker);
+    expect(first).toMatchObject({ ok: true, created: true, list: { id: listId, name: "Smith reno", jobId: "j_live", ownerId: worker.id, lines: [] } });
+    const again = await store.saveList(sql, tenantA, listId, { name: "Smith reno" }, worker);
+    expect(again.created).toBeUndefined();
+    expect((await store.listLists(sql, tenantA)).filter((l: { id: string }) => l.id === listId)).toHaveLength(1);
+    expect(await store.saveList(sql, tenantB, listId, { name: "Theirs" }, worker)).toEqual({ error: "list_not_found" });
+    expect(await store.saveList(sql, tenantA, crypto.randomUUID(), {}, worker)).toEqual({ error: "list_name_required" });
+
+    const { item } = await makeItem({ name: "Double GPO" }, 10_000);
+    const lineId = crypto.randomUUID();
+    const added = await store.saveListLine(sql, tenantA, { listId, id: lineId, itemId: item.id, quantityMilli: 4000 }, worker);
+    expect(added.list.lines).toEqual([expect.objectContaining({ id: lineId, itemId: item.id, itemName: "Double GPO", itemUnit: "each", quantityMilli: 4000, gotAt: null })]);
+    await store.saveListLine(sql, tenantA, { listId, id: lineId, itemId: item.id, quantityMilli: 4000 }, worker); // a retry
+    const text = await store.saveListLine(sql, tenantA, { listId, id: crypto.randomUUID(), text: "Blank plates", quantityMilli: 3000, unit: "each" }, worker);
+    expect(text.list.lines).toHaveLength(2);
+    expect(await store.saveListLine(sql, tenantA, { listId, id: crypto.randomUUID() }, worker)).toEqual({ error: "line_empty" });
+    expect(await store.saveListLine(sql, tenantB, { listId, id: lineId, got: true }, worker)).toEqual({ error: "list_not_found" });
+    const otherList = crypto.randomUUID();
+    await store.saveList(sql, tenantA, otherList, { name: "Other" }, worker);
+    expect(await store.saveListLine(sql, tenantA, { listId: otherList, id: lineId, got: true }, worker)).toEqual({ error: "line_not_found" });
+    // the crew share lists: anyone can tick; by hand is "got it another way"
+    const ticked = await store.saveListLine(sql, tenantA, { listId, id: text.list.lines[1].id, got: true }, office);
+    expect(ticked.list.lines[1]).toMatchObject({ gotById: office.id, movementId: null });
+    // only its owner (or the office) deletes it; its lines go with it
+    expect(await store.deleteList(sql, tenantA, otherList, office)).toEqual({ error: "list_not_yours" });
+    expect(await store.deleteList(sql, tenantA, otherList, office, { office: true })).toEqual({ ok: true });
+    expect(await store.getList(sql, tenantA, otherList)).toBeNull();
+  });
+
+  it("a take collects its list line in the SAME transaction — once — and undoing the take un-ticks it", async () => {
+    const listId = crypto.randomUUID();
+    await store.saveList(sql, tenantA, listId, { name: "Pick list" }, worker);
+    const { item } = await makeItem({ name: "Iconic plate" }, 10_000);
+    const lineId = crypto.randomUUID();
+    await store.saveListLine(sql, tenantA, { listId, id: lineId, itemId: item.id, quantityMilli: 4000 }, worker);
+    const take = await store.recordMovement(sql, tenantA, { itemId: item.id, kind: "take", quantityMilli: 4000, listLineId: lineId, actor: worker, idempotencyKey: key("lt"), requestHash: hash("lt") });
+    expect(take).toMatchObject({ ok: true, lineTicked: true });
+    let line = (await store.getList(sql, tenantA, listId)).lines[0];
+    expect(line).toMatchObject({ gotById: worker.id, movementId: take.movement.id });
+    // a second take for the same line doesn't steal the tick
+    const again = await store.recordMovement(sql, tenantA, { itemId: item.id, kind: "take", quantityMilli: 1000, listLineId: lineId, actor: worker, idempotencyKey: key("lt2"), requestHash: hash("lt2") });
+    expect(again).toMatchObject({ ok: true, lineTicked: false });
+    // a take that fails ticks nothing
+    const lineB = crypto.randomUUID();
+    await store.saveListLine(sql, tenantA, { listId, id: lineB, itemId: item.id, quantityMilli: 99_000 }, worker);
+    expect(await store.recordMovement(sql, tenantA, { itemId: item.id, kind: "take", quantityMilli: 99_000, listLineId: lineB, actor: worker, idempotencyKey: key("lt3"), requestHash: hash("lt3") })).toMatchObject({ error: "insufficient_stock" });
+    expect((await store.getList(sql, tenantA, listId)).lines.find((l: { id: string }) => l.id === lineB).gotAt).toBeNull();
+    // undo the take: the line is back to get
+    const undone = await store.reverseMovement(sql, tenantA, { movementId: take.movement.id, actor: worker, idempotencyKey: key("ltu"), requestHash: hash("ltu") }, () => null);
+    expect(undone.ok).toBe(true);
+    line = (await store.getList(sql, tenantA, listId)).lines.find((l: { id: string }) => l.id === lineId);
+    expect(line).toMatchObject({ gotAt: null, movementId: null });
+  });
+
+  it("a take of less than the line needs collects what it took — the rest stays on the list as its own line", async () => {
+    const listId = crypto.randomUUID();
+    await store.saveList(sql, tenantA, listId, { name: "Short shelf" }, worker);
+    const { item } = await makeItem({ name: "Iconic plate black" }, 3000);
+    const lineId = crypto.randomUUID();
+    await store.saveListLine(sql, tenantA, { listId, id: lineId, itemId: item.id, quantityMilli: 4000 }, worker);
+    const take = await store.recordMovement(sql, tenantA, { itemId: item.id, kind: "take", quantityMilli: 3000, listLineId: lineId, actor: worker, idempotencyKey: key("part"), requestHash: hash("part") });
+    expect(take).toMatchObject({ ok: true, lineTicked: true });
+    const lines = (await store.getList(sql, tenantA, listId)).lines;
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toMatchObject({ id: lineId, quantityMilli: 3000, movementId: take.movement.id });
+    expect(lines[1]).toMatchObject({ itemId: item.id, quantityMilli: 1000, gotAt: null, movementId: null });
+    // undoing the take un-ticks the 3; the 1 stays — still 4 needed in all
+    await store.reverseMovement(sql, tenantA, { movementId: take.movement.id, actor: worker, idempotencyKey: key("partu"), requestHash: hash("partu") }, () => null);
+    const after = (await store.getList(sql, tenantA, listId)).lines;
+    expect(after.map((l: { quantityMilli: number; gotAt: string | null }) => [l.quantityMilli, l.gotAt])).toEqual([[3000, null], [1000, null]]);
   });
 });

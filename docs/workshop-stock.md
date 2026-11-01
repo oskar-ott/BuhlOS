@@ -29,6 +29,21 @@
 > Not part of the ratified lean core
 > ([product/02-lean-reset.md](product/02-lean-reset.md)); it earns its place, or
 > not, through the loop in [product/03-lean-startup-loop.md](product/03-lean-startup-loop.md).
+>
+> **Tweak after the first week of real use (owner pull, 2026-11-01)** — the
+> loop's *tweak* outcome, inside the same flag: [item types with their own
+> fields](#item-types-and-their-fields) and [browsing by type](#browsing-by-type),
+> [shopping lists](#shopping-lists), and the [photo of where it lives as a step
+> of putting stock away](#a-photo-of-where-it-lives). Owner's words: "a Clipsal
+> Iconic 2 gang plate is not a Classic one — but it's all shoved in the name";
+> "someone opens stock when they already know what they need"; "a list they can
+> go back to — what we have in the workshop, what to get from the wholesaler";
+> "a photo of the general location — the shelf text might be wrong". They need
+> migration `20261101100000_workshop_stock_types_and_lists.sql`; before it is
+> applied nothing changes and nothing breaks (see [Data](#data)).
+> **Hypothesis:** if items carry their type's fields and the phone opens on
+> types, workers find what they need without scrolling or searching names, and
+> they use a list for a job's pick-up instead of a text message.
 
 ## What it does
 
@@ -82,6 +97,21 @@ recorded, and where they live.
   code check, the photo, the item's own history), and **archive last and
   apart** (confirmed; read-only after; restore says which codes come back).
 - Add items the same way the crew does, by hand or with a photo.
+
+**Types, browsing, lists (2026-11-01)**
+
+- Every item can have a **type** — Switches & GPOs, LED strip, LED drivers,
+  Lights & downlights, Cable, Breakers & RCDs, Conduit & fittings, Fixings &
+  consumables, Other — and **that type's fields**: a switch's brand, range
+  (Iconic, Classic, Saturn…), what it is (switch, GPO, dimmer…), gang and
+  colour; an LED strip's colour temperature, voltage, width, length, watts per
+  metre and IP rating; cable's type, size, cores and sheath colour; and so on.
+- The phone opens on **one tile per type** (with how many items and a sample —
+  "Iconic · Classic"); a type opens with its fields as **filter chips** built
+  from what is actually in stock, each with its count.
+- **Shopping lists**: a list for a job (shared with the crew) split into **In
+  the workshop** (shelf by shelf) and **Get from the wholesaler** (copy or send
+  it), ticked off by taking it.
 
 **Not gear.** Gear (tools and equipment) has custody, serials, test-and-tag and
 "who has it". Workshop stock has none of that: an item is a quantity on a shelf
@@ -143,23 +173,129 @@ add-stock photo (it lists at most four), the "which one?" screen leads with
 
 For stock that isn't in an obvious place (owner pull, 2026-10-26: "an option
 to take a photo for the location if it isnt in a general place and when
-someone wants to check it out they look at the photo to help find it"):
+someone wants to check it out they look at the photo to help find it") — and,
+after the first week, as a **step of putting stock away** (owner pull,
+2026-11-01: "when someone is putting an item into stock, they take a photo of
+the general location — there's not always a clear location, someone might log
+it wrong, but the photo is the reference"):
 
-- **Adding a new item**, under "Where it lives in the workshop": "Hard to
-  find? Photograph where it lives" — optional, one tap, shown in the form's
-  "Saves:" line. It uploads with the item; if only this photo fails, the item
-  still saves and the receipt says the photo isn't attached.
+- **Adding a new item**: its own step, "Photo of where it's going", right under
+  the shelf — "Photograph where it's going" (no longer a "Hard to find?" link).
+  It is **prompted, not required**: with none, the Save area says "No photo of
+  where it lives — the next person only gets the shelf text" and the item still
+  saves (P6 — a failed upload or no camera never blocks putting stock away; the
+  owner can make it required with one change if the prompt isn't enough).
+- **Setting up a shelf** ("Save and add another"): the next item on the **same
+  shelf** is offered the last item's photo — "Same spot as the last item ·
+  Different spot" — so a shelf of twenty items is one photo, not twenty. Both
+  items point at the one photo (`locationPhotoFromItemId`); a photo another
+  item still shows is never retired when one of them changes.
+- **Putting stock away on an item that has none** (Add or Return, and the item
+  sheet): "No photo of where it lives yet — Photograph where it's going". It is
+  saved to the item on its own, straight away — never part of the movement, so
+  the add never waits on it or fails because of it. The crew can only **fill a
+  missing** photo with one they took; replacing or removing one stays the
+  office's, like the shelf text (the server refuses anything else).
 - **Whoever comes to take it** sees "Where to find it" — the photo beside the
   shelf text — on the take/return/add confirmation and on the item sheet; one
   tap opens it full screen. A list row with one carries a small camera mark.
 - **The office** sees it in the item drawer and can add, replace or remove it
-  (catalogue → "Photo of where it lives"). The crew sets it when adding an item;
-  changing it later is the office's, like the shelf text itself.
+  (catalogue → "Photo of where it lives").
 - It is the item's second photo, stored and served exactly like the product
   photo (`items.location_photo_id`, migration
   `20261026100000_workshop_stock_location_photo.sql`). The option appears only
   once that migration is applied — before then nothing breaks and nothing is
   offered (reads go through `to_jsonb`, writes wait for the column).
+
+### Item types and their fields
+
+Owner pull, 2026-11-01: "Switches aren't interchangeable — Clipsal Iconic tells
+me the style, two gang what it is, the colour the colour; at the moment it's
+all shoved in the name. Each type of item needs different fields: LED strip is
+the colour temperature, the width, the length, the brand, the voltage."
+
+- An item has a **type** (`category`) and **that type's fields** (`specs`, short
+  texts). The catalogue of types and fields lives in the app
+  (`src/domains/workshop-stock/types.ts`); the database keeps only the shape (a
+  lower-case key; an object of strings ≤ 60 characters, ≤ 16 fields). **Brand
+  and colour stay in their own columns** — matching and the online check use
+  them — and a type simply names them among its fields.
+- Values are kept the way a sparky writes them — "2 gang", "4000K", "24V",
+  "10mm", "2.5mm²", "2C+E", "IP65" — and what was typed is tidied into that form
+  when the field is left ("2g" → "2 gang", "4000k" → "4000K"; "iconic" takes the
+  option's spelling), so filters don't split on spelling.
+- **Adding an item**: "What is it?" chips, then the type's fields, each with
+  one-tap chips — the shop's own values first, then the common ones — and free
+  typing. A **label photo fills them** where the label says (deterministic
+  reading of the label text, not a second AI call: "ICONIC 2 GANG SWITCH" →
+  Switches & GPOs · Iconic · Switch · 2 gang; "4000K 24VDC 10MM 5M" → the LED
+  strip's fields), each tagged "Read from photo" to check. The **name follows
+  the fields** ("Clipsal Iconic 2 gang switch") while it is empty or still the
+  last suggestion — never over a name someone typed or the label gave. Choosing
+  a type sets the usual unit (cable: metres) until the unit is picked by hand.
+- **Existing items** start **not sorted** (no type) — nothing is sorted by
+  guesswork. The office sorts them: the list's **Not sorted** filter, then
+  Catalogue → Details → **Type**; an unsorted item says what it looks like
+  ("Looks like LED strip — Use it"), and picking a type fills its fields from
+  the name and details, marked "check them before saving". Type edits are
+  compare-and-set with the rest of the catalogue and written to the item's
+  history.
+- Everywhere an item is described (rows, sheets, the office table) its
+  identity line reads in its type's fields: "Clipsal · Iconic · Switch · 2 gang
+  · White · 3042WE". Search covers the type and its fields ("iconic 2 gang",
+  "led strip 24v").
+
+### Browsing by type
+
+"Someone opens stock when they already know what they need" — so once anything
+has a type, level one is the search and **one tile per type** (count, and the
+commonest values of its first field: "Iconic · Classic · Saturn"), then **Not
+sorted yet** while any are, and **Everything, by shelf** (the old list, one tap
+down). Until any item has a type the shelf list stays level one, as before.
+
+A tile opens the type as a sheet: its fields as **filter chips** with counts —
+a field is a filter once its items differ on it, and counts follow the other
+chosen filters, so a chip never promises items that aren't there (a chip that
+would leave nothing is greyed) — then the rows (recorded quantity, where it
+lives). An item opened from there has **Back** to the type with its filters
+kept; the phone's back gesture closes the sheet.
+
+### Shopping lists
+
+Owner pull, 2026-11-01: "On a job or in the workshop, add a bunch of things —
+see what we need to get from the wholesaler and what we have in the workshop —
+a list they can go back to and use to go through and find everything."
+
+- **Start a list** (a name, optionally a job — informational, never a job cost)
+  from the row under the title ("Shopping lists", or "Your list: Smith reno ·
+  5 to get" to resume your latest in one tap), or **Add to a shopping list**
+  from any item (your latest open list is picked; or start one there).
+- Add **workshop items** (search, then how many you need) or **plain text** for
+  something we don't stock ("Clipsal 2000 series blank plate · 3 each").
+- The list reads against recorded stock, worked out fresh every time — a view,
+  never a record (P7: "6 each recorded", not "in stock"):
+  - **In the workshop** — items with stock recorded, in **shelf order** (one walk
+    round the workshop), each with how many are needed, how many are recorded,
+    the shelf and its photo mark. **Take** opens the ordinary take confirmation
+    starting at what the list needs and the list's job; the take **ticks the
+    line in the same transaction**, and undoing the take un-ticks it. A take of
+    **less** than the line needs (the shelf ran short) collects what it took and
+    leaves **the rest on the list as its own line** — nothing needed is lost.
+    "Got it another way" ticks it by hand.
+  - **Get from the wholesaler** — text lines, items with none recorded,
+    archived items, and the **rest of a short one** ("only 2 recorded — get 4
+    more"). Tick each as you get it. **Copy or send the wholesaler list** puts it
+    in the phone's share sheet (or the clipboard) as plain text with quantities
+    and codes, for the counter or a text/email.
+  - **Got** — ticked lines, by whom and when; untick by hand (unticking never
+    undoes a take — that stays in the ledger).
+- Lists are **shared with the crew**: anyone can add to or tick any open list
+  (a leading hand can make one for an apprentice). Only its owner or the office
+  can **delete** one — apart from everything else, confirmed first (P12).
+  **Finished with this list** keeps it a week under "Finished this week"; it
+  can be reopened.
+- Every change waits for the server and says so when it didn't save. Lists and
+  lines carry ids made on the phone, so a retried save is the same row.
 
 ### Take stock: photo → identify → confirm → deduct
 
@@ -381,7 +517,10 @@ brand clears a verification that was for the old one.
 | Take / add / return, create an item via Add stock | ✓ | ✓ |
 | Photo reading, online check | ✓ | ✓ (+ re-check, record on an item) |
 | Undo | own opening/add/take/return, within **30 minutes** | any movement, any time, **reason required** |
-| Count, edit, codes/packs, photo, archive/restore | — | ✓ |
+| Photo of where it lives | **fill a missing one** with a photo they took | add, replace, remove |
+| Shopping lists: read, start, add to, tick (any list) | ✓ | ✓ |
+| Delete a shopping list | their own | any |
+| Count, edit (incl. type and fields), codes/packs, product photo, archive/restore | — | ✓ |
 
 Clients and unknown roles get 403; signed-out 401. The actor, role and company
 always come from the session; bodies are validated (Zod). Office actions —
@@ -442,9 +581,22 @@ known until real use — watch the usage counters (`workshop_stock_usage`).
 
 Migrations (additive): `supabase/migrations/20261009100000_workshop_stock.sql`,
 then `20261026100000_workshop_stock_location_photo.sql` (one nullable column,
-`workshop_stock_items.location_photo_id`, re-runnable). Tables from the first:
-`workshop_stock_items`, `_identifiers`, `_movements`, `_item_events`, `_photos`,
-`_lookup_cache`, `_usage`. RLS on, no policies (service-role only — the house
+`workshop_stock_items.location_photo_id`, re-runnable), then
+`20261101100000_workshop_stock_types_and_lists.sql` (re-runnable):
+`workshop_stock_items.category` (a lower-case key or null) and `.specs` (a jsonb
+object, default `{}`), and the tables `workshop_stock_lists` and
+`workshop_stock_list_lines` (ids from the phone; composite tenant foreign keys
+to items and movements; a list's lines go when it is deleted). Tables from the
+first: `workshop_stock_items`, `_identifiers`, `_movements`, `_item_events`,
+`_photos`, `_lookup_cache`, `_usage`.
+
+**Deploy order is free** for both later migrations: the store reads the new
+columns through `to_jsonb(i)` (absent → null / `{}`) and finds what the database
+has once per warm instance (`schemaFeatures`, re-checked every minute while
+anything is missing). The list says what exists (`capabilities.locationPhoto`,
+`.types`, `.lists`); the screens offer an option only once it does; writes wait
+for their column; every list path answers 503 `lists_unavailable` until the
+tables exist. RLS on, no policies (service-role only — the house
 pattern; see [architecture/supabase-rls-access-matrix.md](architecture/supabase-rls-access-matrix.md)).
 The integrity rules above live in its triggers and indexes. The down path is in
 the file's header (drops, in order — only for abandoning the feature, after an
@@ -459,7 +611,11 @@ export).
   Both show only while the flag is on. **No tab** — the tile enters Today's
   existing Quick slot, the way Log a receipt did (P10). Level one of
   `/phil/stock` is one decision: Take stock or Add or return, two doors pinned
-  at the bottom; Return and per-item actions are one tap down. Quantities are
+  at the bottom; Return and per-item actions are one tap down. The type tiles
+  **replace** the shelf list in the same reading slot (adding requires
+  removing — the shelf list is one tap down), and shopping lists enter as one
+  resume row under the title and as context on an item (P10 slots: the ranked
+  next action, context on a record) — no new door, no new tab. Quantities are
   labelled as recorded (P7); copy is site language (P11); undo sits on the
   receipt it undoes, never by the doors, and archive sits apart from
   everything (P12); the phone's back gesture closes an open sheet instead of
@@ -478,9 +634,10 @@ export).
 
 1. Merge the PR (squashed, `main` only).
 2. Apply `20261009100000_workshop_stock.sql` — and, for the photo of where an
-   item lives, `20261026100000_workshop_stock_location_photo.sql` (safe to
-   apply before or after the code ships; the option appears within a minute
-   of it) — to the **dev** project, then to
+   item lives, `20261026100000_workshop_stock_location_photo.sql`, and for item
+   types and shopping lists, `20261101100000_workshop_stock_types_and_lists.sql`
+   (each safe to apply before or after the code ships; its options appear
+   within a minute of it) — to the **dev** project, then to
    **production** as an operator release step (Supabase migration process —
    never from an agent session). Confirm the seven tables exist with RLS on.
 3. **Production writes are opt-in for every Supabase-backed feature**: the env
@@ -520,9 +677,9 @@ export).
 
 | Layer | What | Run |
 | --- | --- | --- |
-| Unit | quantities, codes, barcodes, matching, trade names, variants, extraction, verification, SSRF guards, client decisions, pending saves (several, per person, the 90 s "lost" rule), the phone's copies of server rules (parity) | `npx vitest run src/domains/workshop-stock src/components/stock` |
-| API | the real handler with mocked store/AI: auth, flag 404, office-only, actor from session, idempotency keys answered first, pack size as shown, the accepted check re-validated, uploads + list copies, photo clean-up order, cache keys, statuses | (same; `workshop-stock-api.test.ts`) |
-| Postgres | the store + triggers against a real local Postgres: atomic ledger, no negatives, concurrent takes (10 connections), idempotent replays/conflicts (incl. two creates racing with one key), replay after archive, stale counts, one-time undo, counted-since, undoing a count restores its estimate/last-count, server time order, atomic create, tenants, archive/restore codes, code fields following codes, verification cleared on a code change, edit revision, photo claim vs clean-up, cost ceiling, cache per colour | `WORKSHOP_STOCK_PG_TEST=1 SUPABASE_ENV=local SUPABASE_PROJECT_REF=localstack SUPABASE_DB_URL=postgres://…@localhost:5432/<db> npx vitest run src/domains/workshop-stock/workshop-stock-store.pg.test.ts` (migrations applied to `<db>`) |
+| Unit | quantities, codes, barcodes, matching, trade names, variants, extraction, verification, SSRF guards, client decisions, pending saves (several, per person, the 90 s "lost" rule), the phone's copies of server rules (parity); the type catalogue, value tidying, guessing a type and its fields from label text, filters and their counts, suggested names (`types.test.ts`); a list read against stock — workshop in shelf order, short lines in both, the wholesaler text (`lists.test.ts`) | `npx vitest run src/domains/workshop-stock src/components/stock` |
+| API | the real handler with mocked store/AI: auth, flag 404, office-only, actor from session, idempotency keys answered first, pack size as shown, the accepted check re-validated, uploads + list copies, photo clean-up order, cache keys, statuses; types and fields (validated, dropped before the migration, office-only edits); the crew filling a missing photo of where it lives; lists (503 before the migration, owner from the session, jobs resolved, quantities in the item's unit, delete rights), a take ticking its line | (same; `workshop-stock-api.test.ts`) |
+| Postgres | the store + triggers against a real local Postgres: atomic ledger, no negatives, concurrent takes (10 connections), idempotent replays/conflicts (incl. two creates racing with one key), replay after archive, stale counts, one-time undo, counted-since, undoing a count restores its estimate/last-count, server time order, atomic create, tenants, archive/restore codes, code fields following codes, verification cleared on a code change, edit revision, photo claim vs clean-up, cost ceiling, cache per colour; types saved/read/edited compare-and-set; one shelf photo shared by two items and never retired while either shows it; the crew filling (never replacing) a photo with their own; lists started once per id, lines once, other tenants' ids refused, delete rights; a take ticking its line in the same transaction, once, a failed take ticking nothing, the undo un-ticking it. Also run against a database WITHOUT `20261101100000`: everything but the three types/lists tests passes (deploy order) | `WORKSHOP_STOCK_PG_TEST=1 SUPABASE_ENV=local SUPABASE_PROJECT_REF=localstack SUPABASE_DB_URL=postgres://…@localhost:5432/<db> npx vitest run src/domains/workshop-stock/workshop-stock-store.pg.test.ts` (migrations applied to `<db>`) |
 | Browser E2E | phone (Pixel 7) + desktop, real pages + real handler + real local Postgres; the photo reader's model answer, the search response and the listing pages are **fixtures** (`scripts/qa/workshop-stock-e2e/harness.js`) | below |
 
 Browser E2E, locally (never against a hosted database — the harness refuses a
@@ -559,7 +716,9 @@ failed request that isn't named as environment noise in the spec.
 ## Deliberately out of scope
 
 Tool custody, vans and transfers, reservations, purchase orders and
-reordering, supplier integrations, valuation, invoice-to-stock posting, job
+reordering (a shopping list is a plan someone carries, not an order — nothing
+is sent to a supplier), supplier integrations, custom types defined in the app
+(the type catalogue is code; a new type or field is a small change), valuation, invoice-to-stock posting, job
 costing, mandatory job selection, analytics, a general assistant.
 
 ## Known limitations
