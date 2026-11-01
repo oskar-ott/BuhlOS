@@ -47,7 +47,7 @@ export async function preparePhoto(file: File | Blob): Promise<PreparedPhoto> {
 }
 
 export const PHOTO_PROBLEM_COPY: Record<"not_image" | "cannot_open" | "too_large", string> = {
-  not_image: "That isn't a photo. Take a photo or pick one from your library.",
+  not_image: "That isn't a photo. Take a photo or pick one from your camera roll.",
   cannot_open: "Couldn't open that photo on this phone. Take it again with the camera, or pick a JPEG.",
   too_large: "That photo is too big. Take it again a bit further back.",
 };
