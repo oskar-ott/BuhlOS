@@ -10,12 +10,13 @@ import { Slot } from "./ui";
  * Take or pick a product photo (Workshop Stock). The photo is downscaled on
  * the phone; a dark frame gets a non-blocking hint; a photo the phone can't
  * open says so plainly. Camera permission is the browser's file picker — if
- * the camera is refused the library button still works, and so does searching
+ * the camera is refused the camera roll button still works, and so does searching
  * by hand.
  *
- * Two shapes: `pair` (camera + library side by side, the Add screen) and
- * `single` (one named button — "No code? Photograph the label" — with the
- * library as a small link under it, the Take screen's backup).
+ * Two shapes: `pair` (camera + library side by side, the office) and
+ * `single` (one named camera button — "No code? Photograph the label" — with
+ * "Use a photo from your camera roll" as a full-width button under it, so a
+ * photo taken earlier works anywhere a new one does; owner pull 2026-11-01).
  */
 export function PhotoCapture({
   guidance,
@@ -78,9 +79,9 @@ export function PhotoCapture({
           {sub ? <span className="mt-0.5 block font-sans text-[13px] font-medium text-accent-ink/80">{sub}</span> : null}
           {cameraInput}
         </label>
-        <label className={cn("inline-flex min-h-[44px] cursor-pointer items-center gap-1.5 px-1 text-sm font-semibold text-text-muted underline underline-offset-2", off && "pointer-events-none opacity-60")} data-testid={`${testId}-library`}>
-          <ImageUp aria-hidden="true" className="h-4 w-4" />
-          Or pick a photo from the library
+        <label className={cn("flex min-h-[48px] w-full cursor-pointer items-center justify-center gap-2 rounded-[14px] border border-border-strong bg-surface px-3.5 font-display text-[15px] font-bold text-brand-navy", off && "pointer-events-none opacity-60")} data-testid={`${testId}-library`}>
+          <ImageUp aria-hidden="true" className="h-5 w-5" />
+          Use a photo from your camera roll
           {libraryInput}
         </label>
         {problem ? <Slot tone="warn" role="alert">{problem}</Slot> : null}

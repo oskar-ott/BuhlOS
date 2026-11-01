@@ -15,6 +15,7 @@ import { AddOutcome } from "./AddFlow";
 import { PhilWorkshopStock } from "@/components/phil/PhilWorkshopStock";
 import { BrowseSheet } from "./BrowseSheet";
 import { LocationPhotoPrompt } from "./LocationPhotoPrompt";
+import { PhotoCapture } from "./PhotoCapture";
 
 /**
  * SSR smoke for the Workshop Stock screens. Interaction flows (code read →
@@ -294,5 +295,17 @@ describe("shopping lists", () => {
     const html = flat(renderToString(createElement(LocationPhotoPrompt, { itemId: "i1", onSaved: () => undefined })));
     expect(html).toContain("No photo of where it lives yet");
     expect(html).toContain("Photograph where it&#x27;s going");
+  });
+});
+
+describe("photos from the camera roll", () => {
+  it("every phone photo button has a full camera-roll button under it, not only the camera", () => {
+    const html = flat(renderToString(createElement(PhotoCapture, { variant: "single", label: "Take photo of the item", onPhoto: () => undefined })));
+    expect(html).toContain("Take photo of the item");
+    expect(html).toContain("Use a photo from your camera roll");
+    // the camera button opens the camera; the camera-roll one must not force it
+    const inputs = html.match(/<input[^>]*>/g) ?? [];
+    expect(inputs).toHaveLength(2);
+    expect(inputs.filter((i) => i.includes('capture="environment"'))).toHaveLength(1);
   });
 });

@@ -122,7 +122,10 @@ a nav group; the Gear workflow is untouched.
 
 ### Add stock: photo → read → find/verify → confirm quantity + location → save
 
-1. The phone downscales the photo (1600 px, JPEG) and sends it once.
+1. The phone downscales the photo (1600 px, JPEG) and sends it once. Every
+   phone photo button (label, several products, where it lives) has **Use a
+   photo from your camera roll** under it as a full button, so a photo taken
+   earlier works the same as a new one (owner pull 2026-11-01).
 2. The server validates it, stores it as a **pending** photo, and reads the
    label (photo reading below). Reading never writes stock.
 3. The reading is matched against the catalogue ([Identification](#identification)).
