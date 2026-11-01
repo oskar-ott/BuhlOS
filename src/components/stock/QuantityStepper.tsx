@@ -28,6 +28,7 @@ export function QuantityStepper({
   disabled = false,
   lockedNote,
   invalid: invalidOutside = false,
+  size = "lg",
   testId,
 }: {
   label: string;
@@ -41,6 +42,8 @@ export function QuantityStepper({
   lockedNote?: string | null;
   /** the number is refused for a reason shown elsewhere (more than is recorded) */
   invalid?: boolean;
+  /** "sm": the office drawer's 40px row; "lg": the 56px gloved-thumb row */
+  size?: "lg" | "sm";
   testId?: string;
 }) {
   const id = useId();
@@ -66,11 +69,15 @@ export function QuantityStepper({
     onChange(milli);
   }
 
-  const side = "inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-[14px] border-2 border-brand-navy bg-surface font-display text-[28px] font-bold leading-none text-brand-navy hover:bg-surface-subtle disabled:border-border-strong disabled:text-text-muted disabled:opacity-60";
+  const sm = size === "sm";
+  const side = cn(
+    "inline-flex shrink-0 items-center justify-center bg-surface font-display font-bold leading-none text-brand-navy hover:bg-surface-subtle disabled:border-border-strong disabled:text-text-muted disabled:opacity-60",
+    sm ? "h-10 w-10 rounded-card border border-border-strong text-xl" : "h-14 w-14 rounded-[14px] border-2 border-brand-navy text-[28px]",
+  );
 
   return (
     <div className="space-y-1.5" data-testid={testId}>
-      <label htmlFor={id} className="flex flex-wrap items-center gap-2 text-[15px] font-semibold text-text">
+      <label htmlFor={id} className={cn("flex flex-wrap items-center gap-2 font-semibold text-text", sm ? "text-xs text-text-muted" : "text-[15px]")}>
         {label}
         {disabled && lockedNote ? (
           <span className="inline-flex items-center gap-1 text-[13px] font-semibold text-text-muted">
@@ -78,11 +85,11 @@ export function QuantityStepper({
           </span>
         ) : null}
       </label>
-      <div className="flex items-stretch gap-2.5">
+      <div className={cn("flex items-stretch", sm ? "gap-1.5" : "gap-2.5")}>
         <button type="button" aria-label={`One less ${UNIT_LABEL[unit].singular}`} disabled={disabled || valueMilli <= floor} onClick={() => onChange(stepQuantity(valueMilli, unit, -1, floor))} className={side} data-testid={testId ? `${testId}-minus` : undefined}>
           −
         </button>
-        <div className={cn("flex h-14 min-w-0 flex-1 items-center rounded-[14px] border-2 bg-surface px-3", invalid || invalidOutside ? "border-state-danger" : "border-border-strong")}>
+        <div className={cn("flex min-w-0 flex-1 items-center bg-surface", sm ? "h-10 rounded-card border px-2" : "h-14 rounded-[14px] border-2 px-3", invalid || invalidOutside ? "border-state-danger" : "border-border-strong")}>
           <input
             id={id}
             type="text"
@@ -94,10 +101,10 @@ export function QuantityStepper({
             onBlur={() => { if (invalid || text.trim() === "") { setText(formatNumber(valueMilli)); setInvalid(false); } }}
             aria-invalid={invalid || invalidOutside}
             aria-describedby={invalid ? `${id}-hint` : undefined}
-            className={cn("h-14 w-full min-w-0 bg-transparent text-center font-display text-[30px] font-extrabold tabular-nums outline-none", disabled ? "text-text-muted" : "text-text")}
+            className={cn("w-full min-w-0 bg-transparent text-center font-display font-extrabold tabular-nums outline-none", sm ? "h-10 text-xl" : "h-14 text-[30px]", disabled ? "text-text-muted" : "text-text")}
             data-testid={testId ? `${testId}-input` : undefined}
           />
-          <span className="shrink-0 pl-1.5 text-[17px] font-semibold text-text-muted">{unitText}</span>
+          <span className={cn("shrink-0 pl-1.5 font-semibold text-text-muted", sm ? "text-sm" : "text-[17px]")}>{unitText}</span>
         </div>
         <button type="button" aria-label={`One more ${UNIT_LABEL[unit].singular}`} disabled={disabled} onClick={() => onChange(stepQuantity(valueMilli, unit, 1, floor))} className={side} data-testid={testId ? `${testId}-plus` : undefined}>
           +

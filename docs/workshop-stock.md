@@ -70,18 +70,26 @@ recorded, and where they live.
 
 **Office (`/stock`, desktop and phone)**
 
-- The full list read by shelf with filters (None recorded · Estimates · Code
-  not confirmed · Archived — counts read "—" when the list didn't load), when
-  each item last moved and was last counted, and the product-code status with
-  its reason ("Possible match — colour not confirmed"). No KPI row, no gauges.
-- Per item, ordered by use: what's recorded and **correct the count** (counting
-  starts when the drawer opens; a stale-count guard shows what moved
-  meanwhile), the full movement history with **Undo** (any movement, a reason
-  required, written into the history), the **catalogue folded** (details with
-  a compare-and-set conflict block, codes / barcodes / pack sizes, the online
-  code check, the photo, the item's own history), and **archive last and
-  apart** (confirmed; read-only after; restore says which codes come back).
-- Add items the same way the crew does, by hand or with a photo.
+- The list read the way the workshop is laid out: **one card per shelf**, the
+  rows inside it the same rows the crew see (photo, name, identity line, the
+  recorded quantity as the largest thing, the bin under it) plus the office's
+  two facts — "Moved 8:08am · counted Tue 27 Oct by Olive". Filters are a
+  segmented control (All · None recorded · Estimates · Code not confirmed ·
+  Archived) with counts where they are known. Only a **possible** code match
+  earns a hint on a row ("Possible match — colour not confirmed by the
+  listing"); a confirmed code is nothing to flag and an unchecked one is the
+  normal state. No KPI row, no gauges.
+- Per item, ordered by use: what's recorded (large), last counted and last
+  moved, then **correct the count** (counting starts when the drawer opens; a
+  stale-count guard shows what moved meanwhile; the reason is marked
+  required), the full history with **Undo** (any movement, a reason required,
+  written into the history), everything else folded under **Edit details**
+  (details with a compare-and-set conflict block, codes / barcodes / pack
+  sizes, the online code check, the photos, the item's own change history),
+  and **archive last and apart** (a quiet action at the bottom; confirmed;
+  read-only after; restore says which codes come back).
+- Add items the same way the crew does, by hand or with a photo — the same
+  form, rendered at the drawer's density (`NewItemForm density="office"`).
 
 **Not gear.** Gear (tools and equipment) has custody, serials, test-and-tag and
 "who has it". Workshop stock has none of that: an item is a quantity on a shelf

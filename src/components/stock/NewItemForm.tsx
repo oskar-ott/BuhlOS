@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
 import { brandKey, codeKey, checkApplies } from "@/domains/workshop-stock/check";
 import { createItem, fetchOperation, lookupCode, newOperationKey, storePhoto, type CreateInput } from "@/domains/workshop-stock/client";
@@ -12,7 +13,7 @@ import { PACK_UNITS, UNIT_KEYS, type LookupResult, type PackUnit, type ReadProdu
 import { LookupCard } from "./LookupCard";
 import { PhotoCapture } from "./PhotoCapture";
 import { QuantityStepper } from "./QuantityStepper";
-import { BigButton, FIELD, FieldLabel, FoldButton, LinkButton, MiniButton, SavesLine, Slot, Tag } from "./ui";
+import { BigButton, FIELD, FieldLabel, FoldButton, LinkButton, MiniButton, SavesLine, Slot, Tag, type BigVariant } from "./ui";
 
 type Source = "photo" | "lookup" | "typed";
 
@@ -26,16 +27,35 @@ export interface NewItemSeed {
 
 const SOURCE_TAG: Record<Exclude<Source, "typed">, { text: string; tone: "neu" | "inf" }> = { photo: { text: "Read from photo", tone: "neu" }, lookup: { text: "Listing", tone: "inf" } };
 
-function Field({ label, value, onChange, placeholder, source, tag, testId, inputMode, disabled, invalid }: {
-  label: string; value: string; onChange: (v: string) => void; placeholder?: string; source?: Source; tag?: ReactNode; testId: string; inputMode?: "text" | "numeric"; disabled?: boolean; invalid?: boolean;
+type Density = "field" | "office";
+
+/** The office drawer's input (StockAdminForms.INPUT) — the form reads at the drawer's size there. */
+const OFFICE_FIELD = "mt-1 h-10 w-full rounded-card border border-border-strong bg-surface px-2.5 text-sm text-text disabled:bg-surface-subtle disabled:text-text-muted";
+
+function Field({ label, value, onChange, placeholder, source, tag, testId, inputMode, disabled, invalid, density = "field" }: {
+  label: string; value: string; onChange: (v: string) => void; placeholder?: string; source?: Source; tag?: ReactNode; testId: string; inputMode?: "text" | "numeric"; disabled?: boolean; invalid?: boolean; density?: Density;
 }) {
   const t = source && source !== "typed" && value ? SOURCE_TAG[source] : null;
   return (
     <label className="block">
-      <FieldLabel tag={t ? <Tag tone={t.tone}>{t.text}</Tag> : tag}>{label}</FieldLabel>
-      <input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} disabled={disabled} inputMode={inputMode} autoComplete="off" className={cn(FIELD, invalid && "border-2 border-state-danger")} data-testid={testId} />
+      <FieldLabel tag={t ? <Tag tone={t.tone}>{t.text}</Tag> : tag} className={density === "office" ? "text-xs text-text-muted" : undefined}>{label}</FieldLabel>
+      <input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} disabled={disabled} inputMode={inputMode} autoComplete="off" className={cn(density === "office" ? OFFICE_FIELD : FIELD, invalid && "border-2 border-state-danger")} data-testid={testId} />
     </label>
   );
+}
+
+const OFFICE_VARIANT: Record<BigVariant, "primary" | "secondary"> = { pri: "primary", nav: "primary", sec: "secondary", ter: "secondary", dim: "secondary" };
+
+/** One action: the 56px two-line field button, or the office's Button at the drawer's size. */
+function Act({ density, variant = "sec", label, sub, ...rest }: { density: Density } & ComponentProps<typeof BigButton>) {
+  if (density === "office") {
+    return (
+      <Button variant={OFFICE_VARIANT[variant]} size="sm" title={typeof sub === "string" ? sub : undefined} {...rest}>
+        {label}
+      </Button>
+    );
+  }
+  return <BigButton variant={variant} label={label} sub={sub} {...rest} />;
 }
 
 const STATUS_DOT: Record<VerificationStatus, string> = { manufacturer_code_matched: "bg-state-success-dot", possible_match: "bg-state-warning-dot", unverified: "bg-state-neutral-dot" };
@@ -65,6 +85,7 @@ export function NewItemForm({
   locationPhotoEnabled = false,
   defaultLocation,
   emphasis = "another",
+  density = "field",
   onSaved,
   onUseExisting,
 }: {
@@ -77,10 +98,15 @@ export function NewItemForm({
   defaultLocation?: string | null;
   /** phone: "Save and add another" leads; office: "Save item" leads */
   emphasis?: "another" | "save";
+  /** "office": the drawer's input and button sizes, footer in flow; "field": 56px targets, footer pinned */
+  density?: Density;
   onSaved: (r: WriteResult, again: boolean) => void;
   onUseExisting: (item: StockItem) => void;
 }) {
   const p = seed.product;
+  const office = density === "office";
+  const chip = office ? "h-8 rounded-pill border px-2.5 text-[13px] font-medium" : "min-h-[40px] rounded-pill border px-3 text-sm font-semibold";
+  const smallChip = office ? "h-7 rounded-pill border px-2.5 text-xs" : "min-h-[36px] rounded-pill border px-3 text-[13px]";
   const [name, setName] = useState(suggestName(p));
   const [brand, setBrand] = useState(p?.brand ?? "");
   const [code, setCode] = useState(p?.manufacturerCode ?? "");
@@ -322,10 +348,10 @@ export function NewItemForm({
   const savesWithPhoto = locationShot ? `${savesLine} · with a photo of where it lives` : savesLine;
 
   const saveAnother = (
-    <BigButton variant={emphasis === "another" ? "pri" : "sec"} onClick={() => void save(true)} disabled={!canSave} aria-busy={phase === "saving" && againRef.current} label={phase === "saving" && againRef.current ? "Saving…" : "Save and add another"} sub={emphasis === "another" ? (canSave ? `saves Opening count ${formatQuantity(totalMilli, unit)} · back to the camera` : dupe ? "can't run: code already listed" : "needs a name and a shelf") : undefined} data-testid="stock-new-save-another" />
+    <Act density={density} variant={emphasis === "another" ? "pri" : "sec"} onClick={() => void save(true)} disabled={!canSave} aria-busy={phase === "saving" && againRef.current} label={phase === "saving" && againRef.current ? "Saving…" : "Save and add another"} sub={emphasis === "another" ? (canSave ? `saves Opening count ${formatQuantity(totalMilli, unit)} · back to the camera` : dupe ? "can't run: code already listed" : "needs a name and a shelf") : undefined} data-testid="stock-new-save-another" />
   );
   const saveOnly = (
-    <BigButton variant={emphasis === "save" ? "pri" : "ter"} onClick={() => void save(false)} disabled={!canSave} aria-busy={phase === "saving" && !againRef.current} label={phase === "saving" && !againRef.current ? <span className="flex items-center gap-2"><Loader2 aria-hidden="true" className="h-5 w-5 animate-spin" />Saving…</span> : emphasis === "save" ? "Save item" : "Save and go to the list"} sub={emphasis === "save" ? (canSave ? `saves Opening count ${formatQuantity(totalMilli, unit)}` : dupe ? "can't run: code already listed" : "needs a name and a shelf") : undefined} data-testid="stock-new-save" />
+    <Act density={density} variant={emphasis === "save" ? "pri" : "ter"} onClick={() => void save(false)} disabled={!canSave} aria-busy={phase === "saving" && !againRef.current} label={phase === "saving" && !againRef.current ? <span className="flex items-center gap-2"><Loader2 aria-hidden="true" className="h-5 w-5 animate-spin" />Saving…</span> : emphasis === "save" ? "Save item" : "Save and go to the list"} sub={emphasis === "save" ? (canSave ? `saves Opening count ${formatQuantity(totalMilli, unit)}` : dupe ? "can't run: code already listed" : "needs a name and a shelf") : undefined} data-testid="stock-new-save" />
   );
 
   return (
@@ -336,7 +362,7 @@ export function NewItemForm({
           <img src={seed.dataUrl} alt="Your photo of the product" className="h-16 w-16 shrink-0 rounded-xl border border-border object-cover" />
         ) : null}
         <div className="min-w-0 flex-1">
-          <Field label="Name" value={name} onChange={(v) => { setName(v); typed("name"); }} placeholder="e.g. Clipsal double GPO white" source={sources.name} testId="stock-new-name" disabled={locked} />
+          <Field density={density} label="Name" value={name} onChange={(v) => { setName(v); typed("name"); }} placeholder="e.g. Clipsal double GPO white" source={sources.name} testId="stock-new-name" disabled={locked} />
         </div>
       </div>
 
@@ -346,17 +372,17 @@ export function NewItemForm({
           role="alert"
           title={`Already listed as '${dupe.name}'${dupe.manufacturerCode ? ` (${dupe.manufacturerCode})` : ""}`}
           testId="stock-new-duplicate"
-          below={<BigButton variant="nav" label="Add to that item instead" sub={`no new item · keeps your ${formatQuantity(totalMilli, unit)}`} onClick={() => onUseExisting(dupe)} data-testid="stock-new-use-existing" />}
+          below={<Act density={density} variant="nav" label="Add to that item instead" sub={`no new item · keeps your ${formatQuantity(totalMilli, unit)}`} onClick={() => onUseExisting(dupe)} data-testid="stock-new-use-existing" />}
         >
           <span data-testid="stock-new-error">{[dupe.location, `${balanceLabel(dupe)} recorded`].filter(Boolean).join(" · ")}. Two items can&rsquo;t share a code.</span>
         </Slot>
       ) : null}
 
       <fieldset>
-        <legend className="text-sm font-semibold text-text">Counted in</legend>
+        <legend className={cn("font-semibold text-text", office ? "text-xs text-text-muted" : "text-sm")}>Counted in</legend>
         <div className="mt-1 flex flex-wrap gap-1.5">
           {UNIT_KEYS.map((u) => (
-            <button key={u} type="button" onClick={() => { setUnit(u); setQtyMilli(1000); setKeepContainer(null); }} aria-pressed={unit === u} disabled={locked} className={cn("min-h-[40px] rounded-pill border px-3 text-sm font-semibold", unit === u ? "border-brand-navy bg-brand-navy text-text-inverse" : "border-border-strong bg-surface text-text")} data-testid={`stock-new-unit-${u}`}>
+            <button key={u} type="button" onClick={() => { setUnit(u); setQtyMilli(1000); setKeepContainer(null); }} aria-pressed={unit === u} disabled={locked} className={cn(chip, unit === u ? "border-brand-navy bg-brand-navy text-text-inverse" : "border-border-strong bg-surface text-text")} data-testid={`stock-new-unit-${u}`}>
               {UNIT_LABEL[u].chip}
             </button>
           ))}
@@ -368,8 +394,8 @@ export function NewItemForm({
           title={`Counted in whole ${UNIT_LABEL[unit].plural}`}
           below={
             <div className="space-y-2">
-              <BigButton variant="nav" label={`Count in ${unit === "roll" ? "Metres" : "Each"}, add full ${UNIT_LABEL[unit].plural}`} sub={fixSub} onClick={containerFix} disabled={locked} data-testid="stock-new-unit-fix" />
-              <BigButton variant="ter" label={`Keep ${UNIT_LABEL[unit].chip} · whole ${UNIT_LABEL[unit].plural} only`} onClick={() => setKeepContainer(unit)} disabled={locked} />
+              <Act density={density} variant="nav" label={`Count in ${unit === "roll" ? "Metres" : "Each"}, add full ${UNIT_LABEL[unit].plural}`} sub={fixSub} onClick={containerFix} disabled={locked} data-testid="stock-new-unit-fix" />
+              <Act density={density} variant="ter" label={`Keep ${UNIT_LABEL[unit].chip} · whole ${UNIT_LABEL[unit].plural} only`} onClick={() => setKeepContainer(unit)} disabled={locked} />
             </div>
           }
         >
@@ -378,11 +404,11 @@ export function NewItemForm({
       ) : null}
 
       <div className="space-y-1.5">
-        <Field label="Where it lives in the workshop" value={location} onChange={(v) => { setLocation(v); setLocationFromLast(false); }} placeholder="e.g. Shelf A2, Bin 4" tag={locationFromLast && location ? <Tag>Same as last item</Tag> : undefined} testId="stock-new-location" disabled={locked} />
+        <Field density={density} label="Where it lives in the workshop" value={location} onChange={(v) => { setLocation(v); setLocationFromLast(false); }} placeholder="e.g. Shelf A2, Bin 4" tag={locationFromLast && location ? <Tag>Same as last item</Tag> : undefined} testId="stock-new-location" disabled={locked} />
         {locations.length ? (
           <div className="flex flex-wrap gap-1.5">
             {locations.map((l) => (
-              <button key={l} type="button" onClick={() => { setLocation(l); setLocationFromLast(false); }} disabled={locked} className="min-h-[36px] rounded-pill border border-border px-3 text-[13px] text-text hover:border-brand-navy">{l}</button>
+              <button key={l} type="button" onClick={() => { setLocation(l); setLocationFromLast(false); }} disabled={locked} className={cn(smallChip, "border-border text-text hover:border-brand-navy")}>{l}</button>
             ))}
           </div>
         ) : null}
@@ -395,14 +421,19 @@ export function NewItemForm({
                 <p className="text-sm font-semibold text-text">Photo of where it lives</p>
                 <p className="text-[13px] text-text-muted">Shown to whoever comes to take it</p>
               </div>
-              <MiniButton onClick={() => { setLocationShot(null); setLocationPhotoId(null); }} disabled={locked} data-testid="stock-new-location-photo-remove">Remove</MiniButton>
+              {office ? (
+                <Button type="button" variant="secondary" size="sm" onClick={() => { setLocationShot(null); setLocationPhotoId(null); }} disabled={locked} data-testid="stock-new-location-photo-remove">Remove</Button>
+              ) : (
+                <MiniButton onClick={() => { setLocationShot(null); setLocationPhotoId(null); }} disabled={locked} data-testid="stock-new-location-photo-remove">Remove</MiniButton>
+              )}
             </div>
           ) : (
             <PhotoCapture
               variant="single"
               tone="ter"
-              label="Hard to find? Photograph where it lives"
-              sub="shown to whoever comes to take it"
+              density={density}
+              label={office ? "Photo of where it lives" : "Hard to find? Photograph where it lives"}
+              sub={office ? "optional · for stock that's hard to find" : "shown to whoever comes to take it"}
               disabled={locked}
               onPhoto={(dataUrl, _dark, thumbDataUrl) => { setLocationShot({ dataUrl, thumbDataUrl }); setLocationPhotoId(null); }}
               testId="stock-new-location-photo"
@@ -415,16 +446,16 @@ export function NewItemForm({
         <div className="space-y-2.5 rounded-[14px] border border-border p-3">
           <div className="flex flex-wrap gap-1.5" role="group" aria-label="Pack type">
             {PACK_UNITS.slice(0, 6).map((u) => (
-              <button key={u} type="button" onClick={() => setPackUnit(u)} aria-pressed={packUnit === u} disabled={locked} className={cn("min-h-[36px] rounded-pill border px-3 text-[13px]", packUnit === u ? "border-brand-navy bg-brand-navy text-text-inverse" : "border-border text-text")}>
+              <button key={u} type="button" onClick={() => setPackUnit(u)} aria-pressed={packUnit === u} disabled={locked} className={cn(smallChip, packUnit === u ? "border-brand-navy bg-brand-navy text-text-inverse" : "border-border text-text")}>
                 {packLabel(u, 2)}
               </button>
             ))}
           </div>
-          <QuantityStepper label={`Adding full, unopened ${packLabel(packUnit, 2)}`} valueMilli={packCount * 1000} onChange={(m) => setPackCount(Math.max(1, Math.round(m / 1000)))} unit="each" unitLabel={packLabel(packUnit, packCount)} disabled={locked} testId="stock-new-packs" />
+          <QuantityStepper size={office ? "sm" : "lg"} label={`Adding full, unopened ${packLabel(packUnit, 2)}`} valueMilli={packCount * 1000} onChange={(m) => setPackCount(Math.max(1, Math.round(m / 1000)))} unit="each" unitLabel={packLabel(packUnit, packCount)} disabled={locked} testId="stock-new-packs" />
           <label className="block">
-            <FieldLabel tag={packSizeFromLabel && packSizeText ? <Tag>Printed on {packUnit} · check it</Tag> : undefined}>Each {packUnit} holds</FieldLabel>
-            <div className={cn(FIELD, "flex items-center gap-2 px-0")}>
-              <input value={packSizeText} onChange={(e) => { setPackSizeText(e.target.value); setPackSizeFromLabel(false); }} inputMode={UNIT_LABEL[unit].decimals ? "decimal" : "numeric"} className="h-full min-w-0 flex-1 rounded-xl bg-transparent px-3 text-base font-semibold text-text outline-none" data-testid="stock-new-pack-size" disabled={locked} />
+            <FieldLabel tag={packSizeFromLabel && packSizeText ? <Tag>Printed on {packUnit} · check it</Tag> : undefined} className={office ? "text-xs text-text-muted" : undefined}>Each {packUnit} holds</FieldLabel>
+            <div className={cn(office ? OFFICE_FIELD : FIELD, "flex items-center gap-2 px-0")}>
+              <input value={packSizeText} onChange={(e) => { setPackSizeText(e.target.value); setPackSizeFromLabel(false); }} inputMode={UNIT_LABEL[unit].decimals ? "decimal" : "numeric"} className={cn("h-full min-w-0 flex-1 bg-transparent px-3 font-semibold text-text outline-none", office ? "rounded-card text-sm" : "rounded-xl text-base")} data-testid="stock-new-pack-size" disabled={locked} />
               <span className="pr-3 text-sm text-text-muted">{UNIT_LABEL[unit].plural}</span>
             </div>
           </label>
@@ -437,7 +468,7 @@ export function NewItemForm({
         </div>
       ) : (
         <>
-          <QuantityStepper label="How many going on the shelf" valueMilli={qtyMilli} onChange={setQtyMilli} unit={unit} allowZero disabled={locked} testId="stock-new-qty" />
+          <QuantityStepper size={office ? "sm" : "lg"} label="How many going on the shelf" valueMilli={qtyMilli} onChange={setQtyMilli} unit={unit} allowZero disabled={locked} testId="stock-new-qty" />
           {suggestion ? (
             <button type="button" onClick={() => { setPackMode(true); setPackSizeText(String(suggestion.sizeMilli / 1000)); setPackSizeFromLabel(true); if (unit === "metre") setPackUnit("roll"); }} disabled={locked} className="w-full rounded-xl border border-dashed border-border-strong bg-surface-subtle p-3 text-left text-sm text-text" data-testid="stock-new-pack-suggest">
               {suggestion.label}. Adding full, unopened packs? <span className="font-semibold text-state-info underline">Count in packs</span>
@@ -457,12 +488,12 @@ export function NewItemForm({
       {detailsOpen ? (
         <div className="space-y-3 rounded-[14px] border border-border p-3" data-testid="stock-new-details-open">
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Brand" value={brand} onChange={(v) => { setBrand(v); typed("brand"); }} source={sources.brand} testId="stock-new-brand" disabled={locked} />
-            <Field label="Maker's code" value={code} onChange={(v) => { setCode(v); typed("manufacturerCode"); }} placeholder="as printed" source={sources.manufacturerCode} testId="stock-new-code" disabled={locked} invalid={Boolean(dupe)} />
-            <Field label="Size / rating" value={variant} onChange={(v) => { setVariant(v); typed("variant"); }} placeholder="as printed" source={sources.variant} testId="stock-new-variant" disabled={locked} />
-            <Field label="Colour / finish" value={colour} onChange={(v) => { setColour(v); typed("colourFinish"); }} source={sources.colourFinish} testId="stock-new-colour" disabled={locked} />
-            <Field label="Supplier SKU" value={sku} onChange={(v) => { setSku(v); typed("supplierSku"); }} placeholder="Optional" source={sources.supplierSku} testId="stock-new-sku" disabled={locked} />
-            <Field label="Supplier" value={supplier} onChange={setSupplier} placeholder="Optional" testId="stock-new-supplier" disabled={locked} />
+            <Field density={density} label="Brand" value={brand} onChange={(v) => { setBrand(v); typed("brand"); }} source={sources.brand} testId="stock-new-brand" disabled={locked} />
+            <Field density={density} label="Maker's code" value={code} onChange={(v) => { setCode(v); typed("manufacturerCode"); }} placeholder="as printed" source={sources.manufacturerCode} testId="stock-new-code" disabled={locked} invalid={Boolean(dupe)} />
+            <Field density={density} label="Size / rating" value={variant} onChange={(v) => { setVariant(v); typed("variant"); }} placeholder="as printed" source={sources.variant} testId="stock-new-variant" disabled={locked} />
+            <Field density={density} label="Colour / finish" value={colour} onChange={(v) => { setColour(v); typed("colourFinish"); }} source={sources.colourFinish} testId="stock-new-colour" disabled={locked} />
+            <Field density={density} label="Supplier SKU" value={sku} onChange={(v) => { setSku(v); typed("supplierSku"); }} placeholder="Optional" source={sources.supplierSku} testId="stock-new-sku" disabled={locked} />
+            <Field density={density} label="Supplier" value={supplier} onChange={setSupplier} placeholder="Optional" testId="stock-new-supplier" disabled={locked} />
           </div>
           {barcode ? (
             <p className="flex items-center justify-between text-sm text-text">
@@ -487,11 +518,11 @@ export function NewItemForm({
         </Slot>
       ) : null}
 
-      <div className="sticky bottom-0 -mx-4 mt-auto space-y-2.5 border-t border-border bg-surface px-4 pb-3 pt-3">
+      <div className={cn("mt-auto space-y-2.5 border-t border-border bg-surface pt-3", office ? "pb-1" : "sticky bottom-0 -mx-4 px-4 pb-3")}>
         {phase === "uncertain" ? (
           <>
-            <BigButton variant="pri" label="Try again" sub="safe · can never make a second item" onClick={() => { if (keyRef.current && requestRef.current) void send(requestRef.current, keyRef.current); }} data-testid="stock-new-retry" />
-            <BigButton variant="sec" label="Check if it saved" onClick={() => void checkSaved()} />
+            <Act density={density} variant="pri" label="Try again" sub="safe · can never make a second item" onClick={() => { if (keyRef.current && requestRef.current) void send(requestRef.current, keyRef.current); }} data-testid="stock-new-retry" />
+            <Act density={density} variant="sec" label="Check if it saved" onClick={() => void checkSaved()} />
           </>
         ) : (
           <>
@@ -510,7 +541,7 @@ export function NewItemForm({
                 {saveOnly}
               </>
             ) : (
-              <div className="grid grid-cols-2 gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 {saveOnly}
                 {saveAnother}
               </div>

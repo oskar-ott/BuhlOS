@@ -15,7 +15,9 @@ import { Slot } from "./ui";
  *
  * Two shapes: `pair` (camera + library side by side, the Add screen) and
  * `single` (one named button — "No code? Photograph the label" — with the
- * library as a small link under it, the Take screen's backup).
+ * library as a small link under it, the Take screen's backup). `density`
+ * "office" renders the same inputs at the office drawer's size (the small
+ * secondary Button) instead of the 56px field buttons.
  */
 export function PhotoCapture({
   guidance,
@@ -26,6 +28,7 @@ export function PhotoCapture({
   label,
   sub,
   tone = "pri",
+  density = "field",
   testId = "stock-photo",
 }: {
   guidance?: string;
@@ -37,6 +40,8 @@ export function PhotoCapture({
   label?: ReactNode;
   sub?: ReactNode;
   tone?: "pri" | "ter";
+  /** "office": the drawer's 32px secondary buttons; "field": the 56px phone buttons */
+  density?: "field" | "office";
   testId?: string;
 }) {
   const [busy, setBusy] = useState(false);
@@ -57,8 +62,31 @@ export function PhotoCapture({
   }
 
   const off = disabled || busy;
+  // The office Button's secondary/sm classes, on a <label> so the file input opens it.
+  const OFFICE = "inline-flex h-11 cursor-pointer items-center justify-center gap-2 rounded-card border border-border bg-surface px-3 text-sm font-medium text-text hover:border-border-strong hover:bg-surface-subtle sm:h-8";
   const cameraInput = <input type="file" accept="image/*" capture="environment" className="sr-only" disabled={off} onChange={(e) => void pick(e.target.files?.[0], e.currentTarget)} />;
   const libraryInput = <input type="file" accept="image/*" className="sr-only" disabled={off} onChange={(e) => void pick(e.target.files?.[0], e.currentTarget)} />;
+
+  if (density === "office") {
+    return (
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <label className={cn(OFFICE, off && "pointer-events-none opacity-60")} data-testid={`${testId}-camera`}>
+            <Camera aria-hidden="true" className="h-4 w-4" />
+            {busy ? "Opening…" : previewUrl ? "Retake" : label ?? "Take photo"}
+            {cameraInput}
+          </label>
+          <label className={cn(OFFICE, off && "pointer-events-none opacity-60")} data-testid={`${testId}-library`}>
+            <ImageUp aria-hidden="true" className="h-4 w-4" />
+            From library
+            {libraryInput}
+          </label>
+          {sub ? <span className="text-xs text-text-muted">{sub}</span> : null}
+        </div>
+        {problem ? <Slot tone="warn" role="alert">{problem}</Slot> : null}
+      </div>
+    );
+  }
 
   if (variant === "single") {
     return (

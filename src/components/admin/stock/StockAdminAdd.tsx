@@ -66,26 +66,26 @@ export function StockAdminAdd({ items, capabilities, onSaved, onOpenItem, onClos
 
   return (
     <Drawer open onClose={onClose} title="Add item" subtitle="new workshop stock · by hand or from a photo">
-      <div className="-mx-1 space-y-4" data-testid="stock-admin-add-drawer">
+      <div className="space-y-4" data-testid="stock-admin-add-drawer">
         {saved ? (
           <Block tone="inf" title={`Saved: ${saved.item.name}`} role="status">
             <p>{balanceLabel(saved.item)} recorded{saved.item.location ? ` at ${saved.item.location}` : ""}. Add the next one below.</p>
           </Block>
         ) : null}
         {capabilities.photoRead ? (
-          <div className="flex items-start gap-3 rounded-card border border-dashed border-border-strong bg-surface-subtle p-3">
+          <div className="flex items-center gap-3 rounded-card border border-border bg-surface-subtle p-3">
             {seed.dataUrl ? (
               // eslint-disable-next-line @next/next/no-img-element -- local preview
-              <img src={seed.dataUrl} alt="The photo" className="h-16 w-16 shrink-0 rounded-[4px] border border-border object-cover" />
+              <img src={seed.dataUrl} alt="The photo" className="h-12 w-12 shrink-0 rounded-card border border-border object-cover" />
             ) : (
-              <StockThumb photoId={null} alt="" size="lg" />
+              <StockThumb photoId={null} alt="" size="md" />
             )}
-            <div className="min-w-0 flex-1 space-y-2">
-              <p className="text-sm text-text-muted">{seed.dataUrl ? "Label read · becomes the item's photo." : "Optional. Photograph the item or its label and the name and codes are read from it."}</p>
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <p className="text-xs text-text-muted">{seed.dataUrl ? "Label read · becomes the item's photo." : "Optional: a photo of the label fills in the name and codes."}</p>
               {reading ? (
                 <p className="flex items-center gap-2 text-sm text-text" role="status"><Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> Reading the label…</p>
               ) : (
-                <PhotoCapture label={seed.dataUrl ? "Replace photo" : "Choose photo"} onPhoto={(u, d, t) => void onPhoto(u, d, t)} testId="stock-admin-add-photo" />
+                <PhotoCapture density="office" label={seed.dataUrl ? "Replace photo" : "Take photo"} onPhoto={(u, d, t) => void onPhoto(u, d, t)} testId="stock-admin-add-photo" />
               )}
             </div>
           </div>
@@ -100,7 +100,7 @@ export function StockAdminAdd({ items, capabilities, onSaved, onOpenItem, onClos
             </div>
           </Block>
         ) : (
-          <NewItemForm key={formKey} seed={seed} items={items} lookupEnabled={capabilities.lookup} locationPhotoEnabled={capabilities.locationPhoto === true} defaultLocation={lastLocation} emphasis="save" onSaved={onFormSaved} onUseExisting={(item) => onOpenItem(item.id)} />
+          <NewItemForm key={formKey} seed={seed} items={items} lookupEnabled={capabilities.lookup} locationPhotoEnabled={capabilities.locationPhoto === true} defaultLocation={lastLocation} emphasis="save" density="office" onSaved={onFormSaved} onUseExisting={(item) => onOpenItem(item.id)} />
         )}
       </div>
     </Drawer>

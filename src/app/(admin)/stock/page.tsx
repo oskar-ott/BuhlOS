@@ -43,10 +43,7 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
       }
     >
       <div className="mx-auto max-w-6xl space-y-4">
-        <p className="text-sm text-text-muted">
-          What the crew have recorded in the workshop. Recorded — not a guarantee of what&rsquo;s on the shelf; correct it with a count.
-          Taking stock never adds a job cost.
-        </p>
+        <p className="text-sm text-text-muted">What the crew have recorded, shelf by shelf. If the shelf says otherwise, open the item and correct the count.</p>
         <StockAdminClient initialItemId={itemId} />
       </div>
     </AdminShell>

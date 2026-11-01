@@ -121,6 +121,30 @@ touching the architecture or the ledger.
    into Phil, or Phil primitives into stock — then a mechanical migration.
 5. **Office density (B7, D1, D3):** independent of the field work.
 
+## Follow-up — office view rebuilt (same day)
+
+The owner's first reaction to the audit was the office view ("the table, the
+drawer, the noise"), so that surface was rebuilt on the same branch:
+
+- **List (B8, D1, D2, D5, A2):** the six-column table is gone. One card per
+  shelf, the crew's `StockItemRow` inside it with "Moved … · counted …" as the
+  office line; `Seg` for the filters; the code pill only on possible matches;
+  the native search clear suppressed.
+- **Drawer (D3, D4, B7):** opens on the quantity and the two facts, then
+  Correct the count (reason marked required, lock note under the inputs, Save
+  on the same row as the estimate box), History, an "Edit details" fold, and
+  Archive as a quiet action at the bottom. Photo controls are office-sized
+  (`PhotoCapture density="office"`).
+- **Add item (B7):** `NewItemForm density="office"` — drawer-sized inputs,
+  chips and buttons, footer in flow. The phone form is unchanged.
+- **Wording:** page intro cut to one sentence; "Not verified" instead of "Saved
+  without external verification" in the drawer's check section (the phone's
+  "Saves as" line is untouched — the e2e spec asserts it).
+
+The e2e selectors the office tests use (`stock-admin-table`, `stock-admin-row`,
+the tab names, every drawer and form test id) are kept. The field findings in
+sections A–C are still open.
+
 ## Reproducing the screenshots
 
 ```bash

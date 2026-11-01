@@ -366,6 +366,15 @@ export function verificationLine(item: Pick<StockItem, "verificationStatus" | "v
   return `${label} — ${r.charAt(0).toLowerCase()}${r.slice(1)}`;
 }
 
+/**
+ * The office list's quiet hint: only a POSSIBLE match earns a line ("Possible
+ * match — colour not confirmed"); a clean match is nothing to flag and an
+ * unchecked code is the normal state, not a warning.
+ */
+export function verificationHint(item: Pick<StockItem, "verificationStatus" | "verification">): string | null {
+  return item.verificationStatus === "possible_match" ? verificationLine(item) : null;
+}
+
 /** "Dan · 7:42am · note: IV1240 Mascot fit-off" — who, when, and the optional job note. */
 export function movementWho(m: Pick<StockMovement, "actorId" | "actorName" | "createdAt" | "jobLabel">, viewerId?: string | null, now = Date.now()): string {
   const who = viewerId && m.actorId === viewerId ? "You" : m.actorName ?? "Someone";

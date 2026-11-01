@@ -3,13 +3,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Plus, RefreshCw, Search } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { Pill } from "@/components/ui/Pill";
+import { Seg } from "@/components/ui/Seg";
 import { StockItemRow } from "@/components/stock/StockItemRow";
-import { StockThumb } from "@/components/stock/StockThumb";
-import { cn } from "@/lib/cn";
 import { fetchStockList } from "@/domains/workshop-stock/client";
-import { errorCopy, formatNumber, identityLine, matchesSearch, UNIT_LABEL, verificationLine, whenLabel } from "@/domains/workshop-stock/format";
-import { binOf, groupByShelf } from "@/domains/workshop-stock/location";
+import { errorCopy, matchesSearch, verificationHint, whenLabel } from "@/domains/workshop-stock/format";
+import { groupByShelf } from "@/domains/workshop-stock/location";
 import { setPendingOwner } from "@/domains/workshop-stock/pending";
 import type { StockItem, StockList, VerificationStatus } from "@/domains/workshop-stock/schema";
 import { StockAdminAdd } from "./StockAdminAdd";
@@ -26,31 +24,23 @@ const FILTERS: Array<{ value: Filter; label: string }> = [
 ];
 
 const EXPLAIN: Partial<Record<Filter, string>> = {
-  zero: "Items where nothing is recorded on the shelf. That is what's logged, not a check of the shelf.",
-  estimated: "Items whose recorded quantity is an estimate — a rough count or a part-used roll. A count clears it.",
-  check: "Items whose product code the online check couldn't fully confirm. Open one to re-run the check or correct the details.",
-  archived: "Archived items are off the crew's list and their codes don't match photos. Open one to read its history or restore it.",
+  zero: "Nothing recorded on the shelf — what's logged, not a check of the shelf.",
+  estimated: "The recorded quantity is a rough count (a part-used roll). A count clears it.",
+  check: "The maker's code hasn't been confirmed online. Open one to check it or correct the details.",
+  archived: "Off the crew's list; codes no longer match photos. Open one to read its history or restore it.",
 };
 
 export const CODE_TONE: Record<VerificationStatus, "success" | "warning" | "neutral"> = { manufacturer_code_matched: "success", possible_match: "warning", unverified: "neutral" };
 
-/** The recorded quantity in a table cell: the number leads, the unit follows; zero is a pill, an estimate says so. */
-function RecordedCell({ item }: { item: StockItem }) {
-  if (item.balanceMilli === 0) return <Pill tone="warning" dot>None recorded</Pill>;
-  return (
-    <span className="whitespace-nowrap">
-      <span className="font-display text-[15px] font-semibold tabular-nums text-text">{item.estimated ? "≈ " : ""}{formatNumber(item.balanceMilli)}</span>{" "}
-      <span className="text-[13px] font-medium text-text-muted">{UNIT_LABEL[item.baseUnit].plural}{item.estimated ? " · estimate" : ""}</span>
-    </span>
-  );
-}
-
 /**
- * /stock — the office view of Workshop Stock: every item read by shelf, its
- * recorded balance, when it last moved and was last counted, and how well its
- * product code is confirmed (with the reason). Click a row for counts, the
- * movement history and audited Undo, the catalogue, and archive. No KPI row,
- * no gauges: a list and the facts on it.
+ * /stock — the office view of Workshop Stock, read the way the workshop is
+ * laid out: one card per shelf, the rows inside it the same rows the crew see
+ * (photo, name, identity, the recorded quantity as the largest thing), with
+ * the office's two facts under the identity line — when it last moved and was
+ * last counted. Only a POSSIBLE code match earns a hint on a row; a confirmed
+ * code is nothing to flag and an unchecked one is the normal state. Click a
+ * row for the count correction, the history with its audited Undo, the
+ * catalogue, and archive. No KPI row, no gauges.
  */
 export function StockAdminClient({ initialItemId }: { initialItemId?: string | null }) {
   const [list, setList] = useState<StockList | null>(null);
@@ -89,32 +79,34 @@ export function StockAdminClient({ initialItemId }: { initialItemId?: string | n
   const archivedView = filter === "archived";
   const nothingYet = state === "ready" && !items.length && !archivedView;
 
+  // The archived count is only known once that list has been read (the list
+  // endpoint returns live items unless asked); every other count is live.
+  const segOptions = FILTERS.map((f) => {
+    const known = !failed && list && (f.value === "archived" ? archivedView : true);
+    return { value: f.value, label: f.label, ...(known ? { count: counts[f.value] } : {}) };
+  });
+
+  const meta = (i: StockItem) =>
+    archivedView
+      ? `Archived ${whenLabel(i.archivedAt)}`
+      : `Moved ${i.lastMovementAt ? whenLabel(i.lastMovementAt) : "never"} · counted ${i.lastCountedAt ? `${whenLabel(i.lastCountedAt)}${i.lastCountedByName ? ` by ${i.lastCountedByName}` : ""}` : "never"}`;
+
   return (
     <div className="space-y-4" data-testid="stock-admin">
-      <div className="flex flex-wrap items-center gap-2">
-        <div role="tablist" aria-label="Filter workshop stock" className="flex flex-wrap gap-1.5">
-          {FILTERS.map((f) => {
-            const active = f.value === filter;
-            const n = failed || !list ? null : filter === "archived" && f.value !== "archived" ? counts[f.value] : f.value === "archived" && filter !== "archived" ? null : counts[f.value];
-            return (
-              <button
-                key={f.value}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                onClick={() => setFilter(f.value)}
-                className={cn("inline-flex h-8 items-center gap-1.5 rounded-[4px] border px-3 text-[13px] font-medium", active ? "border-brand-navy bg-brand-navy text-text-inverse" : "border-border bg-surface text-text hover:border-border-strong")}
-              >
-                {f.label}
-                <span className={cn("font-mono text-[12px] font-bold tabular-nums", active ? "text-text-inverse" : "text-text-muted")}>{n === null ? "—" : n}</span>
-              </button>
-            );
-          })}
-        </div>
+      <div className="flex flex-wrap items-center gap-3">
+        <Seg options={segOptions} value={filter} onChange={setFilter} aria-label="Filter workshop stock" />
         <span className="flex-1" />
-        <div className="relative w-full sm:w-[300px]">
+        <div className="relative w-full sm:w-[280px]">
           <Search aria-hidden="true" className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
-          <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name, code, barcode or shelf" aria-label="Search workshop stock" className="h-9 w-full rounded-[4px] border border-border-strong bg-surface pl-8 pr-3 text-sm" data-testid="stock-admin-search" />
+          <input
+            type="search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search name, code, barcode or shelf"
+            aria-label="Search workshop stock"
+            className="h-9 w-full rounded-card border border-border-strong bg-surface pl-8 pr-3 text-sm [&::-webkit-search-cancel-button]:appearance-none"
+            data-testid="stock-admin-search"
+          />
         </div>
         <Button type="button" size="sm" onClick={() => setAdding(true)} disabled={!list} data-testid="stock-admin-add">
           <Plus aria-hidden="true" className="h-4 w-4" /> Add item
@@ -123,8 +115,8 @@ export function StockAdminClient({ initialItemId }: { initialItemId?: string | n
       {EXPLAIN[filter] && !failed ? <p className="text-sm text-text-muted">{EXPLAIN[filter]}</p> : null}
 
       {state === "loading" && !list ? (
-        <div className="space-y-2" aria-busy="true" role="status" aria-label="Loading workshop stock">
-          {[0, 1, 2, 3].map((i) => <div key={i} className="h-12 animate-pulse rounded-[4px] bg-surface-subtle" />)}
+        <div className="grid gap-4 lg:grid-cols-2" aria-busy="true" role="status" aria-label="Loading workshop stock">
+          {[0, 1, 2, 3].map((i) => <div key={i} className="h-40 animate-pulse rounded-card bg-surface-subtle" />)}
         </div>
       ) : failed ? (
         <div className="flex items-start gap-3 rounded-card border border-state-warning-subtle-border bg-state-warning-subtle-bg p-4" role="alert">
@@ -138,7 +130,7 @@ export function StockAdminClient({ initialItemId }: { initialItemId?: string | n
       ) : nothingYet ? (
         <div className="rounded-card border border-dashed border-border-strong bg-surface-subtle px-6 py-12 text-center">
           <p className="font-display text-lg font-semibold text-text">Nothing recorded yet</p>
-          <p className="mx-auto mt-2 max-w-md text-sm text-text-muted">The crew add stock from the phone by photographing each item — Add or return, then Add stock. You can also add one here by hand.</p>
+          <p className="mx-auto mt-2 max-w-md text-sm text-text-muted">The crew add stock from the phone by photographing each item. You can also add one here by hand.</p>
           <Button type="button" size="sm" className="mt-4" onClick={() => setAdding(true)}>
             <Plus aria-hidden="true" className="h-4 w-4" /> Add item
           </Button>
@@ -148,52 +140,23 @@ export function StockAdminClient({ initialItemId }: { initialItemId?: string | n
           {q.trim() ? `Nothing matches "${q.trim()}".` : archivedView ? "Nothing has been archived." : "Nothing in this view."}
         </p>
       ) : (
-        <>
-          {/* phone: rows with the same facts */}
-          <div className="-mx-4 sm:hidden">
-            {groups.map((g) => (
-              <section key={g.label} aria-label={g.label}>
-                <div className="flex items-baseline justify-between border-y border-border bg-surface-subtle px-4 py-2">
-                  <span className="font-mono text-[11px] font-bold uppercase tracking-[0.14em] text-text">{g.label}</span>
-                  <span className="text-xs text-text-muted">{g.items.length} {g.items.length === 1 ? "item" : "items"}</span>
-                </div>
-                <ul>
-                  {g.items.map((i) => (
-                    <li key={i.id}>
-                      <StockItemRow
-                        item={i}
-                        inGroup
-                        onClick={() => setOpenId(i.id)}
-                        meta={archivedView ? `Archived ${whenLabel(i.archivedAt)}` : `Last moved ${i.lastMovementAt ? whenLabel(i.lastMovementAt) : "never"} · counted ${i.lastCountedAt ? whenLabel(i.lastCountedAt) : "never"}`}
-                        hint={!archivedView && i.verificationStatus !== "manufacturer_code_matched" ? verificationLine(i) : null}
-                      />
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ))}
-          </div>
-
-          <div className="hidden overflow-x-auto sm:block">
-            <table className="w-full border-collapse text-left text-sm" data-testid="stock-admin-table">
-              <thead>
-                <tr className="border-b border-border-strong font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-text-muted">
-                  <th className="w-[30%] px-3 py-2.5">Item</th>
-                  <th className="px-3 py-2.5">{archivedView ? "Shelf" : "Bin"}</th>
-                  <th className="px-3 py-2.5">{archivedView ? "Recorded when archived" : "Recorded"}</th>
-                  <th className="px-3 py-2.5">{archivedView ? "Archived" : "Last movement"}</th>
-                  <th className="px-3 py-2.5">{archivedView ? "Status" : "Last counted"}</th>
-                  {archivedView ? null : <th className="px-3 py-2.5">Product code</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {groups.map((g) => (
-                  <GroupRows key={g.label} label={g.label} items={g.items} archivedView={archivedView} onOpen={setOpenId} />
+        <div className="grid items-start gap-4 lg:grid-cols-2" data-testid="stock-admin-table">
+          {groups.map((g) => (
+            <section key={g.label} aria-label={g.label} className="overflow-hidden rounded-card border border-border bg-surface-raised shadow-card" data-testid="stock-admin-group">
+              <div className="flex items-baseline justify-between gap-3 border-b border-border bg-surface-subtle px-4 py-2.5">
+                <h2 className="font-display text-base font-semibold text-text">{g.label}</h2>
+                <span className="text-xs text-text-muted">{g.items.length} {g.items.length === 1 ? "item" : "items"}</span>
+              </div>
+              <ul>
+                {g.items.map((i) => (
+                  <li key={i.id} data-testid="stock-admin-row" className="[&>button]:border-b-0 [&>button]:border-t [&>button]:border-border first:[&>button]:border-t-0">
+                    <StockItemRow item={i} inGroup onClick={() => setOpenId(i.id)} meta={meta(i)} hint={archivedView ? null : verificationHint(i)} />
+                  </li>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        </>
+              </ul>
+            </section>
+          ))}
+        </div>
       )}
 
       {openId && list ? <StockItemDrawer itemId={openId} lookupEnabled={list.capabilities.lookup} locationPhotoEnabled={list.capabilities.locationPhoto === true} onClose={() => setOpenId(null)} onChanged={() => void load(filter === "archived")} /> : null}
@@ -201,54 +164,3 @@ export function StockAdminClient({ initialItemId }: { initialItemId?: string | n
     </div>
   );
 }
-
-function GroupRows({ label, items, archivedView, onOpen }: { label: string; items: StockItem[]; archivedView: boolean; onOpen: (id: string) => void }) {
-  return (
-    <>
-      <tr data-testid="stock-admin-group">
-        <td colSpan={archivedView ? 5 : 6} className="border-b border-border bg-surface-subtle px-3 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-text">
-          {label} · {items.length} {items.length === 1 ? "item" : "items"}
-        </td>
-      </tr>
-      {items.map((i) => (
-        <tr key={i.id} className="cursor-pointer border-b border-border hover:bg-surface-subtle" onClick={() => onOpen(i.id)} data-testid="stock-admin-row">
-          <td className="px-3 py-2">
-            <button type="button" className="flex items-center gap-2.5 text-left" onClick={(e) => { e.stopPropagation(); onOpen(i.id); }}>
-              <StockThumb photoId={i.photoId} alt="" size="xs" />
-              <span>
-                <span className="block font-semibold text-text">{i.name}</span>
-                <span className="block text-[12.5px] text-text-muted">{identityLine(i) || "—"}</span>
-              </span>
-            </button>
-          </td>
-          <td className="px-3 py-2 text-[13px] text-text-muted">{(archivedView ? i.location : binOf(i.location)) || "—"}</td>
-          <td className="px-3 py-2"><RecordedCell item={i} /></td>
-          {archivedView ? (
-            <>
-              <td className="px-3 py-2 text-[13px] text-text">{whenLabel(i.archivedAt)}</td>
-              <td className="px-3 py-2"><Pill tone="neutral" dot>Archived</Pill></td>
-            </>
-          ) : (
-            <>
-              <td className="px-3 py-2 text-[13px] text-text-muted">{i.lastMovementAt ? whenLabel(i.lastMovementAt) : "—"}</td>
-              <td className="px-3 py-2 text-[13px]">
-                {i.lastCountedAt ? (
-                  <>
-                    <span className="block text-text">{whenLabel(i.lastCountedAt)}</span>
-                    {i.lastCountedByName ? <span className="block text-xs text-text-muted">{i.lastCountedByName}</span> : null}
-                  </>
-                ) : (
-                  <span className="text-text-muted">Never</span>
-                )}
-              </td>
-              <td className="px-3 py-2">
-                <Pill tone={CODE_TONE[i.verificationStatus]} dot className="whitespace-nowrap font-medium normal-case tracking-normal">{verificationLine(i)}</Pill>
-              </td>
-            </>
-          )}
-        </tr>
-      ))}
-    </>
-  );
-}
-
