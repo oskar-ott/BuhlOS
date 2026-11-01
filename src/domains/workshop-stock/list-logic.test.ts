@@ -137,3 +137,36 @@ describe("'you often take' on this phone", () => {
     expect(oftenTaken("dan", items)).toEqual([]);
   });
 });
+
+describe("adding several products from one photo", () => {
+  it("walks the photo's products in order, skipping and coming back to ones passed over", async () => {
+    const { startBatch, settleBatch, focusBatch } = await import("./flow");
+    let b = startBatch(3);
+    expect(b).toEqual({ total: 3, current: 0, added: [], skipped: [] });
+    let r = settleBatch(b, "added");
+    expect(r.next).toBe(1);
+    r = settleBatch(r.batch, "skipped");
+    expect(r.next).toBe(2);
+    expect(r.batch).toMatchObject({ added: [0], skipped: [1], current: 2 });
+    r = settleBatch(r.batch, "added");
+    expect(r.next).toBeNull();
+    expect(r.batch).toMatchObject({ added: [0, 2], skipped: [1], current: -1 });
+    // go back to the skipped one and add it after all
+    b = focusBatch(r.batch, 1);
+    r = settleBatch(b, "added");
+    expect(r.next).toBeNull();
+    expect(r.batch).toMatchObject({ added: [0, 2, 1], skipped: [] });
+  });
+
+  it("jumping ahead still comes back to the earlier ones; nothing to walk is no batch", async () => {
+    const { startBatch, settleBatch, focusBatch } = await import("./flow");
+    const jumped = focusBatch(startBatch(4), 2);
+    const r = settleBatch(jumped, "added");
+    expect(r.next).toBe(3);
+    const r2 = settleBatch(r.batch, "added");
+    expect(r2.next).toBe(0); // wraps to the ones passed over
+    expect(startBatch(0)).toMatchObject({ current: -1 });
+    expect(settleBatch(startBatch(0), "added").next).toBeNull();
+    expect(focusBatch(startBatch(2), 5).current).toBe(0); // out of range ignored
+  });
+});
