@@ -26,11 +26,20 @@ const {
   getCurrentUser,
   isFieldRole,
   isLeadingHandRole,
+  isAdminRole,
+  isClientRole,
 } = require('./auth');
 const { listUserEntries, entryView } = require('./time-entries');
 const { isFieldListedByDefault, isFieldOpenable } = require('./job-lifecycle');
-const { readJobsSummary } = require('./jobs-summary');
+const { readJobsSummary, realDeps: jobsSummaryDeps } = require('./jobs-summary');
 const { readBlob } = require('./blob');
+
+// The pages render inside a Next request, so the jobs-summary persist can run
+// after the page is sent (next/server `after`) instead of in front of it.
+function deferAfterResponse(task) {
+  const { after } = require('next/server');
+  after(task);
+}
 
 function realDeps() {
   return {
@@ -39,7 +48,7 @@ function realDeps() {
     isLeadingHandRole,
     listUserEntries,
     entryView,
-    readJobsSummary,
+    readJobsSummary: () => readJobsSummary({ ...jobsSummaryDeps(), defer: deferAfterResponse }),
     readBlob,
   };
 }
@@ -185,7 +194,40 @@ async function loadFieldJobsByIdInProcess(cookieValue, jobIds, deps = realDeps()
   }
 }
 
+// Expiring/expired calibrations on gear THIS worker holds (#305), for My Day's
+// "Needs you" feed — in-process (2026-11-01, "it's really slow to use"). It
+// used to fetch our own GET /api/tags-expiring over HTTP: a second function
+// (often a cold start) that re-read the user and the flags and then also read
+// jobs.json and every assigned job's tags.json — work My Day threw away, since
+// it only shows calibrations. Same rules as that endpoint: signed in, not a
+// client, the `gear` kill-switch on, the same shared computation
+// (tag-compliance.js), the admin tier sees every calibration and everyone else
+// only the gear they hold. Errors propagate; the page fails soft to [].
+async function loadHeldCalibrationsInProcess(cookieValue, deps = calibrationDeps()) {
+  const me = await deps.getCurrentUser(reqFromCookieValue(cookieValue));
+  if (!me || isClientRole(me.role)) return [];
+  if (!(await deps.isFlagEnabled('gear', me))) return [];
+  const assets = await deps.listAllAssets();
+  if (!assets.length) return [];
+  const usersBlob = await deps.readBlob('users.json', { users: [] });
+  const nameById = {};
+  for (const u of usersBlob.users || []) nameById[u.id] = u.username || u.name || u.id;
+  const rows = deps.expiringCalibrationRows(assets, { withinDays: 14, nameById });
+  return isAdminRole(me.role) ? rows : rows.filter(r => r.holderId === me.id);
+}
+
+function calibrationDeps() {
+  return {
+    getCurrentUser,
+    readBlob,
+    isFlagEnabled: require('./feature-flags').isFlagEnabled,
+    listAllAssets: require('./assets').listAllAssets,
+    expiringCalibrationRows: require('./tag-compliance').expiringCalibrationRows,
+  };
+}
+
 module.exports = {
+  loadHeldCalibrationsInProcess,
   loadFieldJobInProcess,
   loadFieldJobsByIdInProcess,
   loadCurrentUserInProcess,

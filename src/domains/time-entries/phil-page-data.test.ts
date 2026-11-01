@@ -233,3 +233,46 @@ describe("loadFieldJobsByIdInProcess / loadFieldJobInProcess", () => {
     expect(await loadFieldJobsByIdInProcess("c", ["closed"], d)).toEqual([]);
   });
 });
+
+describe("loadHeldCalibrationsInProcess — My Day's calibrations without the HTTP hop (2026-11-01)", () => {
+  const { loadHeldCalibrationsInProcess } = requireFromHere(requireFromHere.resolve("../../../api/_lib/phil-page-data.js")) as {
+    loadHeldCalibrationsInProcess: (cookie: string | undefined, deps?: unknown) => Promise<Array<{ holderId: string }>>;
+  };
+  const rows = [
+    { holderId: "u1", assetId: "a1", status: "expiring" },
+    { holderId: "u2", assetId: "a2", status: "expired" },
+  ];
+  function calDeps(over: Record<string, unknown> = {}) {
+    return {
+      getCurrentUser: vi.fn(async () => fieldUser),
+      readBlob: vi.fn(async () => ({ users: [{ id: "u1", username: "oskar" }] })),
+      isFlagEnabled: vi.fn(async () => true),
+      listAllAssets: vi.fn(async () => [{ id: "a1" }, { id: "a2" }]),
+      expiringCalibrationRows: vi.fn(() => rows),
+      ...over,
+    };
+  }
+
+  it("a worker sees only the gear they hold, from the shared 14-day computation", async () => {
+    const d = calDeps();
+    expect(await loadHeldCalibrationsInProcess("c", d)).toEqual([rows[0]]);
+    expect(d.expiringCalibrationRows).toHaveBeenCalledWith([{ id: "a1" }, { id: "a2" }], { withinDays: 14, nameById: { u1: "oskar" } });
+  });
+
+  it("the admin tier sees every calibration (same as /api/tags-expiring)", async () => {
+    const d = calDeps({ getCurrentUser: vi.fn(async () => ({ id: "boss", role: "admin" })) });
+    expect(await loadHeldCalibrationsInProcess("c", d)).toEqual(rows);
+  });
+
+  it("signed out, a client, or the gear kill-switch off → nothing, and no asset read", async () => {
+    for (const over of [
+      { getCurrentUser: vi.fn(async () => null) },
+      { getCurrentUser: vi.fn(async () => ({ id: "c1", role: "client" })) },
+      { isFlagEnabled: vi.fn(async () => false) },
+    ]) {
+      const d = calDeps(over);
+      expect(await loadHeldCalibrationsInProcess("c", d)).toEqual([]);
+      expect(d.listAllAssets).not.toHaveBeenCalled();
+    }
+  });
+});

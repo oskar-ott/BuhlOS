@@ -22,6 +22,7 @@ const mod = requireFromHere("../../../api/_lib/jobs-summary.js") as {
     now?: () => number;
     sleep?: (ms: number) => Promise<void>;
     retryDelaysMs?: number[];
+    defer?: (task: () => Promise<void>) => void;
   }) => Promise<{ records: Array<Record<string, unknown>>; source: string }>;
   countActiveSnagsV2: (dataDoc: unknown) => number;
   countActiveItps: (itpsDoc: unknown) => number;
@@ -195,6 +196,32 @@ describe("readJobsSummary — freshness + fallback", () => {
     const out = await readJobsSummary(deps);
     expect(out.records).toEqual([]); // fallback {jobs:[]}
     expect(deps.writeBlob).not.toHaveBeenCalled(); // can't validate freshness → don't persist a stamp
+  });
+});
+
+describe("readJobsSummary — the persist never holds up the page (2026-11-01)", () => {
+  const staleStore = () =>
+    new Map<string, unknown>([
+      [SUMMARY_KEY, { builtFromUploadedAt: "OLD", records: [] }],
+      [SUMMARY_SOURCE_KEY, { jobs: [{ id: "fresh", name: "Fresh" }] }],
+      ["job-types.json", { jobTypes: [] }],
+    ]);
+
+  it("with `defer`, the records come back before the summary is written; the write runs when deferred work runs", async () => {
+    const deps = makeDeps({ store: staleStore(), uploadedAt: "T2" });
+    const deferred: Array<() => Promise<void>> = [];
+    const out = await readJobsSummary({ ...deps, defer: (task: () => Promise<void>) => { deferred.push(task); } });
+    expect(out.records).toEqual([{ id: "fresh", name: "Fresh" }]);
+    expect(deps.writeBlob).not.toHaveBeenCalled();
+    expect(deferred).toHaveLength(1);
+    await deferred[0]!();
+    expect(deps.writeBlob).toHaveBeenCalledWith(SUMMARY_KEY, { builtFromUploadedAt: "T2", records: [{ id: "fresh", name: "Fresh" }] });
+  });
+
+  it("when deferring isn't allowed here (it throws), the write is awaited as before", async () => {
+    const deps = makeDeps({ store: staleStore(), uploadedAt: "T2" });
+    await readJobsSummary({ ...deps, defer: () => { throw new Error("after() outside a request scope"); } });
+    expect(deps.writeBlob).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -1,5 +1,4 @@
-import { headers } from "next/headers";
-import { SESSION_COOKIE } from "@/lib/auth/session";
+import { loadHeldCalibrationsInProcess } from "../../../api/_lib/phil-page-data.js";
 import { TagsExpiringCalibrationsResponseSchema } from "@/domains/gear/schema";
 import type { ExpiringCalibration } from "@/domains/gear/types";
 import { buildPhilNeedsYou } from "@/domains/phil/needs-you";
@@ -12,8 +11,8 @@ import { PhilSkeleton } from "./ui/PhilSkeleton";
  *
  * The My Day hero, week strip and log-hours sheet all render from the page's
  * first data wave (entries + jobs + profile). The "Needs you" feed, however,
- * needs a SECOND wave — the held-gear calibration lapses
- * (GET /api/tags-expiring). Each /api/* call is a
+ * needs a SECOND wave — the held-gear calibration lapses (read in-process
+ * since 2026-11-01; it was GET /api/tags-expiring). Each /api/* call was a
  * serverless + Blob round-trip (~1.3–2.1s warm; #670), so awaiting this second
  * wave before the page returns added a full extra hop to every My Day open.
  *
@@ -59,26 +58,18 @@ export function PhilNeedsYouSectionFallback() {
 }
 
 /**
- * Expiring/expired calibrations on gear THIS worker holds (#305), from
- * GET /api/tags-expiring (the shared compliance computation). The endpoint
- * already filters calibrations to the caller's held gear for non-admin viewers.
+ * Expiring/expired calibrations on gear THIS worker holds (#305) — read
+ * in-process (api/_lib/phil-page-data.js loadHeldCalibrationsInProcess), the
+ * same rules and shared computation as GET /api/tags-expiring, without the
+ * HTTP hop to a second function (2026-11-01, "it's really slow to use").
  * FAILS SOFT: any error → empty list, never a blanked feed.
  */
 export async function loadHeldCalibrations(
   cookieValue: string | undefined,
 ): Promise<ExpiringCalibration[]> {
-  const h = await headers();
-  const host = h.get("x-forwarded-host") ?? h.get("host");
-  const proto = h.get("x-forwarded-proto") ?? "http";
-  const base = host ? `${proto}://${host}` : "http://localhost:3000";
-
   try {
-    const res = await fetch(`${base}/api/tags-expiring`, {
-      cache: "no-store",
-      headers: cookieValue ? { cookie: `${SESSION_COOKIE}=${cookieValue}` } : undefined,
-    });
-    if (!res.ok) return [];
-    const parsed = TagsExpiringCalibrationsResponseSchema.safeParse(await res.json());
+    const calibrations = await loadHeldCalibrationsInProcess(cookieValue);
+    const parsed = TagsExpiringCalibrationsResponseSchema.safeParse({ calibrations });
     if (!parsed.success) return [];
     return parsed.data.calibrations ?? [];
   } catch {

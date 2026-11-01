@@ -15,6 +15,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const requireFromHere = createRequire(import.meta.url);
 const blob = requireFromHere(requireFromHere.resolve("../../../api/_lib/blob.js")) as {
   readBlobFresh: (key: string, fallback?: unknown) => Promise<unknown>;
+  readBlob: (key: string, fallback?: unknown) => Promise<unknown>;
+  readBlobIfPresent: (key: string) => Promise<unknown>;
   __setTestOverrides: (o: Record<string, unknown> | null) => void;
   __learnPublicHost: (url: string, pathname: string) => void;
   __getPublicHost: () => string | null;
@@ -157,5 +159,51 @@ describe("BLOB_PUBLIC_HOST seed + self-healing fast path (2026-10-26)", () => {
     expect(blob.__ttlFor("flags.json")).toBe(30000);
     expect(blob.__ttlFor("jobs.json")).toBe(5000);
     expect(blob.__ttlFor("users/u1/time-entries/2026-10-26.json")).toBe(5000);
+  });
+});
+
+describe("readBlobIfPresent — the display probe for often-missing keys (2026-11-01)", () => {
+  it("a missing key answers null from the 404 alone: no list() round trip", async () => {
+    const fetch = vi.fn(async () => statusRes(404));
+    const list = vi.fn();
+    blob.__setTestOverrides({ fetch, list });
+    blob.__learnPublicHost(`https://${HOST}/p1.json`, "p1.json");
+    expect(await blob.readBlobIfPresent("users/u1/time-entries/2026-11-01.json")).toBeNull();
+    expect(list).not.toHaveBeenCalled();
+  });
+
+  it("never caches that null, so readBlob still decides absence with list() (#576)", async () => {
+    const fetch = vi.fn(async () => statusRes(404));
+    const list = vi.fn(async () => ({ blobs: [] }));
+    blob.__setTestOverrides({ fetch, list });
+    blob.__learnPublicHost(`https://${HOST}/p2.json`, "p2.json");
+    expect(await blob.readBlobIfPresent("p2-missing.json")).toBeNull();
+    expect(await blob.readBlob("p2-missing.json", "FB")).toBe("FB");
+    expect(list).toHaveBeenCalledTimes(1);
+  });
+
+  it("a present key is read and cached like readBlob", async () => {
+    const fetch = vi.fn(async () => jsonRes({ id: "e1" }));
+    blob.__setTestOverrides({ fetch, list: vi.fn() });
+    blob.__learnPublicHost(`https://${HOST}/p3.json`, "p3.json");
+    expect(await blob.readBlobIfPresent("p3-day.json")).toEqual({ id: "e1" });
+    expect(await blob.readBlob("p3-day.json", null)).toEqual({ id: "e1" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("a server error throws (the caller degrades), never a silent null", async () => {
+    blob.__setTestOverrides({ fetch: vi.fn(async () => statusRes(503)), list: vi.fn() });
+    blob.__learnPublicHost(`https://${HOST}/p4.json`, "p4.json");
+    await expect(blob.readBlobIfPresent("p4-day.json")).rejects.toThrow(/http 503/);
+  });
+
+  it("with no known store host it is plain readBlob (list() learns the host)", async () => {
+    const url = `https://${HOST}/p5.json`;
+    const fetch = vi.fn(async () => jsonRes({ v: 5 }));
+    const list = vi.fn(async () => ({ blobs: [{ pathname: "p5.json", url }] }));
+    blob.__setTestOverrides({ fetch, list });
+    expect(await blob.readBlobIfPresent("p5.json")).toEqual({ v: 5 });
+    expect(list).toHaveBeenCalledTimes(1);
+    expect(blob.__getPublicHost()).toBe(HOST);
   });
 });

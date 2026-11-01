@@ -49,3 +49,10 @@ export declare function loadFieldJobsByIdInProcess(
   cookieValue: string | undefined,
   jobIds: ReadonlyArray<string>
 ): Promise<Array<Record<string, unknown>>>;
+
+/** Expiring/expired calibrations on gear the signed-in worker holds (all of
+ *  them for the admin tier) — the same rows as GET /api/tags-expiring's
+ *  `calibrations`, read in-process. Errors propagate; callers fail soft. */
+export declare function loadHeldCalibrationsInProcess(
+  cookieValue: string | undefined
+): Promise<Array<Record<string, unknown>>>;

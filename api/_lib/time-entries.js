@@ -281,27 +281,34 @@ async function listUserEntries(userId, { fromDate, toDate, status } = {}, deps =
   // on (+ env). Best-effort — {pg:false} on disabled/error falls through to Blob
   // (the source of truth). readEntry stays Blob (write path).
   const listPg = deps.listPg || listUserEntriesFromPgIfEnabled;
+  // Read-your-writes overlay (2026-07-28): recent dates are re-read directly —
+  // the direct-URL read dodges the listing lag, and writeBlob primes that
+  // cache so a same-instance render is read-after-write consistent. Bounded to
+  // a ±few-day window. 2026-11-01 ("it's really slow to use"): the probes
+  // start NOW, alongside the listing, instead of after it (one wave, not
+  // two), and a missing day answers from the CDN's 404 instead of a list()
+  // round trip each (~0.9 s from syd1; today and weekends are usually
+  // missing). Safe: this is a display merge on top of the listing, which
+  // still decides what exists; no write is decided on it.
+  const probeDay = deps.probeDay || (typeof blobLib.readBlobIfPresent === 'function'
+    ? (d) => blobLib.readBlobIfPresent(ENTRY_PATH(userId, d))
+    : (d) => readEntry(userId, d));
+  const overlayP = Promise.all(recentDatesWithin(fromDate, toDate).map(async d => {
+    try { return await probeDay(d); } catch { return null; }
+  }));
+  // 2026-08-06: the PG rung gets the SAME overlay as the Blob listing (it used
+  // to return without one). The PG mirror is best-effort — a mirror miss on
+  // the just-logged day made that day vanish from a PG-served list exactly
+  // like the listing lag did. Blob is the source of truth for the freshest
+  // write, so recent day-files are merged by updatedAt either way.
   const pg = await listPg(userId, { fromDate, toDate, status });
-  // 2026-08-06: the PG rung gets the SAME read-your-writes overlay as the Blob
-  // listing below (it used to return here without one). The PG mirror is
-  // best-effort — a mirror miss on the just-logged day made that day vanish
-  // from a PG-served list exactly like the listing lag did. Blob is the source
-  // of truth for the freshest write, so recent day-files are re-read directly
-  // and merged by updatedAt either way.
   const base = pg.pg ? pg.entries : await listUserEntriesFromBlob(userId, { fromDate, toDate });
 
   const byDate = new Map();
   for (const e of base) {
     if (e) byDate.set(e.date, e);
   }
-  // Read-your-writes overlay (2026-07-28): recent dates are re-read through
-  // readEntry — the direct-URL read dodges the listing lag, and writeBlob
-  // primes that cache so a same-instance render is read-after-write
-  // consistent. Bounded to a ±few-day window so absent dates cost at most a
-  // handful of parallel narrow lookups.
-  const overlay = await Promise.all(recentDatesWithin(fromDate, toDate).map(async d => {
-    try { return await readEntry(userId, d); } catch { return null; }
-  }));
+  const overlay = await overlayP;
   for (const e of overlay) {
     if (!e) continue;
     const listed = byDate.get(e.date);

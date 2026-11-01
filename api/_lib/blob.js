@@ -247,6 +247,40 @@ async function readBlob(key, fallback = null) {
   return p;
 }
 
+// Display-only probe for a key that is OFTEN absent (2026-11-01, "it's really
+// slow to use"): a day the worker hasn't logged yet, a weekend. readBlob
+// confirms every absence with list() — ~0.9 s from syd1 per missing key, and
+// My Day / Hours probe 4–5 recent days on every render, most of them missing.
+// Here a 404 on the derived URL answers null WITHOUT list() and WITHOUT
+// caching, so the shared cache's "genuine absence" stays list()-decided
+// (#576) and no write path ever sees this null. Use it ONLY where the caller
+// already has another source of truth for what exists (the hours listing it
+// runs alongside) and a missed legacy random-suffix blob would just fall
+// back to that source. A cached value (incl. writeBlob's read-after-write
+// priming) still wins; with no known store host it is plain readBlob.
+async function readBlobIfPresent(key) {
+  const cached = _cacheGet(key);
+  if (cached !== undefined) return cached;
+  if (!_publicHost) return readBlob(key, null);
+  const doFetch = _overrides.fetch || fetch;
+  let r;
+  try {
+    r = await doFetch(`https://${_publicHost}/${_encodeKey(key)}?t=${Date.now()}`, { cache: 'no-store' });
+  } catch {
+    return readBlob(key, null); // host didn't answer: the normal path re-learns it
+  }
+  if (r.status === 404) return null;
+  if (!r.ok) throw new BlobReadError(key, `http ${r.status}`);
+  let value;
+  try {
+    value = await r.json();
+  } catch (e) {
+    throw new BlobReadError(key, `json: ${e && e.message}`);
+  }
+  _cacheSet(key, value);
+  return value;
+}
+
 // Cache-skipping read. Use for endpoints where a write on another Vercel
 // function instance must be visible to a follow-up read without waiting for
 // BLOB_TTL_MS — e.g. gear asset detail / history fetched right after a
@@ -588,6 +622,7 @@ async function blobUploadedAt(key) {
 
 module.exports = {
   readBlob,
+  readBlobIfPresent,
   readBlobFresh,
   readBlobStrict,
   readBlobVerified,
