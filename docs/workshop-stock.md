@@ -146,6 +146,29 @@ a nav group; the Gear workflow is untouched.
    If the photo couldn't be uploaded the item still saves, and the result says
    the photo isn't attached.
 
+### Several items from one photo
+
+Owner pull, 2026-11-01: "i want to be able to take one photo of multiple items
+and be able to add them". When the photo reader finds several products in one
+add-stock photo (it lists at most four), the "which one?" screen leads with
+**Add all N from this photo**:
+
+- The products are walked **one at a time** with the photo kept — no retake.
+  Each goes through the normal path for what it is: already listed → "What's
+  going in?" → add or return; not listed → the new-item form, prefilled from
+  that product's part of the label (the shelf carries over from the one before).
+- A "From your photo · 2 of 3" banner names the product on screen, with
+  **Skip**. Back returns to the photo's list, which shows each product as
+  Added / Skipped; tapping one jumps to it; a skipped one can be added after all.
+- **Nothing is saved until each product's own Save / Confirm**, exactly as for
+  a single item. At the end, a summary lists what was added from the photo,
+  each with its Undo while the server allows it, then "Take photo of the next
+  lot" or Done.
+- The photo's stored row is claimed by the first NEW item from it; later new
+  items from the same photo upload their own copy of the photo, so every new
+  item keeps one. Progress lives on the phone only (`flow.ts` `startBatch` /
+  `settleBatch`) — no server change.
+
 ### A photo of where it lives
 
 For stock that isn't in an obvious place (owner pull, 2026-10-26: "an option

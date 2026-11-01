@@ -11,6 +11,7 @@ import { QuantityStepper } from "./QuantityStepper";
 import { StockReceipt } from "./StockReceipt";
 import { NewItemForm } from "./NewItemForm";
 import { LocationPhoto } from "./LocationPhoto";
+import { AddOutcome } from "./AddFlow";
 import { PhilWorkshopStock } from "@/components/phil/PhilWorkshopStock";
 import { BrowseSheet } from "./BrowseSheet";
 import { LocationPhotoPrompt } from "./LocationPhotoPrompt";
@@ -209,6 +210,34 @@ describe("a photo of where it lives", () => {
     };
     expect(flat(renderToString(createElement(StockReceipt, { result: { ...result, locationPhotoAttached: false } })))).toContain("The photo of where it lives couldn’t be attached");
     expect(flat(renderToString(createElement(StockReceipt, { result: { ...result, locationPhotoAttached: true } })))).not.toContain("couldn’t be attached");
+  });
+});
+
+describe("several products from one photo", () => {
+  const product = (description: string, code: string) => ({ brand: "Clipsal", manufacturerCode: code, supplierSku: null, supplierName: null, description, colourFinish: "White", variantDetails: [], barcode: null, packQuantity: null, packUnit: null, labelText: [], position: null });
+  const outcome = { kind: "pick-product" as const, products: [product("Double GPO", "2025WE"), product("Single GPO", "2015WE"), product("Blank plate", "30BP")] };
+  const props = { outcome, read: null, dataUrl: null, note: null, onClose: () => undefined, onBack: () => undefined, onProduct: () => undefined, onExisting: () => undefined, onNew: () => undefined, onPhoto: () => undefined };
+
+  it("offers to add them all, one at a time, before anything is saved", () => {
+    const html = flat(renderToString(createElement(AddOutcome, props)));
+    expect(html).toContain("There are 3 products in the photo");
+    expect(html).toContain("Add all 3 from this photo");
+    expect(html).toContain("nothing is saved until you confirm each");
+    expect(html).toContain('data-testid="stock-batch-start"');
+    expect(html).toContain("Clipsal Double GPO");
+  });
+
+  it("partway through, the list shows what's added and skipped and carries on from where you are", () => {
+    const html = flat(renderToString(createElement(AddOutcome, { ...props, batch: { total: 3, current: 2, added: [0], skipped: [1] } })));
+    expect(html).toContain("From your photo");
+    expect(html).toContain("Carry on · item 3 of 3");
+    expect(html).toContain("1 still to add or skip");
+    expect(html).toContain(">Added<");
+    expect(html).toContain(">Skipped<");
+    expect(html).not.toContain("Add all 3");
+    const done = flat(renderToString(createElement(AddOutcome, { ...props, batch: { total: 3, current: -1, added: [0, 2], skipped: [1] } })));
+    expect(done).not.toContain("Carry on");
+    expect(done).toContain("See what was added");
   });
 });
 

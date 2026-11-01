@@ -88,6 +88,8 @@ export function NewItemForm({
   defaultLocation,
   lastLocationPhoto = null,
   emphasis = "another",
+  anotherLabel = "Save and add another",
+  anotherSub = "back to the camera",
   onSaved,
   onUseExisting,
 }: {
@@ -104,6 +106,9 @@ export function NewItemForm({
   lastLocationPhoto?: LastLocationPhoto | null;
   /** phone: "Save and add another" leads; office: "Save item" leads */
   emphasis?: "another" | "save";
+  /** the lead button's words — e.g. "Save · next from the photo" when adding several from one photo */
+  anotherLabel?: string;
+  anotherSub?: string;
   onSaved: (r: WriteResult, again: boolean) => void;
   onUseExisting: (item: StockItem) => void;
 }) {
@@ -407,7 +412,7 @@ export function NewItemForm({
   const noLocationPhoto = locationPhotoEnabled && !locationShot && !reuse;
 
   const saveAnother = (
-    <BigButton variant={emphasis === "another" ? "pri" : "sec"} onClick={() => void save(true)} disabled={!canSave} aria-busy={phase === "saving" && againRef.current} label={phase === "saving" && againRef.current ? "Saving…" : "Save and add another"} sub={emphasis === "another" ? (canSave ? `saves Opening count ${formatQuantity(totalMilli, unit)} · back to the camera` : dupe ? "can't run: code already listed" : "needs a name and a shelf") : undefined} data-testid="stock-new-save-another" />
+    <BigButton variant={emphasis === "another" ? "pri" : "sec"} onClick={() => void save(true)} disabled={!canSave} aria-busy={phase === "saving" && againRef.current} label={phase === "saving" && againRef.current ? "Saving…" : anotherLabel} sub={emphasis === "another" ? (canSave ? `saves Opening count ${formatQuantity(totalMilli, unit)} · ${anotherSub}` : dupe ? "can't run: code already listed" : "needs a name and a shelf") : undefined} data-testid="stock-new-save-another" />
   );
   const saveOnly = (
     <BigButton variant={emphasis === "save" ? "pri" : "ter"} onClick={() => void save(false)} disabled={!canSave} aria-busy={phase === "saving" && !againRef.current} label={phase === "saving" && !againRef.current ? <span className="flex items-center gap-2"><Loader2 aria-hidden="true" className="h-5 w-5 animate-spin" />Saving…</span> : emphasis === "save" ? "Save item" : "Save and go to the list"} sub={emphasis === "save" ? (canSave ? `saves Opening count ${formatQuantity(totalMilli, unit)}` : dupe ? "can't run: code already listed" : "needs a name and a shelf") : undefined} data-testid="stock-new-save" />

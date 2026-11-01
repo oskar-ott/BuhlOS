@@ -74,3 +74,43 @@ export function productLabel(p: ReadProduct, i: number): string {
 export function inputModeFor(unit: StockUnit): "numeric" | "decimal" {
   return UNIT_LABEL[unit].decimals > 0 ? "decimal" : "numeric";
 }
+
+/**
+ * Adding several products from ONE photo, one at a time (owner pull,
+ * 2026-11-01: "take one photo of multiple items and be able to add them").
+ * Pure progress through the photo's products: which one is on screen, which
+ * were added and which skipped. Nothing here saves anything — each product
+ * still goes through its own confirmation.
+ */
+export interface PhotoBatch {
+  total: number;
+  /** the product index on screen; -1 once every product is settled */
+  current: number;
+  added: number[];
+  skipped: number[];
+}
+
+export function startBatch(total: number): PhotoBatch {
+  return { total: Math.max(0, total), current: total > 0 ? 0 : -1, added: [], skipped: [] };
+}
+
+/** Jump to a product the worker tapped (an unsettled one, or one to revisit). */
+export function focusBatch(b: PhotoBatch, index: number): PhotoBatch {
+  return index >= 0 && index < b.total ? { ...b, current: index } : b;
+}
+
+/**
+ * The product on screen was added or skipped: record it, and move to the next
+ * product not yet settled (after it first, then any earlier one passed over).
+ * `next` is null when every product is settled.
+ */
+export function settleBatch(b: PhotoBatch, how: "added" | "skipped"): { batch: PhotoBatch; next: number | null } {
+  if (b.current < 0) return { batch: b, next: null };
+  const i = b.current;
+  const added = how === "added" ? [...b.added.filter((x) => x !== i), i] : b.added.filter((x) => x !== i);
+  const skipped = how === "skipped" ? [...b.skipped.filter((x) => x !== i), i] : b.skipped.filter((x) => x !== i);
+  const settled = new Set([...added, ...skipped]);
+  const order = [...Array.from({ length: b.total }, (_, k) => k).filter((k) => k > i), ...Array.from({ length: i }, (_, k) => k)];
+  const next = order.find((k) => !settled.has(k)) ?? null;
+  return { batch: { ...b, added, skipped, current: next ?? -1 }, next };
+}
