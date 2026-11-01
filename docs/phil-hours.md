@@ -54,6 +54,16 @@ or concepts. Payloads come from the existing builders in `service.ts` and
 - **Jobs are never fixed.** Every worker can change the job for the day they're
   logging (one job → a field with Change ›; several → chips). A pick applies to
   the picked day only.
+- **The chips never grow with the job count** (P10). Every worker works every
+  active job (#907), so "your jobs" is the whole active list — 30-odd. With
+  more than five, the chips are only the last job, the day's pick and the
+  jobs this worker logged most recently, **at most 5** (`chipJobs`,
+  `JOB_CHIPS_SHOWN`) — never padded A–Z with jobs they've never logged. Every
+  other job is in Find another job, whose list leads with the current job,
+  then the most recently logged, then A–Z (`rankJobs`). This is the owner's
+  2026-08-02 ruling on the old job dial ("constant height for any job count",
+  #977), which the rebuild lost and the 2026-11-01 field report caught (a
+  chip for every job filled the screen).
 - **No delete.** The day-detail sheet says: "Logged days can't be deleted.
   Change the hours instead, or ask the office."
 - **No promises**: no "you'll be notified", no approval ETAs, no reviewer
@@ -129,10 +139,12 @@ was built:
 - `hours-view.test.ts` — the 14-day window, OT maths and the 16h cap, the
   weekend all-OT rule, the summary that counts only what's logged, initial
   pick + auto-advance (weekdays only, never a weekend), receipts, earlier
-  weeks, job search never returning a leave day.
+  weeks, job search never returning a leave day, the chip cap (34 jobs → at
+  most 5 chips, the day's pick always among them) and job ranking.
 - `hours-save.test.ts` — refused vs unconfirmed, and Try again re-reads first
   and never sends twice (same key when it does resend).
 - `PhilHoursView.render.test.tsx` — SSR smoke: every panel state, the fix line,
-  the failed-load screen shows **no numbers**, Find another job lists no leave.
+  the failed-load screen shows **no numbers**, Find another job lists no leave,
+  34 listed jobs render 2 chips (not 34), the Find list's order.
 - Preview Smoke (`tests/playwright/helpers/fieldReadiness.ts`) drives the
   `hours-log-primary` button and asserts the POST carries the assigned job.

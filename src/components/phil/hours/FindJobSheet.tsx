@@ -6,7 +6,9 @@ import { cn } from "@/lib/cn";
 import {
   dayDate,
   isFinishedJob,
+  jobsByRecency,
   lastLoggedDateForJob,
+  rankJobs,
   searchJobs,
   weekdayName,
   type HoursJob,
@@ -21,6 +23,10 @@ import { HoursSheet } from "./HoursSheet";
  * finished jobs — found only through search, tagged `finished` — for callback
  * work. Leave days are not jobs: they never appear here or in the results;
  * the footer points at the Sick day / Holiday buttons instead.
+ *
+ * Every worker works every active job, so this list is long: it leads with
+ * the current job, then the jobs this worker logged most recently, then the
+ * rest A–Z (`rankJobs`) — the same order the panel's chips are cut from.
  */
 export function FindJobSheet({
   open,
@@ -44,7 +50,11 @@ export function FindJobSheet({
 }): ReactNode {
   const [query, setQuery] = useState("");
   const q = query.trim();
-  const mine = searchJobs(jobs, q);
+  const mine = rankJobs({
+    jobs: searchJobs(jobs, q),
+    recentJobIds: jobsByRecency(entries),
+    lastJobId: currentJobId,
+  });
   const history = useJobHistorySearch(query, open && q.length >= 2);
   const known = new Set(jobs.map((j) => j.id));
   const found: HoursJob[] =

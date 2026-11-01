@@ -26,7 +26,9 @@ import { STATUS_WORDS } from "./status-words";
  *   - the week summary counts only what's logged — the app does not know
  *     which days anyone works, so there is no "to go" and no "week done";
  *   - job search never returns a leave day (sick / holiday / TAFE are not
- *     jobs and never sit next to jobs).
+ *     jobs and never sit next to jobs);
+ *   - the job chips are bounded: every worker works every active job, so the
+ *     panel shows the last / picked / recently logged jobs, never all of them.
  *
  * Honest by construction (P7): every row is a real entry or a real calendar
  * day; the only numbers are sums of stored hours.
@@ -359,6 +361,84 @@ export function searchJobs<J extends HoursJob>(jobs: ReadonlyArray<J>, query: st
   return jobs.filter((j) =>
     [j.name, j.ref, j.address].some((f) => typeof f === "string" && f.toLowerCase().includes(q))
   );
+}
+
+/* ── Job chips ────────────────────────────────────────────────────────── */
+
+/**
+ * The most job chips the panel shows (P10). Every worker works every active
+ * job (all-jobs access, #907), so "the worker's jobs" is the whole active
+ * list — 30-odd at Buhl. Rendering all of them turned the panel into a
+ * page-filling wall of chips: the regression the spinning job dial fixed
+ * (owner, 2026-08-02, #977 — "constant height for any job count") and the
+ * 2026-10-25 rebuild brought back. Five chips + "Find another job" is three
+ * rows, whatever the job count; every other job is one tap away in the Find
+ * sheet (search + the full list).
+ */
+export const JOB_CHIPS_SHOWN = 5;
+
+/** Job ids this worker logged hours on, most recently logged first. Every
+ *  allocation counts, so both jobs of a split day are "recent". */
+export function jobsByRecency(
+  entries: ReadonlyArray<Pick<TimeEntry, "date" | "allocations">>
+): string[] {
+  const latest = new Map<string, string>();
+  for (const e of entries) {
+    for (const a of e.allocations ?? []) {
+      if (!a.jobId) continue;
+      const seen = latest.get(a.jobId);
+      if (!seen || e.date > seen) latest.set(a.jobId, e.date);
+    }
+  }
+  return [...latest.entries()]
+    .sort((a, b) => (a[1] === b[1] ? a[0].localeCompare(b[0]) : a[1] < b[1] ? 1 : -1))
+    .map(([id]) => id);
+}
+
+/**
+ * Jobs in the order a worker reaches for them: the current (last) job, then
+ * the job picked for the day, then the jobs they logged most recently, then
+ * the rest by name. Real history only — no popularity guess (P7).
+ */
+export function rankJobs<J extends HoursJob>(input: {
+  jobs: ReadonlyArray<J>;
+  recentJobIds: ReadonlyArray<string>;
+  lastJobId: string | null;
+  pickedJobId?: string | null;
+}): J[] {
+  const recency = new Map(input.recentJobIds.map((id, i) => [id, i] as const));
+  const pin = (id: string) => (id === input.lastJobId ? 0 : id === input.pickedJobId ? 1 : 2);
+  const rank = (id: string) => recency.get(id) ?? Number.MAX_SAFE_INTEGER;
+  return [...input.jobs].sort(
+    (a, b) => pin(a.id) - pin(b.id) || rank(a.id) - rank(b.id) || a.name.localeCompare(b.name)
+  );
+}
+
+/**
+ * The jobs that get a chip for one day. A short list (≤ `limit`) shows every
+ * job, as designed. A long one shows only the jobs this worker has a reason
+ * to pick — the last job, the day's pick, the ones they logged most recently
+ * — capped at `limit`, so the grid never grows with the job count. Jobs they
+ * never logged are not padded in by name: an alphabetical guess is noise, and
+ * "Find another job" reaches them. `excludeJobId` is the job already shown as
+ * the full-width "found" chip, so it never appears twice.
+ */
+export function chipJobs<J extends HoursJob>(input: {
+  jobs: ReadonlyArray<J>;
+  recentJobIds: ReadonlyArray<string>;
+  lastJobId: string | null;
+  pickedJobId?: string | null;
+  excludeJobId?: string | null;
+  limit?: number;
+}): J[] {
+  const limit = input.limit ?? JOB_CHIPS_SHOWN;
+  const pool = input.jobs.filter((j) => j.id !== input.excludeJobId);
+  const ranked = rankJobs({ ...input, jobs: pool });
+  if (ranked.length <= limit) return ranked;
+  const recent = new Set(input.recentJobIds);
+  return ranked
+    .filter((j) => j.id === input.lastJobId || j.id === input.pickedJobId || recent.has(j.id))
+    .slice(0, limit);
 }
 
 /** A finished / closed job (the field's callback case). */

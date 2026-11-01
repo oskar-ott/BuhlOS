@@ -1,7 +1,12 @@
 import type { ReactNode } from "react";
 import { MapPin, Search } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { isFinishedJob, weekdayName, type HoursJob } from "@/domains/timesheets/hours-view";
+import {
+  chipJobs,
+  isFinishedJob,
+  weekdayName,
+  type HoursJob,
+} from "@/domains/timesheets/hours-view";
 
 /**
  * The job chips (docs/phil-hours.md): a 2-column grid of the worker's jobs,
@@ -9,9 +14,15 @@ import { isFinishedJob, weekdayName, type HoursJob } from "@/domains/timesheets/
  * another job" chip. A job found by search joins the grid as the picked chip,
  * full width, with its address · `finished job` · `Thursday only` — a pick
  * applies to the picked day only. Selected = navy fill + filled dot.
+ *
+ * Bounded (P10): with more jobs than `JOB_CHIPS_SHOWN`, only the last job,
+ * the day's pick and the jobs this worker logged most recently get a chip
+ * (`chipJobs`) — every worker works every active job, and a chip per job was
+ * a page-filling wall. The rest are in Find another job.
  */
 export function JobChips({
   jobs,
+  recentJobIds = [],
   pickedJobId,
   lastJobId,
   foundJob,
@@ -21,6 +32,8 @@ export function JobChips({
   onFind,
 }: {
   jobs: ReadonlyArray<HoursJob>;
+  /** Job ids the worker logged, most recent first (`jobsByRecency`). */
+  recentJobIds?: ReadonlyArray<string>;
   pickedJobId: string | null;
   lastJobId: string | null;
   /** A job found through search for this day (not in `jobs`). */
@@ -31,9 +44,13 @@ export function JobChips({
   onPick: (jobId: string) => void;
   onFind: () => void;
 }): ReactNode {
-  const ordered = [...jobs].sort((a, b) =>
-    a.id === lastJobId ? -1 : b.id === lastJobId ? 1 : a.name.localeCompare(b.name)
-  );
+  const shown = chipJobs({
+    jobs,
+    recentJobIds,
+    lastJobId,
+    pickedJobId,
+    excludeJobId: foundJob?.id ?? null,
+  });
   return (
     <div
       role="radiogroup"
@@ -55,7 +72,7 @@ export function JobChips({
             .join(" · ")}
         />
       ) : null}
-      {ordered.map((job) => (
+      {shown.map((job) => (
         <Chip
           key={job.id}
           job={job}
@@ -76,10 +93,13 @@ export function JobChips({
         type="button"
         onClick={onFind}
         data-testid="hours-find-job"
-        className="flex min-h-[56px] items-center justify-center gap-2 rounded-card border border-dashed border-border-strong px-3 font-display text-[15px] font-semibold text-text active:bg-surface-subtle"
+        className={cn(
+          "flex min-h-[56px] items-center justify-center gap-2 rounded-card border border-dashed border-border-strong px-3 font-display text-[15px] font-semibold text-text active:bg-surface-subtle",
+          shown.length === 0 && "col-span-2"
+        )}
       >
         <Search aria-hidden="true" className="h-4 w-4 text-text-muted" />
-        Find another job
+        {shown.length === 0 && !foundJob ? "Find a job" : "Find another job"}
       </button>
     </div>
   );

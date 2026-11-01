@@ -154,6 +154,32 @@ describe("PhilHoursView — this week", () => {
     expect(html).toContain("Find another job");
   });
 
+  it("every active job listed (30-odd): the panel shows a few chips, not a wall — the rest are in Find another job", () => {
+    // The 2026-11-01 screenshot: a chip for every job in the business, A–Z,
+    // filling the screen. Every worker works every active job (#907), so the
+    // grid is cut to the last job + the jobs this worker logged recently.
+    const many = Array.from({ length: 34 }, (_, i) => ({
+      id: `j${String(i).padStart(2, "0")}`,
+      name: `Site ${String(i).padStart(2, "0")}`,
+    }));
+    const html = render({
+      jobs: [...JOBS, ...many],
+      entries: [
+        entry({ date: "2026-10-08", allocations: [{ jobId: "j17", hours: 7.6 }] }),
+        entry({ date: "2026-10-09", allocations: [{ jobId: "mascot", hours: 7.6 }] }),
+      ],
+    });
+    const chips = html.match(/data-testid="hours-job-chip-[^"]+"/g) ?? [];
+    expect(chips).toEqual([
+      'data-testid="hours-job-chip-mascot"',
+      'data-testid="hours-job-chip-j17"',
+    ]);
+    expect(html).toContain("Your last job");
+    expect(html).toContain("Mascot warehouse · sends to the office");
+    expect(html).toContain('data-testid="hours-find-job"');
+    expect(html).not.toContain("Site 00");
+  });
+
   it("no assigned job: the reason in words plus Sick day · Holiday", () => {
     const html = render({ jobs: [] });
     expect(html).toContain("No active assigned job");
@@ -209,6 +235,33 @@ describe("PhilHoursView — failed load is its own screen", () => {
     expect(text).not.toMatch(/\d/);
     expect(html).not.toContain('data-testid="hours-week-card"');
     expect(html).not.toContain('data-testid="hours-panel"');
+  });
+});
+
+describe("FindJobSheet — the full list, current and recently logged first", () => {
+  it("leads with the current job, then the most recently logged, then A–Z", () => {
+    const html = renderToString(
+      createElement(FindJobSheet, {
+        open: true,
+        onClose: () => {},
+        date: TODAY,
+        jobs: [
+          { id: "zetland", name: "Zetland apartments" },
+          { id: "alex", name: "Alexandria depot" },
+          ...JOBS,
+        ],
+        currentJobId: "mascot",
+        entries: [
+          entry({ date: "2026-10-06", allocations: [{ jobId: "mascot", hours: 7.6 }] }),
+          entry({ date: "2026-10-13", allocations: [{ jobId: "zetland", hours: 7.6 }] }),
+        ],
+        onPick: () => {},
+      })
+    );
+    const rows = (html.match(/data-testid="hours-job-row-[^"]+"/g) ?? []).map((m) =>
+      m.replace(/^data-testid="hours-job-row-|"$/g, "")
+    );
+    expect(rows).toEqual(["mascot", "zetland", "alex", "bondi"]);
   });
 });
 

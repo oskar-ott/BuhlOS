@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  JOB_CHIPS_SHOWN,
   LEAVE_LABELS,
   MAX_OT_HOURS,
   OT_PRESET_MINUTES,
   buildEarlierWeeks,
+  chipJobs,
   dayDate,
   defaultJobId,
   draftSendBlockReason,
@@ -11,10 +13,12 @@ import {
   fixNeededLine,
   initialPick,
   isLoggableDate,
+  jobsByRecency,
   leaveOptions,
   nextPickAfterSave,
   oldestLoggableDate,
   otPresetLabel,
+  rankJobs,
   receiptLine,
   searchJobs,
   splitLabel,
@@ -270,6 +274,82 @@ describe("jobs", () => {
       expect(searchJobs(JOBS, word.split(" ")[0]!)).toEqual([]);
     }
     expect(searchJobs(JOBS, "").map((j) => j.id)).toEqual(["bondi", "mascot", "castle"]);
+  });
+
+  it("recency: every job a worker logged, most recently logged first — split days count both jobs", () => {
+    const entries = [
+      entry({ date: "2026-10-05", allocations: [{ jobId: "bondi", hours: 7.6 }] }),
+      entry({
+        date: "2026-10-09",
+        allocations: [
+          { jobId: "mascot", hours: 4 },
+          { jobId: "castle", hours: 3.6 },
+        ],
+      }),
+      entry({ date: "2026-10-13", allocations: [{ jobId: "bondi", hours: 7.6 }] }),
+      entry({ date: "2026-10-14", dayType: "sick", allocations: [{ jobId: null, hours: 7.6 }] }),
+    ];
+    // bondi (13 Oct) · then castle + mascot tie on 9 Oct, broken by id so the order is stable.
+    expect(jobsByRecency(entries)).toEqual(["bondi", "castle", "mascot"]);
+    expect(jobsByRecency([])).toEqual([]);
+  });
+
+  it("rank: the last job, then the day's pick, then most recently logged, then A–Z", () => {
+    const ranked = rankJobs({
+      jobs: JOBS,
+      recentJobIds: ["castle"],
+      lastJobId: "mascot",
+      pickedJobId: "bondi",
+    });
+    expect(ranked.map((j) => j.id)).toEqual(["mascot", "bondi", "castle"]);
+    expect(rankJobs({ jobs: JOBS, recentJobIds: [], lastJobId: null }).map((j) => j.id)).toEqual([
+      "bondi",
+      "castle",
+      "mascot",
+    ]);
+  });
+
+  it("chips: a short job list shows every job, ranked", () => {
+    const shown = chipJobs({ jobs: JOBS, recentJobIds: ["castle"], lastJobId: "mascot" });
+    expect(shown.map((j) => j.id)).toEqual(["mascot", "castle", "bondi"]);
+  });
+
+  it("chips: every worker works every active job, so a long list is capped — never a wall (#977)", () => {
+    // Buhl's real shape: 30-odd active jobs, a worker who has logged a handful.
+    const many = Array.from({ length: 34 }, (_, i) => ({
+      id: `j${String(i).padStart(2, "0")}`,
+      name: `Job ${String(i).padStart(2, "0")}`,
+    }));
+    const recent = ["j20", "j07", "j31", "j02", "j15", "j09", "j11"];
+    const shown = chipJobs({ jobs: many, recentJobIds: recent, lastJobId: "j20" });
+    expect(shown).toHaveLength(JOB_CHIPS_SHOWN);
+    expect(shown.map((j) => j.id)).toEqual(["j20", "j07", "j31", "j02", "j15"]);
+
+    // Only jobs the worker has a reason to pick — never padded A–Z with jobs
+    // they've never logged.
+    const fresh = chipJobs({ jobs: many, recentJobIds: ["j20"], lastJobId: "j20" });
+    expect(fresh.map((j) => j.id)).toEqual(["j20"]);
+    expect(chipJobs({ jobs: many, recentJobIds: [], lastJobId: null })).toEqual([]);
+
+    // The day's pick always has a chip, even one never logged (a job screen's ?job=).
+    const picked = chipJobs({
+      jobs: many,
+      recentJobIds: recent,
+      lastJobId: "j20",
+      pickedJobId: "j33",
+    });
+    expect(picked.map((j) => j.id)).toEqual(["j20", "j33", "j07", "j31", "j02"]);
+  });
+
+  it("chips: the job shown as the full-width found chip never appears twice", () => {
+    const shown = chipJobs({
+      jobs: JOBS,
+      recentJobIds: [],
+      lastJobId: "bondi",
+      pickedJobId: "mascot",
+      excludeJobId: "mascot",
+    });
+    expect(shown.map((j) => j.id)).toEqual(["bondi", "castle"]);
   });
 
   it("TAFE is offered to apprentices only", () => {

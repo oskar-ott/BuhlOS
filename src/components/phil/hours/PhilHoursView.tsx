@@ -33,6 +33,7 @@ import {
   fixNeededLine,
   initialPick,
   isLoggableDate,
+  jobsByRecency,
   mergeSavedEntries,
   nextPickAfterSave,
   oldestLoggableDate,
@@ -198,6 +199,9 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
       ),
     [merged, jobs]
   );
+  // Which jobs get a chip when there are more than a few (every worker works
+  // every active job): the ones this worker logged, most recent first.
+  const recentJobIds = useMemo(() => jobsByRecency(merged), [merged]);
   const weekEntries = useMemo(() => entriesInWeek(merged, currentMonday), [merged, currentMonday]);
   const rows = useMemo(
     () => weekRows(currentMonday, merged, todayISO),
@@ -479,6 +483,7 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
       kind: "noDefault",
       date: pickedDate,
       jobs,
+      recentJobIds,
       onPickJob: (id) => pickJobForDay(pickedDate, id),
       onFind: () => setFindJobFor(pickedDate),
       ...leaveActions,
@@ -492,6 +497,7 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
       weekend,
       backdated: weekStartOf(pickedDate) !== currentMonday,
       jobs,
+      recentJobIds,
       pickedJob,
       lastJobId: lastJob?.jobId ?? null,
       foundJob: foundJobs[pickedDate] ?? null,
@@ -702,6 +708,7 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
           onClose={closeSheet}
           entry={sheetEntry}
           jobs={jobs}
+          recentJobIds={recentJobIds}
           canLogTafe={canLogTafe}
           busy={busyFor(sheetEntry.date)}
           problem={problemFor(sheetEntry.date)}
