@@ -1,7 +1,28 @@
 # Workshop Stock (`workshop_stock`)
 
-> **Status (2026-10-09): built, dark, not operational.** The five states are
-> defined in [feature-flags.md](feature-flags.md) ("What a flag proves").
+> **Status (2026-11-01): built, in real use; database complete in dev and
+> production.** What was checked, and how:
+>
+> - **Migrations — verified against each project's migration history on
+>   2026-11-01:** `workshop_stock` (dev and production 2026-10-13),
+>   `workshop_stock_location_photo` (dev 2026-10-26, production 2026-10-29) and
+>   `workshop_stock_types_and_lists` (dev and production 2026-11-01) are
+>   applied to **Buhlos-dev** (`frovgpywsopbeuekijmo`) and
+>   **Buhlos-Production** (`wetctlrhsycfwhuxlarv`). After the last one,
+>   production showed the new columns and both list tables with RLS on and no
+>   policies (the house pattern), and its existing 5 items and 5 movements
+>   unchanged — real records from the first week of use (the owner launched it
+>   the week of 2026-10-26).
+> - **Effectively enabled:** still read at `/owner` — not stamped in
+>   [runbooks/production-flag-verification.md](runbooks/production-flag-verification.md)
+>   (nobody has checked it there for this doc).
+> - **Not verified from here:** photo reading and the online check in
+>   production (`ANTHROPIC_API_KEY`, web search enabled for the organisation,
+>   Vercel reaching the allowlisted sites).
+>
+> **Status (2026-10-09, when it first shipped): built, dark, not operational.**
+> The five states are defined in [feature-flags.md](feature-flags.md) ("What a
+> flag proves").
 >
 > - **Built:** the slice below, behind `workshop_stock` (launch-gate, default
 >   off, global target).
@@ -639,7 +660,18 @@ export).
    (each safe to apply before or after the code ships; its options appear
    within a minute of it) — to the **dev** project, then to
    **production** as an operator release step (Supabase migration process —
-   never from an agent session). Confirm the seven tables exist with RLS on.
+   never from an agent session **unless the owner explicitly approves it for
+   that release**). Confirm the nine tables exist with RLS on (the seven from
+   the first migration, plus `workshop_stock_lists` and
+   `workshop_stock_list_lines`).
+
+   *Record, 2026-11-01:* `20261101100000_workshop_stock_types_and_lists.sql`
+   was applied from an agent session **with the owner's explicit go-ahead for
+   this release** — to dev first (verified), then to production (migration
+   history name `workshop_stock_types_and_lists`). It was verified afterwards:
+   new columns and both tables present, RLS on with no policies, the 5
+   existing items and 5 movements unchanged. The exception covers that release
+   only; the default above stands.
 3. **Production writes are opt-in for every Supabase-backed feature**: the env
    guard (`api/_lib/supabase-env.js`) refuses a write connection to production
    unless `SUPABASE_ALLOW_PRODUCTION_WRITES="true"` is set in Production (see
