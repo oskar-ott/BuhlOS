@@ -10,8 +10,8 @@ import { Slot } from "./ui";
  * Take or pick a product photo (Workshop Stock). The photo is downscaled on
  * the phone; a dark frame gets a non-blocking hint; a photo the phone can't
  * open says so plainly. Camera permission is the browser's file picker — if
- * the camera is refused the camera roll button still works, and so does searching
- * by hand.
+ * the camera is refused the camera roll button still works, and so does
+ * searching by hand.
  *
  * Two shapes: `pair` (camera + library side by side, the office) and
  * `single` (one named camera button — "No code? Photograph the label" — with
