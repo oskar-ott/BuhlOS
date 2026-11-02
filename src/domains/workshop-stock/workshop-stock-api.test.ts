@@ -257,6 +257,43 @@ describe("who can reach it", () => {
     }
   });
 
+  it("a read stuck after the first query answers 503 at 12 s and drops the connection; the late answer is discarded", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const closeDb = vi.fn(async () => {});
+      fake(P.db, { getDb: vi.fn(() => ({ fake: "sql" })), closeDb });
+      let release: (v: unknown) => void = () => {};
+      store.listItems.mockImplementationOnce(() => new Promise((r) => { release = r; }));
+      delete requireFromHere.cache[P.handler];
+      handler = requireFromHere(P.handler);
+      const pending = call({ query: { action: "list" } });
+      await vi.advanceTimersByTimeAsync(12000);
+      const r = await pending;
+      expect(r.statusCode).toBe(503);
+      expect(r.body).toEqual({ error: "store_unavailable" });
+      expect(closeDb).toHaveBeenCalledTimes(1);
+      release([item()]); // the stuck read finishes later: nothing is sent over the 503
+      await vi.advanceTimersByTimeAsync(0);
+      expect(r.statusCode).toBe(503);
+      expect(r.body).toEqual({ error: "store_unavailable" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("the list asks its queries one at a time (a cold instance's burst hung on the pooler)", async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const track = (fn: () => unknown) => async () => { inFlight++; peak = Math.max(peak, inFlight); await new Promise((r) => setTimeout(r, 1)); inFlight--; return fn(); };
+    store.hasLocationPhoto.mockImplementation(track(() => true));
+    store.hasTypes.mockImplementation(track(() => true));
+    store.hasLists.mockImplementation(track(() => true));
+    store.listItems.mockImplementation(track(() => [item()]));
+    const r = await call({ query: { action: "list" } });
+    expect(r.statusCode).toBe(200);
+    expect(peak).toBe(1);
+  });
+
   it("503 with a stable code when the store can't be reached — never the guard's message", async () => {
     fake(P.db, { getDb: vi.fn(() => { throw Object.assign(new Error("SUPABASE_DB_URL secret detail"), { code: "MISSING_ENV" }); }) });
     delete requireFromHere.cache[P.handler];
