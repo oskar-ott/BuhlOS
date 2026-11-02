@@ -806,6 +806,15 @@ export).
    new columns and both tables present, RLS on with no policies, the 5
    existing items and 5 movements unchanged. The exception covers that release
    only; the default above stands.
+
+   *Record, 2026-11-02:* `20261102100000_workshop_stock_location_matrix.sql` was
+   applied from an agent session **with the owner's explicit go-ahead for this
+   release**, while its PR was still open (deploy order is free) — to dev first
+   (verified with a rolled-back write), then to production (migration history name
+   `workshop_stock_location_matrix`). It was verified afterwards: the table present
+   and empty, RLS on with no policies, `intake_read` allowed by the usage counter,
+   the 5 existing items, 5 movements and 2 usage rows unchanged. The exception covers
+   that release only; the default above stands.
 3. **Production writes are opt-in for every Supabase-backed feature**: the env
    guard (`api/_lib/supabase-env.js`) refuses a write connection to production
    unless `SUPABASE_ALLOW_PRODUCTION_WRITES="true"` is set in Production (see
