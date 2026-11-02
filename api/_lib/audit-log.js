@@ -438,6 +438,7 @@ const VALID_ACTIONS = new Set([
   'workshop_stock.verification_recorded',
   'workshop_stock.count_corrected',
   'workshop_stock.movement_undone',
+  'workshop_stock.location_matrix_saved',
 ]);
 const VALID_TARGET_TYPES = new Set([
   'evidence',

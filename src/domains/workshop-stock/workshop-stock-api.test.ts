@@ -46,7 +46,7 @@ type Res = { statusCode: number; body: unknown; headers: Record<string, string>;
 let blob: Map<string, unknown>;
 let auth: { signSession: (p: Record<string, unknown>) => string };
 let handler: (req: Record<string, unknown>, res: Res) => Promise<unknown>;
-type StoreFn = "resolveTenant" | "listItems" | "getItem" | "listMovements" | "itemEvents" | "getOperation" | "replayOperation" | "recordMovement" | "recordCount" | "reverseMovement" | "createItemWithOpening" | "updateItem" | "setArchived" | "addIdentifier" | "retireIdentifier" | "recordVerification" | "insertPhoto" | "setPhotoReading" | "getPhotoForServing" | "replaceItemPhoto" | "hasLocationPhoto" | "hasTypes" | "hasLists" | "listLists" | "getList" | "saveList" | "deleteList" | "saveListLine" | "deleteListLine" | "photosDueForDeletion" | "markPhotoDeleted" | "markBlobDeleted" | "consumeUsage" | "getCachedLookup" | "putCachedLookup";
+type StoreFn = "resolveTenant" | "listItems" | "getItem" | "listMovements" | "itemEvents" | "getOperation" | "replayOperation" | "recordMovement" | "recordCount" | "reverseMovement" | "createItemWithOpening" | "updateItem" | "setArchived" | "addIdentifier" | "retireIdentifier" | "recordVerification" | "insertPhoto" | "setPhotoReading" | "getPhotoForServing" | "replaceItemPhoto" | "hasLocationPhoto" | "hasTypes" | "hasLists" | "listLists" | "getList" | "saveList" | "deleteList" | "saveListLine" | "deleteListLine" | "photosDueForDeletion" | "markPhotoDeleted" | "markBlobDeleted" | "consumeUsage" | "getLocationMatrix" | "saveLocationMatrix" | "getCachedLookup" | "putCachedLookup";
 let store: Record<StoreFn, ReturnType<typeof vi.fn>>;
 let audit: { append: ReturnType<typeof vi.fn> };
 let lookupProduct: ReturnType<typeof vi.fn>;
@@ -169,6 +169,8 @@ beforeEach(() => {
     markPhotoDeleted: vi.fn(async () => true),
     markBlobDeleted: vi.fn(async () => undefined),
     consumeUsage: vi.fn(async () => ({ allowed: true, count: 1 })),
+    getLocationMatrix: vi.fn(async () => ({ available: true, matrix: { racks: [], rules: [] }, revision: 0, updatedAt: null, updatedByName: null })),
+    saveLocationMatrix: vi.fn(async () => ({ revision: 1, updatedAt: "2026-11-02T00:00:00.000Z", updatedByName: "Olive Office" })),
     getCachedLookup: vi.fn(async () => null),
     putCachedLookup: vi.fn(async () => undefined),
   };
@@ -770,6 +772,57 @@ describe("a photo of where the item lives", () => {
     const early = await post("item-photo", { itemId: ITEM_ID, photoId: LOC_ID, slot: "location" }, "u_office");
     expect(early.statusCode).toBe(503);
     expect(early.body).toEqual({ error: "location_photo_unavailable" });
+  });
+
+  describe("camera table + location matrix", () => {
+    const RACK = { id: "c", name: "C", shelves: 4, bins: 6 };
+    const RULE = { id: "r1", words: "iconic switch", rackId: "c", shelf: 2, bin: 4 };
+    const put = (body: unknown, user = "u_office") => call({ method: "PUT", user, query: { action: "location-matrix" }, body });
+
+    it("the matrix is the office's, read and write", async () => {
+      expect((await call({ user: "u_field", query: { action: "location-matrix" } })).statusCode).toBe(403);
+      expect((await put({ expectedRevision: 0, racks: [], rules: [] }, "u_field")).statusCode).toBe(403);
+      expect(store.saveLocationMatrix).not.toHaveBeenCalled();
+      expect((await call({ user: "u_office", query: { action: "location-matrix" } })).statusCode).toBe(200);
+    });
+
+    it("saves with the actor from the session, and journals it", async () => {
+      const r = await put({ expectedRevision: 0, racks: [RACK], rules: [RULE], actor: { id: "someone" } });
+      expect(r.statusCode).toBe(200);
+      expect(store.saveLocationMatrix).toHaveBeenCalledWith(expect.anything(), TENANT.id, { racks: [RACK], rules: [RULE] }, 0, expect.objectContaining({ id: "u_office" }));
+      expect(audit.append).toHaveBeenCalledWith(expect.objectContaining({ action: "workshop_stock.location_matrix_saved" }));
+    });
+
+    it("refuses a rule pointing at a bin the rack doesn't have, and duplicate racks", async () => {
+      expect((await put({ expectedRevision: 0, racks: [RACK], rules: [{ ...RULE, shelf: 5 }] })).body).toMatchObject({ error: "rule_out_of_range" });
+      expect((await put({ expectedRevision: 0, racks: [RACK], rules: [{ ...RULE, bin: 7 }] })).body).toMatchObject({ error: "rule_out_of_range" });
+      expect((await put({ expectedRevision: 0, racks: [RACK], rules: [{ ...RULE, rackId: "gone" }] })).body).toMatchObject({ error: "rule_out_of_range" });
+      expect((await put({ expectedRevision: 0, racks: [RACK, { ...RACK, id: "d", name: "c" }], rules: [] })).body).toMatchObject({ error: "rack_duplicate" });
+      expect(store.saveLocationMatrix).not.toHaveBeenCalled();
+    });
+
+    it("says so when someone saved first, or the migration isn't applied", async () => {
+      store.saveLocationMatrix.mockResolvedValueOnce({ error: "matrix_conflict" });
+      const conflict = await put({ expectedRevision: 0, racks: [], rules: [] });
+      expect(conflict.statusCode).toBe(409);
+      expect(conflict.body).toMatchObject({ error: "matrix_conflict" });
+      store.getLocationMatrix.mockResolvedValueOnce({ available: false, matrix: { racks: [], rules: [] }, revision: 0, updatedAt: null, updatedByName: null });
+      expect((await put({ expectedRevision: 0, racks: [], rules: [] })).statusCode).toBe(503);
+    });
+
+    it("the table's reads are office-only, on their own counter, and keep no photo", async () => {
+      vision.enabled = () => true;
+      vision.readProductPhoto = async () => ({ legibility: "unreadable", note: null, products: [] });
+      const crop = pngDataUrl(200, 150);
+      expect((await post("read-photo", { dataUrl: crop, purpose: "take", intake: true })).statusCode).toBe(403);
+      expect(store.consumeUsage).not.toHaveBeenCalled();
+      const r = await post("read-photo", { dataUrl: crop, purpose: "take", intake: true }, "u_office");
+      expect(r.statusCode).toBe(200);
+      expect(store.consumeUsage).toHaveBeenCalledWith(expect.anything(), TENANT.id, "intake_read", expect.any(Number));
+      expect(store.insertPhoto).not.toHaveBeenCalled();
+      await post("read-photo", { dataUrl: crop, purpose: "take" }, "u_office");
+      expect(store.consumeUsage).toHaveBeenLastCalledWith(expect.anything(), TENANT.id, "photo_read", expect.any(Number));
+    });
   });
 });
 

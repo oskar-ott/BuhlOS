@@ -112,6 +112,61 @@
   --font-mono: var(--font-jetbrains-mono);
 }
 
+/*
+ * Console theme (owner pull 2026-11-02: the camera table should "feel high
+ * tech") — the same tokens retuned to a dark instrument panel, for the two
+ * screens used as a machine at the workshop table: /stock/intake and
+ * /stock/locations. Nowhere else: the office and the field stay light. Yellow is
+ * the reticle and the primary action; red and green only ever mean status.
+ */
+[data-theme="console"] {
+  color-scheme: dark;
+
+  --brand-navy: #ffcc00;
+  --accent-ink: #e6b800;
+
+  --surface: #111a2b;
+  --surface-subtle: #0a111e;
+  --surface-raised: #172236;
+
+  --text: #e9edf5;
+  --text-muted: #9aa7bf;
+  --text-inverse: #0a111e;
+
+  --border: #26334a;
+  --border-strong: #3a4a66;
+
+  --state-danger: #ff5a4f;
+  --state-success: #3ddc84;
+  --state-warning: #ffb020;
+  --state-info: #6ea8ff;
+
+  --state-neutral-dot: #7f8ca5;
+  --state-neutral-subtle-bg: #1a2537;
+  --state-neutral-subtle-border: #2c3a52;
+  --state-neutral-subtle-text: #b4bfd3;
+
+  --state-info-dot: #6ea8ff;
+  --state-info-subtle-bg: #121f38;
+  --state-info-subtle-border: #27406f;
+  --state-info-subtle-text: #a9c6ff;
+
+  --state-warning-dot: #ffb020;
+  --state-warning-subtle-bg: #2a2012;
+  --state-warning-subtle-border: #5c4517;
+  --state-warning-subtle-text: #ffcf70;
+
+  --state-danger-dot: #ff5a4f;
+  --state-danger-subtle-bg: #2a1518;
+  --state-danger-subtle-border: #5b2428;
+  --state-danger-subtle-text: #ff9a92;
+
+  --state-success-dot: #3ddc84;
+  --state-success-subtle-bg: #10261c;
+  --state-success-subtle-border: #1e5238;
+  --state-success-subtle-text: #7fe8ae;
+}
+
 [data-density="compact"] {
   --density-unit: 0.1875rem;
 }

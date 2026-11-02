@@ -244,6 +244,7 @@ export const AUDIT_ACTIONS = [
   "workshop_stock.verification_recorded",
   "workshop_stock.count_corrected",
   "workshop_stock.movement_undone",
+  "workshop_stock.location_matrix_saved",
   // #370: daywork register (api/dayworks.js). daywork.created on POST;
   // daywork.signed on the supervisor sign; daywork.transitioned on the
   // signed → invoiced change (metadata.from/to); daywork.amended when a

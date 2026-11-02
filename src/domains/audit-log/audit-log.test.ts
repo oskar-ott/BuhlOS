@@ -336,6 +336,7 @@ describe("AuditLogEntrySchema", () => {
       "workshop_stock.item_created",
       "workshop_stock.item_restored",
       "workshop_stock.item_updated",
+      "workshop_stock.location_matrix_saved",
       "workshop_stock.movement_undone",
       "workshop_stock.photo_changed",
       "workshop_stock.verification_recorded",
