@@ -270,6 +270,32 @@ brand; then the first free bin. A free bin holds no stock and no rule. It doesn'
 how often an item is taken or how big anything is, so it never claims a "fastest" or
 "best fit" spot.
 
+**A recommended layout** ("Recommend a layout" on the same screen, `location-layout.ts`)
+keeps related stock together once the racks exist: GPOs beside switches, patch leads beside
+data jacks. It sorts stock into groups by the words on its name, in the same way a rule
+matches, then runs the groups along the racks in one path that turns back at the end of
+each shelf, so neighbours stay neighbours over the turn. A group with several ranges (or,
+with no range on the label, several brands) gets a bin for each, plus one for the group.
+
+- It's shown on the racks first. "Use this layout" saves ordinary rules, so new stock goes
+  there. Recorded stock doesn't move: it appears under "Needs a place" for a tap each.
+  Undo puts the rules back, but anything already moved stays where it was moved to.
+- Rules already set are kept, and that family grows out from them, unless "Keep the rules
+  already set" is unticked, which replaces them.
+- Bins holding stock that no group covers are left alone. That stock is listed as "Not in
+  any group", because a rule can't catch a name that doesn't say what it is.
+- With room for every usual group, or with no stock at all, it readies them all, including
+  groups with no stock yet. Otherwise it only places the groups stock has.
+- Groups in a family sit touching, and any free bins go after the family. A family that
+  wouldn't fit in what's left of a rack starts on the next rack if there's room to spare.
+  With more groups than free bins, neighbours share a bin and the screen says so. Once
+  saved, those free bins are just free bins: nothing reserves them for the family.
+
+**The groups and their order are trade judgement written down in `LAYOUT_FAMILIES`, not
+measured.** It doesn't know how big anything is or how often it's taken, or which way
+shelves or racks run in the real workshop, so it only ever says what sits together.
+Cable on drums won't suit a bin, and a person should change that kind of thing by hand.
+
 Stored as one JSON document per company with a compare-and-set revision
 (`workshop_stock_location_matrix`, migration
 `20261102100000_workshop_stock_location_matrix.sql`). Until that is applied both
@@ -894,7 +920,9 @@ WORKSHOP_STOCK_E2E_API=http://localhost:3101 npx playwright test tests/workshop-
 ```
 
 `tests/workshop-stock/shelf-map.e2e.spec.ts` (Add form, bin picker, shelf map, moves,
-the crew's read) and `tests/workshop-stock/camera-table.e2e.spec.ts` run the same way. The camera spec's webcam is a
+the crew's read), `tests/workshop-stock/layout-plan.e2e.spec.ts` (recommended layout, use,
+undo) and `tests/workshop-stock/camera-table.e2e.spec.ts` run the same way. Each resets the
+harness, so run them one file at a time. The camera spec's webcam is a
 canvas the spec draws on, so the real tracker finds real objects in real frames, but
 the barcode detector and the label reader's answers are fixtures: **real webcams,
 lighting and labels are not proven**, and neither is the speed or cost of real reads.

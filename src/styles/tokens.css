@@ -165,6 +165,16 @@
   --state-success-subtle-bg: #10261c;
   --state-success-subtle-border: #1e5238;
   --state-success-subtle-text: #7fe8ae;
+
+  /* Layout plan: one colour per family of stock (location-layout.ts). */
+  --zone-fitoff: #ffcc00;
+  --zone-data: #6ea8ff;
+  --zone-boards: #ff7a6b;
+  --zone-lights: #f59e42;
+  --zone-led: #c792ea;
+  --zone-conduit: #3ddc84;
+  --zone-cable: #2dd4bf;
+  --zone-fixings: #b4bfd3;
 }
 
 [data-density="compact"] {

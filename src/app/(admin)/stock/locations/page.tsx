@@ -37,7 +37,7 @@ export default async function StockLocationsPage() {
     >
       <div className="mx-auto max-w-6xl space-y-4">
         <p className="text-sm text-text-muted">
-          See what&rsquo;s in each bin, and click a bin to write what belongs there. New stock with no location goes by those words. Changing them never moves stock already recorded; only Put it here and Move do.
+          See what&rsquo;s in each bin, and click a bin to write what belongs there, or get a recommended layout that keeps related stock together. New stock with no location goes by those words. Changing them never moves stock already recorded; only Put it here and Move do.
         </p>
         <StockLocationMatrix />
       </div>
