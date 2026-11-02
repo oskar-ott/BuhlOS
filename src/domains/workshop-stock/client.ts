@@ -37,8 +37,14 @@ function withKey(key: string): RequestInit {
   return { ...INIT, headers: { "Idempotency-Key": key } };
 }
 
-export function fetchStockList(opts: { archived?: boolean; signal?: AbortSignal } = {}): Promise<HttpResult<StockList>> {
-  return httpGet(`${BASE}?action=list${opts.archived ? "&archived=1" : ""}`, { schema: StockListSchema, init: { ...INIT, signal: opts.signal }, timeoutMs: 20_000 });
+export async function fetchStockList(opts: { archived?: boolean; signal?: AbortSignal } = {}): Promise<HttpResult<StockList>> {
+  const once = () => httpGet(`${BASE}?action=list${opts.archived ? "&archived=1" : ""}`, { schema: StockListSchema, init: { ...INIT, signal: opts.signal }, timeoutMs: 20_000 });
+  const r = await once();
+  // 503 = the server gave up before reading anything (a stalled database
+  // connection, which it has now dropped): one quiet retry gets a fresh one,
+  // so the screen loads instead of showing an error (2026-11-02).
+  if (!r.ok && r.error.status === 503 && !opts.signal?.aborted) return once();
+  return r;
 }
 
 export function fetchItem(id: string) {

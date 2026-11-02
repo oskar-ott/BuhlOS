@@ -55,7 +55,7 @@ const { z } = require('zod');
 const { readBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth } = require('./_lib/auth');
 const { isFlagEnabled } = require('./_lib/feature-flags');
-const { getDb } = require('./_lib/supabase-db');
+const { getDb, closeDb } = require('./_lib/supabase-db');
 const auditLog = require('./_lib/audit-log');
 const { withErrorCapture } = require('./_lib/error-wrap');
 const { idempotencyKeyFrom } = require('./_lib/idempotency');
@@ -363,12 +363,13 @@ function parseOr400(schema, body, res) {
 async function list(sql, tenant, me, req, res) {
   const office = policy.isOffice(me.role);
   const includeArchived = office && req.query && req.query.archived === '1';
-  const [items, locationPhoto, types, lists] = await Promise.all([
-    store.listItems(sql, tenant.id, { includeArchived }),
-    store.hasLocationPhoto(sql),
-    store.hasTypes(sql),
-    store.hasLists(sql),
-  ]);
+  // One query at a time on the instance's single pooled connection
+  // (2026-11-02): firing these together hung cold instances on the pooler.
+  // The capability check is cached per instance, so this costs nothing warm.
+  const locationPhoto = await store.hasLocationPhoto(sql);
+  const types = await store.hasTypes(sql);
+  const lists = await store.hasLists(sql);
+  const items = await store.listItems(sql, tenant.id, { includeArchived });
   return res.status(200).json({
     items,
     viewer: { id: me.id, office },
@@ -383,10 +384,9 @@ async function itemDetail(sql, tenant, me, id, res) {
   if (!uuid.safeParse(id).success) return res.status(404).json({ error: 'item_not_found' });
   const item = await store.getItem(sql, tenant.id, id);
   if (!item || (item.archivedAt && !policy.isOffice(me.role))) return res.status(404).json({ error: 'item_not_found' });
-  const [movements, events] = await Promise.all([
-    store.listMovements(sql, tenant.id, id, { limit: 50 }),
-    policy.isOffice(me.role) ? store.itemEvents(sql, tenant.id, id) : Promise.resolve(null),
-  ]);
+  // one at a time on the single pooled connection (see list)
+  const movements = await store.listMovements(sql, tenant.id, id, { limit: 50 });
+  const events = policy.isOffice(me.role) ? await store.itemEvents(sql, tenant.id, id) : null;
   return res.status(200).json({ item, movements: withUndo(movements, me), events, undoMinutes: policy.WORKER_UNDO_MINUTES });
 }
 
@@ -1139,6 +1139,51 @@ async function deleteListLine(sql, tenant, id, res) {
 
 // ── router ────────────────────────────────────────────────────────────────────
 
+// The first query of a request (the tenant lookup) normally answers in a few
+// ms. If it hasn't in DB_STALL_MS the connection is wedged: give up before
+// anything is read or written instead of holding the screen for the 60 s
+// function limit.
+const DB_STALL_MS = 6000;
+function firstQueryOrStall(promise) {
+  let timer;
+  const stall = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(Object.assign(new Error('db stalled'), { code: 'db_stalled' })), DB_STALL_MS);
+  });
+  return Promise.race([promise, stall]).finally(() => clearTimeout(timer));
+}
+
+// A read that hasn't answered in READ_STALL_MS is stuck on its connection
+// (2026-11-02: list requests on fresh instances hung to the 60 s limit). Give
+// up, drop the connection so the next request opens a fresh one, and answer
+// 503 — reads only, so nothing can be half-done; the phone retries the list
+// once. Whatever the stuck read does later is discarded.
+const READ_STALL_MS = 12000;
+async function readWithWatchdog(res, run) {
+  let dead = false;
+  const r = {
+    status(code) { if (!dead) res.status(code); return r; },
+    json(body) { if (!dead) res.json(body); return r; },
+    setHeader(k, v) { if (!dead) res.setHeader(k, v); return r; },
+    end(body) { if (!dead) res.end(body); return r; },
+  };
+  let timer;
+  const stalled = new Promise((resolve) => { timer = setTimeout(() => resolve('stalled'), READ_STALL_MS); });
+  const work = Promise.resolve().then(() => run(r)).then(() => 'done');
+  work.catch(() => {}); // a late failure after a stall must not go unhandled
+  try {
+    const outcome = await Promise.race([work, stalled]);
+    if (outcome === 'stalled') {
+      dead = true;
+      closeDb().catch(() => {});
+      console.error('[workshop-stock] read stalled — connection dropped');
+      return res.status(503).json({ error: 'store_unavailable' });
+    }
+    return undefined;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function handler(req, res) {
   setNoCache(res);
   if (req.method === 'OPTIONS') return res.status(200).end();
@@ -1157,24 +1202,34 @@ async function handler(req, res) {
   let tenant;
   try {
     sql = getDb({ mode: req.method === 'GET' ? 'read' : 'write' });
-    tenant = await store.resolveTenant(sql);
+    tenant = await firstQueryOrStall(store.resolveTenant(sql));
   } catch (e) {
+    if (e && e.code === 'db_stalled') {
+      // The connection took the request and never ran it (2026-11-02, 00:37:
+      // three stock requests sat 60 s on a fresh pooled connection, then timed
+      // out). Drop this instance's connection so the next request opens a
+      // fresh one — closeDb() forgets it at once; the close itself is
+      // best-effort. Nothing was attempted yet, so 503 stays honest.
+      closeDb().catch(() => {});
+    }
     console.error('[workshop-stock] store unavailable', { code: (e && e.code) || 'db' });
     return res.status(503).json({ error: 'store_unavailable' });
   }
   if (!tenant) return res.status(503).json({ error: 'store_unprovisioned' });
 
   if (req.method === 'GET') {
-    switch (action) {
-      case '':
-      case 'list': return list(sql, tenant, me, req, res);
-      case 'item': return itemDetail(sql, tenant, me, String(q.id || ''), res);
-      case 'history': return history(sql, tenant, me, q, res);
-      case 'operation': return operation(sql, tenant, me, q.key, res);
-      case 'photo': return servePhoto(sql, tenant, me, String(q.id || ''), String(q.size || ''), res);
-      case 'lists': return lists(sql, tenant, me, res);
-      default: return res.status(400).json({ error: 'unknown_action' });
-    }
+    return readWithWatchdog(res, (r) => {
+      switch (action) {
+        case '':
+        case 'list': return list(sql, tenant, me, req, r);
+        case 'item': return itemDetail(sql, tenant, me, String(q.id || ''), r);
+        case 'history': return history(sql, tenant, me, q, r);
+        case 'operation': return operation(sql, tenant, me, q.key, r);
+        case 'photo': return servePhoto(sql, tenant, me, String(q.id || ''), String(q.size || ''), r);
+        case 'lists': return lists(sql, tenant, me, r);
+        default: return r.status(400).json({ error: 'unknown_action' });
+      }
+    });
   }
   if (req.method === 'POST') {
     switch (action) {
@@ -1203,4 +1258,4 @@ async function handler(req, res) {
 }
 
 module.exports = withErrorCapture(handler, 'workshop-stock');
-module.exports.__test = { stableStringify, requestHash, verificationFromLookup, identifiersForItem };
+module.exports.__test = { firstQueryOrStall, DB_STALL_MS, READ_STALL_MS, stableStringify, requestHash, verificationFromLookup, identifiersForItem };

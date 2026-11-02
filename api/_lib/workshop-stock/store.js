@@ -151,9 +151,19 @@ const ITEM_COLUMNS = (sql) => sql`
 const SCHEMA_RECHECK_MS = 60_000;
 let schemaSeen = null;
 let schemaCheckedAt = 0;
+// One check at a time per instance (2026-11-02): the list asked for all three
+// capabilities at once, so a cold instance sent three identical queries down
+// its one pooled connection together with the item list — and those requests
+// hung on the pooler. Callers arriving mid-check share it.
+let schemaInflight = null;
 async function schemaFeatures(sql) {
   if (schemaSeen && schemaSeen.locationPhoto && schemaSeen.types && schemaSeen.lists) return schemaSeen;
   if (schemaSeen && Date.now() - schemaCheckedAt < SCHEMA_RECHECK_MS) return schemaSeen;
+  if (schemaInflight) return schemaInflight;
+  schemaInflight = checkSchema(sql).finally(() => { schemaInflight = null; });
+  return schemaInflight;
+}
+async function checkSchema(sql) {
   try {
     const rows = await sql`
       select table_name, column_name from information_schema.columns
