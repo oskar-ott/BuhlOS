@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  canApproveOwnHours,
   isAdminRole,
   isClientRole,
   isFieldRole,
@@ -9,6 +10,15 @@ import {
 } from "./roles";
 
 describe("role tier helpers (modern)", () => {
+  it("canApproveOwnHours is the Admin / Owner card only, mirroring api/_lib/auth.js", () => {
+    for (const r of ["admin", "boss", "owner", "ADMIN"]) {
+      expect(canApproveOwnHours(r)).toBe(true);
+    }
+    for (const r of ["manager", "office", "pm", "estimator", "lh", "tradie", "client", "", null, undefined]) {
+      expect(canApproveOwnHours(r)).toBe(false);
+    }
+  });
+
   it("isAdminRole spans the whole admin tier, case-insensitive", () => {
     for (const r of [
       "admin",

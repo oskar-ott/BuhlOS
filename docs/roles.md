@@ -18,6 +18,7 @@ missing-hours) and #123 (office/boss saw blank hours boards) happened.
 | `isClientRole(role)` | the client role (single role, predicate for consistency) |
 | `isHoursTrackedWorker(user)` | *expected to log hours*: field tier (not subcontractors) + LHs + project managers, live accounts — drives missing-hours, weekly readiness, leave, crew week, cost-rate coverage and the Xero mapping board |
 | `isProjectManagerRole(role)` | the project manager (`pm`) — a **narrowing within** the admin tier, like owner. Office access for every permission; read only where the PM is treated like the crew because they log and are paid on their own hours (hours tracking, payroll rate, hours reminders). Grants nothing. |
+| `canApproveOwnHours(role)` | may approve their **own** hours — the Admin / Owner card only (`admin`, legacy `boss`/`owner`), because nobody sits above them to do it (owner pull 2026-10-25). Approve only; fixing/sending back your own stays refused for all. Grants nothing else. |
 | `isOwnerRole(role)` | the product/platform owner — a **narrowing within** the admin tier (`owner` ∈ admin tier, so `isAdminRole('owner')` is also true). Gates the Owner Console only; never replaces the admin-tier checks. |
 
 The **Owner Console** (`docs/owner-console.md`, `/owner`) is gated to the owner —

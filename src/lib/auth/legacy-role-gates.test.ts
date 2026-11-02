@@ -24,6 +24,7 @@ interface AuthModule {
   isStaffRole: (r: unknown) => boolean;
   isHoursTrackedWorker: (u: unknown) => boolean;
   isProjectManagerRole: (role: unknown) => boolean;
+  canApproveOwnHours: (role: unknown) => boolean;
   roleSatisfies: (userRole: unknown, allowed: string[]) => boolean;
   signSession: (payload: Record<string, unknown>) => string;
   requireAuth: (
@@ -142,6 +143,15 @@ describe("isHoursTrackedWorker — who is EXPECTED to log hours (#114)", () => {
     expect(auth.isProjectManagerRole("pm")).toBe(true);
     for (const role of ["admin", "office", "estimator", "electrician", ""]) {
       expect(auth.isProjectManagerRole(role)).toBe(false);
+    }
+  });
+
+  it("only the Admin / Owner may approve their own hours (owner pull 2026-10-25)", () => {
+    for (const role of ["admin", "boss", "owner", "Admin", "OWNER"]) {
+      expect(auth.canApproveOwnHours(role)).toBe(true);
+    }
+    for (const role of ["manager", "office", "pm", "estimator", "lh", "leadingHand", "tradie", "client", "", null, undefined]) {
+      expect(auth.canApproveOwnHours(role)).toBe(false);
     }
   });
 

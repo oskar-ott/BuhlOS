@@ -26,7 +26,7 @@ describe("ProblemDialog", () => {
     expect(html).toContain("z-[80]");
     expect(html).toContain("Fix not saved");
     expect(html).toContain("You can&#x27;t do this to your own hours");
-    expect(html).toContain("Nobody fixes or approves their own pay.");
+    expect(html).toContain("Nobody fixes their own pay from the office side.");
     expect(html).toContain("What to do");
     expect(html).toContain('data-testid="problem-ok"');
   });

@@ -139,7 +139,12 @@ State persists.                       Vercel Blob: users/<userId>/time-entries/<
   **Approve** in one tap; **Reject** requires a reason (it is pushed to the
   worker verbatim). Empty state is honest ("No entries to approve").
 - **Leading hands** see/action only entries on jobs they run, never another
-  LH's entry. Self-approval is impossible for everyone.
+  LH's entry. Self-approval is impossible for everyone **except the Admin /
+  Owner** (`canApproveOwnHours`: `admin` and its legacy aliases `boss`/`owner`),
+  who has nobody above them to sign their hours off (owner pull 2026-10-25).
+  Approve only, single and bulk — fixing or sending back your own hours stays
+  refused for everyone; the rest of the office (office/pm/estimator/manager)
+  and every leading hand still cannot approve their own.
 - **Fix it and approve** (admin tier only, reason required, submitted days
   only — `api/time-entries-amend-approve.js`) sits on every day of the phone
   closeout (`/hours/weekly`, "Fix") and on the `/hours/approvals` queue — one

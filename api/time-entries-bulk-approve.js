@@ -15,7 +15,8 @@
 //   row removes. Bulk approve collapses that to one call.
 //
 // Permissions per entry (same as the single endpoint):
-//   - admin: any submitted entry
+//   - admin: any submitted entry — the Admin / Owner even their own
+//            (canApproveOwnHours); the rest of the office never their own
 //   - leadingHand: only entries where every allocation hits a job they
 //                  run; LHs can't approve other LHs (admin-only)
 //   - everyone else: 403 up front
@@ -27,7 +28,7 @@
 //   by the pending Phase 07 work — a separate file avoids a merge knot.
 
 const { readBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, canApproveHours, isLeadingHandRole } = require('./_lib/auth');
+const { requireAuth, canApproveHours, canApproveOwnHours, isLeadingHandRole } = require('./_lib/auth');
 const { readEntryVerified, writeEntry, appendAuditMany } = require('./_lib/time-entries');
 const { append: appendAuditLog } = require('./_lib/audit-log');
 const { buildHoursBulkAuditEntry } = require('./_lib/hours-audit');
@@ -61,7 +62,7 @@ async function approveOne({ userId, date, me, userById, myJobs }) {
   if (!userId || !date) {
     return { failed: { userId: userId || null, date: date || null, error: 'userId and date required' } };
   }
-  if (userId === me.id) {
+  if (userId === me.id && !canApproveOwnHours(me.role)) {
     return { failed: { userId, date, error: 'cannot approve your own hours' } };
   }
 

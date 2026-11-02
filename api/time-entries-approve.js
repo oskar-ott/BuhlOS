@@ -2,9 +2,11 @@
 // Admin: can approve anyone's. LH: can approve a tradie's entry only if every
 // allocation is on a job they're assigned to. LH cannot approve another LH's
 // entries (admin-only). Internal/no-job allocations are admin-only.
+// Nobody approves their OWN hours — except the Admin / Owner (canApproveOwnHours),
+// who has nobody above them to do it (owner pull 2026-10-25).
 
 const { readBlob, setNoCache } = require('./_lib/blob');
-const { requireAuth, canApproveHours, isLeadingHandRole } = require('./_lib/auth');
+const { requireAuth, canApproveHours, canApproveOwnHours, isLeadingHandRole } = require('./_lib/auth');
 const {
   readEntryVerified,
   decisionReadFailure,
@@ -30,7 +32,9 @@ module.exports = async (req, res) => {
 
   const { userId, date } = req.body || {};
   if (!userId || !date) return res.status(400).json({ error: 'userId and date required' });
-  if (userId === user.id) return res.status(403).json({ error: 'cannot approve your own hours' });
+  if (userId === user.id && !canApproveOwnHours(user.role)) {
+    return res.status(403).json({ error: 'cannot approve your own hours' });
+  }
 
   // The decision is made on a version PROVEN current (not a possibly-stale
   // CDN copy), and that version is the compare-and-swap baseline below.

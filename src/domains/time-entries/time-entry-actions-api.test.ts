@@ -5,7 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * Integration coverage for the dedicated time-entry approval actions. These
  * handlers are deliberately tested separately from the generic CRUD route:
  * payroll trust depends on aliases taking the same scoped path as
- * `leadingHand`, and on every actor being unable to approve or reject themself.
+ * `leadingHand`, and on every actor being unable to approve or reject themself
+ * — except the Admin / Owner approving their OWN hours (owner pull 2026-10-25),
+ * who has nobody above them to do it.
  */
 const requireFromHere = createRequire(import.meta.url);
 const blobSdkPath = requireFromHere.resolve("@vercel/blob");
@@ -305,6 +307,64 @@ describe("single approve/reject actions", () => {
     });
     expect(rejected.statusCode).toBe(200);
     expect(stored("u_field").rejectedBy).toBe("u_office");
+  });
+});
+
+describe("the Admin / Owner approves their OWN hours (owner pull 2026-10-25)", () => {
+  // Nobody is above the owner to sign their hours off, so the self-approval
+  // block is lifted for the Admin / Owner role card only. Approve only: fixing
+  // or sending back your own hours stays refused for everyone.
+  for (const role of ["admin", "boss", "owner"]) {
+    it(`${role} approves their own submitted day (single)`, async () => {
+      setEntry("u_admin", role, "job-x");
+      const res = await call(approve, "u_admin", role, { userId: "u_admin", date: TODAY });
+      expect(res.statusCode).toBe(200);
+      expect(stored("u_admin").status).toBe("approved");
+      expect(stored("u_admin").approvedBy).toBe("u_admin");
+    });
+  }
+
+  it("admin approves their own week in a bulk run alongside the crew", async () => {
+    setEntry("u_admin", "admin", "job-x");
+    const res = await call(bulkApprove, "u_admin", "admin", {
+      entries: [
+        { userId: "u_admin", date: TODAY },
+        { userId: "u_field", date: TODAY },
+      ],
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.body as { approvedCount: number; failedCount: number };
+    expect(body.approvedCount).toBe(2);
+    expect(body.failedCount).toBe(0);
+    expect(stored("u_admin").status).toBe("approved");
+    expect(stored("u_admin").approvedBy).toBe("u_admin");
+    expect(stored("u_field").status).toBe("approved");
+  });
+
+  it("the rest of the office is still blocked from their own hours (single + bulk)", async () => {
+    for (const role of ["office", "pm", "estimator", "manager"]) {
+      setEntry("u_office", role, "job-x");
+      const single = await call(approve, "u_office", role, { userId: "u_office", date: TODAY });
+      expect(single.statusCode).toBe(403);
+      expect((single.body as { error: string }).error).toBe("cannot approve your own hours");
+      expect(stored("u_office").status).toBe("submitted");
+
+      const bulk = await call(bulkApprove, "u_office", role, {
+        entries: [{ userId: "u_office", date: TODAY }],
+      });
+      expect(bulk.statusCode).toBe(200);
+      const body = bulk.body as { approvedCount: number; failed: Array<{ error: string }> };
+      expect(body.approvedCount).toBe(0);
+      expect(body.failed[0]?.error).toBe("cannot approve your own hours");
+      expect(stored("u_office").status).toBe("submitted");
+    }
+  });
+
+  it("the owner still cannot send back their own hours", async () => {
+    setEntry("u_admin", "admin", "job-x");
+    const res = await call(reject, "u_admin", "admin", { userId: "u_admin", date: TODAY, reason: "oops" });
+    expect(res.statusCode).toBe(403);
+    expect(stored("u_admin").status).toBe("submitted");
   });
 });
 

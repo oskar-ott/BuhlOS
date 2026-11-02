@@ -300,7 +300,9 @@ export function explainHoursProblem(action: HoursAction, input: ProblemInput): H
   if (error.includes("your own hours")) {
     return say(
       "You can't do this to your own hours",
-      "Nobody fixes or approves their own pay.",
+      action === "fix"
+        ? "Nobody fixes their own pay from the office side."
+        : "Only the owner signs off their own pay.",
       action === "fix"
         ? "Change it from your own phone (Hours → Change these hours), or ask someone else in the office."
         : "Ask someone else in the office to do it.",

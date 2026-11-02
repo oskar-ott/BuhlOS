@@ -352,6 +352,16 @@ function canViewArchivedJobs(role) { return isAdminRole(role); }
 // admin hours never reach payroll unless the office maps them.
 function canSubmitHours(role) { return isFieldRole(role) || isLeadingHandRole(role) || isAdminRole(role); }
 function canApproveHours(role) { return isStaffRole(role); }
+// Self-approval (owner pull 2026-10-25: "owner admin should be able to
+// approve their own hours"). Nobody approves their own pay — EXCEPT the
+// person at the top of the tree, because there is nobody above them to do
+// it: the "Admin / Owner" role card (`admin`, plus its legacy aliases `boss`
+// and `owner`). The rest of the office (office/pm/estimator/manager) and
+// every leading hand stay blocked — the owner signs their hours off.
+// Approve only (single + bulk); fixing or sending back your own hours is
+// still refused for everyone.
+const SELF_APPROVE_ROLES = new Set(['admin', 'boss', 'owner']);
+function canApproveOwnHours(role) { return SELF_APPROVE_ROLES.has(normaliseRole(role)); }
 
 // "Expected to log hours" — the missing-hours / payroll-readiness tracking
 // tier. This is an EXPECTATION, not a permission: the workers whose days the
@@ -438,6 +448,7 @@ module.exports = {
   canViewArchivedJobs,
   canSubmitHours,
   canApproveHours,
+  canApproveOwnHours,
   isHoursTrackedWorker,
   canReviewEvidence,
   canManageGear,
