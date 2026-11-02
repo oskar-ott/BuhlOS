@@ -309,12 +309,12 @@ describe("jobs", () => {
     ]);
   });
 
-  it("chips: a short job list shows every job, ranked", () => {
+  it("tiles: 3 jobs or fewer shows every job, ranked", () => {
     const shown = chipJobs({ jobs: JOBS, recentJobIds: ["castle"], lastJobId: "mascot" });
     expect(shown.map((j) => j.id)).toEqual(["mascot", "castle", "bondi"]);
   });
 
-  it("chips: every worker works every active job, so a long list is capped — never a wall (#977)", () => {
+  it("tiles: the last 3 jobs, whatever the job count — the 4th tile is More jobs (owner, 2026-11-02)", () => {
     // Buhl's real shape: 30-odd active jobs, a worker who has logged a handful.
     const many = Array.from({ length: 34 }, (_, i) => ({
       id: `j${String(i).padStart(2, "0")}`,
@@ -322,8 +322,8 @@ describe("jobs", () => {
     }));
     const recent = ["j20", "j07", "j31", "j02", "j15", "j09", "j11"];
     const shown = chipJobs({ jobs: many, recentJobIds: recent, lastJobId: "j20" });
-    expect(shown).toHaveLength(JOB_CHIPS_SHOWN);
-    expect(shown.map((j) => j.id)).toEqual(["j20", "j07", "j31", "j02", "j15"]);
+    expect(JOB_CHIPS_SHOWN).toBe(3);
+    expect(shown.map((j) => j.id)).toEqual(["j20", "j07", "j31"]);
 
     // Only jobs the worker has a reason to pick — never padded A–Z with jobs
     // they've never logged.
@@ -331,17 +331,17 @@ describe("jobs", () => {
     expect(fresh.map((j) => j.id)).toEqual(["j20"]);
     expect(chipJobs({ jobs: many, recentJobIds: [], lastJobId: null })).toEqual([]);
 
-    // The day's pick always has a chip, even one never logged (a job screen's ?job=).
+    // The day's pick always has a tile, even one never logged (a job screen's ?job=).
     const picked = chipJobs({
       jobs: many,
       recentJobIds: recent,
       lastJobId: "j20",
       pickedJobId: "j33",
     });
-    expect(picked.map((j) => j.id)).toEqual(["j20", "j33", "j07", "j31", "j02"]);
+    expect(picked.map((j) => j.id)).toEqual(["j20", "j33", "j07"]);
   });
 
-  it("chips: the job shown as the full-width found chip never appears twice", () => {
+  it("tiles: a job found through More jobs takes a tile of its own — never two", () => {
     const shown = chipJobs({
       jobs: JOBS,
       recentJobIds: [],

@@ -27,8 +27,8 @@ import { STATUS_WORDS } from "./status-words";
  *     which days anyone works, so there is no "to go" and no "week done";
  *   - job search never returns a leave day (sick / holiday / TAFE are not
  *     jobs and never sit next to jobs);
- *   - the job chips are bounded: every worker works every active job, so the
- *     panel shows the last / picked / recently logged jobs, never all of them.
+ *   - the job tiles are bounded: every worker works every active job, so the
+ *     panel shows the last 3 jobs + "More jobs", never all of them.
  *
  * Honest by construction (P7): every row is a real entry or a real calendar
  * day; the only numbers are sums of stored hours.
@@ -366,16 +366,17 @@ export function searchJobs<J extends HoursJob>(jobs: ReadonlyArray<J>, query: st
 /* ── Job chips ────────────────────────────────────────────────────────── */
 
 /**
- * The most job chips the panel shows (P10). Every worker works every active
- * job (all-jobs access, #907), so "the worker's jobs" is the whole active
- * list — 30-odd at Buhl. Rendering all of them turned the panel into a
- * page-filling wall of chips: the regression the spinning job dial fixed
+ * The most job tiles the panel shows (P10): the last 3 jobs, and the 4th tile
+ * of the 2×2 is "More jobs" (owner, 2026-11-02 — "the last 3 jobs … with the
+ * 4th tile being more jobs so it doesn't saturate the screen"). Every worker
+ * works every active job (all-jobs access, #907), so "the worker's jobs" is
+ * the whole active list — 30-odd at Buhl. A tile per job turned the panel
+ * into a page-filling wall: the regression the spinning job dial had fixed
  * (owner, 2026-08-02, #977 — "constant height for any job count") and the
- * 2026-10-25 rebuild brought back. Five chips + "Find another job" is three
- * rows, whatever the job count; every other job is one tap away in the Find
- * sheet (search + the full list).
+ * 2026-10-25 rebuild brought back. Every other job is one tap away in More
+ * jobs (the Find sheet: search + the full list).
  */
-export const JOB_CHIPS_SHOWN = 5;
+export const JOB_CHIPS_SHOWN = 3;
 
 /** Job ids this worker logged hours on, most recently logged first. Every
  *  allocation counts, so both jobs of a split day are "recent". */
@@ -415,13 +416,13 @@ export function rankJobs<J extends HoursJob>(input: {
 }
 
 /**
- * The jobs that get a chip for one day. A short list (≤ `limit`) shows every
- * job, as designed. A long one shows only the jobs this worker has a reason
- * to pick — the last job, the day's pick, the ones they logged most recently
- * — capped at `limit`, so the grid never grows with the job count. Jobs they
- * never logged are not padded in by name: an alphabetical guess is noise, and
- * "Find another job" reaches them. `excludeJobId` is the job already shown as
- * the full-width "found" chip, so it never appears twice.
+ * The jobs that get a tile for one day. A short list (≤ `limit`) shows every
+ * job. A long one shows only the jobs this worker has a reason to pick — the
+ * last job, the day's pick, the ones they logged most recently — capped at
+ * `limit`, so the grid never grows with the job count. Jobs they never logged
+ * are not padded in by name: an alphabetical guess is noise, and "More jobs"
+ * reaches them. `excludeJobId` is the job found through More jobs, which
+ * takes its own tile, so it never appears twice.
  */
 export function chipJobs<J extends HoursJob>(input: {
   jobs: ReadonlyArray<J>;

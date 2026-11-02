@@ -151,13 +151,13 @@ describe("PhilHoursView — this week", () => {
     expect(html).toContain("Mascot warehouse · sends to the office");
     expect(html).toContain('data-testid="hours-action-split"');
     expect(html).toContain('data-testid="hours-action-tafe"');
-    expect(html).toContain("Find another job");
+    expect(html).toContain("More jobs");
   });
 
-  it("every active job listed (30-odd): the panel shows a few chips, not a wall — the rest are in Find another job", () => {
-    // The 2026-11-01 screenshot: a chip for every job in the business, A–Z,
-    // filling the screen. Every worker works every active job (#907), so the
-    // grid is cut to the last job + the jobs this worker logged recently.
+  it("every active job listed (30-odd): the last 3 jobs + a More jobs tile — a 2×2, never a wall", () => {
+    // The 2026-11-01 screenshot: a tile for every job in the business, A–Z,
+    // filling the screen. Owner, 2026-11-02: "the last 3 jobs … with the 4th
+    // tile being more jobs so it doesn't saturate the screen".
     const many = Array.from({ length: 34 }, (_, i) => ({
       id: `j${String(i).padStart(2, "0")}`,
       name: `Site ${String(i).padStart(2, "0")}`,
@@ -165,18 +165,24 @@ describe("PhilHoursView — this week", () => {
     const html = render({
       jobs: [...JOBS, ...many],
       entries: [
+        entry({ date: "2026-10-01", allocations: [{ jobId: "j03", hours: 7.6 }] }),
+        entry({ date: "2026-10-02", allocations: [{ jobId: "j29", hours: 7.6 }] }),
+        entry({ date: "2026-10-06", allocations: [{ jobId: "bondi", hours: 7.6 }] }),
         entry({ date: "2026-10-08", allocations: [{ jobId: "j17", hours: 7.6 }] }),
         entry({ date: "2026-10-09", allocations: [{ jobId: "mascot", hours: 7.6 }] }),
       ],
     });
-    const chips = html.match(/data-testid="hours-job-chip-[^"]+"/g) ?? [];
-    expect(chips).toEqual([
+    const tiles = html.match(/data-testid="hours-job-chip-[^"]+"/g) ?? [];
+    expect(tiles).toEqual([
       'data-testid="hours-job-chip-mascot"',
       'data-testid="hours-job-chip-j17"',
+      'data-testid="hours-job-chip-bondi"',
     ]);
     expect(html).toContain("Your last job");
     expect(html).toContain("Mascot warehouse · sends to the office");
     expect(html).toContain('data-testid="hours-find-job"');
+    expect(words(html)).toContain("More jobs");
+    expect(html).not.toContain("Site 03");
     expect(html).not.toContain("Site 00");
   });
 

@@ -2,23 +2,28 @@ import type { ReactNode } from "react";
 import { MapPin, Search } from "lucide-react";
 import { cn } from "@/lib/cn";
 import {
+  JOB_CHIPS_SHOWN,
   chipJobs,
   isFinishedJob,
   weekdayName,
+  weekdayShort,
   type HoursJob,
 } from "@/domains/timesheets/hours-view";
 
 /**
- * The job chips (docs/phil-hours.md): a 2-column grid of the worker's jobs,
- * the last job first and picked ("Your last job"), plus a dashed "Find
- * another job" chip. A job found by search joins the grid as the picked chip,
- * full width, with its address · `finished job` · `Thursday only` — a pick
- * applies to the picked day only. Selected = navy fill + filled dot.
+ * The job tiles (docs/phil-hours.md): a 2×2 grid — the worker's last 3 jobs
+ * (the last job first and picked, "Your last job") and a dashed 4th tile,
+ * "More jobs", that opens Find another job for everything else. It never
+ * grows past two rows, however many jobs there are (P10, owner 2026-11-02:
+ * "the last 3 jobs … with the 4th tile being more jobs so it doesn't
+ * saturate the screen"). Every worker works every active job, so a tile per
+ * job was a page-filling wall.
  *
- * Bounded (P10): with more jobs than `JOB_CHIPS_SHOWN`, only the last job,
- * the day's pick and the jobs this worker logged most recently get a chip
- * (`chipJobs`) — every worker works every active job, and a chip per job was
- * a page-filling wall. The rest are in Find another job.
+ * Which 3 (`chipJobs`): the last job, the day's pick, then the jobs this
+ * worker logged most recently — never padded A–Z with jobs they've never
+ * logged. A job found through More jobs takes the first tile for that day
+ * (`finished job · Thu only` — a pick applies to the picked day only).
+ * Selected = navy fill + filled dot.
  */
 export function JobChips({
   jobs,
@@ -36,7 +41,7 @@ export function JobChips({
   recentJobIds?: ReadonlyArray<string>;
   pickedJobId: string | null;
   lastJobId: string | null;
-  /** A job found through search for this day (not in `jobs`). */
+  /** A job found through search for this day — it takes the first tile. */
   foundJob?: HoursJob | null;
   date: string;
   /** In the Fix sheet: the job that was sent, marked "What you sent". */
@@ -50,7 +55,9 @@ export function JobChips({
     lastJobId,
     pickedJobId,
     excludeJobId: foundJob?.id ?? null,
+    limit: JOB_CHIPS_SHOWN - (foundJob ? 1 : 0),
   });
+  const tiles = shown.length + (foundJob ? 1 : 0);
   return (
     <div
       role="radiogroup"
@@ -62,12 +69,7 @@ export function JobChips({
           job={foundJob}
           active={pickedJobId === foundJob.id}
           onPick={() => onPick(foundJob.id)}
-          wide
-          caption={[
-            foundJob.address,
-            isFinishedJob(foundJob) ? "finished job" : null,
-            `${weekdayName(date)} only`,
-          ]
+          caption={[isFinishedJob(foundJob) ? "finished job" : null, `${weekdayShort(date)} only`]
             .filter(Boolean)
             .join(" · ")}
         />
@@ -95,11 +97,11 @@ export function JobChips({
         data-testid="hours-find-job"
         className={cn(
           "flex min-h-[56px] items-center justify-center gap-2 rounded-card border border-dashed border-border-strong px-3 font-display text-[15px] font-semibold text-text active:bg-surface-subtle",
-          shown.length === 0 && "col-span-2"
+          tiles === 0 && "col-span-2"
         )}
       >
         <Search aria-hidden="true" className="h-4 w-4 text-text-muted" />
-        {shown.length === 0 && !foundJob ? "Find a job" : "Find another job"}
+        {tiles === 0 ? "Find a job" : "More jobs"}
       </button>
     </div>
   );
@@ -109,13 +111,11 @@ function Chip({
   job,
   active,
   caption,
-  wide = false,
   onPick,
 }: {
   job: HoursJob;
   active: boolean;
   caption: string | null;
-  wide?: boolean;
   onPick: () => void;
 }): ReactNode {
   return (
@@ -128,7 +128,6 @@ function Chip({
       data-testid={`hours-job-chip-${job.id}`}
       className={cn(
         "flex min-h-[56px] items-center gap-2 rounded-card border px-3 py-2 text-left",
-        wide && "col-span-2",
         active
           ? "border-brand-navy bg-brand-navy text-white"
           : "border-border-strong bg-surface text-text active:bg-surface-subtle"
