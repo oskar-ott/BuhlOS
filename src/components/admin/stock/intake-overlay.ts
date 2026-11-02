@@ -203,6 +203,8 @@ export function drawOverlay({ canvas, video, tracks, describe, memory, colours: 
 
   const live = new Set<number>();
   for (const track of tracks) {
+    // Something nobody brought isn't an object yet, so it gets no box.
+    if (track.arrived === false) continue;
     live.add(track.id);
     const tag = describe(track);
     if (tag.tone === "hidden") continue;

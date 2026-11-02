@@ -118,3 +118,46 @@ Sources: [Chrome shape detection](https://developer.chrome.com/docs/capabilities
 [Native LLM and MLLM inference on Apple Silicon](https://arxiv.org/html/2601.19139v1),
 [Cognex automated receiving](https://www.cognex.com/industries/logistics/inbound/automated-inbound-receiving),
 [CSSI overhead scanners](https://cssi.com/2026/02/16/faster-shipping-operations-pack-benches-with-overhead-scanners/).
+
+## First real camera, 2026-11-03
+
+The owner ran `main` (#1127, without this audit's fixes) on a Razer Kiyo at 1080p: three clear
+bags of switch mechs on a woodgrain desk, with a laptop, a black stand and a monitor edge in
+shot. Result: 8 "on table", 12 cards waiting, 0 logged, boxes all over the picture. This is the
+first field evidence, and it outranks everything above.
+
+Replaying real pixels from that one screenshot (`intake-photo.test.ts`, the table under the bags
+partly rebuilt, the arm drawn, the webcam's behaviour simulated on top):
+
+| What | `main` | #1129 as pushed | With this fix |
+|---|---|---|---|
+| 3 bags placed by hand, webcam hunting, cheap frame shrink | 7 counted | 13 | 3 |
+| The same, frames shrunk with averaging | 7 | 2 (two bags read as one) | 3 |
+| Exposure dips 10% with bags in shot | 18 | 3 | 3 (bags placed by hand first) |
+| Empty table for 20 s, webcam hunting | 0 | 0 | 0 |
+| Very clear bags, a bag put down almost touching, creeping glare | not run | 3 of the 20 photo tests fail | all 20 pass |
+
+The bench that had said 0.8% miscounted now says 1.2% (13 of 1,125, all too few, none too many,
+mostly on dark mats and wood): the merging of pieces costs a little. Worth watching, because a
+missed item is silent apart from having no box.
+
+The fix went wrong twice on the way, both caught by re-running: a box flipping between one thing
+and two so nothing ever settled, and a random-test miscount of 13.6% from duplicate tracks and
+shadows borrowing real items' edges. Run the random test (`BENCH_ALL_SEEDS=1`) after any change.
+
+What the simulated camera had hidden:
+
+- **Frames were shrunk by sampling, not averaging,** keeping three times the noise (11.6 levels
+  against 3.4, measured in Chromium). This caused most of #1129's repeat counting.
+- **Exposure doesn't shift everything equally.** One shift for the whole picture left bright and
+  dark things looking changed, which broke stock into pieces.
+- **Clear bags aren't solid objects,** and a piece of one holds no label, so each piece cost a
+  read and came back unreadable.
+- **Anything could arrive with no hand.**
+
+Not reproduced: the scattered boxes on bare wood in the screenshot. The nearest was 1 to 3 boxes
+at a 20% exposure change. The cause may be something the replay doesn't have, such as the camera
+moving or the table being read with things on it. Only a clip from the camera can settle that.
+
+Encouraging, and also from that photo: the part code on the label ("P3042VH-XW") is legible at
+1080p from that height. Barcodes look too small to count on. Label reads themselves remain untested.

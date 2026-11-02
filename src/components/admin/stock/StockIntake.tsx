@@ -45,6 +45,7 @@ const CAMERA_COPY: Record<Exclude<CameraState, "starting" | "live">, string> = {
 
 const ANALYSE_EVERY_MS = 150;
 const ANALYSIS_WIDTH = 320;
+const CLIP_LIMIT_MS = 60_000;
 const CROP_LONG_SIDE_MAX = 1568;
 const CROP_LONG_SIDE_MIN = 800;
 const THUMB_LONG_SIDE = 240;
@@ -189,6 +190,9 @@ export function StockIntake() {
   const [running, setRunning] = useState(false);
   const [paused, setPaused] = useState(false);
   const [tableChanged, setTableChanged] = useState(false);
+  const [unsteady, setUnsteady] = useState(false);
+  const [recordingClip, setRecordingClip] = useState(false);
+  const clipRef = useRef<MediaRecorder | null>(null);
   const [placed, setPlacedState] = useState<Placed[]>([]);
   const [lock, setLockState] = useState<{ itemId: string; name: string; unit: StockUnit; milli: number } | null>(null);
   const [items, setItemsState] = useState<StockItem[]>([]);
@@ -888,6 +892,8 @@ export function StockIntake() {
     if (camera !== "live") return;
     const small = document.createElement("canvas");
     const smallCtx = small.getContext("2d", { willReadFrequently: true });
+    // The default just samples the big picture, which keeps three times the noise (measured in Chromium).
+    if (smallCtx) smallCtx.imageSmoothingQuality = "medium";
     let ticks = 0;
     let spent = 0;
     let since = Date.now();
@@ -952,6 +958,7 @@ export function StockIntake() {
         const result = analyseFrame(table, image, Date.now());
         nextTrackerId.current = Math.max(nextTrackerId.current, table.tracker.nextId);
         setTableChanged(result.stopped);
+        setUnsteady(Boolean(result.step?.unsteady));
         armsRef.current = result.found.armCells ?? null;
         if (result.step) {
           atEdgeRef.current = result.step.atEdge;
@@ -1031,6 +1038,7 @@ export function StockIntake() {
     if (!frameRef.current) return;
     unlockSound();
     setTableChanged(false);
+    setUnsteady(false);
     setPaused(false);
     setRunning(false);
     setCalibrating(true);
@@ -1232,6 +1240,33 @@ export function StockIntake() {
     link.click();
     URL.revokeObjectURL(link.href);
   }
+  /** `?evidence=1` only: a clip of what the webcam really sends, saved to this computer, to test the counting against. */
+  function toggleClip() {
+    const open = clipRef.current;
+    if (open) {
+      open.stop();
+      return;
+    }
+    const stream = streamRef.current;
+    if (!stream || typeof MediaRecorder === "undefined") return;
+    const chunks: Blob[] = [];
+    const recorder = new MediaRecorder(stream, { mimeType: MediaRecorder.isTypeSupported("video/webm;codecs=vp9") ? "video/webm;codecs=vp9" : "video/webm", videoBitsPerSecond: 12_000_000 });
+    recorder.ondataavailable = (e) => chunks.push(e.data);
+    recorder.onstop = () => {
+      clipRef.current = null;
+      setRecordingClip(false);
+      window.clearTimeout(limit);
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(new Blob(chunks, { type: "video/webm" }));
+      link.download = `camera-table-clip-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.webm`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+    };
+    const limit = window.setTimeout(() => recorder.stop(), CLIP_LIMIT_MS);
+    clipRef.current = recorder;
+    recorder.start(1000);
+    setRecordingClip(true);
+  }
   const status = camera !== "live" ? (camera === "starting" ? "Starting" : camera === "lost" ? "Camera lost" : "No camera") : calibrating ? "Reading table" : running ? "Live" : paused ? "Paused" : "Ready";
 
   return (
@@ -1266,6 +1301,7 @@ export function StockIntake() {
         <div className="flex items-center gap-1">
           {camera === "live" ? <Button type="button" variant="secondary" size="sm" onClick={() => { setZoneDraft(null); setDrawingZone((now) => !now); }} aria-pressed={drawingZone} data-testid="stock-intake-zone"><CropIcon aria-hidden="true" className="h-4 w-4" /> Table area</Button> : null}
           {running ? <Button type="button" variant="secondary" size="sm" onClick={pauseTable} data-testid="stock-intake-pause"><Pause aria-hidden="true" className="h-4 w-4" /> Pause</Button> : null}
+          {evidence && camera === "live" ? <Button type="button" variant="secondary" size="sm" onClick={toggleClip} data-testid="stock-intake-clip">{recordingClip ? "Stop and save clip" : "Record clip"}</Button> : null}
           {running || paused ? <Button type="button" variant="secondary" size="sm" onClick={() => void startTable()} data-testid="stock-intake-reset"><RotateCcw aria-hidden="true" className="h-4 w-4" /> Reset table</Button> : null}
           <button type="button" onClick={toggleSound} aria-pressed={sound} aria-label={sound ? "Turn sound off" : "Turn sound on"} title={sound ? "Sound on" : "Sound off"} className="inline-flex h-8 w-8 items-center justify-center rounded-[4px] text-text-muted hover:bg-surface-raised hover:text-text" data-testid="stock-intake-sound">
             {sound ? <Volume2 aria-hidden="true" className="h-4 w-4" /> : <VolumeX aria-hidden="true" className="h-4 w-4" />}
@@ -1355,6 +1391,10 @@ export function StockIntake() {
             ) : tableChanged ? (
               <p className="absolute inset-x-3 top-3 rounded-[4px] bg-state-danger px-3 py-2 text-sm font-semibold text-text-inverse" role="alert">
                 Most of the picture has changed, so counting has stopped. If the camera moved, clear the table and press Reset table.
+              </p>
+            ) : unsteady ? (
+              <p className="absolute inset-x-3 top-3 rounded-[4px] bg-state-warning px-3 py-2 text-sm font-semibold text-text-inverse" role="status" data-testid="stock-intake-unsteady">
+                The picture isn&rsquo;t steady, so nothing new counts until it stops changing. If it stays like this, check the light or turn off auto-focus.
               </p>
             ) : null}
           </div>

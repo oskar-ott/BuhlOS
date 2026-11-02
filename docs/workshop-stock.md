@@ -183,8 +183,15 @@ accuracy nobody has measured.
    as covered, so an arm resting across the table doesn't hold up the rest of it. A
    nudged object is the same object. Objects pushed together turn amber ("Touching:
    move them apart") and any that split off count then. A difference with no hard
-   edge of its own is a shadow, never an object.
-3. **Nothing leaves the table unless a hand was over it.** A shadow crossing an
+   edge of its own is a shadow, never an object. Pieces within about 2 cells of each other
+   are one thing, because a clear bag shows only its label, product and glare. Something
+   already counted keeps to its own box, so the next thing put down beside it stays
+   separate; two things put down together that close are one.
+3. **Nothing arrives without a hand near it or a sudden jump in the picture,** so glare
+   creeping in or a patch the focus has shifted never counts: it gets no box and after 3 s
+   is taken as table. Three or more new things at once with no hand in shot is the picture
+   itself jumping: "The picture isn't steady" shows and nothing new counts for 1.5 s.
+   **Nothing leaves the table unless a hand was over it.** A shadow crossing an
    object or the light changing can't make it count twice. A spot a hand has emptied
    is free again in about half a second, and a different-looking object found where a
    hand has just been is a new one, so a pile can be worked through one spot.
@@ -235,6 +242,11 @@ does, and whether a real one does is unproven). Pale stock vanishes on a white m
 dark stock on a black one, so use a plain mid-coloured mat. Small print needs pixels:
 at 1920 wide across a 1 m table that's under 2 px per mm, so bring the camera as close
 as the table allows, or use a 4K one.
+
+**Light.** Exposure and white balance are allowed for per brightness and per channel,
+because exposure moves bright pixels further than dark ones (`toneCurve`). Frames are shrunk
+with averaging (`imageSmoothingQuality`): the canvas default only samples the big picture,
+which keeps three times the noise, measured in Chromium.
 
 **When things go wrong.** A webcam that stops or freezes shows "Camera lost", counting
 pauses, and it reconnects by itself and waits for "Carry on". The log survives a reload,
@@ -972,7 +984,11 @@ spot, the queue, a pack check, a scanner, a reload, a table area, a camera knock
 run the same way. `intake-bench.test.ts` runs the real tracker against a simulated camera
 (noise, exposure, white balance, shadows, arms) in the unit suite; `BENCH_ALL_SEEDS=1`
 also runs the long random soak. These prove the logic against a simulation written by the
-same author. They are not evidence about a real webcam. Each resets the
+same author. They are not evidence about a real webcam. `intake-photo.test.ts` does the
+same with real pixels: three clear bags on a woodgrain desk, from the owner's screenshot of
+the first real run (`tests/fixtures/camera-table/`, the table under the bags partly rebuilt,
+the arm drawn). It is one photo, not video. For real video, `/stock/intake?evidence=1` has
+"Record clip", which saves up to a minute of what the webcam sends to that computer. Each resets the
 harness, so run them one file at a time. The camera spec's webcam is a
 canvas the spec draws on, so the real tracker finds real objects in real frames, but
 the barcode detector and the label reader's answers are fixtures: **real webcams,

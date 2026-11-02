@@ -380,6 +380,40 @@ test("the table area: outside it is ignored, and its edge is the picture's edge"
   await expect(card(page)).toHaveAttribute("data-status", "new", { timeout: 15_000 });
 });
 
+test("?evidence=1 records a clip of what the webcam sends, and saves it to this computer", async ({ page }) => {
+  await fakeCamera(page);
+  await open(page, "/stock/intake?evidence=1");
+  await expect(page.getByTestId("stock-intake-feed")).toHaveAttribute("data-camera", "live");
+  const button = page.getByTestId("stock-intake-clip");
+  await button.click();
+  await expect(button).toHaveText("Stop and save clip");
+  await page.waitForTimeout(1500);
+  const saved = page.waitForEvent("download");
+  await button.click();
+  const file = await saved;
+  expect(file.suggestedFilename()).toMatch(/^camera-table-clip-.*\.webm$/);
+  const { statSync } = await import("node:fs");
+  expect(statSync(await file.path()).size).toBeGreaterThan(1000);
+  await expect(button).toHaveText("Record clip");
+});
+
+test("three things appearing at once with no hand: the picture is jumping, nothing counts", async ({ page }) => {
+  await fakeCamera(page);
+  await open(page);
+  await start(page);
+  await page.waitForTimeout(600);
+  await Promise.all([
+    table(page, "put", "a", 200, 200, 120, 120, "#d8c9a8"),
+    table(page, "put", "b", 600, 200, 120, 120, "#d8c9a8"),
+    table(page, "put", "c", 1000, 200, 120, 120, "#d8c9a8"),
+  ]);
+  await expect(page.getByTestId("stock-intake-unsteady")).toBeVisible();
+  await page.waitForTimeout(4500);
+  await expect(page.getByTestId("stock-intake-unsteady")).toBeHidden();
+  await expect(logged(page)).toHaveText("0");
+  await expect(waiting(page)).toHaveText("0");
+});
+
 test("a camera knocked out: says so, stops counting, comes back paused", async ({ page }) => {
   test.setTimeout(60_000);
   await fakeCamera(page);
