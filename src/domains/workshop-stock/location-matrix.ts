@@ -74,15 +74,37 @@ export function ruleFor(text: string | null | undefined, matrix: LocationMatrix 
   return best ? best.match : null;
 }
 
-/** Every bin location the matrix names — the suggestions on a location field. */
+/** Every bin on every rack, ruled or not — the suggestions on a location field. */
 export function matrixLocations(matrix: LocationMatrix | null | undefined): string[] {
   if (!matrix) return [];
-  const out = new Set<string>();
-  for (const rule of matrix.rules) {
-    const rack = matrix.racks.find((r) => r.id === rule.rackId);
-    if (rack) out.add(locationText(rack, rule.shelf, rule.bin));
+  const out: string[] = [];
+  for (const rack of matrix.racks) {
+    for (let shelf = 1; shelf <= rack.shelves; shelf += 1) {
+      for (let bin = 1; bin <= rack.bins; bin += 1) out.push(locationText(rack, shelf, bin));
+    }
   }
-  return [...out].sort((a, b) => a.localeCompare(b, "en-AU", { numeric: true, sensitivity: "base" }));
+  return out.sort((a, b) => a.localeCompare(b, "en-AU", { numeric: true, sensitivity: "base" }));
+}
+
+export function binKey(rackId: string, shelf: number, bin: number): string {
+  return `${rackId}:${shelf}:${bin}`;
+}
+
+export interface BinRef {
+  rack: MatrixRack;
+  shelf: number;
+  bin: number;
+}
+
+/** The bin a location's text names, or null when it isn't one on this matrix. Reads what locationText writes. */
+export function binAt(location: string | null | undefined, matrix: LocationMatrix | null | undefined): BinRef | null {
+  if (!matrix || !location) return null;
+  const hit = /^(.+) shelf (\d+), bin (\d+)$/i.exec(location.replace(/\s+/g, " ").trim());
+  if (!hit) return null;
+  const rack = matrix.racks.find((r) => rackLabel(r.name).toLowerCase() === hit[1]!.toLowerCase());
+  const shelf = Number(hit[2]);
+  const bin = Number(hit[3]);
+  return rack && shelf >= 1 && shelf <= rack.shelves && bin >= 1 && bin <= rack.bins ? { rack, shelf, bin } : null;
 }
 
 export function rulesInBin(matrix: LocationMatrix, rackId: string, shelf: number, bin: number): MatrixRule[] {

@@ -13,7 +13,7 @@
 //   GET    ?action=operation&key=             reconcile a save whose response was lost (own operations; office: any)
 //   GET    ?action=photo&id=[&size=thumb]     a product photo or its list-size copy (authenticated proxy — the Blob URL never leaves the server)
 //   GET    ?action=jobs&q=                    job picker for the optional job note
-//   GET    ?action=location-matrix            the racks and "these words go in this bin" rules   OFFICE
+//   GET    ?action=location-matrix            the racks and "these words go in this bin" rules   anyone adding stock
 //   PUT    ?action=location-matrix { expectedRevision, racks, rules }   save the whole matrix (compare-and-set)   OFFICE
 //   POST   ?action=read-photo  { dataUrl, thumbDataUrl?, purpose: 'add'|'take', intake? }  read a photo, match the catalogue (writes no stock; intake = the camera table, OFFICE, its own limits)
 //   POST   ?action=store-photo { dataUrl, thumbDataUrl? }  keep a product photo for a new item without reading it again (no AI call)
@@ -364,7 +364,7 @@ function parseOr400(schema, body, res) {
   return r.data;
 }
 
-// ── location matrix (office) ──────────────────────────────────────────────────
+// ── location matrix (office saves, everyone reads) ──────────────────────────────────────────────────
 
 const MatrixBody = z.object({
   expectedRevision: z.number().int().min(0),
@@ -383,8 +383,8 @@ const MatrixBody = z.object({
   })).max(1000),
 });
 
-async function locationMatrix(sql, tenant, me, res) {
-  if (!policy.isOffice(me.role)) return res.status(403).json({ error: 'office_only' });
+// Read by anyone adding stock (the Add form picks a bin from it); only the office changes it.
+async function locationMatrix(sql, tenant, res) {
   return res.status(200).json(await store.getLocationMatrix(sql, tenant.id));
 }
 
@@ -1279,7 +1279,7 @@ async function handler(req, res) {
         case 'operation': return operation(sql, tenant, me, q.key, r);
         case 'photo': return servePhoto(sql, tenant, me, String(q.id || ''), String(q.size || ''), r);
         case 'lists': return lists(sql, tenant, me, r);
-        case 'location-matrix': return locationMatrix(sql, tenant, me, r);
+        case 'location-matrix': return locationMatrix(sql, tenant, r);
         default: return r.status(400).json({ error: 'unknown_action' });
       }
     });

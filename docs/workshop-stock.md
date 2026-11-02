@@ -138,7 +138,8 @@ recorded, and where they live.
 
 - **Camera table** (`/stock/intake`): log a large number of items with a webcam
   above a table. **Location matrix** (`/stock/locations`): say what goes in each
-  bin. Both [below](#camera-table-and-location-matrix).
+  bin, see what's in each bin, and place stock that has no bin. The Add form uses it
+  too. All [below](#camera-table-and-location-matrix).
 
 **Not gear.** Gear (tools and equipment) has custody, serials, test-and-tag and
 "who has it". Workshop stock has none of that: an item is a quantity on a shelf
@@ -247,6 +248,27 @@ A location is written as `Rack C Shelf 2, Bin 4`, which the existing by-shelf li
 already reads as shelf "Rack C Shelf 2", bin "Bin 4". The matrix **only fills a blank
 location**: a new item's, or an existing item with none. An item that has a location
 keeps it, and changing the matrix never moves recorded stock.
+
+**The Add form** (phone and office) uses the same matrix, which is why anyone adding
+stock can read it; only the office changes it. Until someone types or picks a location,
+a rule that fits fills it in, following the name and codes as they change, and it takes
+priority over "Same as last item". With no rule, the form offers a one-tap suggestion,
+and Rack → Shelf → Bin buttons pick any bin. Typing still works, and a typed location is
+never overwritten. If the matrix can't load, the form is the same as before.
+
+**The shelf map** is the same grid, showing what the recorded stock says is in each bin
+(read from each item's location text). Click a bin to see what's in it and Move any of
+it. "Needs a place" lists stock with no location, a location that isn't a bin on the map,
+or a bin different from its rule. "Put it here" takes the suggestion; "Choose a bin" lets
+you click another. Stock only moves from those taps, each one an ordinary item edit.
+Renaming a rack or making it smaller doesn't rewrite items: anything left behind appears
+under "Needs a place".
+
+**A suggestion is a stated reason, not a score** (`location-map.ts`): a rule that fits,
+even if that bin is in use; then the free bin closest to the same type; then the same
+brand; then the first free bin. A free bin holds no stock and no rule. It doesn't know
+how often an item is taken or how big anything is, so it never claims a "fastest" or
+"best fit" spot.
 
 Stored as one JSON document per company with a compare-and-set revision
 (`workshop_stock_location_matrix`, migration
@@ -871,7 +893,8 @@ SESSION_SECRET=<same> FLAG_WORKSHOP_STOCK=1 npx next dev -p 3000
 WORKSHOP_STOCK_E2E_API=http://localhost:3101 npx playwright test tests/workshop-stock --project=desktop-chrome
 ```
 
-`tests/workshop-stock/camera-table.e2e.spec.ts` runs the same way. Its webcam is a
+`tests/workshop-stock/shelf-map.e2e.spec.ts` (Add form, bin picker, shelf map, moves,
+the crew's read) and `tests/workshop-stock/camera-table.e2e.spec.ts` run the same way. The camera spec's webcam is a
 canvas the spec draws on, so the real tracker finds real objects in real frames, but
 the barcode detector and the label reader's answers are fixtures: **real webcams,
 lighting and labels are not proven**, and neither is the speed or cost of real reads.

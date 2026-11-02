@@ -779,8 +779,8 @@ describe("a photo of where the item lives", () => {
     const RULE = { id: "r1", words: "iconic switch", rackId: "c", shelf: 2, bin: 4 };
     const put = (body: unknown, user = "u_office") => call({ method: "PUT", user, query: { action: "location-matrix" }, body });
 
-    it("the matrix is the office's, read and write", async () => {
-      expect((await call({ user: "u_field", query: { action: "location-matrix" } })).statusCode).toBe(403);
+    it("anyone adding stock reads the matrix; only the office changes it", async () => {
+      expect((await call({ user: "u_field", query: { action: "location-matrix" } })).statusCode).toBe(200);
       expect((await put({ expectedRevision: 0, racks: [], rules: [] }, "u_field")).statusCode).toBe(403);
       expect(store.saveLocationMatrix).not.toHaveBeenCalled();
       expect((await call({ user: "u_office", query: { action: "location-matrix" } })).statusCode).toBe(200);

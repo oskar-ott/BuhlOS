@@ -12,6 +12,7 @@ import { FlowSheet } from "./FlowSheet";
 import { ItemPicker } from "./ItemPicker";
 import { MoveConfirm, type MoveItem } from "./MoveConfirm";
 import { NewItemForm, type LastLocationPhoto, type NewItemSeed } from "./NewItemForm";
+import { useLocationMatrix } from "./useLocationMatrix";
 import { PhotoCapture } from "./PhotoCapture";
 import { NoneRecorded, RecordedQuantity } from "./StockItemRow";
 import { StockReceipt } from "./StockReceipt";
@@ -59,6 +60,7 @@ export function AddFlow({
   onSaved: (r: WriteResult) => void;
   onClose: () => void;
 }) {
+  const matrix = useLocationMatrix();
   const [step, setStep] = useState<Step>(() => (seed ? { s: "new", seed: { product: seed.product, photoId: null, dataUrl: seed.dataUrl, thumbDataUrl: seed.thumbDataUrl ?? null }, formKey: 1 } : { s: "home" }));
   const [dataUrl, setDataUrl] = useState<string | null>(null);
   const [thumbDataUrl, setThumbDataUrl] = useState<string | null>(null);
@@ -444,6 +446,7 @@ export function AddFlow({
         locationPhotoEnabled={capabilities.locationPhoto === true}
         typesEnabled={capabilities.types === true}
         defaultLocation={lastLocation}
+        matrix={matrix}
         lastLocationPhoto={lastLocationPhoto}
         emphasis="another"
         anotherLabel={inBatch ? (lastOfBatch ? "Save · last one from the photo" : "Save · next from the photo") : undefined}

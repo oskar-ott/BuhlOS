@@ -37,7 +37,7 @@ export default async function StockLocationsPage() {
     >
       <div className="mx-auto max-w-6xl space-y-4">
         <p className="text-sm text-text-muted">
-          Click a bin and write what lives there. The camera table uses this to fill in any location that&rsquo;s blank. Changing it never moves stock already recorded.
+          See what&rsquo;s in each bin, and click a bin to write what belongs there. New stock with no location goes by those words. Changing them never moves stock already recorded; only Put it here and Move do.
         </p>
         <StockLocationMatrix />
       </div>

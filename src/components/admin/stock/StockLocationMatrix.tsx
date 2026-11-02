@@ -1,12 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, Plus, Trash2, X } from "lucide-react";
+import { ArrowRightLeft, Loader2, Plus, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
-import { fetchLocationMatrix, newOperationKey, saveLocationMatrix } from "@/domains/workshop-stock/client";
-import { errorCopy } from "@/domains/workshop-stock/format";
-import { locationText, MAX_BINS, MAX_SHELVES, rackLabel, ruleFor, rulesInBin, rulesOutsideRack, type LocationMatrix, type MatrixRack } from "@/domains/workshop-stock/location-matrix";
+import { editItem, fetchLocationMatrix, fetchStockList, newOperationKey, saveLocationMatrix } from "@/domains/workshop-stock/client";
+import { balanceLabel, errorCopy } from "@/domains/workshop-stock/format";
+import { placementIssues, shelfMap, suggestBin, type BinSuggestion } from "@/domains/workshop-stock/location-map";
+import type { StockItem } from "@/domains/workshop-stock/schema";
+import { guessType } from "@/domains/workshop-stock/types";
+import { binKey, locationText, MAX_BINS, MAX_SHELVES, rackLabel, ruleFor, rulesInBin, rulesOutsideRack, type LocationMatrix, type MatrixRack } from "@/domains/workshop-stock/location-matrix";
 import { Block } from "./StockAdminForms";
 
 const INPUT = "h-9 rounded-[4px] border border-border-strong bg-surface-subtle px-2.5 text-sm text-text focus:border-accent-yellow focus:outline-none";
@@ -28,10 +31,11 @@ function rackFromFields(name: string, shelves: string, bins: string): { name: st
 }
 
 /**
- * /stock/locations — where stock goes. The office lays out each rack as a grid of
- * shelves and bins and writes in each bin the words for what lives there ("iconic
- * switch"). The camera table uses those words to fill in the location of anything
- * with no location yet. Each change saves the whole matrix (compare-and-set).
+ * /stock/locations — where stock goes, and where it is. The office lays out each
+ * rack as a grid of shelves and bins and writes in each bin the words for what
+ * lives there ("iconic switch"); the grid also shows what the recorded stock says
+ * is in each bin. Stock with no bin is listed with a suggested place, and moves
+ * only when someone taps. Each matrix change saves the whole matrix (compare-and-set).
  */
 export function StockLocationMatrix() {
   const [matrix, setMatrix] = useState<LocationMatrix | null>(null);
@@ -46,9 +50,13 @@ export function StockLocationMatrix() {
   const [editing, setEditing] = useState<{ id: string; name: string; shelves: string; bins: string } | null>(null);
   const [tryText, setTryText] = useState("");
   const [removing, setRemoving] = useState<MatrixRack | null>(null);
+  const [items, setItems] = useState<StockItem[] | null>(null);
+  const [itemsError, setItemsError] = useState(false);
+  const [moving, setMoving] = useState<{ item: StockItem; suggestion: BinSuggestion | null } | null>(null);
+  const [movingBusy, setMovingBusy] = useState(false);
 
   const load = useCallback(async () => {
-    const r = await fetchLocationMatrix();
+    const [r, stock] = await Promise.all([fetchLocationMatrix(), fetchStockList()]);
     if (!r.ok) {
       setLoadError(errorCopy(r.error.status, r.error.body, "The server didn't answer, so the matrix isn't shown."));
       return;
@@ -57,6 +65,8 @@ export function StockLocationMatrix() {
     setAvailable(r.data.available);
     setMatrix(r.data.matrix);
     setRevision(r.data.revision);
+    setItemsError(!stock.ok);
+    setItems(stock.ok ? stock.data.items : null);
   }, []);
   useEffect(() => { void load(); }, [load]);
 
@@ -123,7 +133,25 @@ export function StockLocationMatrix() {
     await save({ ...matrix, rules: matrix.rules.filter((r) => r.id !== id) });
   }
 
+  /** Moves recorded stock, which only ever happens from a tap here. */
+  async function moveTo(item: StockItem, location: string) {
+    setMovingBusy(true);
+    setSaveError(null);
+    const r = await editItem(item.id, { expectedRevision: item.metaRevision, location });
+    setMovingBusy(false);
+    if (!r.ok) {
+      setSaveError(errorCopy(r.error.status, r.error.body, `${item.name} didn't move. Try again.`));
+      void load();
+      return;
+    }
+    setItems((prev) => prev?.map((i) => (i.id === item.id ? r.data.item : i)) ?? prev);
+    setMoving(null);
+  }
+
   const tried = useMemo(() => (tryText.trim() && matrix ? ruleFor(tryText, matrix) : null), [tryText, matrix]);
+  const triedSuggestion = useMemo(() => (tryText.trim() && matrix && !tried ? suggestBin({ text: tryText, category: guessType([tryText]) }, matrix, items ?? []) : null), [tryText, matrix, tried, items]);
+  const map = useMemo(() => shelfMap(items ?? [], matrix), [items, matrix]);
+  const issues = useMemo(() => placementIssues(items ?? [], matrix), [items, matrix]);
 
   if (loadError) {
     return (
@@ -148,7 +176,9 @@ export function StockLocationMatrix() {
         <span className="font-mono text-[13px] font-bold uppercase tracking-[0.1em] text-text">Location matrix</span>
         <span className="console-label">{matrix.racks.length} {matrix.racks.length === 1 ? "rack" : "racks"}</span>
         <span className="console-label">{matrix.racks.reduce((n, r) => n + r.shelves * r.bins, 0)} bins</span>
+        <span className="console-label" data-testid="stock-matrix-used">{map.bins.size} in use</span>
         <span className="console-label">{matrix.rules.length} {matrix.rules.length === 1 ? "rule" : "rules"}</span>
+        {items ? <span className="console-label" data-testid="stock-matrix-issue-count">{issues.length} {issues.length === 1 ? "needs" : "need"} a place</span> : null}
         <span className="flex-1" />
         {saving ? <span className="console-label flex items-center gap-1.5" role="status"><Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" /> Saving</span> : null}
       </header>
@@ -170,12 +200,47 @@ export function StockLocationMatrix() {
           <h2 className="console-label">Test a label</h2>
           <input value={tryText} onChange={(e) => setTryText(e.target.value)} placeholder="Clipsal Iconic 1 gang switch" aria-label="Test a label against the matrix" className={cn(INPUT, "mt-2 w-full")} data-testid="stock-matrix-try" />
           <p className={cn("mt-1.5 min-h-[1.5rem] text-sm", tried ? "text-text" : "text-text-muted")} role="status" data-testid="stock-matrix-try-result">
-            {!tryText.trim() ? "Type what's printed on a label to see where it would go." : tried ? <>Goes to <strong className="font-mono font-bold uppercase text-accent-yellow">{tried.location}</strong>, from &ldquo;{tried.rule.words}&rdquo;.</> : "No bin fits. At the camera table you'd pick its location by hand."}
+            {!tryText.trim() ? "Type what's printed on a label to see where it would go." : tried ? <>Goes to <strong className="font-mono font-bold uppercase text-accent-yellow">{tried.location}</strong>, from &ldquo;{tried.rule.words}&rdquo;.</> : triedSuggestion ? <>No rule fits. Suggested: <strong className="font-mono font-bold uppercase text-accent-yellow">{triedSuggestion.location}</strong>. {triedSuggestion.why}.</> : "No rule fits and no bin is free."}
           </p>
         </section>
       </div>
 
       {saveError ? <Block tone="warn" title="Not saved" role="alert"><p>{saveError}</p></Block> : null}
+      {itemsError ? <Block tone="warn" title="Stock didn't load" role="alert"><p>The grid is showing rules only, not what&rsquo;s in each bin.</p><Button type="button" variant="secondary" size="sm" className="mt-2" onClick={() => void load()}>Try again</Button></Block> : null}
+
+      {moving ? (
+        <div className="console-rise sticky top-2 z-10 flex flex-wrap items-center gap-2 rounded-[4px] border border-accent-yellow bg-surface-raised px-3 py-2" role="status" data-testid="stock-matrix-moving">
+          <span className="min-w-0 flex-1 text-sm text-text">Moving <strong className="font-semibold">{moving.item.name}</strong>. Click the bin it&rsquo;s going to.{moving.suggestion ? ` The outlined one is suggested.` : ""}</span>
+          {movingBusy ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin text-text-muted" /> : null}
+          <Button type="button" variant="ghost" size="sm" onClick={() => setMoving(null)} data-testid="stock-matrix-moving-cancel">Cancel</Button>
+        </div>
+      ) : null}
+
+      {matrix.racks.length && issues.length ? (
+        <section className="rounded-[4px] border border-border bg-surface p-3" data-testid="stock-matrix-issues">
+          <h2 className="console-label">Needs a place</h2>
+          <ul className="mt-2 max-h-72 divide-y divide-border overflow-y-auto">
+            {issues.map(({ item, problem, suggestion }) => (
+              <li key={item.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2" data-testid="stock-matrix-issue">
+                <div className="min-w-[14rem] flex-1">
+                  <p className="text-sm font-medium text-text">{item.name} <span className="font-normal text-text-muted">· {balanceLabel(item)}</span></p>
+                  <p className="text-xs text-text-muted">{problem}</p>
+                </div>
+                {suggestion ? (
+                  <div className="min-w-[14rem] flex-1">
+                    <p className="font-mono text-xs font-bold uppercase text-accent-yellow">{suggestion.location}</p>
+                    <p className="text-xs text-text-muted">{suggestion.why}</p>
+                  </div>
+                ) : null}
+                <div className="flex gap-1.5">
+                  {suggestion ? <Button type="button" size="sm" disabled={movingBusy} onClick={() => void moveTo(item, suggestion.location)} data-testid="stock-matrix-issue-put">Put it here</Button> : null}
+                  <Button type="button" variant="ghost" size="sm" disabled={movingBusy} onClick={() => setMoving({ item, suggestion })} data-testid="stock-matrix-issue-choose">Choose a bin</Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       {!matrix.racks.length ? (
         <p className="rounded-[4px] border border-dashed border-border-strong p-8 text-center text-sm text-text-muted">No racks yet. Add one above, then click a bin to say what goes in it.</p>
@@ -230,21 +295,32 @@ export function StockLocationMatrix() {
                       const shelf = s + 1;
                       const bin = b + 1;
                       const here = rulesInBin(matrix, rack.id, shelf, bin);
+                      const stock = map.bins.get(binKey(rack.id, shelf, bin)) ?? [];
                       const isOpen = open?.rackId === rack.id && open.shelf === shelf && open.bin === bin;
+                      const suggested = moving?.suggestion?.rackId === rack.id && moving.suggestion.shelf === shelf && moving.suggestion.bin === bin;
                       return (
                         <td key={b} className="p-0 align-top">
                           <button
                             type="button"
-                            onClick={() => { setOpen(isOpen ? null : { rackId: rack.id, shelf, bin }); setWords(""); }}
+                            disabled={movingBusy}
+                            onClick={() => {
+                              if (moving) { void moveTo(moving.item, locationText(rack, shelf, bin)); return; }
+                              setOpen(isOpen ? null : { rackId: rack.id, shelf, bin });
+                              setWords("");
+                            }}
                             aria-pressed={isOpen}
-                            aria-label={`${locationText(rack, shelf, bin)}: ${here.length ? here.map((r) => r.words).join(", ") : "nothing set"}`}
+                            aria-label={`${locationText(rack, shelf, bin)}: ${here.length ? here.map((r) => r.words).join(", ") : "nothing set"}; ${stock.length ? `holds ${stock.map((i) => i.name).join(", ")}` : "no stock"}${suggested ? "; suggested" : ""}`}
                             className={cn(
-                              "block h-14 w-28 overflow-hidden rounded-[4px] border p-1.5 text-left text-xs leading-tight transition-colors duration-100",
-                              isOpen ? "border-accent-yellow bg-surface-raised text-text ring-1 ring-accent-yellow" : here.length ? "border-border-strong bg-surface-raised font-medium text-text hover:border-accent-yellow" : "border-border bg-surface-subtle text-text-muted hover:border-border-strong",
+                              "block h-16 w-32 overflow-hidden rounded-[4px] border p-1.5 text-left text-xs leading-tight transition-colors duration-100",
+                              suggested ? "border-accent-yellow bg-surface-raised text-text ring-2 ring-accent-yellow" : isOpen ? "border-accent-yellow bg-surface-raised text-text ring-1 ring-accent-yellow" : stock.length ? "border-border-strong bg-surface-raised font-medium text-text hover:border-accent-yellow" : here.length ? "border-dashed border-border-strong bg-surface text-text-muted hover:border-accent-yellow" : "border-border bg-surface-subtle text-text-muted hover:border-border-strong",
                             )}
                             data-testid="stock-matrix-bin"
+                            data-stock={stock.length}
                           >
-                            {here.length ? here.map((r) => r.words).join(", ") : <span aria-hidden="true" className="font-mono">·</span>}
+                            {stock.length ? <span className="block truncate">{stock[0]!.name}</span> : null}
+                            {stock.length > 1 ? <span className="block font-mono text-text-muted">+{stock.length - 1} more</span> : null}
+                            {here.length ? <span className="block truncate font-mono font-normal text-text-muted">{here.map((r) => r.words).join(", ")}</span> : null}
+                            {!stock.length && !here.length ? <span aria-hidden="true" className="font-mono">·</span> : null}
                           </button>
                         </td>
                       );
@@ -256,7 +332,18 @@ export function StockLocationMatrix() {
           </div>
           {open?.rackId === rack.id ? (
             <div className="console-rise mt-3 rounded-[4px] border border-accent-yellow bg-surface-subtle p-3" data-testid="stock-matrix-bin-editor">
-              <p className="font-display text-sm font-semibold text-text">What goes in <span className="font-mono uppercase text-accent-yellow">{locationText(rack, open.shelf, open.bin)}</span>?</p>
+              <p className="font-display text-sm font-semibold text-text"><span className="font-mono uppercase text-accent-yellow">{locationText(rack, open.shelf, open.bin)}</span></p>
+              {(map.bins.get(binKey(rack.id, open.shelf, open.bin)) ?? []).length ? (
+                <ul className="mt-2 divide-y divide-border" data-testid="stock-matrix-bin-stock">
+                  {(map.bins.get(binKey(rack.id, open.shelf, open.bin)) ?? []).map((item) => (
+                    <li key={item.id} className="flex items-center gap-2 py-1.5 text-sm text-text">
+                      <span className="min-w-0 flex-1 truncate">{item.name} <span className="text-text-muted">· {balanceLabel(item)}</span></span>
+                      <Button type="button" variant="ghost" size="sm" disabled={movingBusy} onClick={() => { setMoving({ item, suggestion: null }); setOpen(null); }} data-testid="stock-matrix-bin-move"><ArrowRightLeft aria-hidden="true" className="h-3.5 w-3.5" /> Move</Button>
+                    </li>
+                  ))}
+                </ul>
+              ) : <p className="mt-1 text-sm text-text-muted">No stock recorded here.</p>}
+              <p className="mt-3 console-label">What goes here</p>
               <ul className="mt-2 flex flex-wrap gap-1.5">
                 {rulesInBin(matrix, rack.id, open.shelf, open.bin).map((r) => (
                   <li key={r.id} className="inline-flex items-center gap-1 rounded-[4px] border border-border-strong bg-surface-raised py-0.5 pl-2 pr-0.5 text-sm text-text">

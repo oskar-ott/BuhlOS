@@ -227,7 +227,9 @@ describe("location matrix", () => {
   });
 
   it("lists its bins and refuses to strand a rule", () => {
-    expect(matrixLocations(matrix)).toEqual(["Cable bay Shelf 1, Bin 2", "Rack C Shelf 1, Bin 1", "Rack C Shelf 2, Bin 4", "Rack C Shelf 3, Bin 1"]);
+    const bins = matrixLocations(matrix);
+    expect(bins).toHaveLength(matrix.racks.reduce((n, r) => n + r.shelves * r.bins, 0));
+    expect(bins).toEqual(expect.arrayContaining(["Cable bay Shelf 1, Bin 2", "Rack C Shelf 2, Bin 4", "Rack C Shelf 4, Bin 6"]));
     expect(rulesOutsideRack(matrix, "c", 2, 6).map((r) => r.id)).toEqual(["3"]);
     expect(rulesOutsideRack(matrix, "c", 4, 3).map((r) => r.id)).toEqual(["2"]);
     expect(rulesOutsideRack(matrix, "c", 4, 6)).toEqual([]);
