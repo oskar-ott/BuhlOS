@@ -5,12 +5,14 @@ import {
   ItemOnlySchema,
   JobPickerSchema,
   ListsSchema,
+  LocationMatrixSchema,
   LookupResultSchema,
   OneListSchema,
   OperationSchema,
   ReadPhotoSchema,
   StockListSchema,
   WriteResultSchema,
+  type LocationMatrixResponse,
   type LookupResult,
   type PackUnit,
   type ReadPhotoResult,
@@ -71,6 +73,20 @@ export function searchJobs(q: string) {
 /** Read a photo. An add-stock photo is kept (with its list-size copy, when there is one); a take-stock photo never is. */
 export function readPhoto(dataUrl: string, purpose: "add" | "take", thumbDataUrl?: string | null): Promise<HttpResult<ReadPhotoResult>> {
   return httpPost(`${BASE}?action=read-photo`, { dataUrl, purpose, ...(purpose === "add" && thumbDataUrl ? { thumbDataUrl } : {}) }, { schema: ReadPhotoSchema, init: INIT, timeoutMs: PHOTO_TIMEOUT_MS });
+}
+
+/** The camera table's read: one object's crop, never kept, on the table's own limits (office only). */
+export function readIntakeCrop(dataUrl: string): Promise<HttpResult<ReadPhotoResult>> {
+  return httpPost(`${BASE}?action=read-photo`, { dataUrl, purpose: "take", intake: true }, { schema: ReadPhotoSchema, init: INIT, timeoutMs: PHOTO_TIMEOUT_MS });
+}
+
+export function fetchLocationMatrix(): Promise<HttpResult<LocationMatrixResponse>> {
+  return httpGet(`${BASE}?action=location-matrix`, { schema: LocationMatrixSchema, init: INIT, timeoutMs: 20_000 });
+}
+
+/** Saves the whole matrix; 409 matrix_conflict when someone else saved since `expectedRevision`. */
+export function saveLocationMatrix(input: LocationMatrixResponse["matrix"] & { expectedRevision: number }): Promise<HttpResult<LocationMatrixResponse>> {
+  return httpPut(`${BASE}?action=location-matrix`, input, { schema: LocationMatrixSchema, init: INIT, timeoutMs: WRITE_TIMEOUT_MS });
 }
 
 export function storePhoto(dataUrl: string, thumbDataUrl?: string | null) {

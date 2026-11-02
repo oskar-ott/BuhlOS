@@ -136,6 +136,7 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "workshop_stock.verification_recorded": "Recorded a product-code check",
   "workshop_stock.count_corrected": "Corrected a workshop stock count",
   "workshop_stock.movement_undone": "Undid a workshop stock movement",
+  "workshop_stock.location_matrix_saved": "Saved the workshop location matrix",
   // #370: daywork register (targetType 'daywork' groups as Other, like time_entry).
   "daywork.created": "Raised daywork docket",
   "daywork.signed": "Signed daywork docket",

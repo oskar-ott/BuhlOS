@@ -258,6 +258,18 @@ export const LookupResultSchema = z
   .passthrough();
 export type LookupResult = z.infer<typeof LookupResultSchema>;
 
+export const LocationMatrixSchema = z.object({
+  available: z.boolean(),
+  matrix: z.object({
+    racks: z.array(z.object({ id: z.string(), name: z.string(), shelves: z.number(), bins: z.number() })),
+    rules: z.array(z.object({ id: z.string(), words: z.string(), rackId: z.string(), shelf: z.number(), bin: z.number() })),
+  }),
+  revision: z.number(),
+  updatedAt: z.string().nullable(),
+  updatedByName: z.string().nullable(),
+});
+export type LocationMatrixResponse = z.infer<typeof LocationMatrixSchema>;
+
 export const JobPickerSchema = z.object({
   jobs: z.array(z.object({ id: z.string(), name: z.string(), code: z.string().nullable(), status: z.string() })),
 });

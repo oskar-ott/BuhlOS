@@ -202,6 +202,14 @@ export function errorCopy(status: number, body: unknown, fallback = "That didn't
       return "That clashed with an earlier save. Start again.";
     case "item_archived":
       return "That item has been archived by the office.";
+    case "matrix_conflict":
+      return "Someone else saved the matrix just now. Reload to see their changes, then make yours.";
+    case "matrix_unavailable":
+      return "The location matrix needs its database update first.";
+    case "rack_duplicate":
+      return "There's already a rack with that name.";
+    case "rule_out_of_range":
+      return "A bin rule points at a shelf or bin that rack doesn't have.";
     case "item_not_found":
       return "That item isn't in the workshop list any more.";
     case "duplicate_item":

@@ -1298,6 +1298,41 @@ async function consumeUsage(sql, tenantId, kind, cap) {
   return rows.length ? { allowed: true, count: Number(rows[0].count) } : { allowed: false, count: cap };
 }
 
+// ── location matrix ───────────────────────────────────────────────────────────
+
+const EMPTY_MATRIX = { racks: [], rules: [] };
+
+/** The company's matrix. available:false until the migration is applied (undefined_table). */
+async function getLocationMatrix(sql, tenantId) {
+  try {
+    const rows = await sql`
+      select matrix, revision, updated_by_name, updated_at from public.workshop_stock_location_matrix
+      where tenant_id = ${tenantId}`;
+    if (!rows.length) return { available: true, matrix: EMPTY_MATRIX, revision: 0, updatedAt: null, updatedByName: null };
+    return { available: true, matrix: rows[0].matrix, revision: Number(rows[0].revision), updatedAt: iso(rows[0].updated_at), updatedByName: rows[0].updated_by_name || null };
+  } catch (e) {
+    if (e && e.code === '42P01') return { available: false, matrix: EMPTY_MATRIX, revision: 0, updatedAt: null, updatedByName: null };
+    throw e;
+  }
+}
+
+/** Save the whole matrix if nobody saved since `expectedRevision` (0 = there is none yet). */
+async function saveLocationMatrix(sql, tenantId, matrix, expectedRevision, actor) {
+  const rows = expectedRevision === 0
+    ? await sql`
+      insert into public.workshop_stock_location_matrix (tenant_id, matrix, revision, updated_by_legacy_id, updated_by_name)
+      values (${tenantId}, ${sql.json(matrix)}, 1, ${actor.id}, ${actor.name || null})
+      on conflict (tenant_id) do nothing
+      returning revision, updated_at, updated_by_name`
+    : await sql`
+      update public.workshop_stock_location_matrix
+      set matrix = ${sql.json(matrix)}, revision = revision + 1, updated_by_legacy_id = ${actor.id}, updated_by_name = ${actor.name || null}, updated_at = now()
+      where tenant_id = ${tenantId} and revision = ${expectedRevision}
+      returning revision, updated_at, updated_by_name`;
+  if (!rows.length) return { error: 'matrix_conflict' };
+  return { revision: Number(rows[0].revision), updatedAt: iso(rows[0].updated_at), updatedByName: rows[0].updated_by_name || null };
+}
+
 /** A cached check for exactly this brand + code + colour/size details ({ brandKey, codeKey, variantKey }). */
 async function getCachedLookup(sql, tenantId, key) {
   const rows = await sql`
@@ -1353,6 +1388,8 @@ module.exports = {
   markPhotoDeleted,
   markBlobDeleted,
   consumeUsage,
+  getLocationMatrix,
+  saveLocationMatrix,
   getCachedLookup,
   putCachedLookup,
 };

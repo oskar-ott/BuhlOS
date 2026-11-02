@@ -134,10 +134,136 @@ recorded, and where they live.
   the workshop** (shelf by shelf) and **Get from the wholesaler** (copy or send
   it), ticked off by taking it.
 
+**Camera table and location matrix (2026-11-02)**
+
+- **Camera table** (`/stock/intake`): log a large number of items with a webcam
+  above a table. **Location matrix** (`/stock/locations`): say what goes in each
+  bin. Both [below](#camera-table-and-location-matrix).
+
 **Not gear.** Gear (tools and equipment) has custody, serials, test-and-tag and
 "who has it". Workshop stock has none of that: an item is a quantity on a shelf
 and stock leaving is a quantity movement, not a loan. The two share nothing but
 a nav group; the Gear workflow is untouched.
+
+## Camera table and location matrix
+
+Owner pull, 2026-11-02: "its for web and only for logging a large number of
+items. i set up a webcam above a table and a live feed runs ocr i place items
+underneath and it identifies, highlights it red until its logged and then turns
+to green, it adds it to the total and automatically assigns location. i also want
+to be able to create a matrix of where everything [goes], eg iconic switches go
+rack c shelf 2 bin 4."
+
+**Hypothesis:** if the office can put stock under a camera instead of photographing
+each item, setting up the workshop list stops being the reason nobody starts it.
+Reasoning only: it has never been used with a real webcam, real lighting or real
+labels (see Testing).
+
+**Office only, on a computer**, behind the same `workshop_stock` flag. Chrome reads
+barcodes free and instantly; a browser without a detector reads labels only and
+says so.
+
+### Where it runs
+
+Everything live runs **in the browser on the computer at the table**: the video,
+the boxes, spotting objects and reading barcodes. Video never leaves the computer.
+The server sees one still crop per object, and only when no barcode identified it.
+Streaming video to Vercel would add lag and cost for no better read; a model running
+on the computer itself would be a second system to install and keep running, for
+accuracy nobody has measured.
+
+### How an object goes from red to green
+
+1. **Start** takes a picture of the empty table. A frame about 320 px wide is
+   compared with it a few times a second (`intake-tracker.ts`); anything new gets
+   a dashed red box.
+2. It counts once it has sat still for 0.8 s. A blob touching the edge of the
+   picture is an arm: it never counts, and whatever it covers stays on the table
+   while it does. A nudged object is the same object. Objects pushed together turn
+   amber ("Touching: move them apart") and any that split off count then.
+3. A sharp crop of the full-size frame is taken. **A barcode** in it is matched
+   against the list right there; otherwise the crop goes to the **label reader**
+   (the same one as the phone, two at a time).
+4. **An exact barcode or code match logs by itself** and the box turns green.
+   Words alone never do, because two GPOs look alike: "Is it one of these?" stays
+   red until someone picks, and a pick teaches the item that barcode.
+5. **Not on the list:** stays red with one card, already filled in: name from the
+   label, amount, location from the matrix. One tap adds it. Anything else waiting
+   with the same code then logs by itself, and so does every later one.
+
+**Amount.** A loose item adds 1. A box printed "Pack of 10" of something counted
+each adds 10, and the row says the size came from the label. An item counted in
+boxes adds 1 box. A length is never guessed: without a printed length it asks.
+Any logged amount can be changed afterwards, which undoes that movement and records
+a new one, both in the item's history. Each placement is its own ledger movement
+with the note "Camera table" and its own idempotency key, so a lost answer retried
+is never counted twice, and Undo takes back that one placement.
+
+**"All the same"** on a logged row: everything placed from then on logs as that item
+and amount with no read at all, until Stop. For a run of identical items, and for
+loose items with no readable label.
+
+This is the one place stock is written without a person confirming the quantity.
+The reader still doesn't count (no field for it): the count is one per object the
+tracker found, plus a pack size only when it is printed.
+
+### How it looks and feels
+
+Owner pull, 2026-11-02: "i want it to feel high tech". Both screens use a dark
+console theme (`[data-theme="console"]` in `tokens.css`), scoped to them: the office
+and the field stay light. Yellow marks the reticle and the primary action; red and
+green only ever mean status, and every tag also has a glyph (`!`, `✓`) so it doesn't
+rely on colour.
+
+- **The reticle says what's really happening:** red corners closing in as an object
+  settles, a scan line while it's read, solid pulsing red when it needs you, a green
+  lock and flash when it's logged. Amber means two objects are touching. The yellow
+  corners mark the working area: anything touching the picture's edge counts as an arm.
+- **"Goes to"** under the feed is the largest thing on screen, because where to put
+  the item is what the person at the table needs next. It can be read from a metre
+  away. The same text is announced to screen readers.
+- **Sound**, so nobody has to look up: a rising pair when logged, a low pair when it
+  needs you. Mute with the speaker button or `M`.
+- **Keyboard:** `Space` pause, `U` undo the last one, `F` full screen, `M` sound.
+- **The status bar only shows measured values:** the camera's real resolution (flagged
+  low under 1920 wide), the real analysis rate, what's on the table now, whether this
+  browser reads barcodes, and how many bin rules exist.
+- **Start** averages several frames of the empty table, so sensor noise isn't taken
+  for an object. Motion is turned off under `prefers-reduced-motion`.
+
+A logged item no rule placed can be given a location from its row. New items get their
+**type** guessed from the label, for a person to check on the card, so they file with
+their kind on the phone.
+
+### The location matrix
+
+`/stock/locations`: each rack is a grid of shelves and bins. Click a bin and write
+the words for what lives there ("iconic switch"). A product goes to a bin when
+**all** of a rule's words are on its label or name, compared the way the list search
+compares (plurals and trade names folded). The rule with the most words wins, so
+"iconic switch" beats "iconic". "Test a label" shows where a label would go.
+
+A location is written as `Rack C Shelf 2, Bin 4`, which the existing by-shelf list
+already reads as shelf "Rack C Shelf 2", bin "Bin 4". The matrix **only fills a blank
+location**: a new item's, or an existing item with none. An item that has a location
+keeps it, and changing the matrix never moves recorded stock.
+
+Stored as one JSON document per company with a compare-and-set revision
+(`workshop_stock_location_matrix`, migration
+`20261102100000_workshop_stock_location_matrix.sql`). Until that is applied both
+screens say so and nothing else changes.
+
+### Limits on what the camera can do
+
+- **Picture quality decides what can be read.** A 1080p webcam over an 80 cm table
+  gets about 2.4 pixels per mm: box labels should read, barcodes and small print on
+  loose items won't. Barcodes need about 6 pixels per mm: a 4K camera, or a field
+  30 to 40 cm wide. Reasoning from the geometry, not measured.
+- A plain mat that contrasts with the stock matters. White items on a white table
+  won't be seen; the difference threshold is fixed.
+- An object lifted away and put back counts again. Stacking on a logged object isn't
+  seen as new. Undo and "Change amount" are the way out.
+- The session list lives on the page: a reload clears the list, not the stock.
 
 ## Flows
 
@@ -579,8 +705,9 @@ item's own history (`workshop_stock_item_events`), not the shared audit journal
 | Control | Value |
 | --- | --- |
 | Photo reads per person | 30 per 10 minutes (per warm instance) |
+| Camera table reads per person | 300 per 10 minutes (per warm instance) |
 | Online checks per person | 20 per hour (per warm instance) |
-| Daily ceiling per company | `STOCK_DAILY_PHOTO_READS` (300), `STOCK_DAILY_LOOKUPS` (60) — durable, in Postgres |
+| Daily ceiling per company | `STOCK_DAILY_PHOTO_READS` (300), `STOCK_DAILY_LOOKUPS` (60), `STOCK_DAILY_INTAKE_READS` (2000, the camera table's own, so a big session can't use up the crew's reads) — durable, in Postgres |
 | Per check | ≤ 2 searches, ≤ 3 pages, 20 s page budget; cached per brand + code + colour/size |
 | Function duration | 60 s (`vercel.json`) |
 
@@ -598,7 +725,7 @@ known until real use — watch the usage counters (`workshop_stock_usage`).
 | `STOCK_LOOKUP_SEARCH_TOOL` | the web search tool version |
 | `STOCK_LOOKUP_DOMAINS` | replace the source allowlist, e.g. `clipsal.com=manufacturer:clipsal,rexel.com.au=supplier` (see `sources.js`) |
 | `STOCK_PHOTO_READ_DISABLED=1` / `STOCK_LOOKUP_DISABLED=1` | turn photo reading / online checks off; the flows fall back to search and by hand |
-| `STOCK_DAILY_PHOTO_READS`, `STOCK_DAILY_LOOKUPS` | daily ceilings |
+| `STOCK_DAILY_PHOTO_READS`, `STOCK_DAILY_LOOKUPS`, `STOCK_DAILY_INTAKE_READS` | daily ceilings |
 | `BLOB_READ_WRITE_TOKEN` | existing Blob store (photos) |
 
 ## Data
@@ -613,6 +740,8 @@ object, default `{}`), and the tables `workshop_stock_lists` and
 to items and movements; a list's lines go when it is deleted). Tables from the
 first: `workshop_stock_items`, `_identifiers`, `_movements`, `_item_events`,
 `_photos`, `_lookup_cache`, `_usage`.
+`20261102100000_workshop_stock_location_matrix.sql` (re-runnable) adds
+`workshop_stock_location_matrix` and the camera table's `intake_read` counter.
 
 **Deploy order is free** for both later migrations: the store reads the new
 columns through `to_jsonb(i)` (absent → null / `{}`) and finds what the database
@@ -659,7 +788,9 @@ export).
 1. Merge the PR (squashed, `main` only).
 2. Apply `20261009100000_workshop_stock.sql` — and, for the photo of where an
    item lives, `20261026100000_workshop_stock_location_photo.sql`, and for item
-   types and shopping lists, `20261101100000_workshop_stock_types_and_lists.sql`
+   types and shopping lists, `20261101100000_workshop_stock_types_and_lists.sql`,
+   and for the camera table and location matrix,
+   `20261102100000_workshop_stock_location_matrix.sql`
    (each safe to apply before or after the code ships; its options appear
    within a minute of it) — to the **dev** project, then to
    **production** as an operator release step (Supabase migration process —
@@ -675,6 +806,15 @@ export).
    new columns and both tables present, RLS on with no policies, the 5
    existing items and 5 movements unchanged. The exception covers that release
    only; the default above stands.
+
+   *Record, 2026-11-02:* `20261102100000_workshop_stock_location_matrix.sql` was
+   applied from an agent session **with the owner's explicit go-ahead for this
+   release**, while its PR was still open (deploy order is free) — to dev first
+   (verified with a rolled-back write), then to production (migration history name
+   `workshop_stock_location_matrix`). It was verified afterwards: the table present
+   and empty, RLS on with no policies, `intake_read` allowed by the usage counter,
+   the 5 existing items, 5 movements and 2 usage rows unchanged. The exception covers
+   that release only; the default above stands.
 3. **Production writes are opt-in for every Supabase-backed feature**: the env
    guard (`api/_lib/supabase-env.js`) refuses a write connection to production
    unless `SUPABASE_ALLOW_PRODUCTION_WRITES="true"` is set in Production (see
@@ -730,6 +870,11 @@ SESSION_SECRET=<same> FLAG_WORKSHOP_STOCK=1 npx next dev -p 3000
 # 4. the spec (optionally WORKSHOP_STOCK_E2E_CHROMIUM=<path> for a preinstalled browser)
 WORKSHOP_STOCK_E2E_API=http://localhost:3101 npx playwright test tests/workshop-stock --project=desktop-chrome
 ```
+
+`tests/workshop-stock/camera-table.e2e.spec.ts` runs the same way. Its webcam is a
+canvas the spec draws on, so the real tracker finds real objects in real frames, but
+the barcode detector and the label reader's answers are fixtures: **real webcams,
+lighting and labels are not proven**, and neither is the speed or cost of real reads.
 
 The spec covers: More → Workshop stock; add by photo with the online check and
 packs (the listing never renames it; a changed brand makes the check stale);

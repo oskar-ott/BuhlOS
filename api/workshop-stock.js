@@ -13,7 +13,9 @@
 //   GET    ?action=operation&key=             reconcile a save whose response was lost (own operations; office: any)
 //   GET    ?action=photo&id=[&size=thumb]     a product photo or its list-size copy (authenticated proxy — the Blob URL never leaves the server)
 //   GET    ?action=jobs&q=                    job picker for the optional job note
-//   POST   ?action=read-photo  { dataUrl, thumbDataUrl?, purpose: 'add'|'take' }  read a photo, match the catalogue (writes no stock)
+//   GET    ?action=location-matrix            the racks and "these words go in this bin" rules   OFFICE
+//   PUT    ?action=location-matrix { expectedRevision, racks, rules }   save the whole matrix (compare-and-set)   OFFICE
+//   POST   ?action=read-photo  { dataUrl, thumbDataUrl?, purpose: 'add'|'take', intake? }  read a photo, match the catalogue (writes no stock; intake = the camera table, OFFICE, its own limits)
 //   POST   ?action=store-photo { dataUrl, thumbDataUrl? }  keep a product photo for a new item without reading it again (no AI call)
 //   POST   ?action=lookup      { brand?, manufacturerCode, colourFinish?, variantDetails? }  online code check (allowlisted sources)
 //   POST   ?action=create      { …item, openingQuantity | pack…, lookupCheck?, idempotencyKey }  new item + opening balance, atomically
@@ -79,8 +81,12 @@ const FLAG = 'workshop_stock';
 // for the two calls that cost money.
 const photoReadLimiter = createRateLimiter({ windowMs: 10 * 60_000, max: 30 });
 const lookupLimiter = createRateLimiter({ windowMs: 60 * 60_000, max: 20 });
+// The camera table reads one object at a time in bulk, so it has its own burst
+// limit and its own daily counter — a big session can't use up the crew's reads.
+const intakeReadLimiter = createRateLimiter({ windowMs: 10 * 60_000, max: 300 });
 const DAILY_PHOTO_READS = Math.max(1, Number(process.env.STOCK_DAILY_PHOTO_READS || 300));
 const DAILY_LOOKUPS = Math.max(1, Number(process.env.STOCK_DAILY_LOOKUPS || 60));
+const DAILY_INTAKE_READS = Math.max(1, Number(process.env.STOCK_DAILY_INTAKE_READS || 2000));
 const LOOKUP_TTL_DAYS = { manufacturer_code_matched: 30, possible_match: 7, no_match: 3 };
 const CLEANUP_BUDGET_MS = 4000;
 
@@ -314,7 +320,7 @@ const IdentifierBody = z.object({
 // The list-size copy is optional and never fails an upload: anything unusable
 // (too big, not a JPEG, not a string) is simply dropped by photo.readThumbUpload.
 const thumbDataUrl = z.unknown().optional().transform((v) => (typeof v === 'string' ? v : null));
-const ReadPhotoBody = z.object({ dataUrl: z.string().min(16), thumbDataUrl, purpose: z.enum(['add', 'take']) });
+const ReadPhotoBody = z.object({ dataUrl: z.string().min(16), thumbDataUrl, purpose: z.enum(['add', 'take']), intake: z.boolean().optional() });
 const LookupBody = z.object({
   brand: optText(60),
   manufacturerCode: z.string().trim().min(1).max(48),
@@ -356,6 +362,50 @@ function parseOr400(schema, body, res) {
     return null;
   }
   return r.data;
+}
+
+// ── location matrix (office) ──────────────────────────────────────────────────
+
+const MatrixBody = z.object({
+  expectedRevision: z.number().int().min(0),
+  racks: z.array(z.object({
+    id: z.string().trim().min(1).max(60),
+    name: z.string().trim().min(1).max(30),
+    shelves: z.number().int().min(1).max(30),
+    bins: z.number().int().min(1).max(60),
+  })).max(60),
+  rules: z.array(z.object({
+    id: z.string().trim().min(1).max(60),
+    words: z.string().trim().min(1).max(80),
+    rackId: z.string().trim().min(1).max(60),
+    shelf: z.number().int().min(1),
+    bin: z.number().int().min(1),
+  })).max(1000),
+});
+
+async function locationMatrix(sql, tenant, me, res) {
+  if (!policy.isOffice(me.role)) return res.status(403).json({ error: 'office_only' });
+  return res.status(200).json(await store.getLocationMatrix(sql, tenant.id));
+}
+
+async function saveLocationMatrix(sql, tenant, me, body, res) {
+  if (!policy.isOffice(me.role)) return res.status(403).json({ error: 'office_only' });
+  const input = parseOr400(MatrixBody, body, res);
+  if (!input) return;
+  const racks = new Map(input.racks.map((r) => [r.id, r]));
+  if (racks.size !== input.racks.length) return bad(res, 'rack_duplicate');
+  const names = new Set(input.racks.map((r) => r.name.toLowerCase()));
+  if (names.size !== input.racks.length) return bad(res, 'rack_duplicate');
+  for (const rule of input.rules) {
+    const rack = racks.get(rule.rackId);
+    if (!rack || rule.shelf > rack.shelves || rule.bin > rack.bins) return bad(res, 'rule_out_of_range', { ruleId: rule.id });
+  }
+  const current = await store.getLocationMatrix(sql, tenant.id);
+  if (!current.available) return res.status(503).json({ error: 'matrix_unavailable' });
+  const saved = await store.saveLocationMatrix(sql, tenant.id, { racks: input.racks, rules: input.rules }, input.expectedRevision, actorOf(me));
+  if (saved.error) return res.status(409).json({ error: saved.error, revision: current.revision });
+  await journal(me, 'workshop_stock.location_matrix_saved', 'location-matrix', `Saved the location matrix: ${input.racks.length} racks, ${input.rules.length} rules`, { revision: saved.revision });
+  return res.status(200).json({ available: true, matrix: { racks: input.racks, rules: input.rules }, ...saved });
 }
 
 // ── reads ─────────────────────────────────────────────────────────────────────
@@ -497,10 +547,12 @@ function itemSummary(item) {
 async function readPhoto(sql, tenant, me, body, res) {
   const input = parseOr400(ReadPhotoBody, body, res);
   if (!input) return;
+  if (input.intake && !policy.isOffice(me.role)) return res.status(403).json({ error: 'office_only' });
   const up = photo.readPhotoUpload(input.dataUrl);
   if (up.error) return res.status(up.status).json({ error: up.error, maxBytes: up.maxBytes });
-  if (photoReadLimiter.isLimited(me.id)) {
-    return res.status(429).json({ error: 'photo_limit', retryAfterSec: photoReadLimiter.retryAfterSec(me.id) });
+  const limiter = input.intake ? intakeReadLimiter : photoReadLimiter;
+  if (limiter.isLimited(me.id)) {
+    return res.status(429).json({ error: 'photo_limit', retryAfterSec: limiter.retryAfterSec(me.id) });
   }
 
   const cleanup = cleanupAlongside(sql, tenant.id);
@@ -521,11 +573,11 @@ async function readPhoto(sql, tenant, me, body, res) {
   if (!vision.enabled()) {
     readStatus = 'not_configured';
   } else {
-    const usage = await store.consumeUsage(sql, tenant.id, 'photo_read', DAILY_PHOTO_READS);
+    const usage = await store.consumeUsage(sql, tenant.id, input.intake ? 'intake_read' : 'photo_read', input.intake ? DAILY_INTAKE_READS : DAILY_PHOTO_READS);
     if (!usage.allowed) {
       readStatus = 'daily_limit';
     } else {
-      photoReadLimiter.record(me.id);
+      limiter.record(me.id);
       try {
         reading = await vision.readProductPhoto({ bytes: up.bytes, contentType: up.contentType });
         if (!reading || !reading.products.length) readStatus = 'unreadable';
@@ -1227,6 +1279,7 @@ async function handler(req, res) {
         case 'operation': return operation(sql, tenant, me, q.key, r);
         case 'photo': return servePhoto(sql, tenant, me, String(q.id || ''), String(q.size || ''), r);
         case 'lists': return lists(sql, tenant, me, r);
+        case 'location-matrix': return locationMatrix(sql, tenant, me, r);
         default: return r.status(400).json({ error: 'unknown_action' });
       }
     });
@@ -1251,6 +1304,7 @@ async function handler(req, res) {
     }
   }
   if (req.method === 'PUT' && action === 'item') return editItem(sql, tenant, me, String(q.id || ''), body, res);
+  if (req.method === 'PUT' && action === 'location-matrix') return saveLocationMatrix(sql, tenant, me, body, res);
   if (req.method === 'DELETE' && action === 'identifier') return identifier(sql, tenant, me, req, body, res);
   if (req.method === 'DELETE' && action === 'list') return deleteList(sql, tenant, me, String(q.id || ''), res);
   if (req.method === 'DELETE' && action === 'list-line') return deleteListLine(sql, tenant, String(q.id || ''), res);

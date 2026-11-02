@@ -300,6 +300,7 @@ async function resetStock() {
     await tx`delete from public.workshop_stock_photos where tenant_id = ${t}`;
     await tx`delete from public.workshop_stock_lookup_cache where tenant_id = ${t}`;
     await tx`delete from public.workshop_stock_usage where tenant_id = ${t}`;
+    await tx`delete from public.workshop_stock_location_matrix where tenant_id = ${t}`;
   });
   visionQueue.length = 0;
   calls.vision.length = 0;
