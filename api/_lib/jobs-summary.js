@@ -140,11 +140,23 @@ async function readJobsSummary(deps = realDeps()) {
     });
   }
   if (uploadedAt != null && sourceCurrent) {
-    try {
-      await writeBlob(SUMMARY_KEY, { builtFromUploadedAt: uploadedAt, records });
-    } catch {
-      /* best-effort: a persist failure still serves the freshly-built records */
+    const persist = async () => {
+      try {
+        await writeBlob(SUMMARY_KEY, { builtFromUploadedAt: uploadedAt, records });
+      } catch {
+        /* best-effort: a persist failure still serves the freshly-built records */
+      }
+    };
+    // 2026-11-01 ("it's really slow to use"): the persist is a ~1.4 s put that
+    // the page never needs — it has the records already. A caller inside a
+    // Next request passes `defer` (next/server `after`), so the put runs once
+    // the page is sent. Anywhere else, or if deferring isn't allowed here, it
+    // is awaited as before.
+    let deferred = false;
+    if (typeof deps.defer === 'function') {
+      try { deps.defer(persist); deferred = true; } catch { deferred = false; }
     }
+    if (!deferred) await persist();
   }
   return { records, source: 'rebuilt' };
 }
@@ -211,6 +223,7 @@ async function readFieldJobStats(jobIds, deps = realDeps()) {
 }
 
 module.exports = {
+  realDeps,
   SUMMARY_KEY,
   SUMMARY_SOURCE_KEY,
   buildJobsSummary,

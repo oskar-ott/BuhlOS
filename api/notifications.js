@@ -90,6 +90,16 @@ module.exports = async (req, res) => {
     const u = (data.users || []).find(x => x.id === me.id);
     if (!u) return res.status(404).json({ error: 'user not found' });
 
+    // 2026-11-01 ("it's really slow to use"): every shell mount re-sends the
+    // same subscription. Already saved, same keys → nothing to write. This used
+    // to rewrite the whole users.json (a ~1.4 s put) on every page open, and
+    // from a copy up to 30 s old, so it could undo a role change or sign-up
+    // made moments before.
+    const saved = (u.pushSubscriptions || []).find(s => s.endpoint === sub.endpoint);
+    if (saved && saved.keys && saved.keys.p256dh === sub.keys.p256dh && saved.keys.auth === sub.keys.auth) {
+      return res.status(200).json({ ok: true, unchanged: true });
+    }
+
     u.pushSubscriptions = (u.pushSubscriptions || []).filter(s => s.endpoint !== sub.endpoint);
     u.pushSubscriptions.push({
       endpoint: sub.endpoint,
@@ -101,7 +111,14 @@ module.exports = async (req, res) => {
       u.pushSubscriptions = u.pushSubscriptions.slice(-MAX_SUBS_PER_USER);
     }
 
-    await writeBlob(USERS_KEY, data);
+    // #157 house guard, like every other users.json writer: a document that
+    // moved underneath this read is refused, never overwritten.
+    try {
+      await writeBlob(USERS_KEY, data, { expectedRev: data.__rev });
+    } catch (e) {
+      if (e && e.code === 'stale_write') return res.status(409).json({ error: 'conflict' });
+      throw e;
+    }
     return res.status(200).json({ ok: true });
   }
 

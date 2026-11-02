@@ -759,6 +759,26 @@ describe("listUserEntries — the PG rung gets the read-your-writes overlay too 
     expect(got.map((e) => e.id)).toEqual(["e_pg_newer"]);
   });
 
+  it("starts the recent-day probes alongside the listing, not after it (one wave)", async () => {
+    const order: string[] = [];
+    let releaseList: () => void = () => {};
+    const listGate = new Promise<void>((r) => { releaseList = r; });
+    const probing = lib().listUserEntries(
+      "u_field",
+      { fromDate: TODAY, toDate: TODAY },
+      {
+        listPg: async () => { order.push("list:start"); await listGate; order.push("list:end"); return { pg: true, entries: [] }; },
+        probeDay: async (d: string) => { order.push(`probe:${d}`); return null; },
+      } as never
+    );
+    await new Promise((r) => setTimeout(r, 0));
+    // the probe ran while the listing was still waiting
+    expect(order).toContain(`probe:${TODAY}`);
+    expect(order).not.toContain("list:end");
+    releaseList();
+    expect(await probing).toEqual([]);
+  });
+
   it("still applies the caller's status filter to overlaid days", async () => {
     const got = await lib().listUserEntries(
       "u_field",
