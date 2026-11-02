@@ -11,6 +11,7 @@ import type { StockItem } from "@/domains/workshop-stock/schema";
 import { guessType } from "@/domains/workshop-stock/types";
 import { binKey, locationText, MAX_BINS, MAX_SHELVES, rackLabel, ruleFor, rulesInBin, rulesOutsideRack, type LocationMatrix, type MatrixRack } from "@/domains/workshop-stock/location-matrix";
 import { Block } from "./StockAdminForms";
+import { StockLayoutPlan } from "./StockLayoutPlan";
 
 const INPUT = "h-9 rounded-[4px] border border-border-strong bg-surface-subtle px-2.5 text-sm text-text focus:border-accent-yellow focus:outline-none";
 
@@ -35,7 +36,8 @@ function rackFromFields(name: string, shelves: string, bins: string): { name: st
  * rack as a grid of shelves and bins and writes in each bin the words for what
  * lives there ("iconic switch"); the grid also shows what the recorded stock says
  * is in each bin. Stock with no bin is listed with a suggested place, and moves
- * only when someone taps. Each matrix change saves the whole matrix (compare-and-set).
+ * only when someone taps. A recommended layout writes rules the same way. Each matrix
+ * change saves the whole matrix (compare-and-set).
  */
 export function StockLocationMatrix() {
   const [matrix, setMatrix] = useState<LocationMatrix | null>(null);
@@ -215,6 +217,8 @@ export function StockLocationMatrix() {
           <Button type="button" variant="ghost" size="sm" onClick={() => setMoving(null)} data-testid="stock-matrix-moving-cancel">Cancel</Button>
         </div>
       ) : null}
+
+      {matrix.racks.length ? <StockLayoutPlan matrix={matrix} items={items} saving={saving} onSaveRules={(rules) => save({ ...matrix, rules })} /> : null}
 
       {matrix.racks.length && issues.length ? (
         <section className="rounded-[4px] border border-border bg-surface p-3" data-testid="stock-matrix-issues">
