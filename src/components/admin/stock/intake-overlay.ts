@@ -43,7 +43,7 @@ export function readOverlayColours(el: HTMLElement): OverlayColours {
 }
 
 /** Where the video actually sits inside its letterboxed element, in CSS pixels. */
-function videoArea(boxW: number, boxH: number, vw: number, vh: number) {
+export function videoArea(boxW: number, boxH: number, vw: number, vh: number) {
   const scale = Math.min(boxW / vw, boxH / vh);
   const w = vw * scale;
   const h = vh * scale;
@@ -105,9 +105,17 @@ export interface DrawInput {
   /** 0–1 while the empty table is being read */
   calibrating: number | null;
   reducedMotion: boolean;
+  /** the table area, when one has been set: everything outside it is ignored */
+  zone: Box | null;
+  /** where an arm is, so it's plain it has been seen and isn't being counted */
+  armCells: { gw: number; gh: number; cells: Uint8Array } | null;
+  /** still things at the edge of the area, which are never counted */
+  atEdge: readonly Box[];
+  /** the object whose card the mouse is on */
+  highlight: number | null;
 }
 
-export function drawOverlay({ canvas, video, tracks, describe, memory, colours: c, now, running, calibrating, reducedMotion }: DrawInput): void {
+export function drawOverlay({ canvas, video, tracks, describe, memory, colours: c, now, running, calibrating, reducedMotion, zone, armCells, atEdge, highlight }: DrawInput): void {
   if (!video.videoWidth) return;
   const dpr = window.devicePixelRatio || 1;
   const cw = canvas.clientWidth;
@@ -122,6 +130,21 @@ export function drawOverlay({ canvas, video, tracks, describe, memory, colours: 
   ctx.clearRect(0, 0, cw, ch);
   ctx.textBaseline = "middle";
   const area = videoArea(cw, ch, video.videoWidth, video.videoHeight);
+
+  if (zone) {
+    // Outside the table area is dimmed: that part of the picture isn't being looked at.
+    const zx = area.x + zone.x * area.w;
+    const zy = area.y + zone.y * area.h;
+    const zw = zone.w * area.w;
+    const zh = zone.h * area.h;
+    ctx.globalAlpha = 0.55;
+    ctx.fillStyle = c.ink;
+    ctx.fillRect(area.x, area.y, area.w, zy - area.y);
+    ctx.fillRect(area.x, zy + zh, area.w, area.y + area.h - zy - zh);
+    ctx.fillRect(area.x, zy, zx - area.x, zh);
+    ctx.fillRect(zx + zw, zy, area.x + area.w - zx - zw, zh);
+    ctx.globalAlpha = 1;
+  }
 
   if (calibrating !== null) {
     const y = area.y + area.h * calibrating;
@@ -139,13 +162,44 @@ export function drawOverlay({ canvas, video, tracks, describe, memory, colours: 
   }
   if (!running) return;
 
-  // The working area: anything touching the picture's edge is taken for an arm.
+  // The working area: anything touching its edge is taken for an arm.
   const inset = area.w / 80;
+  const work = zone
+    ? { x: area.x + zone.x * area.w + inset, y: area.y + zone.y * area.h + inset, w: zone.w * area.w - inset * 2, h: zone.h * area.h - inset * 2 }
+    : { x: area.x + inset, y: area.y + inset, w: area.w - inset * 2, h: area.h - inset * 2 };
   ctx.globalAlpha = 0.55;
   ctx.strokeStyle = c.accent;
   ctx.lineWidth = 1.5;
-  brackets(ctx, area.x + inset, area.y + inset, area.w - inset * 2, area.h - inset * 2);
+  brackets(ctx, work.x, work.y, work.w, work.h);
   ctx.globalAlpha = 1;
+
+  // An arm: a faint wash, so it's plain it has been seen and isn't being counted.
+  if (armCells) {
+    const cellW = area.w / armCells.gw;
+    const cellH = area.h / armCells.gh;
+    ctx.globalAlpha = 0.16;
+    ctx.fillStyle = c.accent;
+    for (let cy = 0; cy < armCells.gh; cy++) {
+      for (let cx = 0; cx < armCells.gw; cx++) {
+        if (armCells.cells[cy * armCells.gw + cx]) ctx.fillRect(area.x + cx * cellW, area.y + cy * cellH, cellW + 0.5, cellH + 0.5);
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // Something still at the edge: half out of shot, so it will never be counted. Say so.
+  for (const box of atEdge) {
+    const x = area.x + box.x * area.w;
+    const y = area.y + box.y * area.h;
+    const w = box.w * area.w;
+    const h = box.h * area.h;
+    ctx.strokeStyle = c.warning;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 5]);
+    ctx.strokeRect(x, y, w, h);
+    ctx.setLineDash([]);
+    plate(ctx, c, c.warning, { tone: "touching", title: "AT THE EDGE · NOT COUNTED", detail: null }, x, y, w, h, area);
+  }
 
   const live = new Set<number>();
   for (const track of tracks) {
@@ -205,6 +259,12 @@ export function drawOverlay({ canvas, video, tracks, describe, memory, colours: 
     ctx.globalAlpha = 1;
     ctx.lineWidth = 3;
     brackets(ctx, x, y, w, h);
+    if (highlight === track.id) {
+      ctx.strokeStyle = c.accent;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x - 5, y - 5, w + 10, h + 10);
+      ctx.strokeStyle = colour;
+    }
 
     if (tag.tone === "reading" && !reducedMotion) {
       const sweep = (now % 1100) / 1100;

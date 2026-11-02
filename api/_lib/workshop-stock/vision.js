@@ -148,16 +148,18 @@ function clean(out) {
 }
 
 /**
- * @param {{ bytes: Buffer, contentType: string }} input
+ * @param {{ bytes: Buffer, contentType: string, model?: string }} input
  * @returns {Promise<{ legibility, note, products, usage }|null>} null when the model declined or returned nothing usable
  */
-async function readProductPhoto({ bytes, contentType }) {
+async function readProductPhoto({ bytes, contentType, model }) {
   const mediaType = IMAGE_TYPES.has(contentType) ? contentType : 'image/jpeg';
+  const useModel = model || VISION_MODEL;
+  // Haiku has no server-side refusal fallback: a declined read just comes back as null.
+  const fallback = /haiku/.test(useModel) ? {} : { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' };
   const msg = await client().beta.messages.create({
-    model: VISION_MODEL,
+    model: useModel,
     max_tokens: 4000,
-    betas: ['server-side-fallback-2026-07-01'],
-    fallbacks: 'default',
+    ...fallback,
     output_config: { effort: 'low', format: { type: 'json_schema', schema: SCHEMA } },
     messages: [{
       role: 'user',
@@ -172,7 +174,7 @@ async function readProductPhoto({ bytes, contentType }) {
   let parsed;
   try { parsed = JSON.parse(text); } catch { return null; }
   const out = clean(parsed);
-  if (out) out.usage = msg.usage ? { input: msg.usage.input_tokens, output: msg.usage.output_tokens, model: msg.model || VISION_MODEL } : null;
+  if (out) out.usage = msg.usage ? { input: msg.usage.input_tokens, output: msg.usage.output_tokens, model: msg.model || useModel } : null;
   return out;
 }
 

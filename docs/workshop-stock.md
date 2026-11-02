@@ -179,30 +179,67 @@ accuracy nobody has measured.
    compared with it a few times a second (`intake-tracker.ts`); anything new gets
    a dashed red box.
 2. It counts once it has sat still for 0.8 s. A blob touching the edge of the
-   picture is an arm: it never counts, and whatever it covers stays on the table
-   while it does. A nudged object is the same object. Objects pushed together turn
-   amber ("Touching: move them apart") and any that split off count then.
-3. A sharp crop of the full-size frame is taken. **A barcode** in it is matched
-   against the list right there; otherwise the crop goes to the **label reader**
-   (the same one as the phone, two at a time).
-4. **An exact barcode or code match logs by itself** and the box turns green.
+   table area is an arm: it never counts, and only what it actually lies on counts
+   as covered, so an arm resting across the table doesn't hold up the rest of it. A
+   nudged object is the same object. Objects pushed together turn amber ("Touching:
+   move them apart") and any that split off count then. A difference with no hard
+   edge of its own is a shadow, never an object.
+3. **Nothing leaves the table unless a hand was over it.** A shadow crossing an
+   object or the light changing can't make it count twice. A spot a hand has emptied
+   is free again in about half a second, and a different-looking object found where a
+   hand has just been is a new one, so a pile can be worked through one spot.
+4. A crop of the full-size frame is taken. **A barcode** in it is matched against the
+   list right there, trying up to three frames, because barcodes are free and a webcam
+   often refocuses just after a hand leaves. Otherwise the sharpest frame goes to the
+   **label reader** (the same one as the phone, four at a time, retried once by itself
+   if it fails in passing).
+5. **An exact barcode or code match logs by itself** and the box turns green.
    Words alone never do, because two GPOs look alike: "Is it one of these?" stays
-   red until someone picks, and a pick teaches the item that barcode.
-5. **Not on the list:** stays red with one card, already filled in: name from the
-   label, amount, location from the matrix. One tap adds it. Anything else waiting
-   with the same code then logs by itself, and so does every later one.
+   red until someone picks, and a pick teaches the item every code printed on it, so
+   the next one logs itself. An exact code match also keeps a barcode it saw, so the
+   next one is free and instant.
+6. **Not on the list:** stays red with one card, already filled in: name from the
+   label, amount, location from the matrix, or a suggested free bin with its reason.
+   One tap adds it. Anything else waiting with the same code shares that card and logs
+   with it, and so does every later one.
+7. **No label it can read:** the card says to turn it label up, and turning it over
+   reads it again. Taken away unread, it stays in the log as "Not logged", with its
+   picture and a way to read it again, so a missed item can't vanish silently.
 
 **Amount.** A loose item adds 1. A box printed "Pack of 10" of something counted
 each adds 10, and the row says the size came from the label. An item counted in
 boxes adds 1 box. A length is never guessed: without a printed length it asks.
-Any logged amount can be changed afterwards, which undoes that movement and records
+A pack size of 100 or more, or one that differs from what that item's label said
+earlier in the session, is checked with a person once, then trusted: a misread "1000"
+would otherwise go straight on the record. Any logged amount can be changed afterwards, which undoes that movement and records
 a new one, both in the item's history. Each placement is its own ledger movement
 with the note "Camera table" and its own idempotency key, so a lost answer retried
 is never counted twice, and Undo takes back that one placement.
 
-**"All the same"** on a logged row: everything placed from then on logs as that item
-and amount with no read at all, until Stop. For a run of identical items, and for
-loose items with no readable label.
+**"All the same"** on a logged row, offered by itself after three in a row: everything
+placed from then on logs as that item and amount with no read at all, until Stop. For a
+run of identical items, and for loose items with no readable label.
+
+**A hand scanner** (USB or Bluetooth, the kind that types like a keyboard) works on this
+screen with no setup. A scan goes to whatever card is waiting; otherwise, with the table
+running, it names the next thing placed, which then logs without a read; with the table
+stopped, each scan is +1 by itself. Keys arriving faster than anyone types are taken as
+a scan (`feedScan`).
+
+**Setting up.** "Table area" draws the part of the picture the table fills; anything
+outside it is ignored and its edge counts as the picture's edge. Reading the empty table
+restarts if something moves, sets its sensitivity from the sensor noise it measures, and
+says if the table is too dark, blown out, grainy or busy. Where a webcam allows it,
+exposure and white balance are held while counting ("Exposure: Held"; not every webcam
+does, and whether a real one does is unproven). Pale stock vanishes on a white mat and
+dark stock on a black one, so use a plain mid-coloured mat. Small print needs pixels:
+at 1920 wide across a 1 m table that's under 2 px per mm, so bring the camera as close
+as the table allows, or use a 4K one.
+
+**When things go wrong.** A webcam that stops or freezes shows "Camera lost", counting
+pauses, and it reconnects by itself and waits for "Carry on". The log survives a reload,
+Undo included, for 12 hours, on that computer only. A reload with reads or cards still
+open asks first.
 
 This is the one place stock is written without a person confirming the quantity.
 The reader still doesn't count (no field for it): the count is one per object the
@@ -225,10 +262,17 @@ rely on colour.
   away. The same text is announced to screen readers.
 - **Sound**, so nobody has to look up: a rising pair when logged, a low pair when it
   needs you. Mute with the speaker button or `M`.
-- **Keyboard:** `Space` pause, `U` undo the last one, `F` full screen, `M` sound.
-- **The status bar only shows measured values:** the camera's real resolution (flagged
-  low under 1920 wide), the real analysis rate, what's on the table now, whether this
-  browser reads barcodes, and how many bin rules exist.
+- **Keyboard:** `Space` pause, `U` undo the last one, `Enter` add the open card, `1`–`9`
+  pick a choice, `X` ignore, `R` read again, `F` full screen, `M` sound.
+- **Cards queue oldest first** with the same number as the box on the picture, and only
+  one is open, so what's being typed into never moves. Hover a card to find its box.
+- **The status bar only shows measured values:** the camera's real resolution and frame
+  rate, what's on the table now, barcodes read, label reads and their median time,
+  whether exposure is held, and how many bin rules exist. The analysis rate appears only
+  when it falls behind.
+- **An arm gets a faint wash**, so it's plain it has been seen and isn't being counted.
+  Something still at the edge gets "AT THE EDGE · NOT COUNTED", because a thing half out
+  of shot would otherwise be ignored in silence.
 - **Start** averages several frames of the empty table, so sensor noise isn't taken
   for an object. Motion is turned off under `prefers-reduced-motion`.
 
@@ -748,6 +792,7 @@ known until real use — watch the usage counters (`workshop_stock_usage`).
 | `STOCK_LOOKUP_DOMAINS` | replace the source allowlist, e.g. `clipsal.com=manufacturer:clipsal,rexel.com.au=supplier` (see `sources.js`) |
 | `STOCK_PHOTO_READ_DISABLED=1` / `STOCK_LOOKUP_DISABLED=1` | turn photo reading / online checks off; the flows fall back to search and by hand |
 | `STOCK_DAILY_PHOTO_READS`, `STOCK_DAILY_LOOKUPS`, `STOCK_DAILY_INTAKE_READS` | daily ceilings |
+| `STOCK_INTAKE_VISION_MODEL` | the camera table's label reader only (default: same as the phone's). Choose with `scripts/qa/label-reader-compare.js` |
 | `BLOB_READ_WRITE_TOKEN` | existing Blob store (photos) |
 
 ## Data
@@ -894,7 +939,14 @@ WORKSHOP_STOCK_E2E_API=http://localhost:3101 npx playwright test tests/workshop-
 ```
 
 `tests/workshop-stock/shelf-map.e2e.spec.ts` (Add form, bin picker, shelf map, moves,
-the crew's read) and `tests/workshop-stock/camera-table.e2e.spec.ts` run the same way. The camera spec's webcam is a
+the crew's read), `tests/workshop-stock/camera-table.e2e.spec.ts` and
+`tests/workshop-stock/camera-table-flows.e2e.spec.ts` (noisy picture, a pile through one
+spot, the queue, a pack check, a scanner, a reload, a table area, a camera knocked out)
+run the same way. `intake-bench.test.ts` runs the real tracker against a simulated camera
+(noise, exposure, white balance, shadows, arms) in the unit suite; `BENCH_ALL_SEEDS=1`
+also runs the long random soak. These prove the logic against a simulation written by the
+same author. They are not evidence about a real webcam. Each resets the
+harness, so run them one file at a time. The camera spec's webcam is a
 canvas the spec draws on, so the real tracker finds real objects in real frames, but
 the barcode detector and the label reader's answers are fixtures: **real webcams,
 lighting and labels are not proven**, and neither is the speed or cost of real reads.
