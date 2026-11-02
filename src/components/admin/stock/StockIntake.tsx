@@ -1035,7 +1035,6 @@ export function StockIntake() {
   }, [placed]);
 
   async function startTable() {
-    if (!frameRef.current) return;
     unlockSound();
     setTableChanged(false);
     setUnsteady(false);
