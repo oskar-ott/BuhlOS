@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { PhilBackLink } from "@/components/phil/ui/PhilBackLink";
-import { PhilItpReportsList } from "@/components/phil/PhilItpSimple";
+import { PhilItpReportsList } from "@/components/phil/itp/PhilItpReportsList";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { isFlagEnabled } from "../../../../../../api/_lib/feature-flags.js";
@@ -15,10 +15,12 @@ interface PageParams {
 
 /**
  * /phil/jobs/[jobId]/itp-reports — the simple mobile ITP builder's list
- * (#912). Server component: gates session + surface + the `itp_simple` flag
- * (dark = 404, the #760 no-trace route layer), then hands off to the client.
- * Job assignment is enforced by the API — an unassigned worker sees the
- * shell but every fetch 403s with the standard message.
+ * (#912; redesigned per the 2026-11-02 handoff, docs/itp-builder.md). Server
+ * component: gates session + surface + the `itp_simple` flag (dark = 404,
+ * the #760 no-trace route layer), then hands off to the client. Job
+ * assignment is enforced by the API — an unassigned worker sees the shell
+ * but every fetch 403s with the standard message. The viewer id feeds the
+ * per-person walkthrough memory.
  */
 export default async function PhilItpReportsPage({ params }: PageParams) {
   const { jobId } = await params;
@@ -38,9 +40,9 @@ export default async function PhilItpReportsPage({ params }: PageParams) {
 
   return (
     <PhilShell title="ITPs">
-      <div className="space-y-4">
+      <div className="flex min-h-full flex-col gap-4">
         <PhilBackLink href={`/phil/jobs/${encodeURIComponent(jobId)}`}>Back to job</PhilBackLink>
-        <PhilItpReportsList jobId={jobId} />
+        <PhilItpReportsList jobId={jobId} userId={session.userId ?? session.sub ?? ""} />
       </div>
     </PhilShell>
   );

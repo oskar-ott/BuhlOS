@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { PhilShell } from "@/components/phil/PhilShell";
 import { PhilBackLink } from "@/components/phil/ui/PhilBackLink";
-import { PhilItpReportBuilder } from "@/components/phil/PhilItpSimple";
+import { PhilItpReportBuilder } from "@/components/phil/itp/PhilItpReportBuilder";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { isFlagEnabled } from "../../../../../../../api/_lib/feature-flags.js";
@@ -14,9 +14,11 @@ interface PageParams {
 }
 
 /**
- * /phil/jobs/[jobId]/itp-reports/[reportId] — one ITP report being built on
- * the walk (#912). Same gate stack as the list route; all data moves through
- * the job-scoped API.
+ * /phil/jobs/[jobId]/itp-reports/[reportId] — one ITP being built on the
+ * walk (#912; redesigned per the 2026-11-02 handoff, docs/itp-builder.md).
+ * Same gate stack as the list route; all data moves through the job-scoped
+ * API. The back link is a plain anchor so the builder's leave guard can
+ * catch it while photos are still saving.
  */
 export default async function PhilItpReportPage({ params }: PageParams) {
   const { jobId, reportId } = await params;
@@ -25,9 +27,7 @@ export default async function PhilItpReportPage({ params }: PageParams) {
   const raw = cookieStore.get(SESSION_COOKIE)?.value;
   const session = decodeSessionCookie(raw);
   if (!session?.role) {
-    redirect(
-      `/v2/login?next=${encodeURIComponent(`/phil/jobs/${jobId}/itp-reports/${reportId}`)}`,
-    );
+    redirect(`/v2/login?next=${encodeURIComponent(`/phil/jobs/${jobId}/itp-reports/${reportId}`)}`);
   }
   if (!canAccessSurface(session.role, "phil")) {
     redirect("/v2/login");
@@ -37,10 +37,10 @@ export default async function PhilItpReportPage({ params }: PageParams) {
   }
 
   return (
-    <PhilShell title="ITP report">
-      <div className="space-y-4">
+    <PhilShell title="ITPs">
+      <div className="flex min-h-full flex-col gap-4">
         <PhilBackLink href={`/phil/jobs/${encodeURIComponent(jobId)}/itp-reports`}>
-          All ITPs
+          ITPs
         </PhilBackLink>
         <PhilItpReportBuilder jobId={jobId} reportId={reportId} />
       </div>

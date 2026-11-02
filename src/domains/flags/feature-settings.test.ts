@@ -77,7 +77,11 @@ describe("resolver (default until overridden, dark-safe)", () => {
 
   it("getSettings resolves the whole feature group in one read", async () => {
     blob.set("feature-settings.json", { settings: { itp_simple: { maxPdfPhotos: 200 } } });
-    expect(await settings.getSettings("itp_simple")).toEqual({ maxUploadMb: 8, maxPdfPhotos: 200 });
+    expect(await settings.getSettings("itp_simple")).toEqual({
+      maxUploadMb: 8,
+      maxPdfPhotos: 200,
+      officeEmail: "",
+    });
   });
 
   it("every registry default is itself a valid value (resolves to the default)", async () => {

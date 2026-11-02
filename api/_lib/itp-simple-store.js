@@ -208,6 +208,18 @@ async function deletePhoto(sql, tenantId, jobLegacyId, photoId) {
   return rows.length > 0;
 }
 
+/** Caption a photo (prints under it in the PDF). Job-scoped like deletePhoto. */
+async function updatePhotoCaption(sql, tenantId, jobLegacyId, photoId, caption) {
+  const rows = await sql`
+    update public.itp_simple_photos p set caption = ${caption || null}
+    from public.itp_simple_areas a, public.itp_simple_reports r
+    where p.id = ${photoId} and a.id = p.area_id and r.id = a.report_id
+      and r.tenant_id = ${tenantId} and r.job_legacy_id = ${jobLegacyId}
+      and r.deleted_at is null
+    returning p.id`;
+  return rows.length > 0;
+}
+
 /** Stamp the latest generated PDF artifact onto the report. */
 async function stampPdf(sql, tenantId, jobLegacyId, reportId, pdfUrl) {
   const rows = await sql`
@@ -217,6 +229,212 @@ async function stampPdf(sql, tenantId, jobLegacyId, reportId, pdfUrl) {
       and job_legacy_id = ${jobLegacyId} and deleted_at is null
     returning pdf_generated_at`;
   return rows.length ? rows[0].pdf_generated_at : null;
+}
+
+
+// ── PDFs (handoff 2026-11-02: several per ITP) ─────────────────────────
+
+function pdfRow(r) {
+  return {
+    id: r.id,
+    reportId: r.report_id,
+    name: r.name,
+    nameIsAuto: !!r.name_is_auto,
+    areaIds: r.area_ids || [],
+    snapshot: r.snapshot || { areas: [] },
+    contentKey: r.content_key || '',
+    areaCount: Number(r.area_count || 0),
+    photoCount: Number(r.photo_count || 0),
+    url: r.blob_url,
+    pathname: r.blob_pathname || null,
+    madeAt: r.made_at,
+    madeBy: r.made_by_name || '',
+  };
+}
+
+/** Guard: the PDF's report must belong to this tenant + job and be live. */
+async function getPdf(sql, tenantId, jobLegacyId, pdfId) {
+  const rows = await sql`
+    select p.* from public.itp_simple_pdfs p
+    join public.itp_simple_reports r on r.id = p.report_id
+    where p.id = ${pdfId} and r.tenant_id = ${tenantId}
+      and r.job_legacy_id = ${jobLegacyId} and r.deleted_at is null`;
+  return rows.length ? pdfRow(rows[0]) : null;
+}
+
+async function listPdfs(sql, reportId) {
+  const rows = await sql`
+    select * from public.itp_simple_pdfs
+    where report_id = ${reportId}
+    order by made_at desc`;
+  return rows.map(pdfRow);
+}
+
+async function createPdf(sql, tenantId, reportId, {
+  name, nameIsAuto, areaIds, snapshot, contentKey, areaCount, photoCount, url, pathname, byteSize, user,
+}) {
+  const rows = await sql`
+    insert into public.itp_simple_pdfs
+      (tenant_id, report_id, name, name_is_auto, area_ids, snapshot, content_key,
+       area_count, photo_count, blob_url, blob_pathname, byte_size, made_by_legacy_id, made_by_name)
+    values (${tenantId}, ${reportId}, ${name}, ${!!nameIsAuto}, ${areaIds}, ${sql.json(snapshot)},
+            ${contentKey}, ${areaCount}, ${photoCount}, ${url}, ${pathname || null}, ${byteSize || null},
+            ${user.id || null}, ${user.name || user.username || null})
+    returning *`;
+  return pdfRow(rows[0]);
+}
+
+/** Make again / rename re-render: replace the file (and, when given, the
+ *  snapshot + fingerprint) on the SAME row. */
+async function replacePdfFile(sql, pdfId, {
+  name, nameIsAuto, snapshot, contentKey, areaCount, photoCount, url, pathname, byteSize, user, touchMadeAt,
+}) {
+  const rows = await sql`
+    update public.itp_simple_pdfs set
+      name = coalesce(${name == null ? null : name}, name),
+      name_is_auto = coalesce(${nameIsAuto == null ? null : !!nameIsAuto}, name_is_auto),
+      snapshot = coalesce(${snapshot == null ? null : sql.json(snapshot)}, snapshot),
+      content_key = coalesce(${contentKey == null ? null : contentKey}, content_key),
+      area_count = coalesce(${areaCount == null ? null : areaCount}, area_count),
+      photo_count = coalesce(${photoCount == null ? null : photoCount}, photo_count),
+      blob_url = ${url},
+      blob_pathname = ${pathname || null},
+      byte_size = ${byteSize || null},
+      made_at = case when ${!!touchMadeAt} then now() else made_at end,
+      made_by_legacy_id = case when ${!!touchMadeAt} then ${user.id || null} else made_by_legacy_id end,
+      made_by_name = case when ${!!touchMadeAt} then ${user.name || user.username || null} else made_by_name end
+    where id = ${pdfId}
+    returning *`;
+  return rows.length ? pdfRow(rows[0]) : null;
+}
+
+// ── Send log ───────────────────────────────────────────────────────────
+
+function sendRow(s) {
+  return {
+    id: s.id,
+    pdfId: s.pdf_id || null,
+    kind: s.kind,
+    recipient: s.recipient,
+    pdfName: s.pdf_name,
+    attached: !!s.attached,
+    result: s.result,
+    failure: s.failure || null,
+    sentBy: s.sent_by_name || '',
+    sentAt: s.sent_at,
+  };
+}
+
+async function logSend(sql, tenantId, jobLegacyId, reportId, {
+  pdfId, kind, recipient, pdfName, attached, result, failure, user,
+}) {
+  const rows = await sql`
+    insert into public.itp_simple_sends
+      (tenant_id, report_id, pdf_id, job_legacy_id, kind, recipient, pdf_name, attached,
+       result, failure, sent_by_legacy_id, sent_by_name)
+    values (${tenantId}, ${reportId}, ${pdfId || null}, ${jobLegacyId}, ${kind}, ${recipient},
+            ${pdfName}, ${attached !== false}, ${result}, ${failure || null},
+            ${user.id || null}, ${user.name || user.username || null})
+    returning *`;
+  return sendRow(rows[0]);
+}
+
+/** Every send for a report, newest first (failed ones included — P7). */
+async function listSends(sql, reportId) {
+  const rows = await sql`
+    select * from public.itp_simple_sends
+    where report_id = ${reportId}
+    order by sent_at desc`;
+  return rows.map(sendRow);
+}
+
+/** Addresses successfully emailed to on this job, newest first — the
+ *  "Used on this job" chips. */
+async function recentEmailRecipients(sql, tenantId, jobLegacyId, limit = 8) {
+  const rows = await sql`
+    select recipient, max(sent_at) as last_at
+    from public.itp_simple_sends
+    where tenant_id = ${tenantId} and job_legacy_id = ${jobLegacyId}
+      and kind = 'email' and result = 'sent'
+    group by recipient
+    order by last_at desc
+    limit ${limit}`;
+  return rows.map((r) => r.recipient);
+}
+
+// ── Per-report facts for the list badges ───────────────────────────────
+
+/** For a set of reports: their pdfs, the live per-area photo facts (so the
+ *  handler can work out which pdfs are out of date) and the latest
+ *  successful send. One query each, not one per report. */
+async function reportFacts(sql, reportIds) {
+  if (!reportIds.length) return { pdfsByReport: new Map(), areasByReport: new Map(), lastSendByReport: new Map() };
+  const [pdfs, areas, photos, sends] = await Promise.all([
+    sql`select * from public.itp_simple_pdfs where report_id in ${sql(reportIds)} order by made_at desc`,
+    sql`select id, report_id, name from public.itp_simple_areas where report_id in ${sql(reportIds)} order by position, created_at`,
+    sql`select p.id, p.area_id, p.caption, a.report_id
+        from public.itp_simple_photos p
+        join public.itp_simple_areas a on a.id = p.area_id
+        where a.report_id in ${sql(reportIds)}
+        order by p.created_at`,
+    sql`select distinct on (report_id) * from public.itp_simple_sends
+        where report_id in ${sql(reportIds)} and result = 'sent'
+        order by report_id, sent_at desc`,
+  ]);
+  const pdfsByReport = new Map();
+  for (const p of pdfs) {
+    if (!pdfsByReport.has(p.report_id)) pdfsByReport.set(p.report_id, []);
+    pdfsByReport.get(p.report_id).push(pdfRow(p));
+  }
+  const areaById = new Map();
+  const areasByReport = new Map();
+  for (const a of areas) {
+    const row = { id: a.id, name: a.name, photos: [] };
+    areaById.set(a.id, row);
+    if (!areasByReport.has(a.report_id)) areasByReport.set(a.report_id, []);
+    areasByReport.get(a.report_id).push(row);
+  }
+  for (const p of photos) {
+    const a = areaById.get(p.area_id);
+    if (a) a.photos.push({ id: p.id, caption: p.caption || '' });
+  }
+  const lastSendByReport = new Map(sends.map((s) => [s.report_id, sendRow(s)]));
+  return { pdfsByReport, areasByReport, lastSendByReport };
+}
+
+/** Area names of the most recent OTHER live report on this job (the "last
+ *  ITP's" names for the Recent names chips), capture order. */
+async function lastReportAreaNames(sql, tenantId, jobLegacyId, excludeReportId) {
+  const rows = await sql`
+    select a.name from public.itp_simple_areas a
+    join public.itp_simple_reports r on r.id = a.report_id
+    where r.tenant_id = ${tenantId} and r.job_legacy_id = ${jobLegacyId}
+      and r.deleted_at is null and r.id <> ${excludeReportId}
+      and r.id = (
+        select id from public.itp_simple_reports
+        where tenant_id = ${tenantId} and job_legacy_id = ${jobLegacyId}
+          and deleted_at is null and id <> ${excludeReportId}
+        order by created_at desc limit 1)
+    order by a.position, a.created_at`;
+  return rows.map((r) => r.name);
+}
+
+// ── Per-person prefs ───────────────────────────────────────────────────
+
+async function walkthroughSeen(sql, tenantId, userLegacyId) {
+  const rows = await sql`
+    select walkthrough_seen_at from public.itp_simple_user_prefs
+    where tenant_id = ${tenantId} and user_legacy_id = ${userLegacyId}`;
+  return rows.length > 0 && rows[0].walkthrough_seen_at != null;
+}
+
+async function markWalkthroughSeen(sql, tenantId, userLegacyId) {
+  await sql`
+    insert into public.itp_simple_user_prefs (tenant_id, user_legacy_id, walkthrough_seen_at)
+    values (${tenantId}, ${userLegacyId}, now())
+    on conflict (tenant_id, user_legacy_id)
+      do update set walkthrough_seen_at = coalesce(public.itp_simple_user_prefs.walkthrough_seen_at, now())`;
+  return true;
 }
 
 module.exports = {
@@ -232,5 +450,17 @@ module.exports = {
   deleteArea,
   addPhoto,
   deletePhoto,
+  updatePhotoCaption,
   stampPdf,
+  getPdf,
+  listPdfs,
+  createPdf,
+  replacePdfFile,
+  logSend,
+  listSends,
+  recentEmailRecipients,
+  reportFacts,
+  lastReportAreaNames,
+  walkthroughSeen,
+  markWalkthroughSeen,
 };

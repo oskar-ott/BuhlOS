@@ -156,6 +156,16 @@ const SETTINGS_REGISTRY = {
       step: 10,
       unit: 'photos',
     },
+    // ITP builder redesign (handoff 2026-11-02): where "Send to office" goes.
+    // Blank = the office button is hidden on the phone (Email it and Save
+    // stay); replies to every ITP email land here too.
+    officeEmail: {
+      type: 'string',
+      label: 'Office email for ITPs',
+      description: 'Where "Send to office" delivers an ITP PDF, and where replies to ITP emails go. Leave blank to hide "Send to office" on the phone.',
+      default: '',
+      maxLength: 200,
+    },
   },
 };
 

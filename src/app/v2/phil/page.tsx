@@ -21,6 +21,7 @@ import { PhilSignOutButton } from "@/components/phil/PhilSignOutButton";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import { PushNotificationsCard } from "@/components/pwa/PushNotificationsCard";
 import { InstallAppCard } from "@/components/pwa/InstallAppCard";
+import { PhilItpHelpCard } from "@/components/phil/itp/PhilItpHelpCard";
 
 /**
  * /v2/phil — Phil landing / "More" tab profile placeholder.
@@ -39,7 +40,7 @@ export default async function PhilV2HomePage() {
   const store = await cookies();
   const session = decodeSessionCookie(store.get(SESSION_COOKIE)?.value);
   const viewerId = session?.userId ?? session?.sub ?? "";
-  const [{ credentials, fetchError }, inductions, myRecord, workshopStock] =
+  const [{ credentials, fetchError }, inductions, myRecord, workshopStock, itpSimple] =
     await Promise.all([
       loadMyLicences(),
       loadMyInductions(),
@@ -47,6 +48,9 @@ export default async function PhilV2HomePage() {
       // Workshop Stock (workshop_stock, dark): its one entry point on the phone —
       // the reference group here, never a tab or a My Day tile (P10).
       session?.role ? isFlagEnabled("workshop_stock", session).catch(() => false) : Promise.resolve(false),
+      // ITP builder (itp_simple): Settings → Help → How ITPs work replays the
+      // first-open walkthrough. Hidden with the flag so it's never a dead row.
+      session?.role ? isFlagEnabled("itp_simple", session).catch(() => false) : Promise.resolve(false),
     ]);
   return (
     <PhilShell title="BuhlOS">
@@ -129,6 +133,8 @@ export default async function PhilV2HomePage() {
             </div>
           </Card>
         ) : null}
+
+        {itpSimple ? <PhilItpHelpCard /> : null}
 
         {/* #331: the worker's own licence register — the licence-expiry
             push deep-links to this page. */}

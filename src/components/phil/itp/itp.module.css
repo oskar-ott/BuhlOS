@@ -1,0 +1,107 @@
+/*
+ * ITP builder motion (handoff 2026-11-02 "Motion"). Short and functional;
+ * every animation becomes an instant change under prefers-reduced-motion.
+ * Colours stay on the global tokens — nothing here is a colour.
+ */
+
+/* Bottom sheet: slide up 220ms ease-out; scrim fades with it. */
+.sheetPanel {
+  animation: itp-sheet-up 220ms ease-out;
+}
+.sheetScrim {
+  animation: itp-fade-in 220ms ease-out;
+}
+@keyframes itp-sheet-up {
+  from {
+    transform: translateY(32px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+@keyframes itp-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* A tile overlay that just cleared (saving → saved) fades out 150ms. */
+.overlayOut {
+  animation: itp-fade-out 150ms ease-out forwards;
+}
+@keyframes itp-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+/* Saving spinner: 900ms linear loop. */
+.spin {
+  animation: itp-spin 900ms linear infinite;
+}
+@keyframes itp-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Armed remove: fill changes to red, no movement. */
+.armable {
+  transition:
+    background-color 120ms ease-out,
+    color 120ms ease-out,
+    border-color 120ms ease-out;
+}
+
+/* Dock badge cross-fade on state change (keyed re-mount). */
+.badgeIn {
+  animation: itp-fade-in 150ms ease-out;
+}
+
+/* Walkthrough step slide, 200ms ease-out. */
+.stepIn {
+  animation: itp-step-in 200ms ease-out;
+}
+.stepInBack {
+  animation: itp-step-in-back 200ms ease-out;
+}
+@keyframes itp-step-in {
+  from {
+    transform: translateX(40px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+@keyframes itp-step-in-back {
+  from {
+    transform: translateX(-40px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheetPanel,
+  .sheetScrim,
+  .overlayOut,
+  .spin,
+  .badgeIn,
+  .stepIn,
+  .stepInBack {
+    animation: none;
+  }
+  .armable {
+    transition: none;
+  }
+}
