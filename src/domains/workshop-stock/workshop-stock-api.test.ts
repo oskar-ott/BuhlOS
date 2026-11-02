@@ -237,6 +237,26 @@ describe("who can reach it", () => {
     expect(store.listItems).toHaveBeenLastCalledWith(expect.anything(), TENANT.id, { includeArchived: true });
   });
 
+  it("a stalled connection answers 503 in seconds and is dropped, instead of holding the screen 60 s (2026-11-02)", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const closeDb = vi.fn(async () => {});
+      fake(P.db, { getDb: vi.fn(() => ({ fake: "sql" })), closeDb });
+      store.resolveTenant.mockImplementationOnce(() => new Promise(() => {})); // never answers
+      delete requireFromHere.cache[P.handler];
+      handler = requireFromHere(P.handler);
+      const pending = call({ query: { action: "list" } });
+      await vi.advanceTimersByTimeAsync(6000);
+      const r = await pending;
+      expect(r.statusCode).toBe(503);
+      expect(r.body).toEqual({ error: "store_unavailable" });
+      expect(closeDb).toHaveBeenCalledTimes(1);
+      expect(store.listItems).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("503 with a stable code when the store can't be reached — never the guard's message", async () => {
     fake(P.db, { getDb: vi.fn(() => { throw Object.assign(new Error("SUPABASE_DB_URL secret detail"), { code: "MISSING_ENV" }); }) });
     delete requireFromHere.cache[P.handler];

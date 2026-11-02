@@ -55,7 +55,7 @@ const { z } = require('zod');
 const { readBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth } = require('./_lib/auth');
 const { isFlagEnabled } = require('./_lib/feature-flags');
-const { getDb } = require('./_lib/supabase-db');
+const { getDb, closeDb } = require('./_lib/supabase-db');
 const auditLog = require('./_lib/audit-log');
 const { withErrorCapture } = require('./_lib/error-wrap');
 const { idempotencyKeyFrom } = require('./_lib/idempotency');
@@ -1139,6 +1139,19 @@ async function deleteListLine(sql, tenant, id, res) {
 
 // ── router ────────────────────────────────────────────────────────────────────
 
+// The first query of a request (the tenant lookup) normally answers in a few
+// ms. If it hasn't in DB_STALL_MS the connection is wedged: give up before
+// anything is read or written instead of holding the screen for the 60 s
+// function limit.
+const DB_STALL_MS = 6000;
+function firstQueryOrStall(promise) {
+  let timer;
+  const stall = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(Object.assign(new Error('db stalled'), { code: 'db_stalled' })), DB_STALL_MS);
+  });
+  return Promise.race([promise, stall]).finally(() => clearTimeout(timer));
+}
+
 async function handler(req, res) {
   setNoCache(res);
   if (req.method === 'OPTIONS') return res.status(200).end();
@@ -1157,8 +1170,16 @@ async function handler(req, res) {
   let tenant;
   try {
     sql = getDb({ mode: req.method === 'GET' ? 'read' : 'write' });
-    tenant = await store.resolveTenant(sql);
+    tenant = await firstQueryOrStall(store.resolveTenant(sql));
   } catch (e) {
+    if (e && e.code === 'db_stalled') {
+      // The connection took the request and never ran it (2026-11-02, 00:37:
+      // three stock requests sat 60 s on a fresh pooled connection, then timed
+      // out). Drop this instance's connection so the next request opens a
+      // fresh one — closeDb() forgets it at once; the close itself is
+      // best-effort. Nothing was attempted yet, so 503 stays honest.
+      closeDb().catch(() => {});
+    }
     console.error('[workshop-stock] store unavailable', { code: (e && e.code) || 'db' });
     return res.status(503).json({ error: 'store_unavailable' });
   }
@@ -1203,4 +1224,4 @@ async function handler(req, res) {
 }
 
 module.exports = withErrorCapture(handler, 'workshop-stock');
-module.exports.__test = { stableStringify, requestHash, verificationFromLookup, identifiersForItem };
+module.exports.__test = { firstQueryOrStall, DB_STALL_MS, stableStringify, requestHash, verificationFromLookup, identifiersForItem };
