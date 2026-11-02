@@ -775,7 +775,7 @@ describe("a photo of where the item lives", () => {
   });
 
   describe("camera table + location matrix", () => {
-    const RACK = { id: "c", name: "C", shelves: 4, bins: 6 };
+    const RACK = { id: "c", name: "3", shelves: 4, bins: 6 };
     const RULE = { id: "r1", words: "iconic switch", rackId: "c", shelf: 2, bin: 4 };
     const put = (body: unknown, user = "u_office") => call({ method: "PUT", user, query: { action: "location-matrix" }, body });
 
@@ -797,7 +797,7 @@ describe("a photo of where the item lives", () => {
       expect((await put({ expectedRevision: 0, racks: [RACK], rules: [{ ...RULE, shelf: 5 }] })).body).toMatchObject({ error: "rule_out_of_range" });
       expect((await put({ expectedRevision: 0, racks: [RACK], rules: [{ ...RULE, bin: 7 }] })).body).toMatchObject({ error: "rule_out_of_range" });
       expect((await put({ expectedRevision: 0, racks: [RACK], rules: [{ ...RULE, rackId: "gone" }] })).body).toMatchObject({ error: "rule_out_of_range" });
-      expect((await put({ expectedRevision: 0, racks: [RACK, { ...RACK, id: "d", name: "c" }], rules: [] })).body).toMatchObject({ error: "rack_duplicate" });
+      expect((await put({ expectedRevision: 0, racks: [{ ...RACK, name: "C" }, { ...RACK, id: "d", name: "c" }], rules: [] })).body).toMatchObject({ error: "rack_duplicate" });
       expect(store.saveLocationMatrix).not.toHaveBeenCalled();
     });
 

@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
 import { newOperationKey } from "@/domains/workshop-stock/client";
 import { recommendLayout, type LayoutPlan } from "@/domains/workshop-stock/location-layout";
-import { binKey, locationText, rackLabel, rulesInBin, type LocationMatrix, type MatrixRule } from "@/domains/workshop-stock/location-matrix";
+import { binKey, locationText, rackLabel, rulesInBin, shelfLabel, type LocationMatrix, type MatrixRule } from "@/domains/workshop-stock/location-matrix";
 import type { StockItem } from "@/domains/workshop-stock/schema";
 
 function count(n: number, one: string, many = `${one}s`): string {
@@ -39,7 +39,7 @@ function PlanRack({ matrix, plan, rack }: { matrix: LocationMatrix; plan: Layout
           <tbody>
             {Array.from({ length: rack.shelves }, (_, s) => (
               <tr key={s}>
-                <th scope="row" className="console-label whitespace-nowrap pr-2">Shelf {s + 1}</th>
+                <th scope="row" className="console-label whitespace-nowrap pr-2">Shelf {shelfLabel(s + 1)}</th>
                 {Array.from({ length: rack.bins }, (_, b) => {
                   const shelf = s + 1;
                   const bin = b + 1;

@@ -371,7 +371,7 @@ const MatrixBody = z.object({
   racks: z.array(z.object({
     id: z.string().trim().min(1).max(60),
     name: z.string().trim().min(1).max(30),
-    shelves: z.number().int().min(1).max(30),
+    shelves: z.number().int().min(1).max(26),
     bins: z.number().int().min(1).max(60),
   })).max(60),
   rules: z.array(z.object({

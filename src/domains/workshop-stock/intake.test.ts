@@ -186,7 +186,7 @@ describe("cropRect", () => {
 });
 
 const matrix: LocationMatrix = {
-  racks: [{ id: "c", name: "C", shelves: 4, bins: 6 }, { id: "bay", name: "Cable bay", shelves: 1, bins: 2 }],
+  racks: [{ id: "c", name: "3", shelves: 4, bins: 6 }, { id: "bay", name: "Cable bay", shelves: 1, bins: 2 }],
   rules: [
     { id: "1", words: "iconic", rackId: "c", shelf: 1, bin: 1 },
     { id: "2", words: "iconic switches", rackId: "c", shelf: 2, bin: 4 },
@@ -198,25 +198,26 @@ const matrix: LocationMatrix = {
 
 describe("location matrix", () => {
   it("names a location the by-shelf list already understands", () => {
+    expect(rackLabel("3")).toBe("Rack 3");
     expect(rackLabel("c")).toBe("Rack C");
     expect(rackLabel("Cable bay")).toBe("Cable bay");
     const text = locationText(matrix.racks[0]!, 2, 4);
-    expect(text).toBe("Rack C Shelf 2, Bin 4");
-    expect(splitLocation(text)).toEqual({ shelf: "Rack C Shelf 2", bin: "Bin 4" });
+    expect(text).toBe("Rack 3 Shelf B, Bin 4");
+    expect(splitLocation(text)).toEqual({ shelf: "Rack 3 Shelf B", bin: "Bin 4" });
   });
 
   it("the most specific rule wins, whatever order they're in", () => {
-    expect(ruleFor("Clipsal Iconic 1 Gang Switch Mechanism", matrix)?.location).toBe("Rack C Shelf 2, Bin 4");
-    expect(ruleFor("Clipsal Iconic cover plate", matrix)?.location).toBe("Rack C Shelf 1, Bin 1");
+    expect(ruleFor("Clipsal Iconic 1 Gang Switch Mechanism", matrix)?.location).toBe("Rack 3 Shelf B, Bin 4");
+    expect(ruleFor("Clipsal Iconic cover plate", matrix)?.location).toBe("Rack 3 Shelf A, Bin 1");
     const reversed = { ...matrix, rules: [...matrix.rules].reverse() };
-    expect(ruleFor("Clipsal Iconic 1 Gang Switch Mechanism", reversed)?.location).toBe("Rack C Shelf 2, Bin 4");
+    expect(ruleFor("Clipsal Iconic 1 Gang Switch Mechanism", reversed)?.location).toBe("Rack 3 Shelf B, Bin 4");
   });
 
   it("every word must be there, compared the way the list search compares", () => {
     expect(ruleFor("Clipsal 30M switch", matrix)).toBeNull();
     expect(ruleFor("Iconic switches, pack of 10", matrix)?.rule.id).toBe("2");
     expect(ruleFor("Double GPO 10A", matrix)?.rule.id).toBe("3");
-    expect(ruleFor("Twin and earth 2.5mm", matrix)?.location).toBe("Cable bay Shelf 1, Bin 2");
+    expect(ruleFor("Twin and earth 2.5mm", matrix)?.location).toBe("Cable bay Shelf A, Bin 2");
   });
 
   it("nothing to go on, no location", () => {
@@ -229,7 +230,7 @@ describe("location matrix", () => {
   it("lists its bins and refuses to strand a rule", () => {
     const bins = matrixLocations(matrix);
     expect(bins).toHaveLength(matrix.racks.reduce((n, r) => n + r.shelves * r.bins, 0));
-    expect(bins).toEqual(expect.arrayContaining(["Cable bay Shelf 1, Bin 2", "Rack C Shelf 2, Bin 4", "Rack C Shelf 4, Bin 6"]));
+    expect(bins).toEqual(expect.arrayContaining(["Cable bay Shelf A, Bin 2", "Rack 3 Shelf B, Bin 4", "Rack 3 Shelf D, Bin 6"]));
     expect(rulesOutsideRack(matrix, "c", 2, 6).map((r) => r.id)).toEqual(["3"]);
     expect(rulesOutsideRack(matrix, "c", 4, 3).map((r) => r.id)).toEqual(["2"]);
     expect(rulesOutsideRack(matrix, "c", 4, 6)).toEqual([]);
@@ -264,7 +265,7 @@ describe("a new item's draft", () => {
   it("takes its name and matrix location from the label", () => {
     const d = draftFor(product(), matrix);
     expect(d.name).toContain("Clipsal Iconic 1 gang switch");
-    expect(d).toMatchObject({ unit: "each", amount: "1", location: "Rack C Shelf 2, Bin 4", locationFrom: "iconic switches" });
+    expect(d).toMatchObject({ unit: "each", amount: "1", location: "Rack 3 Shelf B, Bin 4", locationFrom: "iconic switches" });
     expect(productWords(product())).toContain("3041");
   });
 

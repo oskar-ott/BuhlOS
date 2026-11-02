@@ -2,7 +2,7 @@ import { canonicalWords } from "./trade-terms";
 
 /**
  * Workshop Stock — the location matrix: the racks in the workshop and the rules
- * saying which words go in which bin ("iconic switch" → Rack C, shelf 2, bin 4).
+ * saying which words go in which bin ("iconic switch" → Rack 3, shelf B, bin 4).
  * Pure. Saved by the office at /stock/locations, read at the camera table.
  *
  * A rule matches when ALL its words are in the product's text (trade names and
@@ -31,22 +31,27 @@ export interface LocationMatrix {
   rules: MatrixRule[];
 }
 
-export const MAX_SHELVES = 30;
+export const MAX_SHELVES = 26;
 export const MAX_BINS = 60;
 
-/** "C" → "Rack C"; a rack named in words stays as it was typed ("Cable bay"). */
+/** "3" → "Rack 3"; a rack named in words stays as it was typed ("Cable bay"). */
 export function rackLabel(name: string): string {
   const text = name.trim();
   return /^[A-Za-z0-9]{1,3}$/.test(text) ? `Rack ${text.toUpperCase()}` : text;
 }
 
+/** Shelves are lettered: shelf 1 is A. Rules keep the number, so only what people read is a letter. */
+export function shelfLabel(shelf: number): string {
+  return String.fromCharCode(64 + shelf);
+}
+
 /**
- * The location text an item is given. "Rack C Shelf 2, Bin 4" reads on the
- * existing list as shelf "Rack C Shelf 2" holding "Bin 4" (location.ts splits at
+ * The location text an item is given. "Rack 3 Shelf B, Bin 4" reads on the
+ * existing list as shelf "Rack 3 Shelf B" holding "Bin 4" (location.ts splits at
  * the comma), so the phone's by-shelf list needs no change.
  */
 export function locationText(rack: Pick<MatrixRack, "name">, shelf: number, bin: number): string {
-  return `${rackLabel(rack.name)} Shelf ${shelf}, Bin ${bin}`;
+  return `${rackLabel(rack.name)} Shelf ${shelfLabel(shelf)}, Bin ${bin}`;
 }
 
 export interface RuleMatch {
@@ -99,10 +104,10 @@ export interface BinRef {
 /** The bin a location's text names, or null when it isn't one on this matrix. Reads what locationText writes. */
 export function binAt(location: string | null | undefined, matrix: LocationMatrix | null | undefined): BinRef | null {
   if (!matrix || !location) return null;
-  const hit = /^(.+) shelf (\d+), bin (\d+)$/i.exec(location.replace(/\s+/g, " ").trim());
+  const hit = /^(.+) shelf ([a-z]), bin (\d+)$/i.exec(location.replace(/\s+/g, " ").trim());
   if (!hit) return null;
   const rack = matrix.racks.find((r) => rackLabel(r.name).toLowerCase() === hit[1]!.toLowerCase());
-  const shelf = Number(hit[2]);
+  const shelf = hit[2]!.toUpperCase().charCodeAt(0) - 64;
   const bin = Number(hit[3]);
   return rack && shelf >= 1 && shelf <= rack.shelves && bin >= 1 && bin <= rack.bins ? { rack, shelf, bin } : null;
 }

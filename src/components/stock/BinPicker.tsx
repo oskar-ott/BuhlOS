@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { cn } from "@/lib/cn";
-import { binAt, locationText, rackLabel, type LocationMatrix } from "@/domains/workshop-stock/location-matrix";
+import { binAt, locationText, rackLabel, shelfLabel, type LocationMatrix } from "@/domains/workshop-stock/location-matrix";
 
 const CHIP = "min-h-[36px] rounded-pill border px-3 text-[13px]";
 const chip = (on: boolean) => cn(CHIP, on ? "border-brand-navy bg-brand-navy font-semibold text-white" : "border-border text-text hover:border-brand-navy");
@@ -30,7 +30,7 @@ export function BinPicker({ matrix, location, onPick, disabled }: { matrix: Loca
       {rack ? (
         <div className="flex flex-wrap gap-1.5" role="group" aria-label="Shelf">
           {Array.from({ length: rack.shelves }, (_, i) => i + 1).map((n) => (
-            <button key={n} type="button" disabled={disabled} aria-pressed={n === shelf} onClick={() => setBrowsing({ rackId: rack.id, shelf: n })} className={chip(n === shelf)} data-testid="stock-bin-picker-shelf">Shelf {n}</button>
+            <button key={n} type="button" disabled={disabled} aria-pressed={n === shelf} onClick={() => setBrowsing({ rackId: rack.id, shelf: n })} className={chip(n === shelf)} data-testid="stock-bin-picker-shelf">Shelf {shelfLabel(n)}</button>
           ))}
         </div>
       ) : null}

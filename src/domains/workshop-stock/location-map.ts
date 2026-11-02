@@ -1,5 +1,5 @@
 import { itemWords } from "./intake";
-import { binAt, binKey, locationText, rackLabel, ruleFor, type LocationMatrix, type MatrixRack } from "./location-matrix";
+import { binAt, binKey, locationText, rackLabel, ruleFor, shelfLabel, type LocationMatrix, type MatrixRack } from "./location-matrix";
 import type { StockItem } from "./schema";
 import { OTHER_TYPE, typeOf } from "./types";
 
@@ -88,7 +88,7 @@ function besideThe(peers: ReadonlyArray<{ rack: MatrixRack; shelf: number; bin: 
     const free = freeBins(matrix, s.rack, s.shelf, taken);
     if (!free.length) continue;
     const bin = nearest(s.bins, free);
-    return { location: locationText(s.rack, s.shelf, bin), rackId: s.rack.id, shelf: s.shelf, bin, why: `With ${label}: ${s.bins.length} already on ${rackLabel(s.rack.name)} Shelf ${s.shelf}` };
+    return { location: locationText(s.rack, s.shelf, bin), rackId: s.rack.id, shelf: s.shelf, bin, why: `With ${label}: ${s.bins.length} already on ${rackLabel(s.rack.name)} Shelf ${shelfLabel(s.shelf)}` };
   }
   // Those shelves are full: the closest shelf on the same rack.
   const top = ranked[0];
@@ -96,7 +96,7 @@ function besideThe(peers: ReadonlyArray<{ rack: MatrixRack; shelf: number; bin: 
   const others = Array.from({ length: top.rack.shelves }, (_, i) => i + 1).filter((n) => n !== top.shelf).sort((a, b) => Math.abs(a - top.shelf) - Math.abs(b - top.shelf) || a - b);
   for (const shelf of others) {
     const free = freeBins(matrix, top.rack, shelf, taken);
-    if (free.length) return { location: locationText(top.rack, shelf, free[0]!), rackId: top.rack.id, shelf, bin: free[0]!, why: `With ${label}: Shelf ${top.shelf} of ${rackLabel(top.rack.name)} is full, this is the closest free bin` };
+    if (free.length) return { location: locationText(top.rack, shelf, free[0]!), rackId: top.rack.id, shelf, bin: free[0]!, why: `With ${label}: Shelf ${shelfLabel(top.shelf)} of ${rackLabel(top.rack.name)} is full, this is the closest free bin` };
   }
   return null;
 }

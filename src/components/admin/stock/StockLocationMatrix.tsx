@@ -9,7 +9,7 @@ import { balanceLabel, errorCopy } from "@/domains/workshop-stock/format";
 import { placementIssues, shelfMap, suggestBin, type BinSuggestion } from "@/domains/workshop-stock/location-map";
 import type { StockItem } from "@/domains/workshop-stock/schema";
 import { guessType } from "@/domains/workshop-stock/types";
-import { binKey, locationText, MAX_BINS, MAX_SHELVES, rackLabel, ruleFor, rulesInBin, rulesOutsideRack, type LocationMatrix, type MatrixRack } from "@/domains/workshop-stock/location-matrix";
+import { binKey, locationText, MAX_BINS, MAX_SHELVES, rackLabel, ruleFor, rulesInBin, rulesOutsideRack, shelfLabel, type LocationMatrix, type MatrixRack } from "@/domains/workshop-stock/location-matrix";
 import { Block } from "./StockAdminForms";
 import { StockLayoutPlan } from "./StockLayoutPlan";
 
@@ -191,7 +191,7 @@ export function StockLocationMatrix() {
           <div className="mt-2 flex flex-wrap items-end gap-3">
             <label className="console-label block">
               Name
-              <input value={newRack.name} onChange={(e) => setNewRack({ ...newRack, name: e.target.value })} maxLength={30} placeholder="C" className={cn(INPUT, "mt-1 block w-32 font-sans normal-case tracking-normal")} data-testid="stock-matrix-rack-name" />
+              <input value={newRack.name} onChange={(e) => setNewRack({ ...newRack, name: e.target.value })} maxLength={30} placeholder="1" className={cn(INPUT, "mt-1 block w-32 font-sans normal-case tracking-normal")} data-testid="stock-matrix-rack-name" />
             </label>
             <NumberField label="Shelves" value={newRack.shelves} onChange={(v) => setNewRack({ ...newRack, shelves: v })} max={MAX_SHELVES} testId="stock-matrix-rack-shelves" />
             <NumberField label="Bins each" value={newRack.bins} onChange={(v) => setNewRack({ ...newRack, bins: v })} max={MAX_BINS} testId="stock-matrix-rack-bins" />
@@ -294,7 +294,7 @@ export function StockLocationMatrix() {
               <tbody>
                 {Array.from({ length: rack.shelves }, (_, s) => (
                   <tr key={s}>
-                    <th scope="row" className="console-label whitespace-nowrap pr-2">Shelf {s + 1}</th>
+                    <th scope="row" className="console-label whitespace-nowrap pr-2">Shelf {shelfLabel(s + 1)}</th>
                     {Array.from({ length: rack.bins }, (_, b) => {
                       const shelf = s + 1;
                       const bin = b + 1;

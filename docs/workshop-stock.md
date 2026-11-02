@@ -244,8 +244,9 @@ the words for what lives there ("iconic switch"). A product goes to a bin when
 compares (plurals and trade names folded). The rule with the most words wins, so
 "iconic switch" beats "iconic". "Test a label" shows where a label would go.
 
-A location is written as `Rack C Shelf 2, Bin 4`, which the existing by-shelf list
-already reads as shelf "Rack C Shelf 2", bin "Bin 4". The matrix **only fills a blank
+Racks are numbered, shelves lettered (A at the top of the grid, up to Z) and bins
+numbered. A location is written as `Rack 3 Shelf B, Bin 4`, which the existing by-shelf list
+already reads as shelf "Rack 3 Shelf B", bin "Bin 4". The matrix **only fills a blank
 location**: a new item's, or an existing item with none. An item that has a location
 keeps it, and changing the matrix never moves recorded stock.
 
