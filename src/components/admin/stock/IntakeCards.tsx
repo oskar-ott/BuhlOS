@@ -167,7 +167,8 @@ export function NeedsYouCard({
   onCreate: (d: NewItemDraft) => void;
   onAmount: (milli: number) => void;
   onRetry: () => void;
-  onReadAgain: () => void;
+  /** only when there's a picture to read again — never for a scan */
+  onReadAgain?: () => void;
   onIgnore: () => void;
 }) {
   const title = { pick: "Which item is this?", several: "More than one product here", new: "New to the stock list", amount: `How much is this ${placed.itemName ?? ""}?`, problem: "Needs you" }[placed.status as "pick" | "several" | "new" | "amount" | "problem"];
@@ -179,7 +180,8 @@ export function NeedsYouCard({
         <div className="min-w-0 flex-1">
           <p className="font-display text-[15px] font-semibold leading-snug text-text">{title}</p>
           {placed.product ? <p className="truncate text-sm text-text-muted">{[placed.product.brand, placed.product.description || placed.product.manufacturerCode].filter(Boolean).join(" ")}</p> : null}
-          {!placed.onTable ? <p className="text-xs text-text-muted">Off the table now.</p> : null}
+          {!placed.onTable && placed.crop ? <p className="text-xs text-text-muted">Off the table now.</p> : null}
+          {!placed.crop && placed.barcode ? <p className="truncate font-mono text-xs text-text-muted" data-testid="stock-intake-card-barcode">Scanned {placed.barcode}</p> : null}
         </div>
       </div>
       {placed.problem ? <p className="text-sm text-state-danger" role="alert">{placed.problem}</p> : null}
@@ -220,8 +222,8 @@ export function NeedsYouCard({
       {placed.status === "problem" ? <ItemSearch items={items} onPick={onPick} testId="stock-intake-search" /> : null}
 
       <div className="flex flex-wrap gap-1">
-        {placed.status === "problem" ? <Button type="button" variant="secondary" size="sm" onClick={onRetry} data-testid="stock-intake-retry">{placed.itemId ? "Try again" : "Read it again"}</Button> : null}
-        {placed.status === "new" || placed.status === "pick" ? <Button type="button" variant="ghost" size="sm" onClick={onReadAgain} data-testid="stock-intake-read-again">Read it again</Button> : null}
+        {placed.status === "problem" && (placed.itemId || onReadAgain) ? <Button type="button" variant="secondary" size="sm" onClick={onRetry} data-testid="stock-intake-retry">{placed.itemId ? "Try again" : "Read it again"}</Button> : null}
+        {onReadAgain && (placed.status === "new" || placed.status === "pick") ? <Button type="button" variant="ghost" size="sm" onClick={onReadAgain} data-testid="stock-intake-read-again">Read it again</Button> : null}
         <Button type="button" variant="ghost" size="sm" onClick={onIgnore} data-testid="stock-intake-ignore">Not stock, ignore</Button>
       </div>
     </div>
@@ -229,7 +231,7 @@ export function NeedsYouCard({
 }
 
 /** A green one: what it added and where it goes, with the amount, location and Undo a tap away. */
-export function LoggedRow({ placed, locked, locations, onChangeAmount, onSetLocation, onUndo, onLock }: { placed: Placed; locked: boolean; locations: string[]; onChangeAmount: (milli: number) => void; onSetLocation: (text: string) => void; onUndo: () => void; onLock: () => void }) {
+export function LoggedRow({ placed, locked, locations, onChangeAmount, onSetLocation, onUndo, onLock }: { placed: Placed; locked: boolean; locations: string[]; onChangeAmount: (milli: number) => void; onSetLocation: (text: string) => void; onUndo: () => void; /** "All the same" — the camera table only */ onLock?: () => void }) {
   const [editing, setEditing] = useState<string | null>(null);
   const [placing, setPlacing] = useState<string | null>(null);
   const unit = placed.unit ?? "each";
@@ -284,7 +286,7 @@ export function LoggedRow({ placed, locked, locations, onChangeAmount, onSetLoca
           ) : null}
           <IconAction label="Change amount" disabled={placed.busy} onClick={() => setEditing(placed.amountMilli !== null ? formatNumber(placed.amountMilli) : "")} data-testid="stock-intake-row-edit"><Pencil aria-hidden="true" className="h-4 w-4" /></IconAction>
           <IconAction label="Undo this one" disabled={placed.busy} onClick={onUndo} data-testid="stock-intake-row-undo"><Undo2 aria-hidden="true" className="h-4 w-4" /></IconAction>
-          {!locked ? <IconAction label="Everything placed next is the same as this" onClick={onLock} data-testid="stock-intake-row-lock"><Lock aria-hidden="true" className="h-4 w-4" /></IconAction> : null}
+          {onLock && !locked ? <IconAction label="Everything placed next is the same as this" onClick={onLock} data-testid="stock-intake-row-lock"><Lock aria-hidden="true" className="h-4 w-4" /></IconAction> : null}
         </div>
       )}
     </li>
