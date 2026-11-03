@@ -41,53 +41,137 @@ const CELL = 4;
 const PIXEL_THRESHOLD = 30;
 const CELL_ACTIVE_SHARE = 0.35;
 const MIN_OBJECT_CELLS = 5;
+/** coarse regions for the local light correction (a webcam's exposure and the room's light vary across the table) */
+const REGION = 40;
+/** a smooth light change has no edges; an object brings its own — this many grey levels of edge change counts */
+const EDGE_THRESHOLD = 22;
 
-/** The middle brightness difference across the picture: a light going on shifts everything, an object doesn't. */
-function brightnessShift(frame: RawFrame, background: ArrayLike<number>): number {
-  const counts = new Int32Array(511);
-  let n = 0;
-  for (let i = 0; i < frame.data.length; i += 16) {
-    const d = Math.round((frame.data[i]! + frame.data[i + 1]! + frame.data[i + 2]! - background[i]! - background[i + 1]! - background[i + 2]!) / 3);
-    counts[d + 255]! += 1;
-    n += 1;
-  }
-  let seen = 0;
-  for (let d = 0; d < counts.length; d++) {
-    seen += counts[d]!;
-    if (seen * 2 >= n) return d - 255;
-  }
-  return 0;
+const luma = (d: ArrayLike<number>, i: number) => (d[i]! * 77 + d[i + 1]! * 150 + d[i + 2]! * 29) >> 8;
+
+function median(values: number[]): number {
+  if (!values.length) return 0;
+  const v = [...values].sort((a, b) => a - b);
+  return v[v.length >> 1]!;
 }
 
 /**
- * Compares a frame with the empty table. A cell differs when enough of its pixels
- * do; differing cells are joined across one-cell gaps (a white label on a dark
- * box is still one object), and each joined group becomes a box around its cells.
+ * How much brighter each part of the picture is than the empty table, as a
+ * GAIN (a webcam's auto-exposure scales brightness, it doesn't add to it): the
+ * middle ratio in each coarse region, then the middle of each region and its
+ * neighbours, so an object covering one region can't pass for a light change.
+ * Returns a gain per pixel row/column lookup (bilinear across region centres).
+ */
+function lightGain(frame: RawFrame, background: ArrayLike<number>): (x: number, y: number) => number {
+  const { width, height, data } = frame;
+  const rw = Math.max(1, Math.round(width / REGION));
+  const rh = Math.max(1, Math.round(height / REGION));
+  const raw = new Float32Array(rw * rh);
+  for (let ry = 0; ry < rh; ry++) {
+    for (let rx = 0; rx < rw; rx++) {
+      const ratios: number[] = [];
+      const x0 = Math.floor((rx * width) / rw), x1 = Math.floor(((rx + 1) * width) / rw);
+      const y0 = Math.floor((ry * height) / rh), y1 = Math.floor(((ry + 1) * height) / rh);
+      for (let y = y0; y < y1; y += 2) {
+        for (let x = x0; x < x1; x += 2) {
+          const i = (y * width + x) * 4;
+          ratios.push((luma(data, i) + 8) / (luma(background, i) + 8));
+        }
+      }
+      raw[ry * rw + rx] = median(ratios) || 1;
+    }
+  }
+  const gain = new Float32Array(rw * rh);
+  for (let ry = 0; ry < rh; ry++) {
+    for (let rx = 0; rx < rw; rx++) {
+      const near: number[] = [];
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const nx = rx + dx, ny = ry + dy;
+        if (nx >= 0 && ny >= 0 && nx < rw && ny < rh) near.push(raw[ny * rw + nx]!);
+      }
+      gain[ry * rw + rx] = median(near);
+    }
+  }
+  return (x, y) => {
+    const fx = Math.min(Math.max((x * rw) / width - 0.5, 0), rw - 1);
+    const fy = Math.min(Math.max((y * rh) / height - 0.5, 0), rh - 1);
+    const x0 = Math.floor(fx), y0 = Math.floor(fy);
+    const x1 = Math.min(x0 + 1, rw - 1), y1 = Math.min(y0 + 1, rh - 1);
+    const tx = fx - x0, ty = fy - y0;
+    const top = gain[y0 * rw + x0]! * (1 - tx) + gain[y0 * rw + x1]! * tx;
+    const bottom = gain[y1 * rw + x0]! * (1 - tx) + gain[y1 * rw + x1]! * tx;
+    return top * (1 - ty) + bottom * ty;
+  };
+}
+
+/**
+ * Compares a frame with the empty table (2026-11-03: on a real webcam the old
+ * plain brightness difference boxed the light band, the vignetting and the
+ * shadows as dozens of "objects", and missed a white bag on a white table).
+ * First the table's light is matched region by region (gain, not offset).
+ * Then a pixel differs when its EDGES changed — an object brings an outline
+ * and print, a light change is smooth — or its colour changed by a lot. Both
+ * thresholds rise with the camera's own noise, measured on this frame. A cell
+ * differs when enough of its pixels do; differing cells are joined across
+ * one-cell gaps (a white label on a dark box is still one object), and each
+ * joined group becomes a box around its cells.
  */
 export function findObjects(frame: RawFrame, background: ArrayLike<number>): FoundObjects {
   const { width, height, data } = frame;
   const gw = Math.floor(width / CELL);
   const gh = Math.floor(height / CELL);
   if (gw < 3 || gh < 3) return { objects: [], arms: [], changedShare: 0 };
-  const shift = brightnessShift(frame, background);
+  const gainAt = lightGain(frame, background);
+  const gains = new Float32Array(width * height);
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) gains[y * width + x] = gainAt(x, y);
+
+  // the corrected colour difference, and the change in edges (brightness steps to the right and below)
+  const colour = new Float32Array(width * height);
+  const edge = new Float32Array(width * height);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const p = y * width + x;
+      const i = p * 4;
+      const g = gains[p]!;
+      colour[p] = Math.max(
+        Math.abs(data[i]! - background[i]! * g),
+        Math.abs(data[i + 1]! - background[i + 1]! * g),
+        Math.abs(data[i + 2]! - background[i + 2]! * g),
+      );
+      if (x < width - 1 && y < height - 1) {
+        const r = i + 4, d = i + width * 4;
+        const fe = Math.abs(luma(data, r) - luma(data, i)) + Math.abs(luma(data, d) - luma(data, i));
+        const be = (Math.abs(luma(background, r) - luma(background, i)) + Math.abs(luma(background, d) - luma(background, i))) * g;
+        edge[p] = Math.abs(fe - be);
+      }
+    }
+  }
+  // the camera's own noise on this frame (the middle of the table is mostly empty)
+  const sampleColour: number[] = [];
+  const sampleEdge: number[] = [];
+  for (let p = 0; p < colour.length; p += 23) { sampleColour.push(colour[p]!); sampleEdge.push(edge[p]!); }
+  const colourThreshold = Math.max(PIXEL_THRESHOLD, median(sampleColour) * 4);
+  const strongColour = colourThreshold * 2;
+  const edgeThreshold = Math.max(EDGE_THRESHOLD, median(sampleEdge) * 4);
+
   const active = new Uint8Array(gw * gh);
   const needed = CELL * CELL * CELL_ACTIVE_SHARE;
+  const neededEdges = Math.max(2, Math.round(CELL * CELL * 0.15));
   let activeCount = 0;
   for (let cy = 0; cy < gh; cy++) {
     for (let cx = 0; cx < gw; cx++) {
-      let differing = 0;
+      let strong = 0;
+      let edges = 0;
+      let moderate = 0;
       for (let y = cy * CELL; y < (cy + 1) * CELL; y++) {
         for (let x = cx * CELL; x < (cx + 1) * CELL; x++) {
-          const i = (y * width + x) * 4;
-          const d = Math.max(
-            Math.abs(data[i]! - background[i]! - shift),
-            Math.abs(data[i + 1]! - background[i + 1]! - shift),
-            Math.abs(data[i + 2]! - background[i + 2]! - shift),
-          );
-          if (d > PIXEL_THRESHOLD) differing += 1;
+          const p = y * width + x;
+          if (colour[p]! > strongColour) strong += 1;
+          else if (colour[p]! > colourThreshold) moderate += 1;
+          if (edge[p]! > edgeThreshold) edges += 1;
         }
       }
-      if (differing >= needed) {
+      // a big colour change on its own, or edges that weren't there (with some colour change behind them)
+      if (strong >= needed || (edges >= neededEdges && strong + moderate + edges >= needed)) {
         active[cy * gw + cx] = 1;
         activeCount += 1;
       }
@@ -272,4 +356,26 @@ export function cropRect(box: Box, videoWidth: number, videoHeight: number, pad 
   const right = Math.min(videoWidth, Math.ceil((box.x + box.w + padX) * videoWidth));
   const bottom = Math.min(videoHeight, Math.ceil((box.y + box.h + padY) * videoHeight));
   return { x, y, w: Math.max(1, right - x), h: Math.max(1, bottom - y) };
+}
+
+/**
+ * A barcode found anywhere in the full picture that belongs to this object: its
+ * centre on the object, or just beside it (a box spotted a little small still
+ * owns the barcode printed on it). The nearest one wins; null when none is close.
+ * Boxes in fractions of the picture, like everything here.
+ */
+export function barcodeNear(box: Box, found: ReadonlyArray<{ value: string; box: Box }>): string | null {
+  const padX = box.w * 0.6;
+  const padY = box.h * 0.6;
+  const cx = box.x + box.w / 2;
+  const cy = box.y + box.h / 2;
+  let best: { value: string; d: number } | null = null;
+  for (const f of found) {
+    const fx = f.box.x + f.box.w / 2;
+    const fy = f.box.y + f.box.h / 2;
+    if (fx < box.x - padX || fx > box.x + box.w + padX || fy < box.y - padY || fy > box.y + box.h + padY) continue;
+    const d = (fx - cx) ** 2 + (fy - cy) ** 2;
+    if (!best || d < best.d) best = { value: f.value, d };
+  }
+  return best?.value ?? null;
 }

@@ -176,14 +176,22 @@ accuracy nobody has measured.
 
 1. **Start** takes a picture of the empty table. A frame about 320 px wide is
    compared with it a few times a second (`intake-tracker.ts`); anything new gets
-   a dashed red box.
+   a dashed red box. *What counts as new* (2026-11-03, after the first real
+   webcam boxed the light band, the vignetting and the shadows as dozens of
+   objects and missed a white bag on a white table): the table's light is first
+   matched region by region as a **gain** (auto-exposure scales brightness), then
+   a spot is new when its **edges** changed (an object brings an outline and
+   print; a light change is smooth) or its colour changed a lot. Both thresholds
+   rise with the camera's own noise, measured on each frame.
 2. It counts once it has sat still for 0.8 s. A blob touching the edge of the
    picture is an arm: it never counts, and whatever it covers stays on the table
    while it does. A nudged object is the same object. Objects pushed together turn
    amber ("Touching: move them apart") and any that split off count then.
 3. A sharp crop of the full-size frame is taken. **A barcode** in it is matched
-   against the list right there; otherwise the crop goes to the **label reader**
-   (the same one as the phone, two at a time).
+   against the list right there — or, if the crop has none, a barcode anywhere in
+   the full picture whose centre is on or just beside the object (a box spotted a
+   little small no longer cuts its barcode off); otherwise the crop goes to the
+   **label reader** (the same one as the phone, two at a time).
 4. **An exact barcode or code match logs by itself** and the box turns green.
    Words alone never do, because two GPOs look alike: "Is it one of these?" stays
    red until someone picks, and a pick teaches the item that barcode.
