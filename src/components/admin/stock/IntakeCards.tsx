@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, type ButtonHTMLAttributes } from "react";
-import { Loader2, Lock, MapPin, Pencil, Undo2 } from "lucide-react";
+import { Loader2, Lock, MapPin, Pencil, ScanBarcode, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
 import { productLabel } from "@/domains/workshop-stock/flow";
@@ -49,6 +49,10 @@ const LABEL = "console-label block";
 const CHOICE = "w-full rounded-[4px] border border-border bg-surface-raised px-2.5 py-1.5 text-left text-sm text-text hover:border-accent-yellow focus-visible:border-accent-yellow focus-visible:outline-none";
 
 function CropThumb({ placed, className }: { placed: Placed; className?: string }) {
+  // a scan from the USB scanner has no picture: show that it was scanned
+  if (!placed.thumb && !placed.crop) {
+    return <span aria-label="Scanned" className={cn("inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-[4px] border border-border bg-surface-subtle", className)}><ScanBarcode aria-hidden="true" className="h-6 w-6 text-text-muted" /></span>;
+  }
   // eslint-disable-next-line @next/next/no-img-element -- a local crop, never uploaded for this
   return <img src={placed.thumb ?? placed.crop} alt="What the camera saw" className={cn("h-14 w-14 shrink-0 rounded-[4px] border border-border object-cover", className)} />;
 }

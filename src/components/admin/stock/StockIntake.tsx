@@ -15,6 +15,7 @@ import type { ReadPhotoResult, ReadProduct, StockItem, StockUnit } from "@/domai
 import { specsForType } from "@/domains/workshop-stock/types";
 import { Block } from "./StockAdminForms";
 import { LoggedRow, NeedsYouCard, type Placed } from "./IntakeCards";
+import { useBarcodeScanner } from "@/components/stock/useBarcodeScanner";
 import { drawOverlay, playCue, readOverlayColours, unlockSound, type OverlayTag } from "./intake-overlay";
 
 /**
@@ -73,6 +74,17 @@ function makeDetector(): DetectorLike | null {
     return null;
   }
 }
+
+/** How much of the smaller box the two share (0–1). */
+function overlapShare(a: Box, b: Box): number {
+  const w = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+  const h = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+  if (w <= 0 || h <= 0) return 0;
+  return (w * h) / Math.min(a.w * a.h, b.w * b.h);
+}
+
+/** label reads waiting at most (two run at once) — beyond this an object asks the person */
+const MAX_QUEUED_READS = 8;
 
 function rememberedCamera(): string | null {
   try {
@@ -368,7 +380,7 @@ export function StockIntake() {
     const key = p.moveKey ?? newOperationKey();
     patch(id, { busy: true, problem: null, moveKey: key });
     let photoId = p.photoId;
-    if (!photoId) {
+    if (!photoId && p.crop) {
       const stored = await storePhoto(p.crop, p.thumb);
       if (stored.ok) {
         photoId = stored.data.photoId;
@@ -489,6 +501,12 @@ export function StockIntake() {
   }
 
   function queueRead(id: number, crop: string) {
+    // A spending guard (2026-11-03: a flickering table queued 120 label reads):
+    // past MAX_QUEUED_READS waiting, an object asks the person instead of the reader.
+    if (readQueue.current.length >= MAX_QUEUED_READS) {
+      patch(id, { status: "problem", problem: "Lots on the table at once, so this one wasn't read. Read it again when the others are done, or scan its barcode." });
+      return;
+    }
     readQueue.current.push(async () => {
       const r = await readIntakeCrop(crop);
       if (!r.ok) {
@@ -570,6 +588,10 @@ export function StockIntake() {
   }
 
   function onSettled(track: Track) {
+    // Never twice for the same thing: if a row is still on the table right
+    // here (mostly overlapping), this is that object seen again, not a new one.
+    const again = placedRef.current.find((p) => p.onTable && p.box.w > 0 && overlapShare(p.box, track.box) >= 0.5);
+    if (again) return;
     const grabbed = grabCrop(track.box);
     if (!grabbed) return;
     const held = lockRef.current;
@@ -589,6 +611,27 @@ export function StockIntake() {
   }
   const onSettledRef = useRef(onSettled);
   onSettledRef.current = onSettled;
+
+  // A USB barcode scanner at the table (owner, 2026-11-03: "its a usb scanner
+  // only used on desktop"): each scan is one placement, no camera needed — a
+  // listed code logs at once (a box's barcode adds a box's worth), several items
+  // with it ask which, an unknown one opens the new-item card with it kept.
+  // Works with the camera stopped too. Ids count down from -1, so they never
+  // meet the tracker's.
+  const scanIdRef = useRef(0);
+  useBarcodeScanner((code) => {
+    const id = --scanIdRef.current;
+    const hits = findByBarcode(itemsRef.current, code);
+    const one = hits.length === 1 ? hits[0]! : null;
+    setPlaced((prev) => [{
+      id, at: Date.now(), box: { x: 0, y: 0, w: 0, h: 0 }, onTable: false, crop: "", thumb: null, status: one ? "saving" : hits.length ? "pick" : "new",
+      barcode: code, product: null, readResult: null, choices: hits.length > 1 ? hits.map((h) => h.item) : [], problem: null, note: "Scanned", busy: false,
+      itemId: null, itemName: null, unit: null, location: null, amountMilli: null, fromLabel: false, recordedMilli: null, movementId: null, moveKey: null, photoId: null, retryMilli: null,
+    }, ...prev]);
+    if (one) {
+      void logTo(id, one.item, one.identifier.packSizeMilli ?? null);
+    }
+  }, true);
 
   function readAgain(id: number) {
     const p = placedById(id);
@@ -789,8 +832,23 @@ export function StockIntake() {
   }
   const onShortcutRef = useRef(onShortcut);
   onShortcutRef.current = onShortcut;
+  // A USB scanner types its code as keys a few ms apart, and a code can hold a
+  // U, F, M or space. So a shortcut waits a moment: another key that quick means
+  // a scan, and the shortcut is dropped (a person never notices 70 ms).
+  const shortcutTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    const listener = (e: KeyboardEvent) => onShortcutRef.current(e);
+    const listener = (e: KeyboardEvent) => {
+      if (shortcutTimer.current) {
+        clearTimeout(shortcutTimer.current);
+        shortcutTimer.current = null;
+        return; // the second key of a burst: not a shortcut, and neither was the first
+      }
+      if (e.key === "Enter" || e.key === "Tab" || e.key.length !== 1) { onShortcutRef.current(e); return; }
+      const tag = (e.target as HTMLElement | null)?.tagName ?? "";
+      if (["INPUT", "SELECT", "TEXTAREA"].includes(tag)) return;
+      if (e.key === " " && !["BUTTON", "SUMMARY", "A"].includes(tag)) e.preventDefault(); // don't scroll while we wait
+      shortcutTimer.current = setTimeout(() => { shortcutTimer.current = null; onShortcutRef.current(e); }, 70);
+    };
     window.addEventListener("keydown", listener);
     return () => window.removeEventListener("keydown", listener);
   }, []);
