@@ -8,7 +8,7 @@ import { errorCopy } from "@/domains/workshop-stock/format";
 import { ean13Modules, fitToPrinthead, isGuardModule, labelSize, layoutLabel, printerFamily, LABEL_SIZES, type LabelSize } from "@/domains/workshop-stock/label";
 import type { StockItem } from "@/domains/workshop-stock/schema";
 import { BigButton, MiniButton, Slot } from "./ui";
-import { connectedPrinter, connectPrinter, disconnectPrinter, onPrinterChange, printCanvas, PrinterError, printerLinks, type ConnectedPrinter, type PrinterLink } from "./labelPrinter";
+import { connectedPrinter, connectPrinter, disconnectPrinter, onPrinterChange, preloadPrinterLibrary, printCanvas, PrinterError, printerLinks, type ConnectedPrinter, type PrinterLink } from "./labelPrinter";
 
 const SIZE_KEY = "buhlos.stock.labelSize";
 
@@ -82,7 +82,11 @@ export function BarcodeLabel({ item, onItemChanged, directPrint = false }: {
   const [printError, setPrintError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (directPrint) setLinks(printerLinks());
+    if (directPrint) {
+      const l = printerLinks();
+      setLinks(l);
+      if (l.bluetooth || l.usb) preloadPrinterLibrary();
+    }
     setPrinter(connectedPrinter());
     return onPrinterChange(setPrinter);
   }, [directPrint]);
@@ -133,6 +137,9 @@ export function BarcodeLabel({ item, onItemChanged, directPrint = false }: {
         p = await connectPrinter(link);
         if (!p) return; // closed the chooser
       }
+      const family = printerFamily(p.model);
+      const size = labelSize(sizeKey);
+      if (family && family !== size.family) return; // said above the button — a label isn't wasted on the wrong size
       setPrinting("printing");
       const canvas = document.createElement("canvas");
       draw(canvas, fitToPrinthead(labelSize(sizeKey), p.printheadPixels, p.direction), code, item.name, shelf);
@@ -182,7 +189,7 @@ export function BarcodeLabel({ item, onItemChanged, directPrint = false }: {
             const family = printerFamily(printer?.model);
             const size = labelSize(sizeKey);
             return printer && family && family !== size.family ? (
-              <Slot tone="warn" testId="stock-label-size-mismatch">The {printer.model} takes {family === "B" ? "40 × 30 or 50 × 30" : "40 × 12 or 30 × 15"} mm labels — pick the size on the roll that&apos;s in it.</Slot>
+              <Slot tone="warn" testId="stock-label-size-mismatch">The {printer.model} takes {family === "B" ? "40 × 30 or 50 × 30" : "40 × 12 or 30 × 15"} mm labels — pick the size on the roll that&apos;s in it, then Print.</Slot>
             ) : null;
           })()}
           <BigButton

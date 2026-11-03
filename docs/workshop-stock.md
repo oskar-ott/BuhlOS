@@ -563,8 +563,15 @@ it all works easily together".
   check (lid open, out of labels, battery, the NIIMBOT app on a phone holding
   the printer).
   - The B1's head is 48 mm (384 dots): a 50 × 30 label is drawn 48 mm wide to
-    print (`label.fitToPrinthead`), bars still whole dots. A D-size label
-    picked with a B printer connected (or the other way) is said, not guessed.
+    print (`label.fitToPrinthead`), bars still whole dots; a narrower one
+    (40 × 30) is sent at full head width, centred (`padToHead`), so it lands
+    in the middle however the printer places what it's sent. A D-size label
+    picked with a B printer connected (or the other way) is said and **not
+    printed** — no label wasted.
+  - While printing, the library's background ping is paused (it could sit
+    between the print's messages); a print that never reports finished gives
+    up after 30 s. The library is fetched as the panel opens, so Chrome's
+    chooser isn't refused for a slow first click.
   - Only what the library knows and only 203 dpi printers (D11/D110/B1/B21);
     anything else is told to use Save image.
   - The library loads only when Print is pressed (its own chunk), never with
@@ -574,10 +581,19 @@ it all works easily together".
     until a field ask pulls it.
   - NIIMBOT doesn't publish the protocol; the library is reverse-engineered,
     so a printer firmware update could break it. Save image stays beside it.
-  - **Proof still owed:** tests cover the print sequence against a stand-in
-    and the real library encoding a B1 label (fits the head, bars read back);
-    the first label actually printed on the owner's B1 and scanned is the
-    proof.
+  - **Audit before release (2026-11-03):** unit tests cover the print
+    sequence against a stand-in and the real library encoding a B1 label;
+    a fresh-eyes review checked the library usage; and the real component
+    + real library ran in Chromium against a simulated B1 behind
+    `navigator.bluetooth` (answering the protocol as the library parses it):
+    connect → density 3, gap labels → page 240 × 384 → printed, and the 156
+    bar rows rebuilt from what the "printer" received all decode as the
+    item's code; second label with no chooser; 40 × 30 centred (36 dots
+    white each side); wrong size refused; lid open said; printer dropping,
+    chooser closed (Bluetooth and USB) handled; reconnect prints.
+  - **Proof still owed:** the simulator is built from the library's reading
+    of the protocol, not a real B1 — the first label actually printed on the
+    owner's B1 and scanned is the proof.
 - **Together**: a loose item → photo ("looks like …") or pick by sight → its
   own barcode → label on the NIIMBOT → from then on the scanner (or the phone
   camera) finds it like any boxed product. Boxes + loose counts and the

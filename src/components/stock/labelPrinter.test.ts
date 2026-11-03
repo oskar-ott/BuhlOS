@@ -40,11 +40,19 @@ class FakeClient {
   }
   connect() { calls.push(`connect ${this.kind}`); return connectImpl(); }
   async disconnect() { calls.push("disconnect"); }
+  beating = true;
+  isHeartbeatStarted() { return this.beating; }
+  stopHeartbeat() { calls.push("heartbeat off"); this.beating = false; }
+  startHeartbeat() { calls.push("heartbeat on"); this.beating = true; }
+  isConnected() { return true; }
   getModelMetadata() { return metaImpl(); }
   getPrintTaskType() { return (metaImpl() as { model?: string } | undefined)?.model === "B1" ? "B1" : undefined; }
   on(ev: string, fn: () => void) { (this.handlers[ev] ??= []).push(fn); }
   emit(ev: string) { for (const fn of this.handlers[ev] ?? []) fn(); }
 }
+
+/** a label already at the B1's full head width, so nothing needs padding */
+const CANVAS = { width: 384, height: 240 } as HTMLCanvasElement;
 
 const B1 = { model: "B1", dpi: 203, printDirection: "top", printheadPixels: 384, densityDefault: 3 };
 
@@ -78,16 +86,18 @@ describe("print straight to the NIIMBOT", () => {
     const printer = await p.connectPrinter("bluetooth");
     expect(printer).toMatchObject({ name: "B1-H1234", model: "B1", printheadPixels: 384, direction: "top", link: "bluetooth" });
     expect(p.connectedPrinter()).toBe(printer);
-    await p.printCanvas({} as HTMLCanvasElement, 1);
-    await p.printCanvas({} as HTMLCanvasElement, 1);
+    await p.printCanvas(CANVAS, 1);
+    await p.printCanvas(CANVAS, 1);
     expect(calls.filter((c) => c.startsWith("connect"))).toEqual(["connect bluetooth"]);
-    expect(calls.slice(calls.indexOf("connect bluetooth") + 1, calls.indexOf("end") + 1)).toEqual([
+    expect(calls.slice(calls.indexOf("connect bluetooth") + 1, calls.indexOf("heartbeat on") + 1)).toEqual([
       "encode top",
       'task B1 {"totalPages":1,"density":3,"labelType":1}',
+      "heartbeat off", // the background ping can't sit between the print's messages
       "init",
       "page x1",
       "finished",
       "end",
+      "heartbeat on",
     ]);
     expect(seen).toEqual(["B1-H1234"]);
   });
@@ -126,15 +136,15 @@ describe("print straight to the NIIMBOT", () => {
     lastClient!.emit("disconnect");
     expect(p.connectedPrinter()).toBeNull();
     expect(seen).toEqual(["B1-H1234", null]);
-    await expect(p.printCanvas({} as HTMLCanvasElement)).rejects.toThrow(/isn't connected/);
+    await expect(p.printCanvas(CANVAS)).rejects.toThrow(/isn't connected/);
   });
 
   it("a refused job says why in plain words, and the job is still ended", async () => {
     const p = await load();
     await p.connectPrinter("bluetooth");
     jobImpl = { waitForFinished: async () => { throw Object.assign(new Error("Print error"), { reasonId: 1 }); } };
-    await expect(p.printCanvas({} as HTMLCanvasElement)).rejects.toThrow("The printer's lid is open. Shut it and try again.");
-    expect(calls.at(-1)).toBe("end");
+    await expect(p.printCanvas(CANVAS)).rejects.toThrow("The printer's lid is open. Shut it and try again.");
+    expect(calls.slice(-2)).toEqual(["end", "heartbeat on"]);
     expect(p.printFailureCopy(2)).toMatch(/out of labels/);
     expect(p.printFailureCopy(3)).toMatch(/battery/);
     expect(p.printFailureCopy(undefined)).toMatch(/didn't print/);
@@ -146,6 +156,45 @@ describe("print straight to the NIIMBOT", () => {
     expect(p.printerLinks()).toEqual({ bluetooth: true, usb: true });
     vi.stubGlobal("navigator", {});
     expect(p.printerLinks()).toEqual({ bluetooth: false, usb: false });
+  });
+});
+
+describe("print straight to the NIIMBOT — what could hang or break", () => {
+  it("a print that never reports finished gives up after the timeout instead of sitting on Printing…", async () => {
+    vi.useFakeTimers();
+    try {
+      const p = await load();
+      await p.connectPrinter("bluetooth");
+      jobImpl = { waitForFinished: () => new Promise<void>(() => undefined) };
+      const done = p.printCanvas(CANVAS).catch((e: Error) => e.message);
+      await vi.advanceTimersByTimeAsync(p.PRINT_TIMEOUT_MS + 10);
+      expect(await done).toMatch(/didn't say it had finished/);
+      expect(calls.slice(-2)).toEqual(["end", "heartbeat on"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("works whether the bundler hands back the library's exports directly or under default", async () => {
+    vi.resetModules();
+    vi.doMock("@mmote/niimbluelib", () => ({
+      NiimbotBluetoothClient: undefined, // only under default, as some bundlers wrap CommonJS
+      default: {
+        NiimbotBluetoothClient: class extends FakeClient { constructor() { super("bluetooth"); } },
+        NiimbotSerialClient: class extends FakeClient { constructor() { super("usb"); } },
+        ImageEncoder: { encodeCanvas: () => ({ rows: 1, cols: 8, rowsData: [] }) },
+        PageColorType: { SingleColor: 0 },
+        LabelType: { WithGaps: 1 },
+      },
+    }));
+    try {
+      const p = await import("./labelPrinter");
+      await expect(p.connectPrinter("bluetooth")).resolves.toMatchObject({ model: "B1" });
+      await p.printCanvas(CANVAS);
+      expect(calls).toContain("page x1");
+    } finally {
+      vi.doUnmock("@mmote/niimbluelib");
+    }
   });
 });
 

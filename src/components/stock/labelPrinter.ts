@@ -60,6 +60,27 @@ export function printerLinks(): { bluetooth: boolean; usb: boolean } {
   return { bluetooth: !!nav.bluetooth, usb: !!nav.serial };
 }
 
+/**
+ * Load the library (once). Webpack hands back its named exports; other
+ * bundlers can wrap a CommonJS module under `default` — take either, so a
+ * bundler change can't quietly break Print.
+ */
+async function loadLib(): Promise<Lib> {
+  if (lib) return lib;
+  const mod = (await import("@mmote/niimbluelib")) as Lib & { default?: Lib };
+  lib = typeof mod.NiimbotBluetoothClient === "function" ? mod : (mod.default as Lib);
+  return lib;
+}
+
+/**
+ * Fetch the library ahead of the first Print. Chrome only opens its printer
+ * chooser shortly after a click — a slow download between the click and the
+ * chooser would have it refuse — so the label panel starts this as it opens.
+ */
+export function preloadPrinterLibrary(): void {
+  void loadLib().catch(() => { /* tried again on Print */ });
+}
+
 /** A message for the person, or null when they simply closed Chrome's printer chooser. */
 export class PrinterError extends Error {}
 
@@ -74,9 +95,9 @@ function cancelled(e: unknown): boolean {
  * model it is. Resolves null when the chooser was closed without picking one.
  */
 export async function connectPrinter(link: PrinterLink): Promise<ConnectedPrinter | null> {
-  lib ??= await import("@mmote/niimbluelib");
+  const l = await loadLib();
   await disconnectPrinter();
-  const c: NiimbotAbstractClient = link === "usb" ? new lib.NiimbotSerialClient() : new lib.NiimbotBluetoothClient();
+  const c: NiimbotAbstractClient = link === "usb" ? new l.NiimbotSerialClient() : new l.NiimbotBluetoothClient();
   let info: { deviceName?: string };
   try {
     info = await c.connect();
@@ -153,26 +174,67 @@ export function printFailureCopy(reasonId: number | undefined): string {
   }
 }
 
+/** How long a label may take before we stop waiting for the printer to say it's done. */
+export const PRINT_TIMEOUT_MS = 30_000;
+
+/**
+ * The label centred on the whole print head. A label narrower than the head
+ * (40 mm on the B1's 48 mm) is sent at full head width with white either
+ * side, so it lands in the middle whether the printer centres what it's sent
+ * or starts it at the edge. The head is across the width for "top" printers
+ * and across the height for "left" ones.
+ */
+export function padToHead(canvas: HTMLCanvasElement, printheadPixels: number, direction: "top" | "left"): HTMLCanvasElement {
+  const across = direction === "left" ? canvas.height : canvas.width;
+  if (across >= printheadPixels) return canvas;
+  const out = document.createElement("canvas");
+  out.width = direction === "left" ? canvas.width : printheadPixels;
+  out.height = direction === "left" ? printheadPixels : canvas.height;
+  const g = out.getContext("2d");
+  if (!g) return canvas;
+  g.fillStyle = "#fff";
+  g.fillRect(0, 0, out.width, out.height);
+  g.drawImage(canvas, direction === "left" ? 0 : Math.floor((printheadPixels - across) / 2), direction === "left" ? Math.floor((printheadPixels - across) / 2) : 0);
+  return out;
+}
+
 /**
  * Print the canvas (drawn at the printer's 8 dots/mm, already fitted to its
  * print head) `copies` times on the connected printer. Throws PrinterError
  * with something the person can act on.
+ *
+ * The library's background "are you there" ping is paused while printing, so
+ * it can't sit between the print's own messages (and swallow a printer error
+ * meant for the print), and a print that never reports finished gives up
+ * after PRINT_TIMEOUT_MS instead of leaving the button on "Printing…".
  */
 export async function printCanvas(canvas: HTMLCanvasElement, copies = 1): Promise<void> {
   if (!lib || !client || !current || !task || !meta) throw new PrinterError("The printer isn't connected. Press Print again to connect it.");
-  const image = lib.ImageEncoder.encodeCanvas(canvas, lib.PageColorType.SingleColor, meta.printDirection);
-  const job = client.protocol.newPrintTask(task, {
+  const c = client;
+  const image = lib.ImageEncoder.encodeCanvas(padToHead(canvas, meta.printheadPixels, meta.printDirection), lib.PageColorType.SingleColor, meta.printDirection);
+  const job = c.protocol.newPrintTask(task, {
     totalPages: copies,
     density: meta.densityDefault,
     labelType: lib.LabelType.WithGaps,
   });
+  const beating = c.isHeartbeatStarted();
+  c.stopHeartbeat();
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     await job.printInit();
     await job.printPage(image, copies);
-    await job.waitForFinished();
+    await Promise.race([
+      job.waitForFinished(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new PrinterError("The printer didn't say it had finished. Check it, then try again.")), PRINT_TIMEOUT_MS);
+      }),
+    ]);
   } catch (e) {
+    if (e instanceof PrinterError) throw e;
     throw new PrinterError(printFailureCopy((e as { reasonId?: number } | null)?.reasonId));
   } finally {
+    clearTimeout(timer);
     try { await job.printEnd(); } catch { /* the printer may already have dropped */ }
+    if (beating && client === c && c.isConnected()) c.startHeartbeat();
   }
 }
