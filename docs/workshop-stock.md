@@ -106,17 +106,27 @@ recorded, and where they live.
 
 **Office (`/stock`, desktop and phone)**
 
-- The full list read by shelf with filters (None recorded · Estimates · Code
-  not confirmed · Archived — counts read "—" when the list didn't load), when
-  each item last moved and was last counted, and the product-code status with
-  its reason ("Possible match — colour not confirmed"). No KPI row, no gauges.
-- Per item, ordered by use: what's recorded and **correct the count** (counting
-  starts when the drawer opens; a stale-count guard shows what moved
-  meanwhile), the full movement history with **Undo** (any movement, a reason
-  required, written into the history), the **catalogue folded** (details with
-  a compare-and-set conflict block, codes / barcodes / pack sizes, the online
-  code check, the photo, the item's own history), and **archive last and
-  apart** (confirmed; read-only after; restore says which codes come back).
+- One toolbar — search and type on the left; Camera table, Location matrix,
+  Categories and **Add item** on the right — then the views as tabs on the
+  list (All · None recorded · Estimates · Code not confirmed · Not sorted ·
+  Archived, each with its count; no count when the list didn't load). The
+  list is read by shelf: what's recorded (right-aligned, "≈" for an
+  estimate), when each item last moved and was last counted, and a short
+  product-code status (Matched · Possible match · Not checked) whose tooltip
+  carries the reason ("Possible match — colour not confirmed"). The Bin column
+  shows only when something in view has a bin. "Recorded, not a guarantee"
+  is one line under the list. No KPI row, no gauges.
+- Per item, a drawer with three tabs (office pull 2026-11-03: "the web view
+  is clunky" — one long scroll became three views):
+  - **Stock** (opens first): what's recorded, the shelf, last count and code
+    status; **correct the count** (counting starts when the drawer opens; a
+    stale-count guard shows what moved meanwhile); the full movement history
+    with **Undo** (any movement, a reason required, written into the history).
+  - **Details**: the catalogue — details with a compare-and-set conflict
+    block, codes / barcodes / pack sizes, the online code check, the photos,
+    the item's own history — and **archive last and apart** (confirmed;
+    read-only after; restore says which codes come back).
+  - **Label**: the NIIMBOT barcode label.
 - Add items the same way the crew does, by hand or with a photo.
 
 **Types, browsing, lists (2026-11-01)**
@@ -358,7 +368,7 @@ it wrong, but the photo is the reference"):
   shelf text — on the take/return/add confirmation and on the item sheet; one
   tap opens it full screen. A list row with one carries a small camera mark.
 - **The office** sees it in the item drawer and can add, replace or remove it
-  (catalogue → "Photo of where it lives").
+  (the Details tab → "Photo of where it lives").
 - It is the item's second photo, stored and served exactly like the product
   photo (`items.location_photo_id`, migration
   `20261026100000_workshop_stock_location_photo.sql`). The option appears only
@@ -393,7 +403,7 @@ the colour temperature, the width, the length, the brand, the voltage."
   a type sets the usual unit (cable: metres) until the unit is picked by hand.
 - **Existing items** start **not sorted** (no type) — nothing is sorted by
   guesswork. The office sorts them: the list's **Not sorted** filter, then
-  Catalogue → Details → **Type**; an unsorted item says what it looks like
+  the item's **Details** tab → **Type**; an unsorted item says what it looks like
   ("Looks like LED strip — Use it"), and picking a type fills its fields from
   the name and details, marked "check them before saving". Type edits are
   compare-and-set with the rest of the catalogue and written to the item's
@@ -550,7 +560,7 @@ it all works easily together".
   the choice is remembered on the device. **Share to NIIMBOT** (the phone's
   share sheet) or **Save image**, then print it as a picture in the NIIMBOT app.
 - **Where**: the phone item sheet (**Print / Make a barcode label**), the
-  office drawer (**Barcode label** fold), and the new-item form (**Make a
+  office drawer (**Label** tab), and the new-item form (**Make a
   barcode label for it** — ticked by itself for a loose item the photo could
   only describe); after saving, the label comes up before the next item.
 - **Together**: a loose item → photo ("looks like …") or pick by sight → its

@@ -2,7 +2,6 @@
 
 import { BarcodeLabel } from "@/components/stock/BarcodeLabel";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { ChevronDown, ChevronUp } from "lucide-react";
 import { Drawer } from "@/components/ui/Drawer";
 import { Button } from "@/components/ui/Button";
 import { Pill } from "@/components/ui/Pill";
@@ -11,10 +10,11 @@ import { PhotoCapture } from "@/components/stock/PhotoCapture";
 import { StockThumb } from "@/components/stock/StockThumb";
 import { cn } from "@/lib/cn";
 import { fetchHistory, fetchItem, newOperationKey, replaceItemPhoto, setArchived, storePhoto, undoMovement } from "@/domains/workshop-stock/client";
-import { balanceLabel, errorCopy, formatQuantity, identityLine, movementSummary, movementWho, signedQuantity, undoLabelFor, whenLabel } from "@/domains/workshop-stock/format";
+import { balanceLabel, errorCopy, formatQuantity, identityLine, movementSummary, movementWho, signedQuantity, undoLabelFor, verificationLine, whenLabel } from "@/domains/workshop-stock/format";
 import { isUncertain } from "@/domains/workshop-stock/pending";
 import type { ItemDetail, StockMovement } from "@/domains/workshop-stock/schema";
 import { Block, CheckSection, CountForm, EditForm, IdentifiersEditor, INPUT, LABEL } from "./StockAdminForms";
+import { CODE_SHORT, CODE_TONE } from "./code-status";
 
 /** The quiet mono section label with the yellow tick (the office card-label motif). */
 function Kick({ children }: { children: ReactNode }) {
@@ -35,16 +35,26 @@ function Section({ kicker, children, className }: { kicker: string; children: Re
   );
 }
 
-function Fold({ label, sub, open, onClick, testId }: { label: string; sub?: ReactNode; open: boolean; onClick: () => void; testId?: string }) {
-  const Icon = open ? ChevronUp : ChevronDown;
+type DrawerTab = "stock" | "details" | "label";
+
+/** The drawer's three views — what's recorded, the catalogue, the label — as tabs instead of one long scroll. */
+function Tabs({ value, onChange, tabs }: { value: DrawerTab; onChange: (t: DrawerTab) => void; tabs: Array<{ value: DrawerTab; label: string; testId: string }> }) {
   return (
-    <button type="button" onClick={onClick} aria-expanded={open} className="flex min-h-[44px] w-full items-center justify-between gap-3 border-b border-border py-2.5 text-left" data-testid={testId}>
-      <span className="font-display text-[15px] font-semibold text-text">
-        {label}
-        {sub ? <span className="ml-1.5 font-sans text-[13px] font-normal text-text-muted">{sub}</span> : null}
-      </span>
-      <Icon aria-hidden="true" className="h-4 w-4 shrink-0 text-text-muted" />
-    </button>
+    <div role="tablist" aria-label="Item" className="-mx-5 -mt-4 flex gap-1 border-b border-border px-5">
+      {tabs.map((t) => (
+        <button
+          key={t.value}
+          type="button"
+          role="tab"
+          aria-selected={t.value === value}
+          onClick={() => onChange(t.value)}
+          className={cn("-mb-px border-b-2 px-2.5 pb-2.5 pt-3 text-[13px] font-medium", t.value === value ? "border-brand-navy text-text" : "border-transparent text-text-muted hover:text-text")}
+          data-testid={t.testId}
+        >
+          {t.label}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -54,12 +64,13 @@ const EVENT_LABEL: Record<string, string> = {
 };
 
 /**
- * The office view of one workshop item, ordered by use: what's recorded and
- * Correct the count first; then the movement history with its audited Undo
- * (a reason, written into the history); then the catalogue folded away
- * (details, codes and packs, the online check, the photo, its own history);
- * and archive last and apart (P12: the destructive action never sits beside
- * routine ones). An archived item is read-only until it is restored.
+ * The office view of one workshop item, in three tabs (2026-11-03: one long
+ * scroll read as clunky). Stock, first: what's recorded, Correct the count,
+ * then the movement history with its audited Undo (a reason, written into the
+ * history). Details: the catalogue (details, codes and packs, the online
+ * check, the photos, its own history), with archive last and apart (P12: the
+ * destructive action never sits beside routine ones). Label: the NIIMBOT
+ * barcode label. An archived item is read-only until it is restored.
  */
 export function StockItemDrawer({ itemId, lookupEnabled, locationPhotoEnabled = false, typesEnabled = false, labelOpenAtStart = false, onClose, onChanged }: { itemId: string; lookupEnabled: boolean; locationPhotoEnabled?: boolean; typesEnabled?: boolean; labelOpenAtStart?: boolean; onClose: () => void; onChanged: () => void }) {
   const [detail, setDetail] = useState<ItemDetail | null>(null);
@@ -69,8 +80,7 @@ export function StockItemDrawer({ itemId, lookupEnabled, locationPhotoEnabled = 
   const [undoFor, setUndoFor] = useState<string | null>(null);
   const [undoReason, setUndoReason] = useState("");
   const [busy, setBusy] = useState(false);
-  const [catalogueOpen, setCatalogueOpen] = useState(false);
-  const [labelOpen, setLabelOpen] = useState(labelOpenAtStart);
+  const [tab, setTab] = useState<DrawerTab>(labelOpenAtStart ? "label" : "stock");
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [photoMsg, setPhotoMsg] = useState<string | null>(null);
   const [locationMsg, setLocationMsg] = useState<string | null>(null);
@@ -148,7 +158,6 @@ export function StockItemDrawer({ itemId, lookupEnabled, locationPhotoEnabled = 
   const movements = [...(detail?.movements ?? []), ...older];
   const unitLocked = movements.some((m) => m.quantityMilli !== 0 || (m.countedMilli ?? 0) !== 0);
   const unit = item?.baseUnit ?? "each";
-  const lastMove = movements[0];
 
   const history = (
     <>
@@ -217,12 +226,6 @@ export function StockItemDrawer({ itemId, lookupEnabled, locationPhotoEnabled = 
               </Section>
               <Section kicker="Movement history">{history}</Section>
 
-              {!item.archivedAt ? (
-                <div>
-                  <Fold label="Barcode label" sub="· NIIMBOT, for items with no packaging" open={labelOpen} onClick={() => setLabelOpen((o) => !o)} testId="stock-label-toggle" />
-                  {labelOpen ? <div className="pt-3"><BarcodeLabel item={item} onItemChanged={changed} /></div> : null}
-                </div>
-              ) : null}
               {item.identifiers.length ? (
                 <Section kicker="Codes it had">
                   <ul className="divide-y divide-border text-sm">
@@ -239,104 +242,129 @@ export function StockItemDrawer({ itemId, lookupEnabled, locationPhotoEnabled = 
             </>
           ) : (
             <>
-              <Section kicker="Recorded">
-                <div className="flex items-center gap-3">
-                  <StockThumb photoId={item.photoId} alt={item.name} size="lg" />
-                  <div>
-                    <div className="flex flex-wrap items-baseline gap-2">
-                      <p className="font-display text-[26px] font-semibold leading-none text-text" data-testid="stock-drawer-balance">{balanceLabel(item).replace(" (estimate)", "")}</p>
-                      {item.estimated ? <Pill tone="warning" dot>Estimate</Pill> : null}
+              <Tabs
+                value={tab}
+                onChange={setTab}
+                tabs={[
+                  { value: "stock", label: "Stock", testId: "stock-drawer-tab-stock" },
+                  { value: "details", label: "Details", testId: "stock-catalogue-toggle" },
+                  { value: "label", label: "Label", testId: "stock-label-toggle" },
+                ]}
+              />
+
+              {tab === "stock" ? (
+                <>
+                  <Section kicker="Recorded">
+                    <div className="flex items-center gap-3">
+                      <StockThumb photoId={item.photoId} alt={item.name} size="lg" />
+                      <div>
+                        <div className="flex flex-wrap items-baseline gap-2">
+                          <p className="font-display text-[26px] font-semibold leading-none text-text" data-testid="stock-drawer-balance">{balanceLabel(item).replace(" (estimate)", "")}</p>
+                          {item.estimated ? <Pill tone="warning" dot>Estimate</Pill> : null}
+                        </div>
+                        <p className="mt-1 text-xs text-text-muted">Recorded — not a guarantee of what&rsquo;s on the shelf.</p>
+                      </div>
                     </div>
-                    <p className="mt-1 text-xs text-text-muted">Recorded — not a guarantee of what&rsquo;s on the shelf.</p>
+                    <dl className="grid grid-cols-3 gap-3 text-sm">
+                      <div className="min-w-0">
+                        <dt className={LABEL}>Shelf</dt>
+                        <dd className="truncate text-text" title={item.location ?? undefined}>{item.location || "Not set"}</dd>
+                      </div>
+                      <div className="min-w-0">
+                        <dt className={LABEL}>Last counted</dt>
+                        <dd className="text-text">{item.lastCountedAt ? `${whenLabel(item.lastCountedAt)}${item.lastCountedByName ? ` · ${item.lastCountedByName}` : ""}` : "Never"}</dd>
+                      </div>
+                      <div className="min-w-0">
+                        <dt className={LABEL}>Product code</dt>
+                        <dd title={verificationLine(item)}><Pill tone={CODE_TONE[item.verificationStatus]} dot className="whitespace-nowrap font-medium normal-case tracking-normal">{CODE_SHORT[item.verificationStatus]}</Pill></dd>
+                      </div>
+                    </dl>
+                    {item.locationPhotoId ? <LocationPhoto photoId={item.locationPhotoId} location={item.location} /> : null}
+                  </Section>
+
+                  <Section kicker="Correct the count"><CountForm key={item.id} item={item} onSaved={changed} /></Section>
+
+                  <Section kicker="Movement history" className="border-b-0">
+                    {history}
+                  </Section>
+                </>
+              ) : null}
+
+              {tab === "details" ? (
+                <div className="space-y-4" data-testid="stock-catalogue">
+                  <Section kicker="Details">
+                    {/* keyed on the item, not its revision: a reload never wipes what the office is typing */}
+                    <EditForm key={item.id} item={item} unitLocked={unitLocked} typesEnabled={typesEnabled} onSaved={changed} />
+                  </Section>
+                  <Section kicker="Codes, barcodes and packs"><IdentifiersEditor item={item} onChanged={changed} /></Section>
+                  <Section kicker="Online product check"><CheckSection item={item} lookupEnabled={lookupEnabled} onChanged={changed} /></Section>
+                  <Section kicker="Photo">
+                    <div className="flex items-start gap-3">
+                      <StockThumb photoId={item.photoId} alt={item.name} size="xl" />
+                      <div className="min-w-0 flex-1">
+                        <PhotoCapture label="Replace photo" onPhoto={(u, _d, t) => void newPhoto(u, t)} testId="stock-drawer-photo" />
+                        {photoMsg ? <p className="mt-2 text-sm text-text-muted">{photoMsg}</p> : null}
+                      </div>
+                    </div>
+                  </Section>
+                  {locationPhotoEnabled ? (
+                    <Section kicker="Photo of where it lives">
+                      <p className="text-xs text-text-muted">For stock that isn&rsquo;t in an obvious place — shown to whoever comes to take it, beside the shelf.</p>
+                      {item.locationPhotoId ? <LocationPhoto photoId={item.locationPhotoId} location={item.location} /> : <p className="text-sm text-text-muted">None yet.</p>}
+                      <div className="flex flex-wrap items-start gap-2">
+                        <div className="min-w-0 flex-1">
+                          <PhotoCapture label={item.locationPhotoId ? "Replace photo" : "Add photo"} onPhoto={(u, _d, t) => void setLocationPhoto(u, t)} testId="stock-drawer-location-photo" />
+                        </div>
+                        {item.locationPhotoId ? (
+                          <Button type="button" variant="secondary" size="sm" onClick={() => void setLocationPhoto(null, null)} data-testid="stock-drawer-location-photo-remove">Remove</Button>
+                        ) : null}
+                      </div>
+                      {locationMsg ? <p className="text-sm text-text-muted" role="status">{locationMsg}</p> : null}
+                    </Section>
+                  ) : null}
+                  {detail?.events?.length ? (
+                    <Section kicker="Catalogue history" className="border-b-0">
+                      <ul className="divide-y divide-border text-sm">
+                        {detail.events.map((e) => (
+                          <li key={e.id} className="py-1.5">
+                            <span className="font-semibold text-text">{e.event === "photo_changed" && (e.detail as { slot?: string } | null)?.slot === "location" ? ((e.detail as { to?: string | null }).to ? "Photo of where it lives changed" : "Photo of where it lives removed") : EVENT_LABEL[e.event] ?? e.event}</span>
+                            <span className="text-text-muted"> · {e.actorName ?? "someone"} · {whenLabel(e.at)}{e.event === "updated" && e.detail && typeof e.detail === "object" && "changes" in e.detail ? ` (${Object.keys(e.detail.changes as Record<string, unknown>).join(", ")})` : ""}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </Section>
+                  ) : null}
+
+                  {/* archive: last, and apart from everything routine (P12) */}
+<div className="mt-8 border-t-2 border-border pt-3">
+                    <Kick>Archive</Kick>
+                    {archiveOpen ? (
+                      <Block tone="bad" title={`Archive ${item.name}?`} className="mt-2">
+                        <p>
+                          It leaves the crew&rsquo;s list. {item.identifiers.length ? `Its ${item.identifiers.length} ${item.identifiers.length === 1 ? "code stops" : "codes stop"} matching photos. ` : ""}
+                          Its history{item.balanceMilli ? ` and the ${balanceLabel(item)} recorded` : ""} stay on the record, read-only. There is no delete — archive is how an item goes.
+                        </p>
+                        <div className="flex gap-2 pt-1">
+                          <Button type="button" variant="danger" size="sm" onClick={() => void archive(true)} disabled={busy} data-testid="stock-archive-confirm">Archive item</Button>
+                          <Button type="button" variant="secondary" size="sm" onClick={() => setArchiveOpen(false)}>Keep it</Button>
+                        </div>
+                      </Block>
+                    ) : (
+                      <div className="mt-2 flex flex-wrap items-center gap-3">
+                        <Button type="button" variant="secondary" size="sm" onClick={() => setArchiveOpen(true)} data-testid="stock-archive">Archive item…</Button>
+                        <span className="text-xs text-text-muted">Takes it off the crew&rsquo;s list; history is kept. Confirmed first.</span>
+                      </div>
+                    )}
                   </div>
                 </div>
-                {item.locationPhotoId ? <LocationPhoto photoId={item.locationPhotoId} location={item.location} /> : null}
-                <dl className="grid grid-cols-2 gap-2 text-sm">
-                  <div>
-                    <dt className={LABEL}>Last counted</dt>
-                    <dd className="text-text">{item.lastCountedAt ? `${whenLabel(item.lastCountedAt)}${item.lastCountedByName ? ` · ${item.lastCountedByName}` : ""}` : "Never"}</dd>
-                  </div>
-                  <div>
-                    <dt className={LABEL}>Last movement</dt>
-                    <dd className="text-text">{lastMove ? `${movementSummary(lastMove, unit)} · ${movementWho(lastMove)}` : "None yet"}</dd>
-                  </div>
-                </dl>
-              </Section>
+              ) : null}
 
-              <Section kicker="Correct the count"><CountForm key={item.id} item={item} onSaved={changed} /></Section>
-
-              <Section kicker="Movement history">{history}</Section>
-
-              <div>
-                <Fold label="Catalogue" sub="· details, codes and packs, online check, photo, history" open={catalogueOpen} onClick={() => setCatalogueOpen((o) => !o)} testId="stock-catalogue-toggle" />
-                {catalogueOpen ? (
-                  <div className="space-y-4 pt-3" data-testid="stock-catalogue">
-                    <Section kicker="Details">
-                      {/* keyed on the item, not its revision: a reload never wipes what the office is typing */}
-                      <EditForm key={item.id} item={item} unitLocked={unitLocked} typesEnabled={typesEnabled} onSaved={changed} />
-                    </Section>
-                    <Section kicker="Codes, barcodes and packs"><IdentifiersEditor item={item} onChanged={changed} /></Section>
-                    <Section kicker="Online product check"><CheckSection item={item} lookupEnabled={lookupEnabled} onChanged={changed} /></Section>
-                    <Section kicker="Photo">
-                      <div className="flex items-start gap-3">
-                        <StockThumb photoId={item.photoId} alt={item.name} size="xl" />
-                        <div className="min-w-0 flex-1">
-                          <PhotoCapture label="Replace photo" onPhoto={(u, _d, t) => void newPhoto(u, t)} testId="stock-drawer-photo" />
-                          {photoMsg ? <p className="mt-2 text-sm text-text-muted">{photoMsg}</p> : null}
-                        </div>
-                      </div>
-                    </Section>
-                    {locationPhotoEnabled ? (
-                      <Section kicker="Photo of where it lives">
-                        <p className="text-xs text-text-muted">For stock that isn&rsquo;t in an obvious place — shown to whoever comes to take it, beside the shelf.</p>
-                        {item.locationPhotoId ? <LocationPhoto photoId={item.locationPhotoId} location={item.location} /> : <p className="text-sm text-text-muted">None yet.</p>}
-                        <div className="flex flex-wrap items-start gap-2">
-                          <div className="min-w-0 flex-1">
-                            <PhotoCapture label={item.locationPhotoId ? "Replace photo" : "Add photo"} onPhoto={(u, _d, t) => void setLocationPhoto(u, t)} testId="stock-drawer-location-photo" />
-                          </div>
-                          {item.locationPhotoId ? (
-                            <Button type="button" variant="secondary" size="sm" onClick={() => void setLocationPhoto(null, null)} data-testid="stock-drawer-location-photo-remove">Remove</Button>
-                          ) : null}
-                        </div>
-                        {locationMsg ? <p className="text-sm text-text-muted" role="status">{locationMsg}</p> : null}
-                      </Section>
-                    ) : null}
-                    {detail?.events?.length ? (
-                      <Section kicker="Catalogue history" className="border-b-0">
-                        <ul className="divide-y divide-border text-sm">
-                          {detail.events.map((e) => (
-                            <li key={e.id} className="py-1.5">
-                              <span className="font-semibold text-text">{e.event === "photo_changed" && (e.detail as { slot?: string } | null)?.slot === "location" ? ((e.detail as { to?: string | null }).to ? "Photo of where it lives changed" : "Photo of where it lives removed") : EVENT_LABEL[e.event] ?? e.event}</span>
-                              <span className="text-text-muted"> · {e.actorName ?? "someone"} · {whenLabel(e.at)}{e.event === "updated" && e.detail && typeof e.detail === "object" && "changes" in e.detail ? ` (${Object.keys(e.detail.changes as Record<string, unknown>).join(", ")})` : ""}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </Section>
-                    ) : null}
-                  </div>
-                ) : null}
-              </div>
-
-              <div className="mt-8 border-t-2 border-border pt-3">
-                <Kick>Archive</Kick>
-                {archiveOpen ? (
-                  <Block tone="bad" title={`Archive ${item.name}?`} className="mt-2">
-                    <p>
-                      It leaves the crew&rsquo;s list. {item.identifiers.length ? `Its ${item.identifiers.length} ${item.identifiers.length === 1 ? "code stops" : "codes stop"} matching photos. ` : ""}
-                      Its history{item.balanceMilli ? ` and the ${balanceLabel(item)} recorded` : ""} stay on the record, read-only. There is no delete — archive is how an item goes.
-                    </p>
-                    <div className="flex gap-2 pt-1">
-                      <Button type="button" variant="danger" size="sm" onClick={() => void archive(true)} disabled={busy} data-testid="stock-archive-confirm">Archive item</Button>
-                      <Button type="button" variant="secondary" size="sm" onClick={() => setArchiveOpen(false)}>Keep it</Button>
-                    </div>
-                  </Block>
-                ) : (
-                  <div className="mt-2 flex flex-wrap items-center gap-3">
-                    <Button type="button" variant="secondary" size="sm" onClick={() => setArchiveOpen(true)} data-testid="stock-archive">Archive item…</Button>
-                    <span className="text-xs text-text-muted">Takes it off the crew&rsquo;s list; history is kept. Confirmed first.</span>
-                  </div>
-                )}
-              </div>
+              {tab === "label" ? (
+                <div className="space-y-2">
+                  <p className="text-sm text-text-muted">A NIIMBOT barcode label, for items with no packaging to scan.</p>
+                  <BarcodeLabel item={item} onItemChanged={changed} />
+                </div>
+              ) : null}
             </>
           )}
         </div>

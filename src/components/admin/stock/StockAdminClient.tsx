@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Plus, RefreshCw, Search, Tags } from "lucide-react";
+import { Camera, Grid3x3, Plus, RefreshCw, Search, Tags } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Pill } from "@/components/ui/Pill";
 import { StockItemRow } from "@/components/stock/StockItemRow";
@@ -11,13 +12,14 @@ import { fetchStockList } from "@/domains/workshop-stock/client";
 import { errorCopy, formatNumber, identityLine, matchesSearch, UNIT_LABEL, verificationLine, whenLabel } from "@/domains/workshop-stock/format";
 import { binOf, groupByShelf } from "@/domains/workshop-stock/location";
 import { setPendingOwner } from "@/domains/workshop-stock/pending";
-import type { StockItem, StockList, VerificationStatus } from "@/domains/workshop-stock/schema";
+import type { StockItem, StockList } from "@/domains/workshop-stock/schema";
 import { STOCK_TYPES, typeOf } from "@/domains/workshop-stock/types";
 import { StockAdminAdd } from "./StockAdminAdd";
 import { StockCategories } from "./StockCategories";
 import { findByBarcode } from "@/domains/workshop-stock/barcode";
 import { useBarcodeScanner } from "@/components/stock/useBarcodeScanner";
 import { StockItemDrawer } from "./StockItemDrawer";
+import { CODE_SHORT, CODE_TONE } from "./code-status";
 
 type Filter = "all" | "zero" | "estimated" | "check" | "unsorted" | "archived";
 
@@ -34,19 +36,20 @@ const EXPLAIN: Partial<Record<Filter, string>> = {
   zero: "Items where nothing is recorded on the shelf. That is what's logged, not a check of the shelf.",
   estimated: "Items whose recorded quantity is an estimate — a rough count or a part-used roll. A count clears it.",
   check: "Items whose product code the online check couldn't fully confirm. Open one to re-run the check or correct the details.",
-  unsorted: "Items without a type yet. The crew browse the phone by type (Switches & GPOs, LED strip, Cable…) — open one, Catalogue → Details, and pick what it is; its fields fill in from the name for you to check.",
+  unsorted: "Items without a type yet. The crew browse the phone by type (Switches & GPOs, LED strip, Cable…) — open one, the Details tab, and pick what it is; its fields fill in from the name for you to check.",
   archived: "Archived items are off the crew's list and their codes don't match photos. Open one to read its history or restore it.",
 };
 
-export const CODE_TONE: Record<VerificationStatus, "success" | "warning" | "neutral"> = { manufacturer_code_matched: "success", possible_match: "warning", unverified: "neutral" };
+
+const TOOL = "inline-flex h-9 items-center gap-1.5 rounded-[4px] border border-border bg-surface px-3 text-[13px] font-medium text-text hover:border-border-strong";
 
 /** The recorded quantity in a table cell: the number leads, the unit follows; zero is a pill, an estimate says so. */
 function RecordedCell({ item }: { item: StockItem }) {
-  if (item.balanceMilli === 0) return <Pill tone="warning" dot>None recorded</Pill>;
+  if (item.balanceMilli === 0) return <Pill tone="warning" dot className="whitespace-nowrap">None recorded</Pill>;
   return (
-    <span className="whitespace-nowrap">
+    <span className="whitespace-nowrap" title={item.estimated ? "An estimate — a count clears it" : undefined}>
       <span className="font-display text-[15px] font-semibold tabular-nums text-text">{item.estimated ? "≈ " : ""}{formatNumber(item.balanceMilli)}</span>{" "}
-      <span className="text-[13px] font-medium text-text-muted">{UNIT_LABEL[item.baseUnit].plural}{item.estimated ? " · estimate" : ""}</span>
+      <span className="text-[13px] text-text-muted">{UNIT_LABEL[item.baseUnit].plural}</span>
     </span>
   );
 }
@@ -109,48 +112,63 @@ export function StockAdminClient({ initialItemId }: { initialItemId?: string | n
   const groups = useMemo(() => groupByShelf(shown), [shown]);
   const archivedView = filter === "archived";
   const nothingYet = state === "ready" && !items.length && !archivedView;
+  // The Bin column earns its place only when something in view has one.
+  const showBin = archivedView || shown.some((i) => binOf(i.location));
+  const cols = (archivedView ? 5 : 6) - (showBin ? 0 : 1);
 
   return (
-    <div className="space-y-4" data-testid="stock-admin">
+    <div className="space-y-3" data-testid="stock-admin">
+      {/* one toolbar: find on the left, the tools and Add item on the right */}
       <div className="flex flex-wrap items-center gap-2">
-        <div role="tablist" aria-label="Filter workshop stock" className="flex flex-wrap gap-1.5">
-          {FILTERS.filter((f) => !f.types || typesEnabled).map((f) => {
-            const active = f.value === filter;
-            const n = failed || !list ? null : filter === "archived" && f.value !== "archived" ? counts[f.value] : f.value === "archived" && filter !== "archived" ? null : counts[f.value];
-            return (
-              <button
-                key={f.value}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                onClick={() => setFilter(f.value)}
-                className={cn("inline-flex h-8 items-center gap-1.5 rounded-[4px] border px-3 text-[13px] font-medium", active ? "border-brand-navy bg-brand-navy text-text-inverse" : "border-border bg-surface text-text hover:border-border-strong")}
-              >
-                {f.label}
-                <span className={cn("font-mono text-[12px] font-bold tabular-nums", active ? "text-text-inverse" : "text-text-muted")}>{n === null ? "—" : n}</span>
-              </button>
-            );
-          })}
+        <div className="relative min-w-[240px] flex-1 lg:max-w-[360px]">
+          <Search aria-hidden="true" className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
+          <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name, code, barcode or shelf" aria-label="Search workshop stock" className="h-9 w-full rounded-[4px] border border-border-strong bg-surface pl-8 pr-3 text-sm" data-testid="stock-admin-search" />
         </div>
-        <span className="flex-1" />
         {typesEnabled ? (
           <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} aria-label="Type of item" className="h-9 rounded-[4px] border border-border-strong bg-surface px-2 text-sm" data-testid="stock-admin-type">
             <option value="">All types</option>
             {STOCK_TYPES.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
           </select>
         ) : null}
-        {typesEnabled && list?.capabilities.customTypes ? (
-          <Button type="button" variant="secondary" size="sm" onClick={() => setCategories(true)} data-testid="stock-admin-categories">
-            <Tags aria-hidden="true" className="h-4 w-4" /> Categories
+        <div className="flex flex-wrap items-center gap-2 lg:ml-auto">
+          <Link href="/stock/intake" className={TOOL} data-testid="stock-open-intake">
+            <Camera aria-hidden="true" className="h-4 w-4" /> Camera table
+          </Link>
+          <Link href="/stock/locations" className={TOOL} data-testid="stock-open-matrix">
+            <Grid3x3 aria-hidden="true" className="h-4 w-4" /> Location matrix
+          </Link>
+          {typesEnabled && list?.capabilities.customTypes ? (
+            <button type="button" className={TOOL} onClick={() => setCategories(true)} data-testid="stock-admin-categories">
+              <Tags aria-hidden="true" className="h-4 w-4" /> Categories
+            </button>
+          ) : null}
+          <Button type="button" size="sm" className="h-9" onClick={() => setAdding({ scannedBarcode: null })} disabled={!list} data-testid="stock-admin-add">
+            <Plus aria-hidden="true" className="h-4 w-4" /> Add item
           </Button>
-        ) : null}
-        <div className="relative w-full sm:w-[300px]">
-          <Search aria-hidden="true" className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
-          <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name, code, barcode or shelf" aria-label="Search workshop stock" className="h-9 w-full rounded-[4px] border border-border-strong bg-surface pl-8 pr-3 text-sm" data-testid="stock-admin-search" />
         </div>
-        <Button type="button" size="sm" onClick={() => setAdding({ scannedBarcode: null })} disabled={!list} data-testid="stock-admin-add">
-          <Plus aria-hidden="true" className="h-4 w-4" /> Add item
-        </Button>
+      </div>
+
+      {/* the views, as tabs on the list itself */}
+      <div role="tablist" aria-label="Filter workshop stock" className="-mx-4 flex gap-1 overflow-x-auto border-b border-border px-4 sm:mx-0 sm:px-0">
+        {FILTERS.filter((f) => !f.types || typesEnabled).map((f) => {
+          const active = f.value === filter;
+          const n = failed || !list ? null : filter === "archived" && f.value !== "archived" ? counts[f.value] : f.value === "archived" && filter !== "archived" ? null : counts[f.value];
+          return (
+            <button
+              key={f.value}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => setFilter(f.value)}
+              className={cn("-mb-px inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-2.5 pb-2 pt-1.5 text-[13px] font-medium", active ? "border-brand-navy text-text" : "border-transparent text-text-muted hover:text-text")}
+            >
+              {f.label}
+              {n === null ? null : (
+                <span className={cn("rounded-full px-1.5 py-px font-mono text-[11px] font-bold tabular-nums", active ? "bg-brand-navy text-text-inverse" : n > 0 && f.value !== "all" ? "bg-surface-subtle text-text" : "bg-surface-subtle text-text-muted")}>{n}</span>
+              )}
+            </button>
+          );
+        })}
       </div>
       {EXPLAIN[filter] && !failed ? <p className="text-sm text-text-muted">{EXPLAIN[filter]}</p> : null}
 
@@ -206,25 +224,26 @@ export function StockAdminClient({ initialItemId }: { initialItemId?: string | n
             ))}
           </div>
 
-          <div className="hidden overflow-x-auto sm:block">
+          <div className="hidden overflow-x-auto rounded-card border border-border bg-surface sm:block">
             <table className="w-full border-collapse text-left text-sm" data-testid="stock-admin-table">
               <thead>
-                <tr className="border-b border-border-strong font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-text-muted">
-                  <th className="w-[30%] px-3 py-2.5">Item</th>
-                  <th className="px-3 py-2.5">{archivedView ? "Shelf" : "Bin"}</th>
-                  <th className="px-3 py-2.5">{archivedView ? "Recorded when archived" : "Recorded"}</th>
-                  <th className="px-3 py-2.5">{archivedView ? "Archived" : "Last movement"}</th>
+                <tr className="border-b border-border font-mono text-[11px] font-semibold uppercase tracking-[0.12em] text-text-muted">
+                  <th className="px-3 py-2.5">Item</th>
+                  {showBin ? <th className="px-3 py-2.5">{archivedView ? "Shelf" : "Bin"}</th> : null}
+                  <th className="px-3 py-2.5 text-right">{archivedView ? "Recorded when archived" : "Recorded"}</th>
+                  <th className="px-3 py-2.5">{archivedView ? "Archived" : "Last moved"}</th>
                   <th className="px-3 py-2.5">{archivedView ? "Status" : "Last counted"}</th>
-                  {archivedView ? null : <th className="px-3 py-2.5">Product code</th>}
+                  {archivedView ? null : <th className="px-3 py-2.5">Code</th>}
                 </tr>
               </thead>
               <tbody>
                 {groups.map((g) => (
-                  <GroupRows key={g.label} label={g.label} items={g.items} archivedView={archivedView} onOpen={setOpenId} />
+                  <GroupRows key={g.label} label={g.label} items={g.items} archivedView={archivedView} showBin={showBin} cols={cols} onOpen={setOpenId} />
                 ))}
               </tbody>
             </table>
           </div>
+          <p className="text-xs text-text-muted">Quantities are what the crew recorded — not a guarantee of what&rsquo;s on the shelf; correct one with a count. Taking stock never adds a job cost.</p>
         </>
       )}
 
@@ -235,27 +254,27 @@ export function StockAdminClient({ initialItemId }: { initialItemId?: string | n
   );
 }
 
-function GroupRows({ label, items, archivedView, onOpen }: { label: string; items: StockItem[]; archivedView: boolean; onOpen: (id: string) => void }) {
+function GroupRows({ label, items, archivedView, showBin, cols, onOpen }: { label: string; items: StockItem[]; archivedView: boolean; showBin: boolean; cols: number; onOpen: (id: string) => void }) {
   return (
     <>
       <tr data-testid="stock-admin-group">
-        <td colSpan={archivedView ? 5 : 6} className="border-b border-border bg-surface-subtle px-3 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-text">
-          {label} · {items.length} {items.length === 1 ? "item" : "items"}
+        <td colSpan={cols} className="border-b border-border bg-surface-subtle px-3 pb-1.5 pt-3 text-[13px] font-semibold text-text">
+          {label} <span className="font-normal text-text-muted">· {items.length} {items.length === 1 ? "item" : "items"}</span>
         </td>
       </tr>
       {items.map((i) => (
-        <tr key={i.id} className="cursor-pointer border-b border-border hover:bg-surface-subtle" onClick={() => onOpen(i.id)} data-testid="stock-admin-row">
+        <tr key={i.id} className="cursor-pointer border-b border-border last:border-b-0 hover:bg-surface-subtle" onClick={() => onOpen(i.id)} data-testid="stock-admin-row">
           <td className="px-3 py-2">
             <button type="button" className="flex items-center gap-2.5 text-left" onClick={(e) => { e.stopPropagation(); onOpen(i.id); }}>
               <StockThumb photoId={i.photoId} alt="" size="xs" />
-              <span>
+              <span className="min-w-0">
                 <span className="block font-semibold text-text">{i.name}</span>
-                <span className="block text-[12.5px] text-text-muted">{identityLine(i) || "—"}</span>
+                {identityLine(i) ? <span className="block text-[12.5px] text-text-muted">{identityLine(i)}</span> : null}
               </span>
             </button>
           </td>
-          <td className="px-3 py-2 text-[13px] text-text-muted">{(archivedView ? i.location : binOf(i.location)) || "—"}</td>
-          <td className="px-3 py-2"><RecordedCell item={i} /></td>
+          {showBin ? <td className="px-3 py-2 text-[13px] text-text-muted">{(archivedView ? i.location : binOf(i.location)) || ""}</td> : null}
+          <td className="px-3 py-2 text-right"><RecordedCell item={i} /></td>
           {archivedView ? (
             <>
               <td className="px-3 py-2 text-[13px] text-text">{whenLabel(i.archivedAt)}</td>
@@ -263,19 +282,16 @@ function GroupRows({ label, items, archivedView, onOpen }: { label: string; item
             </>
           ) : (
             <>
-              <td className="px-3 py-2 text-[13px] text-text-muted">{i.lastMovementAt ? whenLabel(i.lastMovementAt) : "—"}</td>
-              <td className="px-3 py-2 text-[13px]">
+              <td className="whitespace-nowrap px-3 py-2 text-[13px] text-text-muted">{i.lastMovementAt ? whenLabel(i.lastMovementAt) : "Never"}</td>
+              <td className="whitespace-nowrap px-3 py-2 text-[13px]">
                 {i.lastCountedAt ? (
-                  <>
-                    <span className="block text-text">{whenLabel(i.lastCountedAt)}</span>
-                    {i.lastCountedByName ? <span className="block text-xs text-text-muted">{i.lastCountedByName}</span> : null}
-                  </>
+                  <span className="text-text">{whenLabel(i.lastCountedAt)}{i.lastCountedByName ? <span className="text-text-muted"> · {i.lastCountedByName}</span> : null}</span>
                 ) : (
                   <span className="text-text-muted">Never</span>
                 )}
               </td>
-              <td className="px-3 py-2">
-                <Pill tone={CODE_TONE[i.verificationStatus]} dot className="whitespace-nowrap font-medium normal-case tracking-normal">{verificationLine(i)}</Pill>
+              <td className="px-3 py-2" title={verificationLine(i)}>
+                <Pill tone={CODE_TONE[i.verificationStatus]} dot className="whitespace-nowrap font-medium normal-case tracking-normal">{CODE_SHORT[i.verificationStatus]}</Pill>
               </td>
             </>
           )}
@@ -284,4 +300,3 @@ function GroupRows({ label, items, archivedView, onOpen }: { label: string; item
     </>
   );
 }
-
