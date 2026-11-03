@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
 import { fetchStockList } from "@/domains/workshop-stock/client";
 import { errorCopy, matchesSearch } from "@/domains/workshop-stock/format";
-import { groupItems, isGroupBy, isView, type GroupBy, type StockView } from "@/domains/workshop-stock/views";
+import { DEFAULT_SORT, groupItems, isGroupBy, isSort, isView, SORT_KEYS, SORT_LABEL, sortGroups, type GroupBy, type SortKey, type StockSort, type StockView } from "@/domains/workshop-stock/views";
 import { setPendingOwner } from "@/domains/workshop-stock/pending";
 import type { StockList } from "@/domains/workshop-stock/schema";
 import { STOCK_TYPES, typeOf } from "@/domains/workshop-stock/types";
@@ -38,7 +38,9 @@ const EXPLAIN: Partial<Record<Filter, string>> = {
 };
 
 
-const TOOL = "inline-flex h-9 items-center gap-1.5 rounded-[4px] border border-border bg-surface px-3 text-[13px] font-medium text-text hover:border-border-strong";
+// the workshop tools: quiet links beside the filter tabs
+const TOOL = "inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-[4px] px-2 text-[13px] font-medium text-text-muted hover:bg-surface-subtle hover:text-text";
+const SELECT = "h-9 rounded-[4px] border border-border-strong bg-surface px-2 text-[13px] text-text";
 
 const VIEW_OPTIONS: Array<{ value: StockView; label: string; Icon: typeof Rows3 }> = [
   { value: "table", label: "Table", Icon: Rows3 },
@@ -54,15 +56,17 @@ const GROUP_OPTIONS: Array<{ value: GroupBy; label: string; types?: true }> = [
 // The chosen view and grouping are a per-viewer convenience: remembered on
 // this browser only, and the page works the same without it.
 const PREF_KEY = "buhlos.stock.office.view";
-function readPref(): { view: StockView; groupBy: GroupBy } {
+type Pref = { view: StockView; groupBy: GroupBy; sort: StockSort };
+const DEFAULT_PREF: Pref = { view: "table", groupBy: "shelf", sort: DEFAULT_SORT };
+function readPref(): Pref {
   try {
-    const raw = JSON.parse(window.localStorage.getItem(PREF_KEY) ?? "null") as { view?: unknown; groupBy?: unknown } | null;
-    return { view: isView(raw?.view) ? raw.view : "table", groupBy: isGroupBy(raw?.groupBy) ? raw.groupBy : "shelf" };
+    const raw = JSON.parse(window.localStorage.getItem(PREF_KEY) ?? "null") as { view?: unknown; groupBy?: unknown; sort?: unknown } | null;
+    return { view: isView(raw?.view) ? raw.view : "table", groupBy: isGroupBy(raw?.groupBy) ? raw.groupBy : "shelf", sort: isSort(raw?.sort) ? raw.sort : DEFAULT_SORT };
   } catch {
-    return { view: "table", groupBy: "shelf" };
+    return DEFAULT_PREF;
   }
 }
-function writePref(p: { view: StockView; groupBy: GroupBy }) {
+function writePref(p: Pref) {
   try { window.localStorage.setItem(PREF_KEY, JSON.stringify(p)); } catch { /* storage off: nothing to remember */ }
 }
 
@@ -84,12 +88,16 @@ export function StockAdminClient({ initialItemId }: { initialItemId?: string | n
   const [openLabel, setOpenLabel] = useState(false);
   const [adding, setAdding] = useState<false | { scannedBarcode: string | null }>(false);
   const [categories, setCategories] = useState(false);
-  const [view, setView] = useState<StockView>("table");
-  const [groupByPref, setGroupBy] = useState<GroupBy>("shelf");
-  useEffect(() => { const p = readPref(); setView(p.view); setGroupBy(p.groupBy); }, []);
-  function choose(next: { view?: StockView; groupBy?: GroupBy }) {
-    const p = { view: next.view ?? view, groupBy: next.groupBy ?? groupByPref };
-    setView(p.view); setGroupBy(p.groupBy); writePref(p);
+  const [pref, setPref] = useState<Pref>(DEFAULT_PREF);
+  useEffect(() => { setPref(readPref()); }, []);
+  const { view, sort } = pref;
+  const groupByPref = pref.groupBy;
+  function choose(next: Partial<Pref>) {
+    setPref((p) => { const n = { ...p, ...next }; writePref(n); return n; });
+  }
+  // a column head: a new key takes its natural order; the same key again flips it
+  function sortBy(key: SortKey) {
+    choose({ sort: sort.key === key ? { key, reversed: !sort.reversed } : { key, reversed: false } });
   }
 
   const load = useCallback(async (archived: boolean) => {
@@ -130,90 +138,95 @@ export function StockAdminClient({ initialItemId }: { initialItemId?: string | n
   const typesEnabled = list?.capabilities.types === true;
   // grouping by type needs types on the server; otherwise it reads as by shelf
   const groupBy: GroupBy = groupByPref === "type" && !typesEnabled ? "shelf" : groupByPref;
-  const groups = useMemo(() => groupItems(shown, groupBy), [shown, groupBy]);
+  const groups = useMemo(() => sortGroups(groupItems(shown, groupBy), sort), [shown, groupBy, sort]);
   const archivedView = filter === "archived";
   const nothingYet = state === "ready" && !items.length && !archivedView;
 
   return (
     <div className="space-y-3" data-testid="stock-admin">
-      {/* one toolbar: find on the left, the tools and Add item on the right */}
+      {/* row 1 — how you look at the list: find, narrow, group, sort, lay out; then Add item */}
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-[240px] flex-1 lg:max-w-[360px]">
+        <div className="relative min-w-[220px] flex-1 lg:max-w-[300px]">
           <Search aria-hidden="true" className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
           <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name, code, barcode or shelf" aria-label="Search workshop stock" className="h-9 w-full rounded-[4px] border border-border-strong bg-surface pl-8 pr-3 text-sm" data-testid="stock-admin-search" />
         </div>
         {typesEnabled ? (
-          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} aria-label="Type of item" className="h-9 rounded-[4px] border border-border-strong bg-surface px-2 text-sm" data-testid="stock-admin-type">
+          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} aria-label="Type of item" className={cn(SELECT, "max-w-[10.5rem]")} data-testid="stock-admin-type">
             <option value="">All types</option>
             {STOCK_TYPES.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
           </select>
         ) : null}
-        <div className="flex flex-wrap items-center gap-2 lg:ml-auto">
-          <Link href="/stock/intake" className={TOOL} data-testid="stock-open-intake">
-            <Camera aria-hidden="true" className="h-4 w-4" /> Camera table
-          </Link>
-          <Link href="/stock/locations" className={TOOL} data-testid="stock-open-matrix">
-            <Grid3x3 aria-hidden="true" className="h-4 w-4" /> Location matrix
-          </Link>
-          {typesEnabled && list?.capabilities.customTypes ? (
-            <button type="button" className={TOOL} onClick={() => setCategories(true)} data-testid="stock-admin-categories">
-              <Tags aria-hidden="true" className="h-4 w-4" /> Categories
-            </button>
-          ) : null}
-          <Button type="button" size="sm" className="h-9" onClick={() => setAdding({ scannedBarcode: null })} disabled={!list} data-testid="stock-admin-add">
-            <Plus aria-hidden="true" className="h-4 w-4" /> Add item
-          </Button>
-        </div>
-      </div>
-
-      {/* the filters as tabs on the list; how it's laid out and grouped on the right */}
-      <div className="flex flex-wrap items-end gap-x-4 gap-y-2 border-b border-border">
-      <div role="tablist" aria-label="Filter workshop stock" className="-mx-4 -mb-px flex w-full min-w-0 gap-1 overflow-x-auto px-4 sm:mx-0 sm:px-0 lg:w-auto lg:flex-1">
-        {FILTERS.filter((f) => !f.types || typesEnabled).map((f) => {
-          const active = f.value === filter;
-          const n = failed || !list ? null : filter === "archived" && f.value !== "archived" ? counts[f.value] : f.value === "archived" && filter !== "archived" ? null : counts[f.value];
-          return (
-            <button
-              key={f.value}
-              type="button"
-              role="tab"
-              aria-selected={active}
-              onClick={() => setFilter(f.value)}
-              className={cn("-mb-px inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-2.5 pb-2 pt-1.5 text-[13px] font-medium", active ? "border-brand-navy text-text" : "border-transparent text-text-muted hover:text-text")}
-            >
-              {f.label}
-              {n === null ? null : (
-                <span className={cn("rounded-full px-1.5 py-px font-mono text-[11px] font-bold tabular-nums", active ? "bg-brand-navy text-text-inverse" : n > 0 && f.value !== "all" ? "bg-surface-subtle text-text" : "bg-surface-subtle text-text-muted")}>{n}</span>
-              )}
-            </button>
-          );
-        })}
-      </div>
-      <div className="order-first flex items-center gap-2 pb-1.5 lg:order-none">
         <label className="flex items-center gap-1.5 text-[13px] text-text-muted">
-          Group by
-          <select value={groupBy} onChange={(e) => choose({ groupBy: e.target.value as GroupBy })} className="h-8 rounded-[4px] border border-border-strong bg-surface px-1.5 text-[13px] text-text" data-testid="stock-admin-group-by">
+          Group
+          <select value={groupBy} onChange={(e) => choose({ groupBy: e.target.value as GroupBy })} className={SELECT} data-testid="stock-admin-group-by">
             {GROUP_OPTIONS.filter((g) => !g.types || typesEnabled).map((g) => <option key={g.value} value={g.value}>{g.label}</option>)}
           </select>
         </label>
-        <div role="radiogroup" aria-label="View" className="inline-flex rounded-[4px] border border-border-strong bg-surface p-0.5">
+        <label className="flex items-center gap-1.5 text-[13px] text-text-muted">
+          Sort
+          <select value={`${sort.key}:${sort.reversed ? 1 : 0}`} onChange={(e) => { const [key, r] = e.target.value.split(":"); choose({ sort: { key: key as SortKey, reversed: r === "1" } }); }} className={cn(SELECT, "max-w-[12rem]")} data-testid="stock-admin-sort">
+            {SORT_KEYS.map((k) => <option key={k} value={`${k}:0`}>{SORT_LABEL[k]}</option>)}
+            {sort.reversed ? <option value={`${sort.key}:1`}>{SORT_LABEL[sort.key]} (reversed)</option> : null}
+          </select>
+        </label>
+        <div role="radiogroup" aria-label="View" className="inline-flex h-9 items-center rounded-[4px] border border-border-strong bg-surface p-0.5">
           {VIEW_OPTIONS.map(({ value, label, Icon }) => (
             <button
               key={value}
               type="button"
               role="radio"
               aria-checked={view === value}
+              aria-label={label}
               title={label}
               onClick={() => choose({ view: value })}
-              className={cn("inline-flex h-7 items-center gap-1.5 rounded-[3px] px-2 text-[13px] font-medium", view === value ? "bg-brand-navy text-text-inverse" : "text-text-muted hover:text-text")}
+              className={cn("inline-flex h-7 w-8 items-center justify-center rounded-[3px]", view === value ? "bg-brand-navy text-text-inverse" : "text-text-muted hover:text-text")}
               data-testid={`stock-admin-view-${value}`}
             >
               <Icon aria-hidden="true" className="h-4 w-4" />
-              <span className="hidden md:inline">{label}</span>
             </button>
           ))}
         </div>
+        <Button type="button" size="sm" className="h-9 lg:ml-auto" onClick={() => setAdding({ scannedBarcode: null })} disabled={!list} data-testid="stock-admin-add">
+          <Plus aria-hidden="true" className="h-4 w-4" /> Add item
+        </Button>
       </div>
+
+      {/* row 2 — the filters as tabs on the list; the workshop tools on the right */}
+      <div className="flex flex-wrap items-end gap-x-4 gap-y-1 border-b border-border">
+        <div role="tablist" aria-label="Filter workshop stock" className="-mx-4 -mb-px flex w-full min-w-0 gap-1 overflow-x-auto px-4 sm:mx-0 sm:px-0 lg:w-auto lg:flex-1">
+          {FILTERS.filter((f) => !f.types || typesEnabled).map((f) => {
+            const active = f.value === filter;
+            const n = failed || !list ? null : filter === "archived" && f.value !== "archived" ? counts[f.value] : f.value === "archived" && filter !== "archived" ? null : counts[f.value];
+            return (
+              <button
+                key={f.value}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setFilter(f.value)}
+                className={cn("-mb-px inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-2.5 pb-2 pt-1.5 text-[13px] font-medium", active ? "border-brand-navy text-text" : "border-transparent text-text-muted hover:text-text")}
+              >
+                {f.label}
+                {n === null ? null : (
+                  <span className={cn("rounded-full px-1.5 py-px font-mono text-[11px] font-bold tabular-nums", active ? "bg-brand-navy text-text-inverse" : n > 0 && f.value !== "all" ? "bg-surface-subtle text-text" : "bg-surface-subtle text-text-muted")}>{n}</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+        <div className="flex items-center gap-1 pb-1">
+          <Link href="/stock/intake" className={TOOL} title="Camera table" data-testid="stock-open-intake">
+            <Camera aria-hidden="true" className="h-4 w-4" /> <span className="hidden xl:inline">Camera table</span>
+          </Link>
+          <Link href="/stock/locations" className={TOOL} title="Location matrix" data-testid="stock-open-matrix">
+            <Grid3x3 aria-hidden="true" className="h-4 w-4" /> <span className="hidden xl:inline">Location matrix</span>
+          </Link>
+          {typesEnabled && list?.capabilities.customTypes ? (
+            <button type="button" className={TOOL} title="Categories" onClick={() => setCategories(true)} data-testid="stock-admin-categories">
+              <Tags aria-hidden="true" className="h-4 w-4" /> <span className="hidden xl:inline">Categories</span>
+            </button>
+          ) : null}
+        </div>
       </div>
       {EXPLAIN[filter] && !failed ? <p className="text-sm text-text-muted">{EXPLAIN[filter]}</p> : null}
 
@@ -249,7 +262,7 @@ export function StockAdminClient({ initialItemId }: { initialItemId?: string | n
           ) : view === "board" ? (
             <StockBoard groups={groups} groupBy={groupBy} archivedView={archivedView} onOpen={setOpenId} />
           ) : (
-            <StockTable groups={groups} groupBy={groupBy} archivedView={archivedView} onOpen={setOpenId} />
+            <StockTable groups={groups} groupBy={groupBy} archivedView={archivedView} onOpen={setOpenId} sort={sort} onSort={sortBy} />
           )}
           <p className="text-xs text-text-muted">Quantities are what the crew recorded — not a guarantee of what&rsquo;s on the shelf; correct one with a count. Taking stock never adds a job cost.</p>
         </>

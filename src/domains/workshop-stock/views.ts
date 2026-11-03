@@ -51,3 +51,79 @@ export function isView(v: unknown): v is StockView {
 export function isGroupBy(v: unknown): v is GroupBy {
   return typeof v === "string" && (GROUP_BYS as readonly string[]).includes(v);
 }
+
+// ── sorting, within each group ───────────────────────────────────────────────
+
+export const SORT_KEYS = ["name", "recorded", "moved", "counted"] as const;
+export type SortKey = (typeof SORT_KEYS)[number];
+export interface StockSort {
+  key: SortKey;
+  /** true = the key's natural order flipped (Z–A, highest first, …) */
+  reversed: boolean;
+}
+export const DEFAULT_SORT: StockSort = { key: "name", reversed: false };
+
+/**
+ * Each key's natural order is the one the office reaches for:
+ * name A–Z · recorded lowest first (what's running out) · moved most recent
+ * first · counted longest ago first, never-counted at the top (a count round).
+ */
+export const SORT_LABEL: Record<SortKey, string> = {
+  name: "Name A–Z",
+  recorded: "Lowest recorded first",
+  moved: "Last moved, newest first",
+  counted: "Longest since counted",
+};
+
+type Sortable = { name: string; balanceMilli: number; lastMovementAt: string | null; lastCountedAt: string | null };
+
+const time = (iso: string | null): number | null => {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  return Number.isFinite(t) ? t : null;
+};
+
+function compare(a: Sortable, b: Sortable, key: SortKey): number {
+  switch (key) {
+    case "name":
+      return byName(a, b);
+    case "recorded":
+      return a.balanceMilli - b.balanceMilli;
+    case "moved": {
+      // newest first; never moved last
+      const ta = time(a.lastMovementAt), tb = time(b.lastMovementAt);
+      if (ta === tb) return 0;
+      if (ta === null) return 1;
+      if (tb === null) return -1;
+      return tb - ta;
+    }
+    case "counted": {
+      // never counted first, then oldest count first
+      const ta = time(a.lastCountedAt), tb = time(b.lastCountedAt);
+      if (ta === tb) return 0;
+      if (ta === null) return -1;
+      if (tb === null) return 1;
+      return ta - tb;
+    }
+  }
+}
+
+/** A sorted copy; ties fall back to the name so the order never jitters. */
+export function sortItems<T extends Sortable>(items: readonly T[], sort: StockSort): T[] {
+  const dir = sort.reversed ? -1 : 1;
+  return [...items].sort((a, b) => dir * compare(a, b, sort.key) || byName(a, b));
+}
+
+export function sortGroups<T extends Sortable>(groups: ReadonlyArray<ItemGroup<T>>, sort: StockSort): Array<ItemGroup<T>> {
+  return groups.map((g) => ({ ...g, items: sortItems(g.items, sort) }));
+}
+
+export function isSort(v: unknown): v is StockSort {
+  const s = v as StockSort | null;
+  return Boolean(s && typeof s === "object" && (SORT_KEYS as readonly string[]).includes(s.key) && typeof s.reversed === "boolean");
+}
+
+/** How many in a group have nothing recorded — shown beside the group's name. */
+export function noneRecorded(items: ReadonlyArray<{ balanceMilli: number }>): number {
+  return items.filter((i) => i.balanceMilli === 0).length;
+}

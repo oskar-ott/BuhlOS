@@ -126,6 +126,23 @@ recorded, and where they live.
   shelf, the full location shows instead of just the bin. The chosen view and
   grouping are remembered in this browser only (a convenience; the page
   works without it). No view adds a number the list doesn't already hold.
+- **Each view, sharpened** (office pull 2026-11-03: "improve the individual
+  views"). One toolbar row says how you're looking — search, type, **Group**,
+  **Sort**, the view, then Add item; the filter tabs sit under it with the
+  workshop tools (Camera table, Location matrix, Categories) as quiet links
+  on the right. **Sort** works within each group in every view: name A–Z,
+  lowest recorded first, last moved newest first, or longest since counted
+  (never-counted first — a count round); remembered with the view. Every
+  group header counts its own rows with nothing recorded ("3 items · 1 none
+  recorded").
+  - **Table**: click a column head to sort by it (again to reverse); the heads
+    stay pinned while the page scrolls; groups fold.
+  - **Cards**: "None recorded" / "Estimate" on the photo, the last count and
+    where it lives in the footer, a "No photo" tile instead of a blank icon;
+    groups fold.
+  - **Board**: each column scrolls on its own so the board fits the screen; a
+    fade and arrow buttons when there are more columns off to the side; an
+    empty item carries a warning edge.
 - Per item, a drawer with three tabs (office pull 2026-11-03: "the web view
   is clunky" — one long scroll became three views):
   - **Stock** (opens first): what's recorded, the shelf, last count and code

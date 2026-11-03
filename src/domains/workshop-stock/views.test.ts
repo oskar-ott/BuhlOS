@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ALL_ITEMS_LABEL, groupItems, isGroupBy, isView } from "./views";
+import { ALL_ITEMS_LABEL, groupItems, isGroupBy, isSort, isView, noneRecorded, sortItems } from "./views";
 import { NOT_SORTED_LABEL } from "./types";
 import { NO_SHELF_LABEL } from "./location";
 
@@ -45,5 +45,42 @@ describe("guards", () => {
     expect(isView("kanban")).toBe(false);
     expect(isGroupBy("type")).toBe(true);
     expect(isGroupBy(null)).toBe(false);
+  });
+});
+
+describe("sortItems", () => {
+  const day = (d: number) => new Date(Date.UTC(2026, 10, d)).toISOString();
+  const rows = [
+    { name: "Bravo", balanceMilli: 5000, lastMovementAt: day(2), lastCountedAt: day(1) },
+    { name: "alpha", balanceMilli: 0, lastMovementAt: null, lastCountedAt: null },
+    { name: "Charlie", balanceMilli: 5000, lastMovementAt: day(3), lastCountedAt: day(2) },
+  ];
+  const names = (s: Parameters<typeof sortItems>[1]) => sortItems(rows, s).map((r) => r.name);
+
+  it("name: A–Z ignoring case; reversed Z–A", () => {
+    expect(names({ key: "name", reversed: false })).toEqual(["alpha", "Bravo", "Charlie"]);
+    expect(names({ key: "name", reversed: true })).toEqual(["Charlie", "Bravo", "alpha"]);
+  });
+  it("recorded: lowest first, ties by name", () => {
+    expect(names({ key: "recorded", reversed: false })).toEqual(["alpha", "Bravo", "Charlie"]);
+    expect(names({ key: "recorded", reversed: true })).toEqual(["Bravo", "Charlie", "alpha"]);
+  });
+  it("moved: newest first, never moved last", () => {
+    expect(names({ key: "moved", reversed: false })).toEqual(["Charlie", "Bravo", "alpha"]);
+  });
+  it("counted: never counted first, then the oldest count", () => {
+    expect(names({ key: "counted", reversed: false })).toEqual(["alpha", "Bravo", "Charlie"]);
+  });
+  it("leaves the input alone", () => {
+    sortItems(rows, { key: "recorded", reversed: true });
+    expect(rows.map((r) => r.name)).toEqual(["Bravo", "alpha", "Charlie"]);
+  });
+  it("isSort rejects a stale saved choice", () => {
+    expect(isSort({ key: "counted", reversed: false })).toBe(true);
+    expect(isSort({ key: "price", reversed: false })).toBe(false);
+    expect(isSort(null)).toBe(false);
+  });
+  it("noneRecorded counts only zero balances", () => {
+    expect(noneRecorded(rows)).toBe(1);
   });
 });
