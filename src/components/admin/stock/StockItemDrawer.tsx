@@ -220,7 +220,7 @@ export function StockItemDrawer({ itemId, lookupEnabled, locationPhotoEnabled = 
               {!item.archivedAt ? (
                 <div>
                   <Fold label="Barcode label" sub="· NIIMBOT, for items with no packaging" open={labelOpen} onClick={() => setLabelOpen((o) => !o)} testId="stock-label-toggle" />
-                  {labelOpen ? <div className="pt-3"><BarcodeLabel item={item} onItemChanged={changed} /></div> : null}
+                  {labelOpen ? <div className="pt-3"><BarcodeLabel item={item} onItemChanged={changed} directPrint /></div> : null}
                 </div>
               ) : null}
               {item.identifiers.length ? (

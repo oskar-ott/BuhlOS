@@ -17,17 +17,43 @@ export interface LabelSize {
   /** along the label (the printer's feed is the other way — the NIIMBOT app rotates as needed) */
   widthMm: number;
   heightMm: number;
+  /** which NIIMBOT printers take this label: D11/D110 ("D") or B1/B21 ("B") */
+  family: "D" | "B";
 }
 
 export const LABEL_SIZES: readonly LabelSize[] = [
-  { key: "40x12", label: "40 × 12 mm (D11, D110)", widthMm: 40, heightMm: 12 },
-  { key: "30x15", label: "30 × 15 mm (D11, D110)", widthMm: 30, heightMm: 15 },
-  { key: "40x30", label: "40 × 30 mm (B1, B21)", widthMm: 40, heightMm: 30 },
-  { key: "50x30", label: "50 × 30 mm (B1, B21)", widthMm: 50, heightMm: 30 },
+  { key: "40x12", label: "40 × 12 mm (D11, D110)", widthMm: 40, heightMm: 12, family: "D" },
+  { key: "30x15", label: "30 × 15 mm (D11, D110)", widthMm: 30, heightMm: 15, family: "D" },
+  { key: "40x30", label: "40 × 30 mm (B1, B21)", widthMm: 40, heightMm: 30, family: "B" },
+  { key: "50x30", label: "50 × 30 mm (B1, B21)", widthMm: 50, heightMm: 30, family: "B" },
 ];
 
 export function labelSize(key: string | null | undefined): LabelSize {
   return LABEL_SIZES.find((s) => s.key === key) ?? LABEL_SIZES[0]!;
+}
+
+/**
+ * The label as the printer can actually print it. A print head is a fixed
+ * number of dots across (the B1's is 384 = 48 mm), and a label can be wider
+ * than that (50 mm on the B1): the across side is cut to the head, so the
+ * layout is drawn to fit it rather than clipped at the edges. "top" printers
+ * (B1, B21) take the label upright, its width across the head; "left" ones
+ * (D11, D110) take it on its side, its height across the head.
+ */
+export function fitToPrinthead(size: LabelSize, printheadPixels: number, direction: "top" | "left"): LabelSize {
+  const headMm = Math.floor(printheadPixels / DOTS_PER_MM);
+  if (!(headMm > 0)) return size;
+  return direction === "left"
+    ? { ...size, heightMm: Math.min(size.heightMm, headMm) }
+    : { ...size, widthMm: Math.min(size.widthMm, headMm) };
+}
+
+/** "D" / "B" for a NIIMBOT model name ("B1", "D110_M"), null for one we don't size labels for. */
+export function printerFamily(model: string | null | undefined): "D" | "B" | null {
+  if (!model) return null;
+  if (/^D(11|110|101)(_|S|$)/.test(model)) return "D";
+  if (/^B(1|21)(_|S|$)/.test(model)) return "B";
+  return null;
 }
 
 const L = ["0001101", "0011001", "0010011", "0111101", "0100011", "0110001", "0101111", "0111011", "0110111", "0001011"];

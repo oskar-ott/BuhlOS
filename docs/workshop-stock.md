@@ -553,6 +553,31 @@ it all works easily together".
   office drawer (**Barcode label** fold), and the new-item form (**Make a
   barcode label for it** — ticked by itself for a loose item the photo could
   only describe); after saving, the label comes up before the next item.
+- **Print straight to the printer (office, Chrome)** — owner, 2026-11-03: "is
+  there a way to incorporate the printer", a **B1**, on the office computer, in
+  Chrome. The office drawer's label has **Print label**: Chrome connects to the
+  printer over Bluetooth (Web Bluetooth) — or **Use a USB cable instead** (Web
+  Serial) — with its own chooser the first time in a tab, then prints with no
+  NIIMBOT app (`components/stock/labelPrinter.ts`, `@mmote/niimbluelib`, MIT,
+  pinned). Then "on B1-…", **Disconnect printer**, and "Printed." or what to
+  check (lid open, out of labels, battery, the NIIMBOT app on a phone holding
+  the printer).
+  - The B1's head is 48 mm (384 dots): a 50 × 30 label is drawn 48 mm wide to
+    print (`label.fitToPrinthead`), bars still whole dots. A D-size label
+    picked with a B printer connected (or the other way) is said, not guessed.
+  - Only what the library knows and only 203 dpi printers (D11/D110/B1/B21);
+    anything else is told to use Save image.
+  - The library loads only when Print is pressed (its own chunk), never with
+    the stock screen. Shown only where the browser has Bluetooth or Serial
+    (Chrome/Edge on a computer); Safari, Firefox and iPhone keep Share/Save.
+  - **Office only.** The phone keeps Share to NIIMBOT — no new phone slot
+    until a field ask pulls it.
+  - NIIMBOT doesn't publish the protocol; the library is reverse-engineered,
+    so a printer firmware update could break it. Save image stays beside it.
+  - **Proof still owed:** tests cover the print sequence against a stand-in
+    and the real library encoding a B1 label (fits the head, bars read back);
+    the first label actually printed on the owner's B1 and scanned is the
+    proof.
 - **Together**: a loose item → photo ("looks like …") or pick by sight → its
   own barcode → label on the NIIMBOT → from then on the scanner (or the phone
   camera) finds it like any boxed product. Boxes + loose counts and the
