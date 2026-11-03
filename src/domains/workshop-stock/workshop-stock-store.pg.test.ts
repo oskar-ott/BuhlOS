@@ -78,6 +78,7 @@ describe.skipIf(!ENABLED)("workshop stock store — real Postgres", () => {
       for (const t of [tenantA, tenantB]) {
         await tx`delete from public.workshop_stock_list_lines where tenant_id = ${t}`;
         await tx`delete from public.workshop_stock_lists where tenant_id = ${t}`;
+        await tx`delete from public.workshop_stock_types where tenant_id = ${t}`;
         await tx`delete from public.workshop_stock_movements where tenant_id = ${t}`;
         await tx`delete from public.workshop_stock_item_events where tenant_id = ${t}`;
         await tx`delete from public.workshop_stock_identifiers where tenant_id = ${t}`;
@@ -707,5 +708,25 @@ describe.skipIf(!ENABLED)("workshop stock store — real Postgres", () => {
     await store.reverseMovement(sql, tenantA, { movementId: take.movement.id, actor: worker, idempotencyKey: key("partu"), requestHash: hash("partu") }, () => null);
     const after = (await store.getList(sql, tenantA, listId)).lines;
     expect(after.map((l: { quantityMilli: number; gotAt: string | null }) => [l.quantityMilli, l.gotAt])).toEqual([[3000, null], [1000, null]]);
+  });
+
+  it("office categories: add, rename and add fields (never drop one), one live name per tenant", async () => {
+    expect(await store.hasCustomTypes(sql)).toBe(true);
+    const a = await store.saveCustomType(sql, tenantA, { key: "c_solar_inverters", label: "Solar inverters", unit: "each", fields: [{ key: "power", label: "Power" }] }, office);
+    expect(a).toMatchObject({ ok: true, created: true, type: { key: "c_solar_inverters", fields: [{ key: "power", label: "Power" }] } });
+    // a change that leaves a saved field out keeps it; renames by key; adds the new one
+    const b = await store.saveCustomType(sql, tenantA, { key: "c_solar_inverters", label: "Inverters", unit: "each", fields: [{ key: "phase", label: "Phase" }] }, office);
+    expect(b).toMatchObject({ ok: true, created: false, type: { label: "Inverters", fields: [{ key: "power", label: "Power" }, { key: "phase", label: "Phase" }] } });
+    const c = await store.saveCustomType(sql, tenantA, { key: "c_solar_inverters", label: "Inverters", unit: "each", fields: [{ key: "power", label: "Power (kW)" }] }, office);
+    expect(c.type.fields).toEqual([{ key: "power", label: "Power (kW)" }, { key: "phase", label: "Phase" }]);
+    // another category can't take the same name (any case)
+    expect(await store.saveCustomType(sql, tenantA, { key: "c_inverters2", label: "INVERTERS", unit: "each", fields: [] }, office)).toEqual({ error: "type_name_taken" });
+    // tenant-scoped
+    expect(await store.listCustomTypes(sql, tenantB)).toEqual([]);
+    expect((await store.listCustomTypes(sql, tenantA)).map((t: { key: string }) => t.key)).toEqual(["c_solar_inverters"]);
+    // an item can carry the category and its fields
+    const made = await makeItem({ name: `Fronius ${++n}` }, 1000, office, { category: "c_solar_inverters", specs: { power: "5kW", phase: "Single" } });
+    const item = await store.getItem(sql, tenantA, made.item.id);
+    expect(item).toMatchObject({ category: "c_solar_inverters", specs: { power: "5kW", phase: "Single" } });
   });
 });

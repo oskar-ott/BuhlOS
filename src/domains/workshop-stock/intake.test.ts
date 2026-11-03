@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { absorbLight, cropRect, emptyTracker, findObjects, GONE_MS, SETTLE_MS, stepTracker, type Box, type TrackerState } from "./intake-tracker";
+import { absorbLight, barcodeNear, cropRect, emptyTracker, findObjects, GONE_MS, SETTLE_MS, stepTracker, type Box, type TrackerState } from "./intake-tracker";
 import { draftFor, placedAmount, productWords, sameProduct, sessionTotals } from "./intake";
 import { locationText, matrixLocations, rackLabel, ruleFor, rulesOutsideRack, type LocationMatrix } from "./location-matrix";
 import { splitLocation } from "./location";
@@ -298,5 +298,75 @@ describe("session totals", () => {
     const row = (itemId: string | null, amountMilli: number | null, status = "logged") => ({ status, itemId, itemName: itemId ? `Item ${itemId}` : null, unit: "each" as const, location: null, amountMilli });
     const lines = sessionTotals([row("a", 1000), row("b", 10000), row("a", 1000), row("a", 1000, "undone"), row(null, null, "new")]);
     expect(lines.map((l) => [l.itemId, l.milli, l.placements])).toEqual([["a", 2000, 2], ["b", 10000, 1]]);
+  });
+});
+
+describe("findObjects on a real-looking webcam picture (2026-11-03: dozens of false boxes)", () => {
+  // a pale table with a light falling off to the edges, a little grain, and a seeded "sensor"
+  let seed = 7;
+  const rand = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+  function table(): Uint8ClampedArray {
+    const d = new Uint8ClampedArray(W * H * 4);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const vignette = 1 - 0.25 * (((x - W / 2) / (W / 2)) ** 2 + ((y - H / 2) / (H / 2)) ** 2);
+      const v = 205 * vignette + (((x * 7 + y * 13) % 11) - 5); // fixed grain
+      const i = (y * W + x) * 4;
+      d[i] = v; d[i + 1] = v; d[i + 2] = v + 4; d[i + 3] = 255;
+    }
+    return d;
+  }
+  /** what the webcam sends a moment later: exposure lifted, a band of light across the right, sensor noise */
+  function later(bg: Uint8ClampedArray, exposure: number): Uint8ClampedArray {
+    const d = new Uint8ClampedArray(bg.length);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const band = 1 + 0.18 * Math.exp(-(((x - W * 0.8) / (W * 0.12)) ** 2));
+      const i = (y * W + x) * 4;
+      for (let c = 0; c < 3; c++) d[i + c] = bg[i + c]! * exposure * band + (rand() - 0.5) * 12;
+      d[i + 3] = 255;
+    }
+    return d;
+  }
+
+  it("an empty table under changed exposure, a light band and noise is still empty", () => {
+    const bg = table();
+    for (const exposure of [0.85, 1, 1.2]) {
+      const found = findObjects(frameOf(later(bg, exposure)), bg);
+      expect(found.objects).toEqual([]);
+      expect(found.arms).toEqual([]);
+    }
+  });
+
+  it("a white bag on the white table — crinkles and a printed label — is one object", () => {
+    const bg = table();
+    const f = later(bg, 1.1);
+    for (let y = 70; y < 120; y++) for (let x = 90; x < 190; x++) {
+      const i = (y * W + x) * 4;
+      const crinkle = ((x * 3 + y * 5) % 9 < 2) ? -30 : 12; // plastic folds catching the light
+      for (let c = 0; c < 3; c++) f[i + c] = Math.min(255, f[i + c]! + crinkle);
+    }
+    for (let y = 95; y < 105; y++) for (let x = 120; x < 160; x += 2) { // a barcode-ish label
+      const i = (y * W + x) * 4;
+      f[i] = 20; f[i + 1] = 20; f[i + 2] = 20;
+    }
+    const found = findObjects(frameOf(f), bg);
+    expect(found.objects).toHaveLength(1);
+    const b = found.objects[0]!;
+    expect(b.x).toBeLessThan(100 / W);
+    expect(b.x + b.w).toBeGreaterThan(180 / W);
+  });
+});
+
+describe("barcodeNear: a barcode anywhere in the picture that belongs to this object", () => {
+  const bag = { x: 0.3, y: 0.3, w: 0.2, h: 0.2 };
+  it("takes the barcode on the object, or just beside one spotted a bit small; never one across the table", () => {
+    expect(barcodeNear(bag, [{ value: "9311554804565", box: { x: 0.35, y: 0.42, w: 0.05, h: 0.02 } }])).toBe("9311554804565");
+    expect(barcodeNear(bag, [{ value: "9311554804565", box: { x: 0.52, y: 0.45, w: 0.05, h: 0.02 } }])).toBe("9311554804565");
+    expect(barcodeNear(bag, [{ value: "4006381333931", box: { x: 0.85, y: 0.85, w: 0.05, h: 0.02 } }])).toBeNull();
+  });
+  it("the nearest wins when two are close", () => {
+    expect(barcodeNear(bag, [
+      { value: "far", box: { x: 0.55, y: 0.55, w: 0.02, h: 0.02 } },
+      { value: "near", box: { x: 0.39, y: 0.39, w: 0.02, h: 0.02 } },
+    ])).toBe("near");
   });
 });

@@ -9,7 +9,7 @@ import { addIdentifier, createItem, editItem, fetchItem, fetchLocationMatrix, fe
 import { decideRead } from "@/domains/workshop-stock/flow";
 import { errorCopy, formatNumber, parseTypedQuantity, READ_STATUS_COPY, signedQuantity, toQuantityString } from "@/domains/workshop-stock/format";
 import { itemWords, placedAmount, productWords, sameProduct, sessionTotals, type NewItemDraft } from "@/domains/workshop-stock/intake";
-import { absorbLight, cropRect, emptyTracker, findObjects, stepTracker, type Box, type RawFrame, type Track, type TrackerState } from "@/domains/workshop-stock/intake-tracker";
+import { absorbLight, barcodeNear, cropRect, emptyTracker, findObjects, stepTracker, type Box, type RawFrame, type Track, type TrackerState } from "@/domains/workshop-stock/intake-tracker";
 import { matrixLocations, ruleFor, type LocationMatrix } from "@/domains/workshop-stock/location-matrix";
 import type { ReadPhotoResult, ReadProduct, StockItem, StockUnit } from "@/domains/workshop-stock/schema";
 import { specsForType } from "@/domains/workshop-stock/types";
@@ -60,7 +60,7 @@ const CAMERA_KEY = "buhlos.stock.intake.camera";
 const BUILT_IN_CAMERA = /facetime|built-?in|macbook|integrated/i;
 
 interface DetectorLike {
-  detect(source: CanvasImageSource): Promise<Array<{ rawValue: string }>>;
+  detect(source: CanvasImageSource): Promise<Array<{ rawValue: string; boundingBox?: { x: number; y: number; width: number; height: number } }>>;
 }
 type DetectorCtor = new (opts?: { formats?: string[] }) => DetectorLike;
 
@@ -500,7 +500,7 @@ export function StockIntake() {
     pumpReads();
   }
 
-  async function identify(id: number, canvas: HTMLCanvasElement, crop: string) {
+  async function identify(id: number, canvas: HTMLCanvasElement, crop: string, box?: Box) {
     let barcode: string | null = null;
     try {
       const found = await detectorRef.current?.detect(canvas);
@@ -508,6 +508,9 @@ export function StockIntake() {
     } catch {
       /* a crop the detector couldn't read: the label reader still can */
     }
+    // Not in the crop? Look across the whole picture for a barcode on or beside
+    // this object (2026-11-03: a box spotted too small cut the barcode off).
+    if (!barcode && box) barcode = await barcodeInFrame(box);
     patch(id, { barcode });
     if (barcode) {
       const hits = findByBarcode(itemsRef.current, barcode);
@@ -521,6 +524,28 @@ export function StockIntake() {
       }
     }
     queueRead(id, crop);
+  }
+
+  async function barcodeInFrame(box: Box): Promise<string | null> {
+    const video = videoRef.current;
+    const detector = detectorRef.current;
+    if (!video || !video.videoWidth || !detector) return null;
+    try {
+      const full = document.createElement("canvas");
+      full.width = video.videoWidth;
+      full.height = video.videoHeight;
+      full.getContext("2d")?.drawImage(video, 0, 0);
+      const found = await detector.detect(full);
+      const W = video.videoWidth;
+      const H = video.videoHeight;
+      const codes = found
+        .map((b) => ({ value: cleanBarcode(b.rawValue), bb: b.boundingBox }))
+        .filter((b): b is { value: string; bb: { x: number; y: number; width: number; height: number } } => Boolean(b.value && b.bb))
+        .map((b) => ({ value: b.value, box: { x: b.bb.x / W, y: b.bb.y / H, w: b.bb.width / W, h: b.bb.height / H } }));
+      return barcodeNear(box, codes);
+    } catch {
+      return null;
+    }
   }
 
   function grabCrop(box: Box): { canvas: HTMLCanvasElement; crop: string; thumb: string | null } | null {
@@ -560,7 +585,7 @@ export function StockIntake() {
       });
       return;
     }
-    void identify(track.id, grabbed.canvas, grabbed.crop);
+    void identify(track.id, grabbed.canvas, grabbed.crop, track.box);
   }
   const onSettledRef = useRef(onSettled);
   onSettledRef.current = onSettled;
@@ -572,7 +597,7 @@ export function StockIntake() {
     const grabbed = track ? grabCrop(track.box) : null;
     const crop = grabbed?.crop ?? p.crop;
     patch(id, { status: "reading", problem: null, crop, thumb: grabbed?.thumb ?? p.thumb, moveKey: null });
-    if (grabbed) void identify(id, grabbed.canvas, grabbed.crop);
+    if (grabbed && track) void identify(id, grabbed.canvas, grabbed.crop, track.box);
     else queueRead(id, crop);
   }
 

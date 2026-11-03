@@ -5,6 +5,8 @@ import { fetchItem } from "@/domains/workshop-stock/client";
 import { balanceLabel, errorCopy, formatQuantity, identityLine, movementSummary, movementWho, undoLabelFor, undoUntilLabel, whenLabel } from "@/domains/workshop-stock/format";
 import type { ItemDetail, StockItem, WriteResult } from "@/domains/workshop-stock/schema";
 import { AddToList } from "./AddToList";
+import { Printer } from "lucide-react";
+import { BarcodeLabel, itemBarcode } from "./BarcodeLabel";
 import { FlowSheet } from "./FlowSheet";
 import { LocationPhoto } from "./LocationPhoto";
 import { LocationPhotoPrompt } from "./LocationPhotoPrompt";
@@ -51,6 +53,7 @@ export function StockItemSheet({
   const [action, setAction] = useState<"take" | "return" | "add" | null>(null);
   const [receipt, setReceipt] = useState<WriteResult | null>(null);
   const [undone, setUndone] = useState<WriteResult | null>(null);
+  const [labelOpen, setLabelOpen] = useState(false);
 
   const load = useCallback(async () => {
     const r = await fetchItem(initial.id);
@@ -73,6 +76,15 @@ export function StockItemSheet({
     return (
       <FlowSheet title={TITLE[action]} direction={DIRECTION[action]} onClose={onClose} onBack={back} testId="stock-item-action">
         <MoveConfirm item={item as MoveItem} kind={action} locationPhotoEnabled={locationPhotoEnabled} onSaved={saved} onWrongItem={back} wrongItemLabel="Wrong item? Back to the item" doneLabel="Done" doneSub="back to the item" onClose={back} />
+      </FlowSheet>
+    );
+  }
+
+  // A barcode label for the NIIMBOT (2026-11-03): one level deeper, like Take.
+  if (labelOpen) {
+    return (
+      <FlowSheet title="Barcode label" onClose={onClose} onBack={() => { setLabelOpen(false); void load(); }} testId="stock-item-label">
+        <BarcodeLabel item={item} onItemChanged={() => { void load(); onChanged(); }} />
       </FlowSheet>
     );
   }
@@ -126,6 +138,9 @@ export function StockItemSheet({
       </div>
       <p className="text-[13px] text-text-muted">Recorded stock is what&rsquo;s been logged — the shelf is the truth. Tell the office if they don&rsquo;t match.</p>
       {listsEnabled && !archived && onOpenList ? <AddToList item={item} viewerId={viewerId ?? null} onOpenList={onOpenList} /> : null}
+      {!archived ? (
+        <BigButton variant="ter" icon={<Printer aria-hidden="true" className="h-5 w-5" />} label={itemBarcode(item) ? "Print a barcode label" : "Make a barcode label"} sub="NIIMBOT · for items with no packaging" onClick={() => setLabelOpen(true)} data-testid="stock-sheet-label" />
+      ) : null}
 
       <section className="space-y-1">
         <Kicker className="pt-1">Latest movements</Kicker>

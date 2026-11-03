@@ -309,3 +309,78 @@ describe("photos from the camera roll", () => {
     expect(inputs.filter((i) => i.includes('capture="environment"'))).toHaveLength(1);
   });
 });
+
+describe("office categories panel (2026-11-03)", () => {
+  it("lists the office's categories with their fields and use, then the built-in ones", async () => {
+    const { StockCategories } = await import("@/components/admin/stock/StockCategories");
+    const html = flat(renderToString(createElement(StockCategories, {
+      customTypes: [{ key: "c_solar_inverters", label: "Solar inverters", unit: "each", fields: [{ key: "power", label: "Power" }, { key: "phase", label: "Phase" }] }],
+      items: [{ ...full, category: "c_solar_inverters" }],
+      onSaved: () => undefined,
+      onClose: () => undefined,
+    })));
+    expect(html).toContain("New category");
+    expect(html).toContain("Solar inverters");
+    expect(html).toContain("Brand, Power, Phase");
+    expect(html).toContain("1 item");
+    expect(html).toContain("Switches &amp; GPOs");
+  });
+});
+
+describe("pick it by sight (2026-11-03: loose items)", () => {
+  it("shows the photos big, items with a photo first, with category chips; nothing is taken here", async () => {
+    const { SightPicker } = await import("./SightPicker");
+    const items = [
+      { ...full, id: "a", name: "Anchor bolts", photoId: null, category: "fixings" },
+      { ...full, id: "b", name: "Iconic 2 gang plate", photoId: "11111111-1111-4111-8111-111111111111", category: "switches" },
+    ];
+    const html = flat(renderToString(createElement(SightPicker, { items, onPick: () => undefined })));
+    expect(html).toContain("Out of its box? Find it by how it looks");
+    expect(html.indexOf("Iconic 2 gang plate")).toBeLessThan(html.indexOf("Anchor bolts"));
+    expect(html).toContain("Switches &amp; GPOs");
+    expect(html).toContain("Fixings &amp; consumables");
+    expect(html).not.toMatch(/Confirm take/);
+  });
+});
+
+describe("a loose item's photo (nothing printed)", () => {
+  it("names a new item from how it looks, marked to check — never as read from the photo", async () => {
+    const product = { brand: null, manufacturerCode: null, supplierSku: null, supplierName: null, description: null, colourFinish: null, variantDetails: [], barcode: null, packQuantity: null, packUnit: null, labelText: [], position: "only product", appearance: "white 2 gang switch plate" };
+    const html = flat(renderToString(createElement(NewItemForm, { seed: { product, photoId: null, dataUrl: null }, items: [], lookupEnabled: false, typesEnabled: true, onSaved: () => undefined, onUseExisting: () => undefined })));
+    expect(html).toContain("White 2 gang switch plate");
+    expect(html).toContain("From how it looks · check");
+  });
+});
+
+describe("scanner + NIIMBOT labels (2026-11-03)", () => {
+  it("an item with no barcode offers to make one; the label screen never invents a code", async () => {
+    const { BarcodeLabel } = await import("./BarcodeLabel");
+    const html = flat(renderToString(createElement(BarcodeLabel, { item: { ...full, identifiers: [] } })));
+    expect(html).toContain("No barcode on this item yet");
+    expect(html).toContain("Make a barcode label");
+  });
+
+  it("an item with a barcode goes straight to the label: sizes, Share to NIIMBOT, Save", async () => {
+    const { BarcodeLabel } = await import("./BarcodeLabel");
+    const html = flat(renderToString(createElement(BarcodeLabel, { item: { ...full, identifiers: [{ id: "i1", kind: "barcode" as const, value: "2112345678906", valueKey: "02112345678906", scope: "", packUnit: null, packSizeMilli: null }] } })));
+    expect(html).toContain("2112345678906");
+    expect(html).toContain("40 × 12 mm");
+    expect(html).toContain("Share to NIIMBOT");
+    expect(html).toContain("Save image");
+  });
+
+  it("a scanned code that isn't listed starts a new item with it kept, tagged Scanned", () => {
+    const html = flat(renderToString(createElement(NewItemForm, { seed: { product: null, photoId: null, dataUrl: null, scannedBarcode: "9338475023035" }, items: [], lookupEnabled: false, onSaved: () => undefined, onUseExisting: () => undefined })));
+    expect(html).toContain("Scanned 9338475023035");
+    expect(html).toContain("Not on the list yet");
+    expect(html).not.toContain("Make a barcode label for it"); // it has one
+  });
+
+  it("a loose item with no barcode offers its own label, ticked when the photo could only describe it", () => {
+    const product = { brand: null, manufacturerCode: null, supplierSku: null, supplierName: null, description: null, colourFinish: null, variantDetails: [], barcode: null, packQuantity: null, packUnit: null, labelText: [], position: "only product", appearance: "grey 20mm conduit saddle" };
+    const html = flat(renderToString(createElement(NewItemForm, { seed: { product, photoId: null, dataUrl: null }, items: [], lookupEnabled: false, onSaved: () => undefined, onUseExisting: () => undefined })));
+    expect(html).toContain("Make a barcode label for it");
+    const option = html.slice(html.indexOf('data-testid="stock-new-make-label"'), html.indexOf("Make a barcode label for it"));
+    expect(option).toContain('checked=""');
+  });
+});
