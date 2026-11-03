@@ -1,5 +1,6 @@
 "use client";
 
+import { BarcodeLabel } from "@/components/stock/BarcodeLabel";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { Drawer } from "@/components/ui/Drawer";
@@ -60,7 +61,7 @@ const EVENT_LABEL: Record<string, string> = {
  * and archive last and apart (P12: the destructive action never sits beside
  * routine ones). An archived item is read-only until it is restored.
  */
-export function StockItemDrawer({ itemId, lookupEnabled, locationPhotoEnabled = false, typesEnabled = false, onClose, onChanged }: { itemId: string; lookupEnabled: boolean; locationPhotoEnabled?: boolean; typesEnabled?: boolean; onClose: () => void; onChanged: () => void }) {
+export function StockItemDrawer({ itemId, lookupEnabled, locationPhotoEnabled = false, typesEnabled = false, labelOpenAtStart = false, onClose, onChanged }: { itemId: string; lookupEnabled: boolean; locationPhotoEnabled?: boolean; typesEnabled?: boolean; labelOpenAtStart?: boolean; onClose: () => void; onChanged: () => void }) {
   const [detail, setDetail] = useState<ItemDetail | null>(null);
   const [older, setOlder] = useState<StockMovement[]>([]);
   const [next, setNext] = useState<{ before: string; beforeId: string } | null>(null);
@@ -69,6 +70,7 @@ export function StockItemDrawer({ itemId, lookupEnabled, locationPhotoEnabled = 
   const [undoReason, setUndoReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [catalogueOpen, setCatalogueOpen] = useState(false);
+  const [labelOpen, setLabelOpen] = useState(labelOpenAtStart);
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [photoMsg, setPhotoMsg] = useState<string | null>(null);
   const [locationMsg, setLocationMsg] = useState<string | null>(null);
@@ -214,6 +216,13 @@ export function StockItemDrawer({ itemId, lookupEnabled, locationPhotoEnabled = 
                 <p className="text-sm text-text-muted" data-testid="stock-drawer-archived-note">Counts, takes and edits are off while archived. Restore it (below) to change its details, codes, online check or photo.</p>
               </Section>
               <Section kicker="Movement history">{history}</Section>
+
+              {!item.archivedAt ? (
+                <div>
+                  <Fold label="Barcode label" sub="· NIIMBOT, for items with no packaging" open={labelOpen} onClick={() => setLabelOpen((o) => !o)} testId="stock-label-toggle" />
+                  {labelOpen ? <div className="pt-3"><BarcodeLabel item={item} onItemChanged={changed} /></div> : null}
+                </div>
+              ) : null}
               {item.identifiers.length ? (
                 <Section kicker="Codes it had">
                   <ul className="divide-y divide-border text-sm">

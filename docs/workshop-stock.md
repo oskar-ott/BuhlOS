@@ -507,6 +507,49 @@ adding and counting.
   item's name and type guess, tagged **From how it looks · check** (provenance
   stays "typed", not "photo").
 
+### Barcode scanner and NIIMBOT labels
+
+Owner, 2026-11-03: "i bought a barcode scanner" (a keyboard-style one — it
+types the code and presses Enter) and "i have a niimbot printer i want to be
+able to create barcodes for items if there's no packaging easily … make sure
+it all works easily together".
+
+- **Scanning** (`src/domains/workshop-stock/scanner.ts`,
+  `components/stock/useBarcodeScanner.ts`): a scan is told apart from typing by
+  its timing (every key within ~50 ms, ≥ 6 characters, then Enter). It works on
+  the phone (Bluetooth) and the office computer (USB):
+  - **phone stock list** — a listed code opens the item (Take / Return / Add
+    from there); several items with it narrow the list; an unknown code starts
+    a new item with the barcode kept ("Scanned … · not on the list yet");
+  - **Take** — straight to the confirmation (no hold-steady wait; the read is
+    certain); several or none as with the camera;
+  - **Add or return** — a listed code goes to "What's going in?"; an unknown
+    one to the new-item form with it kept;
+  - **office /stock** — opens the item's drawer, or Add item with the barcode.
+  A scan into a focused text field types into it (the search finds codes). On
+  every other stock screen the Enter a scan ends with is swallowed, so a scan
+  can never press a focused "Confirm take".
+- **Our own barcodes**: an item with no barcode can get one — EAN-13 in the
+  GS1 in-store range (prefix 21; 20–29 is reserved for a shop's own codes, so
+  never a real product's), made on the SERVER (`codes.inStoreBarcode`). Anyone
+  on the crew: `POST ?action=label { itemId }` only ever adds such a code to an
+  item with none (an item that has one gets it back); `create` takes
+  `makeBarcode: true` for a new item with no barcode. Journaled.
+- **The label** (`domains/workshop-stock/label.ts`, `components/stock/BarcodeLabel.tsx`):
+  drawn at the NIIMBOT's 203 dpi (8 dots/mm, whole-dot bars, ≥ 2 dots per
+  module), the item's name, its shelf on taller labels, the bars and digits.
+  Sizes: 40 × 12 and 30 × 15 mm (D11/D110), 40 × 30 and 50 × 30 mm (B1/B21);
+  the choice is remembered on the device. **Share to NIIMBOT** (the phone's
+  share sheet) or **Save image**, then print it as a picture in the NIIMBOT app.
+- **Where**: the phone item sheet (**Print / Make a barcode label**), the
+  office drawer (**Barcode label** fold), and the new-item form (**Make a
+  barcode label for it** — ticked by itself for a loose item the photo could
+  only describe); after saving, the label comes up before the next item.
+- **Together**: a loose item → photo ("looks like …") or pick by sight → its
+  own barcode → label on the NIIMBOT → from then on the scanner (or the phone
+  camera) finds it like any boxed product. Boxes + loose counts and the
+  office's categories work the same on it.
+
 ### Take stock: photo → identify → confirm → deduct
 
 The photo is read for identification only and **not stored**. Only an exact

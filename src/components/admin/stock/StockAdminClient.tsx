@@ -15,6 +15,8 @@ import type { StockItem, StockList, VerificationStatus } from "@/domains/worksho
 import { STOCK_TYPES, typeOf } from "@/domains/workshop-stock/types";
 import { StockAdminAdd } from "./StockAdminAdd";
 import { StockCategories } from "./StockCategories";
+import { findByBarcode } from "@/domains/workshop-stock/barcode";
+import { useBarcodeScanner } from "@/components/stock/useBarcodeScanner";
 import { StockItemDrawer } from "./StockItemDrawer";
 
 type Filter = "all" | "zero" | "estimated" | "check" | "unsorted" | "archived";
@@ -64,7 +66,8 @@ export function StockAdminClient({ initialItemId }: { initialItemId?: string | n
   const [q, setQ] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
   const [openId, setOpenId] = useState<string | null>(initialItemId ?? null);
-  const [adding, setAdding] = useState(false);
+  const [openLabel, setOpenLabel] = useState(false);
+  const [adding, setAdding] = useState<false | { scannedBarcode: string | null }>(false);
   const [categories, setCategories] = useState(false);
 
   const load = useCallback(async (archived: boolean) => {
@@ -75,6 +78,15 @@ export function StockAdminClient({ initialItemId }: { initialItemId?: string | n
   useEffect(() => { void load(filter === "archived"); }, [load, filter]);
 
   const items = useMemo(() => list?.items ?? [], [list]);
+  // A barcode scanner at the office computer (2026-11-03): a listed item opens;
+  // several narrow the search; an unknown code opens Add item with it kept.
+  useBarcodeScanner((code) => {
+    const hits = findByBarcode(items, code);
+    if (hits.length === 1) { setOpenId(hits[0]!.item.id); return; }
+    if (hits.length > 1) { setQ(code); return; }
+    setOpenId(null);
+    setAdding({ scannedBarcode: code });
+  }, Boolean(list) && !adding && !categories);
   const failed = state === "error";
   const counts = useMemo(() => ({
     all: items.filter((i) => !i.archivedAt).length,
@@ -136,7 +148,7 @@ export function StockAdminClient({ initialItemId }: { initialItemId?: string | n
           <Search aria-hidden="true" className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
           <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name, code, barcode or shelf" aria-label="Search workshop stock" className="h-9 w-full rounded-[4px] border border-border-strong bg-surface pl-8 pr-3 text-sm" data-testid="stock-admin-search" />
         </div>
-        <Button type="button" size="sm" onClick={() => setAdding(true)} disabled={!list} data-testid="stock-admin-add">
+        <Button type="button" size="sm" onClick={() => setAdding({ scannedBarcode: null })} disabled={!list} data-testid="stock-admin-add">
           <Plus aria-hidden="true" className="h-4 w-4" /> Add item
         </Button>
       </div>
@@ -159,7 +171,7 @@ export function StockAdminClient({ initialItemId }: { initialItemId?: string | n
         <div className="rounded-card border border-dashed border-border-strong bg-surface-subtle px-6 py-12 text-center">
           <p className="font-display text-lg font-semibold text-text">Nothing recorded yet</p>
           <p className="mx-auto mt-2 max-w-md text-sm text-text-muted">The crew add stock from the phone by photographing each item — Add or return, then Add stock. You can also add one here by hand.</p>
-          <Button type="button" size="sm" className="mt-4" onClick={() => setAdding(true)}>
+          <Button type="button" size="sm" className="mt-4" onClick={() => setAdding({ scannedBarcode: null })}>
             <Plus aria-hidden="true" className="h-4 w-4" /> Add item
           </Button>
         </div>
@@ -216,9 +228,9 @@ export function StockAdminClient({ initialItemId }: { initialItemId?: string | n
         </>
       )}
 
-      {openId && list ? <StockItemDrawer itemId={openId} lookupEnabled={list.capabilities.lookup} locationPhotoEnabled={list.capabilities.locationPhoto === true} typesEnabled={typesEnabled} onClose={() => setOpenId(null)} onChanged={() => void load(filter === "archived")} /> : null}
+      {openId && list ? <StockItemDrawer key={`${openId}-${openLabel}`} labelOpenAtStart={openLabel} itemId={openId} lookupEnabled={list.capabilities.lookup} locationPhotoEnabled={list.capabilities.locationPhoto === true} typesEnabled={typesEnabled} onClose={() => { setOpenId(null); setOpenLabel(false); }} onChanged={() => void load(filter === "archived")} /> : null}
       {categories && list ? <StockCategories customTypes={list.customTypes ?? []} items={items} onSaved={() => void load(filter === "archived")} onClose={() => setCategories(false)} /> : null}
-      {adding && list ? <StockAdminAdd items={items} capabilities={list.capabilities} onSaved={() => void load(filter === "archived")} onOpenItem={(id) => { setAdding(false); setOpenId(id); }} onClose={() => setAdding(false)} /> : null}
+      {adding && list ? <StockAdminAdd scannedBarcode={adding.scannedBarcode} items={items} capabilities={list.capabilities} onSaved={() => void load(filter === "archived")} onOpenItem={(id, opts) => { setAdding(false); setOpenLabel(Boolean(opts?.label)); setOpenId(id); }} onClose={() => setAdding(false)} /> : null}
     </div>
   );
 }

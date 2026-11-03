@@ -19,10 +19,12 @@ import { groupByShelf } from "@/domains/workshop-stock/location";
 import { clearPending, definitelyNotSaved, isUncertain, readPending, setPendingOwner, type PendingSave } from "@/domains/workshop-stock/pending";
 import type { ReadProduct, ShoppingList, StockItem, StockList, WriteResult } from "@/domains/workshop-stock/schema";
 import { typeTiles, type FacetChoice } from "@/domains/workshop-stock/types";
+import { findByBarcode } from "@/domains/workshop-stock/barcode";
+import { useBarcodeScanner } from "@/components/stock/useBarcodeScanner";
 
 type Flow =
   | { kind: "take" }
-  | { kind: "add"; seed?: { dataUrl: string | null; thumbDataUrl?: string | null; product: ReadProduct | null } | null }
+  | { kind: "add"; seed?: { dataUrl: string | null; thumbDataUrl?: string | null; product: ReadProduct | null; scannedBarcode?: string | null } | null }
   | { kind: "item"; item: StockItem; from?: Extract<Flow, { kind: "browse" }> | null }
   | { kind: "browse"; mode: BrowseMode; choice: FacetChoice }
   | { kind: "lists"; listId?: string | null };
@@ -197,6 +199,15 @@ export function PhilWorkshopStock() {
 
   const flowOpen = flow !== null;
   flowOpenRef.current = flowOpen;
+  // A barcode scanner on the list (2026-11-03): one match opens that item (Take
+  // / Return / Add from there); several narrow the list; an unknown code starts
+  // a new item with the barcode kept. Inside a sheet, the sheet listens itself.
+  useBarcodeScanner((code) => {
+    const hits = findByBarcode(items, code);
+    if (hits.length === 1) setFlow({ kind: "item", item: hits[0]!.item });
+    else if (hits.length > 1) setQuery(code);
+    else setFlow({ kind: "add", seed: { dataUrl: null, product: null, scannedBarcode: code } });
+  }, !flowOpen && Boolean(list));
   // A sheet just closed: anything it left unanswered shows here now.
   const wasOpen = useRef(false);
   useEffect(() => {

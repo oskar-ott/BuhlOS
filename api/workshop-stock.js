@@ -28,6 +28,7 @@
 //   DELETE ?action=identifier&id=                                        OFFICE
 //   POST   ?action=archive | restore  { itemId }                         OFFICE (restore says which codes another item now holds)
 //   POST   ?action=item-photo  { itemId, photoId, slot?: product|location }   OFFICE (location: photoId may be null = remove)
+//   POST   ?action=label       { itemId }   give an item with no barcode its own (in-store EAN-13, made here) — for a printed label; answers the barcode it already has otherwise
 //   POST   ?action=type        { key?, label, unit, fields: [{ key?, label }] }   OFFICE — add a category (no key) or change one (its key); fields are only added or renamed
 //                              the crew: slot location only, to FILL a missing photo of where it lives with one they took
 //   POST   ?action=verify      { itemId }   OFFICE — record the cached online check on an item
@@ -299,6 +300,8 @@ const CreateBody = z.object({
   packSize: qty.optional(),
   // out of the box, alongside the full packs (2026-11-03)
   looseQuantity: qty.optional(),
+  // no barcode? make it one of ours, for a printed label (2026-11-03)
+  makeBarcode: z.boolean().optional(),
   rememberPack: z.boolean().optional(),
   estimated: z.boolean().optional(),
   // the online check the worker accepted (exactly what was asked — the lookup
@@ -756,7 +759,9 @@ async function create(sql, tenant, me, req, body, res) {
   if (input.manufacturerCode && !manufacturerCode) return bad(res, 'code_invalid', { field: 'manufacturerCode' });
   const supplierSku = input.supplierSku ? codes.cleanCode(input.supplierSku) : null;
   if (input.supplierSku && !supplierSku) return bad(res, 'code_invalid', { field: 'supplierSku' });
-  const barcode = input.barcode ? codes.cleanBarcode(input.barcode) : null;
+  // A loose item with nothing printed can get one of OUR barcodes for a label
+  // (in-store EAN-13, made here, never by the phone).
+  const barcode = input.barcode ? codes.cleanBarcode(input.barcode) : (input.makeBarcode ? codes.inStoreBarcode() : null);
   if (input.barcode && !barcode) return bad(res, 'barcode_invalid');
 
   let openingMilli = 0;
@@ -1105,6 +1110,33 @@ async function identifier(sql, tenant, me, req, body, res) {
   return res.status(201).json({ item: await store.getItem(sql, tenant.id, item.id) });
 }
 
+/**
+ * Give an item with no barcode one of ours, to print on a label (owner,
+ * 2026-11-03: a NIIMBOT for items with no packaging). Anyone on the crew: it
+ * only ever ADDS a code the server makes (in-store EAN-13), and only when the
+ * item has none — an item that already has a barcode just gets that one back.
+ */
+async function label(sql, tenant, me, body, res) {
+  const input = parseOr400(ItemIdBody, body, res);
+  if (!input) return;
+  const item = await store.getItem(sql, tenant.id, input.itemId);
+  if (!item) return res.status(404).json({ error: 'item_not_found' });
+  if (item.archivedAt) return res.status(409).json({ error: 'item_archived' });
+  const has = item.identifiers.find((i) => i.kind === 'barcode' && !i.packSizeMilli) || item.identifiers.find((i) => i.kind === 'barcode');
+  if (has) return res.status(200).json({ item, barcode: has.value, created: false });
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const value = codes.inStoreBarcode();
+    const idf = codes.identifierFor('barcode', value, {});
+    if (idf.error) continue;
+    const r = await store.addIdentifier(sql, tenant.id, item.id, idf, actorOf(me));
+    if (r.error === 'identifier_in_use') continue; // one of ours already — try another
+    if (r.error) return res.status(409).json({ error: r.error });
+    await journal(me, 'workshop_stock.label_barcode_added', item.id, `Gave ${item.name} its own barcode ${value} for a label`, { value });
+    return res.status(201).json({ item: await store.getItem(sql, tenant.id, item.id), barcode: value, created: true });
+  }
+  return res.status(503).json({ error: 'barcode_unavailable' });
+}
+
 async function archive(sql, tenant, me, body, res, archived) {
   if (!policy.isOffice(me.role)) return res.status(403).json({ error: 'office_only' });
   const input = parseOr400(ItemIdBody, body, res);
@@ -1388,6 +1420,7 @@ async function handler(req, res) {
       case 'verify': return verify(sql, tenant, me, body, res);
       case 'list': return saveList(sql, tenant, me, body, res);
       case 'type': return saveType(sql, tenant, me, body, res);
+      case 'label': return label(sql, tenant, me, body, res);
       case 'list-line': return saveListLine(sql, tenant, me, body, res);
       default: return res.status(400).json({ error: 'unknown_action' });
     }

@@ -25,6 +25,8 @@ export interface NewItemSeed {
   dataUrl: string | null;
   /** the list-size copy made on the phone (kept with the photo) */
   thumbDataUrl?: string | null;
+  /** a code from the barcode scanner that isn't on the list yet (2026-11-03) */
+  scannedBarcode?: string | null;
 }
 
 /** The photo of where the last item saved this session lives — offered again for the next item on that shelf. */
@@ -109,7 +111,8 @@ export function NewItemForm({
   /** the lead button's words — e.g. "Save · next from the photo" when adding several from one photo */
   anotherLabel?: string;
   anotherSub?: string;
-  onSaved: (r: WriteResult, again: boolean) => void;
+  /** `label`: it was given one of our barcodes to print — show the label next */
+  onSaved: (r: WriteResult, again: boolean, opts?: { label: boolean }) => void;
   onUseExisting: (item: StockItem) => void;
 }) {
   const p = seed.product;
@@ -130,7 +133,10 @@ export function NewItemForm({
   const [code, setCode] = useState(p?.manufacturerCode ?? "");
   const [sku, setSku] = useState(p?.supplierSku ?? "");
   const [supplier, setSupplier] = useState(p?.supplierName ?? "");
-  const [barcode, setBarcode] = useState<string | null>(p?.barcode ?? null);
+  const [barcode, setBarcode] = useState<string | null>(seed.scannedBarcode ?? p?.barcode ?? null);
+  // No barcode? Give it one of ours to print (NIIMBOT, 2026-11-03) — on by
+  // default for a loose item the photo could only describe.
+  const [makeLabel, setMakeLabel] = useState(Boolean(looks));
   const [colour, setColour] = useState(p?.colourFinish ?? "");
   const [variant, setVariant] = useState((p?.variantDetails ?? []).join(" "));
   const [unit, setUnit] = useState<StockUnit>(p?.packUnit === "metre" ? "metre" : typeOf(initialCategory)?.unit ?? "each");
@@ -153,6 +159,7 @@ export function NewItemForm({
     if (p) for (const k of ["brand", "manufacturerCode", "supplierSku", "barcode", "colourFinish", "variant", "name"]) s[k] = "photo";
     // a name from how it looks wasn't READ from the photo — it's a starting point someone checks
     if (looks) s.name = "typed";
+    if (seed.scannedBarcode) s.barcode = "typed";
     return s;
   });
   const [lookupState, setLookupState] = useState<"idle" | "checking" | "done">("idle");
@@ -299,7 +306,7 @@ export function NewItemForm({
       ...r,
       ...(photoFailedRef.current ? { photoAttached: false } : {}),
       ...(locationFailedRef.current ? { locationPhotoAttached: false } : {}),
-    }, againRef.current);
+    }, againRef.current, { label: Boolean(requestRef.current?.makeBarcode) });
   }
 
   async function send(request: CreateInput, key: string) {
@@ -357,6 +364,7 @@ export function NewItemForm({
       supplierSku: sku.trim() || null,
       supplierName: sku.trim() ? supplier.trim() || null : null,
       barcode,
+      ...(!barcode && makeLabel ? { makeBarcode: true } : {}),
       variant: variant.trim() || null,
       colourFinish: colour.trim() || null,
       baseUnit: unit,
@@ -426,6 +434,9 @@ export function NewItemForm({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3.5" data-testid="stock-new-item">
+      {seed.scannedBarcode ? (
+        <Slot tone="inf" title={`Scanned ${seed.scannedBarcode}`} testId="stock-new-scanned">Not on the list yet. Say what it is and where it lives — the barcode is kept, so the next scan finds it.</Slot>
+      ) : null}
       <div className="flex gap-3">
         {seed.dataUrl ? (
           // eslint-disable-next-line @next/next/no-img-element -- local preview
@@ -593,7 +604,7 @@ export function NewItemForm({
           {barcode ? (
             <p className="flex items-center justify-between text-sm text-text">
               <span>
-                Barcode <span className="font-mono">{barcode}</span> <Tag>Read from photo</Tag>
+                Barcode <span className="font-mono">{barcode}</span> <Tag>{seed.scannedBarcode && barcode === seed.scannedBarcode ? "Scanned" : "Read from photo"}</Tag>
               </span>
               <button type="button" onClick={() => setBarcode(null)} className="min-h-[44px] px-2 font-semibold text-state-info underline" disabled={locked}>Remove</button>
             </p>
@@ -631,6 +642,15 @@ export function NewItemForm({
             {dupe ? <p className="text-sm font-medium text-state-danger-subtle-text">Can&rsquo;t save a new item with code {dupe.manufacturerCode ?? code.trim()} — another item already uses it.</p> : null}
             {canSave ? <SavesLine>{savesWithPhoto}</SavesLine> : null}
             {canSave && noLocationPhoto ? <p className="text-[13px] font-medium text-state-warning-subtle-text" data-testid="stock-new-no-location-photo">No photo of where it lives — the next person only gets the shelf text.</p> : null}
+            {!barcode ? (
+              <label className="flex min-h-[48px] cursor-pointer items-center gap-3 rounded-xl border border-border px-3" data-testid="stock-new-make-label">
+                <input type="checkbox" checked={makeLabel} onChange={(e) => setMakeLabel(e.target.checked)} className="h-5 w-5 accent-brand-navy" disabled={locked} />
+                <span className="text-sm text-text">
+                  <span className="font-semibold">Make a barcode label for it</span>
+                  <span className="block text-[13px] text-text-muted">No packaging? It gets its own barcode to print on the NIIMBOT — scan it next time.</span>
+                </span>
+              </label>
+            ) : null}
             {emphasis === "another" ? (
               <>
                 {saveAnother}

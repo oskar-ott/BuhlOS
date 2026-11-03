@@ -11,6 +11,7 @@ import {
   OperationSchema,
   ReadPhotoSchema,
   CustomTypeSchema,
+  StockItemSchema,
   StockListSchema,
   WriteResultSchema,
   type LocationMatrixResponse,
@@ -157,6 +158,8 @@ export interface CreateInput {
   packSize?: string;
   /** out of the box, alongside the full packs */
   looseQuantity?: string;
+  /** no barcode? the server gives it one of ours, for a printed label */
+  makeBarcode?: boolean;
   rememberPack?: boolean;
   estimated?: boolean;
   /** the online check the worker accepted — exactly what it asked (LookupResult.check) */
@@ -261,4 +264,9 @@ export function newId(): string {
   b[8] = (b[8]! & 0x3f) | 0x80;
   const h = [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
+/** Give an item with no barcode one of ours (in-store EAN-13, made by the server) for a NIIMBOT label; an item that has one gets it back. */
+export function makeLabelBarcode(itemId: string) {
+  return httpPost(`${BASE}?action=label`, { itemId }, { schema: z.object({ item: StockItemSchema, barcode: z.string(), created: z.boolean() }), init: INIT, timeoutMs: WRITE_TIMEOUT_MS });
 }

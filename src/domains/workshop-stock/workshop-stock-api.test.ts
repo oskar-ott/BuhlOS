@@ -1018,3 +1018,40 @@ describe("full boxes plus loose (2026-11-03: some items aren't always in packagi
     expect(store.createItemWithOpening.mock.calls[0]![2]).toMatchObject({ openingMilli: 34_000, pack: null, note: "3 boxes of 10 + 4 loose", item: { defaultPack: { unit: "box", sizeMilli: 10_000 } } });
   });
 });
+
+describe("NIIMBOT labels: our own barcode for an item with none (2026-11-03)", () => {
+  it("anyone on the crew can give an item with no barcode one of ours (in-store EAN-13, made on the server)", async () => {
+    store.addIdentifier.mockResolvedValueOnce({ ok: true });
+    const r = await post("label", { itemId: ITEM_ID }, "u_field");
+    expect(r.statusCode).toBe(201);
+    const idf = store.addIdentifier.mock.calls[0]![3] as { kind: string; value: string };
+    expect(idf.kind).toBe("barcode");
+    expect(idf.value).toMatch(/^21\d{11}$/);
+    expect(r.body).toMatchObject({ barcode: idf.value, created: true });
+    expect(audit.append).toHaveBeenCalledWith(expect.objectContaining({ action: "workshop_stock.label_barcode_added" }));
+  });
+
+  it("an item that already has a barcode just gets it back — nothing added", async () => {
+    store.getItem.mockResolvedValue(item({ identifiers: [{ id: "i1", kind: "barcode", value: "9338475023035", valueKey: "09338475023035", scope: "", packUnit: null, packSizeMilli: null }] }));
+    const r = await post("label", { itemId: ITEM_ID }, "u_field");
+    expect(r.statusCode).toBe(200);
+    expect(r.body).toMatchObject({ barcode: "9338475023035", created: false });
+    expect(store.addIdentifier).not.toHaveBeenCalled();
+  });
+
+  it("a made code that's taken is retried with another", async () => {
+    store.addIdentifier.mockResolvedValueOnce({ error: "identifier_in_use" }).mockResolvedValueOnce({ ok: true });
+    expect((await post("label", { itemId: ITEM_ID }, "u_field")).statusCode).toBe(201);
+    expect(store.addIdentifier).toHaveBeenCalledTimes(2);
+  });
+
+  it("a new loose item can be saved with one of our barcodes (makeBarcode), but never one the phone makes up", async () => {
+    await post("create", { name: "Wago 221 3-way", baseUnit: "each", location: "Bin 3", openingQuantity: "50", makeBarcode: true });
+    const ids = store.createItemWithOpening.mock.calls[0]![2].identifiers as Array<{ kind: string; value: string }>;
+    expect(ids.find((i) => i.kind === "barcode")?.value).toMatch(/^21\d{11}$/);
+    // a barcode sent with it wins — makeBarcode only fills a gap
+    await post("create", { name: "Other", baseUnit: "each", location: "Bin 3", openingQuantity: "1", barcode: "9338475023035", makeBarcode: true });
+    const ids2 = store.createItemWithOpening.mock.calls[1]![2].identifiers as Array<{ kind: string; value: string }>;
+    expect(ids2.find((i) => i.kind === "barcode")?.value).toBe("9338475023035");
+  });
+});

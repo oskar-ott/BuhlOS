@@ -17,6 +17,7 @@ import { LiveCodeScanner, liveReadingSupported, SCANNER_COPY, type ScannerState 
 import { MoveConfirm, type MoveItem } from "./MoveConfirm";
 import { PhotoCapture } from "./PhotoCapture";
 import { SightPicker } from "./SightPicker";
+import { useBarcodeScanner } from "./useBarcodeScanner";
 import { NoneRecorded, RecordedQuantity } from "./StockItemRow";
 import { StockThumb } from "./StockThumb";
 import { BigButton, Kicker, LinkButton, Slot } from "./ui";
@@ -121,6 +122,19 @@ export function TakeFlow({
     }
     setUnmatched(raw);
   }
+
+  // A barcode scanner (keyboard-style, 2026-11-03): its read is certain, so
+  // a single match goes straight to the confirmation — no hold-steady wait.
+  // Several matches or none: the same as the camera's code.
+  useBarcodeScanner((code) => {
+    const hits = findByBarcode(items, code);
+    if (hits.length === 1) {
+      const h = hits[0]!;
+      openConfirm(h.item, matchedInWorkshop({ evidence: "barcode", matchedValue: code }), h.identifier.packSizeMilli ? h.identifier.id : null);
+      return;
+    }
+    onLiveCode(code);
+  }, step.s === "home");
 
   useEffect(() => {
     if (!hit) return;
