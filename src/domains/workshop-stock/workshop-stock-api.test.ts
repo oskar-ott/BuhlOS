@@ -993,3 +993,28 @@ describe("categories the office makes (2026-11-03)", () => {
     expect((await post("type", { key: "c_nope", label: "Nope" }, "u_office")).statusCode).toBe(404);
   });
 });
+
+describe("full boxes plus loose (2026-11-03: some items aren't always in packaging)", () => {
+  beforeEach(() => { store.getItem.mockResolvedValue(item({ defaultPack: { unit: "box", sizeMilli: 10_000 } })); });
+  const create = (body: Record<string, unknown>) => post("create", { name: "Clipsal 2025WE double GPO", baseUnit: "each", location: "Shelf A2", ...body });
+  it("a move of 3 boxes + 4 loose records the total, without a pack, and says how it was made up", async () => {
+    const r = await post("move", { itemId: ITEM_ID, kind: "add", packCount: 3, pack: { source: "default", sizeMilli: 10_000 }, looseQuantity: "4", note: "from the van" });
+    expect(r.statusCode).toBe(201);
+    expect(store.recordMovement.mock.calls[0]![2]).toMatchObject({ quantityMilli: 34_000, pack: null, note: "3 boxes of 10 + 4 loose · from the van" });
+  });
+
+  it("no loose (or 0) keeps the pack on the movement exactly as before", async () => {
+    await post("move", { itemId: ITEM_ID, kind: "take", packCount: 2, pack: { source: "default", sizeMilli: 10_000 }, looseQuantity: "0" });
+    expect(store.recordMovement.mock.calls[0]![2]).toMatchObject({ quantityMilli: 20_000, pack: { count: 2, sizeMilli: 10_000 } });
+  });
+
+  it("the box size shown is still checked with loose ones; a bad loose amount is refused", async () => {
+    expect((await post("move", { itemId: ITEM_ID, kind: "add", packCount: 3, pack: { source: "default", sizeMilli: 12_000 }, looseQuantity: "4" })).statusCode).toBe(409);
+    expect((await post("move", { itemId: ITEM_ID, kind: "add", packCount: 3, pack: { source: "default", sizeMilli: 10_000 }, looseQuantity: "1.5" })).body).toMatchObject({ error: "quantity_too_precise", field: "looseQuantity" });
+  });
+
+  it("a new item's opening count can be boxes + loose, and the box size is still remembered", async () => {
+    await create({ openingQuantity: undefined, packCount: 3, packUnit: "box", packSize: "10", looseQuantity: "4", rememberPack: true });
+    expect(store.createItemWithOpening.mock.calls[0]![2]).toMatchObject({ openingMilli: 34_000, pack: null, note: "3 boxes of 10 + 4 loose", item: { defaultPack: { unit: "box", sizeMilli: 10_000 } } });
+  });
+});

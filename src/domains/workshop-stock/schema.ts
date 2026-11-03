@@ -196,6 +196,8 @@ export const ReadProductSchema = z.object({
   packUnit: z.string().nullable(),
   labelText: z.array(z.string()),
   position: z.string().nullable(),
+  /** what a loose item looks like when nothing is printed ("white 2 gang switch plate") — fills a form to check, never matched */
+  appearance: z.string().nullable().optional(),
 });
 export type ReadProduct = z.infer<typeof ReadProductSchema>;
 

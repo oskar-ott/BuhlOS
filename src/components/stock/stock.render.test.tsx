@@ -326,3 +326,28 @@ describe("office categories panel (2026-11-03)", () => {
     expect(html).toContain("Switches &amp; GPOs");
   });
 });
+
+describe("pick it by sight (2026-11-03: loose items)", () => {
+  it("shows the photos big, items with a photo first, with category chips; nothing is taken here", async () => {
+    const { SightPicker } = await import("./SightPicker");
+    const items = [
+      { ...full, id: "a", name: "Anchor bolts", photoId: null, category: "fixings" },
+      { ...full, id: "b", name: "Iconic 2 gang plate", photoId: "11111111-1111-4111-8111-111111111111", category: "switches" },
+    ];
+    const html = flat(renderToString(createElement(SightPicker, { items, onPick: () => undefined })));
+    expect(html).toContain("Out of its box? Find it by how it looks");
+    expect(html.indexOf("Iconic 2 gang plate")).toBeLessThan(html.indexOf("Anchor bolts"));
+    expect(html).toContain("Switches &amp; GPOs");
+    expect(html).toContain("Fixings &amp; consumables");
+    expect(html).not.toMatch(/Confirm take/);
+  });
+});
+
+describe("a loose item's photo (nothing printed)", () => {
+  it("names a new item from how it looks, marked to check — never as read from the photo", async () => {
+    const product = { brand: null, manufacturerCode: null, supplierSku: null, supplierName: null, description: null, colourFinish: null, variantDetails: [], barcode: null, packQuantity: null, packUnit: null, labelText: [], position: "only product", appearance: "white 2 gang switch plate" };
+    const html = flat(renderToString(createElement(NewItemForm, { seed: { product, photoId: null, dataUrl: null }, items: [], lookupEnabled: false, typesEnabled: true, onSaved: () => undefined, onUseExisting: () => undefined })));
+    expect(html).toContain("White 2 gang switch plate");
+    expect(html).toContain("From how it looks · check");
+  });
+});

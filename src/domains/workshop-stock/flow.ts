@@ -31,6 +31,17 @@ export function suggestName(p: Pick<ReadProduct, "brand" | "description" | "colo
   return name.slice(0, 160);
 }
 
+/**
+ * What a loose item looks like, as a starting name — only when NOTHING was
+ * printed to name it (2026-11-03). "white 2 gang switch plate" → "White 2 gang
+ * switch plate". A person checks it; it is never matched on.
+ */
+export function looksName(p: Pick<ReadProduct, "brand" | "description" | "colourFinish" | "variantDetails" | "manufacturerCode" | "appearance"> | null | undefined): string | null {
+  if (!p || suggestName(p) || !p.appearance) return null;
+  const a = p.appearance.trim();
+  return a ? (a[0]!.toUpperCase() + a.slice(1)).slice(0, 160) : null;
+}
+
 /** The printed pack quantity, offered (never applied) as a pack conversion. */
 export function packSuggestion(p: Pick<ReadProduct, "packQuantity" | "packUnit"> | null | undefined, unit: StockUnit): { sizeMilli: number; label: string } | null {
   if (!p || !p.packQuantity || p.packQuantity < 2) return null;
@@ -66,7 +77,7 @@ export function decideRead(result: ReadPhotoResult, chosenProduct: number | null
 
 /** How a product read from the photo is described on a "which one?" button. */
 export function productLabel(p: ReadProduct, i: number): string {
-  const what = [p.brand, p.description || p.manufacturerCode].filter(Boolean).join(" ") || `Product ${i + 1}`;
+  const what = [p.brand, p.description || p.manufacturerCode].filter(Boolean).join(" ") || (p.appearance ? `Looks like ${p.appearance}` : `Product ${i + 1}`);
   return p.position ? `${what} (${p.position})` : what;
 }
 

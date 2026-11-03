@@ -19,7 +19,7 @@
 //   POST   ?action=store-photo { dataUrl, thumbDataUrl? }  keep a product photo for a new item without reading it again (no AI call)
 //   POST   ?action=lookup      { brand?, manufacturerCode, colourFinish?, variantDetails? }  online code check (allowlisted sources)
 //   POST   ?action=create      { …item, openingQuantity | pack…, lookupCheck?, idempotencyKey }  new item + opening balance, atomically
-//   POST   ?action=move        { itemId, kind: add|take|return, quantity | packCount+pack, jobId?, note?, estimated?, idempotencyKey }
+//   POST   ?action=move        { itemId, kind: add|take|return, quantity | packCount+pack[+looseQuantity], jobId?, note?, estimated?, idempotencyKey }
 //                              pack: the pack the screen showed, with its size — refused (409 pack_changed) if the office changed it
 //   POST   ?action=count       { itemId, countedQuantity, expectedVersion, reason, estimated?, idempotencyKey }   OFFICE
 //   POST   ?action=undo        { movementId, reason?, idempotencyKey }   own recent (worker) · any with reason (office)
@@ -101,6 +101,27 @@ function actorOf(me) {
 
 function bodyOf(req) {
   return req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : null;
+}
+
+/**
+ * Full packs + some loose (2026-11-03, "some items aren't always in
+ * packaging"). The ledger keeps a pack only when the quantity is exactly
+ * count × size (a database rule), so with loose ones the movement is the plain
+ * total and the note says how it was made up: "3 boxes of 10 + 4 loose".
+ * Returns { milli, pack, note } or { error }.
+ */
+function withLoose(totalMilli, pack, looseRaw, unit, note) {
+  if (looseRaw === undefined || looseRaw === '') return { milli: totalMilli, pack, note };
+  const loose = Q.parseQuantity(looseRaw, unit, { allowZero: true });
+  if (loose.error) return { error: loose.error, field: 'looseQuantity' };
+  if (loose.milli === 0) return { milli: totalMilli, pack, note };
+  const milli = totalMilli + loose.milli;
+  if (milli > Q.MAX_MOVE_MILLI) return { error: 'quantity_too_large' };
+  const unitWord = pack.unit || 'pack';
+  const plural = pack.count === 1 ? unitWord : (unitWord === 'box' ? 'boxes' : `${unitWord}s`);
+  const amount = (m) => (unit === 'each' ? Q.formatNumber(m) : Q.formatQuantity(m, unit));
+  const madeUp = `${pack.count} ${plural} of ${amount(pack.sizeMilli)} + ${amount(loose.milli)} loose`;
+  return { milli, pack: null, note: [madeUp, note].filter(Boolean).join(' · ').slice(0, 200) };
 }
 
 function bad(res, error, extra = {}) {
@@ -245,6 +266,8 @@ const MoveBody = z.object({
   quantity: qty.optional(),
   packCount: z.number().int().min(1).max(Q.MAX_PACK_COUNT).optional(),
   pack: PackPick.optional(),
+  // out of the box, alongside full packs: "3 boxes of 10 + 4 loose" (2026-11-03)
+  looseQuantity: qty.optional(),
   jobId: optText(120),
   note: optText(200),
   estimated: z.boolean().optional(),
@@ -274,6 +297,8 @@ const CreateBody = z.object({
   packCount: z.number().int().min(1).max(Q.MAX_PACK_COUNT).optional(),
   packUnit: packUnit.optional(),
   packSize: qty.optional(),
+  // out of the box, alongside the full packs (2026-11-03)
+  looseQuantity: qty.optional(),
   rememberPack: z.boolean().optional(),
   estimated: z.boolean().optional(),
   // the online check the worker accepted (exactly what was asked — the lookup
@@ -737,6 +762,7 @@ async function create(sql, tenant, me, req, body, res) {
   let openingMilli = 0;
   let pack = null;
   let defaultPack = null;
+  let openingNote = input.note;
   const anyPack = input.packCount !== undefined || input.packUnit !== undefined || input.packSize !== undefined;
   if (anyPack) {
     if (input.packCount === undefined || !input.packUnit || input.packSize === undefined) return bad(res, 'pack_incomplete');
@@ -747,6 +773,11 @@ async function create(sql, tenant, me, req, body, res) {
     openingMilli = total.milli;
     pack = { count: input.packCount, unit: input.packUnit, sizeMilli: size.milli };
     if (input.rememberPack) defaultPack = { unit: input.packUnit, sizeMilli: size.milli };
+    const mixed = withLoose(openingMilli, pack, input.looseQuantity, unit, input.note);
+    if (mixed.error) return bad(res, mixed.error, mixed.field ? { field: mixed.field } : {});
+    openingMilli = mixed.milli;
+    pack = mixed.pack;
+    openingNote = mixed.note;
   } else if (input.openingQuantity !== undefined && input.openingQuantity !== '') {
     const q = Q.parseQuantity(input.openingQuantity, unit, { allowZero: true });
     if (q.error) return bad(res, q.error, { field: 'openingQuantity' });
@@ -802,7 +833,7 @@ async function create(sql, tenant, me, req, body, res) {
     openingMilli,
     pack,
     estimated: input.estimated === true,
-    note: input.note,
+    note: openingNote,
     verificationStatus,
     verification,
     provenance: { fields: input.provenance || {}, lookup: lookupSummary },
@@ -845,6 +876,7 @@ async function move(sql, tenant, me, req, body, res) {
 
   let quantityMilli;
   let pack = null;
+  let moveNote = input.note;
   if (input.packCount !== undefined || input.pack) {
     if (input.packCount === undefined || !input.pack) return bad(res, 'pack_incomplete');
     let unitName = null;
@@ -873,6 +905,11 @@ async function move(sql, tenant, me, req, body, res) {
     if (total.error) return bad(res, total.error);
     quantityMilli = total.milli;
     pack = { count: input.packCount, unit: unitName, sizeMilli };
+    const mixed = withLoose(quantityMilli, pack, input.looseQuantity, item.baseUnit, input.note);
+    if (mixed.error) return bad(res, mixed.error, mixed.field ? { field: mixed.field } : {});
+    quantityMilli = mixed.milli;
+    pack = mixed.pack;
+    moveNote = mixed.note;
   } else {
     const q = Q.parseQuantity(input.quantity, item.baseUnit);
     if (q.error) return bad(res, q.error, { field: 'quantity' });
@@ -892,7 +929,7 @@ async function move(sql, tenant, me, req, body, res) {
     estimated: input.kind !== 'take' && input.estimated === true,
     jobId: jobRef.job ? jobRef.job.id : null,
     jobLabel: jobRef.job ? jobRef.job.label : null,
-    note: input.note,
+    note: moveNote,
     listLineId,
     actor,
     idempotencyKey: key,

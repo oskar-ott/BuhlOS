@@ -119,6 +119,8 @@ export interface MoveInput {
   quantity?: string;
   packCount?: number;
   pack?: PackPick;
+  /** out of the box, alongside the full packs: "3 boxes of 10 + 4 loose" */
+  looseQuantity?: string;
   jobId?: string | null;
   note?: string | null;
   estimated?: boolean;
@@ -153,6 +155,8 @@ export interface CreateInput {
   packCount?: number;
   packUnit?: PackUnit;
   packSize?: string;
+  /** out of the box, alongside the full packs */
+  looseQuantity?: string;
   rememberPack?: boolean;
   estimated?: boolean;
   /** the online check the worker accepted — exactly what it asked (LookupResult.check) */

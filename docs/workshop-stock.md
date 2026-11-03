@@ -479,6 +479,34 @@ a list they can go back to and use to go through and find everything."
 - Every change waits for the server and says so when it didn't save. Lists and
   lines carry ids made on the phone, so a retried save is the same row.
 
+### Loose items — out of the box
+
+Owner pull, 2026-11-03: "some items aren't always in packaging" — for taking,
+adding and counting.
+
+- **Full boxes + loose in one count.** In box mode (Take / Add / Return, and a
+  new item's opening count) a second stepper, **Plus loose — out of the box**,
+  adds the singles: "3 boxes + 4 loose = 34". The ledger keeps a pack on a
+  movement only when the quantity is exactly count × size (a database rule),
+  so a mixed count saves the plain total with no pack, and the server writes
+  how it was made up into the movement's note: "3 boxes of 10 + 4 loose". The
+  box size the screen showed is still checked (`pack_changed`), and a new
+  item still remembers its box size. API: `looseQuantity` beside
+  `packCount`+`pack` (move) or `packCount`+`packUnit`+`packSize` (create);
+  0 or absent = exactly as before.
+- **Pick it by sight.** Take → **Not in its box? Pick it by sight**: the item
+  photos, big, in a grid (photos first), narrowed by category chips and by
+  typing ("white", "2 gang"). Tapping one opens the same confirmation as every
+  other way in ("Picked by sight"); nothing is taken on the grid.
+- **What it looks like.** The photo reader still only transcribes what is
+  printed; for a loose item with nothing printed it now also says what it
+  looks like, in a separate `appearance` field ("white 2 gang switch plate").
+  That is never matched on (match.js doesn't read it) and never copied into
+  the transcribed fields. On Take, a photo like that leads with **Pick it by
+  sight**, narrowed to the category it looks like; on Add, it starts the new
+  item's name and type guess, tagged **From how it looks · check** (provenance
+  stays "typed", not "photo").
+
 ### Take stock: photo → identify → confirm → deduct
 
 The photo is read for identification only and **not stored**. Only an exact

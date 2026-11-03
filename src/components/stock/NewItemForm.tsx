@@ -6,7 +6,7 @@ import { cn } from "@/lib/cn";
 import { brandKey, codeKey, checkApplies } from "@/domains/workshop-stock/check";
 import { createItem, fetchOperation, lookupCode, newOperationKey, storePhoto, type CreateInput } from "@/domains/workshop-stock/client";
 import { balanceLabel, errorCopy, formatQuantity, packLabel, photoUrl, toQuantityString, UNIT_LABEL, unitHint, VERIFICATION_LABEL } from "@/domains/workshop-stock/format";
-import { packSuggestion, suggestName } from "@/domains/workshop-stock/flow";
+import { looksName, packSuggestion, suggestName } from "@/domains/workshop-stock/flow";
 import { splitLocation } from "@/domains/workshop-stock/location";
 import { guessSpecs, guessType, specsForType, suggestTypedName, typeOf } from "@/domains/workshop-stock/types";
 import { clearPending, isUncertain, rememberPending } from "@/domains/workshop-stock/pending";
@@ -114,7 +114,9 @@ export function NewItemForm({
 }) {
   const p = seed.product;
   // What the label says, for guessing the type and its fields (a person checks them).
-  const labelTexts = p ? [p.description, ...p.labelText, ...p.variantDetails, p.colourFinish] : [];
+  // A loose item with nothing printed: what it looks like starts the name and the type guess (to check).
+  const looks = looksName(p);
+  const labelTexts = p ? [p.description, ...p.labelText, ...p.variantDetails, p.colourFinish, looks] : [];
   const initialCategory = typesEnabled && p ? guessType([...labelTexts, suggestName(p)]) : null;
   const [category, setCategory] = useState<string | null>(initialCategory);
   const [categoryFromPhoto, setCategoryFromPhoto] = useState(Boolean(initialCategory));
@@ -123,7 +125,7 @@ export function NewItemForm({
   const [unitTouched, setUnitTouched] = useState(false);
   // the name the fields last suggested: replaced as the fields change, until someone types a name
   const autoNameRef = useRef<string | null>(null);
-  const [name, setName] = useState(suggestName(p));
+  const [name, setName] = useState(suggestName(p) || looks || "");
   const [brand, setBrand] = useState(p?.brand ?? "");
   const [code, setCode] = useState(p?.manufacturerCode ?? "");
   const [sku, setSku] = useState(p?.supplierSku ?? "");
@@ -138,6 +140,8 @@ export function NewItemForm({
   const [qtyMilli, setQtyMilli] = useState(1000);
   const [packMode, setPackMode] = useState(false);
   const [packCount, setPackCount] = useState(1);
+  // some of it out of the box, alongside the full ones (2026-11-03)
+  const [looseMilli, setLooseMilli] = useState(0);
   const [packSizeText, setPackSizeText] = useState("");
   const [packSizeFromLabel, setPackSizeFromLabel] = useState(false);
   const [packUnit, setPackUnit] = useState<PackUnit>("box");
@@ -147,6 +151,8 @@ export function NewItemForm({
   const [sources, setSources] = useState<Record<string, Source>>(() => {
     const s: Record<string, Source> = {};
     if (p) for (const k of ["brand", "manufacturerCode", "supplierSku", "barcode", "colourFinish", "variant", "name"]) s[k] = "photo";
+    // a name from how it looks wasn't READ from the photo — it's a starting point someone checks
+    if (looks) s.name = "typed";
     return s;
   });
   const [lookupState, setLookupState] = useState<"idle" | "checking" | "done">("idle");
@@ -233,7 +239,7 @@ export function NewItemForm({
     if (UNIT_LABEL[unit].decimals === 0 && v % 1000 !== 0) return null;
     return v > 0 ? v : null;
   })();
-  const totalMilli = packMode ? (packSizeMilli ? packCount * packSizeMilli : 0) : qtyMilli;
+  const totalMilli = packMode ? (packSizeMilli ? packCount * packSizeMilli + looseMilli : 0) : qtyMilli;
   const locked = phase !== "edit";
   // Setting up a shelf: the last item's photo of where it lives is offered for
   // the next item on the same shelf — one shelf, one photo.
@@ -361,7 +367,7 @@ export function NewItemForm({
       estimated,
       ...(listingStatus && lookup?.check ? { lookupCheck: lookup.check } : {}),
       provenance: Object.fromEntries(Object.entries(sources).filter(([k]) => ["name", "brand", "manufacturerCode", "supplierSku", "barcode", "variant", "colourFinish"].includes(k))) as CreateInput["provenance"],
-      ...(packMode && packSizeMilli ? { packCount, packUnit, packSize: toQuantityString(packSizeMilli), rememberPack } : { openingQuantity: toQuantityString(qtyMilli) }),
+      ...(packMode && packSizeMilli ? { packCount, packUnit, packSize: toQuantityString(packSizeMilli), rememberPack, ...(looseMilli ? { looseQuantity: toQuantityString(looseMilli) } : {}) } : { openingQuantity: toQuantityString(qtyMilli) }),
     };
     const key = keyRef.current ?? newOperationKey();
     keyRef.current = key;
@@ -406,7 +412,7 @@ export function NewItemForm({
   const detailSummary = [brandAbove ? null : brand || null, code || null, variant || null, barcode ? "barcode" : null, lookupEnabled && code ? "online check" : null].filter(Boolean).join(" · ") || (brandAbove ? "codes, size, supplier" : "brand, codes, colour, size, supplier");
   const needsAttention = lookup && lookup.status !== "manufacturer_code_matched" && accepted !== true;
   const savesLine = packMode && packSizeMilli
-    ? `Saves: Opening count ${formatQuantity(totalMilli, unit)} (${packCount} ${packLabel(packUnit, packCount)} × ${formatQuantity(packSizeMilli, unit)})${location.trim() ? ` · ${location.trim()}` : ""}`
+    ? `Saves: Opening count ${formatQuantity(totalMilli, unit)} (${packCount} ${packLabel(packUnit, packCount)} × ${formatQuantity(packSizeMilli, unit)}${looseMilli ? ` + ${formatQuantity(looseMilli, unit)} loose` : ""})${location.trim() ? ` · ${location.trim()}` : ""}`
     : `Saves: Opening count ${estimated ? balanceLabel({ balanceMilli: qtyMilli, baseUnit: unit, estimated: true }) : formatQuantity(qtyMilli, unit)}${location.trim() ? ` · ${location.trim()}` : ""}`;
   const savesWithPhoto = locationShot ? `${savesLine} · with a photo of where it lives` : reuse ? `${savesLine} · same photo of where it lives as ${reuse.itemName}` : savesLine;
   const noLocationPhoto = locationPhotoEnabled && !locationShot && !reuse;
@@ -426,7 +432,7 @@ export function NewItemForm({
           <img src={seed.dataUrl} alt="Your photo of the product" className="h-16 w-16 shrink-0 rounded-xl border border-border object-cover" />
         ) : null}
         <div className="min-w-0 flex-1">
-          <Field label="Name" value={name} onChange={(v) => { setName(v); typed("name"); }} placeholder={typesEnabled ? "e.g. Clipsal Iconic 2 gang switch" : "e.g. Clipsal double GPO white"} source={name && name === autoNameRef.current ? undefined : sources.name} tag={name && name === autoNameRef.current ? <Tag>From the fields below</Tag> : undefined} testId="stock-new-name" disabled={locked} />
+          <Field label="Name" value={name} onChange={(v) => { setName(v); typed("name"); }} placeholder={typesEnabled ? "e.g. Clipsal Iconic 2 gang switch" : "e.g. Clipsal double GPO white"} source={name && (name === autoNameRef.current || name === looks) ? undefined : sources.name} tag={name && name === autoNameRef.current ? <Tag>From the fields below</Tag> : looks && name === looks ? <Tag>From how it looks · check</Tag> : undefined} testId="stock-new-name" disabled={locked} />
         </div>
       </div>
 
@@ -547,12 +553,13 @@ export function NewItemForm({
               <span className="pr-3 text-sm text-text-muted">{UNIT_LABEL[unit].plural}</span>
             </div>
           </label>
-          <p className="text-sm font-semibold text-text" data-testid="stock-new-pack-total">{packSizeMilli ? `= ${formatQuantity(totalMilli, unit)} going on the shelf` : `Enter how many are in each ${packUnit}`}</p>
+          <QuantityStepper label={`Plus loose — out of the ${packUnit}`} valueMilli={looseMilli} onChange={setLooseMilli} unit={unit} allowZero disabled={locked} testId="stock-new-loose" />
+          <p className="text-sm font-semibold text-text" data-testid="stock-new-pack-total">{packSizeMilli ? `= ${formatQuantity(totalMilli, unit)} going on the shelf${looseMilli ? ` (${packCount} ${packLabel(packUnit, packCount)} + ${formatQuantity(looseMilli, unit)} loose)` : ""}` : `Enter how many are in each ${packUnit}`}</p>
           <label className="flex min-h-[44px] items-center gap-3 text-sm text-text">
             <input type="checkbox" checked={rememberPack} onChange={(e) => setRememberPack(e.target.checked)} className="h-5 w-5 accent-brand-navy" disabled={locked} />
             Remember {packSizeMilli ? formatQuantity(packSizeMilli, unit) : "this"} per {packUnit} for this item
           </label>
-          <LinkButton onClick={() => setPackMode(false)} disabled={locked}>Not full {packLabel(packUnit, 2)}? Count singles instead</LinkButton>
+          <LinkButton onClick={() => setPackMode(false)} disabled={locked}>None in {packLabel(packUnit, 2)}? Count singles instead</LinkButton>
         </div>
       ) : (
         <>

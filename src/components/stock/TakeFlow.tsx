@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Camera, Check, ChevronRight, Loader2 } from "lucide-react";
+import { Camera, Check, ChevronRight, Images, Loader2 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { findByBarcode } from "@/domains/workshop-stock/barcode";
 import { readPhoto } from "@/domains/workshop-stock/client";
 import { balanceLabel, errorCopy, EVIDENCE_LABEL, identityLine, matchedInWorkshop, movementSummary, READ_STATUS_COPY } from "@/domains/workshop-stock/format";
-import { decideRead, freshestItem, productLabel, type ReadOutcome } from "@/domains/workshop-stock/flow";
+import { decideRead, freshestItem, productLabel, suggestName, type ReadOutcome } from "@/domains/workshop-stock/flow";
+import { guessType, typeLabel } from "@/domains/workshop-stock/types";
 import { splitLocation } from "@/domains/workshop-stock/location";
 import { oftenTaken, rememberTaken } from "@/domains/workshop-stock/often";
 import type { CandidateItem, MatchCandidate, ReadPhotoResult, ReadProduct, StockItem, WriteResult } from "@/domains/workshop-stock/schema";
@@ -15,6 +16,7 @@ import { ItemPicker } from "./ItemPicker";
 import { LiveCodeScanner, liveReadingSupported, SCANNER_COPY, type ScannerState } from "./LiveCodeScanner";
 import { MoveConfirm, type MoveItem } from "./MoveConfirm";
 import { PhotoCapture } from "./PhotoCapture";
+import { SightPicker } from "./SightPicker";
 import { NoneRecorded, RecordedQuantity } from "./StockItemRow";
 import { StockThumb } from "./StockThumb";
 import { BigButton, Kicker, LinkButton, Slot } from "./ui";
@@ -23,6 +25,7 @@ type Step =
   | { s: "home" }
   | { s: "reading" }
   | { s: "outcome"; outcome: ReadOutcome }
+  | { s: "sight"; type?: string | null }
   | { s: "confirm"; item: MoveItem; matchedBy: string | null; packIdentifierId: string | null };
 
 type Hit = { raw: string; item: StockItem; identifierId: string; packSizeMilli: number | null };
@@ -244,6 +247,9 @@ export function TakeFlow({
           </Slot>
         ) : null}
         {!photoReading ? <Slot tone="neu" title="Photo reading isn't set up — find the item in the list." /> : null}
+        {items.length ? (
+          <BigButton variant="sec" icon={<Images aria-hidden="true" className="h-5 w-5" />} label="Not in its box? Pick it by sight" sub="the item photos · no code or label needed" onClick={() => setStep({ s: "sight" })} data-testid="stock-take-sight" />
+        ) : null}
         {oftenBlock}
       </>
     );
@@ -265,6 +271,15 @@ export function TakeFlow({
         }
       >
         {picker(whenEmpty)}
+      </FlowSheet>
+    );
+  }
+
+  // ── pick by sight: loose, out of the box ──────────────────────────────────────
+  if (step.s === "sight") {
+    return (
+      <FlowSheet title="Take stock" direction="out" onClose={onClose} onBack={() => setStep({ s: "home" })} testId="stock-take-sight-sheet">
+        <SightPicker items={items} initialType={step.type} onPick={(i) => openConfirm(i, "Picked by sight", null)} />
       </FlowSheet>
     );
   }
@@ -314,6 +329,7 @@ export function TakeFlow({
         onSearchPick={(i) => openConfirm(i, null, null)}
         onNone={() => setStep({ s: "outcome", outcome: { kind: "none", productIndex: 0 } })}
         onPhoto={(u, d, t) => void onPhoto(u, d, t)}
+        onSight={(type) => setStep({ s: "sight", type })}
         onAddNew={() => {
           const p = read && read.reading && step.outcome.kind !== "status" && step.outcome.kind !== "pick-product" ? read.reading.products[step.outcome.productIndex] ?? null : null;
           onAddNew({ dataUrl, thumbDataUrl, product: p });
@@ -357,6 +373,7 @@ function OutcomeView({
   onNone,
   onPhoto,
   onAddNew,
+  onSight,
 }: {
   outcome: ReadOutcome;
   read: ReadPhotoResult | null;
@@ -371,6 +388,8 @@ function OutcomeView({
   onNone: () => void;
   onPhoto: (dataUrl: string, dark: boolean, thumb: string | null) => void;
   onAddNew: () => void;
+  /** loose, nothing printed: pick it from the photos, narrowed to the type it looks like */
+  onSight: (type: string | null) => void;
 }) {
   const [chosen, setChosen] = useState<string | null>(outcome.kind === "candidates" ? outcome.candidates[0]?.item.id ?? null : null);
   const frame = (footer: React.ReactNode, children: React.ReactNode) => (
@@ -428,9 +447,16 @@ function OutcomeView({
   }
 
   if (outcome.kind === "none") {
+    // Out of its box with nothing printed: the reader can only say what it looks like.
+    const looksLike = read?.reading?.products[outcome.productIndex]?.appearance ?? null;
+    const printed = read?.reading?.products[outcome.productIndex] ? suggestName(read.reading.products[outcome.productIndex]) : "";
+    const looseOnly = Boolean(looksLike && !printed);
     return frame(
       <>
-        <BigButton variant="pri" label="Search the list" sub="find it by name, code or shelf" onClick={onBack} data-testid="stock-outcome-search" />
+        {looseOnly ? (
+          <BigButton variant="pri" icon={<Images aria-hidden="true" className="h-5 w-5" />} label="Pick it by sight" sub={`the item photos${guessType([looksLike]) ? ` · ${typeLabel(guessType([looksLike]))}` : ""}`} onClick={() => onSight(guessType([looksLike]))} data-testid="stock-outcome-sight" />
+        ) : null}
+        <BigButton variant={looseOnly ? "sec" : "pri"} label="Search the list" sub="find it by name, code or shelf" onClick={onBack} data-testid="stock-outcome-search" />
         <PhotoCapture variant="single" tone="ter" label="Closer photo of the label" sub="back to the camera" onPhoto={onPhoto} testId="stock-outcome-retake" />
         <BigButton variant="ter" label="Add it as new stock" sub="switches to Add stock · nothing is taken" onClick={onAddNew} data-testid="stock-outcome-add-new" />
       </>,
@@ -439,7 +465,11 @@ function OutcomeView({
           // eslint-disable-next-line @next/next/no-img-element -- local preview
           <img src={dataUrl} alt="Your photo" className="min-h-[160px] w-full flex-1 rounded-[14px] border border-border object-cover" />
         ) : null}
-        <Slot tone="neu" title="Not matched in the workshop">We couldn&rsquo;t match this to anything recorded. Nothing has been taken.</Slot>
+        {looseOnly ? (
+          <Slot tone="neu" title={`Looks like: ${looksLike}`} testId="stock-outcome-looks">Nothing is printed on it to match, so pick it from the photos. Nothing has been taken.</Slot>
+        ) : (
+          <Slot tone="neu" title="Not matched in the workshop">We couldn&rsquo;t match this to anything recorded. Nothing has been taken.</Slot>
+        )}
       </div>,
     );
   }
