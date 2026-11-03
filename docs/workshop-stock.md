@@ -183,7 +183,20 @@ accuracy nobody has measured.
    a spot is new when its **edges** changed (an object brings an outline and
    print; a light change is smooth) or its colour changed a lot. Both thresholds
    rise with the camera's own noise, measured on each frame.
-2. It counts once it has sat still for 0.8 s. A blob touching the edge of the
+2. *(2026-11-03, after the first real session read one bag over and over — 131
+   "on the table", 120 reads queued:)* pieces near each other merge into one
+   thing before the edge test (a crinkled bag no longer breaks into a dozen
+   objects, and the pieces of something half out of shot are all "half out of
+   shot"); a patch that only LOST edges since Start is where something was — a
+   moved cable — not an object; a piece mostly inside a tracked object is part
+   of it; a counted object keeps its outline when only a piece shows, needs 3 s
+   unseen before it's gone, and a new object where a counted row still sits is
+   that object again. At most 8 label reads wait at once — past that an object
+   asks the person. **A USB barcode scanner** at the table logs one placement
+   per scan with no camera needed (a box's barcode adds a box's worth; unknown
+   → the new-item card with it kept), and the U/F/M/Space shortcuts ignore a
+   scanner's burst of keys.
+   It counts once it has sat still for 0.8 s. A blob touching the edge of the
    picture is an arm: it never counts, and whatever it covers stays on the table
    while it does. A nudged object is the same object. Objects pushed together turn
    amber ("Touching: move them apart") and any that split off count then.

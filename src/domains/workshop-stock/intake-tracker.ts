@@ -41,6 +41,8 @@ const CELL = 4;
 const PIXEL_THRESHOLD = 30;
 const CELL_ACTIVE_SHARE = 0.35;
 const MIN_OBJECT_CELLS = 5;
+/** pieces this many cells apart (≈ 2.5% of the width) are one thing */
+const MERGE_GAP = 2;
 /** coarse regions for the local light correction (a webcam's exposure and the room's light vary across the table) */
 const REGION = 40;
 /** a smooth light change has no edges; an object brings its own — this many grey levels of edge change counts */
@@ -127,6 +129,9 @@ export function findObjects(frame: RawFrame, background: ArrayLike<number>): Fou
   // the corrected colour difference, and the change in edges (brightness steps to the right and below)
   const colour = new Float32Array(width * height);
   const edge = new Float32Array(width * height);
+  // edges that weren't on the empty table: an object ADDS an outline and print;
+  // something taken away since Start (a moved cable) only removes edges — a ghost
+  const appeared = new Float32Array(width * height);
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const p = y * width + x;
@@ -142,6 +147,7 @@ export function findObjects(frame: RawFrame, background: ArrayLike<number>): Fou
         const fe = Math.abs(luma(data, r) - luma(data, i)) + Math.abs(luma(data, d) - luma(data, i));
         const be = (Math.abs(luma(background, r) - luma(background, i)) + Math.abs(luma(background, d) - luma(background, i))) * g;
         edge[p] = Math.abs(fe - be);
+        if (fe - be > 0) appeared[p] = fe - be;
       }
     }
   }
@@ -154,6 +160,7 @@ export function findObjects(frame: RawFrame, background: ArrayLike<number>): Fou
   const edgeThreshold = Math.max(EDGE_THRESHOLD, median(sampleEdge) * 4);
 
   const active = new Uint8Array(gw * gh);
+  const newEdges = new Uint16Array(gw * gh);
   const needed = CELL * CELL * CELL_ACTIVE_SHARE;
   const neededEdges = Math.max(2, Math.round(CELL * CELL * 0.15));
   let activeCount = 0;
@@ -168,6 +175,7 @@ export function findObjects(frame: RawFrame, background: ArrayLike<number>): Fou
           if (colour[p]! > strongColour) strong += 1;
           else if (colour[p]! > colourThreshold) moderate += 1;
           if (edge[p]! > edgeThreshold) edges += 1;
+          if (appeared[p]! > edgeThreshold) newEdges[cy * gw + cx] = newEdges[cy * gw + cx]! + 1;
         }
       }
       // a big colour change on its own, or edges that weren't there (with some colour change behind them)
@@ -192,8 +200,8 @@ export function findObjects(frame: RawFrame, background: ArrayLike<number>): Fou
     }
   }
 
-  const objects: Box[] = [];
-  const arms: Box[] = [];
+  type Blob = { minX: number; minY: number; maxX: number; maxY: number; cells: number; added: number };
+  const blobs: Blob[] = [];
   const seen = new Uint8Array(gw * gh);
   const stack: number[] = [];
   for (let start = 0; start < joined.length; start++) {
@@ -201,6 +209,7 @@ export function findObjects(frame: RawFrame, background: ArrayLike<number>): Fou
     seen[start] = 1;
     stack.push(start);
     let cells = 0;
+    let added = 0;
     let minX = gw;
     let minY = gh;
     let maxX = -1;
@@ -211,6 +220,7 @@ export function findObjects(frame: RawFrame, background: ArrayLike<number>): Fou
       const cy = (at - cx) / gw;
       if (active[at]) {
         cells += 1;
+        added += newEdges[at]!;
         minX = Math.min(minX, cx);
         minY = Math.min(minY, cy);
         maxX = Math.max(maxX, cx);
@@ -224,10 +234,36 @@ export function findObjects(frame: RawFrame, background: ArrayLike<number>): Fou
         }
       }
     }
-    if (cells < MIN_OBJECT_CELLS) continue;
-    const box: Box = { x: minX / gw, y: minY / gh, w: (maxX - minX + 1) / gw, h: (maxY - minY + 1) / gh };
-    if (minX === 0 || minY === 0 || maxX === gw - 1 || maxY === gh - 1) arms.push(box);
-    else objects.push(box);
+    blobs.push({ minX, minY, maxX, maxY, cells, added });
+  }
+
+  // Pieces within MERGE_GAP cells of each other are one thing (a crinkled clear
+  // bag breaks into many) — merged BEFORE the edge test, so the pieces of
+  // something half out of shot all count as that, not as objects of their own.
+  let merged = true;
+  while (merged) {
+    merged = false;
+    for (let i = 0; i < blobs.length && !merged; i++) {
+      for (let j = i + 1; j < blobs.length; j++) {
+        const a = blobs[i]!, b = blobs[j]!;
+        if (a.minX - MERGE_GAP > b.maxX || b.minX - MERGE_GAP > a.maxX || a.minY - MERGE_GAP > b.maxY || b.minY - MERGE_GAP > a.maxY) continue;
+        blobs[i] = { minX: Math.min(a.minX, b.minX), minY: Math.min(a.minY, b.minY), maxX: Math.max(a.maxX, b.maxX), maxY: Math.max(a.maxY, b.maxY), cells: a.cells + b.cells, added: a.added + b.added };
+        blobs.splice(j, 1);
+        merged = true;
+        break;
+      }
+    }
+  }
+
+  const objects: Box[] = [];
+  const arms: Box[] = [];
+  for (const b of blobs) {
+    if (b.cells < MIN_OBJECT_CELLS) continue;
+    const box: Box = { x: b.minX / gw, y: b.minY / gh, w: (b.maxX - b.minX + 1) / gw, h: (b.maxY - b.minY + 1) / gh };
+    if (b.minX === 0 || b.minY === 0 || b.maxX === gw - 1 || b.maxY === gh - 1) { arms.push(box); continue; }
+    // a ghost — only edges taken away, none added — is where something WAS
+    if (b.added < Math.max(4, b.cells * 0.5)) continue;
+    objects.push(box);
   }
   return { objects, arms, changedShare: activeCount / (gw * gh) };
 }
@@ -283,6 +319,8 @@ export const emptyTracker = (): TrackerState => ({ tracks: [], nextId: 1 });
 
 export const SETTLE_MS = 800;
 export const GONE_MS = 1500;
+/** a COUNTED object needs this long unseen before it's gone — a flickering box must never count twice (2026-11-03) */
+export const GONE_SETTLED_MS = 3000;
 const MIN_FIT = 0.25;
 const MOVED = 0.015;
 const TOUCHING_GROWTH = 1.6;
@@ -317,7 +355,8 @@ export function stepTracker(state: TrackerState, found: Pick<FoundObjects, "obje
       next.lastSeenAt = now;
       if (prev.settled) {
         next.touching = area(best) > prev.baseArea * TOUCHING_GROWTH;
-        if (!next.touching) next.box = best;
+        // a nudge moves the box; seeing only a PIECE of it doesn't shrink it to the piece
+        if (!next.touching && area(best) >= prev.baseArea * 0.6) next.box = best;
       } else {
         const moved = Math.abs(best.x - prev.box.x) + Math.abs(best.y - prev.box.y) > MOVED || Math.abs(area(best) - area(prev.box)) > area(prev.box) * 0.15;
         if (moved) next.stableSince = now;
@@ -326,7 +365,7 @@ export function stepTracker(state: TrackerState, found: Pick<FoundObjects, "obje
       }
     } else if (armOver(prev.box)) {
       next.lastSeenAt = now;
-    } else if (now - prev.lastSeenAt > GONE_MS) {
+    } else if (now - prev.lastSeenAt > (prev.settled ? GONE_SETTLED_MS : GONE_MS)) {
       gone.push(prev);
       continue;
     }
@@ -336,6 +375,19 @@ export function stepTracker(state: TrackerState, found: Pick<FoundObjects, "obje
       settled.push(next);
     }
     tracks.push(next);
+  }
+
+  // A piece left over that sits mostly inside something already tracked is part
+  // of it (2026-11-03: a crinkled bag broke into pieces frame by frame, and every
+  // spare piece became a "new" object, settled and was read again — 131 on the
+  // table). It keeps that object seen; it never starts one.
+  for (const o of found.objects) {
+    if (claimed.has(o)) continue;
+    const owner = tracks.find((t) => overlapArea(t.box, o) >= area(o) * 0.5);
+    if (owner) {
+      owner.lastSeenAt = now;
+      claimed.add(o);
+    }
   }
 
   let nextId = state.nextId;
