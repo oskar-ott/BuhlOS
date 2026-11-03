@@ -116,6 +116,16 @@ recorded, and where they live.
   carries the reason ("Possible match — colour not confirmed"). The Bin column
   shows only when something in view has a bin. "Recorded, not a guarantee"
   is one line under the list. No KPI row, no gauges.
+- **Three views and a grouping** (office pull 2026-11-03: "give me
+  different views not just the table view"), all over the same filtered,
+  grouped items (`src/domains/workshop-stock/views.ts`), all opening the same
+  drawer: **Table** (read across; rows on a phone), **Cards** (a photo grid,
+  to recognise items by sight), **Board** (one column per group — the
+  workshop as you'd walk it, scrolling sideways). **Group by** Shelf (default),
+  Type (once the server has types) or nothing (A–Z); grouped by anything but
+  shelf, the full location shows instead of just the bin. The chosen view and
+  grouping are remembered in this browser only (a convenience; the page
+  works without it). No view adds a number the list doesn't already hold.
 - Per item, a drawer with three tabs (office pull 2026-11-03: "the web view
   is clunky" — one long scroll became three views):
   - **Stock** (opens first): what's recorded, the shelf, last count and code

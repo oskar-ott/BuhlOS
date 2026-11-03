@@ -2,24 +2,21 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Camera, Grid3x3, Plus, RefreshCw, Search, Tags } from "lucide-react";
+import { Camera, Columns3, Grid3x3, LayoutGrid, Plus, RefreshCw, Rows3, Search, Tags } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { Pill } from "@/components/ui/Pill";
-import { StockItemRow } from "@/components/stock/StockItemRow";
-import { StockThumb } from "@/components/stock/StockThumb";
 import { cn } from "@/lib/cn";
 import { fetchStockList } from "@/domains/workshop-stock/client";
-import { errorCopy, formatNumber, identityLine, matchesSearch, UNIT_LABEL, verificationLine, whenLabel } from "@/domains/workshop-stock/format";
-import { binOf, groupByShelf } from "@/domains/workshop-stock/location";
+import { errorCopy, matchesSearch } from "@/domains/workshop-stock/format";
+import { groupItems, isGroupBy, isView, type GroupBy, type StockView } from "@/domains/workshop-stock/views";
 import { setPendingOwner } from "@/domains/workshop-stock/pending";
-import type { StockItem, StockList } from "@/domains/workshop-stock/schema";
+import type { StockList } from "@/domains/workshop-stock/schema";
 import { STOCK_TYPES, typeOf } from "@/domains/workshop-stock/types";
 import { StockAdminAdd } from "./StockAdminAdd";
 import { StockCategories } from "./StockCategories";
 import { findByBarcode } from "@/domains/workshop-stock/barcode";
 import { useBarcodeScanner } from "@/components/stock/useBarcodeScanner";
 import { StockItemDrawer } from "./StockItemDrawer";
-import { CODE_SHORT, CODE_TONE } from "./code-status";
+import { StockBoard, StockCards, StockTable } from "./StockViews";
 
 type Filter = "all" | "zero" | "estimated" | "check" | "unsorted" | "archived";
 
@@ -43,15 +40,30 @@ const EXPLAIN: Partial<Record<Filter, string>> = {
 
 const TOOL = "inline-flex h-9 items-center gap-1.5 rounded-[4px] border border-border bg-surface px-3 text-[13px] font-medium text-text hover:border-border-strong";
 
-/** The recorded quantity in a table cell: the number leads, the unit follows; zero is a pill, an estimate says so. */
-function RecordedCell({ item }: { item: StockItem }) {
-  if (item.balanceMilli === 0) return <Pill tone="warning" dot className="whitespace-nowrap">None recorded</Pill>;
-  return (
-    <span className="whitespace-nowrap" title={item.estimated ? "An estimate — a count clears it" : undefined}>
-      <span className="font-display text-[15px] font-semibold tabular-nums text-text">{item.estimated ? "≈ " : ""}{formatNumber(item.balanceMilli)}</span>{" "}
-      <span className="text-[13px] text-text-muted">{UNIT_LABEL[item.baseUnit].plural}</span>
-    </span>
-  );
+const VIEW_OPTIONS: Array<{ value: StockView; label: string; Icon: typeof Rows3 }> = [
+  { value: "table", label: "Table", Icon: Rows3 },
+  { value: "cards", label: "Cards", Icon: LayoutGrid },
+  { value: "board", label: "Board", Icon: Columns3 },
+];
+const GROUP_OPTIONS: Array<{ value: GroupBy; label: string; types?: true }> = [
+  { value: "shelf", label: "Shelf" },
+  { value: "type", label: "Type", types: true },
+  { value: "none", label: "Nothing (A–Z)" },
+];
+
+// The chosen view and grouping are a per-viewer convenience: remembered on
+// this browser only, and the page works the same without it.
+const PREF_KEY = "buhlos.stock.office.view";
+function readPref(): { view: StockView; groupBy: GroupBy } {
+  try {
+    const raw = JSON.parse(window.localStorage.getItem(PREF_KEY) ?? "null") as { view?: unknown; groupBy?: unknown } | null;
+    return { view: isView(raw?.view) ? raw.view : "table", groupBy: isGroupBy(raw?.groupBy) ? raw.groupBy : "shelf" };
+  } catch {
+    return { view: "table", groupBy: "shelf" };
+  }
+}
+function writePref(p: { view: StockView; groupBy: GroupBy }) {
+  try { window.localStorage.setItem(PREF_KEY, JSON.stringify(p)); } catch { /* storage off: nothing to remember */ }
 }
 
 /**
@@ -72,6 +84,13 @@ export function StockAdminClient({ initialItemId }: { initialItemId?: string | n
   const [openLabel, setOpenLabel] = useState(false);
   const [adding, setAdding] = useState<false | { scannedBarcode: string | null }>(false);
   const [categories, setCategories] = useState(false);
+  const [view, setView] = useState<StockView>("table");
+  const [groupByPref, setGroupBy] = useState<GroupBy>("shelf");
+  useEffect(() => { const p = readPref(); setView(p.view); setGroupBy(p.groupBy); }, []);
+  function choose(next: { view?: StockView; groupBy?: GroupBy }) {
+    const p = { view: next.view ?? view, groupBy: next.groupBy ?? groupByPref };
+    setView(p.view); setGroupBy(p.groupBy); writePref(p);
+  }
 
   const load = useCallback(async (archived: boolean) => {
     const r = await fetchStockList({ archived });
@@ -109,12 +128,11 @@ export function StockAdminClient({ initialItemId }: { initialItemId?: string | n
     return true;
   }).filter((i) => !typeFilter || (i.category ? typeOf(i.category)!.key === typeFilter : false)).filter((i) => matchesSearch(i, q)), [items, filter, typeFilter, q]);
   const typesEnabled = list?.capabilities.types === true;
-  const groups = useMemo(() => groupByShelf(shown), [shown]);
+  // grouping by type needs types on the server; otherwise it reads as by shelf
+  const groupBy: GroupBy = groupByPref === "type" && !typesEnabled ? "shelf" : groupByPref;
+  const groups = useMemo(() => groupItems(shown, groupBy), [shown, groupBy]);
   const archivedView = filter === "archived";
   const nothingYet = state === "ready" && !items.length && !archivedView;
-  // The Bin column earns its place only when something in view has one.
-  const showBin = archivedView || shown.some((i) => binOf(i.location));
-  const cols = (archivedView ? 5 : 6) - (showBin ? 0 : 1);
 
   return (
     <div className="space-y-3" data-testid="stock-admin">
@@ -148,8 +166,9 @@ export function StockAdminClient({ initialItemId }: { initialItemId?: string | n
         </div>
       </div>
 
-      {/* the views, as tabs on the list itself */}
-      <div role="tablist" aria-label="Filter workshop stock" className="-mx-4 flex gap-1 overflow-x-auto border-b border-border px-4 sm:mx-0 sm:px-0">
+      {/* the filters as tabs on the list; how it's laid out and grouped on the right */}
+      <div className="flex flex-wrap items-end gap-x-4 gap-y-2 border-b border-border">
+      <div role="tablist" aria-label="Filter workshop stock" className="-mx-4 -mb-px flex w-full min-w-0 gap-1 overflow-x-auto px-4 sm:mx-0 sm:px-0 lg:w-auto lg:flex-1">
         {FILTERS.filter((f) => !f.types || typesEnabled).map((f) => {
           const active = f.value === filter;
           const n = failed || !list ? null : filter === "archived" && f.value !== "archived" ? counts[f.value] : f.value === "archived" && filter !== "archived" ? null : counts[f.value];
@@ -169,6 +188,32 @@ export function StockAdminClient({ initialItemId }: { initialItemId?: string | n
             </button>
           );
         })}
+      </div>
+      <div className="order-first flex items-center gap-2 pb-1.5 lg:order-none">
+        <label className="flex items-center gap-1.5 text-[13px] text-text-muted">
+          Group by
+          <select value={groupBy} onChange={(e) => choose({ groupBy: e.target.value as GroupBy })} className="h-8 rounded-[4px] border border-border-strong bg-surface px-1.5 text-[13px] text-text" data-testid="stock-admin-group-by">
+            {GROUP_OPTIONS.filter((g) => !g.types || typesEnabled).map((g) => <option key={g.value} value={g.value}>{g.label}</option>)}
+          </select>
+        </label>
+        <div role="radiogroup" aria-label="View" className="inline-flex rounded-[4px] border border-border-strong bg-surface p-0.5">
+          {VIEW_OPTIONS.map(({ value, label, Icon }) => (
+            <button
+              key={value}
+              type="button"
+              role="radio"
+              aria-checked={view === value}
+              title={label}
+              onClick={() => choose({ view: value })}
+              className={cn("inline-flex h-7 items-center gap-1.5 rounded-[3px] px-2 text-[13px] font-medium", view === value ? "bg-brand-navy text-text-inverse" : "text-text-muted hover:text-text")}
+              data-testid={`stock-admin-view-${value}`}
+            >
+              <Icon aria-hidden="true" className="h-4 w-4" />
+              <span className="hidden md:inline">{label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
       </div>
       {EXPLAIN[filter] && !failed ? <p className="text-sm text-text-muted">{EXPLAIN[filter]}</p> : null}
 
@@ -199,50 +244,13 @@ export function StockAdminClient({ initialItemId }: { initialItemId?: string | n
         </p>
       ) : (
         <>
-          {/* phone: rows with the same facts */}
-          <div className="-mx-4 sm:hidden">
-            {groups.map((g) => (
-              <section key={g.label} aria-label={g.label}>
-                <div className="flex items-baseline justify-between border-y border-border bg-surface-subtle px-4 py-2">
-                  <span className="font-mono text-[11px] font-bold uppercase tracking-[0.14em] text-text">{g.label}</span>
-                  <span className="text-xs text-text-muted">{g.items.length} {g.items.length === 1 ? "item" : "items"}</span>
-                </div>
-                <ul>
-                  {g.items.map((i) => (
-                    <li key={i.id}>
-                      <StockItemRow
-                        item={i}
-                        inGroup
-                        onClick={() => setOpenId(i.id)}
-                        meta={archivedView ? `Archived ${whenLabel(i.archivedAt)}` : `Last moved ${i.lastMovementAt ? whenLabel(i.lastMovementAt) : "never"} · counted ${i.lastCountedAt ? whenLabel(i.lastCountedAt) : "never"}`}
-                        hint={!archivedView && i.verificationStatus !== "manufacturer_code_matched" ? verificationLine(i) : null}
-                      />
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ))}
-          </div>
-
-          <div className="hidden overflow-x-auto rounded-card border border-border bg-surface sm:block">
-            <table className="w-full border-collapse text-left text-sm" data-testid="stock-admin-table">
-              <thead>
-                <tr className="border-b border-border font-mono text-[11px] font-semibold uppercase tracking-[0.12em] text-text-muted">
-                  <th className="px-3 py-2.5">Item</th>
-                  {showBin ? <th className="px-3 py-2.5">{archivedView ? "Shelf" : "Bin"}</th> : null}
-                  <th className="px-3 py-2.5 text-right">{archivedView ? "Recorded when archived" : "Recorded"}</th>
-                  <th className="px-3 py-2.5">{archivedView ? "Archived" : "Last moved"}</th>
-                  <th className="px-3 py-2.5">{archivedView ? "Status" : "Last counted"}</th>
-                  {archivedView ? null : <th className="px-3 py-2.5">Code</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {groups.map((g) => (
-                  <GroupRows key={g.label} label={g.label} items={g.items} archivedView={archivedView} showBin={showBin} cols={cols} onOpen={setOpenId} />
-                ))}
-              </tbody>
-            </table>
-          </div>
+          {view === "cards" ? (
+            <StockCards groups={groups} groupBy={groupBy} archivedView={archivedView} onOpen={setOpenId} />
+          ) : view === "board" ? (
+            <StockBoard groups={groups} groupBy={groupBy} archivedView={archivedView} onOpen={setOpenId} />
+          ) : (
+            <StockTable groups={groups} groupBy={groupBy} archivedView={archivedView} onOpen={setOpenId} />
+          )}
           <p className="text-xs text-text-muted">Quantities are what the crew recorded — not a guarantee of what&rsquo;s on the shelf; correct one with a count. Taking stock never adds a job cost.</p>
         </>
       )}
@@ -254,49 +262,3 @@ export function StockAdminClient({ initialItemId }: { initialItemId?: string | n
   );
 }
 
-function GroupRows({ label, items, archivedView, showBin, cols, onOpen }: { label: string; items: StockItem[]; archivedView: boolean; showBin: boolean; cols: number; onOpen: (id: string) => void }) {
-  return (
-    <>
-      <tr data-testid="stock-admin-group">
-        <td colSpan={cols} className="border-b border-border bg-surface-subtle px-3 pb-1.5 pt-3 text-[13px] font-semibold text-text">
-          {label} <span className="font-normal text-text-muted">· {items.length} {items.length === 1 ? "item" : "items"}</span>
-        </td>
-      </tr>
-      {items.map((i) => (
-        <tr key={i.id} className="cursor-pointer border-b border-border last:border-b-0 hover:bg-surface-subtle" onClick={() => onOpen(i.id)} data-testid="stock-admin-row">
-          <td className="px-3 py-2">
-            <button type="button" className="flex items-center gap-2.5 text-left" onClick={(e) => { e.stopPropagation(); onOpen(i.id); }}>
-              <StockThumb photoId={i.photoId} alt="" size="xs" />
-              <span className="min-w-0">
-                <span className="block font-semibold text-text">{i.name}</span>
-                {identityLine(i) ? <span className="block text-[12.5px] text-text-muted">{identityLine(i)}</span> : null}
-              </span>
-            </button>
-          </td>
-          {showBin ? <td className="px-3 py-2 text-[13px] text-text-muted">{(archivedView ? i.location : binOf(i.location)) || ""}</td> : null}
-          <td className="px-3 py-2 text-right"><RecordedCell item={i} /></td>
-          {archivedView ? (
-            <>
-              <td className="px-3 py-2 text-[13px] text-text">{whenLabel(i.archivedAt)}</td>
-              <td className="px-3 py-2"><Pill tone="neutral" dot>Archived</Pill></td>
-            </>
-          ) : (
-            <>
-              <td className="whitespace-nowrap px-3 py-2 text-[13px] text-text-muted">{i.lastMovementAt ? whenLabel(i.lastMovementAt) : "Never"}</td>
-              <td className="whitespace-nowrap px-3 py-2 text-[13px]">
-                {i.lastCountedAt ? (
-                  <span className="text-text">{whenLabel(i.lastCountedAt)}{i.lastCountedByName ? <span className="text-text-muted"> · {i.lastCountedByName}</span> : null}</span>
-                ) : (
-                  <span className="text-text-muted">Never</span>
-                )}
-              </td>
-              <td className="px-3 py-2" title={verificationLine(i)}>
-                <Pill tone={CODE_TONE[i.verificationStatus]} dot className="whitespace-nowrap font-medium normal-case tracking-normal">{CODE_SHORT[i.verificationStatus]}</Pill>
-              </td>
-            </>
-          )}
-        </tr>
-      ))}
-    </>
-  );
-}
