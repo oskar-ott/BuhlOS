@@ -28,6 +28,7 @@
 //   DELETE ?action=identifier&id=                                        OFFICE
 //   POST   ?action=archive | restore  { itemId }                         OFFICE (restore says which codes another item now holds)
 //   POST   ?action=item-photo  { itemId, photoId, slot?: product|location }   OFFICE (location: photoId may be null = remove)
+//   POST   ?action=type        { key?, label, unit, fields: [{ key?, label }] }   OFFICE — add a category (no key) or change one (its key); fields are only added or renamed
 //                              the crew: slot location only, to FILL a missing photo of where it lives with one they took
 //   POST   ?action=verify      { itemId }   OFFICE — record the cached online check on an item
 //
@@ -334,6 +335,18 @@ const ItemPhotoBody = z
   .object({ itemId: uuid, photoId: uuid.nullable(), slot: z.enum(['product', 'location']).default('product') })
   .refine((b) => b.slot === 'location' || b.photoId !== null, { path: ['photoId'] });
 
+// A category the office makes (20261103100000). No key = a new one; its key
+// and its fields' keys are made from the names here, on the server.
+const TypeBody = z.object({
+  key: z.string().regex(/^c_[a-z0-9_]{1,29}$/).optional(),
+  label: z.string().trim().min(1).max(40),
+  unit: z.enum(Q.UNIT_KEYS).default('each'),
+  fields: z.array(z.object({
+    key: z.string().regex(/^[a-z][a-z0-9_]{0,31}$/).optional(),
+    label: z.string().trim().min(1).max(30),
+  })).max(8).default([]),
+});
+
 const ListBody = z.object({
   id: uuid,
   name: z.string().trim().min(1).max(80).optional(),
@@ -419,12 +432,16 @@ async function list(sql, tenant, me, req, res) {
   const locationPhoto = await store.hasLocationPhoto(sql);
   const types = await store.hasTypes(sql);
   const lists = await store.hasLists(sql);
+  const customTypesReady = await store.hasCustomTypes(sql);
   const items = await store.listItems(sql, tenant.id, { includeArchived });
+  const customTypes = customTypesReady ? await store.listCustomTypes(sql, tenant.id) : [];
   return res.status(200).json({
     items,
     viewer: { id: me.id, office },
     // locationPhoto / types / lists: what this database has yet (later, additive migrations)
-    capabilities: { photoRead: vision.enabled(), lookup: search.enabled(), locationPhoto: locationPhoto === true, types: types === true, lists: lists === true },
+    capabilities: { photoRead: vision.enabled(), lookup: search.enabled(), locationPhoto: locationPhoto === true, types: types === true, lists: lists === true, customTypes: customTypesReady === true },
+    // the office's own categories, alongside the built-in ones the app knows
+    customTypes,
     undoMinutes: policy.WORKER_UNDO_MINUTES,
     asOf: new Date().toISOString(),
   });
@@ -1112,6 +1129,40 @@ function listError(res, r) {
 }
 
 /** Lists need their tables: before the migration every list path says so (503), nothing else. */
+// ── categories the office makes ───────────────────────────────────────────────
+
+/** "Solar inverters" → "solar_inverters" (letters, digits, underscores; starts with a letter). */
+function slugOf(label, max) {
+  const s = String(label).toLowerCase().normalize('NFKD').replace(/[^\x00-\x7f]/g, '')
+    .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').replace(/^(\d)/, 'n$1');
+  return s.slice(0, max).replace(/_+$/, '') || null;
+}
+
+async function saveType(sql, tenant, me, body, res) {
+  if (!policy.isOffice(me.role)) return res.status(403).json({ error: 'office_only' });
+  const input = parseOr400(TypeBody, body, res);
+  if (!input) return;
+  if ((await store.hasCustomTypes(sql)) !== true) return res.status(503).json({ error: 'types_unavailable' });
+  const key = input.key || (slugOf(input.label, 29) ? `c_${slugOf(input.label, 29)}` : null);
+  if (!key) return bad(res, 'type_name_invalid');
+  const fields = [];
+  for (const f of input.fields) {
+    const fk = f.key || slugOf(f.label, 32);
+    if (!fk || fk === 'brand' || fk === 'colourfinish') return bad(res, 'field_name_invalid', { field: f.label });
+    if (fields.some((x) => x.key === fk || x.label.toLowerCase() === f.label.toLowerCase())) return bad(res, 'field_name_repeated', { field: f.label });
+    fields.push({ key: fk, label: f.label });
+  }
+  const existing = await store.listCustomTypes(sql, tenant.id);
+  if (!input.key && existing.some((t) => t.key === key)) return res.status(409).json({ error: 'type_name_taken' });
+  if (input.key && !existing.some((t) => t.key === key)) return res.status(404).json({ error: 'type_not_found' });
+  const r = await store.saveCustomType(sql, tenant.id, { key, label: input.label, unit: input.unit, fields }, actorOf(me));
+  if (r.error === 'type_name_taken') return res.status(409).json({ error: r.error });
+  if (r.error) return bad(res, r.error);
+  await journal(me, r.created ? 'workshop_stock.type_created' : 'workshop_stock.type_changed', key,
+    `${r.created ? 'Added' : 'Changed'} the stock category “${r.type.label}” (${r.type.fields.map((f) => f.label).join(', ') || 'no fields'})`, { key });
+  return res.status(r.created ? 201 : 200).json({ type: r.type });
+}
+
 async function listsReady(sql, res) {
   if ((await store.hasLists(sql)) === true) return true;
   res.status(503).json({ error: 'lists_unavailable' });
@@ -1299,6 +1350,7 @@ async function handler(req, res) {
       case 'item-photo': return itemPhoto(sql, tenant, me, body, res);
       case 'verify': return verify(sql, tenant, me, body, res);
       case 'list': return saveList(sql, tenant, me, body, res);
+      case 'type': return saveType(sql, tenant, me, body, res);
       case 'list-line': return saveListLine(sql, tenant, me, body, res);
       default: return res.status(400).json({ error: 'unknown_action' });
     }

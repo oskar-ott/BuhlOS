@@ -10,6 +10,7 @@ import {
   OneListSchema,
   OperationSchema,
   ReadPhotoSchema,
+  CustomTypeSchema,
   StockListSchema,
   WriteResultSchema,
   type LocationMatrixResponse,
@@ -21,6 +22,7 @@ import {
   type WriteResult,
 } from "./schema";
 import { variantDetailsFrom, type LookupCheck } from "./check";
+import { setCustomTypes } from "./types";
 
 /**
  * Typed client for /api/workshop-stock. Every ledger write carries an
@@ -45,8 +47,15 @@ export async function fetchStockList(opts: { archived?: boolean; signal?: AbortS
   // 503 = the server gave up before reading anything (a stalled database
   // connection, which it has now dropped): one quiet retry gets a fresh one,
   // so the screen loads instead of showing an error (2026-11-02).
-  if (!r.ok && r.error.status === 503 && !opts.signal?.aborted) return once();
-  return r;
+  const out = !r.ok && r.error.status === 503 && !opts.signal?.aborted ? await once() : r;
+  // The office's own categories join the built-in ones for every screen.
+  if (out.ok) setCustomTypes(out.data.customTypes ?? []);
+  return out;
+}
+
+/** Add a category (no key) or change one (its key) — office only. Fields are only ever added or renamed. */
+export function saveCustomType(input: { key?: string; label: string; unit: StockUnit; fields: Array<{ key?: string; label: string }> }) {
+  return httpPost(`${BASE}?action=type`, input, { schema: z.object({ type: CustomTypeSchema }), init: INIT, timeoutMs: WRITE_TIMEOUT_MS });
 }
 
 export function fetchItem(id: string) {

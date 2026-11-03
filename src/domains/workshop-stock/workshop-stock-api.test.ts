@@ -46,7 +46,7 @@ type Res = { statusCode: number; body: unknown; headers: Record<string, string>;
 let blob: Map<string, unknown>;
 let auth: { signSession: (p: Record<string, unknown>) => string };
 let handler: (req: Record<string, unknown>, res: Res) => Promise<unknown>;
-type StoreFn = "resolveTenant" | "listItems" | "getItem" | "listMovements" | "itemEvents" | "getOperation" | "replayOperation" | "recordMovement" | "recordCount" | "reverseMovement" | "createItemWithOpening" | "updateItem" | "setArchived" | "addIdentifier" | "retireIdentifier" | "recordVerification" | "insertPhoto" | "setPhotoReading" | "getPhotoForServing" | "replaceItemPhoto" | "hasLocationPhoto" | "hasTypes" | "hasLists" | "listLists" | "getList" | "saveList" | "deleteList" | "saveListLine" | "deleteListLine" | "photosDueForDeletion" | "markPhotoDeleted" | "markBlobDeleted" | "consumeUsage" | "getLocationMatrix" | "saveLocationMatrix" | "getCachedLookup" | "putCachedLookup";
+type StoreFn = "hasCustomTypes" | "listCustomTypes" | "saveCustomType" | "resolveTenant" | "listItems" | "getItem" | "listMovements" | "itemEvents" | "getOperation" | "replayOperation" | "recordMovement" | "recordCount" | "reverseMovement" | "createItemWithOpening" | "updateItem" | "setArchived" | "addIdentifier" | "retireIdentifier" | "recordVerification" | "insertPhoto" | "setPhotoReading" | "getPhotoForServing" | "replaceItemPhoto" | "hasLocationPhoto" | "hasTypes" | "hasLists" | "listLists" | "getList" | "saveList" | "deleteList" | "saveListLine" | "deleteListLine" | "photosDueForDeletion" | "markPhotoDeleted" | "markBlobDeleted" | "consumeUsage" | "getLocationMatrix" | "saveLocationMatrix" | "getCachedLookup" | "putCachedLookup";
 let store: Record<StoreFn, ReturnType<typeof vi.fn>>;
 let audit: { append: ReturnType<typeof vi.fn> };
 let lookupProduct: ReturnType<typeof vi.fn>;
@@ -159,6 +159,9 @@ beforeEach(() => {
     hasLocationPhoto: vi.fn(async () => true),
     hasTypes: vi.fn(async () => true),
     hasLists: vi.fn(async () => true),
+    hasCustomTypes: vi.fn(async () => true),
+    listCustomTypes: vi.fn(async () => []),
+    saveCustomType: vi.fn(async (_sql: unknown, _t: string, def: { key: string; label: string; unit: string; fields: unknown[] }) => ({ ok: true, created: true, type: { ...def, createdByName: "Olive Office", updatedAt: null } })),
     listLists: vi.fn(async () => []),
     getList: vi.fn(async () => null),
     saveList: vi.fn(async () => ({ ok: true, created: true, list: shoppingList() })),
@@ -934,5 +937,59 @@ describe("shopping lists", () => {
     store.hasLists.mockResolvedValueOnce(false);
     await post("move", { itemId: ITEM_ID, kind: "take", quantity: "1", listLineId: LINE_ID }, "u_field", { "idempotency-key": "op-key-0003" });
     expect(store.recordMovement.mock.calls[2]![2]).toMatchObject({ listLineId: null });
+  });
+});
+
+describe("categories the office makes (2026-11-03)", () => {
+  const solar = { label: "Solar inverters", unit: "each", fields: [{ label: "Power (kW)" }, { label: "Phase" }] };
+
+  it("the list carries the office's categories and says the feature is there", async () => {
+    store.listCustomTypes.mockResolvedValueOnce([{ key: "c_solar_inverters", label: "Solar inverters", unit: "each", fields: [{ key: "power_kw", label: "Power (kW)" }], createdByName: null, updatedAt: null }]);
+    const r = await call({ query: { action: "list" } });
+    expect(r.body).toMatchObject({ capabilities: { customTypes: true }, customTypes: [{ key: "c_solar_inverters", label: "Solar inverters" }] });
+  });
+
+  it("before the migration: no categories, the feature is off, and none can be saved", async () => {
+    store.hasCustomTypes.mockResolvedValue(false);
+    const r = await call({ query: { action: "list" } });
+    expect(r.body).toMatchObject({ capabilities: { customTypes: false }, customTypes: [] });
+    expect(store.listCustomTypes).not.toHaveBeenCalled();
+    expect((await post("type", solar, "u_office")).statusCode).toBe(503);
+    expect(store.saveCustomType).not.toHaveBeenCalled();
+  });
+
+  it("office only: the crew can't add one", async () => {
+    const r = await post("type", solar, "u_field");
+    expect(r.statusCode).toBe(403);
+    expect(store.saveCustomType).not.toHaveBeenCalled();
+  });
+
+  it("the office adds one: keys are made on the server from the names, and it's journaled", async () => {
+    const r = await post("type", solar, "u_office");
+    expect(r.statusCode).toBe(201);
+    expect(store.saveCustomType).toHaveBeenCalledWith(expect.anything(), TENANT.id, {
+      key: "c_solar_inverters",
+      label: "Solar inverters",
+      unit: "each",
+      fields: [{ key: "power_kw", label: "Power (kW)" }, { key: "phase", label: "Phase" }],
+    }, expect.objectContaining({ id: "u_office" }));
+    expect(audit.append).toHaveBeenCalledWith(expect.objectContaining({ action: "workshop_stock.type_created" }));
+  });
+
+  it("a name already taken is refused (409); a repeated or Brand field is refused (400)", async () => {
+    store.listCustomTypes.mockResolvedValueOnce([{ key: "c_solar_inverters", label: "Solar inverters", unit: "each", fields: [] }]);
+    expect((await post("type", solar, "u_office")).statusCode).toBe(409);
+    expect((await post("type", { label: "Heat pumps", fields: [{ label: "Size" }, { label: "size" }] }, "u_office")).body).toMatchObject({ error: "field_name_repeated" });
+    expect((await post("type", { label: "Heat pumps", fields: [{ label: "Brand" }] }, "u_office")).body).toMatchObject({ error: "field_name_invalid" });
+    expect((await post("type", { label: "!!!" }, "u_office")).body).toMatchObject({ error: "type_name_invalid" });
+  });
+
+  it("changing one keeps its key; an unknown key is 404", async () => {
+    store.listCustomTypes.mockResolvedValue([{ key: "c_solar_inverters", label: "Solar inverters", unit: "each", fields: [{ key: "power_kw", label: "Power (kW)" }] }]);
+    store.saveCustomType.mockResolvedValueOnce({ ok: true, created: false, type: { key: "c_solar_inverters", label: "Inverters", unit: "each", fields: [{ key: "power_kw", label: "Power" }, { key: "phase", label: "Phase" }] } });
+    const r = await post("type", { key: "c_solar_inverters", label: "Inverters", fields: [{ key: "power_kw", label: "Power" }, { label: "Phase" }] }, "u_office");
+    expect(r.statusCode).toBe(200);
+    expect(store.saveCustomType.mock.calls.at(-1)![2]).toMatchObject({ key: "c_solar_inverters", fields: [{ key: "power_kw", label: "Power" }, { key: "phase", label: "Phase" }] });
+    expect((await post("type", { key: "c_nope", label: "Nope" }, "u_office")).statusCode).toBe(404);
   });
 });

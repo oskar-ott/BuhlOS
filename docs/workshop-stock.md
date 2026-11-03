@@ -395,6 +395,38 @@ the colour temperature, the width, the length, the brand, the voltage."
   · White · 3042WE". Search covers the type and its fields ("iconic 2 gang",
   "led strip 24v").
 
+### Categories the office makes
+
+Owner pull, 2026-11-03: "i want to be able to create new catagories when the
+need comes up". Owner decisions: **office only** (the crew pick from the list;
+Other stays for anything that doesn't fit), and each category gets **a name and
+its own fields**.
+
+- **/stock → Categories** (shown once the table exists and types are on): the
+  office's own categories — fields, what they're counted in, how many items use
+  each — then the built-in ones, read-only. **New category**: a name ("Solar
+  inverters"), what new items of it are counted in, and up to 8 fields (Power,
+  Phase…). Brand is always there. **Change**: rename it, rename a field, add
+  fields — a saved field is never removed or re-keyed, so values already on
+  items stay readable. One live category per name (case-insensitive), and a
+  name a built-in one has is refused in the form.
+- An office category is a type like the built-in ones: its key is `c_<slug>`
+  (made on the server from the name; can't collide with a built-in key), its
+  fields' values live in `specs` under keys made from their names, each field
+  is a **filter** when the crew browse it, values are typed and the shop's own
+  become one-tap chips, and the name follows the fields ("Fronius 5kW Single").
+  Label photos don't guess office categories — the person picks it.
+- How the screens get them: every stock list carries `customTypes`;
+  `fetchStockList` puts them into the shared catalogue
+  (`types.ts setCustomTypes`, after the built-in ones, before Other), so every
+  picker, filter and description sees them. A key not (yet) known reads as
+  Other — never lost.
+- API: `POST ?action=type { key?, label, unit, fields: [{ key?, label }] }`,
+  OFFICE; no key = new (201), a key = change (200; 404 if unknown); 409
+  `type_name_taken`; 400 `field_name_invalid` / `field_name_repeated` /
+  `type_name_invalid`; 503 `types_unavailable` before the migration. Journaled
+  as `workshop_stock.type_created` / `type_changed`.
+
 ### Browsing by type
 
 "Someone opens stock when they already know what they need" — so once anything
@@ -742,6 +774,10 @@ first: `workshop_stock_items`, `_identifiers`, `_movements`, `_item_events`,
 `_photos`, `_lookup_cache`, `_usage`.
 `20261102100000_workshop_stock_location_matrix.sql` (re-runnable) adds
 `workshop_stock_location_matrix` and the camera table's `intake_read` counter.
+`20261103100000_workshop_stock_custom_types.sql` (re-runnable) adds
+`workshop_stock_types` — the office's categories (key `c_<slug>`, label, unit,
+fields jsonb ≤ 8; one live label per tenant, case-insensitive); the store finds
+it as `schemaFeatures.customTypes` and the list says `capabilities.customTypes`.
 
 **Deploy order is free** for both later migrations: the store reads the new
 columns through `to_jsonb(i)` (absent → null / `{}`) and finds what the database

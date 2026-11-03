@@ -142,6 +142,7 @@ const ITEM_COLUMNS = (sql) => sql`
 //   locationPhoto  items.location_photo_id            (20261026100000)
 //   types          items.category + items.specs       (20261101100000)
 //   lists          workshop_stock_lists + _list_lines (20261101100000)
+//   customTypes    workshop_stock_types               (20261103100000)
 //
 // Reads go through to_jsonb(i) above, which is null while a column doesn't
 // exist — so this code can deploy before a migration is applied. Writes, and
@@ -157,7 +158,7 @@ let schemaCheckedAt = 0;
 // hung on the pooler. Callers arriving mid-check share it.
 let schemaInflight = null;
 async function schemaFeatures(sql) {
-  if (schemaSeen && schemaSeen.locationPhoto && schemaSeen.types && schemaSeen.lists) return schemaSeen;
+  if (schemaSeen && schemaSeen.locationPhoto && schemaSeen.types && schemaSeen.lists && schemaSeen.customTypes) return schemaSeen;
   if (schemaSeen && Date.now() - schemaCheckedAt < SCHEMA_RECHECK_MS) return schemaSeen;
   if (schemaInflight) return schemaInflight;
   schemaInflight = checkSchema(sql).finally(() => { schemaInflight = null; });
@@ -169,16 +170,17 @@ async function checkSchema(sql) {
       select table_name, column_name from information_schema.columns
       where table_schema = 'public' and (
         (table_name = 'workshop_stock_items' and column_name in ('location_photo_id', 'category', 'specs'))
-        or (table_name in ('workshop_stock_lists', 'workshop_stock_list_lines') and column_name = 'id'))`;
+        or (table_name in ('workshop_stock_lists', 'workshop_stock_list_lines', 'workshop_stock_types') and column_name = 'id'))`;
     const has = (t, c) => rows.some((r) => r.table_name === t && r.column_name === c);
     schemaSeen = {
       locationPhoto: has('workshop_stock_items', 'location_photo_id'),
       types: has('workshop_stock_items', 'category') && has('workshop_stock_items', 'specs'),
       lists: has('workshop_stock_lists', 'id') && has('workshop_stock_list_lines', 'id'),
+      customTypes: has('workshop_stock_types', 'id'),
     };
   } catch {
     // keep what was already seen (a column never disappears); otherwise "not yet"
-    schemaSeen = schemaSeen || { locationPhoto: false, types: false, lists: false };
+    schemaSeen = schemaSeen || { locationPhoto: false, types: false, lists: false, customTypes: false };
   }
   schemaCheckedAt = Date.now();
   return schemaSeen;
@@ -191,6 +193,71 @@ async function hasTypes(sql) {
 }
 async function hasLists(sql) {
   return (await schemaFeatures(sql)).lists === true;
+}
+async function hasCustomTypes(sql) {
+  const f = await schemaFeatures(sql);
+  return f.customTypes === true && f.types === true;
+}
+
+// ── categories the office makes (20261103100000) ──────────────────────────────
+
+function mapCustomType(r) {
+  return {
+    key: r.key,
+    label: r.label,
+    unit: r.unit,
+    fields: Array.isArray(r.fields) ? r.fields.filter((f) => f && typeof f.key === 'string' && typeof f.label === 'string').map((f) => ({ key: f.key, label: f.label })) : [],
+    createdByName: r.created_by_name || null,
+    updatedAt: r.updated_at ? new Date(r.updated_at).toISOString() : null,
+  };
+}
+
+/** The office's own categories, oldest first (the order they were added). */
+async function listCustomTypes(sql, tenantId) {
+  const rows = await sql`
+    select key, label, unit, fields, created_by_name, updated_at
+    from public.workshop_stock_types
+    where tenant_id = ${tenantId} and archived_at is null
+    order by created_at, key`;
+  return rows.map(mapCustomType);
+}
+
+/**
+ * Add a category ({ key, label, unit, fields }) or change one with the same
+ * key. A change keeps every field already there (renames by key) — a field is
+ * never dropped or re-keyed, so values saved on items stay readable. A name
+ * another live category already has is refused.
+ */
+async function saveCustomType(sql, tenantId, def, actor) {
+  try {
+    return await sql.begin(async (tx) => {
+      const cur = await tx`select key, fields from public.workshop_stock_types where tenant_id = ${tenantId} and key = ${def.key} for update`;
+      if (!cur.length) {
+        const rows = await tx`
+          insert into public.workshop_stock_types (tenant_id, key, label, unit, fields, created_by_legacy_id, created_by_name)
+          values (${tenantId}, ${def.key}, ${def.label}, ${def.unit}, ${tx.json(def.fields)}, ${actor.id}, ${actor.name || null})
+          returning key, label, unit, fields, created_by_name, updated_at`;
+        return { ok: true, created: true, type: mapCustomType(rows[0]) };
+      }
+      const had = Array.isArray(cur[0].fields) ? cur[0].fields : [];
+      const given = new Map(def.fields.map((f) => [f.key, f]));
+      const kept = had.map((f) => (given.has(f.key) ? { key: f.key, label: given.get(f.key).label } : f));
+      const added = def.fields.filter((f) => !had.some((h) => h.key === f.key));
+      const fields = [...kept, ...added];
+      if (fields.length > 8) return { error: 'too_many_fields' };
+      const rows = await tx`
+        update public.workshop_stock_types set
+          label = ${def.label}, unit = ${def.unit}, fields = ${tx.json(fields)},
+          updated_by_legacy_id = ${actor.id}, updated_by_name = ${actor.name || null}, updated_at = now()
+        where tenant_id = ${tenantId} and key = ${def.key}
+        returning key, label, unit, fields, created_by_name, updated_at`;
+      return { ok: true, created: false, type: mapCustomType(rows[0]) };
+    });
+  } catch (e) {
+    // unique-violations are caught OUTSIDE sql.begin (the transaction is aborted inside)
+    if (e && e.code === '23505') return { error: 'type_name_taken' };
+    throw e;
+  }
 }
 
 async function identifiersFor(sql, tenantId, itemIds) {
@@ -1378,6 +1445,9 @@ module.exports = {
   hasLocationPhoto,
   hasTypes,
   hasLists,
+  hasCustomTypes,
+  listCustomTypes,
+  saveCustomType,
   listLists,
   getList,
   saveList,

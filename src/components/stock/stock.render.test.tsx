@@ -309,3 +309,20 @@ describe("photos from the camera roll", () => {
     expect(inputs.filter((i) => i.includes('capture="environment"'))).toHaveLength(1);
   });
 });
+
+describe("office categories panel (2026-11-03)", () => {
+  it("lists the office's categories with their fields and use, then the built-in ones", async () => {
+    const { StockCategories } = await import("@/components/admin/stock/StockCategories");
+    const html = flat(renderToString(createElement(StockCategories, {
+      customTypes: [{ key: "c_solar_inverters", label: "Solar inverters", unit: "each", fields: [{ key: "power", label: "Power" }, { key: "phase", label: "Phase" }] }],
+      items: [{ ...full, category: "c_solar_inverters" }],
+      onSaved: () => undefined,
+      onClose: () => undefined,
+    })));
+    expect(html).toContain("New category");
+    expect(html).toContain("Solar inverters");
+    expect(html).toContain("Brand, Power, Phase");
+    expect(html).toContain("1 item");
+    expect(html).toContain("Switches &amp; GPOs");
+  });
+});

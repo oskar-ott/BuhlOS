@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Plus, RefreshCw, Search } from "lucide-react";
+import { Plus, RefreshCw, Search, Tags } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Pill } from "@/components/ui/Pill";
 import { StockItemRow } from "@/components/stock/StockItemRow";
@@ -14,6 +14,7 @@ import { setPendingOwner } from "@/domains/workshop-stock/pending";
 import type { StockItem, StockList, VerificationStatus } from "@/domains/workshop-stock/schema";
 import { STOCK_TYPES, typeOf } from "@/domains/workshop-stock/types";
 import { StockAdminAdd } from "./StockAdminAdd";
+import { StockCategories } from "./StockCategories";
 import { StockItemDrawer } from "./StockItemDrawer";
 
 type Filter = "all" | "zero" | "estimated" | "check" | "unsorted" | "archived";
@@ -64,6 +65,7 @@ export function StockAdminClient({ initialItemId }: { initialItemId?: string | n
   const [typeFilter, setTypeFilter] = useState("");
   const [openId, setOpenId] = useState<string | null>(initialItemId ?? null);
   const [adding, setAdding] = useState(false);
+  const [categories, setCategories] = useState(false);
 
   const load = useCallback(async (archived: boolean) => {
     const r = await fetchStockList({ archived });
@@ -124,6 +126,11 @@ export function StockAdminClient({ initialItemId }: { initialItemId?: string | n
             <option value="">All types</option>
             {STOCK_TYPES.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
           </select>
+        ) : null}
+        {typesEnabled && list?.capabilities.customTypes ? (
+          <Button type="button" variant="secondary" size="sm" onClick={() => setCategories(true)} data-testid="stock-admin-categories">
+            <Tags aria-hidden="true" className="h-4 w-4" /> Categories
+          </Button>
         ) : null}
         <div className="relative w-full sm:w-[300px]">
           <Search aria-hidden="true" className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
@@ -210,6 +217,7 @@ export function StockAdminClient({ initialItemId }: { initialItemId?: string | n
       )}
 
       {openId && list ? <StockItemDrawer itemId={openId} lookupEnabled={list.capabilities.lookup} locationPhotoEnabled={list.capabilities.locationPhoto === true} typesEnabled={typesEnabled} onClose={() => setOpenId(null)} onChanged={() => void load(filter === "archived")} /> : null}
+      {categories && list ? <StockCategories customTypes={list.customTypes ?? []} items={items} onSaved={() => void load(filter === "archived")} onClose={() => setCategories(false)} /> : null}
       {adding && list ? <StockAdminAdd items={items} capabilities={list.capabilities} onSaved={() => void load(filter === "archived")} onOpenItem={(id) => { setAdding(false); setOpenId(id); }} onClose={() => setAdding(false)} /> : null}
     </div>
   );
