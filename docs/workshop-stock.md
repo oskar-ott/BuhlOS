@@ -228,10 +228,13 @@ placed from then on logs as that item and amount with no read at all, until Stop
 run of identical items, and for loose items with no readable label.
 
 **A hand scanner** (USB or Bluetooth, the kind that types like a keyboard) works on this
-screen with no setup. A scan goes to whatever card is waiting; otherwise, with the table
-running, it names the next thing placed, which then logs without a read; with the table
-stopped, each scan is +1 by itself. Keys arriving faster than anyone types are taken as
-a scan (`feedScan`).
+screen with no setup. A scan goes to the oldest waiting card with no barcode of its own,
+and never replaces a barcode a card already has (`cardForScan`). Otherwise, with the table
+running, it names the next thing placed, which then logs without a read, unless that
+barcode is already waiting on the table; with the table stopped, each scan is +1 by
+itself, and a barcode the list doesn't know gets its own card, repeats sharing one. Keys
+arriving faster than anyone types, then Enter, are taken as a scan (`feedScan`), even with
+the cursor in a field: the field goes back to what it held and nothing saves.
 
 **Setting up.** "Table area" draws the part of the picture the table fills; anything
 outside it is ignored and its edge counts as the picture's edge. Reading the empty table

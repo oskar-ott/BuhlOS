@@ -8,7 +8,7 @@ import { cleanBarcode, findByBarcode } from "@/domains/workshop-stock/barcode";
 import { addIdentifier, createItem, editItem, fetchItem, fetchLocationMatrix, fetchStockList, newOperationKey, readIntakeCrop, recordMove, storePhoto, undoMovement } from "@/domains/workshop-stock/client";
 import { decideRead } from "@/domains/workshop-stock/flow";
 import { errorCopy, formatNumber, parseTypedQuantity, READ_STATUS_COPY, signedQuantity, toQuantityString } from "@/domains/workshop-stock/format";
-import { emptyScan, feedScan, identifiersToTeach, itemWords, packNeedsCheck, placedAmount, productWords, sameInARow, sameProduct, sessionTotals, waitingQueue, type NewItemDraft } from "@/domains/workshop-stock/intake";
+import { cardForScan, emptyScan, feedScan, identifiersToTeach, itemWords, packNeedsCheck, placedAmount, productWords, sameInARow, sameProduct, sessionTotals, waitingQueue, type NewItemDraft } from "@/domains/workshop-stock/intake";
 import { clearSession, loadSession, loadZone, saveSession, saveZone } from "@/domains/workshop-stock/intake-session";
 import { addCalibrationFrame, analyseFrame, cropRect, emptyTracker, finishCalibration, newCalibration, sharpness, tableAdvice, type Box, type Calibration, type FoundObjects, type RawFrame, type TableState, type Track } from "@/domains/workshop-stock/intake-tracker";
 import { matrixLocations, ruleFor, type LocationMatrix } from "@/domains/workshop-stock/location-matrix";
@@ -135,6 +135,12 @@ function amountText(p: Placed): string {
   return p.unit === "each" ? `+${formatNumber(p.amountMilli)}` : signedQuantity(p.amountMilli, p.unit);
 }
 
+/** Sets a field the page's own state controls, as if a person had changed it. */
+function putBack(el: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement, value: string) {
+  Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), "value")?.set?.call(el, value);
+  el.dispatchEvent(new Event(el.tagName === "SELECT" ? "change" : "input", { bubbles: true }));
+}
+
 /** What the reticle on an object says. It only ever repeats what the save and the read say. */
 function describeTrack(track: Track, placed: Placed | undefined): OverlayTag {
   if (track.touching) return { tone: "touching", title: "MOVE APART", detail: null };
@@ -236,6 +242,7 @@ export function StockIntake() {
   const readTimes = useRef<number[]>([]);
   const confirmedPacks = useRef(new Set<string>());
   const scanRef = useRef(emptyScan());
+  const scanField = useRef<{ el: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement; value: string } | null>(null);
   const shortcutTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const nextScanRef = useRef(nextScan);
   nextScanRef.current = nextScan;
@@ -853,7 +860,7 @@ export function StockIntake() {
       return;
     }
     const hits = findByBarcode(itemsRef.current, barcode);
-    const open = [...placedRef.current].reverse().find((p) => p.status === "new" || p.status === "pick" || p.status === "problem" || p.status === "reading");
+    const open = cardForScan(placedRef.current);
     if (open) {
       patch(open.id, { barcode });
       if (hits.length === 1) void teach(hits[0]!.item, barcode, open.product, { barcodeOnly: true }).then((item) => logTo(open.id, item));
@@ -863,6 +870,11 @@ export function StockIntake() {
       return;
     }
     if (runningRef.current) {
+      const already = placedRef.current.find((p) => p.onTable && NEEDS_YOU.has(p.status) && sameProduct({ barcode }, p));
+      if (already) {
+        say(`That's #${already.id}, already waiting.`);
+        return;
+      }
       setNextScan({ barcode, item: hits.length === 1 ? hits[0]!.item : null });
       return;
     }
@@ -1125,16 +1137,24 @@ export function StockIntake() {
   function onShortcut(e: KeyboardEvent) {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     const tag = (e.target as HTMLElement | null)?.tagName ?? "";
-    if (["INPUT", "SELECT", "TEXTAREA"].includes(tag)) return;
     const fed = feedScan(scanRef.current, e.key, performance.now());
     scanRef.current = fed.buffer;
+    if (["INPUT", "SELECT", "TEXTAREA"].includes(tag)) {
+      // Keys in a field type there until they prove to be a scan; then the field goes back to what it held.
+      const el = e.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
+      if (e.key.length === 1 && fed.buffer.text.length === 1) scanField.current = { el, value: el.value };
+      if (!fed.code) return;
+      if (scanField.current?.el === el) putBack(el, scanField.current.value);
+    }
     // A scanner types far faster than a person: a shortcut only runs if no more keys follow.
     if (shortcutTimer.current) {
       clearTimeout(shortcutTimer.current);
       shortcutTimer.current = null;
     }
     if (fed.code) {
+      // Enter would otherwise save the form the cursor is in.
       e.preventDefault();
+      e.stopPropagation();
       onScan(fed.code);
       return;
     }
@@ -1154,8 +1174,8 @@ export function StockIntake() {
   onShortcutRef.current = onShortcut;
   useEffect(() => {
     const listener = (e: KeyboardEvent) => onShortcutRef.current(e);
-    window.addEventListener("keydown", listener);
-    return () => window.removeEventListener("keydown", listener);
+    window.addEventListener("keydown", listener, true);
+    return () => window.removeEventListener("keydown", listener, true);
   }, []);
 
   // ── the screen ──────────────────────────────────────────────────────────────

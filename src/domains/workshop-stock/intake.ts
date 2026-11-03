@@ -185,10 +185,23 @@ export const emptyScan = (): ScanBuffer => ({ text: "", lastAt: 0 });
  * the code when the Enter comes.
  */
 export function feedScan(buffer: ScanBuffer, key: string, now: number): { buffer: ScanBuffer; code: string | null } {
+  // A capital letter in a code comes with its own Shift press.
+  if (key === "Shift") return { buffer, code: null };
   const inTime = now - buffer.lastAt <= SCAN_KEY_GAP_MS;
   if (key === "Enter") return { buffer: emptyScan(), code: inTime && buffer.text.length >= SCAN_MIN_LENGTH ? buffer.text : null };
   if (key.length !== 1) return { buffer: emptyScan(), code: null };
   return { buffer: { text: inTime ? buffer.text + key : key, lastAt: now }, code: null };
+}
+
+const SCAN_TAKES: readonly string[] = ["new", "pick", "problem", "reading"];
+
+/**
+ * The card a hand scan names: the oldest waiting one with no barcode of its own. A card
+ * that already has one is a different thing or another of the same, so its barcode is
+ * never replaced.
+ */
+export function cardForScan<T extends { id: number; status: string; barcode?: string | null; product?: Pick<ReadProduct, "barcode"> | null }>(placed: readonly T[]): T | null {
+  return [...placed].sort((a, b) => a.id - b.id).find((p) => SCAN_TAKES.includes(p.status) && !barcodeKey(p.barcode ?? p.product?.barcode)) ?? null;
 }
 
 /** Oldest first, so the card being filled in never moves; repeats of one product share a card. */

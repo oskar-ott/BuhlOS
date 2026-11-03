@@ -304,6 +304,57 @@ test("a hand scanner: with the camera stopped it counts, with it running it name
   expect(await balance(/RCBO/)).toBe(4000);
 });
 
+test("a scan with the cursor in a field saves nothing there, and two new barcodes stay two cards", async ({ page }) => {
+  test.setTimeout(90_000);
+  await fakeCamera(page);
+  await open(page);
+  await expect(page.getByTestId("stock-intake-start")).toBeEnabled();
+  const realScan = async (code: string) => {
+    await page.keyboard.type(code);
+    await page.keyboard.press("Enter");
+  };
+
+  await realScan("9300000000033");
+  await page.getByTestId("stock-intake-new-name").fill("First thing");
+  await realScan("9300000000040");
+  await expect(page.getByTestId("stock-intake-queued")).toHaveCount(1);
+  await expect(page.getByTestId("stock-intake-new-name")).toHaveValue("First thing");
+  await expect(logged(page)).toHaveText("0");
+
+  // A code with letters isn't a stock barcode: refused, whole, and out of the field.
+  await realScan("ABC123456");
+  await expect(page.getByText("ABC123456 isn't a barcode")).toBeVisible();
+  await expect(page.getByTestId("stock-intake-new-name")).toHaveValue("First thing");
+
+  // A person's Enter still saves, and the first barcode stayed with the first thing.
+  await page.getByTestId("stock-intake-new-name").press("Enter");
+  await expect(logged(page)).toHaveText("1", { timeout: 15_000 });
+  await expect(card(page)).toHaveAttribute("data-status", "new");
+  await page.getByTestId("stock-intake-new-name").fill("Second thing");
+  await page.getByTestId("stock-intake-new-name").press("Enter");
+  await expect(logged(page)).toHaveText("2", { timeout: 15_000 });
+
+  await page.locator("body").click({ position: { x: 2, y: 2 } });
+  await scan(page, "9300000000033");
+  await expect(logged(page)).toHaveText("3", { timeout: 15_000 });
+  expect(await balance(/First thing/)).toBe(2000);
+  expect(await balance(/Second thing/)).toBe(1000);
+});
+
+test("scanning what's already waiting on the table doesn't name the next thing placed", async ({ page }) => {
+  test.setTimeout(90_000);
+  await fakeCamera(page);
+  await open(page);
+  await start(page);
+  await harness("/__harness/vision", { queue: [reading(product({ barcode: "9300000000057" }))] });
+  await put(page, "a", 100, 150);
+  await expect(card(page)).toHaveAttribute("data-status", "new", { timeout: 15_000 });
+  await scan(page, "9300000000057");
+  await expect(page.getByText(/already waiting/)).toBeVisible();
+  await expect(page.getByTestId("stock-intake-next-scan")).toHaveCount(0);
+  await expect(waiting(page)).toHaveText("1");
+});
+
 test("a label it can't read: taken away, it's marked not logged; a passing failure retries by itself", async ({ page }) => {
   test.setTimeout(90_000);
   await fakeCamera(page);

@@ -1,7 +1,7 @@
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 import { absorbLight, addCalibrationFrame, cropRect, emptyTracker, finishCalibration, findObjects, GONE_MS, newCalibration, SETTLE_MS, sharpness, stepTracker, tableAdvice, type Box, type TrackerState } from "./intake-tracker";
-import { draftFor, emptyScan, feedScan, identifiersToTeach, packNeedsCheck, placedAmount, productWords, sameInARow, sameProduct, sessionTotals, waitingQueue } from "./intake";
+import { cardForScan, draftFor, emptyScan, feedScan, identifiersToTeach, packNeedsCheck, placedAmount, productWords, sameInARow, sameProduct, sessionTotals, waitingQueue } from "./intake";
 import { locationText, matrixLocations, rackLabel, ruleFor, rulesOutsideRack, type LocationMatrix } from "./location-matrix";
 import { splitLocation } from "./location";
 import type { ReadProduct, StockItem } from "./schema";
@@ -350,6 +350,27 @@ describe("what a placed object teaches and asks", () => {
     expect(sameInARow([row("a"), row("a"), row("b"), row("a")])).toBe(2);
     expect(sameInARow([row("a"), row("x", 1000, "undone"), row("a")])).toBe(2);
     expect(sameInARow([row("a", 10_000), row("a", 1000)])).toBe(1);
+  });
+
+  it("a hand scan never replaces a barcode a card already has", () => {
+    const card = (id: number, status: string, barcode: string | null = null, productBarcode: string | null = null) => ({ id, status, barcode, product: productBarcode ? { barcode: productBarcode } : null });
+    expect(cardForScan([card(2, "new"), card(1, "new")])?.id).toBe(1);
+    expect(cardForScan([card(1, "new", "9300000000026")])).toBeNull();
+    expect(cardForScan([card(1, "new", null, "9300000000026")])).toBeNull();
+    expect(cardForScan([card(2, "problem"), card(1, "pick", "9300000000026")])?.id).toBe(2);
+    expect(cardForScan([card(1, "logged"), card(2, "ignored")])).toBeNull();
+  });
+
+  it("keeps a scan whole when a capital letter brings a Shift press", () => {
+    let buffer = emptyScan();
+    let code: string | null = null;
+    let now = 1000;
+    for (const key of ["Shift", "A", "Shift", "B", "1", "2", "3", "4"]) {
+      ({ buffer, code } = feedScan(buffer, key, now));
+      now += 2;
+    }
+    ({ code } = feedScan(buffer, "Enter", now));
+    expect(code).toBe("AB1234");
   });
 
   it("tells a scanner from a person typing", () => {
