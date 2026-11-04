@@ -1,14 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Bluetooth, Download, Loader2, Printer, Share2, Usb } from "lucide-react";
+import { Download, Loader2, Printer, Share2 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { makeLabelBarcode } from "@/domains/workshop-stock/client";
 import { errorCopy } from "@/domains/workshop-stock/format";
-import { ean13Modules, fitToPrinthead, isGuardModule, labelSize, layoutLabel, printerFamily, LABEL_SIZES, type LabelSize } from "@/domains/workshop-stock/label";
+import { ean13Modules, isGuardModule, labelSize, layoutLabel, LABEL_SIZES, type LabelSize } from "@/domains/workshop-stock/label";
 import type { StockItem } from "@/domains/workshop-stock/schema";
-import { BigButton, MiniButton, Slot } from "./ui";
-import { connectedPrinter, connectPrinter, disconnectPrinter, onPrinterChange, preloadPrinterLibrary, printCanvas, PrinterError, printerLinks, type ConnectedPrinter, type PrinterLink } from "./labelPrinter";
+import { BigButton, Slot } from "./ui";
+import { LabelDirectPrint } from "./LabelDirectPrint";
+import { preloadPrinterLibrary, printerLinks } from "./labelPrinter";
 
 const SIZE_KEY = "buhlos.stock.labelSize";
 
@@ -56,16 +57,15 @@ function draw(canvas: HTMLCanvasElement, size: LabelSize, code: string, name: st
 /**
  * A barcode label for an item, for the NIIMBOT app (owner, 2026-11-03). An item
  * with no barcode first gets one of ours (in-store EAN-13, made by the server —
- * scanning it finds this item). Then: the label at the chosen size, Print it
- * straight to the printer where the browser can reach one (Chrome/Edge:
- * Bluetooth or USB — owner, 2026-11-03, a B1 on the office computer), or Share
- * (the phone's share sheet → NIIMBOT) or Save the image. The label size is
- * remembered on this device.
+ * scanning it finds this item). Then: the label at the chosen size, Share (the
+ * phone's share sheet → NIIMBOT) or Save the image. The label size is
+ * remembered on this device. With `directPrint` (the office drawer), Print
+ * label sends it straight to the printer where Chrome can reach one.
  */
 export function BarcodeLabel({ item, onItemChanged, directPrint = false }: {
   item: StockItem;
   onItemChanged?: (item: StockItem) => void;
-  /** offer Print straight to the printer (office drawer only, for now — the phone keeps Share to NIIMBOT) */
+  /** offer Print label straight to the printer (office drawer only — the phone keeps Share to NIIMBOT) */
   directPrint?: boolean;
 }) {
   const [code, setCode] = useState<string | null>(() => itemBarcode(item));
@@ -75,22 +75,16 @@ export function BarcodeLabel({ item, onItemChanged, directPrint = false }: {
   const [url, setUrl] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const shelf = item.location;
-  const [links, setLinks] = useState<{ bluetooth: boolean; usb: boolean }>({ bluetooth: false, usb: false });
-  const [printer, setPrinter] = useState<ConnectedPrinter | null>(null);
-  const [printing, setPrinting] = useState<"connecting" | "printing" | null>(null);
-  const [printed, setPrinted] = useState(false);
-  const [printError, setPrintError] = useState<string | null>(null);
+  const [links, setLinks] = useState({ bluetooth: false, usb: false });
+  const canPrint = links.bluetooth || links.usb;
 
   useEffect(() => {
-    if (directPrint) {
-      const l = printerLinks();
-      setLinks(l);
-      if (l.bluetooth || l.usb) preloadPrinterLibrary();
-    }
-    setPrinter(connectedPrinter());
-    return onPrinterChange(setPrinter);
+    if (!directPrint) return;
+    const l = printerLinks();
+    setLinks(l);
+    // fetch the printer code now: Chrome only opens its printer list shortly after a click
+    if (l.bluetooth || l.usb) preloadPrinterLibrary();
   }, [directPrint]);
-  useEffect(() => { setPrinted(false); setPrintError(null); }, [sizeKey, code]);
 
   useEffect(() => { setCode(itemBarcode(item)); }, [item]);
 
@@ -125,33 +119,6 @@ export function BarcodeLabel({ item, onItemChanged, directPrint = false }: {
     download();
   }
 
-  /** Connect first if needed (Chrome's chooser), then print one label, drawn to fit the printer's head. */
-  async function print(link: PrinterLink) {
-    if (!code || printing) return;
-    setPrintError(null);
-    setPrinted(false);
-    try {
-      let p = connectedPrinter();
-      if (!p || p.link !== link) {
-        setPrinting("connecting");
-        p = await connectPrinter(link);
-        if (!p) return; // closed the chooser
-      }
-      const family = printerFamily(p.model);
-      const size = labelSize(sizeKey);
-      if (family && family !== size.family) return; // said above the button — a label isn't wasted on the wrong size
-      setPrinting("printing");
-      const canvas = document.createElement("canvas");
-      draw(canvas, fitToPrinthead(labelSize(sizeKey), p.printheadPixels, p.direction), code, item.name, shelf);
-      await printCanvas(canvas, 1);
-      setPrinted(true);
-    } catch (e) {
-      setPrintError(e instanceof PrinterError ? e.message : "The label didn't print. Check the printer is on and has labels, then try again.");
-    } finally {
-      setPrinting(null);
-    }
-  }
-
   function download() {
     if (!url) return;
     const a = document.createElement("a");
@@ -183,46 +150,12 @@ export function BarcodeLabel({ item, onItemChanged, directPrint = false }: {
         <canvas ref={canvasRef} className={cn("h-auto max-w-full rounded-[4px] border border-border bg-white shadow-sm", labelSize(sizeKey).widthMm >= 50 ? "w-[340px]" : labelSize(sizeKey).widthMm >= 40 ? "w-[280px]" : "w-[210px]")} aria-label={`Label: ${item.name}, barcode ${code}`} role="img" data-testid="stock-label-preview" />
       </div>
       <p className="text-center font-mono text-[13px] text-text-muted">{code}</p>
-      {links.bluetooth || links.usb ? (
-        <div className="space-y-2" data-testid="stock-label-direct">
-          {(() => {
-            const family = printerFamily(printer?.model);
-            const size = labelSize(sizeKey);
-            return printer && family && family !== size.family ? (
-              <Slot tone="warn" testId="stock-label-size-mismatch">The {printer.model} takes {family === "B" ? "40 × 30 or 50 × 30" : "40 × 12 or 30 × 15"} mm labels — pick the size on the roll that&apos;s in it, then Print.</Slot>
-            ) : null;
-          })()}
-          <BigButton
-            variant="pri"
-            icon={printing ? <Loader2 aria-hidden="true" className="h-5 w-5 animate-spin" /> : <Printer aria-hidden="true" className="h-5 w-5" />}
-            label={printing === "connecting" ? "Connecting…" : printing === "printing" ? "Printing…" : "Print label"}
-            sub={printer ? `on ${printer.name}` : links.bluetooth ? "connects to the printer by Bluetooth" : "connects to the printer by USB cable"}
-            disabled={!!printing}
-            onClick={() => void print(printer?.link ?? (links.bluetooth ? "bluetooth" : "usb"))}
-            data-testid="stock-label-print"
-          />
-          <div className="flex flex-wrap items-center gap-2 text-[13px] text-text-muted">
-            {printer ? (
-              <MiniButton onClick={() => void disconnectPrinter()} disabled={!!printing} data-testid="stock-label-disconnect">Disconnect printer</MiniButton>
-            ) : null}
-            {!printer && links.bluetooth && links.usb ? (
-              <MiniButton onClick={() => void print("usb")} disabled={!!printing} data-testid="stock-label-print-usb">
-                <Usb aria-hidden="true" className="mr-1 inline h-4 w-4" />Use a USB cable instead
-              </MiniButton>
-            ) : null}
-            {printer ? (
-              <span className="inline-flex items-center gap-1">{printer.link === "usb" ? <Usb aria-hidden="true" className="h-4 w-4" /> : <Bluetooth aria-hidden="true" className="h-4 w-4" />}Connected</span>
-            ) : null}
-          </div>
-          {printed ? <Slot tone="ok" role="status" testId="stock-label-printed">Printed. Stick it on the item or its bin — scanning it opens this item.</Slot> : null}
-          {printError ? <Slot tone="bad" role="alert" testId="stock-label-print-error">{printError}</Slot> : null}
-        </div>
-      ) : null}
+      {canPrint ? <LabelDirectPrint size={labelSize(sizeKey)} links={links} drawLabel={(canvas, size) => draw(canvas, size, code, item.name, shelf)} /> : null}
       <div className="grid grid-cols-2 gap-2">
-        <BigButton variant={links.bluetooth || links.usb ? "sec" : "pri"} icon={<Share2 aria-hidden="true" className="h-5 w-5" />} label="Share to NIIMBOT" sub="or any app" onClick={() => void share()} data-testid="stock-label-share" />
+        <BigButton variant={canPrint ? "sec" : "pri"} icon={<Share2 aria-hidden="true" className="h-5 w-5" />} label="Share to NIIMBOT" sub="or any app" onClick={() => void share()} data-testid="stock-label-share" />
         <BigButton variant="sec" icon={<Download aria-hidden="true" className="h-5 w-5" />} label="Save image" sub="then print it" onClick={download} data-testid="stock-label-save" />
       </div>
-      <p className="text-[13px] text-text-muted">{links.bluetooth || links.usb ? "Or share or save it and print it as a picture in the NIIMBOT app, on the same size label." : "In the NIIMBOT app, print it as a picture on the same size label. Stick it on the item or its bin — scanning it opens this item."}</p>
+      <p className="text-[13px] text-text-muted">{canPrint ? "Or share or save it and print it as a picture in the NIIMBOT app, on the same size label." : "In the NIIMBOT app, print it as a picture on the same size label. Stick it on the item or its bin — scanning it opens this item."}</p>
     </div>
   );
 }

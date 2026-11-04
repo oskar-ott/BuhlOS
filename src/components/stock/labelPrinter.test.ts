@@ -11,7 +11,7 @@ import { ean13Modules, fitToPrinthead, labelSize, layoutLabel } from "@/domains/
  * A real print on the B1 is still the proof (docs/workshop-stock.md).
  */
 
-type Job = { printInit: () => Promise<void>; printPage: (img: unknown, q: number) => Promise<void>; waitForFinished: () => Promise<void>; printEnd: () => Promise<boolean> };
+type Job = { printInit: () => Promise<void>; printPage: (img: unknown, q: number) => Promise<void>; waitForPageFinished: () => Promise<void>; waitForFinished: () => Promise<void>; printEnd: () => Promise<boolean> };
 
 const calls: string[] = [];
 let connectImpl: () => Promise<{ deviceName?: string }>;
@@ -27,6 +27,7 @@ class FakeClient {
       const job: Job = {
         printInit: async () => { calls.push("init"); },
         printPage: async (_img, q) => { calls.push(`page x${q}`); },
+        waitForPageFinished: async () => { calls.push("page done"); },
         waitForFinished: async () => { calls.push("finished"); },
         printEnd: async () => { calls.push("end"); return true; },
         ...jobImpl,
@@ -40,10 +41,10 @@ class FakeClient {
   }
   connect() { calls.push(`connect ${this.kind}`); return connectImpl(); }
   async disconnect() { calls.push("disconnect"); }
-  beating = true;
-  isHeartbeatStarted() { return this.beating; }
-  stopHeartbeat() { calls.push("heartbeat off"); this.beating = false; }
-  startHeartbeat() { calls.push("heartbeat on"); this.beating = true; }
+  // the real isHeartbeatStarted() answers the wrong way round (0.47.1 and upstream) — the code mustn't ask it
+  isHeartbeatStarted(): boolean { throw new Error("don't trust isHeartbeatStarted"); }
+  stopHeartbeat() { calls.push("heartbeat off"); }
+  startHeartbeat() { calls.push("heartbeat on"); }
   isConnected() { return true; }
   getModelMetadata() { return metaImpl(); }
   getPrintTaskType() { return (metaImpl() as { model?: string } | undefined)?.model === "B1" ? "B1" : undefined; }
@@ -91,10 +92,11 @@ describe("print straight to the NIIMBOT", () => {
     expect(calls.filter((c) => c.startsWith("connect"))).toEqual(["connect bluetooth"]);
     expect(calls.slice(calls.indexOf("connect bluetooth") + 1, calls.indexOf("heartbeat on") + 1)).toEqual([
       "encode top",
-      'task B1 {"totalPages":1,"density":3,"labelType":1}',
+      'task B1 {"totalPages":1,"density":3,"labelType":1,"pageColor":0,"statusPollIntervalMs":100,"statusTimeoutMs":8000}',
       "heartbeat off", // the background ping can't sit between the print's messages
       "init",
       "page x1",
+      "page done",
       "finished",
       "end",
       "heartbeat on",
@@ -148,6 +150,21 @@ describe("print straight to the NIIMBOT", () => {
     expect(p.printFailureCopy(2)).toMatch(/out of labels/);
     expect(p.printFailureCopy(3)).toMatch(/battery/);
     expect(p.printFailureCopy(undefined)).toMatch(/didn't print/);
+  });
+
+  it("Chrome's own refusals are said as what to fix on the computer, not the printer", async () => {
+    const p = await load();
+    const err = (name: string, message: string) => Object.assign(new Error(message), { name });
+    // a desktop with no Bluetooth, or it off: Chrome's actual message
+    expect(p.connectFailureCopy("bluetooth", err("NotFoundError", "Bluetooth adapter not available."))).toMatch(/computer's Bluetooth is off.*USB cable/);
+    expect(p.connectFailureCopy("bluetooth", err("NotFoundError", "Web Bluetooth API globally disabled."))).toMatch(/computer's Bluetooth/);
+    expect(p.connectFailureCopy("bluetooth", err("SecurityError", "Must be handling a user gesture to show a permission request."))).toMatch(/Press Print again/);
+    expect(p.connectFailureCopy("usb", err("SecurityError", "Access to the feature \"serial\" is disallowed by permissions policy."))).toMatch(/isn't allowed to use USB/);
+    expect(p.connectFailureCopy("usb", err("NetworkError", "Failed to open serial port."))).toMatch(/unplug the cable/);
+    expect(p.connectFailureCopy("bluetooth", err("NetworkError", "GATT Server is disconnected."))).toMatch(/switched on.*NIIMBOT app/);
+    // and none of those is mistaken for closing the list
+    connectImpl = async () => { throw err("NotFoundError", "Bluetooth adapter not available."); };
+    await expect(p.connectPrinter("bluetooth")).rejects.toThrow(/computer's Bluetooth/);
   });
 
   it("only offers what this browser has: Chrome on a computer has both, Safari/Firefox neither", async () => {

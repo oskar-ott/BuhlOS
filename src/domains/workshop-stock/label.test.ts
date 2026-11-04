@@ -1,6 +1,6 @@
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
-import { ean13Modules, ean13Valid, fitToPrinthead, labelSize, layoutLabel, LABEL_SIZES, printerFamily, wrapText } from "./label";
+import { ean13Modules, ean13Valid, fitToPrinthead, labelSize, layoutLabel, LABEL_SIZES, printerFamily, sizesForPrinter, wrapText } from "./label";
 
 const requireFromHere = createRequire(import.meta.url);
 const codes = requireFromHere("../../../api/_lib/workshop-stock/codes.js") as {
@@ -95,5 +95,9 @@ describe("NIIMBOT barcode labels (2026-11-03)", () => {
     expect(printerFamily("B18")).toBeNull(); // a different printer — no size advice
     expect(printerFamily(null)).toBeNull();
     expect(LABEL_SIZES.filter((s) => s.family === "B").map((s) => s.key)).toEqual(["40x30", "50x30"]);
+    expect(sizesForPrinter("B1", labelSize("40x12"))).toBe("40 × 30 or 50 × 30");
+    expect(sizesForPrinter("B1", labelSize("50x30"))).toBeNull();
+    expect(sizesForPrinter("D110", labelSize("50x30"))).toBe("40 × 12 or 30 × 15");
+    expect(sizesForPrinter("B18", labelSize("40x12"))).toBeNull();
   });
 });

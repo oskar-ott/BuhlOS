@@ -48,6 +48,17 @@ export function fitToPrinthead(size: LabelSize, printheadPixels: number, directi
     : { ...size, widthMm: Math.min(size.widthMm, headMm) };
 }
 
+/**
+ * The label sizes a connected printer takes, said plainly ("40 × 30 or 50 × 30"),
+ * when the chosen size isn't one of them — null when it fits, or when the
+ * printer is one we don't size labels for.
+ */
+export function sizesForPrinter(model: string | null | undefined, size: LabelSize): string | null {
+  const family = printerFamily(model);
+  if (!family || family === size.family) return null;
+  return LABEL_SIZES.filter((s) => s.family === family).map((s) => `${s.widthMm} × ${s.heightMm}`).join(" or ");
+}
+
 /** "D" / "B" for a NIIMBOT model name ("B1", "D110_M"), null for one we don't size labels for. */
 export function printerFamily(model: string | null | undefined): "D" | "B" | null {
   if (!model) return null;

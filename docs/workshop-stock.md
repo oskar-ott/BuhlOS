@@ -555,45 +555,65 @@ it all works easily together".
   only describe); after saving, the label comes up before the next item.
 - **Print straight to the printer (office, Chrome)** — owner, 2026-11-03: "is
   there a way to incorporate the printer", a **B1**, on the office computer, in
-  Chrome. The office drawer's label has **Print label**: Chrome connects to the
-  printer over Bluetooth (Web Bluetooth) — or **Use a USB cable instead** (Web
-  Serial) — with its own chooser the first time in a tab, then prints with no
-  NIIMBOT app (`components/stock/labelPrinter.ts`, `@mmote/niimbluelib`, MIT,
-  pinned). Then "on B1-…", **Disconnect printer**, and "Printed." or what to
-  check (lid open, out of labels, battery, the NIIMBOT app on a phone holding
-  the printer).
-  - The B1's head is 48 mm (384 dots): a 50 × 30 label is drawn 48 mm wide to
-    print (`label.fitToPrinthead`), bars still whole dots; a narrower one
-    (40 × 30) is sent at full head width, centred (`padToHead`), so it lands
-    in the middle however the printer places what it's sent. A D-size label
-    picked with a B printer connected (or the other way) is said and **not
-    printed** — no label wasted.
-  - While printing, the library's background ping is paused (it could sit
-    between the print's messages); a print that never reports finished gives
-    up after 30 s. The library is fetched as the panel opens, so Chrome's
-    chooser isn't refused for a slow first click.
-  - Only what the library knows and only 203 dpi printers (D11/D110/B1/B21);
+  Chrome. The office drawer's label has **Print label** (`LabelDirectPrint`):
+  Chrome connects to the printer over Bluetooth (Web Bluetooth) — or **Use a
+  USB cable instead** (Web Serial) — through its own printer list the first
+  time in a tab, then prints with no NIIMBOT app (`components/stock/labelPrinter.ts`,
+  `@mmote/niimbluelib` 0.47.1, MIT, pinned — the line NiimBlue, the web app
+  most B1 owners print from, runs on). Then "on B1-…", **Disconnect printer**,
+  and "Printed." or what to fix.
+  - **The print follows NiimBlue's sequence** (B1 print task: density 3, gap
+    labels, page, status polled every 100 ms with an 8 s reply timeout). The
+    library's background ping is stopped for the print and started again
+    after, unconditionally — its `isHeartbeatStarted()` answers the wrong way
+    round (0.47.1 and upstream), so it isn't asked. A print that never
+    reports finished gives up after 30 s.
+  - **Sizes:** the B1's head is 48 mm (384 dots). A 50 × 30 label is drawn
+    48 mm wide (`label.fitToPrinthead`; NiimBlue's own default sends 400 dots
+    and warns), bars still whole dots; a narrower one (40 × 30) is sent at
+    full head width, centred (`padToHead`), so it lands in the middle however
+    the printer places what it's sent. A size the connected printer doesn't
+    take is said and **not printed** (`label.sizesForPrinter`).
+  - **What's said:** the printer's refusals (lid open, out of labels, wrong
+    labels, battery, too hot, busy) and Chrome's (no Bluetooth on this
+    computer or it's off → use the USB cable; Bluetooth/USB not allowed for
+    the site; printer list not opened in time) — never "check the printer"
+    for a computer problem. Closing the printer list is not an error.
+  - **Genuine labels:** the B1 reads the roll's RFID tag and prints near-blank
+    without one (NIIMBOT's rule, not ours) — use NIIMBOT B1 rolls.
+  - Only printers the library knows and only 203 dpi ones (D11/D110/B1/B21);
     anything else is told to use Save image.
-  - The library loads only when Print is pressed (its own chunk), never with
-    the stock screen. Shown only where the browser has Bluetooth or Serial
-    (Chrome/Edge on a computer); Safari, Firefox and iPhone keep Share/Save.
+  - The library is its own chunk, fetched when the label panel opens (Chrome
+    only opens its printer list shortly after a click), never with the stock
+    screen. Shown only where the browser has Bluetooth or Serial (Chrome/Edge
+    on a computer); Safari, Firefox and iPhone keep Share/Save. On Linux,
+    Chrome needs Web Bluetooth switched on in chrome://flags.
   - **Office only.** The phone keeps Share to NIIMBOT — no new phone slot
     until a field ask pulls it.
   - NIIMBOT doesn't publish the protocol; the library is reverse-engineered,
     so a printer firmware update could break it. Save image stays beside it.
-  - **Audit before release (2026-11-03):** unit tests cover the print
-    sequence against a stand-in and the real library encoding a B1 label;
-    a fresh-eyes review checked the library usage; and the real component
-    + real library ran in Chromium against a simulated B1 behind
-    `navigator.bluetooth` (answering the protocol as the library parses it):
-    connect → density 3, gap labels → page 240 × 384 → printed, and the 156
-    bar rows rebuilt from what the "printer" received all decode as the
-    item's code; second label with no chooser; 40 × 30 centred (36 dots
-    white each side); wrong size refused; lid open said; printer dropping,
-    chooser closed (Bluetooth and USB) handled; reconnect prints.
-  - **Proof still owed:** the simulator is built from the library's reading
-    of the protocol, not a real B1 — the first label actually printed on the
-    owner's B1 and scanned is the proof.
+  - **Audit before release (2026-11-03/04):**
+    - unit tests: the print sequence against a stand-in; Chrome's and the
+      printer's refusals; the real library encoding a B1 label (fits the
+      head, bars read back);
+    - **a real B1's handshake** (HW 5.10 / FW 5.22, captured bytes from the
+      library's own tests) played back through the real library: found as a
+      B1 — B1 print sequence, 384-dot head, upright
+      (`labelPrinter.b1-handshake.test.ts`);
+    - checked against NiimBlue's source and the NIIMBOT protocol wiki
+      (MultiMote/niimbot-wiki: B1 print task, 384 px head, Web Bluetooth
+      service) — this found the heartbeat bug above;
+    - **the production build** (`next build` / `next start`, webpack's
+      loading of the library) in Chromium, with a B1 behind
+      `navigator.bluetooth` answering with the recorded handshake bytes and
+      the wiki's print replies: library already fetched before the click;
+      sequence = the wiki's B1 sequence; 50 × 30 → 240 × 384, 156 bar rows
+      decode as the item's code; no ping during the print, pings back after;
+      second label with no printer list; 40 × 30 centred (36 dots each side);
+      wrong size not printed; lid open, no Bluetooth, printer dropping,
+      list closed (Bluetooth and USB), reconnect — all as above.
+  - **Proof still owed:** no real B1 has printed from BuhlOS yet — the
+    owner's first label, scanned, is the proof.
 - **Together**: a loose item → photo ("looks like …") or pick by sight → its
   own barcode → label on the NIIMBOT → from then on the scanner (or the phone
   camera) finds it like any boxed product. Boxes + loose counts and the

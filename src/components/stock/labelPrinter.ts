@@ -91,6 +91,27 @@ function cancelled(e: unknown): boolean {
 }
 
 /**
+ * What to tell the person when Chrome or the printer won't connect. Chrome's
+ * own refusals come first — a desktop with no Bluetooth (or it off), the site
+ * not allowed to use Bluetooth/USB, the chooser not opened in time — because
+ * "check the printer is on" would send them to the wrong place.
+ */
+export function connectFailureCopy(link: PrinterLink, e: unknown): string {
+  const name = String((e as { name?: string } | null)?.name ?? "");
+  const msg = String((e as { message?: string } | null)?.message ?? "");
+  if (link === "bluetooth" && /adapter not available|globally disabled|not supported on this platform/i.test(msg)) {
+    return "This computer's Bluetooth is off, or it hasn't got Bluetooth. Turn it on, or plug the printer in with its USB cable and use that.";
+  }
+  if (/gesture/i.test(msg)) return "Chrome didn't open the printer list in time. Press Print again.";
+  if (name === "NotAllowedError" || name === "SecurityError" || /permission|blocked/i.test(msg)) {
+    return `Chrome isn't allowed to use ${link === "usb" ? "USB" : "Bluetooth"} on this site. Allow it in the site settings (the icon left of the web address), then try again.`;
+  }
+  return link === "usb"
+    ? "Couldn't connect to the printer over USB. Check it's on, unplug the cable and plug it back in, then try again."
+    : "Couldn't connect to the printer. Check it's switched on and close the NIIMBOT app on any phone that's connected to it, then try again.";
+}
+
+/**
  * Ask Chrome for the printer (its chooser opens), connect, and find out what
  * model it is. Resolves null when the chooser was closed without picking one.
  */
@@ -104,11 +125,7 @@ export async function connectPrinter(link: PrinterLink): Promise<ConnectedPrinte
   } catch (e) {
     try { await c.disconnect(); } catch { /* already gone */ }
     if (cancelled(e)) return null;
-    throw new PrinterError(
-      link === "usb"
-        ? "Couldn't connect to the printer over USB. Check the cable is in and the printer is on, then try again."
-        : "Couldn't connect to the printer. Check it's switched on and close the NIIMBOT app on any phone that's connected to it, then try again.",
-    );
+    throw new PrinterError(connectFailureCopy(link, e));
   }
   const m = c.getModelMetadata();
   const t = c.getPrintTaskType();
@@ -203,10 +220,13 @@ export function padToHead(canvas: HTMLCanvasElement, printheadPixels: number, di
  * print head) `copies` times on the connected printer. Throws PrinterError
  * with something the person can act on.
  *
- * The library's background "are you there" ping is paused while printing, so
- * it can't sit between the print's own messages (and swallow a printer error
- * meant for the print), and a print that never reports finished gives up
- * after PRINT_TIMEOUT_MS instead of leaving the button on "Printing…".
+ * Follows NiimBlue's print sequence (the web app most B1 owners print from,
+ * on this same library): the background "are you there" ping is stopped for
+ * the print and started again after — unconditionally, as NiimBlue does,
+ * because the library's isHeartbeatStarted() answers the wrong way round —
+ * and the status is polled every 100 ms with an 8 s reply timeout. On top of
+ * that, a print that never reports finished gives up after PRINT_TIMEOUT_MS
+ * instead of leaving the button on "Printing…".
  */
 export async function printCanvas(canvas: HTMLCanvasElement, copies = 1): Promise<void> {
   if (!lib || !client || !current || !task || !meta) throw new PrinterError("The printer isn't connected. Press Print again to connect it.");
@@ -216,13 +236,16 @@ export async function printCanvas(canvas: HTMLCanvasElement, copies = 1): Promis
     totalPages: copies,
     density: meta.densityDefault,
     labelType: lib.LabelType.WithGaps,
+    pageColor: lib.PageColorType.SingleColor,
+    statusPollIntervalMs: 100,
+    statusTimeoutMs: 8_000,
   });
-  const beating = c.isHeartbeatStarted();
   c.stopHeartbeat();
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     await job.printInit();
     await job.printPage(image, copies);
+    await job.waitForPageFinished();
     await Promise.race([
       job.waitForFinished(),
       new Promise<never>((_, reject) => {
@@ -235,6 +258,6 @@ export async function printCanvas(canvas: HTMLCanvasElement, copies = 1): Promis
   } finally {
     clearTimeout(timer);
     try { await job.printEnd(); } catch { /* the printer may already have dropped */ }
-    if (beating && client === c && c.isConnected()) c.startHeartbeat();
+    if (client === c && c.isConnected()) c.startHeartbeat();
   }
 }
