@@ -58,6 +58,8 @@ export type PanelState =
       kind: "noDefault";
       date: string;
       jobs: ReadonlyArray<HoursJob>;
+      /** Job ids the worker logged, most recent first — which jobs get a chip. */
+      recentJobIds: ReadonlyArray<string>;
       onPickJob: (jobId: string) => void;
       onFind: () => void;
     } & PanelLeaveActions)
@@ -68,6 +70,8 @@ export type PanelState =
       /** The picked day sits in an earlier week. */
       backdated: boolean;
       jobs: ReadonlyArray<HoursJob>;
+      /** Job ids the worker logged, most recent first — which jobs get a chip. */
+      recentJobIds: ReadonlyArray<string>;
       pickedJob: HoursJob;
       lastJobId: string | null;
       foundJob: HoursJob | null;
@@ -202,6 +206,7 @@ function PanelBody({ state, offline }: { state: PanelState; offline: boolean }):
           <SectionLabel>{`Job for ${weekdayName(state.date)}`}</SectionLabel>
           <JobChips
             jobs={state.jobs}
+            recentJobIds={state.recentJobIds}
             pickedJobId={null}
             lastJobId={null}
             date={state.date}
@@ -209,7 +214,7 @@ function PanelBody({ state, offline }: { state: PanelState; offline: boolean }):
             onFind={state.onFind}
           />
           <p className="text-center text-[14px] text-text-muted">
-            Tap a job and the log button appears here.
+            Pick a job and the log button appears here.
           </p>
           <ActionBar items={leaveItems(state, leaveOptions(state.canLogTafe))} />
         </div>
@@ -233,6 +238,7 @@ function PanelBody({ state, offline }: { state: PanelState; offline: boolean }):
               <SectionLabel>{`Job for ${day}`}</SectionLabel>
               <JobChips
                 jobs={state.jobs}
+                recentJobIds={state.recentJobIds}
                 pickedJobId={state.pickedJob.id}
                 lastJobId={state.lastJobId}
                 foundJob={state.foundJob}

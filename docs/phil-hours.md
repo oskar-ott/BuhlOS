@@ -54,6 +54,19 @@ or concepts. Payloads come from the existing builders in `service.ts` and
 - **Jobs are never fixed.** Every worker can change the job for the day they're
   logging (one job → a field with Change ›; several → chips). A pick applies to
   the picked day only.
+- **The job tiles never grow with the job count** (P10). A 2×2: the
+  worker's **last 3 jobs**, and the 4th tile is **More jobs** (owner,
+  2026-11-02: "the last 3 jobs … with the 4th tile being more jobs so it
+  doesn't saturate the screen"). Every worker works every active job (#907),
+  so "your jobs" is the whole active list — 30-odd. The 3 are the last job,
+  the day's pick, then the jobs this worker logged most recently
+  (`chipJobs`, `JOB_CHIPS_SHOWN = 3`) — never padded A–Z with jobs they've
+  never logged. A job found through More jobs takes the first tile for that
+  day. More jobs opens Find another job, whose list leads with the current
+  job, then the most recently logged, then A–Z (`rankJobs`). This restores
+  the owner's 2026-08-02 ruling on the old job dial ("constant height for any
+  job count", #977), which the rebuild lost and the 2026-11-01 field report
+  caught (a tile for every job filled the screen).
 - **No delete.** The day-detail sheet says: "Logged days can't be deleted.
   Change the hours instead, or ask the office."
 - **No promises**: no "you'll be notified", no approval ETAs, no reviewer
@@ -129,10 +142,12 @@ was built:
 - `hours-view.test.ts` — the 14-day window, OT maths and the 16h cap, the
   weekend all-OT rule, the summary that counts only what's logged, initial
   pick + auto-advance (weekdays only, never a weekend), receipts, earlier
-  weeks, job search never returning a leave day.
+  weeks, job search never returning a leave day, the tile cap (34 jobs → the
+  last 3, the day's pick always among them) and job ranking.
 - `hours-save.test.ts` — refused vs unconfirmed, and Try again re-reads first
   and never sends twice (same key when it does resend).
 - `PhilHoursView.render.test.tsx` — SSR smoke: every panel state, the fix line,
-  the failed-load screen shows **no numbers**, Find another job lists no leave.
+  the failed-load screen shows **no numbers**, Find another job lists no leave,
+  34 listed jobs render 3 tiles + More jobs (not 34), the Find list's order.
 - Preview Smoke (`tests/playwright/helpers/fieldReadiness.ts`) drives the
   `hours-log-primary` button and asserts the POST carries the assigned job.

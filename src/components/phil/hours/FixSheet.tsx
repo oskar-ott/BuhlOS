@@ -41,6 +41,7 @@ export function FixSheet({
   onClose,
   entry,
   jobs,
+  recentJobIds = [],
   canLogTafe,
   busy = false,
   problem,
@@ -52,6 +53,8 @@ export function FixSheet({
   onClose: () => void;
   entry: TimeEntry;
   jobs: ReadonlyArray<HoursJob>;
+  /** Job ids the worker logged, most recent first — which jobs get a chip. */
+  recentJobIds?: ReadonlyArray<string>;
   canLogTafe: boolean;
   busy?: boolean;
   problem?: { problem: HoursProblem; onRetry?: (() => void) | null; retryLabel?: string } | null;
@@ -186,6 +189,7 @@ export function FixSheet({
             {!split ? (
               <JobChips
                 jobs={jobs}
+                recentJobIds={recentJobIds}
                 pickedJobId={leave ? null : effectiveJobId}
                 lastJobId={sentJobId}
                 sentJobId={sentJobId}

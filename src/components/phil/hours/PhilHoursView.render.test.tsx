@@ -151,7 +151,39 @@ describe("PhilHoursView — this week", () => {
     expect(html).toContain("Mascot warehouse · sends to the office");
     expect(html).toContain('data-testid="hours-action-split"');
     expect(html).toContain('data-testid="hours-action-tafe"');
-    expect(html).toContain("Find another job");
+    expect(html).toContain("More jobs");
+  });
+
+  it("every active job listed (30-odd): the last 3 jobs + a More jobs tile — a 2×2, never a wall", () => {
+    // The 2026-11-01 screenshot: a tile for every job in the business, A–Z,
+    // filling the screen. Owner, 2026-11-02: "the last 3 jobs … with the 4th
+    // tile being more jobs so it doesn't saturate the screen".
+    const many = Array.from({ length: 34 }, (_, i) => ({
+      id: `j${String(i).padStart(2, "0")}`,
+      name: `Site ${String(i).padStart(2, "0")}`,
+    }));
+    const html = render({
+      jobs: [...JOBS, ...many],
+      entries: [
+        entry({ date: "2026-10-01", allocations: [{ jobId: "j03", hours: 7.6 }] }),
+        entry({ date: "2026-10-02", allocations: [{ jobId: "j29", hours: 7.6 }] }),
+        entry({ date: "2026-10-06", allocations: [{ jobId: "bondi", hours: 7.6 }] }),
+        entry({ date: "2026-10-08", allocations: [{ jobId: "j17", hours: 7.6 }] }),
+        entry({ date: "2026-10-09", allocations: [{ jobId: "mascot", hours: 7.6 }] }),
+      ],
+    });
+    const tiles = html.match(/data-testid="hours-job-chip-[^"]+"/g) ?? [];
+    expect(tiles).toEqual([
+      'data-testid="hours-job-chip-mascot"',
+      'data-testid="hours-job-chip-j17"',
+      'data-testid="hours-job-chip-bondi"',
+    ]);
+    expect(html).toContain("Your last job");
+    expect(html).toContain("Mascot warehouse · sends to the office");
+    expect(html).toContain('data-testid="hours-find-job"');
+    expect(words(html)).toContain("More jobs");
+    expect(html).not.toContain("Site 03");
+    expect(html).not.toContain("Site 00");
   });
 
   it("no assigned job: the reason in words plus Sick day · Holiday", () => {
@@ -209,6 +241,33 @@ describe("PhilHoursView — failed load is its own screen", () => {
     expect(text).not.toMatch(/\d/);
     expect(html).not.toContain('data-testid="hours-week-card"');
     expect(html).not.toContain('data-testid="hours-panel"');
+  });
+});
+
+describe("FindJobSheet — the full list, current and recently logged first", () => {
+  it("leads with the current job, then the most recently logged, then A–Z", () => {
+    const html = renderToString(
+      createElement(FindJobSheet, {
+        open: true,
+        onClose: () => {},
+        date: TODAY,
+        jobs: [
+          { id: "zetland", name: "Zetland apartments" },
+          { id: "alex", name: "Alexandria depot" },
+          ...JOBS,
+        ],
+        currentJobId: "mascot",
+        entries: [
+          entry({ date: "2026-10-06", allocations: [{ jobId: "mascot", hours: 7.6 }] }),
+          entry({ date: "2026-10-13", allocations: [{ jobId: "zetland", hours: 7.6 }] }),
+        ],
+        onPick: () => {},
+      })
+    );
+    const rows = (html.match(/data-testid="hours-job-row-[^"]+"/g) ?? []).map((m) =>
+      m.replace(/^data-testid="hours-job-row-|"$/g, "")
+    );
+    expect(rows).toEqual(["mascot", "zetland", "alex", "bondi"]);
   });
 });
 
