@@ -1165,6 +1165,8 @@ non-localhost URL):
 
 ```bash
 # 1. a local Postgres with every migration applied and a 'buhl' tenant row
+#    (plain Postgres first needs what Supabase provides: an auth schema with auth.jwt()
+#    and auth.uid(), and the roles anon, authenticated and service_role)
 # 2. the harness: the real /api/workshop-stock on :3101
 WORKSHOP_STOCK_E2E_DB_URL=postgres://…@localhost:5432/<db> SESSION_SECRET=<16+ chars> \
   node scripts/qa/workshop-stock-e2e/harness.js
@@ -1193,8 +1195,9 @@ the barcode detector and the label reader's answers are fixtures: **real webcams
 lighting and labels are not proven**, and neither is the speed or cost of real reads.
 
 The spec covers: More → Workshop stock; add by photo with the online check and
-packs (the listing never renames it; a changed brand makes the check stale);
-search by trade name; list photos as small copies; photograph again and take;
+packs (the type guessed from the label and its brand field; the listing never
+renames it; a changed brand makes the check stale); the type tile and everything
+by shelf; search by trade name; list photos as small copies; photograph again and take;
 Undo; take from the list; return; a lost answer recovered by Try again (one
 movement) and by reopening (reconciled); several products → which one; unknown
 product → add as new; reader and check both down → by hand (container-unit
