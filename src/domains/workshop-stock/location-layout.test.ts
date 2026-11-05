@@ -222,3 +222,18 @@ describe("recommendLayout", () => {
     }
   });
 });
+
+describe("uneven shelves", () => {
+  it("only plans bins each shelf has, and the path still turns back at each shelf's end", () => {
+    const matrix: LocationMatrix = { racks: [{ id: "1", name: "1", shelves: 3, bins: 6, shelfBins: [2, 6, 3] }], rules: [] };
+    const names = ["Iconic switch", "Iconic GPO", "Cat6 data jack", "Cat6 patch lead", "20A mcb", "rcbo 20A", "Downlight 10W", "Batten 1200", "TPS 2.5mm", "Cable tie 300mm"];
+    const plan = recommendLayout(names.map((n, i) => item(String(i), n)), matrix, { keepRules: true })!;
+    for (const key of plan.bins.keys()) {
+      const [, shelf, bin] = key.split(":").map(Number);
+      expect(bin).toBeLessThanOrEqual(matrix.racks[0]!.shelfBins![shelf! - 1]!);
+    }
+    for (const r of plan.rules) expect(binAt(locationText(matrix.racks[0]!, r.shelf, r.bin), matrix)).not.toBeNull();
+    expect(plan.spare + plan.bins.size).toBe(11);
+  });
+});
+

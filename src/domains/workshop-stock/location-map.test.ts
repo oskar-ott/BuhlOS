@@ -71,6 +71,13 @@ describe("suggestBin", () => {
     expect(suggestBin({ text: "thing", brand: "Hager" }, matrix, items)).toMatchObject({ location: "Rack 1 Shelf A, Bin 1", why: "First free bin" });
   });
 
+  it("a short shelf is full at its own last bin", () => {
+    const short: LocationMatrix = { racks: [{ id: "a", name: "1", shelves: 2, bins: 4, shelfBins: [2, 4] }], rules: [] };
+    const items = [1, 2].map((b) => item(`b${b}`, "Clipsal", `Rack 1 Shelf A, Bin ${b}`, { brand: "Clipsal" }));
+    expect(suggestBin({ text: "thing", brand: "Clipsal" }, short, items)?.location).toBe("Rack 1 Shelf B, Bin 1");
+    expect(placementIssues([item("x", "Thing", "Rack 1 Shelf A, Bin 3")], short)[0]?.problem).toContain("isn't a bin on the map");
+  });
+
   it("a full shelf sends it to the closest shelf on that rack", () => {
     const items = [1, 2, 3].map((b) => item(`b${b}`, "Clipsal", `Rack 1 Shelf A, Bin ${b}`, { brand: "Clipsal" }));
     const s = suggestBin({ text: "thing", brand: "Clipsal" }, matrix, items);

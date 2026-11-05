@@ -416,6 +416,8 @@ const MatrixBody = z.object({
     name: z.string().trim().min(1).max(30),
     shelves: z.number().int().min(1).max(26),
     bins: z.number().int().min(1).max(60),
+    // Bins on each shelf, shelf A first, when the shelves differ. Absent = every shelf has `bins`.
+    shelfBins: z.array(z.number().int().min(1).max(60)).max(26).optional(),
   })).max(60),
   rules: z.array(z.object({
     id: z.string().trim().min(1).max(60),
@@ -439,9 +441,17 @@ async function saveLocationMatrix(sql, tenant, me, body, res) {
   if (racks.size !== input.racks.length) return bad(res, 'rack_duplicate');
   const names = new Set(input.racks.map((r) => r.name.toLowerCase()));
   if (names.size !== input.racks.length) return bad(res, 'rack_duplicate');
+  for (const rack of input.racks) {
+    if (!rack.shelfBins) continue;
+    if (rack.shelfBins.length !== rack.shelves) return bad(res, 'invalid_request', { field: 'racks.shelfBins' });
+    // `bins` is the widest shelf, so anything reading only `bins` still sizes the grid right.
+    rack.bins = Math.max(...rack.shelfBins);
+    if (rack.shelfBins.every((n) => n === rack.bins)) delete rack.shelfBins;
+  }
+  const binsOn = (rack, shelf) => (rack.shelfBins ? rack.shelfBins[shelf - 1] : rack.bins);
   for (const rule of input.rules) {
     const rack = racks.get(rule.rackId);
-    if (!rack || rule.shelf > rack.shelves || rule.bin > rack.bins) return bad(res, 'rule_out_of_range', { ruleId: rule.id });
+    if (!rack || rule.shelf > rack.shelves || rule.bin > binsOn(rack, rule.shelf)) return bad(res, 'rule_out_of_range', { ruleId: rule.id });
   }
   const current = await store.getLocationMatrix(sql, tenant.id);
   if (!current.available) return res.status(503).json({ error: 'matrix_unavailable' });

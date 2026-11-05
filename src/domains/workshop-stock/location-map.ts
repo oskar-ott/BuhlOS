@@ -1,5 +1,5 @@
 import { itemWords } from "./intake";
-import { binAt, binKey, locationText, rackLabel, ruleFor, shelfLabel, type LocationMatrix, type MatrixRack } from "./location-matrix";
+import { binAt, binKey, binsOn, locationText, rackLabel, ruleFor, shelfLabel, type LocationMatrix, type MatrixRack } from "./location-matrix";
 import type { StockItem } from "./schema";
 import { OTHER_TYPE, typeOf } from "./types";
 
@@ -64,7 +64,7 @@ export interface SuggestFor {
 /** A free bin holds no stock and no rule says it's for something else. */
 function freeBins(matrix: LocationMatrix, rack: MatrixRack, shelf: number, taken: ReadonlySet<string>): number[] {
   const out: number[] = [];
-  for (let bin = 1; bin <= rack.bins; bin += 1) {
+  for (let bin = 1; bin <= binsOn(rack, shelf); bin += 1) {
     if (!taken.has(binKey(rack.id, shelf, bin)) && !matrix.rules.some((r) => r.rackId === rack.id && r.shelf === shelf && r.bin === bin)) out.push(bin);
   }
   return out;

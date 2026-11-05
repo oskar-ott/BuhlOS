@@ -353,7 +353,11 @@ compares (plurals and trade names folded). The rule with the most words wins, so
 "iconic switch" beats "iconic". "Test a label" shows where a label would go.
 
 Racks are numbered, shelves lettered (A at the top of the grid, up to Z) and bins
-numbered. A location is written as `Rack 3 Shelf B, Bin 4`, which the existing by-shelf list
+numbered. Shelves on a rack don't have to match: tick **Shelves differ** when adding or
+changing a rack and give each shelf its own bin count (a deep bottom shelf with 3 bins
+under shelves of 8). Saved as `shelfBins` on the rack, shelf A first; `bins` is then the
+widest shelf, and a rack without `shelfBins` has `bins` on every shelf. A rack can't
+shrink a shelf past a bin that has a rule. A location is written as `Rack 3 Shelf B, Bin 4`, which the existing by-shelf list
 already reads as shelf "Rack 3 Shelf B", bin "Bin 4". The matrix **only fills a blank
 location**: a new item's, or an existing item with none. An item that has a location
 keeps it, and changing the matrix never moves recorded stock.
