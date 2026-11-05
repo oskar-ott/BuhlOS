@@ -1,6 +1,6 @@
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
-import { ean13Modules, ean13Valid, labelSize, layoutLabel, LABEL_SIZES, wrapText } from "./label";
+import { ean13Modules, ean13Valid, fitToPrinthead, labelSize, layoutLabel, LABEL_SIZES, printerFamily, sizesForPrinter, wrapText } from "./label";
 
 const requireFromHere = createRequire(import.meta.url);
 const codes = requireFromHere("../../../api/_lib/workshop-stock/codes.js") as {
@@ -68,5 +68,36 @@ describe("NIIMBOT barcode labels (2026-11-03)", () => {
   it("long names wrap to the lines there are, and say they were cut", () => {
     expect(wrapText("Clipsal Iconic 2 gang switch plate vivid white", 20, 2)).toEqual(["Clipsal Iconic 2", "gang switch plate…"]);
     expect(wrapText("Short", 20, 1)).toEqual(["Short"]);
+  });
+
+  it("printing straight to a B1: a 50 mm label is drawn to the 48 mm head, still whole-dot bars that fit", () => {
+    // B1: 384-dot head, label upright ("top")
+    const wide = fitToPrinthead(labelSize("50x30"), 384, "top");
+    expect(wide.widthMm).toBe(48);
+    expect(wide.heightMm).toBe(30);
+    const l = layoutLabel(wide, "Clipsal Iconic 2 gang switch plate vivid white", "Shelf A2, Bin 4");
+    expect(l.width).toBe(384);
+    expect(l.module).toBeGreaterThanOrEqual(2);
+    expect(l.barsX).toBeGreaterThanOrEqual(0);
+    expect(l.barsX + 95 * l.module).toBeLessThanOrEqual(384);
+    // a label that already fits the head is left alone
+    expect(fitToPrinthead(labelSize("40x30"), 384, "top")).toEqual(labelSize("40x30"));
+    // D11/D110 take the label on its side: the height is what meets the 96-dot head
+    expect(fitToPrinthead(labelSize("30x15"), 96, "left")).toMatchObject({ widthMm: 30, heightMm: 12 });
+    expect(fitToPrinthead(labelSize("40x12"), 96, "left")).toEqual(labelSize("40x12"));
+  });
+
+  it("knows which label sizes a connected printer takes", () => {
+    expect(printerFamily("B1")).toBe("B");
+    expect(printerFamily("B21_L2B")).toBe("B");
+    expect(printerFamily("D110_M")).toBe("D");
+    expect(printerFamily("D11")).toBe("D");
+    expect(printerFamily("B18")).toBeNull(); // a different printer — no size advice
+    expect(printerFamily(null)).toBeNull();
+    expect(LABEL_SIZES.filter((s) => s.family === "B").map((s) => s.key)).toEqual(["40x30", "50x30"]);
+    expect(sizesForPrinter("B1", labelSize("40x12"))).toBe("40 × 30 or 50 × 30");
+    expect(sizesForPrinter("B1", labelSize("50x30"))).toBeNull();
+    expect(sizesForPrinter("D110", labelSize("50x30"))).toBe("40 × 12 or 30 × 15");
+    expect(sizesForPrinter("B18", labelSize("40x12"))).toBeNull();
   });
 });

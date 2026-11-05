@@ -5,18 +5,12 @@ import { Download, Loader2, Printer, Share2 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { makeLabelBarcode } from "@/domains/workshop-stock/client";
 import { errorCopy } from "@/domains/workshop-stock/format";
-import { ean13Modules, isGuardModule, labelSize, layoutLabel, LABEL_SIZES } from "@/domains/workshop-stock/label";
+import { ean13Modules, isGuardModule, layoutLabel, LABEL_SIZES, type LabelSize } from "@/domains/workshop-stock/label";
 import type { StockItem } from "@/domains/workshop-stock/schema";
 import { BigButton, Slot } from "./ui";
-
-const SIZE_KEY = "buhlos.stock.labelSize";
-
-function savedSize(): string | null {
-  try { return window.localStorage.getItem(SIZE_KEY); } catch { return null; }
-}
-function saveSize(key: string) {
-  try { window.localStorage.setItem(SIZE_KEY, key); } catch { /* a per-phone convenience only */ }
-}
+import { LabelDirectPrint } from "./LabelDirectPrint";
+import { useLabelPrinter } from "./useLabelPrinter";
+import { useLabelSize } from "./useLabelSize";
 
 /** The item's plain shop barcode (not a box's) — the one a label carries. */
 export function itemBarcode(item: Pick<StockItem, "identifiers">): string | null {
@@ -25,8 +19,7 @@ export function itemBarcode(item: Pick<StockItem, "identifiers">): string | null
 }
 
 /** Draw the label (white background, black bars and text) at the printer's 203 dpi. */
-function draw(canvas: HTMLCanvasElement, sizeKey: string, code: string, name: string, shelf: string | null) {
-  const size = labelSize(sizeKey);
+function draw(canvas: HTMLCanvasElement, size: LabelSize, code: string, name: string, shelf: string | null) {
   const lay = layoutLabel(size, name, shelf);
   const modules = ean13Modules(code);
   canvas.width = lay.width;
@@ -58,24 +51,32 @@ function draw(canvas: HTMLCanvasElement, sizeKey: string, code: string, name: st
  * with no barcode first gets one of ours (in-store EAN-13, made by the server —
  * scanning it finds this item). Then: the label at the chosen size, Share (the
  * phone's share sheet → NIIMBOT) or Save the image. The label size is
- * remembered on this device.
+ * remembered on this device. With `directPrint` (the office drawer), Print
+ * label sends it straight to the printer where Chrome can reach one.
  */
-export function BarcodeLabel({ item, onItemChanged }: { item: StockItem; onItemChanged?: (item: StockItem) => void }) {
+export function BarcodeLabel({ item, onItemChanged, directPrint = false }: {
+  item: StockItem;
+  onItemChanged?: (item: StockItem) => void;
+  /** offer Print label straight to the printer (office drawer only — the phone keeps Share to NIIMBOT) */
+  directPrint?: boolean;
+}) {
   const [code, setCode] = useState<string | null>(() => itemBarcode(item));
-  const [sizeKey, setSizeKey] = useState<string>(() => labelSize(savedSize()).key);
+  const [size, setSize] = useLabelSize();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [url, setUrl] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const shelf = item.location;
+  const lp = useLabelPrinter(directPrint);
+  const canPrint = lp.canPrint;
 
   useEffect(() => { setCode(itemBarcode(item)); }, [item]);
 
   useEffect(() => {
     if (!code || !canvasRef.current) return;
-    draw(canvasRef.current, sizeKey, code, item.name, shelf);
+    draw(canvasRef.current, size, code, item.name, shelf);
     setUrl(canvasRef.current.toDataURL("image/png"));
-  }, [code, sizeKey, item.name, shelf]);
+  }, [code, size, item.name, shelf]);
 
   const fileName = useMemo(() => `label-${(item.name || "item").toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40)}-${code ?? ""}.png`, [item.name, code]);
 
@@ -124,20 +125,21 @@ export function BarcodeLabel({ item, onItemChanged }: { item: StockItem; onItemC
     <div className="space-y-3" data-testid="stock-label">
       <div className="flex flex-wrap gap-1.5" role="group" aria-label="Label size">
         {LABEL_SIZES.map((s) => (
-          <button key={s.key} type="button" aria-pressed={s.key === sizeKey} onClick={() => { setSizeKey(s.key); saveSize(s.key); }} className={cn("min-h-[40px] rounded-full border px-3 text-[13px] font-semibold", s.key === sizeKey ? "border-brand-navy bg-brand-navy text-text-inverse" : "border-border-strong bg-surface text-text")} data-testid="stock-label-size">
+          <button key={s.key} type="button" aria-pressed={s.key === size.key} onClick={() => setSize(s.key)} className={cn("min-h-[40px] rounded-full border px-3 text-[13px] font-semibold", s.key === size.key ? "border-brand-navy bg-brand-navy text-text-inverse" : "border-border-strong bg-surface text-text")} data-testid="stock-label-size">
             {s.label}
           </button>
         ))}
       </div>
       <div className="flex justify-center rounded-xl border border-border bg-surface-subtle p-3">
-        <canvas ref={canvasRef} className={cn("h-auto max-w-full rounded-[4px] border border-border bg-white shadow-sm", labelSize(sizeKey).widthMm >= 50 ? "w-[340px]" : labelSize(sizeKey).widthMm >= 40 ? "w-[280px]" : "w-[210px]")} aria-label={`Label: ${item.name}, barcode ${code}`} role="img" data-testid="stock-label-preview" />
+        <canvas ref={canvasRef} className={cn("h-auto max-w-full rounded-[4px] border border-border bg-white shadow-sm", size.widthMm >= 50 ? "w-[340px]" : size.widthMm >= 40 ? "w-[280px]" : "w-[210px]")} aria-label={`Label: ${item.name}, barcode ${code}`} role="img" data-testid="stock-label-preview" />
       </div>
       <p className="text-center font-mono text-[13px] text-text-muted">{code}</p>
+      {canPrint ? <LabelDirectPrint lp={lp} size={size} drawLabel={(canvas, size) => draw(canvas, size, code, item.name, shelf)} /> : null}
       <div className="grid grid-cols-2 gap-2">
-        <BigButton variant="pri" icon={<Share2 aria-hidden="true" className="h-5 w-5" />} label="Share to NIIMBOT" sub="or any app" onClick={() => void share()} data-testid="stock-label-share" />
+        <BigButton variant={canPrint ? "sec" : "pri"} icon={<Share2 aria-hidden="true" className="h-5 w-5" />} label="Share to NIIMBOT" sub="or any app" onClick={() => void share()} data-testid="stock-label-share" />
         <BigButton variant="sec" icon={<Download aria-hidden="true" className="h-5 w-5" />} label="Save image" sub="then print it" onClick={download} data-testid="stock-label-save" />
       </div>
-      <p className="text-[13px] text-text-muted">In the NIIMBOT app, print it as a picture on the same size label. Stick it on the item or its bin — scanning it opens this item.</p>
+      <p className="text-[13px] text-text-muted">{canPrint ? "Or share or save it and print it as a picture in the NIIMBOT app, on the same size label." : "In the NIIMBOT app, print it as a picture on the same size label. Stick it on the item or its bin — scanning it opens this item."}</p>
     </div>
   );
 }

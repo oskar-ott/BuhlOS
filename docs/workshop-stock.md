@@ -410,6 +410,48 @@ Stored as one JSON document per company with a compare-and-set revision
 `20261102100000_workshop_stock_location_matrix.sql`). Until that is applied both
 screens say so and nothing else changes.
 
+#### Bin labels
+
+Owner pull, 2026-11-05: "can we also use the printer connection to print labels
+for the bins … one label is the location code like A2 B3 for rack a shelve 2 bin 3
+… and the other label has contents … like 2 gang switches". Printed from
+`/stock/locations` on the same NIIMBOT connection as item labels
+([below](#barcode-scanner-and-niimbot-labels)); words only, no barcode (the
+owner's pick).
+
+- **Two labels per bin** (`domains/workshop-stock/bin-label.ts`):
+  - the **code** label — the bin's code as large as the label allows, `3B-4`
+    for rack 3, shelf B, bin 4 (`binCode`; a rack named in words keeps its name,
+    "Cable bay B-4"), with "Rack 3 · Shelf B · Bin 4" under it on a tall label.
+    The owner's first example was "A2 B3 for rack a shelve 2 bin 3"; once racks
+    became numbered and shelves lettered (#1128) the owner picked `3B-4`;
+  - the **contents** label — the code on top, then the matrix's words for the
+    bin ("2 gang switches", "iconic dimmer"), each on its own line where it fits,
+    smaller than the code, centred; cut with … only if nothing fits.
+  - The contents are the **matrix words**, not today's stock: a printed label
+    can't follow stock as it moves; the words are what the office set for the
+    bin. A bin with no words gets only its code label.
+  - The code is display only: items keep their location text ("Rack 3 Shelf B,
+    Bin 4"), unchanged.
+- **Where** (`components/admin/stock/BinLabels.tsx`): a **Bin labels** bar above
+  the racks — label size (the roll in the printer, shared with item labels on
+  this device) and which labels (**Code + contents**, **Code only**, **Contents
+  only**) and the printer; a bin's editor shows its labels as they'll print,
+  **Print**, and **Save as pictures** (where the browser can't reach the
+  printer); each rack has **Print labels for this rack (N labels)** — asked
+  first with the count — printing every bin shelf by shelf as one job.
+- One print path for item and bin labels (`useLabelPrinter`): connect if needed,
+  refuse a size the printer doesn't take (said next to the button, nothing
+  printed), draw fitted to the head, print the labels as one job
+  (`printLabels`: totalPages = labels, one page each — NiimBlue's multi-page
+  sequence). What happened is said next to the button that started it.
+- **Checked** on the production build in Chromium against the recorded-handshake
+  B1 (as for item labels): one bin → one job of 2 labels at 240 × 384; a rack of
+  6 bins with 2 set → one job of 8; Contents only → 2; save as pictures; a D
+  size refused with nothing sent; lid open said by the rack; no ping during a
+  print; the item label still prints on the same connection. **Proof still
+  owed:** a real B1 printing them.
+
 ### The scanner display
 
 Owner pull, 2026-11-03: "i want a separate display for the barcode scanner on
@@ -740,6 +782,67 @@ it all works easily together".
   office drawer (**Barcode label** fold), and the new-item form (**Make a
   barcode label for it** — ticked by itself for a loose item the photo could
   only describe); after saving, the label comes up before the next item.
+- **Print straight to the printer (office, Chrome)** — owner, 2026-11-03: "is
+  there a way to incorporate the printer", a **B1**, on the office computer, in
+  Chrome. The office drawer's label has **Print label** (`LabelDirectPrint`):
+  Chrome connects to the printer over Bluetooth (Web Bluetooth) — or **Use a
+  USB cable instead** (Web Serial) — through its own printer list the first
+  time in a tab, then prints with no NIIMBOT app (`components/stock/labelPrinter.ts`,
+  `@mmote/niimbluelib` 0.47.1, MIT, pinned — the line NiimBlue, the web app
+  most B1 owners print from, runs on). Then "on B1-…", **Disconnect printer**,
+  and "Printed." or what to fix.
+  - **The print follows NiimBlue's sequence** (B1 print task: density 3, gap
+    labels, page, status polled every 100 ms with an 8 s reply timeout). The
+    library's background ping is stopped for the print and started again
+    after, unconditionally — its `isHeartbeatStarted()` answers the wrong way
+    round (0.47.1 and upstream), so it isn't asked. A print that never
+    reports finished gives up after 30 s.
+  - **Sizes:** the B1's head is 48 mm (384 dots). A 50 × 30 label is drawn
+    48 mm wide (`label.fitToPrinthead`; NiimBlue's own default sends 400 dots
+    and warns), bars still whole dots; a narrower one (40 × 30) is sent at
+    full head width, centred (`padToHead`), so it lands in the middle however
+    the printer places what it's sent. A size the connected printer doesn't
+    take is said and **not printed** (`label.sizesForPrinter`).
+  - **What's said:** the printer's refusals (lid open, out of labels, wrong
+    labels, battery, too hot, busy) and Chrome's (no Bluetooth on this
+    computer or it's off → use the USB cable; Bluetooth/USB not allowed for
+    the site; printer list not opened in time) — never "check the printer"
+    for a computer problem. Closing the printer list is not an error.
+  - **Genuine labels:** the B1 reads the roll's RFID tag and prints near-blank
+    without one (NIIMBOT's rule, not ours) — use NIIMBOT B1 rolls.
+  - Only printers the library knows and only 203 dpi ones (D11/D110/B1/B21);
+    anything else is told to use Save image.
+  - The library is its own chunk, fetched when the label panel opens (Chrome
+    only opens its printer list shortly after a click), never with the stock
+    screen. Shown only where the browser has Bluetooth or Serial (Chrome/Edge
+    on a computer); Safari, Firefox and iPhone keep Share/Save. On Linux,
+    Chrome needs Web Bluetooth switched on in chrome://flags.
+  - **Office only.** The phone keeps Share to NIIMBOT — no new phone slot
+    until a field ask pulls it.
+  - NIIMBOT doesn't publish the protocol; the library is reverse-engineered,
+    so a printer firmware update could break it. Save image stays beside it.
+  - **Audit before release (2026-11-03/04):**
+    - unit tests: the print sequence against a stand-in; Chrome's and the
+      printer's refusals; the real library encoding a B1 label (fits the
+      head, bars read back);
+    - **a real B1's handshake** (HW 5.10 / FW 5.22, captured bytes from the
+      library's own tests) played back through the real library: found as a
+      B1 — B1 print sequence, 384-dot head, upright
+      (`labelPrinter.b1-handshake.test.ts`);
+    - checked against NiimBlue's source and the NIIMBOT protocol wiki
+      (MultiMote/niimbot-wiki: B1 print task, 384 px head, Web Bluetooth
+      service) — this found the heartbeat bug above;
+    - **the production build** (`next build` / `next start`, webpack's
+      loading of the library) in Chromium, with a B1 behind
+      `navigator.bluetooth` answering with the recorded handshake bytes and
+      the wiki's print replies: library already fetched before the click;
+      sequence = the wiki's B1 sequence; 50 × 30 → 240 × 384, 156 bar rows
+      decode as the item's code; no ping during the print, pings back after;
+      second label with no printer list; 40 × 30 centred (36 dots each side);
+      wrong size not printed; lid open, no Bluetooth, printer dropping,
+      list closed (Bluetooth and USB), reconnect — all as above.
+  - **Proof still owed:** no real B1 has printed from BuhlOS yet — the
+    owner's first label, scanned, is the proof.
 - **Together**: a loose item → photo ("looks like …") or pick by sight → its
   own barcode → label on the NIIMBOT → from then on the scanner (or the phone
   camera) finds it like any boxed product. Boxes + loose counts and the
