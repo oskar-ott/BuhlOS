@@ -115,11 +115,23 @@ export const MovementSchema = z.object({
 });
 export type StockMovement = z.infer<typeof MovementSchema>;
 
+/** A category the office made (alongside the built-in ones in types.ts). */
+export const CustomTypeSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  unit: z.enum(UNIT_KEYS),
+  fields: z.array(z.object({ key: z.string(), label: z.string() })),
+  createdByName: z.string().nullable().optional(),
+  updatedAt: z.string().nullable().optional(),
+});
+export type CustomType = z.infer<typeof CustomTypeSchema>;
+
 export const StockListSchema = z.object({
   items: z.array(StockItemSchema),
   viewer: z.object({ id: z.string(), office: z.boolean() }),
-  /** locationPhoto / types / lists: the server has the migration for a photo of where an item lives, item types, shopping lists */
-  capabilities: z.object({ photoRead: z.boolean(), lookup: z.boolean(), locationPhoto: z.boolean().optional(), types: z.boolean().optional(), lists: z.boolean().optional() }),
+  /** locationPhoto / types / lists / customTypes: the server has the migration for a photo of where an item lives, item types, shopping lists, office categories */
+  capabilities: z.object({ photoRead: z.boolean(), lookup: z.boolean(), locationPhoto: z.boolean().optional(), types: z.boolean().optional(), lists: z.boolean().optional(), customTypes: z.boolean().optional() }),
+  customTypes: z.array(CustomTypeSchema).optional(),
   undoMinutes: z.number(),
   asOf: z.string(),
 });
@@ -184,6 +196,8 @@ export const ReadProductSchema = z.object({
   packUnit: z.string().nullable(),
   labelText: z.array(z.string()),
   position: z.string().nullable(),
+  /** what a loose item looks like when nothing is printed ("white 2 gang switch plate") — fills a form to check, never matched */
+  appearance: z.string().nullable().optional(),
 });
 export type ReadProduct = z.infer<typeof ReadProductSchema>;
 

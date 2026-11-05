@@ -65,7 +65,13 @@ function join(parts: Array<string | null | undefined>): string | null {
   return out || null;
 }
 
-export const STOCK_TYPES: readonly StockType[] = [
+/**
+ * Every category the app knows: the built-in ones below, then the office's own
+ * (setCustomTypes, from the stock list), then Other last. One array, changed in
+ * place, so every screen that reads it sees the office's categories as soon as
+ * the list has loaded.
+ */
+export const STOCK_TYPES: StockType[] = [
   {
     key: "switches",
     label: "Switches & GPOs",
@@ -191,8 +197,54 @@ export const STOCK_TYPES: readonly StockType[] = [
   },
 ];
 
+const BUILT_IN: readonly StockType[] = [...STOCK_TYPES];
 const BY_KEY = new Map(STOCK_TYPES.map((t) => [t.key, t]));
 export const OTHER_TYPE = BY_KEY.get("other")!;
+
+// ── categories the office makes (owner pull 2026-11-03) ──────────────────────
+
+/** An office category as the server sends it. */
+export interface CustomTypeDef {
+  key: string;
+  label: string;
+  unit: StockUnit;
+  fields: ReadonlyArray<{ key: string; label: string }>;
+}
+
+/** An office category as a type: Brand first, then its own fields — each a filter, typed in (the shop's own values become the chips). */
+export function customType(def: CustomTypeDef): StockType {
+  const own: SpecField[] = def.fields.map((f) => ({ key: f.key, label: f.label, options: [], facet: true }));
+  return {
+    key: def.key,
+    label: def.label,
+    unit: def.unit,
+    fields: [BRAND([]), ...own],
+    name: (v) => join([v.brand, ...own.map((f) => v[f.key])]),
+  };
+}
+
+/** True for a category the office made (its key is `c_…`). */
+export function isCustomType(key: string | null | undefined): boolean {
+  return Boolean(key && key.startsWith("c_"));
+}
+
+/**
+ * Put the office's categories into the catalogue (replacing the last set):
+ * after the built-in ones, before Other. Called with every stock list.
+ */
+export function setCustomTypes(defs: ReadonlyArray<CustomTypeDef>): void {
+  const customs = defs.filter((d) => isCustomType(d.key)).map(customType);
+  const builtIns = BUILT_IN.filter((t) => t.key !== "other");
+  STOCK_TYPES.splice(0, STOCK_TYPES.length, ...builtIns, ...customs, OTHER_TYPE);
+  BY_KEY.clear();
+  for (const t of STOCK_TYPES) BY_KEY.set(t.key, t);
+}
+
+/** A name another category (built-in or the office's) already has — compared loosely ("solar " = "Solar"). */
+export function typeNameTaken(label: string, exceptKey?: string | null): StockType | null {
+  const k = valueKey(label);
+  return STOCK_TYPES.find((t) => t.key !== exceptKey && valueKey(t.label) === k) ?? null;
+}
 
 /** The type for a saved key: an unknown key reads as Other; none is null (not sorted yet). */
 export function typeOf(key: string | null | undefined): StockType | null {

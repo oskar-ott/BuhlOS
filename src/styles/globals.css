@@ -78,6 +78,22 @@ body {
   text-transform: uppercase;
   color: var(--text-muted);
 }
+.console-zone {
+  border-color: color-mix(in srgb, var(--zone) 55%, var(--border));
+  border-left: 4px solid var(--zone);
+  background: color-mix(in srgb, var(--zone) 12%, var(--surface));
+}
+.console-swatch {
+  background: var(--zone);
+}
+[data-zone="fitoff"] { --zone: var(--zone-fitoff); }
+[data-zone="data"] { --zone: var(--zone-data); }
+[data-zone="boards"] { --zone: var(--zone-boards); }
+[data-zone="lights"] { --zone: var(--zone-lights); }
+[data-zone="led"] { --zone: var(--zone-led); }
+[data-zone="conduit"] { --zone: var(--zone-conduit); }
+[data-zone="cable"] { --zone: var(--zone-cable); }
+[data-zone="fixings"] { --zone: var(--zone-fixings); }
 @keyframes console-rise {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: none; }

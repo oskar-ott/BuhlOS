@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { NewItemForm, type NewItemSeed } from "@/components/stock/NewItemForm";
 import { PhotoCapture } from "@/components/stock/PhotoCapture";
 import { StockThumb } from "@/components/stock/StockThumb";
+import { useLocationMatrix } from "@/components/stock/useLocationMatrix";
 import { readPhoto } from "@/domains/workshop-stock/client";
 import { decideRead } from "@/domains/workshop-stock/flow";
 import { balanceLabel, errorCopy, READ_STATUS_COPY } from "@/domains/workshop-stock/format";
@@ -19,8 +20,9 @@ import { Block } from "./StockAdminForms";
  * that turns out to be an item already listed says so and points at its row;
  * nothing is created twice. Same "Saves as" line, same single transaction.
  */
-export function StockAdminAdd({ items, capabilities, onSaved, onOpenItem, onClose }: { items: StockItem[]; capabilities: { photoRead: boolean; lookup: boolean; locationPhoto?: boolean; types?: boolean }; onSaved: (r: WriteResult) => void; onOpenItem: (id: string) => void; onClose: () => void }) {
-  const [seed, setSeed] = useState<NewItemSeed>({ product: null, photoId: null, dataUrl: null });
+export function StockAdminAdd({ scannedBarcode = null, items, capabilities, onSaved, onOpenItem, onClose }: { scannedBarcode?: string | null; items: StockItem[]; capabilities: { photoRead: boolean; lookup: boolean; locationPhoto?: boolean; types?: boolean }; onSaved: (r: WriteResult) => void; onOpenItem: (id: string, opts?: { label: boolean }) => void; onClose: () => void }) {
+  const matrix = useLocationMatrix();
+  const [seed, setSeed] = useState<NewItemSeed>({ product: null, photoId: null, dataUrl: null, scannedBarcode });
   const [formKey, setFormKey] = useState(1);
   const [reading, setReading] = useState(false);
   const [note, setNote] = useState<{ tone: "warn" | "neu" | "inf"; title: string; body: string } | null>(null);
@@ -50,8 +52,10 @@ export function StockAdminAdd({ items, capabilities, onSaved, onOpenItem, onClos
     else if (outcome.kind === "pick-product") setNote({ tone: "neu", title: "More than one product in the photo", body: "The first one fills the form — check the details." });
   }
 
-  function onFormSaved(r: WriteResult, again: boolean) {
+  function onFormSaved(r: WriteResult, again: boolean, opts?: { label: boolean }) {
     onSaved(r);
+    // given one of our barcodes: straight to the item, its label open
+    if (opts?.label) { onOpenItem(r.item.id, { label: true }); return; }
     setLastLocation(r.item.location);
     if (!again) {
       onClose();
@@ -100,7 +104,7 @@ export function StockAdminAdd({ items, capabilities, onSaved, onOpenItem, onClos
             </div>
           </Block>
         ) : (
-          <NewItemForm key={formKey} seed={seed} items={items} lookupEnabled={capabilities.lookup} locationPhotoEnabled={capabilities.locationPhoto === true} typesEnabled={capabilities.types === true} defaultLocation={lastLocation} emphasis="save" onSaved={onFormSaved} onUseExisting={(item) => onOpenItem(item.id)} />
+          <NewItemForm key={formKey} seed={seed} items={items} lookupEnabled={capabilities.lookup} locationPhotoEnabled={capabilities.locationPhoto === true} typesEnabled={capabilities.types === true} defaultLocation={lastLocation} matrix={matrix} emphasis="save" onSaved={onFormSaved} onUseExisting={(item) => onOpenItem(item.id)} />
         )}
       </div>
     </Drawer>

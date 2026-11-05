@@ -13,13 +13,13 @@
 //   GET    ?action=operation&key=             reconcile a save whose response was lost (own operations; office: any)
 //   GET    ?action=photo&id=[&size=thumb]     a product photo or its list-size copy (authenticated proxy — the Blob URL never leaves the server)
 //   GET    ?action=jobs&q=                    job picker for the optional job note
-//   GET    ?action=location-matrix            the racks and "these words go in this bin" rules   OFFICE
+//   GET    ?action=location-matrix            the racks and "these words go in this bin" rules   anyone adding stock
 //   PUT    ?action=location-matrix { expectedRevision, racks, rules }   save the whole matrix (compare-and-set)   OFFICE
 //   POST   ?action=read-photo  { dataUrl, thumbDataUrl?, purpose: 'add'|'take', intake? }  read a photo, match the catalogue (writes no stock; intake = the camera table, OFFICE, its own limits)
 //   POST   ?action=store-photo { dataUrl, thumbDataUrl? }  keep a product photo for a new item without reading it again (no AI call)
 //   POST   ?action=lookup      { brand?, manufacturerCode, colourFinish?, variantDetails? }  online code check (allowlisted sources)
 //   POST   ?action=create      { …item, openingQuantity | pack…, lookupCheck?, idempotencyKey }  new item + opening balance, atomically
-//   POST   ?action=move        { itemId, kind: add|take|return, quantity | packCount+pack, jobId?, note?, estimated?, idempotencyKey }
+//   POST   ?action=move        { itemId, kind: add|take|return, quantity | packCount+pack[+looseQuantity], jobId?, note?, estimated?, idempotencyKey }
 //                              pack: the pack the screen showed, with its size — refused (409 pack_changed) if the office changed it
 //   POST   ?action=count       { itemId, countedQuantity, expectedVersion, reason, estimated?, idempotencyKey }   OFFICE
 //   POST   ?action=undo        { movementId, reason?, idempotencyKey }   own recent (worker) · any with reason (office)
@@ -28,6 +28,8 @@
 //   DELETE ?action=identifier&id=                                        OFFICE
 //   POST   ?action=archive | restore  { itemId }                         OFFICE (restore says which codes another item now holds)
 //   POST   ?action=item-photo  { itemId, photoId, slot?: product|location }   OFFICE (location: photoId may be null = remove)
+//   POST   ?action=label       { itemId }   give an item with no barcode its own (in-store EAN-13, made here) — for a printed label; answers the barcode it already has otherwise
+//   POST   ?action=type        { key?, label, unit, fields: [{ key?, label }] }   OFFICE — add a category (no key) or change one (its key); fields are only added or renamed
 //                              the crew: slot location only, to FILL a missing photo of where it lives with one they took
 //   POST   ?action=verify      { itemId }   OFFICE — record the cached online check on an item
 //
@@ -87,6 +89,8 @@ const intakeReadLimiter = createRateLimiter({ windowMs: 10 * 60_000, max: 300 })
 const DAILY_PHOTO_READS = Math.max(1, Number(process.env.STOCK_DAILY_PHOTO_READS || 300));
 const DAILY_LOOKUPS = Math.max(1, Number(process.env.STOCK_DAILY_LOOKUPS || 60));
 const DAILY_INTAKE_READS = Math.max(1, Number(process.env.STOCK_DAILY_INTAKE_READS || 2000));
+// The camera table reads in bulk, so it can use a different model from the phone's reader. Unset: the same one.
+const INTAKE_VISION_MODEL = process.env.STOCK_INTAKE_VISION_MODEL || undefined;
 const LOOKUP_TTL_DAYS = { manufacturer_code_matched: 30, possible_match: 7, no_match: 3 };
 const CLEANUP_BUDGET_MS = 4000;
 
@@ -100,6 +104,27 @@ function actorOf(me) {
 
 function bodyOf(req) {
   return req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : null;
+}
+
+/**
+ * Full packs + some loose (2026-11-03, "some items aren't always in
+ * packaging"). The ledger keeps a pack only when the quantity is exactly
+ * count × size (a database rule), so with loose ones the movement is the plain
+ * total and the note says how it was made up: "3 boxes of 10 + 4 loose".
+ * Returns { milli, pack, note } or { error }.
+ */
+function withLoose(totalMilli, pack, looseRaw, unit, note) {
+  if (looseRaw === undefined || looseRaw === '') return { milli: totalMilli, pack, note };
+  const loose = Q.parseQuantity(looseRaw, unit, { allowZero: true });
+  if (loose.error) return { error: loose.error, field: 'looseQuantity' };
+  if (loose.milli === 0) return { milli: totalMilli, pack, note };
+  const milli = totalMilli + loose.milli;
+  if (milli > Q.MAX_MOVE_MILLI) return { error: 'quantity_too_large' };
+  const unitWord = pack.unit || 'pack';
+  const plural = pack.count === 1 ? unitWord : (unitWord === 'box' ? 'boxes' : `${unitWord}s`);
+  const amount = (m) => (unit === 'each' ? Q.formatNumber(m) : Q.formatQuantity(m, unit));
+  const madeUp = `${pack.count} ${plural} of ${amount(pack.sizeMilli)} + ${amount(loose.milli)} loose`;
+  return { milli, pack: null, note: [madeUp, note].filter(Boolean).join(' · ').slice(0, 200) };
 }
 
 function bad(res, error, extra = {}) {
@@ -244,6 +269,8 @@ const MoveBody = z.object({
   quantity: qty.optional(),
   packCount: z.number().int().min(1).max(Q.MAX_PACK_COUNT).optional(),
   pack: PackPick.optional(),
+  // out of the box, alongside full packs: "3 boxes of 10 + 4 loose" (2026-11-03)
+  looseQuantity: qty.optional(),
   jobId: optText(120),
   note: optText(200),
   estimated: z.boolean().optional(),
@@ -273,6 +300,10 @@ const CreateBody = z.object({
   packCount: z.number().int().min(1).max(Q.MAX_PACK_COUNT).optional(),
   packUnit: packUnit.optional(),
   packSize: qty.optional(),
+  // out of the box, alongside the full packs (2026-11-03)
+  looseQuantity: qty.optional(),
+  // no barcode? make it one of ours, for a printed label (2026-11-03)
+  makeBarcode: z.boolean().optional(),
   rememberPack: z.boolean().optional(),
   estimated: z.boolean().optional(),
   // the online check the worker accepted (exactly what was asked — the lookup
@@ -334,6 +365,18 @@ const ItemPhotoBody = z
   .object({ itemId: uuid, photoId: uuid.nullable(), slot: z.enum(['product', 'location']).default('product') })
   .refine((b) => b.slot === 'location' || b.photoId !== null, { path: ['photoId'] });
 
+// A category the office makes (20261103100000). No key = a new one; its key
+// and its fields' keys are made from the names here, on the server.
+const TypeBody = z.object({
+  key: z.string().regex(/^c_[a-z0-9_]{1,29}$/).optional(),
+  label: z.string().trim().min(1).max(40),
+  unit: z.enum(Q.UNIT_KEYS).default('each'),
+  fields: z.array(z.object({
+    key: z.string().regex(/^[a-z][a-z0-9_]{0,31}$/).optional(),
+    label: z.string().trim().min(1).max(30),
+  })).max(8).default([]),
+});
+
 const ListBody = z.object({
   id: uuid,
   name: z.string().trim().min(1).max(80).optional(),
@@ -364,14 +407,14 @@ function parseOr400(schema, body, res) {
   return r.data;
 }
 
-// ── location matrix (office) ──────────────────────────────────────────────────
+// ── location matrix (office saves, everyone reads) ──────────────────────────────────────────────────
 
 const MatrixBody = z.object({
   expectedRevision: z.number().int().min(0),
   racks: z.array(z.object({
     id: z.string().trim().min(1).max(60),
     name: z.string().trim().min(1).max(30),
-    shelves: z.number().int().min(1).max(30),
+    shelves: z.number().int().min(1).max(26),
     bins: z.number().int().min(1).max(60),
   })).max(60),
   rules: z.array(z.object({
@@ -383,8 +426,8 @@ const MatrixBody = z.object({
   })).max(1000),
 });
 
-async function locationMatrix(sql, tenant, me, res) {
-  if (!policy.isOffice(me.role)) return res.status(403).json({ error: 'office_only' });
+// Read by anyone adding stock (the Add form picks a bin from it); only the office changes it.
+async function locationMatrix(sql, tenant, res) {
   return res.status(200).json(await store.getLocationMatrix(sql, tenant.id));
 }
 
@@ -419,12 +462,16 @@ async function list(sql, tenant, me, req, res) {
   const locationPhoto = await store.hasLocationPhoto(sql);
   const types = await store.hasTypes(sql);
   const lists = await store.hasLists(sql);
+  const customTypesReady = await store.hasCustomTypes(sql);
   const items = await store.listItems(sql, tenant.id, { includeArchived });
+  const customTypes = customTypesReady ? await store.listCustomTypes(sql, tenant.id) : [];
   return res.status(200).json({
     items,
     viewer: { id: me.id, office },
     // locationPhoto / types / lists: what this database has yet (later, additive migrations)
-    capabilities: { photoRead: vision.enabled(), lookup: search.enabled(), locationPhoto: locationPhoto === true, types: types === true, lists: lists === true },
+    capabilities: { photoRead: vision.enabled(), lookup: search.enabled(), locationPhoto: locationPhoto === true, types: types === true, lists: lists === true, customTypes: customTypesReady === true },
+    // the office's own categories, alongside the built-in ones the app knows
+    customTypes,
     undoMinutes: policy.WORKER_UNDO_MINUTES,
     asOf: new Date().toISOString(),
   });
@@ -579,7 +626,7 @@ async function readPhoto(sql, tenant, me, body, res) {
     } else {
       limiter.record(me.id);
       try {
-        reading = await vision.readProductPhoto({ bytes: up.bytes, contentType: up.contentType });
+        reading = await vision.readProductPhoto({ bytes: up.bytes, contentType: up.contentType, ...(input.intake && INTAKE_VISION_MODEL ? { model: INTAKE_VISION_MODEL } : {}) });
         if (!reading || !reading.products.length) readStatus = 'unreadable';
       } catch (e) {
         console.error('[workshop-stock] photo read failed', { status: (e && e.status) || null });
@@ -714,12 +761,15 @@ async function create(sql, tenant, me, req, body, res) {
   if (input.manufacturerCode && !manufacturerCode) return bad(res, 'code_invalid', { field: 'manufacturerCode' });
   const supplierSku = input.supplierSku ? codes.cleanCode(input.supplierSku) : null;
   if (input.supplierSku && !supplierSku) return bad(res, 'code_invalid', { field: 'supplierSku' });
-  const barcode = input.barcode ? codes.cleanBarcode(input.barcode) : null;
+  // A loose item with nothing printed can get one of OUR barcodes for a label
+  // (in-store EAN-13, made here, never by the phone).
+  const barcode = input.barcode ? codes.cleanBarcode(input.barcode) : (input.makeBarcode ? codes.inStoreBarcode() : null);
   if (input.barcode && !barcode) return bad(res, 'barcode_invalid');
 
   let openingMilli = 0;
   let pack = null;
   let defaultPack = null;
+  let openingNote = input.note;
   const anyPack = input.packCount !== undefined || input.packUnit !== undefined || input.packSize !== undefined;
   if (anyPack) {
     if (input.packCount === undefined || !input.packUnit || input.packSize === undefined) return bad(res, 'pack_incomplete');
@@ -730,6 +780,11 @@ async function create(sql, tenant, me, req, body, res) {
     openingMilli = total.milli;
     pack = { count: input.packCount, unit: input.packUnit, sizeMilli: size.milli };
     if (input.rememberPack) defaultPack = { unit: input.packUnit, sizeMilli: size.milli };
+    const mixed = withLoose(openingMilli, pack, input.looseQuantity, unit, input.note);
+    if (mixed.error) return bad(res, mixed.error, mixed.field ? { field: mixed.field } : {});
+    openingMilli = mixed.milli;
+    pack = mixed.pack;
+    openingNote = mixed.note;
   } else if (input.openingQuantity !== undefined && input.openingQuantity !== '') {
     const q = Q.parseQuantity(input.openingQuantity, unit, { allowZero: true });
     if (q.error) return bad(res, q.error, { field: 'openingQuantity' });
@@ -785,7 +840,7 @@ async function create(sql, tenant, me, req, body, res) {
     openingMilli,
     pack,
     estimated: input.estimated === true,
-    note: input.note,
+    note: openingNote,
     verificationStatus,
     verification,
     provenance: { fields: input.provenance || {}, lookup: lookupSummary },
@@ -828,6 +883,7 @@ async function move(sql, tenant, me, req, body, res) {
 
   let quantityMilli;
   let pack = null;
+  let moveNote = input.note;
   if (input.packCount !== undefined || input.pack) {
     if (input.packCount === undefined || !input.pack) return bad(res, 'pack_incomplete');
     let unitName = null;
@@ -856,6 +912,11 @@ async function move(sql, tenant, me, req, body, res) {
     if (total.error) return bad(res, total.error);
     quantityMilli = total.milli;
     pack = { count: input.packCount, unit: unitName, sizeMilli };
+    const mixed = withLoose(quantityMilli, pack, input.looseQuantity, item.baseUnit, input.note);
+    if (mixed.error) return bad(res, mixed.error, mixed.field ? { field: mixed.field } : {});
+    quantityMilli = mixed.milli;
+    pack = mixed.pack;
+    moveNote = mixed.note;
   } else {
     const q = Q.parseQuantity(input.quantity, item.baseUnit);
     if (q.error) return bad(res, q.error, { field: 'quantity' });
@@ -875,7 +936,7 @@ async function move(sql, tenant, me, req, body, res) {
     estimated: input.kind !== 'take' && input.estimated === true,
     jobId: jobRef.job ? jobRef.job.id : null,
     jobLabel: jobRef.job ? jobRef.job.label : null,
-    note: input.note,
+    note: moveNote,
     listLineId,
     actor,
     idempotencyKey: key,
@@ -1051,6 +1112,33 @@ async function identifier(sql, tenant, me, req, body, res) {
   return res.status(201).json({ item: await store.getItem(sql, tenant.id, item.id) });
 }
 
+/**
+ * Give an item with no barcode one of ours, to print on a label (owner,
+ * 2026-11-03: a NIIMBOT for items with no packaging). Anyone on the crew: it
+ * only ever ADDS a code the server makes (in-store EAN-13), and only when the
+ * item has none — an item that already has a barcode just gets that one back.
+ */
+async function label(sql, tenant, me, body, res) {
+  const input = parseOr400(ItemIdBody, body, res);
+  if (!input) return;
+  const item = await store.getItem(sql, tenant.id, input.itemId);
+  if (!item) return res.status(404).json({ error: 'item_not_found' });
+  if (item.archivedAt) return res.status(409).json({ error: 'item_archived' });
+  const has = item.identifiers.find((i) => i.kind === 'barcode' && !i.packSizeMilli) || item.identifiers.find((i) => i.kind === 'barcode');
+  if (has) return res.status(200).json({ item, barcode: has.value, created: false });
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const value = codes.inStoreBarcode();
+    const idf = codes.identifierFor('barcode', value, {});
+    if (idf.error) continue;
+    const r = await store.addIdentifier(sql, tenant.id, item.id, idf, actorOf(me));
+    if (r.error === 'identifier_in_use') continue; // one of ours already — try another
+    if (r.error) return res.status(409).json({ error: r.error });
+    await journal(me, 'workshop_stock.label_barcode_added', item.id, `Gave ${item.name} its own barcode ${value} for a label`, { value });
+    return res.status(201).json({ item: await store.getItem(sql, tenant.id, item.id), barcode: value, created: true });
+  }
+  return res.status(503).json({ error: 'barcode_unavailable' });
+}
+
 async function archive(sql, tenant, me, body, res, archived) {
   if (!policy.isOffice(me.role)) return res.status(403).json({ error: 'office_only' });
   const input = parseOr400(ItemIdBody, body, res);
@@ -1112,6 +1200,40 @@ function listError(res, r) {
 }
 
 /** Lists need their tables: before the migration every list path says so (503), nothing else. */
+// ── categories the office makes ───────────────────────────────────────────────
+
+/** "Solar inverters" → "solar_inverters" (letters, digits, underscores; starts with a letter). */
+function slugOf(label, max) {
+  const s = String(label).toLowerCase().normalize('NFKD').replace(/[^\x00-\x7f]/g, '')
+    .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').replace(/^(\d)/, 'n$1');
+  return s.slice(0, max).replace(/_+$/, '') || null;
+}
+
+async function saveType(sql, tenant, me, body, res) {
+  if (!policy.isOffice(me.role)) return res.status(403).json({ error: 'office_only' });
+  const input = parseOr400(TypeBody, body, res);
+  if (!input) return;
+  if ((await store.hasCustomTypes(sql)) !== true) return res.status(503).json({ error: 'types_unavailable' });
+  const key = input.key || (slugOf(input.label, 29) ? `c_${slugOf(input.label, 29)}` : null);
+  if (!key) return bad(res, 'type_name_invalid');
+  const fields = [];
+  for (const f of input.fields) {
+    const fk = f.key || slugOf(f.label, 32);
+    if (!fk || fk === 'brand' || fk === 'colourfinish') return bad(res, 'field_name_invalid', { field: f.label });
+    if (fields.some((x) => x.key === fk || x.label.toLowerCase() === f.label.toLowerCase())) return bad(res, 'field_name_repeated', { field: f.label });
+    fields.push({ key: fk, label: f.label });
+  }
+  const existing = await store.listCustomTypes(sql, tenant.id);
+  if (!input.key && existing.some((t) => t.key === key)) return res.status(409).json({ error: 'type_name_taken' });
+  if (input.key && !existing.some((t) => t.key === key)) return res.status(404).json({ error: 'type_not_found' });
+  const r = await store.saveCustomType(sql, tenant.id, { key, label: input.label, unit: input.unit, fields }, actorOf(me));
+  if (r.error === 'type_name_taken') return res.status(409).json({ error: r.error });
+  if (r.error) return bad(res, r.error);
+  await journal(me, r.created ? 'workshop_stock.type_created' : 'workshop_stock.type_changed', key,
+    `${r.created ? 'Added' : 'Changed'} the stock category “${r.type.label}” (${r.type.fields.map((f) => f.label).join(', ') || 'no fields'})`, { key });
+  return res.status(r.created ? 201 : 200).json({ type: r.type });
+}
+
 async function listsReady(sql, res) {
   if ((await store.hasLists(sql)) === true) return true;
   res.status(503).json({ error: 'lists_unavailable' });
@@ -1279,7 +1401,7 @@ async function handler(req, res) {
         case 'operation': return operation(sql, tenant, me, q.key, r);
         case 'photo': return servePhoto(sql, tenant, me, String(q.id || ''), String(q.size || ''), r);
         case 'lists': return lists(sql, tenant, me, r);
-        case 'location-matrix': return locationMatrix(sql, tenant, me, r);
+        case 'location-matrix': return locationMatrix(sql, tenant, r);
         default: return r.status(400).json({ error: 'unknown_action' });
       }
     });
@@ -1299,6 +1421,8 @@ async function handler(req, res) {
       case 'item-photo': return itemPhoto(sql, tenant, me, body, res);
       case 'verify': return verify(sql, tenant, me, body, res);
       case 'list': return saveList(sql, tenant, me, body, res);
+      case 'type': return saveType(sql, tenant, me, body, res);
+      case 'label': return label(sql, tenant, me, body, res);
       case 'list-line': return saveListLine(sql, tenant, me, body, res);
       default: return res.status(400).json({ error: 'unknown_action' });
     }

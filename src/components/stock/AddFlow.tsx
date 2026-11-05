@@ -4,6 +4,7 @@ import { useMemo, useRef, useState, type ReactNode } from "react";
 import { Camera, Check, ChevronRight, Images, Loader2, PencilLine } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { readPhoto } from "@/domains/workshop-stock/client";
+import { findByBarcode } from "@/domains/workshop-stock/barcode";
 import { balanceLabel, errorCopy, EVIDENCE_LABEL, identityLine, matchedInWorkshop, movementSummary, READ_STATUS_COPY, recordedNow, undoLabelFor } from "@/domains/workshop-stock/format";
 import { decideRead, focusBatch, freshestItem, productLabel, settleBatch, startBatch, type PhotoBatch, type ReadOutcome } from "@/domains/workshop-stock/flow";
 import { splitLocation } from "@/domains/workshop-stock/location";
@@ -12,12 +13,15 @@ import { FlowSheet } from "./FlowSheet";
 import { ItemPicker } from "./ItemPicker";
 import { MoveConfirm, type MoveItem } from "./MoveConfirm";
 import { NewItemForm, type LastLocationPhoto, type NewItemSeed } from "./NewItemForm";
+import { useLocationMatrix } from "./useLocationMatrix";
 import { PhotoCapture } from "./PhotoCapture";
 import { NoneRecorded, RecordedQuantity } from "./StockItemRow";
 import { StockReceipt } from "./StockReceipt";
 import { StockThumb } from "./StockThumb";
 import { BigButton, LinkButton, MiniButton, Slot } from "./ui";
 import { UndoControl } from "./UndoControl";
+import { useBarcodeScanner } from "./useBarcodeScanner";
+import { BarcodeLabel } from "./BarcodeLabel";
 
 type Found = { item: MoveItem; matchedBy: string | null; packIdentifierId: string | null; product: ReadProduct | null };
 
@@ -29,6 +33,7 @@ type Step =
   | { s: "existing"; found: Found; kind: "add" | "return" }
   | { s: "new"; seed: NewItemSeed; formKey: number }
   | { s: "setup"; last: WriteResult }
+  | { s: "label"; last: WriteResult; then: "setup" | "close" | "batch" }
   | { s: "batchDone" };
 
 /** Several products from one photo, added one at a time: where we are, and what was saved. */
@@ -55,11 +60,24 @@ export function AddFlow({
 }: {
   items: StockItem[];
   capabilities: { photoRead: boolean; lookup: boolean; locationPhoto?: boolean; types?: boolean };
-  seed?: { dataUrl: string | null; thumbDataUrl?: string | null; product: ReadProduct | null } | null;
+  seed?: { dataUrl: string | null; thumbDataUrl?: string | null; product: ReadProduct | null; scannedBarcode?: string | null } | null;
   onSaved: (r: WriteResult) => void;
   onClose: () => void;
 }) {
-  const [step, setStep] = useState<Step>(() => (seed ? { s: "new", seed: { product: seed.product, photoId: null, dataUrl: seed.dataUrl, thumbDataUrl: seed.thumbDataUrl ?? null }, formKey: 1 } : { s: "home" }));
+  const matrix = useLocationMatrix();
+  const [step, setStep] = useState<Step>(() => (seed ? { s: "new", seed: { product: seed.product, photoId: null, dataUrl: seed.dataUrl, thumbDataUrl: seed.thumbDataUrl ?? null, scannedBarcode: seed.scannedBarcode ?? null }, formKey: 1 } : { s: "home" }));
+
+  // A barcode scanner (2026-11-03) on the first screen: a listed item goes to
+  // "What's going in?"; an unknown code starts a new item with the barcode kept.
+  useBarcodeScanner((code) => {
+    const hits = findByBarcode(items, code);
+    if (hits.length >= 1) {
+      const h = hits[0]!;
+      setStep({ s: "going", found: { item: asMoveItem(h.item), matchedBy: matchedInWorkshop({ evidence: "barcode", matchedValue: code }), packIdentifierId: h.identifier.packSizeMilli ? h.identifier.id : null, product: null } });
+    } else {
+      setStep({ s: "new", seed: { product: null, photoId: null, dataUrl: null, scannedBarcode: code }, formKey: Date.now() });
+    }
+  }, step.s === "home");
   const [dataUrl, setDataUrl] = useState<string | null>(null);
   const [thumbDataUrl, setThumbDataUrl] = useState<string | null>(null);
   const [dark, setDark] = useState(false);
@@ -159,10 +177,19 @@ export function AddFlow({
     setStep({ s: "outcome", outcome });
   }
 
-  function savedNew(r: WriteResult, again: boolean) {
+  function savedNew(r: WriteResult, again: boolean, opts?: { label: boolean }) {
     setSession((s) => [...s, r]);
     setUndone(null);
     onSaved(r);
+    // It was given one of our barcodes: print its label first, then carry on.
+    if (opts?.label) {
+      if (batch) {
+        photoUsedRef.current = true;
+        setBatch((b) => (b ? { ...b, results: [...b.results, r] } : b));
+      }
+      setStep({ s: "label", last: r, then: batch ? (again ? "batch" : "close") : again ? "setup" : "close" });
+      return;
+    }
     if (batch) {
       photoUsedRef.current = true;
       setBatch((b) => (b ? { ...b, results: [...b.results, r] } : b));
@@ -359,6 +386,27 @@ export function AddFlow({
   }
 
   // ── set-up rhythm: receipt, the shelf filling up, the next photo ─────────────
+  if (step.s === "label") {
+    const { last, then } = step;
+    const carryOn = () => {
+      if (then === "close") onClose();
+      else if (then === "batch") continueBatch("added");
+      else { fresh(); setStep({ s: "setup", last }); }
+    };
+    return (
+      <FlowSheet
+        title="Barcode label"
+        direction="in"
+        onClose={onClose}
+        testId="stock-add-label"
+        footer={<BigButton variant="sec" label={then === "close" ? "Done" : "Next item"} sub="the item is saved · print the label any time from it" onClick={carryOn} data-testid="stock-add-label-next" />}
+      >
+        <StockReceipt result={last} undone={undone} onUndone={(r) => { setUndone(r); onSaved(r); }} undoTestId="stock-add-label-undo" />
+        <BarcodeLabel item={last.item} />
+      </FlowSheet>
+    );
+  }
+
   if (step.s === "setup") {
     const last = step.last;
     const { shelf } = splitLocation(last.item.location);
@@ -444,6 +492,7 @@ export function AddFlow({
         locationPhotoEnabled={capabilities.locationPhoto === true}
         typesEnabled={capabilities.types === true}
         defaultLocation={lastLocation}
+        matrix={matrix}
         lastLocationPhoto={lastLocationPhoto}
         emphasis="another"
         anotherLabel={inBatch ? (lastOfBatch ? "Save · last one from the photo" : "Save · next from the photo") : undefined}

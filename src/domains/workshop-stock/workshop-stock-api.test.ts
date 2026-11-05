@@ -46,7 +46,7 @@ type Res = { statusCode: number; body: unknown; headers: Record<string, string>;
 let blob: Map<string, unknown>;
 let auth: { signSession: (p: Record<string, unknown>) => string };
 let handler: (req: Record<string, unknown>, res: Res) => Promise<unknown>;
-type StoreFn = "resolveTenant" | "listItems" | "getItem" | "listMovements" | "itemEvents" | "getOperation" | "replayOperation" | "recordMovement" | "recordCount" | "reverseMovement" | "createItemWithOpening" | "updateItem" | "setArchived" | "addIdentifier" | "retireIdentifier" | "recordVerification" | "insertPhoto" | "setPhotoReading" | "getPhotoForServing" | "replaceItemPhoto" | "hasLocationPhoto" | "hasTypes" | "hasLists" | "listLists" | "getList" | "saveList" | "deleteList" | "saveListLine" | "deleteListLine" | "photosDueForDeletion" | "markPhotoDeleted" | "markBlobDeleted" | "consumeUsage" | "getLocationMatrix" | "saveLocationMatrix" | "getCachedLookup" | "putCachedLookup";
+type StoreFn = "hasCustomTypes" | "listCustomTypes" | "saveCustomType" | "resolveTenant" | "listItems" | "getItem" | "listMovements" | "itemEvents" | "getOperation" | "replayOperation" | "recordMovement" | "recordCount" | "reverseMovement" | "createItemWithOpening" | "updateItem" | "setArchived" | "addIdentifier" | "retireIdentifier" | "recordVerification" | "insertPhoto" | "setPhotoReading" | "getPhotoForServing" | "replaceItemPhoto" | "hasLocationPhoto" | "hasTypes" | "hasLists" | "listLists" | "getList" | "saveList" | "deleteList" | "saveListLine" | "deleteListLine" | "photosDueForDeletion" | "markPhotoDeleted" | "markBlobDeleted" | "consumeUsage" | "getLocationMatrix" | "saveLocationMatrix" | "getCachedLookup" | "putCachedLookup";
 let store: Record<StoreFn, ReturnType<typeof vi.fn>>;
 let audit: { append: ReturnType<typeof vi.fn> };
 let lookupProduct: ReturnType<typeof vi.fn>;
@@ -159,6 +159,9 @@ beforeEach(() => {
     hasLocationPhoto: vi.fn(async () => true),
     hasTypes: vi.fn(async () => true),
     hasLists: vi.fn(async () => true),
+    hasCustomTypes: vi.fn(async () => true),
+    listCustomTypes: vi.fn(async () => []),
+    saveCustomType: vi.fn(async (_sql: unknown, _t: string, def: { key: string; label: string; unit: string; fields: unknown[] }) => ({ ok: true, created: true, type: { ...def, createdByName: "Olive Office", updatedAt: null } })),
     listLists: vi.fn(async () => []),
     getList: vi.fn(async () => null),
     saveList: vi.fn(async () => ({ ok: true, created: true, list: shoppingList() })),
@@ -775,12 +778,12 @@ describe("a photo of where the item lives", () => {
   });
 
   describe("camera table + location matrix", () => {
-    const RACK = { id: "c", name: "C", shelves: 4, bins: 6 };
+    const RACK = { id: "c", name: "3", shelves: 4, bins: 6 };
     const RULE = { id: "r1", words: "iconic switch", rackId: "c", shelf: 2, bin: 4 };
     const put = (body: unknown, user = "u_office") => call({ method: "PUT", user, query: { action: "location-matrix" }, body });
 
-    it("the matrix is the office's, read and write", async () => {
-      expect((await call({ user: "u_field", query: { action: "location-matrix" } })).statusCode).toBe(403);
+    it("anyone adding stock reads the matrix; only the office changes it", async () => {
+      expect((await call({ user: "u_field", query: { action: "location-matrix" } })).statusCode).toBe(200);
       expect((await put({ expectedRevision: 0, racks: [], rules: [] }, "u_field")).statusCode).toBe(403);
       expect(store.saveLocationMatrix).not.toHaveBeenCalled();
       expect((await call({ user: "u_office", query: { action: "location-matrix" } })).statusCode).toBe(200);
@@ -797,7 +800,7 @@ describe("a photo of where the item lives", () => {
       expect((await put({ expectedRevision: 0, racks: [RACK], rules: [{ ...RULE, shelf: 5 }] })).body).toMatchObject({ error: "rule_out_of_range" });
       expect((await put({ expectedRevision: 0, racks: [RACK], rules: [{ ...RULE, bin: 7 }] })).body).toMatchObject({ error: "rule_out_of_range" });
       expect((await put({ expectedRevision: 0, racks: [RACK], rules: [{ ...RULE, rackId: "gone" }] })).body).toMatchObject({ error: "rule_out_of_range" });
-      expect((await put({ expectedRevision: 0, racks: [RACK, { ...RACK, id: "d", name: "c" }], rules: [] })).body).toMatchObject({ error: "rack_duplicate" });
+      expect((await put({ expectedRevision: 0, racks: [{ ...RACK, name: "C" }, { ...RACK, id: "d", name: "c" }], rules: [] })).body).toMatchObject({ error: "rack_duplicate" });
       expect(store.saveLocationMatrix).not.toHaveBeenCalled();
     });
 
@@ -934,5 +937,121 @@ describe("shopping lists", () => {
     store.hasLists.mockResolvedValueOnce(false);
     await post("move", { itemId: ITEM_ID, kind: "take", quantity: "1", listLineId: LINE_ID }, "u_field", { "idempotency-key": "op-key-0003" });
     expect(store.recordMovement.mock.calls[2]![2]).toMatchObject({ listLineId: null });
+  });
+});
+
+describe("categories the office makes (2026-11-03)", () => {
+  const solar = { label: "Solar inverters", unit: "each", fields: [{ label: "Power (kW)" }, { label: "Phase" }] };
+
+  it("the list carries the office's categories and says the feature is there", async () => {
+    store.listCustomTypes.mockResolvedValueOnce([{ key: "c_solar_inverters", label: "Solar inverters", unit: "each", fields: [{ key: "power_kw", label: "Power (kW)" }], createdByName: null, updatedAt: null }]);
+    const r = await call({ query: { action: "list" } });
+    expect(r.body).toMatchObject({ capabilities: { customTypes: true }, customTypes: [{ key: "c_solar_inverters", label: "Solar inverters" }] });
+  });
+
+  it("before the migration: no categories, the feature is off, and none can be saved", async () => {
+    store.hasCustomTypes.mockResolvedValue(false);
+    const r = await call({ query: { action: "list" } });
+    expect(r.body).toMatchObject({ capabilities: { customTypes: false }, customTypes: [] });
+    expect(store.listCustomTypes).not.toHaveBeenCalled();
+    expect((await post("type", solar, "u_office")).statusCode).toBe(503);
+    expect(store.saveCustomType).not.toHaveBeenCalled();
+  });
+
+  it("office only: the crew can't add one", async () => {
+    const r = await post("type", solar, "u_field");
+    expect(r.statusCode).toBe(403);
+    expect(store.saveCustomType).not.toHaveBeenCalled();
+  });
+
+  it("the office adds one: keys are made on the server from the names, and it's journaled", async () => {
+    const r = await post("type", solar, "u_office");
+    expect(r.statusCode).toBe(201);
+    expect(store.saveCustomType).toHaveBeenCalledWith(expect.anything(), TENANT.id, {
+      key: "c_solar_inverters",
+      label: "Solar inverters",
+      unit: "each",
+      fields: [{ key: "power_kw", label: "Power (kW)" }, { key: "phase", label: "Phase" }],
+    }, expect.objectContaining({ id: "u_office" }));
+    expect(audit.append).toHaveBeenCalledWith(expect.objectContaining({ action: "workshop_stock.type_created" }));
+  });
+
+  it("a name already taken is refused (409); a repeated or Brand field is refused (400)", async () => {
+    store.listCustomTypes.mockResolvedValueOnce([{ key: "c_solar_inverters", label: "Solar inverters", unit: "each", fields: [] }]);
+    expect((await post("type", solar, "u_office")).statusCode).toBe(409);
+    expect((await post("type", { label: "Heat pumps", fields: [{ label: "Size" }, { label: "size" }] }, "u_office")).body).toMatchObject({ error: "field_name_repeated" });
+    expect((await post("type", { label: "Heat pumps", fields: [{ label: "Brand" }] }, "u_office")).body).toMatchObject({ error: "field_name_invalid" });
+    expect((await post("type", { label: "!!!" }, "u_office")).body).toMatchObject({ error: "type_name_invalid" });
+  });
+
+  it("changing one keeps its key; an unknown key is 404", async () => {
+    store.listCustomTypes.mockResolvedValue([{ key: "c_solar_inverters", label: "Solar inverters", unit: "each", fields: [{ key: "power_kw", label: "Power (kW)" }] }]);
+    store.saveCustomType.mockResolvedValueOnce({ ok: true, created: false, type: { key: "c_solar_inverters", label: "Inverters", unit: "each", fields: [{ key: "power_kw", label: "Power" }, { key: "phase", label: "Phase" }] } });
+    const r = await post("type", { key: "c_solar_inverters", label: "Inverters", fields: [{ key: "power_kw", label: "Power" }, { label: "Phase" }] }, "u_office");
+    expect(r.statusCode).toBe(200);
+    expect(store.saveCustomType.mock.calls.at(-1)![2]).toMatchObject({ key: "c_solar_inverters", fields: [{ key: "power_kw", label: "Power" }, { key: "phase", label: "Phase" }] });
+    expect((await post("type", { key: "c_nope", label: "Nope" }, "u_office")).statusCode).toBe(404);
+  });
+});
+
+describe("full boxes plus loose (2026-11-03: some items aren't always in packaging)", () => {
+  beforeEach(() => { store.getItem.mockResolvedValue(item({ defaultPack: { unit: "box", sizeMilli: 10_000 } })); });
+  const create = (body: Record<string, unknown>) => post("create", { name: "Clipsal 2025WE double GPO", baseUnit: "each", location: "Shelf A2", ...body });
+  it("a move of 3 boxes + 4 loose records the total, without a pack, and says how it was made up", async () => {
+    const r = await post("move", { itemId: ITEM_ID, kind: "add", packCount: 3, pack: { source: "default", sizeMilli: 10_000 }, looseQuantity: "4", note: "from the van" });
+    expect(r.statusCode).toBe(201);
+    expect(store.recordMovement.mock.calls[0]![2]).toMatchObject({ quantityMilli: 34_000, pack: null, note: "3 boxes of 10 + 4 loose · from the van" });
+  });
+
+  it("no loose (or 0) keeps the pack on the movement exactly as before", async () => {
+    await post("move", { itemId: ITEM_ID, kind: "take", packCount: 2, pack: { source: "default", sizeMilli: 10_000 }, looseQuantity: "0" });
+    expect(store.recordMovement.mock.calls[0]![2]).toMatchObject({ quantityMilli: 20_000, pack: { count: 2, sizeMilli: 10_000 } });
+  });
+
+  it("the box size shown is still checked with loose ones; a bad loose amount is refused", async () => {
+    expect((await post("move", { itemId: ITEM_ID, kind: "add", packCount: 3, pack: { source: "default", sizeMilli: 12_000 }, looseQuantity: "4" })).statusCode).toBe(409);
+    expect((await post("move", { itemId: ITEM_ID, kind: "add", packCount: 3, pack: { source: "default", sizeMilli: 10_000 }, looseQuantity: "1.5" })).body).toMatchObject({ error: "quantity_too_precise", field: "looseQuantity" });
+  });
+
+  it("a new item's opening count can be boxes + loose, and the box size is still remembered", async () => {
+    await create({ openingQuantity: undefined, packCount: 3, packUnit: "box", packSize: "10", looseQuantity: "4", rememberPack: true });
+    expect(store.createItemWithOpening.mock.calls[0]![2]).toMatchObject({ openingMilli: 34_000, pack: null, note: "3 boxes of 10 + 4 loose", item: { defaultPack: { unit: "box", sizeMilli: 10_000 } } });
+  });
+});
+
+describe("NIIMBOT labels: our own barcode for an item with none (2026-11-03)", () => {
+  it("anyone on the crew can give an item with no barcode one of ours (in-store EAN-13, made on the server)", async () => {
+    store.addIdentifier.mockResolvedValueOnce({ ok: true });
+    const r = await post("label", { itemId: ITEM_ID }, "u_field");
+    expect(r.statusCode).toBe(201);
+    const idf = store.addIdentifier.mock.calls[0]![3] as { kind: string; value: string };
+    expect(idf.kind).toBe("barcode");
+    expect(idf.value).toMatch(/^21\d{11}$/);
+    expect(r.body).toMatchObject({ barcode: idf.value, created: true });
+    expect(audit.append).toHaveBeenCalledWith(expect.objectContaining({ action: "workshop_stock.label_barcode_added" }));
+  });
+
+  it("an item that already has a barcode just gets it back — nothing added", async () => {
+    store.getItem.mockResolvedValue(item({ identifiers: [{ id: "i1", kind: "barcode", value: "9338475023035", valueKey: "09338475023035", scope: "", packUnit: null, packSizeMilli: null }] }));
+    const r = await post("label", { itemId: ITEM_ID }, "u_field");
+    expect(r.statusCode).toBe(200);
+    expect(r.body).toMatchObject({ barcode: "9338475023035", created: false });
+    expect(store.addIdentifier).not.toHaveBeenCalled();
+  });
+
+  it("a made code that's taken is retried with another", async () => {
+    store.addIdentifier.mockResolvedValueOnce({ error: "identifier_in_use" }).mockResolvedValueOnce({ ok: true });
+    expect((await post("label", { itemId: ITEM_ID }, "u_field")).statusCode).toBe(201);
+    expect(store.addIdentifier).toHaveBeenCalledTimes(2);
+  });
+
+  it("a new loose item can be saved with one of our barcodes (makeBarcode), but never one the phone makes up", async () => {
+    await post("create", { name: "Wago 221 3-way", baseUnit: "each", location: "Bin 3", openingQuantity: "50", makeBarcode: true });
+    const ids = store.createItemWithOpening.mock.calls[0]![2].identifiers as Array<{ kind: string; value: string }>;
+    expect(ids.find((i) => i.kind === "barcode")?.value).toMatch(/^21\d{11}$/);
+    // a barcode sent with it wins — makeBarcode only fills a gap
+    await post("create", { name: "Other", baseUnit: "each", location: "Bin 3", openingQuantity: "1", barcode: "9338475023035", makeBarcode: true });
+    const ids2 = store.createItemWithOpening.mock.calls[1]![2].identifiers as Array<{ kind: string; value: string }>;
+    expect(ids2.find((i) => i.kind === "barcode")?.value).toBe("9338475023035");
   });
 });
