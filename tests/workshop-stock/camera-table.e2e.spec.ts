@@ -13,6 +13,7 @@ const API = process.env.WORKSHOP_STOCK_E2E_API ?? "";
 const SHOTS = process.env.WORKSHOP_STOCK_E2E_SHOTS ?? "test-results/workshop-stock";
 
 test.skip(!API, "needs the local Workshop Stock harness (docs/workshop-stock.md → Testing)");
+if (process.env.WORKSHOP_STOCK_E2E_CHROMIUM) test.use({ launchOptions: { executablePath: process.env.WORKSHOP_STOCK_E2E_CHROMIUM } });
 test.describe.configure({ mode: "serial" });
 test.use({ viewport: { width: 1440, height: 1000 } });
 

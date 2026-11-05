@@ -1,21 +1,21 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Camera, Lock, Maximize, Minimize, Pause, Play, RotateCcw, ScanBarcode, Volume2, VolumeX } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
 import { cleanBarcode, findByBarcode } from "@/domains/workshop-stock/barcode";
-import { addIdentifier, createItem, editItem, fetchItem, fetchLocationMatrix, fetchStockList, newOperationKey, readIntakeCrop, recordMove, storePhoto, undoMovement } from "@/domains/workshop-stock/client";
+import { readIntakeCrop } from "@/domains/workshop-stock/client";
 import { decideRead } from "@/domains/workshop-stock/flow";
-import { errorCopy, formatNumber, parseTypedQuantity, READ_STATUS_COPY, signedQuantity, toQuantityString } from "@/domains/workshop-stock/format";
-import { itemWords, placedAmount, productWords, sameProduct, sessionTotals, type NewItemDraft } from "@/domains/workshop-stock/intake";
+import { errorCopy, formatNumber, READ_STATUS_COPY, signedQuantity } from "@/domains/workshop-stock/format";
+import { sessionTotals } from "@/domains/workshop-stock/intake";
 import { absorbLight, barcodeNear, cropRect, emptyTracker, findObjects, stepTracker, type Box, type RawFrame, type Track, type TrackerState } from "@/domains/workshop-stock/intake-tracker";
-import { matrixLocations, ruleFor, type LocationMatrix } from "@/domains/workshop-stock/location-matrix";
-import type { ReadPhotoResult, ReadProduct, StockItem, StockUnit } from "@/domains/workshop-stock/schema";
-import { specsForType } from "@/domains/workshop-stock/types";
+import { matrixLocations } from "@/domains/workshop-stock/location-matrix";
+import type { ReadPhotoResult, ReadProduct, StockUnit } from "@/domains/workshop-stock/schema";
 import { Block } from "./StockAdminForms";
 import { LoggedRow, NeedsYouCard, type Placed } from "./IntakeCards";
-import { drawOverlay, playCue, readOverlayColours, unlockSound, type OverlayTag } from "./intake-overlay";
+import { drawOverlay, readOverlayColours, unlockSound, type OverlayTag } from "./intake-overlay";
+import { blankPlaced, NEEDS_YOU, useScanSafeShortcuts, useStatusCues, useStockSession } from "./useStockSession";
 
 /**
  * /stock/intake — the camera table. A webcam looks down at a table; each object
@@ -51,7 +51,6 @@ const READS_AT_ONCE = 2;
 const ROWS_SHOWN = 30;
 const CALIBRATION_FRAMES = 8;
 const FULL_HD_WIDTH = 1920;
-const NEEDS_YOU = new Set<string>(["pick", "several", "new", "amount", "problem"]);
 const SOUND_KEY = "buhlos.stock.intake.sound";
 const NOTE = "Camera table";
 const REASON_UNDO = "Logged by mistake at the camera table";
@@ -73,6 +72,17 @@ function makeDetector(): DetectorLike | null {
     return null;
   }
 }
+
+/** How much of the smaller box the two share (0–1). */
+function overlapShare(a: Box, b: Box): number {
+  const w = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+  const h = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+  if (w <= 0 || h <= 0) return 0;
+  return (w * h) / Math.min(a.w * a.h, b.w * b.h);
+}
+
+/** label reads waiting at most (two run at once) — beyond this an object asks the person */
+const MAX_QUEUED_READS = 8;
 
 function rememberedCamera(): string | null {
   try {
@@ -136,29 +146,19 @@ export function StockIntake() {
   const [running, setRunning] = useState(false);
   const [paused, setPaused] = useState(false);
   const [tableChanged, setTableChanged] = useState(false);
-  const [placed, setPlacedState] = useState<Placed[]>([]);
+  const session = useStockSession({ note: NOTE, undoReason: REASON_UNDO, amountReason: REASON_AMOUNT });
+  const { placed, items, matrix, matrixAvailable, loadError, typesEnabled, load, placedRef, itemsRef, setPlaced, patch, placedById, fullItem, logTo, pickItem, createFromDraft, setLocation, changeAmount, undoPlaced } = session;
   const [lock, setLockState] = useState<{ itemId: string; name: string; unit: StockUnit; milli: number } | null>(null);
-  const [items, setItemsState] = useState<StockItem[]>([]);
-  const [matrix, setMatrix] = useState<LocationMatrix | null>(null);
-  const [matrixAvailable, setMatrixAvailable] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [hasDetector, setHasDetector] = useState(true);
   const [showAllRows, setShowAllRows] = useState(false);
   const [calibrating, setCalibrating] = useState(false);
   const [full, setFull] = useState(false);
   const [sound, setSound] = useState(true);
-  const [typesEnabled, setTypesEnabled] = useState(false);
   const [telemetry, setTelemetry] = useState<{ fps: number; onTable: number } | null>(null);
 
   const rootRef = useRef<HTMLDivElement | null>(null);
   const calibration = useRef<{ sum: Float32Array | null; frames: number } | null>(null);
   const memory = useRef(new Map<number, { x: number; y: number; w: number; h: number; loggedAt: number | null }>());
-  const soundRef = useRef(sound);
-  soundRef.current = sound;
-  const seenStatus = useRef(new Map<number, string>());
-  const placedRef = useRef<Placed[]>([]);
-  const itemsRef = useRef<StockItem[]>([]);
-  const matrixRef = useRef<LocationMatrix | null>(null);
   const lockRef = useRef(lock);
   lockRef.current = lock;
   const runningRef = useRef(false);
@@ -169,44 +169,6 @@ export function StockIntake() {
   const detectorRef = useRef<DetectorLike | null>(null);
   const readQueue = useRef<Array<() => Promise<void>>>([]);
   const readsActive = useRef(0);
-  const assigning = useRef(new Set<string>());
-
-  const setPlaced = useCallback((update: (prev: Placed[]) => Placed[]) => {
-    placedRef.current = update(placedRef.current);
-    setPlacedState(placedRef.current);
-  }, []);
-  const patch = useCallback((id: number, change: Partial<Placed>) => {
-    setPlaced((prev) => prev.map((p) => (p.id === id ? { ...p, ...change } : p)));
-  }, [setPlaced]);
-  const placedById = (id: number) => placedRef.current.find((p) => p.id === id);
-  const mergeItem = useCallback((item: StockItem) => {
-    const known = itemsRef.current.some((i) => i.id === item.id);
-    itemsRef.current = known ? itemsRef.current.map((i) => (i.id === item.id ? item : i)) : [...itemsRef.current, item];
-    setItemsState(itemsRef.current);
-  }, []);
-
-  // ── what's on the list, and where things go ─────────────────────────────────
-
-  const load = useCallback(async () => {
-    setLoadError(null);
-    const [list, locations] = await Promise.all([fetchStockList(), fetchLocationMatrix()]);
-    if (!list.ok) {
-      setLoadError(errorCopy(list.error.status, list.error.body, "The server didn't answer, so nothing can be matched yet."));
-      return;
-    }
-    itemsRef.current = list.data.items;
-    setItemsState(list.data.items);
-    setTypesEnabled(list.data.capabilities.types === true);
-    if (!locations.ok) {
-      // Starting without it would log everything with no location and no warning.
-      setLoadError(errorCopy(locations.error.status, locations.error.body, "The location matrix didn't load, so items couldn't be given a location."));
-      return;
-    }
-    setMatrixAvailable(locations.data.available);
-    matrixRef.current = locations.data.matrix;
-    setMatrix(locations.data.matrix);
-  }, []);
-  useEffect(() => { void load(); }, [load]);
 
   useEffect(() => {
     detectorRef.current = makeDetector();
@@ -278,175 +240,6 @@ export function StockIntake() {
     };
   }, [deviceId]);
 
-  // ── logging ─────────────────────────────────────────────────────────────────
-
-  async function fullItem(id: string): Promise<StockItem | null> {
-    const known = itemsRef.current.find((i) => i.id === id);
-    if (known) return known;
-    const r = await fetchItem(id);
-    if (!r.ok) return null;
-    mergeItem(r.data.item);
-    return r.data.item;
-  }
-
-  /** An item with no location yet takes the matrix's. One that has one keeps it. */
-  async function assignLocation(id: number, item: StockItem) {
-    if (item.location || assigning.current.has(item.id)) return;
-    const match = ruleFor(`${itemWords(item)} ${productWords(placedById(id)?.product)}`, matrixRef.current);
-    if (!match) return;
-    assigning.current.add(item.id);
-    const r = await editItem(item.id, { expectedRevision: item.metaRevision, location: match.location });
-    assigning.current.delete(item.id);
-    if (!r.ok) {
-      patch(id, { note: `Logged, but the location didn't save: ${errorCopy(r.error.status, r.error.body, "try it on the item")}` });
-      return;
-    }
-    mergeItem(r.data.item);
-    setPlaced((prev) => prev.map((p) => (p.itemId === item.id ? { ...p, location: match.location } : p)));
-  }
-
-  async function logTo(id: number, item: StockItem, chosenMilli: number | null = null) {
-    const p = placedById(id);
-    if (!p) return;
-    const printed = chosenMilli === null ? placedAmount(item.baseUnit, p.product) : null;
-    const milli = chosenMilli ?? printed?.milli ?? null;
-    const named = { itemId: item.id, itemName: item.name, unit: item.baseUnit, location: item.location };
-    if (milli === null) {
-      patch(id, { ...named, status: "amount", problem: null });
-      return;
-    }
-    const key = p.moveKey ?? newOperationKey();
-    patch(id, { ...named, status: "saving", moveKey: key, amountMilli: milli, fromLabel: Boolean(printed?.fromLabel), problem: null });
-    const r = await recordMove({ itemId: item.id, kind: "add", quantity: toQuantityString(milli), note: NOTE }, key);
-    if (!r.ok) {
-      patch(id, { status: "problem", problem: errorCopy(r.error.status, r.error.body, "That didn't save. Try again.") });
-      return;
-    }
-    mergeItem(r.data.item);
-    patch(id, { status: "logged", movementId: r.data.movement.id, moveKey: null, location: r.data.item.location, recordedMilli: r.data.item.balanceMilli });
-    void assignLocation(id, r.data.item);
-  }
-
-  /** "One tap, then automatic": anything waiting with the same code goes to the item just settled on. */
-  function settleWaiting(from: number, item: StockItem) {
-    const source = placedById(from);
-    if (!source) return;
-    for (const other of placedRef.current) {
-      if (other.id === from || (other.status !== "new" && other.status !== "pick")) continue;
-      if (sameProduct(source, other)) void logTo(other.id, item);
-    }
-  }
-
-  async function pickItem(id: number, picked: Pick<StockItem, "id">) {
-    const item = await fullItem(picked.id);
-    if (!item) {
-      patch(id, { status: "problem", problem: "That item isn't in the workshop list any more." });
-      return;
-    }
-    const barcode = placedById(id)?.barcode;
-    let current = item;
-    if (barcode && !findByBarcode([item], barcode).length) {
-      // Teach it the barcode, so the next one logs itself. Not vital if it can't.
-      const taught = await addIdentifier({ itemId: item.id, kind: "barcode", value: barcode });
-      if (taught.ok) {
-        current = taught.data.item;
-        mergeItem(current);
-      }
-    }
-    await logTo(id, current);
-    settleWaiting(id, current);
-  }
-
-  async function createFromDraft(id: number, draft: NewItemDraft) {
-    const p = placedById(id);
-    if (!p) return;
-    const milli = parseTypedQuantity(draft.amount, draft.unit);
-    if (!draft.name.trim() || milli === null) {
-      patch(id, { problem: !draft.name.trim() ? "Give it a name." : "Enter how many to add." });
-      return;
-    }
-    const key = p.moveKey ?? newOperationKey();
-    patch(id, { busy: true, problem: null, moveKey: key });
-    let photoId = p.photoId;
-    if (!photoId) {
-      const stored = await storePhoto(p.crop, p.thumb);
-      if (stored.ok) {
-        photoId = stored.data.photoId;
-        patch(id, { photoId });
-      }
-    }
-    const product = p.product;
-    const r = await createItem({
-      name: draft.name.trim(),
-      brand: product?.brand ?? null,
-      manufacturerCode: product?.manufacturerCode ?? null,
-      supplierSku: product?.supplierSku ?? null,
-      supplierName: product?.supplierName ?? null,
-      barcode: p.barcode ?? product?.barcode ?? null,
-      variant: product?.variantDetails.join(" ").slice(0, 160) || null,
-      colourFinish: product?.colourFinish ?? null,
-      baseUnit: draft.unit,
-      location: draft.location.trim() || null,
-      photoId,
-      category: draft.category,
-      specs: draft.category ? specsForType(draft.category, draft.specs) : undefined,
-      openingQuantity: toQuantityString(milli),
-      note: NOTE,
-    }, key);
-    if (!r.ok) {
-      patch(id, { busy: false, problem: errorCopy(r.error.status, r.error.body, "That didn't save. Try again.") });
-      return;
-    }
-    mergeItem(r.data.item);
-    patch(id, { busy: false, status: "logged", itemId: r.data.item.id, itemName: r.data.item.name, unit: r.data.item.baseUnit, location: r.data.item.location, amountMilli: milli, fromLabel: false, movementId: r.data.movement.id, moveKey: null, recordedMilli: r.data.item.balanceMilli, problem: null });
-    settleWaiting(id, r.data.item);
-  }
-
-  /** A logged item no rule placed: the row sets its location, and every row of that item follows. */
-  async function setLocation(id: number, location: string) {
-    const p = placedById(id);
-    if (!p || !p.itemId) return;
-    const item = await fullItem(p.itemId);
-    if (!item) return;
-    patch(id, { busy: true, problem: null });
-    const r = await editItem(item.id, { expectedRevision: item.metaRevision, location });
-    if (!r.ok) {
-      patch(id, { busy: false, problem: errorCopy(r.error.status, r.error.body, "The location didn't save. Try again.") });
-      return;
-    }
-    mergeItem(r.data.item);
-    patch(id, { busy: false });
-    setPlaced((prev) => prev.map((x) => (x.itemId === item.id ? { ...x, location: r.data.item.location } : x)));
-  }
-
-  async function changeAmount(id: number, milli: number) {
-    const p = placedById(id);
-    if (!p || !p.movementId || !p.itemId) return;
-    patch(id, { busy: true, problem: null });
-    const undone = await undoMovement({ movementId: p.movementId, reason: REASON_AMOUNT }, newOperationKey());
-    if (!undone.ok) {
-      patch(id, { busy: false, problem: errorCopy(undone.error.status, undone.error.body, "The amount wasn't changed. Try again.") });
-      return;
-    }
-    mergeItem(undone.data.item);
-    patch(id, { busy: false, movementId: null });
-    await logTo(id, undone.data.item, milli);
-    if (placedById(id)?.status === "problem") patch(id, { retryMilli: milli });
-  }
-
-  async function undoPlaced(id: number) {
-    const p = placedById(id);
-    if (!p || !p.movementId) return;
-    patch(id, { busy: true, problem: null });
-    const r = await undoMovement({ movementId: p.movementId, reason: REASON_UNDO }, newOperationKey());
-    if (!r.ok) {
-      patch(id, { busy: false, problem: errorCopy(r.error.status, r.error.body, "That wasn't undone. Try again.") });
-      return;
-    }
-    mergeItem(r.data.item);
-    patch(id, { busy: false, status: "undone", movementId: null, recordedMilli: r.data.item.balanceMilli });
-  }
-
   // ── identifying ─────────────────────────────────────────────────────────────
 
   function pumpReads() {
@@ -489,6 +282,12 @@ export function StockIntake() {
   }
 
   function queueRead(id: number, crop: string) {
+    // A spending guard (2026-11-03: a flickering table queued 120 label reads):
+    // past MAX_QUEUED_READS waiting, an object asks the person instead of the reader.
+    if (readQueue.current.length >= MAX_QUEUED_READS) {
+      patch(id, { status: "problem", problem: "Lots on the table at once, so this one wasn't read. Read it again when the others are done, or scan its barcode." });
+      return;
+    }
     readQueue.current.push(async () => {
       const r = await readIntakeCrop(crop);
       if (!r.ok) {
@@ -570,14 +369,14 @@ export function StockIntake() {
   }
 
   function onSettled(track: Track) {
+    // Never twice for the same thing: if a row is still on the table right
+    // here (mostly overlapping), this is that object seen again, not a new one.
+    const again = placedRef.current.find((p) => p.onTable && p.box.w > 0 && overlapShare(p.box, track.box) >= 0.5);
+    if (again) return;
     const grabbed = grabCrop(track.box);
     if (!grabbed) return;
     const held = lockRef.current;
-    setPlaced((prev) => [{
-      id: track.id, at: Date.now(), box: track.box, onTable: true, crop: grabbed.crop, thumb: grabbed.thumb, status: held ? "saving" : "reading",
-      barcode: null, product: null, readResult: null, choices: [], problem: null, note: null, busy: false, itemId: null, itemName: null, unit: null, location: null,
-      amountMilli: null, fromLabel: false, recordedMilli: null, movementId: null, moveKey: null, photoId: null, retryMilli: null,
-    }, ...prev]);
+    setPlaced((prev) => [blankPlaced({ id: track.id, box: track.box, onTable: true, crop: grabbed.crop, thumb: grabbed.thumb, status: held ? "saving" : "reading" }), ...prev]);
     if (held) {
       void fullItem(held.itemId).then((item) => {
         if (item) void logTo(track.id, item, held.milli);
@@ -589,6 +388,11 @@ export function StockIntake() {
   }
   const onSettledRef = useRef(onSettled);
   onSettledRef.current = onSettled;
+
+  // A USB barcode scanner at the table (owner, 2026-11-03: "its a usb scanner
+  // only used on desktop"): each scan is one placement, no camera needed, and it
+  // works with the camera stopped too. The scanner display (/stock/scan) is the
+  // same session without the camera.
 
   function readAgain(id: number) {
     const p = placedById(id);
@@ -703,19 +507,9 @@ export function StockIntake() {
     };
     raf = requestAnimationFrame(frame);
     return () => cancelAnimationFrame(raf);
-  }, [camera]);
+  }, [camera, placedRef]);
 
-  // Sound, so the person at the table doesn't have to look up.
-  useEffect(() => {
-    for (const p of placed) {
-      const before = seenStatus.current.get(p.id);
-      if (before === p.status) continue;
-      seenStatus.current.set(p.id, p.status);
-      if (!soundRef.current) continue;
-      if (p.status === "logged") playCue("logged");
-      else if (NEEDS_YOU.has(p.status) && !NEEDS_YOU.has(before ?? "")) playCue("needs");
-    }
-  }, [placed]);
+  useStatusCues(placed, sound);
 
   function startTable() {
     if (!frameRef.current) return;
@@ -779,21 +573,14 @@ export function StockIntake() {
       else return;
       e.preventDefault();
     } else if (key === "u") {
-      const last = placedRef.current.find((p) => p.status === "logged");
-      if (last) void undoPlaced(last.id);
+      session.undoLast();
     } else if (key === "f") {
       toggleFull();
     } else if (key === "m") {
       toggleSound();
     }
   }
-  const onShortcutRef = useRef(onShortcut);
-  onShortcutRef.current = onShortcut;
-  useEffect(() => {
-    const listener = (e: KeyboardEvent) => onShortcutRef.current(e);
-    window.addEventListener("keydown", listener);
-    return () => window.removeEventListener("keydown", listener);
-  }, []);
+  useScanSafeShortcuts(onShortcut);
 
   // ── the screen ──────────────────────────────────────────────────────────────
 
@@ -958,7 +745,7 @@ export function StockIntake() {
               onCreate={(draft) => void createFromDraft(p.id, draft)}
               onAmount={(milli) => { const item = itemsRef.current.find((x) => x.id === p.itemId); if (item) void logTo(p.id, item, milli); }}
               onRetry={() => void retry(p.id)}
-              onReadAgain={() => readAgain(p.id)}
+              onReadAgain={p.crop ? () => readAgain(p.id) : undefined}
               onIgnore={() => patch(p.id, { status: "ignored", problem: null })}
             />
           ))}

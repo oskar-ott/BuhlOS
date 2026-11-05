@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { absorbLight, barcodeNear, cropRect, emptyTracker, findObjects, GONE_MS, SETTLE_MS, stepTracker, type Box, type TrackerState } from "./intake-tracker";
+import { absorbLight, barcodeNear, cropRect, emptyTracker, findObjects, GONE_MS, GONE_SETTLED_MS, SETTLE_MS, stepTracker, type Box, type TrackerState } from "./intake-tracker";
 import { draftFor, placedAmount, productWords, sameProduct, sessionTotals } from "./intake";
 import { locationText, matrixLocations, rackLabel, ruleFor, rulesOutsideRack, type LocationMatrix } from "./location-matrix";
 import { splitLocation } from "./location";
@@ -160,9 +160,18 @@ describe("stepTracker counts each object once", () => {
   });
 
   it("counts the next one placed where the last was lifted away", () => {
-    const { settled, gone } = run([{ objects: [A], ms: SETTLE_MS + 300 }, { ms: GONE_MS + 300 }, { objects: [A], ms: SETTLE_MS + 300 }]);
+    const { settled, gone } = run([{ objects: [A], ms: SETTLE_MS + 300 }, { ms: GONE_SETTLED_MS + 300 }, { objects: [A], ms: SETTLE_MS + 300 }]);
     expect(gone).toEqual([1]);
     expect(settled).toEqual([1, 2]);
+  });
+
+  it("a counted object that flickers or breaks into pieces is never counted again (2026-11-03: 131 on the table)", () => {
+    const pieces: Box[] = [{ x: 0.3, y: 0.3, w: 0.05, h: 0.1 }, { x: 0.36, y: 0.32, w: 0.04, h: 0.06 }];
+    const frames: Array<{ objects?: Box[]; ms: number }> = [{ objects: [A], ms: SETTLE_MS + 300 }];
+    for (let i = 0; i < 20; i++) frames.push({ objects: i % 3 === 0 ? [] : i % 2 ? pieces : [A, ...pieces], ms: 450 });
+    const { settled, gone } = run(frames);
+    expect(settled).toEqual([1]);
+    expect(gone).toEqual([]);
   });
 
   it("flags objects pushed together, then counts one that's moved apart", () => {

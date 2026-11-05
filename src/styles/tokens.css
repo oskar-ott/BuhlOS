@@ -114,9 +114,9 @@
 
 /*
  * Console theme (owner pull 2026-11-02: the camera table should "feel high
- * tech") — the same tokens retuned to a dark instrument panel, for the two
- * screens used as a machine at the workshop table: /stock/intake and
- * /stock/locations. Nowhere else: the office and the field stay light. Yellow is
+ * tech") — the same tokens retuned to a dark instrument panel, for the
+ * screens used as a machine at the workshop table: /stock/intake,
+ * /stock/scan and /stock/locations. Nowhere else: the office and the field stay light. Yellow is
  * the reticle and the primary action; red and green only ever mean status.
  */
 [data-theme="console"] {

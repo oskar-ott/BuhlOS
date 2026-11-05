@@ -140,6 +140,12 @@ recorded, and where they live.
   above a table. **Location matrix** (`/stock/locations`): say what goes in each
   bin. Both [below](#camera-table-and-location-matrix).
 
+**Scanner display (2026-11-03)**
+
+- **Barcode scanner** (`/stock/scan`): the camera table without the camera — a
+  USB scanner at the office computer, each scan logged, and where it goes shown
+  large. [Below](#the-scanner-display).
+
 **Not gear.** Gear (tools and equipment) has custody, serials, test-and-tag and
 "who has it". Workshop stock has none of that: an item is a quantity on a shelf
 and stock leaving is a quantity movement, not a loan. The two share nothing but
@@ -183,7 +189,20 @@ accuracy nobody has measured.
    a spot is new when its **edges** changed (an object brings an outline and
    print; a light change is smooth) or its colour changed a lot. Both thresholds
    rise with the camera's own noise, measured on each frame.
-2. It counts once it has sat still for 0.8 s. A blob touching the edge of the
+2. *(2026-11-03, after the first real session read one bag over and over — 131
+   "on the table", 120 reads queued:)* pieces near each other merge into one
+   thing before the edge test (a crinkled bag no longer breaks into a dozen
+   objects, and the pieces of something half out of shot are all "half out of
+   shot"); a patch that only LOST edges since Start is where something was — a
+   moved cable — not an object; a piece mostly inside a tracked object is part
+   of it; a counted object keeps its outline when only a piece shows, needs 3 s
+   unseen before it's gone, and a new object where a counted row still sits is
+   that object again. At most 8 label reads wait at once — past that an object
+   asks the person. **A USB barcode scanner** at the table logs one placement
+   per scan with no camera needed (a box's barcode adds a box's worth; unknown
+   → the new-item card with it kept), and the U/F/M/Space shortcuts ignore a
+   scanner's burst of keys.
+   It counts once it has sat still for 0.8 s. A blob touching the edge of the
    picture is an arm: it never counts, and whatever it covers stays on the table
    while it does. A nudged object is the same object. Objects pushed together turn
    amber ("Touching: move them apart") and any that split off count then.
@@ -261,7 +280,43 @@ Stored as one JSON document per company with a compare-and-set revision
 `20261102100000_workshop_stock_location_matrix.sql`). Until that is applied both
 screens say so and nothing else changes.
 
-### Limits on what the camera can do
+### The scanner display
+
+Owner pull, 2026-11-03: "i want a separate display for the barcode scanner on
+web". `/stock/scan`, linked from `/stock` as **Barcode scanner**, office only,
+same `workshop_stock` flag, same console theme. **Hypothesis:** if scanning has
+its own screen with no camera to set up, the office logs a delivery by scanning
+it instead of leaving the list behind. Reasoning only: the page has been driven
+with a simulated scanner (fast keys + Enter), never a real one.
+
+It is the camera table's session with no camera (`useStockSession.ts` is shared,
+so the two can't drift):
+
+- **Each scan is one placement.** A barcode on exactly one listed item logs by
+  itself: +1, or a box's worth when it is that item's box barcode. Several items
+  with it → "Which item is this?"; none → the new-item card with the barcode
+  kept; a pick teaches the item the barcode, and
+  anything else waiting with that code then logs too. A code that isn't a shop
+  barcode (EAN / UPC — a serial, a supplier's own label) can't be matched or saved
+  as one, so it says so and offers a search. The camera table now does the same.
+- **The last scan fills the screen:** what it was, the amount, **Goes to** in
+  large yellow, and what's on record now. The same text is announced to screen
+  readers; the same sounds as the camera table play (the first scan turns sound
+  on).
+- **Where the scan will land.** A USB scanner types into whatever has focus, so
+  the status says **Ready**, **Typing in a field** (a scan would go into that
+  field) or **Not listening** (the window isn't in front). Only measured states.
+- **Won't scan?** Type the digits under the barcode; the same as a scan.
+- **Keyboard:** `U` undo the last one, `F` full screen, `M` sound — ignored inside
+  a scanner's burst of keys, as on the camera table. "All the same" isn't here:
+  every scan already says what it is.
+- Every movement carries the note "Barcode scanner", so an item's history says
+  where it came from. Undo and Change amount work per scan, with a reason
+  written into the history.
+- Adds only. Taking stock out with a scanner stays on the phone and the office
+  list (a scan there opens the item).
+
+
 
 - **Picture quality decides what can be read.** A 1080p webcam over an 80 cm table
   gets about 2.4 pixels per mm: box labels should read, barcodes and small print on
@@ -1047,7 +1102,10 @@ SESSION_SECRET=<same> FLAG_WORKSHOP_STOCK=1 npx next dev -p 3000
 WORKSHOP_STOCK_E2E_API=http://localhost:3101 npx playwright test tests/workshop-stock --project=desktop-chrome
 ```
 
-`tests/workshop-stock/camera-table.e2e.spec.ts` runs the same way. Its webcam is a
+`tests/workshop-stock/camera-table.e2e.spec.ts` and
+`tests/workshop-stock/scanner-display.e2e.spec.ts` (the scanner display: a new
+code, the same code logging by itself, U undo, a non-product code, typed digits,
+the listening status; the scanner is the keyboard, typing fast) run the same way. Its webcam is a
 canvas the spec draws on, so the real tracker finds real objects in real frames, but
 the barcode detector and the label reader's answers are fixtures: **real webcams,
 lighting and labels are not proven**, and neither is the speed or cost of real reads.
