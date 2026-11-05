@@ -13,7 +13,7 @@ type Printer = ReturnType<typeof useLabelPrinter>;
 
 /**
  * Bin labels on the location matrix (owner, 2026-11-05): the code label
- * ("A2 B3") and the contents label (what goes in the bin), printed straight to
+ * ("3B-4") and the contents label (what goes in the bin), printed straight to
  * the NIIMBOT on the same connection as item labels — one bin from its editor,
  * or a whole rack from its header. docs/workshop-stock.md
  */
@@ -90,7 +90,7 @@ export function BinLabelBar({ lp, size, setSize, kind, setKind }: { lp: Printer;
           <span className="text-xs text-text-muted">Printing straight to the label printer needs Chrome or Edge on a computer. Save a bin&apos;s labels as pictures from its editor instead.</span>
         )}
       </div>
-      <p className="mt-1.5 text-xs text-text-muted">The code label is the bin&apos;s code as large as it fits (A2 B3 = rack A, shelf 2, bin 3). The contents label is the code with what goes in the bin — the words set below; a bin with none gets only its code.</p>
+      <p className="mt-1.5 text-xs text-text-muted">The code label is the bin&apos;s code as large as it fits (3B-4 = rack 3, shelf B, bin 4). The contents label is the code with what goes in the bin — the words set below; a bin with none gets only its code.</p>
     </section>
   );
 }

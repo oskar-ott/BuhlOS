@@ -120,3 +120,107 @@ export function sessionTotals(placed: ReadonlyArray<{ status: string; itemId: st
   }
   return [...lines.values()].sort((a, b) => b.placements - a.placements || a.name.localeCompare(b.name, "en-AU", { numeric: true, sensitivity: "base" }));
 }
+
+/** Above this a printed pack is checked with a person once: a misread "1000" would otherwise go straight on the record. */
+const PACK_CHECK_MILLI = 100_000;
+
+/**
+ * Whether a printed pack amount should be confirmed before it's logged: it is large,
+ * or differs from what this item's label said earlier in the session. Once confirmed
+ * for an item, that amount logs by itself.
+ */
+export function packNeedsCheck(printedMilli: number, itemId: string, confirmed: ReadonlySet<string>, earlierMilli: readonly number[]): boolean {
+  if (confirmed.has(`${itemId}:${printedMilli}`)) return false;
+  return printedMilli >= PACK_CHECK_MILLI || earlierMilli.some((m) => m !== printedMilli);
+}
+
+export interface TeachIdentifier {
+  kind: "manufacturer_code" | "supplier_sku" | "barcode";
+  value: string;
+  supplierName?: string | null;
+}
+
+/**
+ * What a person's pick (or an exact code match) teaches an item, so the next one
+ * logs by itself: printed codes it doesn't have yet. Without this, "one tap, then
+ * automatic" only held for barcodes.
+ */
+export function identifiersToTeach(item: Pick<StockItem, "identifiers">, barcode: string | null | undefined, product: Pick<ReadProduct, "barcode" | "manufacturerCode" | "supplierSku" | "supplierName"> | null | undefined, opts: { barcodeOnly?: boolean } = {}): TeachIdentifier[] {
+  const out: TeachIdentifier[] = [];
+  const code = barcodeKey(barcode ?? product?.barcode);
+  if (code && !item.identifiers.some((i) => i.kind === "barcode" && (i.valueKey === code || barcodeKey(i.value) === code))) out.push({ kind: "barcode", value: (barcode ?? product?.barcode)! });
+  if (opts.barcodeOnly) return out;
+  const has = (kind: TeachIdentifier["kind"], value: string) => item.identifiers.some((i) => i.kind === kind && codeKeyForCompare(i.value) === codeKeyForCompare(value));
+  if (product?.manufacturerCode && !has("manufacturer_code", product.manufacturerCode)) out.push({ kind: "manufacturer_code", value: product.manufacturerCode });
+  if (product?.supplierSku && !has("supplier_sku", product.supplierSku)) out.push({ kind: "supplier_sku", value: product.supplierSku, supplierName: product.supplierName });
+  return out;
+}
+
+/** How many of the latest placements in a row were the same item at the same amount. Newest first. */
+export function sameInARow(placed: ReadonlyArray<{ status: string; itemId: string | null; amountMilli: number | null }>): number {
+  const logged = placed.filter((p) => p.status === "logged");
+  const first = logged[0];
+  if (!first) return 0;
+  let n = 0;
+  for (const p of logged) {
+    if (p.itemId !== first.itemId || p.amountMilli !== first.amountMilli) break;
+    n += 1;
+  }
+  return n;
+}
+
+const SCAN_KEY_GAP_MS = 45;
+const SCAN_MIN_LENGTH = 6;
+
+export interface ScanBuffer {
+  text: string;
+  lastAt: number;
+}
+
+export const emptyScan = (): ScanBuffer => ({ text: "", lastAt: 0 });
+
+/**
+ * A USB or Bluetooth barcode scanner types like a very fast keyboard and presses
+ * Enter. Keys closer together than any person types are held as a scan; returns
+ * the code when the Enter comes.
+ */
+export function feedScan(buffer: ScanBuffer, key: string, now: number): { buffer: ScanBuffer; code: string | null } {
+  // A capital letter in a code comes with its own Shift press.
+  if (key === "Shift") return { buffer, code: null };
+  const inTime = now - buffer.lastAt <= SCAN_KEY_GAP_MS;
+  if (key === "Enter") return { buffer: emptyScan(), code: inTime && buffer.text.length >= SCAN_MIN_LENGTH ? buffer.text : null };
+  if (key.length !== 1) return { buffer: emptyScan(), code: null };
+  return { buffer: { text: inTime ? buffer.text + key : key, lastAt: now }, code: null };
+}
+
+/** Typed with no field in use: a new card's name or count, a card's amount, or the amount on what just logged. */
+export type TypedInto = "name" | "count" | "row";
+
+export function typedInto(key: string, cardStatus: string | null, lastLogged: boolean): TypedInto | null {
+  const digit = /^[0-9]$/.test(key);
+  if (cardStatus === "new") return digit ? "count" : /^\p{L}$/u.test(key) ? "name" : null;
+  if (cardStatus === "amount") return digit ? "count" : null;
+  return cardStatus === null && lastLogged && digit ? "row" : null;
+}
+
+const SCAN_TAKES: readonly string[] = ["new", "pick", "problem", "reading"];
+
+/**
+ * The card a hand scan names: the oldest waiting one with no barcode of its own. A card
+ * that already has one is a different thing or another of the same, so its barcode is
+ * never replaced.
+ */
+export function cardForScan<T extends { id: number; status: string; barcode?: string | null; product?: Pick<ReadProduct, "barcode"> | null }>(placed: readonly T[]): T | null {
+  return [...placed].sort((a, b) => a.id - b.id).find((p) => SCAN_TAKES.includes(p.status) && !barcodeKey(p.barcode ?? p.product?.barcode)) ?? null;
+}
+
+/** Oldest first, so the card being filled in never moves; repeats of one product share a card. */
+export function waitingQueue<T extends { id: number; barcode?: string | null; product?: Pick<ReadProduct, "barcode" | "manufacturerCode" | "supplierSku"> | null }>(waiting: readonly T[]): Array<{ lead: T; repeats: T[] }> {
+  const groups: Array<{ lead: T; repeats: T[] }> = [];
+  for (const p of [...waiting].sort((a, b) => a.id - b.id)) {
+    const group = groups.find((g) => sameProduct(g.lead, p));
+    if (group) group.repeats.push(p);
+    else groups.push({ lead: p, repeats: [] });
+  }
+  return groups;
+}

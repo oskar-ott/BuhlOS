@@ -13,8 +13,8 @@ import type { Placed } from "./IntakeCards";
 import { playCue } from "./intake-overlay";
 
 /**
- * One office logging session — shared by the camera table (/stock/intake) and
- * the scanner display (/stock/scan). It holds what's been placed or scanned this
+ * One office logging session, for the scanner display (/stock/scan). The camera
+ * table (/stock/intake) keeps its own, with a queue, a table to watch and Talk. It holds what's been placed or scanned this
  * session and does the writing: log an amount to an item, give it its location
  * from the matrix, add a new item, pick between candidates, change an amount,
  * undo one. Each placement is its own movement with its own idempotency key, so
@@ -35,7 +35,7 @@ export function blankPlaced(fields: Pick<Placed, "id" | "status"> & Partial<Plac
   return {
     at: Date.now(), box: { x: 0, y: 0, w: 0, h: 0 }, onTable: false, crop: "", thumb: null,
     barcode: null, product: null, readResult: null, choices: [], problem: null, note: null, busy: false, itemId: null, itemName: null, unit: null, location: null,
-    amountMilli: null, fromLabel: false, recordedMilli: null, movementId: null, moveKey: null, photoId: null, retryMilli: null,
+    amountMilli: null, fromLabel: false, recordedMilli: null, movementId: null, moveKey: null, photoId: null, retryMilli: null, unread: false, askMilli: null, draft: null,
     ...fields,
   };
 }

@@ -8,9 +8,12 @@ import { createItem, fetchOperation, lookupCode, newOperationKey, storePhoto, ty
 import { balanceLabel, errorCopy, formatQuantity, packLabel, photoUrl, toQuantityString, UNIT_LABEL, unitHint, VERIFICATION_LABEL } from "@/domains/workshop-stock/format";
 import { looksName, packSuggestion, suggestName } from "@/domains/workshop-stock/flow";
 import { splitLocation } from "@/domains/workshop-stock/location";
+import { suggestBin } from "@/domains/workshop-stock/location-map";
+import { ruleFor, type LocationMatrix } from "@/domains/workshop-stock/location-matrix";
 import { guessSpecs, guessType, specsForType, suggestTypedName, typeOf } from "@/domains/workshop-stock/types";
 import { clearPending, isUncertain, rememberPending } from "@/domains/workshop-stock/pending";
 import { PACK_UNITS, UNIT_KEYS, type LookupResult, type PackUnit, type ReadProduct, type StockItem, type StockUnit, type VerificationStatus, type WriteResult } from "@/domains/workshop-stock/schema";
+import { BinPicker } from "./BinPicker";
 import { LookupCard } from "./LookupCard";
 import { PhotoCapture } from "./PhotoCapture";
 import { QuantityStepper } from "./QuantityStepper";
@@ -88,6 +91,7 @@ export function NewItemForm({
   locationPhotoEnabled = false,
   typesEnabled = false,
   defaultLocation,
+  matrix = null,
   lastLocationPhoto = null,
   emphasis = "another",
   anotherLabel = "Save and add another",
@@ -104,6 +108,8 @@ export function NewItemForm({
   typesEnabled?: boolean;
   /** the shelf the last item went on (set-up rhythm) */
   defaultLocation?: string | null;
+  /** the workshop's racks: a rule fills in the bin, and the crew can pick one */
+  matrix?: LocationMatrix | null;
   /** …and the photo of where that item lives, offered again for the same shelf */
   lastLocationPhoto?: LastLocationPhoto | null;
   /** phone: "Save and add another" leads; office: "Save item" leads */
@@ -141,8 +147,10 @@ export function NewItemForm({
   const [variant, setVariant] = useState((p?.variantDetails ?? []).join(" "));
   const [unit, setUnit] = useState<StockUnit>(p?.packUnit === "metre" ? "metre" : typeOf(initialCategory)?.unit ?? "each");
   const [keepContainer, setKeepContainer] = useState<StockUnit | null>(null);
-  const [location, setLocation] = useState(defaultLocation ?? "");
+  const [typedLocation, setTypedLocation] = useState(defaultLocation ?? "");
   const [locationFromLast, setLocationFromLast] = useState(Boolean(defaultLocation));
+  // Until someone types or picks a location, a matrix rule that fits fills it in, following the name and codes as they change.
+  const [locationChosen, setLocationChosen] = useState(false);
   const [qtyMilli, setQtyMilli] = useState(1000);
   const [packMode, setPackMode] = useState(false);
   const [packCount, setPackCount] = useState(1);
@@ -183,6 +191,13 @@ export function NewItemForm({
   // uploading must not start a second save.
   const savingRef = useRef(false);
   const photoFailedRef = useRef(false);
+
+  const labelWords = (p?.labelText ?? []).join(" ");
+  const locationWords = [name, brand, code, variant, colour, labelWords].filter(Boolean).join(" ");
+  const locationRule = useMemo(() => (locationChosen ? null : ruleFor(locationWords, matrix)), [locationChosen, locationWords, matrix]);
+  const location = locationRule?.location ?? typedLocation;
+  const chooseLocation = (text: string) => { setTypedLocation(text); setLocationFromLast(false); setLocationChosen(true); };
+  const binSuggestion = useMemo(() => (location.trim() ? null : suggestBin({ text: locationWords, category, brand }, matrix, items)), [location, locationWords, category, brand, matrix, items]);
 
   const suggestion = packSuggestion(p, unit);
   const locations = useMemo(() => {
@@ -498,14 +513,21 @@ export function NewItemForm({
       ) : null}
 
       <div className="space-y-1.5">
-        <Field label="Where it lives in the workshop" value={location} onChange={(v) => { setLocation(v); setLocationFromLast(false); }} placeholder="e.g. Shelf A2, Bin 4" tag={locationFromLast && location ? <Tag>Same as last item</Tag> : undefined} testId="stock-new-location" disabled={locked} />
+        <Field label="Where it lives in the workshop" value={location} onChange={chooseLocation} placeholder="e.g. Shelf A2, Bin 4" tag={locationRule ? <Tag>From &ldquo;{locationRule.rule.words}&rdquo;</Tag> : locationFromLast && location ? <Tag>Same as last item</Tag> : undefined} testId="stock-new-location" disabled={locked} />
         {locations.length ? (
           <div className="flex flex-wrap gap-1.5">
             {locations.map((l) => (
-              <button key={l} type="button" onClick={() => { setLocation(l); setLocationFromLast(false); }} disabled={locked} className="min-h-[36px] rounded-pill border border-border px-3 text-[13px] text-text hover:border-brand-navy">{l}</button>
+              <button key={l} type="button" onClick={() => chooseLocation(l)} disabled={locked} className="min-h-[36px] rounded-pill border border-border px-3 text-[13px] text-text hover:border-brand-navy">{l}</button>
             ))}
           </div>
         ) : null}
+        {binSuggestion ? (
+          <button type="button" onClick={() => chooseLocation(binSuggestion.location)} disabled={locked} className="flex min-h-[44px] w-full flex-col items-start rounded-xl border border-brand-navy px-3 py-1.5 text-left hover:bg-surface-subtle" data-testid="stock-new-location-suggestion">
+            <span className="text-[14px] font-semibold text-text">Use {binSuggestion.location}</span>
+            <span className="text-[13px] text-text-muted">{binSuggestion.why}</span>
+          </button>
+        ) : null}
+        {matrix?.racks.length ? <BinPicker matrix={matrix} location={location} onPick={chooseLocation} disabled={locked} /> : null}
       </div>
 
       {/* The photo of where it's going: the shelf text can be wrong or vague —

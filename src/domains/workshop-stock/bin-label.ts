@@ -1,9 +1,9 @@
 import { DOTS_PER_MM, wrapText, type LabelSize } from "./label";
-import { rackLabel, rulesInBin, type LocationMatrix, type MatrixRack } from "./location-matrix";
+import { rackLabel, rulesInBin, shelfLabel, type LocationMatrix, type MatrixRack } from "./location-matrix";
 
 /**
  * Labels for the bins (owner, 2026-11-05: "print labels for the bins … one
- * label is the location code like A2 B3 for rack A shelf 2 bin 3 … and the
+ * label is the location code like A2 B3 for rack a shelve 2 bin 3 … and the
  * other label has contents"). Pure: which labels a bin or rack gets, and where
  * the text goes. Printed on the same NIIMBOT connection as item labels.
  *
@@ -14,7 +14,11 @@ import { rackLabel, rulesInBin, type LocationMatrix, type MatrixRack } from "./l
  *   the words are what the office set for the bin.
  *
  * Words only — no barcode (the owner's pick). The code is display only: items
- * keep their stored location text ("Rack A Shelf 2, Bin 3").
+ * keep their stored location text ("Rack 3 Shelf B, Bin 4").
+ *
+ * The code follows the workshop's naming — racks numbered, shelves lettered,
+ * bins numbered (owner correction in #1128): "3B-4" is rack 3, shelf B, bin 4
+ * (owner's pick, 2026-11-05, over keeping "A2 B3" literally).
  */
 
 export type BinLabelKind = "both" | "code" | "contents";
@@ -26,19 +30,20 @@ export const BIN_LABEL_KINDS: ReadonlyArray<{ key: BinLabelKind; label: string }
 ];
 
 /**
- * "A2 B3" for rack A, shelf 2, bin 3. A rack named in words keeps its name:
- * "Cable bay S2 B3".
+ * "3B-4" for rack 3, shelf B, bin 4. A rack named in words keeps its name:
+ * "Cable bay B-4".
  */
 export function binCode(rack: Pick<MatrixRack, "name">, shelf: number, bin: number): string {
   const name = rack.name.trim();
-  return /^[A-Za-z0-9]{1,3}$/.test(name) ? `${name.toUpperCase()}${shelf} B${bin}` : `${name} S${shelf} B${bin}`;
+  const place = `${shelfLabel(shelf)}-${bin}`;
+  return /^[A-Za-z0-9]{1,3}$/.test(name) ? `${name.toUpperCase()}${place}` : `${name} ${place}`;
 }
 
 export interface BinLabelSpec {
   kind: "code" | "contents";
-  /** "A2 B3" */
+  /** "3B-4" */
   code: string;
-  /** "Rack A · Shelf 2 · Bin 3" — the place in words, under the code on a tall label */
+  /** "Rack 3 · Shelf B · Bin 4" — the place in words, under the code on a tall label */
   place: string;
   /** the matrix words for the bin, in the order they were added */
   contents: string[];
@@ -47,7 +52,7 @@ export interface BinLabelSpec {
 /** The labels for one bin, by kind. A bin with nothing set gets no contents label (there's nothing to say). */
 export function binLabels(matrix: LocationMatrix, rack: MatrixRack, shelf: number, bin: number, kind: BinLabelKind): BinLabelSpec[] {
   const code = binCode(rack, shelf, bin);
-  const place = `${rackLabel(rack.name)} · Shelf ${shelf} · Bin ${bin}`;
+  const place = `${rackLabel(rack.name)} · Shelf ${shelfLabel(shelf)} · Bin ${bin}`;
   const contents = rulesInBin(matrix, rack.id, shelf, bin).map((r) => r.words.trim()).filter(Boolean);
   const out: BinLabelSpec[] = [];
   if (kind !== "contents") out.push({ kind: "code", code, place, contents });
