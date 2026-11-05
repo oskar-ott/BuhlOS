@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { NewItemForm, type NewItemSeed } from "@/components/stock/NewItemForm";
 import { PhotoCapture } from "@/components/stock/PhotoCapture";
 import { StockThumb } from "@/components/stock/StockThumb";
+import { useLocationMatrix } from "@/components/stock/useLocationMatrix";
 import { readPhoto } from "@/domains/workshop-stock/client";
 import { decideRead } from "@/domains/workshop-stock/flow";
 import { balanceLabel, errorCopy, READ_STATUS_COPY } from "@/domains/workshop-stock/format";
@@ -20,6 +21,7 @@ import { Block } from "./StockAdminForms";
  * nothing is created twice. Same "Saves as" line, same single transaction.
  */
 export function StockAdminAdd({ scannedBarcode = null, items, capabilities, onSaved, onOpenItem, onClose }: { scannedBarcode?: string | null; items: StockItem[]; capabilities: { photoRead: boolean; lookup: boolean; locationPhoto?: boolean; types?: boolean }; onSaved: (r: WriteResult) => void; onOpenItem: (id: string, opts?: { label: boolean }) => void; onClose: () => void }) {
+  const matrix = useLocationMatrix();
   const [seed, setSeed] = useState<NewItemSeed>({ product: null, photoId: null, dataUrl: null, scannedBarcode });
   const [formKey, setFormKey] = useState(1);
   const [reading, setReading] = useState(false);
@@ -102,7 +104,7 @@ export function StockAdminAdd({ scannedBarcode = null, items, capabilities, onSa
             </div>
           </Block>
         ) : (
-          <NewItemForm key={formKey} seed={seed} items={items} lookupEnabled={capabilities.lookup} locationPhotoEnabled={capabilities.locationPhoto === true} typesEnabled={capabilities.types === true} defaultLocation={lastLocation} emphasis="save" onSaved={onFormSaved} onUseExisting={(item) => onOpenItem(item.id)} />
+          <NewItemForm key={formKey} seed={seed} items={items} lookupEnabled={capabilities.lookup} locationPhotoEnabled={capabilities.locationPhoto === true} typesEnabled={capabilities.types === true} defaultLocation={lastLocation} matrix={matrix} emphasis="save" onSaved={onFormSaved} onUseExisting={(item) => onOpenItem(item.id)} />
         )}
       </div>
     </Drawer>

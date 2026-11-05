@@ -138,7 +138,8 @@ recorded, and where they live.
 
 - **Camera table** (`/stock/intake`): log a large number of items with a webcam
   above a table. **Location matrix** (`/stock/locations`): say what goes in each
-  bin. Both [below](#camera-table-and-location-matrix).
+  bin, see what's in each bin, and place stock that has no bin. The Add form uses it
+  too. All [below](#camera-table-and-location-matrix).
 
 **Scanner display (2026-11-03)**
 
@@ -270,10 +271,58 @@ the words for what lives there ("iconic switch"). A product goes to a bin when
 compares (plurals and trade names folded). The rule with the most words wins, so
 "iconic switch" beats "iconic". "Test a label" shows where a label would go.
 
-A location is written as `Rack C Shelf 2, Bin 4`, which the existing by-shelf list
-already reads as shelf "Rack C Shelf 2", bin "Bin 4". The matrix **only fills a blank
+Racks are numbered, shelves lettered (A at the top of the grid, up to Z) and bins
+numbered. A location is written as `Rack 3 Shelf B, Bin 4`, which the existing by-shelf list
+already reads as shelf "Rack 3 Shelf B", bin "Bin 4". The matrix **only fills a blank
 location**: a new item's, or an existing item with none. An item that has a location
 keeps it, and changing the matrix never moves recorded stock.
+
+**The Add form** (phone and office) uses the same matrix, which is why anyone adding
+stock can read it; only the office changes it. Until someone types or picks a location,
+a rule that fits fills it in, following the name and codes as they change, and it takes
+priority over "Same as last item". With no rule, the form offers a one-tap suggestion,
+and Rack → Shelf → Bin buttons pick any bin. Typing still works, and a typed location is
+never overwritten. If the matrix can't load, the form is the same as before.
+
+**The shelf map** is the same grid, showing what the recorded stock says is in each bin
+(read from each item's location text). Click a bin to see what's in it and Move any of
+it. "Needs a place" lists stock with no location, a location that isn't a bin on the map,
+or a bin different from its rule. "Put it here" takes the suggestion; "Choose a bin" lets
+you click another. Stock only moves from those taps, each one an ordinary item edit.
+Renaming a rack or making it smaller doesn't rewrite items: anything left behind appears
+under "Needs a place".
+
+**A suggestion is a stated reason, not a score** (`location-map.ts`): a rule that fits,
+even if that bin is in use; then the free bin closest to the same type; then the same
+brand; then the first free bin. A free bin holds no stock and no rule. It doesn't know
+how often an item is taken or how big anything is, so it never claims a "fastest" or
+"best fit" spot.
+
+**A recommended layout** ("Recommend a layout" on the same screen, `location-layout.ts`)
+keeps related stock together once the racks exist: GPOs beside switches, patch leads beside
+data jacks. It sorts stock into groups by the words on its name, in the same way a rule
+matches, then runs the groups along the racks in one path that turns back at the end of
+each shelf, so neighbours stay neighbours over the turn. A group with several ranges (or,
+with no range on the label, several brands) gets a bin for each, plus one for the group.
+
+- It's shown on the racks first. "Use this layout" saves ordinary rules, so new stock goes
+  there. Recorded stock doesn't move: it appears under "Needs a place" for a tap each.
+  Undo puts the rules back, but anything already moved stays where it was moved to.
+- Rules already set are kept, and that family grows out from them, unless "Keep the rules
+  already set" is unticked, which replaces them.
+- Bins holding stock that no group covers are left alone. That stock is listed as "Not in
+  any group", because a rule can't catch a name that doesn't say what it is.
+- With room for every usual group, or with no stock at all, it readies them all, including
+  groups with no stock yet. Otherwise it only places the groups stock has.
+- Groups in a family sit touching, and any free bins go after the family. A family that
+  wouldn't fit in what's left of a rack starts on the next rack if there's room to spare.
+  With more groups than free bins, neighbours share a bin and the screen says so. Once
+  saved, those free bins are just free bins: nothing reserves them for the family.
+
+**The groups and their order are trade judgement written down in `LAYOUT_FAMILIES`, not
+measured.** It doesn't know how big anything is or how often it's taken, or which way
+shelves or racks run in the real workshop, so it only ever says what sits together.
+Cable on drums won't suit a bin, and a person should change that kind of thing by hand.
 
 Stored as one JSON document per company with a compare-and-set revision
 (`workshop_stock_location_matrix`, migration
@@ -1041,10 +1090,13 @@ SESSION_SECRET=<same> FLAG_WORKSHOP_STOCK=1 npx next dev -p 3000
 WORKSHOP_STOCK_E2E_API=http://localhost:3101 npx playwright test tests/workshop-stock --project=desktop-chrome
 ```
 
-`tests/workshop-stock/camera-table.e2e.spec.ts` and
+`tests/workshop-stock/shelf-map.e2e.spec.ts` (Add form, bin picker, shelf map, moves,
+the crew's read), `tests/workshop-stock/layout-plan.e2e.spec.ts` (recommended layout, use,
+undo), `tests/workshop-stock/camera-table.e2e.spec.ts` and
 `tests/workshop-stock/scanner-display.e2e.spec.ts` (the scanner display: a new
 code, the same code logging by itself, U undo, a non-product code, typed digits,
-the listening status; the scanner is the keyboard, typing fast) run the same way. Its webcam is a
+the listening status; the scanner is the keyboard, typing fast) run the same way. Each resets the
+harness, so run them one file at a time. The camera spec's webcam is a
 canvas the spec draws on, so the real tracker finds real objects in real frames, but
 the barcode detector and the label reader's answers are fixtures: **real webcams,
 lighting and labels are not proven**, and neither is the speed or cost of real reads.
