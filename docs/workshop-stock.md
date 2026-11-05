@@ -770,6 +770,15 @@ types.
   `reading`; using it writes `source: web` and the domain into the item's
   history ("Photo changed — product photo from clipsal.com") and the audit
   summary. No migration.
+- **Every item without one, in one go**: **Find photos** on the list's tool
+  row (with a count) opens a drawer of the live items that have a maker's code
+  and no photo, up to 25 a run. It runs the same steps per item, one at a
+  time (`src/domains/workshop-stock/web-photo.ts`), and **applies nothing by
+  itself**: each photo found waits for **Use** / **Skip**, or **Use all
+  found** — a product page sometimes carries a logo or another variant. A
+  limit, today's checks used up, or lost signal stops the run and says so; the
+  items not looked at yet are left as they were ("Carry on" picks up there).
+  Items without a code are counted and named as unable to be looked up.
 - **Limits**: 40 fetches per person per hour; a check it has to run first
   counts against the daily online-check budget like any other.
 - **Copyright**: these are the maker's / wholesaler's catalogue images, used

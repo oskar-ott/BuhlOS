@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Camera, Columns3, Grid3x3, LayoutGrid, Plus, RefreshCw, Rows3, Search, Tags } from "lucide-react";
+import { Camera, Columns3, Globe, Grid3x3, LayoutGrid, Plus, RefreshCw, Rows3, Search, Tags } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
 import { fetchStockList } from "@/domains/workshop-stock/client";
@@ -17,6 +17,8 @@ import { findByBarcode } from "@/domains/workshop-stock/barcode";
 import { useBarcodeScanner } from "@/components/stock/useBarcodeScanner";
 import { StockItemDrawer } from "./StockItemDrawer";
 import { StockBoard, StockCards, StockTable } from "./StockViews";
+import { WebPhotoBatch } from "./WebPhotoBatch";
+import { needsWebPhoto } from "@/domains/workshop-stock/web-photo";
 
 type Filter = "all" | "zero" | "estimated" | "check" | "unsorted" | "archived";
 
@@ -88,6 +90,7 @@ export function StockAdminClient({ initialItemId }: { initialItemId?: string | n
   const [openLabel, setOpenLabel] = useState(false);
   const [adding, setAdding] = useState<false | { scannedBarcode: string | null }>(false);
   const [categories, setCategories] = useState(false);
+  const [photoBatch, setPhotoBatch] = useState(false);
   const [pref, setPref] = useState<Pref>(DEFAULT_PREF);
   useEffect(() => { setPref(readPref()); }, []);
   const { view, sort } = pref;
@@ -116,7 +119,7 @@ export function StockAdminClient({ initialItemId }: { initialItemId?: string | n
     if (hits.length > 1) { setQ(code); return; }
     setOpenId(null);
     setAdding({ scannedBarcode: code });
-  }, Boolean(list) && !adding && !categories);
+  }, Boolean(list) && !adding && !categories && !photoBatch);
   const failed = state === "error";
   const counts = useMemo(() => ({
     all: items.filter((i) => !i.archivedAt).length,
@@ -221,9 +224,15 @@ export function StockAdminClient({ initialItemId }: { initialItemId?: string | n
           <Link href="/stock/locations" className={TOOL} title="Location matrix" data-testid="stock-open-matrix">
             <Grid3x3 aria-hidden="true" className="h-4 w-4" /> <span className="hidden xl:inline">Location matrix</span>
           </Link>
+          {list?.capabilities.lookup && !archivedView && needsWebPhoto(items).length ? (
+            <button type="button" className={TOOL} title="Find product photos online for items without one" onClick={() => setPhotoBatch(true)} data-testid="stock-admin-web-photos">
+              <Globe aria-hidden="true" className="h-4 w-4" /> <span className="hidden 2xl:inline">Find photos</span>
+              <span className="rounded-full bg-surface-subtle px-1.5 py-px font-mono text-[11px] font-bold tabular-nums text-text">{needsWebPhoto(items).length}</span>
+            </button>
+          ) : null}
           {typesEnabled && list?.capabilities.customTypes ? (
             <button type="button" className={TOOL} title="Categories" onClick={() => setCategories(true)} data-testid="stock-admin-categories">
-              <Tags aria-hidden="true" className="h-4 w-4" /> <span className="hidden xl:inline">Categories</span>
+              <Tags aria-hidden="true" className="h-4 w-4" /> <span className="hidden 2xl:inline">Categories</span>
             </button>
           ) : null}
         </div>
@@ -269,6 +278,7 @@ export function StockAdminClient({ initialItemId }: { initialItemId?: string | n
       )}
 
       {openId && list ? <StockItemDrawer key={`${openId}-${openLabel}`} labelOpenAtStart={openLabel} itemId={openId} lookupEnabled={list.capabilities.lookup} locationPhotoEnabled={list.capabilities.locationPhoto === true} typesEnabled={typesEnabled} onClose={() => { setOpenId(null); setOpenLabel(false); }} onChanged={() => void load(filter === "archived")} /> : null}
+      {photoBatch && list ? <WebPhotoBatch items={items} onChanged={() => void load(false)} onOpenItem={(id) => { setPhotoBatch(false); setOpenId(id); }} onClose={() => setPhotoBatch(false)} /> : null}
       {categories && list ? <StockCategories customTypes={list.customTypes ?? []} items={items} onSaved={() => void load(filter === "archived")} onClose={() => setCategories(false)} /> : null}
       {adding && list ? <StockAdminAdd scannedBarcode={adding.scannedBarcode} items={items} capabilities={list.capabilities} onSaved={() => void load(filter === "archived")} onOpenItem={(id, opts) => { setAdding(false); setOpenLabel(Boolean(opts?.label)); setOpenId(id); }} onClose={() => setAdding(false)} /> : null}
     </div>

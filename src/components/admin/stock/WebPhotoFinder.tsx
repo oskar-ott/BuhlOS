@@ -5,6 +5,7 @@ import { ExternalLink, Globe, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { findWebPhoto, lookupCode, replaceItemPhoto, type WebPhoto } from "@/domains/workshop-stock/client";
 import { errorCopy, photoUrl } from "@/domains/workshop-stock/format";
+import { findPhotoFor } from "@/domains/workshop-stock/web-photo";
 import type { StockItem } from "@/domains/workshop-stock/schema";
 
 /**
@@ -31,23 +32,10 @@ export function WebPhotoFinder({ item, lookupEnabled, onUsed, compact = false }:
     setMessage(null);
     setFound(null);
     setPhase("fetching");
-    let r = await findWebPhoto(item.id);
-    if (!r.ok && r.error.status === 409 && (r.error.body as { error?: string } | null)?.error === "not_checked") {
-      setPhase("checking");
-      // exactly the item's own brand / code / colour / size — the check the server reads back
-      const l = await lookupCode({ brand: item.brand, manufacturerCode: item.manufacturerCode!, colourFinish: item.colourFinish, variantDetails: item.variant ?? "" });
-      if (!l.ok) { setPhase("idle"); setMessage({ tone: "error", text: errorCopy(l.error.status, l.error.body, "Couldn't check the code online right now.") }); return; }
-      if (l.data.status !== "manufacturer_code_matched" && l.data.status !== "possible_match") {
-        setPhase("idle");
-        setMessage({ tone: "muted", text: l.data.reasons?.[0] ? `No product page found to take a photo from — ${l.data.reasons[0].charAt(0).toLowerCase()}${l.data.reasons[0].slice(1)}.` : "No product page found to take a photo from." });
-        return;
-      }
-      setPhase("fetching");
-      r = await findWebPhoto(item.id);
-    }
-    if (!r.ok) { setPhase("idle"); setMessage({ tone: r.error.status === 404 ? "muted" : "error", text: errorCopy(r.error.status, r.error.body, "Couldn't get a photo online right now.") }); return; }
-    setFound(r.data);
-    setPhase("preview");
+    const out = await findPhotoFor(item, { findWebPhoto, lookupCode, onChecking: () => setPhase("checking") });
+    if (out.kind === "found") { setFound(out.photo); setPhase("preview"); return; }
+    setPhase("idle");
+    setMessage({ tone: out.kind === "none" ? "muted" : "error", text: out.text });
   }
 
   async function use() {
