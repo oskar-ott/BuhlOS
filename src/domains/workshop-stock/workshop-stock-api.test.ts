@@ -32,6 +32,7 @@ const P = {
   vision: path("../../../api/_lib/workshop-stock/vision.js"),
   photo: path("../../../api/_lib/workshop-stock/photo.js"),
   search: path("../../../api/_lib/workshop-stock/search.js"),
+  safeFetch: path("../../../api/_lib/workshop-stock/safe-fetch.js"),
   lookup: path("../../../api/_lib/workshop-stock/lookup.js"),
   handler: path("../../../api/workshop-stock.js"),
 };
@@ -46,13 +47,14 @@ type Res = { statusCode: number; body: unknown; headers: Record<string, string>;
 let blob: Map<string, unknown>;
 let auth: { signSession: (p: Record<string, unknown>) => string };
 let handler: (req: Record<string, unknown>, res: Res) => Promise<unknown>;
-type StoreFn = "hasCustomTypes" | "listCustomTypes" | "saveCustomType" | "resolveTenant" | "listItems" | "getItem" | "listMovements" | "itemEvents" | "getOperation" | "replayOperation" | "recordMovement" | "recordCount" | "reverseMovement" | "createItemWithOpening" | "updateItem" | "setArchived" | "addIdentifier" | "retireIdentifier" | "recordVerification" | "insertPhoto" | "setPhotoReading" | "getPhotoForServing" | "replaceItemPhoto" | "hasLocationPhoto" | "hasTypes" | "hasLists" | "listLists" | "getList" | "saveList" | "deleteList" | "saveListLine" | "deleteListLine" | "photosDueForDeletion" | "markPhotoDeleted" | "markBlobDeleted" | "consumeUsage" | "getLocationMatrix" | "saveLocationMatrix" | "getCachedLookup" | "putCachedLookup";
+type StoreFn = "hasCustomTypes" | "listCustomTypes" | "saveCustomType" | "resolveTenant" | "listItems" | "getItem" | "listMovements" | "itemEvents" | "getOperation" | "replayOperation" | "recordMovement" | "recordCount" | "reverseMovement" | "createItemWithOpening" | "updateItem" | "setArchived" | "addIdentifier" | "retireIdentifier" | "recordVerification" | "insertPhoto" | "setPhotoReading" | "getPhotoWebSource" | "getPhotoForServing" | "replaceItemPhoto" | "hasLocationPhoto" | "hasTypes" | "hasLists" | "listLists" | "getList" | "saveList" | "deleteList" | "saveListLine" | "deleteListLine" | "photosDueForDeletion" | "markPhotoDeleted" | "markBlobDeleted" | "consumeUsage" | "getLocationMatrix" | "saveLocationMatrix" | "getCachedLookup" | "putCachedLookup";
 let store: Record<StoreFn, ReturnType<typeof vi.fn>>;
 let audit: { append: ReturnType<typeof vi.fn> };
 let lookupProduct: ReturnType<typeof vi.fn>;
 let vision: { enabled: () => boolean; readProductPhoto: (...a: unknown[]) => unknown };
 let photoMod: Record<string, unknown>;
 let search: { enabled: () => boolean };
+let safeFetch: Record<string, unknown>;
 
 function createRes(): Res {
   return {
@@ -154,6 +156,7 @@ beforeEach(() => {
     recordVerification: vi.fn(async () => ({ ok: true })),
     insertPhoto: vi.fn(async () => PHOTO_ID),
     setPhotoReading: vi.fn(async () => undefined),
+    getPhotoWebSource: vi.fn(async () => null),
     getPhotoForServing: vi.fn(async () => ({ id: PHOTO_ID, blobUrl: "https://secret.blob.example/x.jpg", contentType: "image/jpeg", byteSize: 3 })),
     replaceItemPhoto: vi.fn(async () => ({ ok: true })),
     hasLocationPhoto: vi.fn(async () => true),
@@ -190,6 +193,7 @@ beforeEach(() => {
   photoMod.storePhoto = vi.fn(async () => ({ url: "https://secret.blob.example/new.jpg", pathname: "workshop-stock/buhl/photos/new.jpg" }));
   photoMod.fetchPhoto = vi.fn(async () => Buffer.from([1, 2, 3]));
   photoMod.deletePhoto = vi.fn(async () => undefined);
+  safeFetch = requireFromHere(P.safeFetch);
   handler = requireFromHere(P.handler);
 });
 
@@ -749,18 +753,18 @@ describe("a photo of where the item lives", () => {
 
   it("the office can replace or remove it; the product photo can't be removed this way; the crew can only FILL a missing one", async () => {
     expect((await post("item-photo", { itemId: ITEM_ID, photoId: LOC_ID, slot: "location" }, "u_office")).statusCode).toBe(200);
-    expect(store.replaceItemPhoto).toHaveBeenLastCalledWith(expect.anything(), TENANT.id, ITEM_ID, LOC_ID, expect.objectContaining({ id: "u_office" }), "location", { onlyIfEmpty: false });
+    expect(store.replaceItemPhoto).toHaveBeenLastCalledWith(expect.anything(), TENANT.id, ITEM_ID, LOC_ID, expect.objectContaining({ id: "u_office" }), "location", { onlyIfEmpty: false, eventDetail: null });
     expect((await post("item-photo", { itemId: ITEM_ID, photoId: null, slot: "location" }, "u_office")).statusCode).toBe(200);
-    expect(store.replaceItemPhoto).toHaveBeenLastCalledWith(expect.anything(), TENANT.id, ITEM_ID, null, expect.anything(), "location", { onlyIfEmpty: false });
+    expect(store.replaceItemPhoto).toHaveBeenLastCalledWith(expect.anything(), TENANT.id, ITEM_ID, null, expect.anything(), "location", { onlyIfEmpty: false, eventDetail: null });
     expect((await post("item-photo", { itemId: ITEM_ID, photoId: null }, "u_office")).statusCode).toBe(400);
     // an unchanged caller still means the product photo
     await post("item-photo", { itemId: ITEM_ID, photoId: PHOTO_ID }, "u_office");
-    expect(store.replaceItemPhoto).toHaveBeenLastCalledWith(expect.anything(), TENANT.id, ITEM_ID, PHOTO_ID, expect.anything(), "product", { onlyIfEmpty: false });
+    expect(store.replaceItemPhoto).toHaveBeenLastCalledWith(expect.anything(), TENANT.id, ITEM_ID, PHOTO_ID, expect.anything(), "product", { onlyIfEmpty: false, eventDetail: null });
     const audited = audit.append.mock.calls.length;
 
     // the crew, putting stock away: fill a missing one (the store refuses to replace), never remove or touch the product photo
     expect((await post("item-photo", { itemId: ITEM_ID, photoId: LOC_ID, slot: "location" })).statusCode).toBe(200);
-    expect(store.replaceItemPhoto).toHaveBeenLastCalledWith(expect.anything(), TENANT.id, ITEM_ID, LOC_ID, expect.objectContaining({ id: "u_field" }), "location", { onlyIfEmpty: true });
+    expect(store.replaceItemPhoto).toHaveBeenLastCalledWith(expect.anything(), TENANT.id, ITEM_ID, LOC_ID, expect.objectContaining({ id: "u_field" }), "location", { onlyIfEmpty: true, eventDetail: null });
     expect(audit.append.mock.calls.length).toBe(audited); // in the item's own history, not the shared journal
     store.replaceItemPhoto.mockResolvedValueOnce({ error: "location_photo_exists" });
     const taken = await post("item-photo", { itemId: ITEM_ID, photoId: LOC_ID, slot: "location" }, "u_lh");
@@ -1053,5 +1057,79 @@ describe("NIIMBOT labels: our own barcode for an item with none (2026-11-03)", (
     await post("create", { name: "Other", baseUnit: "each", location: "Bin 3", openingQuantity: "1", barcode: "9338475023035", makeBarcode: true });
     const ids2 = store.createItemWithOpening.mock.calls[1]![2].identifiers as Array<{ kind: string; value: string }>;
     expect(ids2.find((i) => i.kind === "barcode")?.value).toBe("9338475023035");
+  });
+});
+
+describe("a product photo from the web (office pull 2026-11-05)", () => {
+  const IMG = "https://www.clipsal.com/media/2025WE.png";
+  const checked = (candidate: Record<string, unknown> = {}, status = "manufacturer_code_matched") => ({
+    status, provider: "anthropic_web_search", checkedAt: "2026-11-05T00:00:00Z", reasons: [],
+    candidate: { name: "Iconic double power point", sourceUrl: "https://www.clipsal.com/p/2025WE", sourceDomain: "clipsal.com", sourceKind: "manufacturer", imageUrl: IMG, ...candidate },
+  });
+  const png = () => Buffer.from(pngDataUrl(200, 150).split(",")[1]!, "base64");
+  const withCode = () => store.getItem.mockResolvedValue(item({ manufacturerCode: "2025WE", brand: "Clipsal" }));
+  let fetchImage: ReturnType<typeof vi.fn>;
+  beforeEach(() => {
+    fetchImage = vi.fn(async () => ({ finalUrl: IMG, source: { domain: "clipsal.com", kind: "manufacturer" }, contentType: "image/png", bytes: png() }));
+    safeFetch.fetchAllowlistedImage = fetchImage;
+  });
+
+  it("is the office's: the crew can't fetch one", async () => {
+    withCode();
+    store.getCachedLookup.mockResolvedValue(checked());
+    expect((await post("web-photo", { itemId: ITEM_ID })).statusCode).toBe(403);
+    expect((await post("web-photo", { itemId: ITEM_ID }, "u_lh")).statusCode).toBe(403);
+    expect(fetchImage).not.toHaveBeenCalled();
+  });
+
+  it("fetches the image the server's own check found, keeps it pending with where it came from — the request names no URL", async () => {
+    withCode();
+    store.getCachedLookup.mockResolvedValue(checked());
+    const r = await post("web-photo", { itemId: ITEM_ID, imageUrl: "https://evil.example/x.png" }, "u_office");
+    expect(r.statusCode).toBe(201);
+    expect(r.body).toEqual({ photoId: PHOTO_ID, source: { domain: "clipsal.com", kind: "manufacturer", pageUrl: "https://www.clipsal.com/p/2025WE" } });
+    expect(fetchImage).toHaveBeenCalledTimes(1);
+    expect(fetchImage.mock.calls[0]![0]).toBe(IMG);
+    // the check for exactly this item (its brand, code, colour and size), like Record the check
+    expect(store.getCachedLookup).toHaveBeenLastCalledWith(expect.anything(), TENANT.id, expect.objectContaining({ brandKey: "clipsal", codeKey: "2025WE" }));
+    // stored like any photo — pending until "Use this photo" claims it
+    expect(store.insertPhoto.mock.calls[0]![2]).toMatchObject({ contentType: "image/png", width: 200, height: 150, ttlHours: 24, thumb: null });
+    expect(store.setPhotoReading).toHaveBeenCalledWith(expect.anything(), TENANT.id, PHOTO_ID, { webImage: expect.objectContaining({ domain: "clipsal.com", pageUrl: "https://www.clipsal.com/p/2025WE", imageUrl: IMG }) });
+    expect(store.replaceItemPhoto).not.toHaveBeenCalled();
+  });
+
+  it("says what's missing instead of guessing: no check yet, no match, no image on the page", async () => {
+    withCode();
+    expect((await post("web-photo", { itemId: ITEM_ID }, "u_office")).body).toEqual({ error: "not_checked" });
+    store.getCachedLookup.mockResolvedValueOnce({ status: "no_match", reasons: [], candidate: null, sources: [] });
+    const none = await post("web-photo", { itemId: ITEM_ID }, "u_office");
+    expect(none.statusCode).toBe(404);
+    expect(none.body).toMatchObject({ error: "no_web_photo" });
+    store.getCachedLookup.mockResolvedValueOnce(checked({ imageUrl: null }));
+    expect((await post("web-photo", { itemId: ITEM_ID }, "u_office")).body).toMatchObject({ error: "no_web_photo", sourceDomain: "clipsal.com" });
+    store.getItem.mockResolvedValueOnce(item({ manufacturerCode: null }));
+    expect((await post("web-photo", { itemId: ITEM_ID }, "u_office")).body).toEqual({ error: "no_code" });
+    expect(fetchImage).not.toHaveBeenCalled();
+    expect(store.insertPhoto).not.toHaveBeenCalled();
+  });
+
+  it("an image that won't load, or isn't really an image, is refused and nothing is stored", async () => {
+    withCode();
+    store.getCachedLookup.mockResolvedValue(checked());
+    fetchImage.mockRejectedValueOnce(Object.assign(new Error("nope"), { code: "host_not_allowlisted" }));
+    const down = await post("web-photo", { itemId: ITEM_ID }, "u_office");
+    expect(down.statusCode).toBe(502);
+    expect(down.body).toMatchObject({ error: "web_photo_unavailable" });
+    fetchImage.mockResolvedValueOnce({ finalUrl: IMG, source: null, contentType: "image/png", bytes: Buffer.from("<html>not an image</html>") });
+    const fake = await post("web-photo", { itemId: ITEM_ID }, "u_office");
+    expect(fake.statusCode).toBe(415);
+    expect(store.insertPhoto).not.toHaveBeenCalled();
+  });
+
+  it("using it says where it came from in the item's history", async () => {
+    store.getPhotoWebSource.mockResolvedValueOnce({ domain: "clipsal.com", kind: "manufacturer", pageUrl: "https://www.clipsal.com/p/2025WE" });
+    expect((await post("item-photo", { itemId: ITEM_ID, photoId: PHOTO_ID }, "u_office")).statusCode).toBe(200);
+    expect(store.replaceItemPhoto).toHaveBeenLastCalledWith(expect.anything(), TENANT.id, ITEM_ID, PHOTO_ID, expect.anything(), "product", { onlyIfEmpty: false, eventDetail: { source: "web", domain: "clipsal.com", pageUrl: "https://www.clipsal.com/p/2025WE" } });
+    expect(audit.append.mock.calls.at(-1)![0]).toMatchObject({ summary: expect.stringContaining("clipsal.com") });
   });
 });

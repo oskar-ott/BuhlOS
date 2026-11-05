@@ -737,6 +737,45 @@ to open are "Couldn't check online", not "No listing found". The office can
 re-check and record the result on an item; changing an item's maker's code or
 brand clears a verification that was for the old one.
 
+### A product photo from the web (2026-11-05)
+
+Owner pull: "grab an image from the internet as the stock image in the app".
+The office can give an item the **product photo from the page the online code
+check matched** — never an image search across the web, never a URL anyone
+types.
+
+- **Where**: the office item drawer — Details → Photo → **Find a photo
+  online**, and on the Stock tab beside the summary while the item has no
+  photo at all. Office only (the crew's phone flow is unchanged).
+- **What it uses**: the server reads its own cached check for exactly this
+  item (brand, code, colour, size — the same key Record the check reads) and
+  takes the image that check found on the product page (JSON-LD `image`, else
+  `og:image`), already limited to an allowlisted host when the check ran. No
+  check on record → the drawer runs the check first (from the cache when there
+  is one), then asks again. No match, or a page with no image → it says so.
+- **How it's fetched** (`safe-fetch.js` `fetchAllowlistedImage`): the page
+  fetcher's guards — https, the source allowlist on every redirect hop, every
+  resolved address public at connect time, 8 s — with JPEG / PNG / WebP
+  content types only, no compressed transfer, 3 MB. The bytes are then
+  checked like any upload (`photo.readPhotoBytes`: magic number, parseable
+  header, 64–10 000 px) and stored privately like any photo.
+- **Seen before it's used**: it's kept as a **pending** photo and shown through
+  the photo proxy (the browser never loads the outside site) with where it came
+  from ("Product photo from clipsal.com · from the maker's site · Open the
+  product page") and that it's a catalogue photo, not one taken in the
+  workshop (P7). **Use this photo** claims it like any other photo; **Not this
+  one** leaves it to expire with the other pending photos (24 h).
+- **Where it came from stays with it**: the photo row keeps `{ webImage: {
+  domain, kind, pageUrl, imageUrl, productName, fetchedAt } }` in its
+  `reading`; using it writes `source: web` and the domain into the item's
+  history ("Photo changed — product photo from clipsal.com") and the audit
+  summary. No migration.
+- **Limits**: 40 fetches per person per hour; a check it has to run first
+  counts against the daily online-check budget like any other.
+- **Copyright**: these are the maker's / wholesaler's catalogue images, used
+  inside BuhlOS to recognise stock — not republished. Swap one for a workshop
+  photo any time (Replace photo).
+
 ## Information kept apart
 
 - **From the photo** — the reading is stored with the photo row (`reading`),

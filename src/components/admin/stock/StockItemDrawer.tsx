@@ -15,6 +15,7 @@ import { isUncertain } from "@/domains/workshop-stock/pending";
 import type { ItemDetail, StockMovement } from "@/domains/workshop-stock/schema";
 import { Block, CheckSection, CountForm, EditForm, IdentifiersEditor, INPUT, LABEL } from "./StockAdminForms";
 import { CODE_SHORT, CODE_TONE } from "./code-status";
+import { WebPhotoFinder } from "./WebPhotoFinder";
 
 /** The quiet mono section label with the yellow tick (the office card-label motif). */
 function Kick({ children }: { children: ReactNode }) {
@@ -280,6 +281,8 @@ export function StockItemDrawer({ itemId, lookupEnabled, locationPhotoEnabled = 
                       </div>
                     </dl>
                     {item.locationPhotoId ? <LocationPhoto photoId={item.locationPhotoId} location={item.location} /> : null}
+                    {/* no photo yet: one tap to the product photo online, without leaving the Stock tab */}
+                    {!item.photoId ? <WebPhotoFinder item={item} lookupEnabled={lookupEnabled} onUsed={changed} compact /> : null}
                   </Section>
 
                   <Section kicker="Correct the count"><CountForm key={item.id} item={item} onSaved={changed} /></Section>
@@ -304,6 +307,9 @@ export function StockItemDrawer({ itemId, lookupEnabled, locationPhotoEnabled = 
                       <div className="min-w-0 flex-1">
                         <PhotoCapture label="Replace photo" onPhoto={(u, _d, t) => void newPhoto(u, t)} testId="stock-drawer-photo" />
                         {photoMsg ? <p className="mt-2 text-sm text-text-muted">{photoMsg}</p> : null}
+                        <div className="mt-3 border-t border-border pt-3">
+                          <WebPhotoFinder item={item} lookupEnabled={lookupEnabled} onUsed={changed} />
+                        </div>
                       </div>
                     </div>
                   </Section>
@@ -327,7 +333,7 @@ export function StockItemDrawer({ itemId, lookupEnabled, locationPhotoEnabled = 
                       <ul className="divide-y divide-border text-sm">
                         {detail.events.map((e) => (
                           <li key={e.id} className="py-1.5">
-                            <span className="font-semibold text-text">{e.event === "photo_changed" && (e.detail as { slot?: string } | null)?.slot === "location" ? ((e.detail as { to?: string | null }).to ? "Photo of where it lives changed" : "Photo of where it lives removed") : EVENT_LABEL[e.event] ?? e.event}</span>
+                            <span className="font-semibold text-text">{e.event === "photo_changed" && (e.detail as { slot?: string } | null)?.slot === "location" ? ((e.detail as { to?: string | null }).to ? "Photo of where it lives changed" : "Photo of where it lives removed") : e.event === "photo_changed" && (e.detail as { source?: string } | null)?.source === "web" ? `Photo changed — product photo from ${(e.detail as { domain?: string | null }).domain ?? "the web"}` : EVENT_LABEL[e.event] ?? e.event}</span>
                             <span className="text-text-muted"> · {e.actorName ?? "someone"} · {whenLabel(e.at)}{e.event === "updated" && e.detail && typeof e.detail === "object" && "changes" in e.detail ? ` (${Object.keys(e.detail.changes as Record<string, unknown>).join(", ")})` : ""}</span>
                           </li>
                         ))}

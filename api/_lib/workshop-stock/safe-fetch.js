@@ -17,6 +17,14 @@
 //   • no cookies sent or kept; an honest User-Agent
 // The body is returned as text for page-extract.js, which treats it as
 // untrusted data; nothing from it is ever executed or followed automatically.
+//
+// fetchAllowlistedImage is the same fetch for ONE product image the lookup
+// found on an allowlisted page (2026-11-05: "grab an image from the internet as
+// the stock image"): the same host allowlist on every hop, the same public-
+// address check at connect time, JPEG/PNG/WebP content types only, 3 MB, no
+// decompression (images aren't served compressed). The bytes are then sniffed
+// and dimension-checked by photo.js like any upload — the header alone is
+// never trusted.
 
 const https = require('https');
 const dns = require('dns');
@@ -29,6 +37,11 @@ const MAX_BYTES = 1_500_000;
 const MAX_REDIRECTS = 3;
 const USER_AGENT = 'BuhlOS-WorkshopStock/1.0 (+https://buhlos.com; product code check)';
 const HTML_TYPES = ['text/html', 'application/xhtml+xml'];
+const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
+
+const PAGE_PROFILE = { accept: 'text/html,application/xhtml+xml;q=0.9', types: HTML_TYPES, maxBytes: MAX_BYTES, binary: false, decompress: true };
+const IMAGE_PROFILE = { accept: 'image/webp,image/jpeg,image/png;q=0.9', types: IMAGE_TYPES, maxBytes: MAX_IMAGE_BYTES, binary: true, decompress: false };
 
 class SafeFetchError extends Error {
   constructor(code, message) {
@@ -125,7 +138,7 @@ function decoderFor(contentType) {
   }
 }
 
-function requestOnce(url, { request, lookup, deadline }) {
+function requestOnce(url, { request, lookup, deadline, profile = PAGE_PROFILE }) {
   return new Promise((resolve, reject) => {
     const remaining = deadline - Date.now();
     if (remaining <= 0) return reject(new SafeFetchError('timeout'));
@@ -134,9 +147,9 @@ function requestOnce(url, { request, lookup, deadline }) {
       lookup: guardedLookup(lookup),
       headers: {
         'User-Agent': USER_AGENT,
-        Accept: 'text/html,application/xhtml+xml;q=0.9',
+        Accept: profile.accept,
         'Accept-Language': 'en-AU,en;q=0.8',
-        'Accept-Encoding': 'gzip, deflate, br',
+        'Accept-Encoding': profile.decompress ? 'gzip, deflate, br' : 'identity',
       },
       timeout: remaining,
     }, (res) => {
@@ -150,17 +163,21 @@ function requestOnce(url, { request, lookup, deadline }) {
         return reject(new SafeFetchError('http_status', `upstream ${status}`));
       }
       const contentType = String(res.headers['content-type'] || '').toLowerCase();
-      if (!HTML_TYPES.some((t) => contentType.includes(t))) {
+      if (!profile.types.some((t) => contentType.includes(t))) {
         res.resume();
         return reject(new SafeFetchError('content_type_not_allowed'));
       }
       const declared = Number(res.headers['content-length'] || 0);
       const encoding = String(res.headers['content-encoding'] || '').toLowerCase();
-      if (!encoding && declared > MAX_BYTES) {
+      if (!encoding && declared > profile.maxBytes) {
         res.resume();
         return reject(new SafeFetchError('too_large'));
       }
       let stream = res;
+      if (!profile.decompress && encoding && encoding !== 'identity') {
+        res.resume();
+        return reject(new SafeFetchError('encoding_not_supported'));
+      }
       if (encoding === 'gzip' || encoding === 'x-gzip') stream = res.pipe(zlib.createGunzip());
       else if (encoding === 'deflate') stream = res.pipe(zlib.createInflate());
       else if (encoding === 'br') stream = res.pipe(zlib.createBrotliDecompress());
@@ -174,7 +191,7 @@ function requestOnce(url, { request, lookup, deadline }) {
       stream.on('data', (chunk) => {
         if (done) return;
         received += chunk.length;
-        if (received > MAX_BYTES) {
+        if (received > profile.maxBytes) {
           done = true;
           req.destroy();
           return reject(new SafeFetchError('too_large'));
@@ -184,7 +201,8 @@ function requestOnce(url, { request, lookup, deadline }) {
       stream.on('end', () => {
         if (done) return;
         done = true;
-        resolve({ status, contentType, body: decoderFor(contentType).decode(Buffer.concat(chunks)) });
+        const bytes = Buffer.concat(chunks);
+        resolve(profile.binary ? { status, contentType, bytes } : { status, contentType, body: decoderFor(contentType).decode(bytes) });
       });
       stream.on('error', (e) => {
         if (done) return;
@@ -222,4 +240,25 @@ async function fetchAllowlistedPage(rawUrl, { sources, request = https.request, 
   throw new SafeFetchError('too_many_redirects');
 }
 
-module.exports = { fetchAllowlistedPage, checkUrl, isBlockedAddress, SafeFetchError, MAX_BYTES, TIMEOUT_MS };
+/**
+ * GET one product image on an allowlisted host (the lookup found it on an
+ * allowlisted page). Resolves { finalUrl, source, contentType, bytes }; rejects
+ * with SafeFetchError like fetchAllowlistedPage. The caller still validates the
+ * bytes (photo.readPhotoBytes) — the content type alone proves nothing.
+ */
+async function fetchAllowlistedImage(rawUrl, { sources, request = https.request, lookup = dns.lookup, timeoutMs = TIMEOUT_MS } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  let { url, source } = checkUrl(rawUrl, sources);
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    const r = await requestOnce(url, { request, lookup, deadline, profile: IMAGE_PROFILE });
+    if (r.redirect === undefined) {
+      return { finalUrl: url.toString(), source, contentType: r.contentType, bytes: r.bytes };
+    }
+    if (!r.redirect) throw new SafeFetchError('redirect_without_location');
+    if (hop === MAX_REDIRECTS) throw new SafeFetchError('too_many_redirects');
+    ({ url, source } = checkUrl(new URL(r.redirect, url).toString(), sources));
+  }
+  throw new SafeFetchError('too_many_redirects');
+}
+
+module.exports = { fetchAllowlistedPage, fetchAllowlistedImage, checkUrl, isBlockedAddress, SafeFetchError, MAX_BYTES, MAX_IMAGE_BYTES, TIMEOUT_MS };
