@@ -10,6 +10,8 @@ import {
   OneListSchema,
   OperationSchema,
   ReadPhotoSchema,
+  CustomTypeSchema,
+  StockItemSchema,
   StockListSchema,
   WriteResultSchema,
   type LocationMatrixResponse,
@@ -21,6 +23,7 @@ import {
   type WriteResult,
 } from "./schema";
 import { variantDetailsFrom, type LookupCheck } from "./check";
+import { setCustomTypes } from "./types";
 
 /**
  * Typed client for /api/workshop-stock. Every ledger write carries an
@@ -45,8 +48,15 @@ export async function fetchStockList(opts: { archived?: boolean; signal?: AbortS
   // 503 = the server gave up before reading anything (a stalled database
   // connection, which it has now dropped): one quiet retry gets a fresh one,
   // so the screen loads instead of showing an error (2026-11-02).
-  if (!r.ok && r.error.status === 503 && !opts.signal?.aborted) return once();
-  return r;
+  const out = !r.ok && r.error.status === 503 && !opts.signal?.aborted ? await once() : r;
+  // The office's own categories join the built-in ones for every screen.
+  if (out.ok) setCustomTypes(out.data.customTypes ?? []);
+  return out;
+}
+
+/** Add a category (no key) or change one (its key) — office only. Fields are only ever added or renamed. */
+export function saveCustomType(input: { key?: string; label: string; unit: StockUnit; fields: Array<{ key?: string; label: string }> }) {
+  return httpPost(`${BASE}?action=type`, input, { schema: z.object({ type: CustomTypeSchema }), init: INIT, timeoutMs: WRITE_TIMEOUT_MS });
 }
 
 export function fetchItem(id: string) {
@@ -110,6 +120,8 @@ export interface MoveInput {
   quantity?: string;
   packCount?: number;
   pack?: PackPick;
+  /** out of the box, alongside the full packs: "3 boxes of 10 + 4 loose" */
+  looseQuantity?: string;
   jobId?: string | null;
   note?: string | null;
   estimated?: boolean;
@@ -144,6 +156,10 @@ export interface CreateInput {
   packCount?: number;
   packUnit?: PackUnit;
   packSize?: string;
+  /** out of the box, alongside the full packs */
+  looseQuantity?: string;
+  /** no barcode? the server gives it one of ours, for a printed label */
+  makeBarcode?: boolean;
   rememberPack?: boolean;
   estimated?: boolean;
   /** the online check the worker accepted — exactly what it asked (LookupResult.check) */
@@ -248,4 +264,9 @@ export function newId(): string {
   b[8] = (b[8]! & 0x3f) | 0x80;
   const h = [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
+/** Give an item with no barcode one of ours (in-store EAN-13, made by the server) for a NIIMBOT label; an item that has one gets it back. */
+export function makeLabelBarcode(itemId: string) {
+  return httpPost(`${BASE}?action=label`, { itemId }, { schema: z.object({ item: StockItemSchema, barcode: z.string(), created: z.boolean() }), init: INIT, timeoutMs: WRITE_TIMEOUT_MS });
 }

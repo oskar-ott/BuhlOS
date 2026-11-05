@@ -10,7 +10,7 @@ import { decideRead } from "@/domains/workshop-stock/flow";
 import { errorCopy, formatNumber, parseTypedQuantity, READ_STATUS_COPY, signedQuantity, toQuantityString } from "@/domains/workshop-stock/format";
 import { cardForScan, emptyScan, feedScan, identifiersToTeach, itemWords, packNeedsCheck, placedAmount, productWords, sameInARow, sameProduct, sessionTotals, typedInto, waitingQueue, type NewItemDraft } from "@/domains/workshop-stock/intake";
 import { clearSession, loadSession, loadWaiting, loadZone, saveSession, saveZone, type SavedWaiting } from "@/domains/workshop-stock/intake-session";
-import { addCalibrationFrame, analyseFrame, cropRect, emptyTracker, finishCalibration, newCalibration, sharpness, tableAdvice, type Box, type Calibration, type FoundObjects, type RawFrame, type TableState, type Track } from "@/domains/workshop-stock/intake-tracker";
+import { addCalibrationFrame, analyseFrame, barcodeNear, cropRect, emptyTracker, finishCalibration, newCalibration, sharpness, tableAdvice, type Box, type Calibration, type FoundObjects, type RawFrame, type TableState, type Track } from "@/domains/workshop-stock/intake-tracker";
 import { matrixLocations, ruleFor, type LocationMatrix } from "@/domains/workshop-stock/location-matrix";
 import type { ReadPhotoResult, ReadProduct, StockItem, StockUnit } from "@/domains/workshop-stock/schema";
 import { parseSpoken, type Spoken } from "@/domains/workshop-stock/spoken";
@@ -52,6 +52,8 @@ const CROP_LONG_SIDE_MAX = 1568;
 const CROP_LONG_SIDE_MIN = 800;
 const THUMB_LONG_SIDE = 240;
 const READS_AT_ONCE = 4;
+/** Label reads waiting at most. Past this an object asks the person: a spending guard (2026-11-03: a flickering table queued 120). */
+const MAX_QUEUED_READS = 8;
 const SHARPEST_TRIES = 3;
 const SHARPEST_GAP_MS = 220;
 const READ_RETRY_MS = 1500;
@@ -103,7 +105,7 @@ function blankPlaced(id: number, box: Box): Placed {
 }
 
 interface DetectorLike {
-  detect(source: CanvasImageSource): Promise<Array<{ rawValue: string }>>;
+  detect(source: CanvasImageSource): Promise<Array<{ rawValue: string; boundingBox?: { x: number; y: number; width: number; height: number } }>>;
 }
 type DetectorCtor = new (opts?: { formats?: string[] }) => DetectorLike;
 
@@ -739,6 +741,10 @@ export function StockIntake() {
   }
 
   function queueRead(id: number, crop: string) {
+    if (readQueue.current.length >= MAX_QUEUED_READS) {
+      patch(id, { status: "problem", problem: "Lots on the table at once, so this one wasn't read. Read it again when the others are done, or scan its barcode." });
+      return;
+    }
     readQueue.current.push(async () => {
       if (placedById(id)?.status !== "reading") return;
       const started = performance.now();
@@ -800,13 +806,17 @@ export function StockIntake() {
       if (barcode) break;
     }
     if (placedById(id)?.status !== "reading") return;
+    // Not in the crop? A barcode anywhere in the picture on or just beside this object (2026-11-03: a box spotted too small cut it off).
+    const box = tableRef.current?.tracker.tracks.find((t) => t.id === id)?.box;
+    if (!barcode && box) barcode = await barcodeInFrame(box);
+    if (placedById(id)?.status !== "reading") return;
     const crop = best.toDataURL("image/jpeg", 0.85);
     patch(id, { barcode, crop, thumb: thumbOf(best) });
     if (barcode) {
       setReads((now) => ({ ...now, barcodes: now.barcodes + 1 }));
       const hits = findByBarcode(itemsRef.current, barcode);
       if (hits.length === 1) {
-        await logTo(id, hits[0]!.item);
+        await logTo(id, hits[0]!.item, hits[0]!.identifier.packSizeMilli ?? null);
         return;
       }
       if (hits.length > 1) {
@@ -821,6 +831,29 @@ export function StockIntake() {
       }
     }
     queueRead(id, crop);
+  }
+
+  async function barcodeInFrame(box: Box): Promise<string | null> {
+    const video = videoRef.current;
+    const detector = detectorRef.current;
+    if (!video || !video.videoWidth || !detector) return null;
+    try {
+      const full = document.createElement("canvas");
+      full.width = video.videoWidth;
+      full.height = video.videoHeight;
+      full.getContext("2d")?.drawImage(video, 0, 0);
+      const found = await detector.detect(full);
+      const W = video.videoWidth;
+      const H = video.videoHeight;
+      const codes = found.flatMap((b) => {
+        const value = cleanBarcode(b.rawValue);
+        const bb = b.boundingBox;
+        return value && bb ? [{ value, box: { x: bb.x / W, y: bb.y / H, w: bb.width / W, h: bb.height / H } }] : [];
+      });
+      return barcodeNear(box, codes);
+    } catch {
+      return null;
+    }
   }
 
   function grabCanvas(box: Box): HTMLCanvasElement | null {
@@ -922,7 +955,7 @@ export function StockIntake() {
     const id = nextTrackerId.current++;
     setPlaced((prev) => [{ ...blankPlaced(id, { x: 0, y: 0, w: 0, h: 0 }), onTable: false, barcode }, ...prev]);
     setReads((now) => ({ ...now, barcodes: now.barcodes + 1 }));
-    if (hits.length === 1) void logTo(id, hits[0]!.item);
+    if (hits.length === 1) void logTo(id, hits[0]!.item, hits[0]!.identifier.packSizeMilli ?? null);
     else if (hits.length > 1) patch(id, { status: "pick", choices: hits.map((h) => h.item) });
     else patch(id, { status: "new" });
   }

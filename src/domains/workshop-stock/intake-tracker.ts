@@ -641,6 +641,8 @@ export const GONE_MS = 450;
 /** Something can't leave the table unless a hand was over it. After this long unseen, it has anyway: a hand nobody could see. */
 const HOLD_UNSEEN_MS = 30_000;
 const EDGE_REST_MS = 2500;
+/** Of what a settled object first covered: less than this showing is a piece of it, not the object moved. */
+const PIECE_SHARE = 0.6;
 const MIN_FIT = 0.25;
 const MOVED_CELLS = 2;
 const TOUCHING_GROWTH = 1.6;
@@ -775,7 +777,8 @@ export function stepTracker(state: TrackerState, found: Pick<FoundObjects, "obje
       if (prev.settled) {
         next.touching = grew;
         // A cell of flicker isn't movement: the box holds still until the object really moves.
-        if (!next.touching && movedFrom(prev.box, best, cell)) next.box = best;
+        // With no hand there, seeing only a piece of it doesn't shrink it to the piece (2026-11-03: 131 on the table).
+        if (!next.touching && movedFrom(prev.box, best, cell) && (prev.handOver || area(best) >= prev.baseArea * PIECE_SHARE)) next.box = best;
       } else {
         if (movedFrom(prev.anchor, best, cell)) {
           next.stableSince = now;
@@ -839,6 +842,28 @@ export function cropRect(box: Box, videoWidth: number, videoHeight: number, pad 
   const right = Math.min(videoWidth, Math.ceil((box.x + box.w + padX) * videoWidth));
   const bottom = Math.min(videoHeight, Math.ceil((box.y + box.h + padY) * videoHeight));
   return { x, y, w: Math.max(1, right - x), h: Math.max(1, bottom - y) };
+}
+
+/**
+ * A barcode found anywhere in the full picture that belongs to this object: its
+ * centre on the object, or just beside it (a box spotted a little small still
+ * owns the barcode printed on it). The nearest one wins; null when none is close.
+ * Boxes in fractions of the picture, like everything here.
+ */
+export function barcodeNear(box: Box, found: ReadonlyArray<{ value: string; box: Box }>): string | null {
+  const padX = box.w * 0.6;
+  const padY = box.h * 0.6;
+  const cx = box.x + box.w / 2;
+  const cy = box.y + box.h / 2;
+  let best: { value: string; d: number } | null = null;
+  for (const f of found) {
+    const fx = f.box.x + f.box.w / 2;
+    const fy = f.box.y + f.box.h / 2;
+    if (fx < box.x - padX || fx > box.x + box.w + padX || fy < box.y - padY || fy > box.y + box.h + padY) continue;
+    const d = (fx - cx) ** 2 + (fy - cy) ** 2;
+    if (!best || d < best.d) best = { value: f.value, d };
+  }
+  return best?.value ?? null;
 }
 
 /** How sharp a picture is: the spread of a small edge filter. A webcam refocusing scores far lower than one in focus. */

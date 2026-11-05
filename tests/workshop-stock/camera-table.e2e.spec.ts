@@ -13,6 +13,7 @@ const API = process.env.WORKSHOP_STOCK_E2E_API ?? "";
 const SHOTS = process.env.WORKSHOP_STOCK_E2E_SHOTS ?? "test-results/workshop-stock";
 
 test.skip(!API, "needs the local Workshop Stock harness (docs/workshop-stock.md → Testing)");
+if (process.env.WORKSHOP_STOCK_E2E_CHROMIUM) test.use({ launchOptions: { executablePath: process.env.WORKSHOP_STOCK_E2E_CHROMIUM } });
 test.describe.configure({ mode: "serial" });
 test.use({ viewport: { width: 1440, height: 1000 } });
 
@@ -115,21 +116,21 @@ test("the matrix: a rack, a bin, what goes in it", async ({ page }) => {
   await page.goto("/stock");
   await page.getByTestId("stock-open-matrix").click();
   await expect(page).toHaveURL(/\/stock\/locations$/);
-  await page.getByTestId("stock-matrix-rack-name").fill("c");
+  await page.getByTestId("stock-matrix-rack-name").fill("3");
   await page.getByTestId("stock-matrix-rack-add").click();
-  await expect(page.getByTestId("stock-matrix-rack")).toContainText("Rack C");
-  await page.getByRole("button", { name: /Rack C Shelf 2, Bin 4/ }).click();
+  await expect(page.getByTestId("stock-matrix-rack")).toContainText("Rack 3");
+  await page.getByRole("button", { name: /Rack 3 Shelf B, Bin 4/ }).click();
   await page.getByTestId("stock-matrix-words").fill("iconic switches");
   await page.getByTestId("stock-matrix-words-add").click();
-  await expect(page.getByRole("button", { name: /Rack C Shelf 2, Bin 4: iconic switches/ })).toBeVisible();
-  await page.getByRole("button", { name: /Rack C Shelf 1, Bin 1/ }).click();
+  await expect(page.getByRole("button", { name: /Rack 3 Shelf B, Bin 4: iconic switches/ })).toBeVisible();
+  await page.getByRole("button", { name: /Rack 3 Shelf A, Bin 1/ }).click();
   await page.getByTestId("stock-matrix-words").fill("saddle");
   await page.getByTestId("stock-matrix-words-add").click();
   await page.getByTestId("stock-matrix-try").fill("Clipsal Iconic 1 gang switch");
-  await expect(page.getByTestId("stock-matrix-try-result")).toContainText("Rack C Shelf 2, Bin 4");
+  await expect(page.getByTestId("stock-matrix-try-result")).toContainText("Rack 3 Shelf B, Bin 4");
   await page.screenshot({ path: `${SHOTS}/camera-table-matrix.png` });
   await page.reload();
-  await expect(page.getByRole("button", { name: /Rack C Shelf 2, Bin 4: iconic switches/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Rack 3 Shelf B, Bin 4: iconic switches/ })).toBeVisible();
 });
 
 test("the table: red until logged, green after, each object counted once", async ({ page }) => {
@@ -151,7 +152,7 @@ test("the table: red until logged, green after, each object counted once", async
   await put(page, "a", 150, 200);
   const card = page.getByTestId("stock-intake-card");
   await expect(card).toHaveAttribute("data-status", "new", { timeout: 15_000 });
-  await expect(page.getByTestId("stock-intake-new-location")).toHaveValue("Rack C Shelf 2, Bin 4");
+  await expect(page.getByTestId("stock-intake-new-location")).toHaveValue("Rack 3 Shelf B, Bin 4");
   await expect(waiting(page)).toHaveText("1");
   await expect(logged(page)).toHaveText("0");
   await page.waitForTimeout(300);
@@ -161,7 +162,7 @@ test("the table: red until logged, green after, each object counted once", async
   await expect(waiting(page)).toHaveText("0");
   let found = await itemNamed(/Iconic/);
   expect(found.item.balance_milli).toBe(1000);
-  expect(found.item.location).toBe("Rack C Shelf 2, Bin 4");
+  expect(found.item.location).toBe("Rack 3 Shelf B, Bin 4");
 
   // It stays on the table a good while: still one.
   await page.waitForTimeout(1500);
@@ -174,7 +175,7 @@ test("the table: red until logged, green after, each object counted once", async
   await expect(waiting(page)).toHaveText("0");
   found = await itemNamed(/Iconic/);
   expect(found.item.balance_milli).toBe(2000);
-  await expect(page.getByTestId("stock-intake-goes-to")).toContainText("Rack C Shelf 2, Bin 4");
+  await expect(page.getByTestId("stock-intake-goes-to")).toContainText("Rack 3 Shelf B, Bin 4");
   await page.waitForTimeout(800);
   await page.screenshot({ path: `${SHOTS}/camera-table-green.png` });
 
@@ -243,10 +244,10 @@ test("the table: red until logged, green after, each object counted once", async
   await page.getByTestId("stock-intake-new-save").click();
   await expect(logged(page)).toHaveText("6");
   await rows(page).first().getByTestId("stock-intake-row-set-location").click();
-  await rows(page).first().getByTestId("stock-intake-row-location-input").fill("Rack C Shelf 4, Bin 1");
+  await rows(page).first().getByTestId("stock-intake-row-location-input").fill("Rack 3 Shelf D, Bin 1");
   await rows(page).first().getByTestId("stock-intake-row-location-save").click();
-  await expect(rows(page).first().getByTestId("stock-intake-row-location")).toContainText("Rack C Shelf 4, Bin 1");
-  expect((await itemNamed(/Junction box/)).item.location).toBe("Rack C Shelf 4, Bin 1");
+  await expect(rows(page).first().getByTestId("stock-intake-row-location")).toContainText("Rack 3 Shelf D, Bin 1");
+  expect((await itemNamed(/Junction box/)).item.location).toBe("Rack 3 Shelf D, Bin 1");
   await rows(page).first().getByTestId("stock-intake-row-undo").click();
   await expect(logged(page)).toHaveText("5");
   await lift(page, "n");
@@ -259,7 +260,7 @@ test("the table: red until logged, green after, each object counted once", async
   await harness("/__harness/vision", { queue: [reading(SADDLE)] });
   await page.getByTestId("stock-intake-retry").click();
   await expect(card).toHaveAttribute("data-status", "new", { timeout: 15_000 });
-  await expect(page.getByTestId("stock-intake-new-location")).toHaveValue("Rack C Shelf 1, Bin 1");
+  await expect(page.getByTestId("stock-intake-new-location")).toHaveValue("Rack 3 Shelf A, Bin 1");
   await page.getByTestId("stock-intake-ignore").click();
   await expect(waiting(page)).toHaveText("0");
   await expect(logged(page)).toHaveText("5");
@@ -318,11 +319,11 @@ test("an item with no location takes the matrix's; one that has one keeps it", a
   await open(page);
   const s = await harness<{ name: string; value: string }>("/__harness/session?as=office");
   const headers = { cookie: `${s.name}=${s.value}`, "content-type": "application/json" };
-  const saved = await fetch(`${API}/api/workshop-stock?action=location-matrix`, { method: "PUT", headers, body: JSON.stringify({ expectedRevision: 0, racks: [{ id: "c", name: "C", shelves: 4, bins: 6 }], rules: [{ id: "r1", words: "iconic switch", rackId: "c", shelf: 2, bin: 4 }] }) });
+  const saved = await fetch(`${API}/api/workshop-stock?action=location-matrix`, { method: "PUT", headers, body: JSON.stringify({ expectedRevision: 0, racks: [{ id: "c", name: "3", shelves: 4, bins: 6 }], rules: [{ id: "r1", words: "iconic switch", rackId: "c", shelf: 2, bin: 4 }] }) });
   expect(saved.status).toBe(200);
   const conflict = await fetch(`${API}/api/workshop-stock?action=location-matrix`, { method: "PUT", headers, body: JSON.stringify({ expectedRevision: 0, racks: [], rules: [] }) });
   expect(conflict.status).toBe(409);
-  const outOfRange = await fetch(`${API}/api/workshop-stock?action=location-matrix`, { method: "PUT", headers, body: JSON.stringify({ expectedRevision: 1, racks: [{ id: "c", name: "C", shelves: 1, bins: 1 }], rules: [{ id: "r1", words: "x", rackId: "c", shelf: 2, bin: 1 }] }) });
+  const outOfRange = await fetch(`${API}/api/workshop-stock?action=location-matrix`, { method: "PUT", headers, body: JSON.stringify({ expectedRevision: 1, racks: [{ id: "c", name: "3", shelves: 1, bins: 1 }], rules: [{ id: "r1", words: "x", rackId: "c", shelf: 2, bin: 1 }] }) });
   expect(outOfRange.status).toBe(400);
   for (const [name, code, location] of [["Iconic switch A", "3041", null], ["Iconic switch B", "3042", "Top drawer"]] as const) {
     const r = await fetch(`${API}/api/workshop-stock?action=create`, { method: "POST", headers: { ...headers, "idempotency-key": `camera-seed-${code}` }, body: JSON.stringify({ name, brand: "Clipsal", manufacturerCode: code, baseUnit: "each", location, openingQuantity: "1" }) });
@@ -338,8 +339,8 @@ test("an item with no location takes the matrix's; one that has one keeps it", a
   await harness("/__harness/vision", { queue: [reading(ICONIC)] });
   await put(page, "a", 150, 200);
   await expect(logged(page)).toHaveText("1", { timeout: 15_000 });
-  await expect(rows(page).first().getByTestId("stock-intake-row-location")).toContainText("Rack C Shelf 2, Bin 4");
-  expect((await itemNamed(/switch A/)).item.location).toBe("Rack C Shelf 2, Bin 4");
+  await expect(rows(page).first().getByTestId("stock-intake-row-location")).toContainText("Rack 3 Shelf B, Bin 4");
+  expect((await itemNamed(/switch A/)).item.location).toBe("Rack 3 Shelf B, Bin 4");
 
   await harness("/__harness/vision", { queue: [reading({ ...ICONIC, manufacturerCode: "3042" })] });
   await put(page, "b", 450, 200);

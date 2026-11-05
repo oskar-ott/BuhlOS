@@ -103,6 +103,28 @@ function cleanBarcode(v) {
   return gs1CheckOk(raw) ? raw : null;
 }
 
+/**
+ * A barcode for an item that has none — loose, out of its packaging (owner,
+ * 2026-11-03: "a niimbot printer … create barcodes for items if there's no
+ * packaging"). EAN-13 in the GS1 in-store range (prefix 20–29 is reserved for a
+ * shop's own codes, so it can never be a real product's), 21 + ten digits +
+ * the check digit. Any scanner reads it and cleanBarcode accepts it.
+ * `random` is injectable for tests.
+ */
+function inStoreBarcode(random = Math.random) {
+  let body = '21';
+  while (body.length < 12) body += String(Math.floor(random() * 10));
+  let sum = 0;
+  for (let i = 0; i < 12; i++) sum += Number(body[i]) * (i % 2 === 0 ? 1 : 3);
+  return body + String((10 - (sum % 10)) % 10);
+}
+
+/** True for a code this shop made (EAN-13, prefix 20–29). */
+function isInStoreBarcode(v) {
+  const b = cleanBarcode(v);
+  return Boolean(b && b.length === 13 && b[0] === '2');
+}
+
 /** Comparison key: the 14-digit GTIN form (left-padded with zeroes). */
 function barcodeKey(v) {
   const b = cleanBarcode(v);
@@ -231,6 +253,8 @@ module.exports = {
   gs1CheckOk,
   cleanBarcode,
   barcodeKey,
+  inStoreBarcode,
+  isInStoreBarcode,
   brandKey,
   supplierKey,
   identifierFor,

@@ -15,7 +15,7 @@ import { canonicalWords } from "./trade-terms";
  * the "best" or "fastest" spot: only that these things sit together.
  *
  * Groups go along the racks in one path that turns back at the end of each shelf
- * (shelf 1 left to right, shelf 2 right to left), so the end of one shelf sits
+ * (shelf A left to right, shelf B right to left), so the end of one shelf sits
  * directly over the start of the next and neighbours in the list stay neighbours.
  */
 

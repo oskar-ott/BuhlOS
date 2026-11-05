@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type ButtonHTMLAttributes, type FocusEvent } from "react";
-import { ChevronRight, Loader2, Lock, MapPin, Pencil, Undo2 } from "lucide-react";
+import { ChevronRight, Loader2, Lock, MapPin, Pencil, ScanBarcode, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
 import { cleanBarcode } from "@/domains/workshop-stock/barcode";
@@ -63,12 +63,16 @@ export interface HeardPhrase {
 /** A count already in the box is replaced by what's typed, never added to: 1 then 40 must not become 140. */
 const selectAll = (e: FocusEvent<HTMLInputElement>) => e.currentTarget.select();
 
+const nothing = () => undefined;
+
 const INPUT = "h-9 w-full rounded-[4px] border border-border-strong bg-surface-subtle px-2.5 text-sm text-text focus:border-accent-yellow focus:outline-none";
 const LABEL = "console-label block";
 const CHOICE = "w-full rounded-[4px] border border-border bg-surface-raised px-2.5 py-1.5 text-left text-sm text-text hover:border-accent-yellow focus-visible:border-accent-yellow focus-visible:outline-none";
 
 function CropThumb({ placed, className }: { placed: Placed; className?: string }) {
   const src = placed.thumb ?? placed.crop;
+  // A scan has no picture: show that it was scanned. One back from a reload has lost its picture.
+  if (!src && placed.barcode) return <span aria-label="Scanned" className={cn("inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-[4px] border border-border bg-surface-subtle", className)}><ScanBarcode aria-hidden="true" className="h-6 w-6 text-text-muted" /></span>;
   if (!src) return <span aria-hidden="true" className={cn("h-14 w-14 shrink-0 rounded-[4px] border border-border bg-surface-subtle", className)} />;
   // eslint-disable-next-line @next/next/no-img-element -- a local crop, never uploaded for this
   return <img src={src} alt="What the camera saw" className={cn("h-14 w-14 shrink-0 rounded-[4px] border border-border object-cover", className)} />;
@@ -259,29 +263,31 @@ export function QueuedCard({ placed, repeats, onOpen, onHover }: { placed: Place
 
 /** A red box that needs a person: one card, one decision. */
 export function NeedsYouCard({
-  placed, repeats, items, matrix, locations, typesEnabled, heard, onSearchShown, onPick, onChooseProduct, onCreate, onDraft, onAmount, onRetry, onReadAgain, onIgnore, onHover,
+  placed, repeats = 0, items, matrix, locations, typesEnabled, heard = null, onSearchShown, onPick, onChooseProduct, onCreate, onDraft = nothing, onAmount, onRetry, onReadAgain, onIgnore, onHover = nothing,
 }: {
   placed: Placed;
-  repeats: number;
+  /** the camera table's queue and Talk mode; the scanner display has neither */
+  repeats?: number;
   items: StockItem[];
   matrix: LocationMatrix | null;
   locations: string[];
   typesEnabled: boolean;
-  heard: HeardPhrase | null;
-  onSearchShown: (shown: StockItem[]) => void;
+  heard?: HeardPhrase | null;
+  onSearchShown?: (shown: StockItem[]) => void;
   onPick: (item: Pick<StockItem, "id">) => void;
   onChooseProduct: (index: number) => void;
   onCreate: (d: NewItemDraft) => void;
-  onDraft: (d: NewItemDraft) => void;
+  onDraft?: (d: NewItemDraft) => void;
   onAmount: (milli: number) => void;
   onRetry: () => void;
-  onReadAgain: () => void;
+  /** only when there's a picture to read again — never for a scan */
+  onReadAgain?: () => void;
   onIgnore: () => void;
-  onHover: (on: boolean) => void;
+  onHover?: (on: boolean) => void;
 }) {
   const title = cardTitle(placed);
   // A scanned card, or one back from a reload, has no photo to read.
-  const canRead = placed.onTable || Boolean(placed.crop);
+  const canRead = Boolean(onReadAgain) && (placed.onTable || Boolean(placed.crop));
   const products = placed.readResult?.reading?.products ?? [];
   return (
     <div className="console-rise space-y-2.5 rounded-[4px] border border-state-danger bg-surface p-3" data-testid="stock-intake-card" data-status={placed.status} onMouseEnter={() => onHover(true)} onMouseLeave={() => onHover(false)}>
@@ -291,6 +297,7 @@ export function NeedsYouCard({
           <p className="font-display text-[15px] font-semibold leading-snug text-text"><span className="font-mono text-state-danger">#{placed.id}</span> {title}{repeats ? <span className="font-mono text-text-muted" data-testid="stock-intake-card-repeats"> ×{repeats + 1}</span> : null}</p>
           {placed.product ? <p className="truncate text-sm text-text-muted">{[placed.product.brand, placed.product.description || placed.product.manufacturerCode].filter(Boolean).join(" ")}</p> : null}
           {!placed.onTable && placed.thumb ? <p className="text-xs text-text-muted">Off the table now.</p> : null}
+          {!placed.thumb && !placed.crop && placed.barcode ? <p className="truncate font-mono text-xs text-text-muted" data-testid="stock-intake-card-barcode">Scanned {placed.barcode}</p> : null}
         </div>
       </div>
       {placed.problem ? <p className="text-sm text-state-danger" role="alert">{placed.problem}</p> : null}
@@ -341,7 +348,7 @@ export function NeedsYouCard({
 }
 
 /** A green one: what it added and where it goes, with the amount, location and Undo a tap away. */
-export function LoggedRow({ placed, locked, offerLocation, locations, typed, onTypedDone, onChangeAmount, onSetLocation, onUndo, onLock, onReadAgain, onIgnore }: { placed: Placed; locked: boolean; /** one row per item offers it: setting it sets every row of that item */ offerLocation: boolean; locations: string[]; /** digits typed straight after this logged, opening its amount */ typed: { text: string } | null; onTypedDone: () => void; onChangeAmount: (milli: number) => void; onSetLocation: (text: string) => void; onUndo: () => void; onLock: () => void; onReadAgain: () => void; onIgnore: () => void }) {
+export function LoggedRow({ placed, locked, offerLocation = true, locations, typed = null, onTypedDone = nothing, onChangeAmount, onSetLocation, onUndo, onLock, onReadAgain, onIgnore }: { placed: Placed; locked: boolean; /** one row per item offers it: setting it sets every row of that item */ offerLocation?: boolean; locations: string[]; /** digits typed straight after this logged, opening its amount */ typed?: { text: string } | null; onTypedDone?: () => void; onChangeAmount: (milli: number) => void; onSetLocation: (text: string) => void; onUndo: () => void; /** "All the same": the camera table only */ onLock?: () => void; onReadAgain?: () => void; onIgnore?: () => void }) {
   const [editing, setEditing] = useState<string | null>(null);
   const [seenTyped, setSeenTyped] = useState(typed);
   if (typed !== seenTyped) {
@@ -413,7 +420,7 @@ export function LoggedRow({ placed, locked, offerLocation, locations, typed, onT
           ) : null}
           <IconAction label="Change amount" className="h-7 w-7" disabled={placed.busy} onClick={() => setEditing(placed.amountMilli !== null ? formatNumber(placed.amountMilli) : "")} data-testid="stock-intake-row-edit"><Pencil aria-hidden="true" className="h-4 w-4" /></IconAction>
           <IconAction label="Undo this one" className="h-7 w-7" disabled={placed.busy} onClick={onUndo} data-testid="stock-intake-row-undo"><Undo2 aria-hidden="true" className="h-4 w-4" /></IconAction>
-          {!locked ? <IconAction label="Everything placed next is the same as this" className="h-7 w-7" onClick={onLock} data-testid="stock-intake-row-lock"><Lock aria-hidden="true" className="h-4 w-4" /></IconAction> : null}
+          {onLock && !locked ? <IconAction label="Everything placed next is the same as this" className="h-7 w-7" onClick={onLock} data-testid="stock-intake-row-lock"><Lock aria-hidden="true" className="h-4 w-4" /></IconAction> : null}
         </div>
       )}
     </li>

@@ -52,19 +52,19 @@ test.beforeAll(async () => {
 test("recommends a layout, saves it as rules, moves stock only on a tap, and can be undone", async ({ page }) => {
   await open(page, "office");
   await page.goto("/stock/locations");
-  await addRack(page, "a");
+  await addRack(page, "1");
 
   // With no stock yet it still lays out the racks, and says when they're short of bins.
   await page.getByTestId("stock-layout-open").click();
   await expect(page.getByTestId("stock-layout-family")).toHaveCount(8);
   await expect(page.getByTestId("stock-layout-shared")).toBeVisible();
   await page.getByTestId("stock-layout").screenshot({ path: `${SHOTS}/layout-plan-empty-one-rack.png` });
-  await addRack(page, "b");
-  await addRack(page, "c");
+  await addRack(page, "2");
+  await addRack(page, "3");
   await expect(page.getByTestId("stock-layout-shared")).toHaveCount(0);
   await page.getByTestId("stock-layout").screenshot({ path: `${SHOTS}/layout-plan-empty-three-racks.png` });
   await page.getByTestId("stock-layout-close").click();
-  for (const name of ["Rack C", "Rack B"]) await page.getByRole("button", { name: `Remove ${name}` }).click();
+  for (const name of ["Rack 3", "Rack 2"]) await page.getByRole("button", { name: `Remove ${name}` }).click();
   await expect(page.getByTestId("stock-matrix-rack")).toHaveCount(1);
 
   await addItem(page, "Iconic switch 1 gang");
@@ -78,9 +78,9 @@ test("recommends a layout, saves it as rules, moves stock only on a tap, and can
 
   // Shown on the racks first; nothing saved yet.
   await expect(page.getByTestId("stock-layout-family").first()).toContainText("Switches & GPOs");
-  const binOf = (label: string) => page.getByRole("img", { name: new RegExp(`^Rack A Shelf 1, Bin \\d+: ${label}$`) });
-  await expect(binOf("Switches")).toHaveAccessibleName("Rack A Shelf 1, Bin 1: Switches");
-  await expect(binOf("GPOs")).toHaveAccessibleName("Rack A Shelf 1, Bin 2: GPOs");
+  const binOf = (label: string) => page.getByRole("img", { name: new RegExp(`^Rack 1 Shelf A, Bin \\d+: ${label}$`) });
+  await expect(binOf("Switches")).toHaveAccessibleName("Rack 1 Shelf A, Bin 1: Switches");
+  await expect(binOf("GPOs")).toHaveAccessibleName("Rack 1 Shelf A, Bin 2: GPOs");
   await expect(binOf("Data jacks")).toBeVisible();
   await expect(binOf("Patch leads")).toBeVisible();
   await expect(page.getByTestId("stock-layout-summary")).toContainText("4 items to move");
@@ -95,19 +95,19 @@ test("recommends a layout, saves it as rules, moves stock only on a tap, and can
   await expect(page.getByTestId("stock-layout-saved")).toContainText("4 items to move are listed under Needs a place");
 
   // Saved as ordinary rules on the real grid. Recorded stock hasn't moved.
-  await expect(page.getByRole("button", { name: /Rack A Shelf 1, Bin 2: gpo; no stock/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Rack 1 Shelf A, Bin 2: gpo; no stock/ })).toBeVisible();
   expect(await locationOf(/Iconic GPO/)).toBe("Under the bench");
 
   // One tap under Needs a place takes it there.
   const gpo = page.getByTestId("stock-matrix-issue").filter({ hasText: "Iconic GPO" });
-  await expect(gpo).toContainText("Rack A Shelf 1, Bin 2");
+  await expect(gpo).toContainText("Rack 1 Shelf A, Bin 2");
   await gpo.getByTestId("stock-matrix-issue-put").click();
-  await expect(page.getByRole("button", { name: /Rack A Shelf 1, Bin 2: gpo; holds Iconic GPO double/ })).toBeVisible();
-  expect(await locationOf(/Iconic GPO/)).toBe("Rack A Shelf 1, Bin 2");
+  await expect(page.getByRole("button", { name: /Rack 1 Shelf A, Bin 2: gpo; holds Iconic GPO double/ })).toBeVisible();
+  expect(await locationOf(/Iconic GPO/)).toBe("Rack 1 Shelf A, Bin 2");
 
   // Undo puts the rules back, and leaves what moved where it is.
   await page.getByTestId("stock-layout-undo").click();
-  await expect(page.getByRole("button", { name: /Rack A Shelf 1, Bin 2: nothing set; holds Iconic GPO double/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Rack 1 Shelf A, Bin 2: nothing set; holds Iconic GPO double/ })).toBeVisible();
 
   // New stock goes by the saved rules.
   await page.getByTestId("stock-layout-open").click();
@@ -118,7 +118,7 @@ test("recommends a layout, saves it as rules, moves stock only on a tap, and can
   await page.goto("/stock");
   await page.getByTestId("stock-admin-add").click();
   await page.getByTestId("stock-new-name").fill("Saturn power point");
-  await expect(page.getByTestId("stock-new-location")).toHaveValue("Rack A Shelf 1, Bin 2");
+  await expect(page.getByTestId("stock-new-location")).toHaveValue("Rack 1 Shelf A, Bin 2");
 
   // Asked again, there's nothing new.
   await page.goto("/stock/locations");

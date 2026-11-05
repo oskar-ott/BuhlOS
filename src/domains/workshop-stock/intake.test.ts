@@ -1,6 +1,6 @@
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
-import { absorbLight, addCalibrationFrame, cropRect, emptyTracker, finishCalibration, findObjects, GONE_MS, newCalibration, SETTLE_MS, sharpness, stepTracker, tableAdvice, type Box, type TrackerState } from "./intake-tracker";
+import { absorbLight, barcodeNear, addCalibrationFrame, cropRect, emptyTracker, finishCalibration, findObjects, GONE_MS, newCalibration, SETTLE_MS, sharpness, stepTracker, tableAdvice, type Box, type TrackerState } from "./intake-tracker";
 import { cardForScan, draftFor, typedInto, emptyScan, feedScan, identifiersToTeach, packNeedsCheck, placedAmount, productWords, sameInARow, sameProduct, sessionTotals, waitingQueue } from "./intake";
 import { locationText, matrixLocations, rackLabel, ruleFor, rulesOutsideRack, type LocationMatrix } from "./location-matrix";
 import { splitLocation } from "./location";
@@ -177,6 +177,15 @@ describe("stepTracker counts each object once", () => {
     expect(gone).toEqual([1]);
   });
 
+  it("a counted object that flickers or breaks into pieces is never counted again (2026-11-03: 131 on the table)", () => {
+    const pieces: Box[] = [{ x: 0.3, y: 0.3, w: 0.05, h: 0.1 }, { x: 0.36, y: 0.32, w: 0.04, h: 0.06 }];
+    const frames: Array<{ objects?: Box[]; ms: number }> = [{ objects: [A], ms: SETTLE_MS + 300 }];
+    for (let i = 0; i < 20; i++) frames.push({ objects: i % 3 === 0 ? [] : i % 2 ? pieces : [A, ...pieces], ms: 450 });
+    const { settled, gone } = run(frames);
+    expect(settled).toEqual([1]);
+    expect(gone).toEqual([]);
+  });
+
   it("flags objects pushed together, then counts one that's moved apart", () => {
     const merged: Box = { x: 0.3, y: 0.3, w: 0.22, h: 0.1 };
     const pushed = run([{ objects: [A], ms: SETTLE_MS + 300 }, { objects: [merged], ms: 1000 }]);
@@ -198,7 +207,7 @@ describe("cropRect", () => {
 });
 
 const matrix: LocationMatrix = {
-  racks: [{ id: "c", name: "C", shelves: 4, bins: 6 }, { id: "bay", name: "Cable bay", shelves: 1, bins: 2 }],
+  racks: [{ id: "c", name: "3", shelves: 4, bins: 6 }, { id: "bay", name: "Cable bay", shelves: 1, bins: 2 }],
   rules: [
     { id: "1", words: "iconic", rackId: "c", shelf: 1, bin: 1 },
     { id: "2", words: "iconic switches", rackId: "c", shelf: 2, bin: 4 },
@@ -210,25 +219,26 @@ const matrix: LocationMatrix = {
 
 describe("location matrix", () => {
   it("names a location the by-shelf list already understands", () => {
+    expect(rackLabel("3")).toBe("Rack 3");
     expect(rackLabel("c")).toBe("Rack C");
     expect(rackLabel("Cable bay")).toBe("Cable bay");
     const text = locationText(matrix.racks[0]!, 2, 4);
-    expect(text).toBe("Rack C Shelf 2, Bin 4");
-    expect(splitLocation(text)).toEqual({ shelf: "Rack C Shelf 2", bin: "Bin 4" });
+    expect(text).toBe("Rack 3 Shelf B, Bin 4");
+    expect(splitLocation(text)).toEqual({ shelf: "Rack 3 Shelf B", bin: "Bin 4" });
   });
 
   it("the most specific rule wins, whatever order they're in", () => {
-    expect(ruleFor("Clipsal Iconic 1 Gang Switch Mechanism", matrix)?.location).toBe("Rack C Shelf 2, Bin 4");
-    expect(ruleFor("Clipsal Iconic cover plate", matrix)?.location).toBe("Rack C Shelf 1, Bin 1");
+    expect(ruleFor("Clipsal Iconic 1 Gang Switch Mechanism", matrix)?.location).toBe("Rack 3 Shelf B, Bin 4");
+    expect(ruleFor("Clipsal Iconic cover plate", matrix)?.location).toBe("Rack 3 Shelf A, Bin 1");
     const reversed = { ...matrix, rules: [...matrix.rules].reverse() };
-    expect(ruleFor("Clipsal Iconic 1 Gang Switch Mechanism", reversed)?.location).toBe("Rack C Shelf 2, Bin 4");
+    expect(ruleFor("Clipsal Iconic 1 Gang Switch Mechanism", reversed)?.location).toBe("Rack 3 Shelf B, Bin 4");
   });
 
   it("every word must be there, compared the way the list search compares", () => {
     expect(ruleFor("Clipsal 30M switch", matrix)).toBeNull();
     expect(ruleFor("Iconic switches, pack of 10", matrix)?.rule.id).toBe("2");
     expect(ruleFor("Double GPO 10A", matrix)?.rule.id).toBe("3");
-    expect(ruleFor("Twin and earth 2.5mm", matrix)?.location).toBe("Cable bay Shelf 1, Bin 2");
+    expect(ruleFor("Twin and earth 2.5mm", matrix)?.location).toBe("Cable bay Shelf A, Bin 2");
   });
 
   it("nothing to go on, no location", () => {
@@ -241,7 +251,7 @@ describe("location matrix", () => {
   it("lists its bins and refuses to strand a rule", () => {
     const bins = matrixLocations(matrix);
     expect(bins).toHaveLength(matrix.racks.reduce((n, r) => n + r.shelves * r.bins, 0));
-    expect(bins).toEqual(expect.arrayContaining(["Cable bay Shelf 1, Bin 2", "Rack C Shelf 2, Bin 4", "Rack C Shelf 4, Bin 6"]));
+    expect(bins).toEqual(expect.arrayContaining(["Cable bay Shelf A, Bin 2", "Rack 3 Shelf B, Bin 4", "Rack 3 Shelf D, Bin 6"]));
     expect(rulesOutsideRack(matrix, "c", 2, 6).map((r) => r.id)).toEqual(["3"]);
     expect(rulesOutsideRack(matrix, "c", 4, 3).map((r) => r.id)).toEqual(["2"]);
     expect(rulesOutsideRack(matrix, "c", 4, 6)).toEqual([]);
@@ -276,7 +286,7 @@ describe("a new item's draft", () => {
   it("takes its name and matrix location from the label", () => {
     const d = draftFor(product(), matrix);
     expect(d.name).toContain("Clipsal Iconic 1 gang switch");
-    expect(d).toMatchObject({ unit: "each", amount: "1", location: "Rack C Shelf 2, Bin 4", locationFrom: "iconic switches" });
+    expect(d).toMatchObject({ unit: "each", amount: "1", location: "Rack 3 Shelf B, Bin 4", locationFrom: "iconic switches" });
     expect(productWords(product())).toContain("3041");
   });
 
@@ -484,5 +494,77 @@ describe("scoring a label read (scripts/qa/label-reader-compare.js)", () => {
     expect(scoreRead({ manufacturerCode: null }, [{ value: "3041" }])).toBe("no_code");
     expect(scoreRead({ manufacturerCode: "3041" }, [])).toBe("unverifiable");
     expect(scoreRead(null, [{ value: "3041" }])).toBe("no_code");
+  });
+});
+
+describe("findObjects on a real-looking webcam picture (2026-11-03: dozens of false boxes)", () => {
+  // a pale table with a light falling off to the edges, a little grain, and a seeded "sensor"
+  let seed = 7;
+  const rand = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+  function table(): Uint8ClampedArray {
+    const d = new Uint8ClampedArray(W * H * 4);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const vignette = 1 - 0.25 * (((x - W / 2) / (W / 2)) ** 2 + ((y - H / 2) / (H / 2)) ** 2);
+      const v = 205 * vignette + (((x * 7 + y * 13) % 11) - 5); // fixed grain
+      const i = (y * W + x) * 4;
+      d[i] = v; d[i + 1] = v; d[i + 2] = v + 4; d[i + 3] = 255;
+    }
+    return d;
+  }
+  /** what the webcam sends a moment later: exposure lifted, a band of light across the right, sensor noise */
+  function later(bg: Uint8ClampedArray, exposure: number): Uint8ClampedArray {
+    const d = new Uint8ClampedArray(bg.length);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const band = 1 + 0.18 * Math.exp(-(((x - W * 0.8) / (W * 0.12)) ** 2));
+      const i = (y * W + x) * 4;
+      for (let c = 0; c < 3; c++) d[i + c] = bg[i + c]! * exposure * band + (rand() - 0.5) * 12;
+      d[i + 3] = 255;
+    }
+    return d;
+  }
+
+  it("an empty table under changed exposure, a light band and noise is still empty", () => {
+    const bg = table();
+    for (const exposure of [0.85, 1, 1.2]) {
+      const found = findObjects(frameOf(later(bg, exposure)), bg);
+      expect(found.objects).toEqual([]);
+      expect(found.arms).toEqual([]);
+    }
+  });
+
+  // One object, boxed by what it brings: on a white table the print is what stands out, so the
+  // box can be smaller than the bag. A barcode just outside it is still found (barcodeNear below).
+  it("a white bag on the white table — crinkles and a printed label — is one object, over the label", () => {
+    const bg = table();
+    const f = later(bg, 1.1);
+    for (let y = 70; y < 120; y++) for (let x = 90; x < 190; x++) {
+      const i = (y * W + x) * 4;
+      const crinkle = ((x * 3 + y * 5) % 9 < 2) ? -30 : 12; // plastic folds catching the light
+      for (let c = 0; c < 3; c++) f[i + c] = Math.min(255, f[i + c]! + crinkle);
+    }
+    for (let y = 95; y < 105; y++) for (let x = 120; x < 160; x += 2) { // a barcode-ish label
+      const i = (y * W + x) * 4;
+      f[i] = 20; f[i + 1] = 20; f[i + 2] = 20;
+    }
+    const found = findObjects(frameOf(f), bg);
+    expect(found.objects).toHaveLength(1);
+    const b = found.objects[0]!;
+    expect(b.x).toBeLessThanOrEqual(120 / W);
+    expect(b.x + b.w).toBeGreaterThanOrEqual(160 / W);
+  });
+});
+
+describe("barcodeNear: a barcode anywhere in the picture that belongs to this object", () => {
+  const bag = { x: 0.3, y: 0.3, w: 0.2, h: 0.2 };
+  it("takes the barcode on the object, or just beside one spotted a bit small; never one across the table", () => {
+    expect(barcodeNear(bag, [{ value: "9311554804565", box: { x: 0.35, y: 0.42, w: 0.05, h: 0.02 } }])).toBe("9311554804565");
+    expect(barcodeNear(bag, [{ value: "9311554804565", box: { x: 0.52, y: 0.45, w: 0.05, h: 0.02 } }])).toBe("9311554804565");
+    expect(barcodeNear(bag, [{ value: "4006381333931", box: { x: 0.85, y: 0.85, w: 0.05, h: 0.02 } }])).toBeNull();
+  });
+  it("the nearest wins when two are close", () => {
+    expect(barcodeNear(bag, [
+      { value: "far", box: { x: 0.55, y: 0.55, w: 0.02, h: 0.02 } },
+      { value: "near", box: { x: 0.39, y: 0.39, w: 0.02, h: 0.02 } },
+    ])).toBe("near");
   });
 });

@@ -141,6 +141,12 @@ recorded, and where they live.
   bin, see what's in each bin, and place stock that has no bin. The Add form uses it
   too. All [below](#camera-table-and-location-matrix).
 
+**Scanner display (2026-11-03)**
+
+- **Barcode scanner** (`/stock/scan`): the camera table without the camera — a
+  USB scanner at the office computer, each scan logged, and where it goes shown
+  large. [Below](#the-scanner-display).
+
 **Not gear.** Gear (tools and equipment) has custody, serials, test-and-tag and
 "who has it". Workshop stock has none of that: an item is a quantity on a shelf
 and stock leaving is a quantity movement, not a loan. The two share nothing but
@@ -197,9 +203,12 @@ accuracy nobody has measured.
    hand has just been is a new one, so a pile can be worked through one spot.
 4. A crop of the full-size frame is taken. **A barcode** in it is matched against the
    list right there, trying up to three frames, because barcodes are free and a webcam
-   often refocuses just after a hand leaves. Otherwise the sharpest frame goes to the
-   **label reader** (the same one as the phone, four at a time, retried once by itself
-   if it fails in passing).
+   often refocuses just after a hand leaves. If the crop holds none, a barcode anywhere
+   in the full picture on or just beside the object counts, because a box spotted a little
+   small can cut it off. Otherwise the sharpest frame goes to the **label reader** (the
+   same one as the phone, four at a time, retried once by itself if it fails in passing).
+   At most 8 reads wait at once: past that the object asks a person instead, because each
+   read costs money and a flickering table once queued 120.
 5. **An exact barcode or code match logs by itself** and the box turns green.
    Words alone never do, because two GPOs look alike: "Is it one of these?" stays
    red until someone picks, and a pick teaches the item every code printed on it, so
@@ -343,8 +352,9 @@ the words for what lives there ("iconic switch"). A product goes to a bin when
 compares (plurals and trade names folded). The rule with the most words wins, so
 "iconic switch" beats "iconic". "Test a label" shows where a label would go.
 
-A location is written as `Rack C Shelf 2, Bin 4`, which the existing by-shelf list
-already reads as shelf "Rack C Shelf 2", bin "Bin 4". The matrix **only fills a blank
+Racks are numbered, shelves lettered (A at the top of the grid, up to Z) and bins
+numbered. A location is written as `Rack 3 Shelf B, Bin 4`, which the existing by-shelf list
+already reads as shelf "Rack 3 Shelf B", bin "Bin 4". The matrix **only fills a blank
 location**: a new item's, or an existing item with none. An item that has a location
 keeps it, and changing the matrix never moves recorded stock.
 
@@ -400,7 +410,45 @@ Stored as one JSON document per company with a compare-and-set revision
 `20261102100000_workshop_stock_location_matrix.sql`). Until that is applied both
 screens say so and nothing else changes.
 
-### Limits on what the camera can do
+### The scanner display
+
+Owner pull, 2026-11-03: "i want a separate display for the barcode scanner on
+web". `/stock/scan`, linked from `/stock` as **Barcode scanner**, office only,
+same `workshop_stock` flag, same console theme. **Hypothesis:** if scanning has
+its own screen with no camera to set up, the office logs a delivery by scanning
+it instead of leaving the list behind. Reasoning only: the page has been driven
+with a simulated scanner (fast keys + Enter), never a real one.
+
+It logs the way the camera table does, with no camera. The session is its own
+(`useStockSession.ts`); the camera table keeps a larger one in `StockIntake.tsx`, with its
+queue, table and Talk, so a change to how either logs has to be made in both:
+
+- **Each scan is one placement.** A barcode on exactly one listed item logs by
+  itself: +1, or a box's worth when it is that item's box barcode. Several items
+  with it → "Which item is this?"; none → the new-item card with the barcode
+  kept; a pick teaches the item the barcode, and
+  anything else waiting with that code then logs too. A code that isn't a shop
+  barcode (EAN / UPC — a serial, a supplier's own label) can't be matched or saved
+  as one, so it says so and offers a search. On the camera table it says so and nothing
+  is logged.
+- **The last scan fills the screen:** what it was, the amount, **Goes to** in
+  large yellow, and what's on record now. The same text is announced to screen
+  readers; the same sounds as the camera table play (the first scan turns sound
+  on).
+- **Where the scan will land.** A USB scanner types into whatever has focus, so
+  the status says **Ready**, **Typing in a field** (a scan would go into that
+  field) or **Not listening** (the window isn't in front). Only measured states.
+- **Won't scan?** Type the digits under the barcode; the same as a scan.
+- **Keyboard:** `U` undo the last one, `F` full screen, `M` sound — ignored inside
+  a scanner's burst of keys, as on the camera table. "All the same" isn't here:
+  every scan already says what it is.
+- Every movement carries the note "Barcode scanner", so an item's history says
+  where it came from. Undo and Change amount work per scan, with a reason
+  written into the history.
+- Adds only. Taking stock out with a scanner stays on the phone and the office
+  list (a scan there opens the item).
+
+
 
 - **Picture quality decides what can be read.** A 1080p webcam over an 80 cm table
   gets about 2.4 pixels per mm: box labels should read, barcodes and small print on
@@ -542,6 +590,38 @@ the colour temperature, the width, the length, the brand, the voltage."
   · White · 3042WE". Search covers the type and its fields ("iconic 2 gang",
   "led strip 24v").
 
+### Categories the office makes
+
+Owner pull, 2026-11-03: "i want to be able to create new catagories when the
+need comes up". Owner decisions: **office only** (the crew pick from the list;
+Other stays for anything that doesn't fit), and each category gets **a name and
+its own fields**.
+
+- **/stock → Categories** (shown once the table exists and types are on): the
+  office's own categories — fields, what they're counted in, how many items use
+  each — then the built-in ones, read-only. **New category**: a name ("Solar
+  inverters"), what new items of it are counted in, and up to 8 fields (Power,
+  Phase…). Brand is always there. **Change**: rename it, rename a field, add
+  fields — a saved field is never removed or re-keyed, so values already on
+  items stay readable. One live category per name (case-insensitive), and a
+  name a built-in one has is refused in the form.
+- An office category is a type like the built-in ones: its key is `c_<slug>`
+  (made on the server from the name; can't collide with a built-in key), its
+  fields' values live in `specs` under keys made from their names, each field
+  is a **filter** when the crew browse it, values are typed and the shop's own
+  become one-tap chips, and the name follows the fields ("Fronius 5kW Single").
+  Label photos don't guess office categories — the person picks it.
+- How the screens get them: every stock list carries `customTypes`;
+  `fetchStockList` puts them into the shared catalogue
+  (`types.ts setCustomTypes`, after the built-in ones, before Other), so every
+  picker, filter and description sees them. A key not (yet) known reads as
+  Other — never lost.
+- API: `POST ?action=type { key?, label, unit, fields: [{ key?, label }] }`,
+  OFFICE; no key = new (201), a key = change (200; 404 if unknown); 409
+  `type_name_taken`; 400 `field_name_invalid` / `field_name_repeated` /
+  `type_name_invalid`; 503 `types_unavailable` before the migration. Journaled
+  as `workshop_stock.type_created` / `type_changed`.
+
 ### Browsing by type
 
 "Someone opens stock when they already know what they need" — so once anything
@@ -593,6 +673,77 @@ a list they can go back to and use to go through and find everything."
   can be reopened.
 - Every change waits for the server and says so when it didn't save. Lists and
   lines carry ids made on the phone, so a retried save is the same row.
+
+### Loose items — out of the box
+
+Owner pull, 2026-11-03: "some items aren't always in packaging" — for taking,
+adding and counting.
+
+- **Full boxes + loose in one count.** In box mode (Take / Add / Return, and a
+  new item's opening count) a second stepper, **Plus loose — out of the box**,
+  adds the singles: "3 boxes + 4 loose = 34". The ledger keeps a pack on a
+  movement only when the quantity is exactly count × size (a database rule),
+  so a mixed count saves the plain total with no pack, and the server writes
+  how it was made up into the movement's note: "3 boxes of 10 + 4 loose". The
+  box size the screen showed is still checked (`pack_changed`), and a new
+  item still remembers its box size. API: `looseQuantity` beside
+  `packCount`+`pack` (move) or `packCount`+`packUnit`+`packSize` (create);
+  0 or absent = exactly as before.
+- **Pick it by sight.** Take → **Not in its box? Pick it by sight**: the item
+  photos, big, in a grid (photos first), narrowed by category chips and by
+  typing ("white", "2 gang"). Tapping one opens the same confirmation as every
+  other way in ("Picked by sight"); nothing is taken on the grid.
+- **What it looks like.** The photo reader still only transcribes what is
+  printed; for a loose item with nothing printed it now also says what it
+  looks like, in a separate `appearance` field ("white 2 gang switch plate").
+  That is never matched on (match.js doesn't read it) and never copied into
+  the transcribed fields. On Take, a photo like that leads with **Pick it by
+  sight**, narrowed to the category it looks like; on Add, it starts the new
+  item's name and type guess, tagged **From how it looks · check** (provenance
+  stays "typed", not "photo").
+
+### Barcode scanner and NIIMBOT labels
+
+Owner, 2026-11-03: "i bought a barcode scanner" (a keyboard-style one — it
+types the code and presses Enter) and "i have a niimbot printer i want to be
+able to create barcodes for items if there's no packaging easily … make sure
+it all works easily together".
+
+- **Scanning** (`src/domains/workshop-stock/scanner.ts`,
+  `components/stock/useBarcodeScanner.ts`): a scan is told apart from typing by
+  its timing (every key within ~50 ms, ≥ 6 characters, then Enter). It works on
+  the phone (Bluetooth) and the office computer (USB):
+  - **phone stock list** — a listed code opens the item (Take / Return / Add
+    from there); several items with it narrow the list; an unknown code starts
+    a new item with the barcode kept ("Scanned … · not on the list yet");
+  - **Take** — straight to the confirmation (no hold-steady wait; the read is
+    certain); several or none as with the camera;
+  - **Add or return** — a listed code goes to "What's going in?"; an unknown
+    one to the new-item form with it kept;
+  - **office /stock** — opens the item's drawer, or Add item with the barcode.
+  A scan into a focused text field types into it (the search finds codes). On
+  every other stock screen the Enter a scan ends with is swallowed, so a scan
+  can never press a focused "Confirm take".
+- **Our own barcodes**: an item with no barcode can get one — EAN-13 in the
+  GS1 in-store range (prefix 21; 20–29 is reserved for a shop's own codes, so
+  never a real product's), made on the SERVER (`codes.inStoreBarcode`). Anyone
+  on the crew: `POST ?action=label { itemId }` only ever adds such a code to an
+  item with none (an item that has one gets it back); `create` takes
+  `makeBarcode: true` for a new item with no barcode. Journaled.
+- **The label** (`domains/workshop-stock/label.ts`, `components/stock/BarcodeLabel.tsx`):
+  drawn at the NIIMBOT's 203 dpi (8 dots/mm, whole-dot bars, ≥ 2 dots per
+  module), the item's name, its shelf on taller labels, the bars and digits.
+  Sizes: 40 × 12 and 30 × 15 mm (D11/D110), 40 × 30 and 50 × 30 mm (B1/B21);
+  the choice is remembered on the device. **Share to NIIMBOT** (the phone's
+  share sheet) or **Save image**, then print it as a picture in the NIIMBOT app.
+- **Where**: the phone item sheet (**Print / Make a barcode label**), the
+  office drawer (**Barcode label** fold), and the new-item form (**Make a
+  barcode label for it** — ticked by itself for a loose item the photo could
+  only describe); after saving, the label comes up before the next item.
+- **Together**: a loose item → photo ("looks like …") or pick by sight → its
+  own barcode → label on the NIIMBOT → from then on the scanner (or the phone
+  camera) finds it like any boxed product. Boxes + loose counts and the
+  office's categories work the same on it.
 
 ### Take stock: photo → identify → confirm → deduct
 
@@ -890,6 +1041,10 @@ first: `workshop_stock_items`, `_identifiers`, `_movements`, `_item_events`,
 `_photos`, `_lookup_cache`, `_usage`.
 `20261102100000_workshop_stock_location_matrix.sql` (re-runnable) adds
 `workshop_stock_location_matrix` and the camera table's `intake_read` counter.
+`20261103100000_workshop_stock_custom_types.sql` (re-runnable) adds
+`workshop_stock_types` — the office's categories (key `c_<slug>`, label, unit,
+fields jsonb ≤ 8; one live label per tenant, case-insensitive); the store finds
+it as `schemaFeatures.customTypes` and the list says `capabilities.customTypes`.
 
 **Deploy order is free** for both later migrations: the store reads the new
 columns through `to_jsonb(i)` (absent → null / `{}`) and finds what the database
