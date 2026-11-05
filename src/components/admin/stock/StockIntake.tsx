@@ -1,22 +1,24 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Camera, Crop as CropIcon, Download, Lock, Maximize, Minimize, Pause, Play, RotateCcw, ScanBarcode, Volume2, VolumeX } from "lucide-react";
+import { Camera, Crop as CropIcon, Download, Lock, Maximize, Mic, Minimize, Pause, Play, RotateCcw, ScanBarcode, Volume2, VolumeX } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
 import { cleanBarcode, findByBarcode } from "@/domains/workshop-stock/barcode";
 import { addIdentifier, createItem, editItem, fetchItem, fetchLocationMatrix, fetchStockList, newOperationKey, readIntakeCrop, recordMove, storePhoto, undoMovement } from "@/domains/workshop-stock/client";
 import { decideRead } from "@/domains/workshop-stock/flow";
 import { errorCopy, formatNumber, parseTypedQuantity, READ_STATUS_COPY, signedQuantity, toQuantityString } from "@/domains/workshop-stock/format";
-import { cardForScan, emptyScan, feedScan, identifiersToTeach, itemWords, packNeedsCheck, placedAmount, productWords, sameInARow, sameProduct, sessionTotals, waitingQueue, type NewItemDraft } from "@/domains/workshop-stock/intake";
-import { clearSession, loadSession, loadZone, saveSession, saveZone } from "@/domains/workshop-stock/intake-session";
+import { cardForScan, emptyScan, feedScan, identifiersToTeach, itemWords, packNeedsCheck, placedAmount, productWords, sameInARow, sameProduct, sessionTotals, typedInto, waitingQueue, type NewItemDraft } from "@/domains/workshop-stock/intake";
+import { clearSession, loadSession, loadWaiting, loadZone, saveSession, saveZone, type SavedWaiting } from "@/domains/workshop-stock/intake-session";
 import { addCalibrationFrame, analyseFrame, cropRect, emptyTracker, finishCalibration, newCalibration, sharpness, tableAdvice, type Box, type Calibration, type FoundObjects, type RawFrame, type TableState, type Track } from "@/domains/workshop-stock/intake-tracker";
 import { matrixLocations, ruleFor, type LocationMatrix } from "@/domains/workshop-stock/location-matrix";
 import type { ReadPhotoResult, ReadProduct, StockItem, StockUnit } from "@/domains/workshop-stock/schema";
+import { parseSpoken, type Spoken } from "@/domains/workshop-stock/spoken";
 import { specsForType } from "@/domains/workshop-stock/types";
 import { Block } from "./StockAdminForms";
-import { LoggedRow, NeedsYouCard, QueuedCard, type Placed } from "./IntakeCards";
+import { LoggedRow, NeedsYouCard, QueuedCard, type HeardPhrase, type Placed, type PlacedStatus } from "./IntakeCards";
 import { drawOverlay, playCue, readOverlayColours, unlockSound, videoArea, type OverlayTag } from "./intake-overlay";
+import { useSpeech } from "./useSpeech";
 
 /**
  * /stock/intake — the camera table. A webcam looks down at a table; each object
@@ -60,6 +62,7 @@ const MIN_ZONE = 0.15;
 const CALIBRATION_ATTEMPTS = 3;
 const SAME_RUN = 3;
 const SHORTCUT_DELAY_MS = 60;
+const DRAFT_SAVE_MS = 300;
 const NOTICE_MS = 6000;
 const ROWS_SHOWN = 30;
 const CALIBRATION_FRAMES = 8;
@@ -95,7 +98,7 @@ function blankPlaced(id: number, box: Box): Placed {
   return {
     id, at: Date.now(), box, onTable: true, crop: "", thumb: null, status: "reading",
     barcode: null, product: null, readResult: null, choices: [], problem: null, note: null, busy: false, itemId: null, itemName: null, unit: null, location: null,
-    amountMilli: null, fromLabel: false, recordedMilli: null, movementId: null, moveKey: null, photoId: null, retryMilli: null, unread: false, askMilli: null,
+    amountMilli: null, fromLabel: false, recordedMilli: null, movementId: null, moveKey: null, photoId: null, retryMilli: null, unread: false, askMilli: null, draft: null,
   };
 }
 
@@ -139,6 +142,24 @@ function amountText(p: Placed): string {
 function putBack(el: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement, value: string) {
   Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), "value")?.set?.call(el, value);
   el.dispatchEvent(new Event(el.tagName === "SELECT" ? "change" : "input", { bubbles: true }));
+}
+
+/** Where a phrase went, in the words on the card. */
+function filledText(said: Spoken): string {
+  const parts = [said.name, said.count ? `${said.count}${said.unit ? ` ${said.unit}` : ""}` : null, said.location];
+  return parts.filter(Boolean).join(" · ");
+}
+
+/** What can be said right now, for the strip under the Talk button. */
+function talkHint(card: PlacedStatus | null, working: boolean, canChangeLast: boolean): string {
+  if (card === "new") return "Say what it is and how many, then \u201cadd it\u201d. \u201cScratch that\u201d clears it.";
+  if (card === "amount") return "Say how many, then \u201clog it\u201d.";
+  if (card === "pick") return "Say \u201cnumber 1\u201d to pick, or the name to search.";
+  if (card === "several") return "Say \u201cnumber 1\u201d to pick one.";
+  if (card) return "Say the name to search, or \u201cnot stock\u201d.";
+  if (working) return "Reading the label. Say what it is now if you like.";
+  if (canChangeLast) return "Put the next one down. Say a number to change the last one, or \u201cundo\u201d.";
+  return "Put one down, then say what it is and how many.";
 }
 
 /** What the reticle on an object says. It only ever repeats what the save and the read say. */
@@ -242,6 +263,15 @@ export function StockIntake() {
   const readTimes = useRef<number[]>([]);
   const confirmedPacks = useRef(new Set<string>());
   const scanRef = useRef(emptyScan());
+  const typedRef = useRef("");
+  const [typedAmount, setTypedAmount] = useState<{ id: number; text: string } | null>(null);
+  const [heard, setHeard] = useState<HeardPhrase | null>(null);
+  const [heardNote, setHeardNote] = useState<{ text: string; result: string; cardId: number | null } | null>(null);
+  const heldSpeech = useRef<string[]>([]);
+  const searchShown = useRef<StockItem[]>([]);
+  const onSearchShown = useCallback((shown: StockItem[]) => { searchShown.current = shown; }, []);
+  const draftsRef = useRef(new Map<number, NewItemDraft>());
+  const draftSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scanField = useRef<{ el: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement; value: string } | null>(null);
   const shortcutTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const nextScanRef = useRef(nextScan);
@@ -320,11 +350,15 @@ export function StockIntake() {
     evidenceRef.current = wanted;
     setEvidence(wanted);
     const rows = loadSession();
-    if (rows.length) {
-      for (const r of rows) seenStatus.current.set(r.id, r.status);
-      placedRef.current = rows.map((r) => ({ ...blankPlaced(r.id, { x: 0, y: 0, w: 0, h: 0 }), ...r, onTable: false }));
+    const held = loadWaiting();
+    if (rows.length || held.length) {
+      for (const r of [...rows, ...held]) seenStatus.current.set(r.id, r.status);
+      for (const w of held) if (w.draft) draftsRef.current.set(w.id, w.draft);
+      placedRef.current = [...rows, ...held].map((r) => ({ ...blankPlaced(r.id, { x: 0, y: 0, w: 0, h: 0 }), ...r, onTable: false })).sort((a, b) => b.id - a.id);
       setPlacedState(placedRef.current);
       setRestored(rows.filter((r) => r.status === "logged").length);
+      // A scan can come before Start, and must not reuse a number from before the reload.
+      nextTrackerId.current = placedRef.current.reduce((n, p) => Math.max(n, p.id), 0) + 1;
     }
     try {
       setSound(window.localStorage.getItem(SOUND_KEY) !== "off");
@@ -569,6 +603,11 @@ export function StockIntake() {
     const p = placedById(id);
     if (!p) return;
     const milli = parseTypedQuantity(draft.amount, draft.unit);
+    // A scanner too slow to be told from typing lands its digits in the box the cursor is in.
+    if (cleanBarcode(draft.amount) || cleanBarcode(draft.name)) {
+      patch(id, { problem: `${cleanBarcode(draft.amount) ? "Adding" : "Name"} looks like a barcode. Check it before adding.` });
+      return;
+    }
     if (!draft.name.trim() || milli === null) {
       patch(id, { problem: !draft.name.trim() ? "Give it a name." : "Enter how many to add." });
       return;
@@ -843,6 +882,7 @@ export function StockIntake() {
     if (!p) return;
     const track = tableRef.current?.tracker.tracks.find((t) => t.id === id);
     const canvas = track ? grabCanvas(track.box) : null;
+    if (!canvas && !p.crop) return;
     patch(id, { status: "reading", problem: null, unread: false, moveKey: null });
     if (canvas) void identify(id, canvas);
     else queueRead(id, p.crop);
@@ -1117,10 +1157,14 @@ export function StockIntake() {
     if (key === "u") {
       const last = placedRef.current.find((p) => p.status === "logged");
       if (last) void undoPlaced(last.id);
+    } else if (key === "escape") {
+      if (card?.status === "new") patch(card.id, { status: "ignored", problem: null });
     } else if (key === "f") {
       toggleFull();
     } else if (key === "m") {
       toggleSound();
+    } else if (key === "v") {
+      if (speech.supported) speech.toggle();
     } else if (key === "x") {
       if (card) patch(card.id, { status: "ignored", problem: null });
     } else if (key === "r") {
@@ -1129,13 +1173,150 @@ export function StockIntake() {
       if (card?.status === "new" || card?.status === "amount") (document.getElementById(`stock-intake-form-${card.id}`) as HTMLFormElement | null)?.requestSubmit();
     } else if (/^[1-9]$/.test(key) && card) {
       const n = Number(key) - 1;
-      if (card.status === "pick" && card.choices[n]) void pickItem(card.id, card.choices[n]!);
+      const listed = [...card.choices, ...searchShown.current][n];
+      if (card.status === "pick" && listed) void pickItem(card.id, listed);
       if (card.status === "several" && card.readResult?.reading?.products[n]) void applyRead(card.id, card.readResult, n);
     }
   }
 
+  /**
+   * What was said goes where typing would. Only "add it" and the other fixed phrases act,
+   * and everything they do is on screen with Undo a word away.
+   */
+  function onSpoken(text: string, wasHeld = false) {
+    const said = parseSpoken(text, matrixLocations(matrixRef.current));
+    const card = currentCard();
+    const note = (result: string) => setHeardNote({ text, result, cardId: card?.id ?? null });
+    const fill = () => setHeard((prev) => ({ n: (prev?.n ?? 0) + 1, text, said }));
+
+    if (said.command === "stop") {
+      if (speech.on) speech.toggle();
+      return;
+    }
+    if (said.command === "undo") {
+      const last = placedRef.current.find((p) => p.status === "logged");
+      // Undo must not reach past something still on its way to the record.
+      if (placedRef.current.some((p) => p.busy || p.status === "saving")) note("Still saving. Say it again in a moment.");
+      else if (!last) note("Nothing to undo.");
+      else {
+        void undoPlaced(last.id);
+        note(`Undoing ${last.itemName ?? "the last one"}.`);
+      }
+      return;
+    }
+    if (said.command) {
+      if (!card) note("Nothing is waiting for that.");
+      else if (said.command === "ignore") {
+        const group = queue.find((g) => g.lead.id === card.id);
+        const ids = new Set([card.id, ...(group?.repeats ?? []).map((r) => r.id)]);
+        setPlaced((prev) => prev.map((p) => (ids.has(p.id) ? { ...p, status: "ignored", problem: null } : p)));
+        setHeardNote(null);
+      } else if (card.onTable || card.crop) {
+        readAgain(card.id);
+        setHeardNote(null);
+      } else note("There's no photo of this one to read again.");
+      return;
+    }
+
+    if (card?.busy) {
+      note("Still saving that one.");
+      return;
+    }
+    if (card) {
+      if (card.status === "new") {
+        fill();
+        if (said.save) setHeardNote(null);
+        else note(said.scratch ? "Cleared. Say it again." : `${filledText(said)}. Say \u201cadd it\u201d.`);
+      } else if (card.status === "amount") {
+        if (said.count || said.save) fill();
+        if (said.save && said.count) setHeardNote(null);
+        else note(said.count ? `${said.count}. Say \u201clog it\u201d.` : "Say how many.");
+      } else if (card.status === "several") {
+        const products = card.readResult?.reading?.products ?? [];
+        if (said.pick !== null && card.readResult && products[said.pick - 1]) {
+          void applyRead(card.id, card.readResult, said.pick - 1);
+          setHeardNote(null);
+        } else note("Say \u201cnumber 1\u201d to pick one on the card.");
+      } else if (said.pick !== null) {
+        const hit = [...(card.status === "pick" ? card.choices : []), ...searchShown.current][said.pick - 1];
+        if (hit) {
+          void pickItem(card.id, hit);
+          setHeardNote(null);
+        } else note(`There\u2019s no number ${said.pick} on the card.`);
+      } else if (said.name) {
+        fill();
+        note("Searching the stock list. Say the number to pick it.");
+      } else {
+        note(said.count ? `Say \u201cnumber ${said.count}\u201d to pick that one.` : "Say the number to pick, or the name to search.");
+      }
+      return;
+    }
+
+    // A label read takes a few seconds, and people talk straight after putting one down.
+    if (!wasHeld) {
+      const unsettled = placedRef.current.filter((p) => p.status === "reading" || p.status === "saving").length;
+      if (said.scratch && heldSpeech.current.length) {
+        heldSpeech.current = [];
+        note("Cleared. Say it again.");
+        return;
+      }
+      if (unsettled === 1) {
+        heldSpeech.current.push(text);
+        note("Got it. That goes on the card when the label\u2019s read.");
+        return;
+      }
+      if (unsettled > 1) {
+        note(`Reading ${unsettled} at once, so say it when its card opens.`);
+        return;
+      }
+    }
+
+    const newest = placedRef.current[0];
+    const canChange = newest?.status === "logged" && Boolean(newest.movementId);
+    if (said.scratch && typedAmount) {
+      setTypedAmount(null);
+      note("Cleared.");
+    } else if (said.save && !said.count && typedAmount) {
+      (document.getElementById(`stock-intake-row-form-${typedAmount.id}`) as HTMLFormElement | null)?.requestSubmit();
+    } else if (said.count && (!said.name || wasHeld) && canChange) {
+      const milli = parseTypedQuantity(said.count, newest.unit ?? "each");
+      if (said.save && milli !== null) {
+        setTypedAmount(null);
+        setHeardNote(null);
+        void changeAmount(newest.id, milli);
+      } else {
+        setTypedAmount({ id: newest.id, text: said.count });
+        note(`${said.count}. Say \u201clog it\u201d to change ${newest.itemName ?? "the last one"}.`);
+      }
+    } else if (wasHeld && canChange) {
+      note(`It knew this one: logged as ${newest.itemName ?? "that item"}.`);
+    } else {
+      note("Nothing is waiting for that. Put one down first.");
+    }
+  }
+  const speech = useSpeech(onSpoken);
+
+  /** What was typed with no field in use goes where a person meant it. */
+  function applyTyped() {
+    const text = typedRef.current;
+    typedRef.current = "";
+    if (!text) return;
+    const card = currentCard();
+    if (!card) {
+      setTypedAmount({ id: placedRef.current[0]!.id, text });
+      return;
+    }
+    const isCount = /^[0-9]/.test(text);
+    const el = document.getElementById(`stock-intake-form-${card.id}`)?.querySelector<HTMLInputElement>(`[data-typed="${isCount ? "count" : "name"}"]`);
+    if (!el) return;
+    el.focus();
+    putBack(el, isCount ? text : el.value + text);
+    // Focus selected the box; the next key must add to this, even when the value didn't change ("1" over a 1).
+    el.setSelectionRange(el.value.length, el.value.length);
+  }
+
   function onShortcut(e: KeyboardEvent) {
-    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.metaKey || e.ctrlKey || e.altKey || e.key === "Shift") return;
     const tag = (e.target as HTMLElement | null)?.tagName ?? "";
     const fed = feedScan(scanRef.current, e.key, performance.now());
     scanRef.current = fed.buffer;
@@ -1143,6 +1324,7 @@ export function StockIntake() {
       // Keys in a field type there until they prove to be a scan; then the field goes back to what it held.
       const el = e.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
       if (e.key.length === 1 && fed.buffer.text.length === 1) scanField.current = { el, value: el.value };
+      if (e.key === "Escape") el.blur();
       if (!fed.code) return;
       if (scanField.current?.el === el) putBack(el, scanField.current.value);
     }
@@ -1155,7 +1337,22 @@ export function StockIntake() {
       // Enter would otherwise save the form the cursor is in.
       e.preventDefault();
       e.stopPropagation();
+      typedRef.current = "";
       onScan(fed.code);
+      return;
+    }
+    const newest = placedRef.current[0];
+    const into = typedInto(e.key, currentCard()?.status ?? null, newest?.status === "logged" && Boolean(newest.movementId));
+    if (into || (typedRef.current && /^[\p{L}\p{N}]$/u.test(e.key))) {
+      e.preventDefault();
+      typedRef.current += e.key;
+      shortcutTimer.current = setTimeout(applyTyped, SHORTCUT_DELAY_MS);
+      return;
+    }
+    // Enter straight after typing lands the typing, and doesn't save what's unseen.
+    if (typedRef.current) {
+      e.preventDefault();
+      applyTyped();
       return;
     }
     const key = e.key.toLowerCase();
@@ -1193,18 +1390,45 @@ export function StockIntake() {
   // Started before the list has loaded, every known item would look new.
   const ready = camera === "live" && !loadError && loaded;
   const last = logged[0] ?? null;
+
+  // What was said during a read lands once there's somewhere for it to go.
+  const onSpokenRef = useRef(onSpoken);
+  onSpokenRef.current = onSpoken;
+  const openCardId = openGroup?.lead.id ?? null;
+  useEffect(() => {
+    if (!heldSpeech.current.length || (openCardId === null && working)) return;
+    const held = heldSpeech.current.join(" ");
+    heldSpeech.current = [];
+    onSpokenRef.current(held, true);
+  }, [openCardId, working]);
+
   const offerSame = !lock && run >= SAME_RUN && last?.itemId && sameDismissed !== `${last.itemId}:${last.amountMilli}` ? last : null;
 
   // What the screen shows survives a reload: the stock is safe either way, but Undo and the totals wouldn't be.
-  useEffect(() => {
-    saveSession(placed.filter((p): p is Placed & { status: "logged" | "undone" } => p.status === "logged" || p.status === "undone").map((p) => ({
+  function persist() {
+    const now = placedRef.current;
+    saveSession(now.filter((p): p is Placed & { status: "logged" | "undone" } => p.status === "logged" || p.status === "undone").map((p) => ({
       id: p.id, at: p.at, status: p.status, itemId: p.itemId, itemName: p.itemName, unit: p.unit, location: p.location, amountMilli: p.amountMilli,
       fromLabel: p.fromLabel, recordedMilli: p.recordedMilli, movementId: p.movementId, thumb: p.thumb,
+    })), now.filter((p) => NEEDS_YOU.has(p.status)).map((p): SavedWaiting => ({
+      id: p.id, at: p.at, status: p.status as SavedWaiting["status"], thumb: p.thumb, barcode: p.barcode, product: p.product, readResult: p.readResult, choices: p.choices, problem: p.problem, note: p.note,
+      itemId: p.itemId, itemName: p.itemName, unit: p.unit, location: p.location, amountMilli: p.amountMilli, moveKey: p.moveKey, photoId: p.photoId, retryMilli: p.retryMilli, unread: p.unread, askMilli: p.askMilli,
+      draft: draftsRef.current.get(p.id) ?? p.draft,
     })));
+  }
+  const persistRef = useRef(persist);
+  persistRef.current = persist;
+  useEffect(() => {
+    persistRef.current();
   }, [placed]);
+  function onDraft(id: number, draft: NewItemDraft) {
+    draftsRef.current.set(id, draft);
+    if (draftSaveTimer.current) clearTimeout(draftSaveTimer.current);
+    draftSaveTimer.current = setTimeout(() => persistRef.current(), DRAFT_SAVE_MS);
+  }
 
-  // A reload now would lose what's in flight and what's waiting on a person.
-  const unsettled = working + waiting.length;
+  // What's waiting on a person survives a reload; what's in flight doesn't.
+  const unsettled = working;
   useEffect(() => {
     if (!unsettled) return;
     const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); };
@@ -1301,7 +1525,7 @@ export function StockIntake() {
         <Readout label="Barcodes" value={hasDetector ? String(reads.barcodes) : "Off"} tone={hasDetector ? undefined : "warn"} testId="stock-intake-barcodes" />
         <Readout label="Label reads" value={readerOff ? "Off" : `${reads.labels}${reads.medianMs !== null ? ` · ${(reads.medianMs / 1000).toFixed(1)}s` : ""}`} tone={readerOff ? "warn" : undefined} testId="stock-intake-label-reads" />
         {exposure ? <Readout label="Exposure" value={exposure === "locked" ? "Held" : "Auto"} testId="stock-intake-exposure" /> : null}
-        {matrix ? <Readout label="Bin rules" value={String(matrix.rules.length)} tone={matrix.rules.length ? undefined : "warn"} /> : null}
+        {matrix ? <Readout label="Bin rules" value={String(matrix.rules.length)} /> : null}
         <span className="flex-1" />
         {devices.length > 1 ? (
           <label className="flex items-center gap-2">
@@ -1322,6 +1546,12 @@ export function StockIntake() {
           {running ? <Button type="button" variant="secondary" size="sm" onClick={pauseTable} data-testid="stock-intake-pause"><Pause aria-hidden="true" className="h-4 w-4" /> Pause</Button> : null}
           {evidence && camera === "live" ? <Button type="button" variant="secondary" size="sm" onClick={toggleClip} data-testid="stock-intake-clip">{recordingClip ? "Stop and save clip" : "Record clip"}</Button> : null}
           {running || paused ? <Button type="button" variant="secondary" size="sm" onClick={() => void startTable()} data-testid="stock-intake-reset"><RotateCcw aria-hidden="true" className="h-4 w-4" /> Reset table</Button> : null}
+          {speech.supported ? (
+            // Blurred so the Enter that follows adds the card rather than turning this off.
+            <Button type="button" variant="secondary" size="sm" onClick={(e) => { e.currentTarget.blur(); speech.toggle(); }} aria-pressed={speech.on} title={speech.on ? "Stop listening" : "Talk instead of typing"} className={speech.on ? "border-accent-yellow text-accent-yellow" : undefined} data-testid="stock-intake-talk">
+              <Mic aria-hidden="true" className={cn("h-4 w-4", speech.on && "motion-safe:animate-pulse")} /> {speech.on ? "Listening" : "Talk"}
+            </Button>
+          ) : null}
           <button type="button" onClick={toggleSound} aria-pressed={sound} aria-label={sound ? "Turn sound off" : "Turn sound on"} title={sound ? "Sound on" : "Sound off"} className="inline-flex h-8 w-8 items-center justify-center rounded-[4px] text-text-muted hover:bg-surface-raised hover:text-text" data-testid="stock-intake-sound">
             {sound ? <Volume2 aria-hidden="true" className="h-4 w-4" /> : <VolumeX aria-hidden="true" className="h-4 w-4" />}
           </button>
@@ -1404,6 +1634,7 @@ export function StockIntake() {
                 <div className="max-w-md">
                   <p className="font-display text-2xl font-semibold text-text">Clear the table, then start</p>
                   <p className="mt-1.5 text-sm text-text-muted">It reads the empty table first and spots anything new against it. A plain, mid-coloured mat works best: white stock vanishes on white, black on black. Bring the camera as close as the table allows, so small print stays sharp.</p>
+                  <p className="mt-1.5 text-sm text-text-muted" data-testid="stock-intake-scanner-tip">Only using a barcode scanner? Just scan. You don&rsquo;t need to press Start.</p>
                   <Button type="button" size="lg" className="mt-4" disabled={!ready || !matrixAvailable} onClick={() => void startTable()} data-testid="stock-intake-start"><Play aria-hidden="true" className="h-4 w-4" /> Start</Button>
                 </div>
               </div>
@@ -1432,7 +1663,7 @@ export function StockIntake() {
               <p className="console-label">Goes to</p>
               {last ? (
                 <>
-                  <p className={cn("truncate font-mono text-2xl font-bold uppercase leading-tight xl:text-3xl", last.location ? "text-accent-yellow" : "text-state-warning")} data-testid="stock-intake-goes-to">{last.location ?? "No location yet"}</p>
+                  <p className={cn("truncate font-mono text-2xl font-bold uppercase leading-tight xl:text-3xl", last.location ? "text-accent-yellow" : matrix?.rules.length ? "text-state-warning" : "text-text-muted")} data-testid="stock-intake-goes-to">{last.location ?? "No location yet"}</p>
                   <p className="truncate text-sm text-text-muted">{amountText(last)} {last.itemName}</p>
                 </>
               ) : (
@@ -1444,16 +1675,29 @@ export function StockIntake() {
           <p className="sr-only" aria-live="polite">{last ? `Logged ${amountText(last)} ${last.itemName ?? ""}. ${last.location ? `Goes to ${last.location}.` : "No location yet."}` : ""}{waiting.length ? ` ${waiting.length} waiting on you.` : ""}</p>
 
           <div className="hidden flex-wrap items-center gap-x-4 gap-y-1 px-1 text-xs text-text-muted lg:flex">
-            <span className="flex items-center gap-1.5"><Key>Space</Key> pause</span>
-            <span className="flex items-center gap-1.5"><Key>U</Key> undo last</span>
-            <span className="flex items-center gap-1.5"><Key>Enter</Key> add</span>
-            <span className="flex items-center gap-1.5"><Key>1–9</Key> pick</span>
-            <span className="flex items-center gap-1.5"><Key>X</Key> ignore</span>
-            <span className="flex items-center gap-1.5"><Key>R</Key> read again</span>
-            <span className="flex items-center gap-1.5"><Key>F</Key> full screen</span>
-            <span className="flex items-center gap-1.5"><Key>M</Key> sound</span>
+            {openGroup?.lead.status === "new" ? (
+              <>
+                <span className="flex items-center gap-1.5"><Key>0–9</Key> how many</span>
+                <span className="flex items-center gap-1.5"><Key>A–Z</Key> name</span>
+                <span className="flex items-center gap-1.5"><Key>Enter</Key> add</span>
+                <span className="flex items-center gap-1.5"><Key>Esc</Key> not stock</span>
+              </>
+            ) : (
+              <>
+                <span className="flex items-center gap-1.5"><Key>Space</Key> pause</span>
+                <span className="flex items-center gap-1.5"><Key>U</Key> undo last</span>
+                <span className="flex items-center gap-1.5"><Key>0–9</Key> change last amount</span>
+                <span className="flex items-center gap-1.5"><Key>Enter</Key> add</span>
+                <span className="flex items-center gap-1.5"><Key>1–9</Key> pick</span>
+                <span className="flex items-center gap-1.5"><Key>X</Key> ignore</span>
+                <span className="flex items-center gap-1.5"><Key>R</Key> read again</span>
+                <span className="flex items-center gap-1.5"><Key>F</Key> full screen</span>
+                <span className="flex items-center gap-1.5"><Key>M</Key> sound</span>
+                {speech.supported ? <span className="flex items-center gap-1.5"><Key>V</Key> talk</span> : null}
+              </>
+            )}
             <span className="flex-1" />
-            <span>Keep a small gap between items, labels up, inside the yellow corners.</span>
+            <span>Keep a small gap between items, labels up, inside the yellow corners. Wait for the box before you move one.</span>
           </div>
         </div>
 
@@ -1479,12 +1723,33 @@ export function StockIntake() {
               <p>The camera table needs migration 20261102100000_workshop_stock_location_matrix.sql applied first.</p>
             </Block>
           ) : matrix && !matrix.rules.length ? (
-            <Block tone="warn" title="No bin rules yet" role="status">
-              <p>Items will log without a location until you set up the <a href="/stock/locations" className="font-semibold underline">location matrix</a>.</p>
-            </Block>
+            <p className="rounded-[4px] border border-border bg-surface p-2.5 text-sm text-text-muted" role="status" data-testid="stock-intake-no-rules">No bins set up yet. That&rsquo;s fine: items save without a location, and you can place them later on the <a href="/stock/locations" className="font-semibold underline">shelf map</a>.</p>
           ) : null}
           {!hasDetector ? (
             <p className="flex items-start gap-2 rounded-[4px] border border-border bg-surface p-2.5 text-sm text-text-muted"><ScanBarcode aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" /> This browser can&rsquo;t read barcodes, so every item uses a label read. Chrome reads them instantly, for free.</p>
+          ) : null}
+
+          {speech.problem ? (
+            <Block tone="warn" title="Talk stopped" role="alert" testId="stock-intake-talk-problem">
+              <p>{speech.problem}</p>
+            </Block>
+          ) : null}
+          {speech.on ? (
+            <div className="flex items-start gap-2 rounded-[4px] border border-accent-yellow bg-surface p-2.5 text-sm" role="status" data-testid="stock-intake-heard">
+              <Mic aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-accent-yellow motion-safe:animate-pulse" />
+              <div className="min-w-0 flex-1">
+                {speech.interim ? (
+                  <p className="text-text-muted">&ldquo;{speech.interim}&rdquo;</p>
+                ) : heardNote && heardNote.cardId === (openGroup?.lead.id ?? null) ? (
+                  <>
+                    <p className="truncate text-text-muted">Heard &ldquo;{heardNote.text}&rdquo;</p>
+                    <p className="font-medium text-text" data-testid="stock-intake-heard-result">{heardNote.result}</p>
+                  </>
+                ) : (
+                  <p className="text-text" data-testid="stock-intake-heard-hint">{talkHint(openGroup?.lead.status ?? null, Boolean(working), Boolean(last?.movementId))}</p>
+                )}
+              </div>
+            </div>
           ) : null}
 
           {openGroup ? (
@@ -1496,9 +1761,12 @@ export function StockIntake() {
               matrix={matrix}
               locations={locations}
               typesEnabled={typesEnabled}
+              heard={heard}
+              onSearchShown={onSearchShown}
               onPick={(item) => void pickItem(openGroup.lead.id, item)}
               onChooseProduct={(i) => { if (openGroup.lead.readResult) void applyRead(openGroup.lead.id, openGroup.lead.readResult, i); }}
               onCreate={(draft) => void createFromDraft(openGroup.lead.id, draft)}
+              onDraft={(draft) => onDraft(openGroup.lead.id, draft)}
               onAmount={(milli) => confirmAmount(openGroup.lead.id, milli)}
               onRetry={() => void retry(openGroup.lead.id)}
               onReadAgain={() => readAgain(openGroup.lead.id)}
@@ -1543,6 +1811,8 @@ export function StockIntake() {
                     locked={lock?.itemId === p.itemId && lock?.milli === p.amountMilli}
                     offerLocation={shownRows.find((x) => x.status === "logged" && x.itemId === p.itemId)?.id === p.id}
                     locations={locations}
+                    typed={typedAmount?.id === p.id ? typedAmount : null}
+                    onTypedDone={() => { setTypedAmount(null); setHeardNote(null); }}
                     onChangeAmount={(milli) => void changeAmount(p.id, milli)}
                     onSetLocation={(text) => void setLocation(p.id, text)}
                     onUndo={() => void undoPlaced(p.id)}
@@ -1562,9 +1832,11 @@ export function StockIntake() {
 
           {!placed.length ? (
             <ol className="space-y-3 rounded-[4px] border border-border bg-surface p-3 text-sm text-text-muted" data-testid="stock-intake-howto">
-              <li><span className="console-label block text-text">1 · Place it</span> Put an item on the table, label up. A red box locks on.</li>
-              <li><span className="console-label block text-text">2 · It reads it</span> A barcode or product code it knows logs by itself and turns green.</li>
-              <li><span className="console-label block text-text">3 · Put it away</span> &ldquo;Goes to&rdquo; shows the bin. Anything it isn&rsquo;t sure about stays red and waits here for you.</li>
+              <li><span className="console-label block text-text">1 · Put one down</span> One of each product, label up. Wait for the red box before you move it.</li>
+              <li><span className="console-label block text-text">2 · Type how many</span> Then press Enter. Enter alone adds one. If it has no name yet, type that first, then Tab to the count.</li>
+              <li><span className="console-label block text-text">3 · Put it away</span> &ldquo;Goes to&rdquo; shows the bin if it has one. A product it knows logs by itself and turns green. Type a number straight after to change how many.</li>
+              {speech.supported ? <li><span className="console-label block text-text">Hands full?</span> Press Talk, put one down and say &ldquo;Iconic switch, forty, add it&rdquo;.</li> : null}
+              <li><span className="console-label block text-text">Got a barcode scanner?</span> Scan instead of putting it down. Scanned items save their barcode, so the next scan logs by itself.</li>
             </ol>
           ) : null}
         </aside>

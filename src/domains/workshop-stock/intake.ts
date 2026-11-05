@@ -193,6 +193,16 @@ export function feedScan(buffer: ScanBuffer, key: string, now: number): { buffer
   return { buffer: { text: inTime ? buffer.text + key : key, lastAt: now }, code: null };
 }
 
+/** Typed with no field in use: a new card's name or count, a card's amount, or the amount on what just logged. */
+export type TypedInto = "name" | "count" | "row";
+
+export function typedInto(key: string, cardStatus: string | null, lastLogged: boolean): TypedInto | null {
+  const digit = /^[0-9]$/.test(key);
+  if (cardStatus === "new") return digit ? "count" : /^\p{L}$/u.test(key) ? "name" : null;
+  if (cardStatus === "amount") return digit ? "count" : null;
+  return cardStatus === null && lastLogged && digit ? "row" : null;
+}
+
 const SCAN_TAKES: readonly string[] = ["new", "pick", "problem", "reading"];
 
 /**

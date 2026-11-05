@@ -1,7 +1,7 @@
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 import { absorbLight, addCalibrationFrame, cropRect, emptyTracker, finishCalibration, findObjects, GONE_MS, newCalibration, SETTLE_MS, sharpness, stepTracker, tableAdvice, type Box, type TrackerState } from "./intake-tracker";
-import { cardForScan, draftFor, emptyScan, feedScan, identifiersToTeach, packNeedsCheck, placedAmount, productWords, sameInARow, sameProduct, sessionTotals, waitingQueue } from "./intake";
+import { cardForScan, draftFor, typedInto, emptyScan, feedScan, identifiersToTeach, packNeedsCheck, placedAmount, productWords, sameInARow, sameProduct, sessionTotals, waitingQueue } from "./intake";
 import { locationText, matrixLocations, rackLabel, ruleFor, rulesOutsideRack, type LocationMatrix } from "./location-matrix";
 import { splitLocation } from "./location";
 import type { ReadProduct, StockItem } from "./schema";
@@ -359,6 +359,23 @@ describe("what a placed object teaches and asks", () => {
     expect(cardForScan([card(1, "new", null, "9300000000026")])).toBeNull();
     expect(cardForScan([card(2, "problem"), card(1, "pick", "9300000000026")])?.id).toBe(2);
     expect(cardForScan([card(1, "logged"), card(2, "ignored")])).toBeNull();
+  });
+
+  it("sends typing where a person meant it, and letters never run a shortcut on a new card", () => {
+    expect(typedInto("4", "new", false)).toBe("count");
+    expect(typedInto("f", "new", true)).toBe("name");
+    expect(typedInto("U", "new", true)).toBe("name");
+    expect(typedInto("/", "new", true)).toBeNull();
+    expect(typedInto(" ", "new", true)).toBeNull();
+    expect(typedInto("Enter", "new", true)).toBeNull();
+    expect(typedInto("4", "amount", false)).toBe("count");
+    expect(typedInto("x", "amount", false)).toBeNull();
+    // 1–9 picks on these.
+    expect(typedInto("1", "pick", true)).toBeNull();
+    expect(typedInto("1", "several", true)).toBeNull();
+    expect(typedInto("4", null, true)).toBe("row");
+    expect(typedInto("u", null, true)).toBeNull();
+    expect(typedInto("4", null, false)).toBeNull();
   });
 
   it("keeps a scan whole when a capital letter brings a Shift press", () => {

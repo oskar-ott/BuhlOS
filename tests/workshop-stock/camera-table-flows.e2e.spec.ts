@@ -117,6 +117,277 @@ const table = (page: Page, fn: string, ...args: unknown[]) => page.evaluate(([f,
 }, [fn, args] as const);
 const put = (page: Page, id: string, x: number, y: number, w?: number, h?: number) => table(page, "put", id, x, y, w, h);
 const take = (page: Page, id: string) => table(page, "lift", id);
+/** The browser's speech recogniser, with `say` standing in for the microphone. */
+async function fakeSpeech(page: Page, opts: { refuse?: string } = {}) {
+  await page.addInitScript((refuse) => {
+    class Fake {
+      continuous = false;
+      interimResults = false;
+      lang = "";
+      onresult: ((e: unknown) => void) | null = null;
+      onerror: ((e: unknown) => void) | null = null;
+      onend: (() => void) | null = null;
+      start() {
+        const w = window as unknown as { speechStarts: number; speech: Fake | null };
+        w.speechStarts = (w.speechStarts ?? 0) + 1;
+        w.speech = this;
+        if (refuse) setTimeout(() => { this.onerror?.({ error: refuse }); this.onend?.(); }, 10);
+      }
+      stop() { this.onend?.(); }
+      abort() { this.onend?.(); }
+    }
+    Object.assign(window, { SpeechRecognition: Fake, webkitSpeechRecognition: Fake });
+  }, opts.refuse ?? "");
+}
+const hear = (page: Page, text: string, isFinal = true) =>
+  page.evaluate(([t, final]) => {
+    const s = (window as unknown as { speech: { onresult: (e: unknown) => void } }).speech;
+    s.onresult({ resultIndex: 0, results: [{ isFinal: final, 0: { transcript: t } }] });
+  }, [text, isFinal] as const);
+
+test("talking: the words fill the card, nothing saves until Enter", async ({ page }) => {
+  test.setTimeout(90_000);
+  await fakeSpeech(page);
+  await fakeCamera(page);
+  await open(page);
+  await start(page);
+
+  await page.getByTestId("stock-intake-talk").click();
+  await expect(page.getByTestId("stock-intake-talk")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("stock-intake-heard-hint")).toContainText("Put one down");
+
+  // With nothing open, a name has nowhere to go and the screen says so.
+  await hear(page, "iconic switch");
+  await expect(page.getByTestId("stock-intake-heard-result")).toHaveText("Nothing is waiting for that. Put one down first.");
+
+  await harness("/__harness/vision", { queue: [reading(product({}))] });
+  await put(page, "a", 100, 150);
+  await expect(card(page)).toHaveAttribute("data-status", "new", { timeout: 15_000 });
+  const name = page.getByTestId("stock-intake-new-name");
+  const amount = page.getByTestId("stock-intake-new-amount");
+
+  // Words on their way show up, and change nothing yet.
+  const before = await name.inputValue();
+  await hear(page, "clips all", false);
+  await expect(page.getByTestId("stock-intake-heard")).toContainText("clips all");
+  await expect(name).toHaveValue(before);
+
+  // Misheard, scratched, said again over a pause.
+  await hear(page, "clips all iconic forty rack 9 shelf C bin 2");
+  await expect(name).toHaveValue("Clips all iconic");
+  await expect(amount).toHaveValue("40");
+  await expect(page.getByTestId("stock-intake-new-location")).toHaveValue("Rack 9 Shelf C, Bin 2");
+  await hear(page, "scratch that");
+  await expect(name).toHaveValue(before);
+  await expect(amount).toHaveValue("1");
+  await expect(page.getByTestId("stock-intake-new-location")).toHaveValue("");
+  await hear(page, "Clipsal Iconic");
+  await hear(page, "single switch");
+  await hear(page, "fifteen");
+  await expect(name).toHaveValue("Clipsal Iconic single switch");
+  await expect(amount).toHaveValue("15");
+  await page.waitForTimeout(600);
+  expect((await state()).items).toHaveLength(0);
+
+  // Enter is what puts it on the record, even straight after pressing Talk with the mouse.
+  await page.keyboard.press("Enter");
+  await expect(logged(page)).toHaveText("1", { timeout: 15_000 });
+  expect(await balance(/Clipsal Iconic single switch/)).toBe(15_000);
+  await expect(page.getByTestId("stock-intake-talk")).toHaveAttribute("aria-pressed", "true");
+
+  // A number straight after it logs opens that amount, and only Enter changes it.
+  await hear(page, "twenty");
+  await expect(page.getByTestId("stock-intake-row-edit-input")).toHaveValue("20");
+  await page.waitForTimeout(400);
+  expect(await balance(/Clipsal Iconic single switch/)).toBe(15_000);
+  await page.keyboard.press("Enter");
+  await expect.poll(() => balance(/Clipsal Iconic single switch/), { timeout: 15_000 }).toBe(20_000);
+
+  // A recogniser stops by itself after a silence: still listening, on a new one.
+  const started = await page.evaluate(() => (window as unknown as { speechStarts: number }).speechStarts);
+  await page.waitForTimeout(1100);
+  await page.evaluate(() => (window as unknown as { speech: { onend: () => void } }).speech.onend());
+  await expect.poll(() => page.evaluate(() => (window as unknown as { speechStarts: number }).speechStarts)).toBe(started + 1);
+  await expect(page.getByTestId("stock-intake-talk")).toHaveAttribute("aria-pressed", "true");
+
+  await page.getByTestId("stock-intake-talk").click();
+  await expect(page.getByTestId("stock-intake-talk")).toHaveAttribute("aria-pressed", "false");
+  await expect(page.getByTestId("stock-intake-heard")).toHaveCount(0);
+});
+
+test("talking: the amount card takes a number, the cursor in Goes to takes the words as they are", async ({ page }) => {
+  test.setTimeout(90_000);
+  await fakeSpeech(page);
+  await fakeCamera(page);
+  await open(page);
+  await start(page);
+  await page.getByTestId("stock-intake-talk").click();
+
+  await harness("/__harness/vision", { queue: [reading(product({}))] });
+  await put(page, "a", 100, 150);
+  await expect(card(page)).toHaveAttribute("data-status", "new", { timeout: 15_000 });
+  await page.getByTestId("stock-intake-new-location").click();
+  await hear(page, "cable bay forty");
+  await expect(page.getByTestId("stock-intake-new-location")).toHaveValue("cable bay forty");
+  await expect(page.getByTestId("stock-intake-new-amount")).toHaveValue("1");
+  await page.getByTestId("stock-intake-ignore").click();
+  await expect(card(page)).toHaveCount(0);
+
+  const s = await harness<{ name: string; value: string }>("/__harness/session?as=office");
+  await fetch(`${API}/api/workshop-stock?action=create`, { method: "POST", headers: { cookie: `${s.name}=${s.value}`, "content-type": "application/json", "idempotency-key": "flows-seed-talk" }, body: JSON.stringify({ name: "Cable tie 200mm", brand: "HPM", manufacturerCode: "CT200", baseUnit: "each", location: "Bin 1", openingQuantity: "1" }) });
+  await page.reload();
+  await start(page);
+  await page.getByTestId("stock-intake-talk").click();
+  const pack = product({ brand: "HPM", manufacturerCode: "CT200", description: "Cable tie 200mm", packQuantity: 500, packUnit: "each", labelText: ["CT200", "Pack of 500"] });
+  await harness("/__harness/vision", { queue: [reading(pack)] });
+  await put(page, "b", 450, 150);
+  await expect(page.getByTestId("stock-intake-amount-ask")).toContainText("500", { timeout: 15_000 });
+  await hear(page, "cable ties");
+  await expect(page.getByTestId("stock-intake-heard-result")).toHaveText("Say how many.");
+  await expect(page.getByTestId("stock-intake-amount")).toHaveValue("500");
+  await hear(page, "two hundred and fifty");
+  await expect(page.getByTestId("stock-intake-amount")).toHaveValue("250");
+  await page.screenshot({ path: `${SHOTS}/flows-talk.png` });
+  expect(await balance(/Cable tie/)).toBe(1000);
+  await page.keyboard.press("Enter");
+  await expect.poll(() => balance(/Cable tie/), { timeout: 15_000 }).toBe(251_000);
+});
+
+test("talking: hands free, saying add it saves the card, undo takes it back, a number changes the last one", async ({ page }) => {
+  test.setTimeout(90_000);
+  await fakeSpeech(page);
+  await fakeCamera(page);
+  await open(page);
+  await start(page);
+  await page.getByTestId("stock-intake-talk").click();
+
+  await harness("/__harness/vision", { queue: [reading(product({})), reading(product({ manufacturerCode: "9999", labelText: ["9999"], description: "Blank plate" }))] });
+  await put(page, "a", 100, 150);
+  await expect(card(page)).toHaveAttribute("data-status", "new", { timeout: 15_000 });
+  await expect(page.getByTestId("stock-intake-heard-hint")).toContainText("add it");
+  await page.screenshot({ path: `${SHOTS}/flows-talk-hint.png` });
+
+  // In one breath, no keyboard.
+  await hear(page, "Clipsal Iconic switch forty rack 9 shelf C bin 2 add it");
+  await expect(logged(page)).toHaveText("1", { timeout: 15_000 });
+  expect(await balance(/Clipsal Iconic switch/)).toBe(40_000);
+  await expect(page.getByTestId("stock-intake-goes-to")).toHaveText("Rack 9 Shelf C, Bin 2");
+
+  // A number on its own opens the amount; "log it" lands it.
+  await hear(page, "fifty");
+  await expect(page.getByTestId("stock-intake-row-edit-input")).toHaveValue("50");
+  expect(await balance(/Clipsal Iconic switch/)).toBe(40_000);
+  await hear(page, "log it");
+  await expect.poll(() => balance(/Clipsal Iconic switch/), { timeout: 15_000 }).toBe(50_000);
+  await expect(page.getByTestId("stock-intake-row-edit-input")).toHaveCount(0);
+  // Both in one go.
+  await hear(page, "sixty log it");
+  await expect.poll(() => balance(/Clipsal Iconic switch/), { timeout: 15_000 }).toBe(60_000);
+
+  await hear(page, "undo that");
+  await expect.poll(() => balance(/Clipsal Iconic switch/), { timeout: 15_000 }).toBe(0);
+  await expect(page.getByTestId("stock-intake-row").first()).toHaveAttribute("data-status", "undone");
+
+  // "Add it" with no name says so on the card and saves nothing; "not stock" clears it.
+  await put(page, "b", 450, 150);
+  await expect(card(page)).toHaveAttribute("data-status", "new", { timeout: 15_000 });
+  await page.getByTestId("stock-intake-new-name").fill("");
+  await page.getByTestId("stock-intake-new-name").blur();
+  await hear(page, "add it");
+  await expect(card(page)).toContainText("Give it a name.");
+  await expect(logged(page)).toHaveText("0");
+  await hear(page, "not stock");
+  await expect(card(page)).toHaveCount(0);
+
+  await hear(page, "stop listening");
+  await expect(page.getByTestId("stock-intake-talk")).toHaveAttribute("aria-pressed", "false");
+});
+
+test("talking: what's said during the label read lands on the card when it opens", async ({ page }) => {
+  test.setTimeout(90_000);
+  await fakeSpeech(page);
+  await fakeCamera(page);
+  await open(page);
+  // The reader's few seconds, which the fixtures otherwise don't have.
+  let release = () => {};
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  await page.route(/\/api\/workshop-stock\?action=read/, async (route) => { await held; await route.fallback(); });
+  await start(page);
+  await page.getByTestId("stock-intake-talk").click();
+
+  await harness("/__harness/vision", { queue: [reading(product({}))] });
+  await put(page, "a", 100, 150);
+  await expect(page.getByTestId("stock-intake-working")).toHaveText("1", { timeout: 15_000 });
+  await expect(card(page)).toHaveCount(0);
+  await hear(page, "Clipsal Iconic");
+  await expect(page.getByTestId("stock-intake-heard-result")).toContainText("when the label");
+  await hear(page, "switch fifteen");
+  release();
+  await expect(card(page)).toHaveAttribute("data-status", "new", { timeout: 15_000 });
+  await expect(page.getByTestId("stock-intake-new-name")).toHaveValue("Clipsal Iconic switch");
+  await expect(page.getByTestId("stock-intake-new-amount")).toHaveValue("15");
+  await page.waitForTimeout(400);
+  expect((await state()).items).toHaveLength(0);
+  await hear(page, "done");
+  await expect(logged(page)).toHaveText("1", { timeout: 15_000 });
+  expect(await balance(/Clipsal Iconic switch/)).toBe(15_000);
+});
+
+test("talking: a list on the card is picked by its number, and a bare number doesn't pick", async ({ page }) => {
+  test.setTimeout(90_000);
+  await fakeSpeech(page);
+  await fakeCamera(page);
+  const s = await harness<{ name: string; value: string }>("/__harness/session?as=office");
+  const seed = (name: string, code: string) => fetch(`${API}/api/workshop-stock?action=create`, { method: "POST", headers: { cookie: `${s.name}=${s.value}`, "content-type": "application/json", "idempotency-key": `flows-seed-${code}` }, body: JSON.stringify({ name, brand: "Clipsal", baseUnit: "each", manufacturerCode: code, location: "Bin 1", openingQuantity: "1" }) });
+  await seed("Iconic 1 gang switch white", "AA1");
+  await seed("Iconic 1 gang switch black", "AA2");
+  await seed("Saturn dimmer", "AA3");
+  await open(page);
+  await start(page);
+  await page.getByTestId("stock-intake-talk").click();
+
+  await harness("/__harness/vision", { queue: [reading(product({ manufacturerCode: null, labelText: [], description: "Iconic 1 gang switch" }))] });
+  await put(page, "a", 100, 150);
+  await expect(card(page)).toHaveAttribute("data-status", "pick", { timeout: 15_000 });
+  await expect(page.getByTestId("stock-intake-heard-hint")).toContainText("number 1");
+  const choices = await page.getByTestId("stock-intake-choice").count();
+  expect(choices).toBeGreaterThan(0);
+
+  await hear(page, "two");
+  await expect(page.getByTestId("stock-intake-heard-result")).toContainText("number 2");
+  await expect(card(page)).toHaveAttribute("data-status", "pick");
+  await hear(page, "number nine");
+  await expect(page.getByTestId("stock-intake-heard-result")).toContainText("no number 9");
+
+  // Search results carry on the card's numbering.
+  await hear(page, "saturn");
+  await expect(page.getByTestId("stock-intake-search-result")).toContainText(`${choices + 1}Saturn dimmer`);
+  await hear(page, `number ${choices + 1}`);
+  await expect(logged(page)).toHaveText("1", { timeout: 15_000 });
+  await expect.poll(() => balance(/Saturn dimmer/), { timeout: 15_000 }).toBe(2000);
+});
+
+test("talking: a blocked microphone says so and stops", async ({ page }) => {
+  await fakeSpeech(page, { refuse: "not-allowed" });
+  await fakeCamera(page);
+  await open(page);
+  await page.getByTestId("stock-intake-talk").click();
+  await expect(page.getByTestId("stock-intake-talk-problem")).toContainText("blocked the microphone");
+  await expect(page.getByTestId("stock-intake-talk")).toHaveAttribute("aria-pressed", "false");
+  await expect.poll(() => page.evaluate(() => (window as unknown as { speechStarts: number }).speechStarts)).toBe(1);
+});
+
+test("talking: no speech recognition in this browser, no button", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, "webkitSpeechRecognition", { value: undefined });
+    Object.defineProperty(window, "SpeechRecognition", { value: undefined });
+  });
+  await fakeCamera(page);
+  await open(page);
+  await expect(page.getByTestId("stock-intake-feed")).toHaveAttribute("data-camera", "live");
+  await expect(page.getByTestId("stock-intake-talk")).toHaveCount(0);
+});
+
 /** A hand comes over it, takes it, and goes: nothing leaves the table on its own. */
 async function lift(page: Page, id: string) {
   await table(page, "handOver", id);
@@ -227,7 +498,7 @@ test("new items queue oldest first, repeats share a card, the keyboard works it"
   await expect(logged(page)).toHaveText("2");
   expect(await balance(/Iconic switch mech/)).toBe(2000);
   await expect(card(page)).toContainText("New to the stock list");
-  await page.keyboard.press("x");
+  await page.keyboard.press("Escape");
   await expect(waiting(page)).toHaveText("0");
 });
 
@@ -339,6 +610,109 @@ test("a scan with the cursor in a field saves nothing there, and two new barcode
   await expect(logged(page)).toHaveText("3", { timeout: 15_000 });
   expect(await balance(/First thing/)).toBe(2000);
   expect(await balance(/Second thing/)).toBe(1000);
+});
+
+test("the first-session routine: type how many, Enter; a count replaces, never adds to the 1", async ({ page }) => {
+  test.setTimeout(90_000);
+  await fakeCamera(page);
+  await open(page);
+  await start(page);
+
+  // A new product with a good read: nothing to click.
+  await harness("/__harness/vision", { queue: [reading(product({}))] });
+  await put(page, "a", 100, 150);
+  await expect(card(page)).toHaveAttribute("data-status", "new", { timeout: 15_000 });
+  // Starts with the 1 already in the box.
+  await page.keyboard.type("15", { delay: 90 });
+  await expect(page.getByTestId("stock-intake-new-amount")).toHaveValue("15");
+  await page.keyboard.press("Enter");
+  await expect(logged(page)).toHaveText("1", { timeout: 15_000 });
+  expect(await balance(/Iconic/)).toBe(15_000);
+
+  // Clicking the box and typing replaces too.
+  await harness("/__harness/vision", { queue: [reading(product({ manufacturerCode: "2000", description: "GPO double", labelText: ["2000"] }))] });
+  await put(page, "b", 450, 150);
+  await expect(card(page)).toHaveAttribute("data-status", "new", { timeout: 15_000 });
+  await page.getByTestId("stock-intake-new-amount").click();
+  await page.keyboard.type("25");
+  await expect(page.getByTestId("stock-intake-new-amount")).toHaveValue("25");
+  await page.keyboard.press("Enter");
+  await expect(logged(page)).toHaveText("2", { timeout: 15_000 });
+  expect(await balance(/GPO/)).toBe(25_000);
+  await expect(page.getByTestId("stock-intake-new-name")).toHaveCount(0);
+
+  // A known item: a number straight after it logs changes that amount.
+  await page.keyboard.type("12", { delay: 90 });
+  await expect(page.getByTestId("stock-intake-row-edit-input")).toHaveValue("12");
+  await page.keyboard.press("Enter");
+  await expect.poll(() => balance(/GPO/), { timeout: 15_000 }).toBe(12_000);
+
+  // The pencil replaces as well.
+  await page.getByTestId("stock-intake-row-edit").first().click();
+  await page.keyboard.type("30");
+  await expect(page.getByTestId("stock-intake-row-edit-input")).toHaveValue("30");
+  await page.keyboard.press("Escape");
+});
+
+test("a scanned new item: the cursor is ready for its name, and typing never runs a shortcut", async ({ page }) => {
+  test.setTimeout(90_000);
+  await fakeCamera(page);
+  const s = await harness<{ name: string; value: string }>("/__harness/session?as=office");
+  await fetch(`${API}/api/workshop-stock?action=create`, { method: "POST", headers: { cookie: `${s.name}=${s.value}`, "content-type": "application/json", "idempotency-key": "flows-seed-4" }, body: JSON.stringify({ name: "RCBO 20A", brand: "Clipsal", barcode: "9300000000026", baseUnit: "each", location: "Bin 2", openingQuantity: "1" }) });
+  await open(page);
+  await expect(page.getByTestId("stock-intake-start")).toBeEnabled();
+  await expect(page.getByTestId("stock-intake-scanner-tip")).toBeVisible();
+  await scan(page, "9300000000026");
+  await expect(logged(page)).toHaveText("1");
+
+  await scan(page, "9300000000033");
+  await expect(page.getByTestId("stock-intake-new-name")).toBeFocused();
+  await expect(page.getByTestId("stock-intake-read-again")).toHaveCount(0);
+  // F, U and X would be full screen, undo and ignore.
+  await page.keyboard.type("Fuxe", { delay: 90 });
+  await page.keyboard.press("Tab");
+  await page.keyboard.type("7");
+  await page.keyboard.press("Enter");
+  await expect(logged(page)).toHaveText("2", { timeout: 15_000 });
+  expect(await balance(/Fuxe/)).toBe(7000);
+  expect(await balance(/RCBO/)).toBe(2000);
+  expect(await page.evaluate(() => Boolean(document.fullscreenElement))).toBe(false);
+
+  // A new card with a name read: letters still go to the name.
+  await harness("/__harness/vision", { queue: [reading(product({}))] });
+  await start(page);
+  await put(page, "a", 100, 150);
+  await expect(card(page)).toHaveAttribute("data-status", "new", { timeout: 15_000 });
+  await expect(page.getByTestId("stock-intake-new-name")).not.toBeFocused();
+  await page.keyboard.type("ux", { delay: 90 });
+  await expect(page.getByTestId("stock-intake-new-name")).toHaveValue(/ux$/);
+  await expect(logged(page)).toHaveText("2");
+  await expect(waiting(page)).toHaveText("1");
+});
+
+test("a reload keeps what's waiting, with what was typed", async ({ page }) => {
+  test.setTimeout(90_000);
+  await fakeCamera(page);
+  await open(page);
+  await expect(page.getByTestId("stock-intake-start")).toBeEnabled();
+  await scan(page, "9300000000033");
+  await page.getByTestId("stock-intake-new-name").fill("Typed name");
+  await scan(page, "9300000000040");
+  await expect(waiting(page)).toHaveText("2");
+  await page.waitForTimeout(500);
+  await page.reload();
+  await expect(page.getByTestId("stock-intake-start")).toBeEnabled({ timeout: 20_000 });
+  await expect(waiting(page)).toHaveText("2");
+  await expect(page.getByTestId("stock-intake-new-name")).toHaveValue("Typed name");
+
+  // Numbers carry on from before the reload, and the barcode went with the card.
+  await scan(page, "9300000000057");
+  await expect(waiting(page)).toHaveText("3");
+  await page.getByTestId("stock-intake-new-name").press("Enter");
+  await expect(logged(page)).toHaveText("1", { timeout: 15_000 });
+  await scan(page, "9300000000033");
+  await expect(logged(page)).toHaveText("2", { timeout: 15_000 });
+  expect(await balance(/Typed name/)).toBe(2000);
 });
 
 test("scanning what's already waiting on the table doesn't name the next thing placed", async ({ page }) => {

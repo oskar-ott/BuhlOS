@@ -161,3 +161,38 @@ moving or the table being read with things on it. Only a clip from the camera ca
 
 Encouraging, and also from that photo: the part code on the label ("P3042VH-XW") is legible at
 1080p from that height. Barcodes look too small to count on. Label reads themselves remain untested.
+
+## First session workflow, 2026-11-03
+
+Owner: "the first uses will be logging heaps of items, needs to be simple". Walked on the real
+page with a simulated camera, simulated scanner keystrokes and instant fixture reads. Timing
+and hand behaviour on a real table, and real read speed, are not measured.
+
+**The main finding.** A first session is the worst case for this screen. The list is empty, so
+nothing "logs by itself": every product is a form, and "how many have I got?" is the question
+it handles worst.
+
+| # | Found | Measured | Severity |
+|---|---|---|---|
+| 1 | Clicking Adding and typing a count appends to the 1 already there; no warning | Typed 40, recorded 140 | Wrong stock |
+| 2 | Same on a logged row's pencil | Typed 40, field said 140 | Wrong stock |
+| 3 | Typing a name without clicking the field runs the shortcuts | "Flex" discarded the card and went full screen; "Fuse" undid the last logged item | Lost work, wrong stock |
+| 4 | A quick swap in one spot isn't counted, with no signal | Spot empty 200 ms or less: 0 of 12. 500 ms: 3 of 6. 1 s or more: 12 of 12 | Silent under-count |
+| 5 | Item taken away before its box appears isn't counted, with no signal | Left 800 ms or less: nothing. 1.5 s: counted | Silent under-count |
+| 6 | A scanned new item has a blank name and no cursor in it | Scan, click, type, Enter, for every product | Slow |
+| 7 | A known item can only add 1 per scan; a count takes a small unlabelled pencil | Scan, pencil, type, Save | Slow |
+| 8 | A reload loses waiting cards and typed names, after a warning | 2 waiting became 0 | Lost work |
+| 9 | Nothing on the screen mentions the scanner or that it works without Start | Read from the screen | Hidden route |
+| 10 | No rules yet means a warning and a large "No location yet" on every item, with no word on whether that's fine | Seen on the walk | Noise |
+| 11 | Scanner cards say "Off the table now" and offer "Read it again" with no photo | Seen on the walk | Confusing |
+
+**What already works.** With a good label read, a new product is place, about 2 s, Enter: one key
+(about 2.3 s an item, fixture read). Tab into Adding replaces the 1 correctly. Repeats share a
+card and go together. Location is never required. All-the-same covers runs of one item.
+
+**Item 4 caveat.** The fake items share one label, so "different" items may look the same to the
+tracker. Identical stock swapped fast is the known limit above. Check it on the Kiyo.
+
+**Fixed in the follow-up:** 1, 2, 3, 6, 7, 8, 9, 10, 11. Items 4 and 5 now have an on-screen "wait for
+the box", and the tracker wasn't changed: that waits on real footage. X and R no longer work on a
+new card, because those letters go to its name: Esc replaces X, and Read it again stays a button.

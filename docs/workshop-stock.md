@@ -223,6 +223,46 @@ a new one, both in the item's history. Each placement is its own ledger movement
 with the note "Camera table" and its own idempotency key, so a lost answer retried
 is never counted twice, and Undo takes back that one placement.
 
+**The first-session routine.** With an empty list every product is new, so the screen is built
+for: put one down, wait for the box, type how many, Enter. Digits typed with no field in use
+go to a new card's count, or to the amount of what just logged; letters go to a new card's
+name and never run a shortcut there (`typedInto`). A count already in a box is replaced, not
+added to. A blank name gets the cursor. Esc is "not stock" on a new card. Waiting cards and what
+was typed in them survive a reload, without their photos (`intake-session.ts`).
+
+**Talking instead of typing (owner pull, 2026-11-04).** `Talk` (or `V`) opens the microphone until
+it's turned off or someone says "stop listening", for when both hands are full. Say what it is and
+how many, then "add it", in one breath or over several: "Iconic single switch, forty, add it",
+"100 metres of TPS", "rack 3 shelf B bin 4". A strip under the button shows what can be said for the
+card that's open. `parseSpoken` (`spoken.ts`) splits the words:
+
+- A number on the end, or "forty of…", is how many. A number that belongs to the product stays in
+  the name ("cat 6", "IP 65"); "cat 6 times 10" says otherwise. A wrong split shows in the box.
+- The first name said replaces what the label gave; later phrases add to it, because a recogniser
+  ends a phrase at any short pause. "Scratch that" puts the card back to before anyone spoke.
+- **Saving by voice** is "add it", "log it" or "save it" (also "add that" and so on) on the end of a
+  phrase or alone, or "done" alone. Enter still works. A spoken save goes through the same checks as
+  Enter, so a card with no name stays open and says so. "Undo" takes back the last one logged, once
+  nothing is still on its way to the record. Only these fixed phrases act, so talk nearby can
+  fill a box, which shows, but can't save unless it says one of them.
+- Said while a label is being read, the words are held and land on the card when it opens. With
+  more than one being read it asks you to wait, since it can't tell which one you mean. If the read
+  logs by itself, a count that was said changes that amount.
+- A number alone fills a new card's or amount card's count, or opens the amount on what just logged;
+  "log it" lands it, "sixty log it" does both.
+- A list on a card is picked with "number 2", "pick two" or "the second one". Search results carry
+  on the card's numbering. A bare number never picks, because "to" and "for" get heard as numbers.
+  The words search the list on a pick or problem card. "Not stock" and "read it again" do what those
+  buttons do.
+- The cursor in "Goes to" takes the words as they are, for a bin with no rack and shelf in its name.
+
+It uses the browser's own speech recognition (`useSpeech.ts`, `en-AU`): no BuhlOS server or cost, but
+Chrome sends the audio to Google to turn into words, so it needs the internet. A browser without
+it (Firefox) shows no button. Proven only against a stand-in recogniser in
+`camera-table-flows.e2e.spec.ts`; accuracy on trade words, on the save phrases, a real microphone and
+workshop noise are unproven. The phone and office Add forms aren't changed: a phone keyboard already
+has a microphone.
+
 **"All the same"** on a logged row, offered by itself after three in a row: everything
 placed from then on logs as that item and amount with no read at all, until Stop. For a
 run of identical items, and for loose items with no readable label.
@@ -278,7 +318,7 @@ rely on colour.
 - **Sound**, so nobody has to look up: a rising pair when logged, a low pair when it
   needs you. Mute with the speaker button or `M`.
 - **Keyboard:** `Space` pause, `U` undo the last one, `Enter` add the open card, `1`–`9`
-  pick a choice, `X` ignore, `R` read again, `F` full screen, `M` sound.
+  pick a choice, `X` ignore, `R` read again, `F` full screen, `M` sound, `V` talk.
 - **Cards queue oldest first** with the same number as the box on the picture, and only
   one is open, so what's being typed into never moves. Hover a card to find its box.
 - **The status bar only shows measured values:** the camera's real resolution and frame
