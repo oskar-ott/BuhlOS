@@ -137,6 +137,8 @@ export function MoveConfirm({
   const [usePacks, setUsePacks] = useState(Boolean(packBarcode));
   const [qtyMilli, setQtyMilli] = useState(initialQtyMilli && initialQtyMilli > 0 ? initialQtyMilli : 1000);
   const [packCount, setPackCount] = useState(1);
+  // some of it out of the box, alongside the full ones (2026-11-03)
+  const [looseMilli, setLooseMilli] = useState(0);
   const [job, setJob] = useState<JobOption | null>(initialJob);
   const [estimated, setEstimated] = useState(false);
   const [phase, setPhase] = useState<"edit" | "saving" | "uncertain" | "done">("edit");
@@ -160,7 +162,8 @@ export function MoveConfirm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initial.id]);
 
-  const totalMilli = usePacks && packChoice ? packCount * packChoice.sizeMilli : qtyMilli;
+  const looseInPacks = usePacks && packChoice ? looseMilli : 0;
+  const totalMilli = usePacks && packChoice ? packCount * packChoice.sizeMilli + looseInPacks : qtyMilli;
   const short = kind === "take" && totalMilli > item.balanceMilli;
   // Only a balance read just now may stop a take; an older one is a warning and
   // the server (which has the real balance) decides.
@@ -168,13 +171,15 @@ export function MoveConfirm({
   const locked = phase === "saving" || phase === "uncertain" || phase === "done";
   const copy = COPY[kind];
   const qtyText = formatQuantity(totalMilli, unit);
-  const packText = usePacks && packChoice ? `${packCount} ${packLabel(packChoice.unit, packCount)}` : null;
+  const packText = usePacks && packChoice ? `${packCount} ${packLabel(packChoice.unit, packCount)}${looseInPacks ? ` + ${formatQuantity(looseInPacks, unit)} loose` : ""}` : null;
   const afterMilli = kind === "take" ? item.balanceMilli - totalMilli : item.balanceMilli + totalMilli;
   const afterLabel = balanceLabel({ balanceMilli: Math.max(0, afterMilli), baseUnit: unit, estimated: item.estimated || (kind !== "take" && estimated) });
 
   function buildRequest(): MoveInput {
     const base: MoveInput = { itemId: item.id, kind, jobId: job ? job.id : null, estimated: kind !== "take" && estimated, ...(kind === "take" && listLineId ? { listLineId } : {}) };
-    return usePacks && packChoice ? { ...base, packCount, pack: packChoice.pick } : { ...base, quantity: String(totalMilli / 1000) };
+    return usePacks && packChoice
+      ? { ...base, packCount, pack: packChoice.pick, ...(looseInPacks ? { looseQuantity: String(looseInPacks / 1000) } : {}) }
+      : { ...base, quantity: String(totalMilli / 1000) };
   }
 
   function finish(r: WriteResult) {
@@ -296,7 +301,8 @@ export function MoveConfirm({
         {usePacks && packChoice ? (
           <div className="space-y-1">
             <QuantityStepper label={`${copy.packs} ${packLabel(packChoice.unit, 2)}`} valueMilli={packCount * 1000} onChange={(m) => setPackCount(Math.max(1, Math.round(m / 1000)))} unit="each" unitLabel={packLabel(packChoice.unit, packCount)} disabled={locked} lockedNote={lockedNote} invalid={blockedShort} testId="stock-move-qty" />
-            <p className="text-sm font-semibold text-text" data-testid="stock-move-pack-total">= {qtyText}</p>
+            <QuantityStepper label={`Plus loose — out of the ${packChoice.unit}`} valueMilli={looseMilli} onChange={setLooseMilli} unit={unit} allowZero disabled={locked} testId="stock-move-loose" />
+            <p className="text-sm font-semibold text-text" data-testid="stock-move-pack-total">= {qtyText}{looseInPacks ? ` (${packText})` : ""}</p>
           </div>
         ) : (
           <QuantityStepper label={copy.howMany} valueMilli={qtyMilli} onChange={setQtyMilli} unit={unit} disabled={locked} lockedNote={lockedNote} invalid={blockedShort} testId="stock-move-qty" />

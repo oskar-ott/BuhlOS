@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { identityLine, matchesSearch } from "./format";
-import { applyFacets, facetsFor, fieldChoices, guessSpecs, guessType, itemsOfType, normaliseValue, NOT_SORTED_LABEL, STOCK_TYPES, suggestTypedName, typeOf, typeTiles } from "./types";
+import { applyFacets, facetsFor, fieldChoices, guessSpecs, guessType, itemsOfType, normaliseValue, NOT_SORTED_LABEL, setCustomTypes, specsForType, STOCK_TYPES, suggestTypedName, typeNameTaken, typeOf, typeTiles } from "./types";
 
 const SW = typeOf("switches")!;
 const LED = typeOf("led_strip")!;
@@ -146,5 +146,55 @@ describe("the identity line and search know the type", () => {
     expect(matchesSearch(typed, "iconic 2 gang")).toBe(true);
     expect(matchesSearch(typed, "switches")).toBe(true);
     expect(matchesSearch({ ...typed, name: "Plate", specs: { range: "Classic" } }, "iconic")).toBe(false);
+  });
+});
+
+describe("categories the office makes (2026-11-03)", () => {
+  const t = { setCustomTypes, STOCK_TYPES, typeOf, specsForType, typeNameTaken };
+  const solar = { key: "c_solar_inverters", label: "Solar inverters", unit: "each" as const, fields: [{ key: "power", label: "Power" }, { key: "phase", label: "Phase" }] };
+
+  it("join the catalogue after the built-in ones and before Other, and are found by key", () => {
+    t.setCustomTypes([solar]);
+    try {
+      const keys = t.STOCK_TYPES.map((x) => x.key);
+      expect(keys.indexOf("c_solar_inverters")).toBe(keys.length - 2);
+      expect(keys[keys.length - 1]).toBe("other");
+      const type = t.typeOf("c_solar_inverters")!;
+      expect(type.label).toBe("Solar inverters");
+      expect(type.fields.map((f) => f.label)).toEqual(["Brand", "Power", "Phase"]);
+      expect(type.fields.slice(1).every((f) => f.facet)).toBe(true);
+    } finally {
+      t.setCustomTypes([]);
+    }
+  });
+
+  it("keep their own fields as specs and suggest a name from them", () => {
+    t.setCustomTypes([solar]);
+    try {
+      expect(t.specsForType("c_solar_inverters", { power: " 5kW ", phase: "Single", other: "x" })).toEqual({ power: "5kW", phase: "Single" });
+      expect(t.typeOf("c_solar_inverters")!.name({ brand: "Fronius", power: "5kW", phase: "Single" })).toBe("Fronius 5kW Single");
+    } finally {
+      t.setCustomTypes([]);
+    }
+  });
+
+  it("a new set replaces the last one; a category not (yet) known reads as Other, never lost", () => {
+    t.setCustomTypes([solar]);
+    t.setCustomTypes([]);
+    expect(t.STOCK_TYPES.some((x) => x.key === "c_solar_inverters")).toBe(false);
+    expect(t.typeOf("c_solar_inverters")!.key).toBe("other");
+    expect(t.typeOf("switches")!.key).toBe("switches"); // built-ins untouched
+  });
+
+  it("a name already taken (built-in or the office's) is spotted, loosely", () => {
+    t.setCustomTypes([solar]);
+    try {
+      expect(t.typeNameTaken(" cable ")?.key).toBe("cable");
+      expect(t.typeNameTaken("solar INVERTERS")?.key).toBe("c_solar_inverters");
+      expect(t.typeNameTaken("Solar inverters", "c_solar_inverters")).toBeNull(); // renaming itself
+      expect(t.typeNameTaken("Heat pumps")).toBeNull();
+    } finally {
+      t.setCustomTypes([]);
+    }
   });
 });
