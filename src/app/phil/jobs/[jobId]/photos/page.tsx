@@ -227,7 +227,9 @@ async function loadCatalog(
     if (!parsed.success) {
       return { photos: [], available: true, error: "Unexpected catalog response shape" };
     }
-    return { photos: parsed.data.photos, available: true, error: null };
+    // The ITP-report source can fail on its own (it lives in Postgres, not
+    // Blob); the snag / dwelling photos still show and the gap is named.
+    return { photos: parsed.data.photos, available: true, error: parsed.data.itpError ?? null };
   } catch (err) {
     return {
       photos: [],

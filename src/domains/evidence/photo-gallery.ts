@@ -12,6 +12,10 @@ import type { EvidenceItem } from "./types";
  *      `snag`).
  *   3. Dwelling / ITP photos — stage photos indexed per dwelling
  *      (`api/photos-catalog.js` source `dwelling`).
+ *   4. Simple ITP report photos — taken inside an ITP report on the phone
+ *      (`api/photos-catalog.js` source `itp`, only when `itp_simple` is on).
+ *      Shown as "ITP · <report> · <area>" — they stay ITP photos, they are
+ *      NOT evidence (no review, no EvidenceDrawer).
  *
  * This module is a PURE READ PROJECTION: it merges those sources into one
  * `GalleryPhoto[]` model, plus a date-grouping helper and a filter predicate.
@@ -50,7 +54,7 @@ export type GallerySourceKind = (typeof GALLERY_SOURCE_KINDS)[number];
  */
 export const PhotoCatalogEntrySchema = z
   .object({
-    source: z.enum(["snag", "dwelling"]),
+    source: z.enum(["snag", "dwelling", "itp"]),
     id: z.string(),
     url: z.string(),
     addedBy: z.string().optional().default(""),
@@ -64,6 +68,11 @@ export const PhotoCatalogEntrySchema = z
     dwellingId: z.string().optional(),
     dwellingName: z.string().optional(),
     stage: z.string().optional(),
+    // Simple ITP report context (present when source === 'itp').
+    reportId: z.string().optional(),
+    reportTitle: z.string().optional(),
+    areaName: z.string().optional(),
+    caption: z.string().optional(),
   })
   .passthrough();
 export type PhotoCatalogEntry = z.infer<typeof PhotoCatalogEntrySchema>;
@@ -77,9 +86,13 @@ export const PhotoCatalogResponseSchema = z.object({
       total: z.number(),
       snag: z.number(),
       dwelling: z.number(),
+      itp: z.number().optional(),
     })
     .optional(),
   photos: z.array(PhotoCatalogEntrySchema),
+  /** Set when the ITP report store couldn't be read; the other sources
+   *  still loaded. Callers surface it rather than show a silent gap. */
+  itpError: z.string().optional(),
 });
 export type PhotoCatalogResponse = z.infer<typeof PhotoCatalogResponseSchema>;
 
@@ -222,6 +235,31 @@ function fromCatalog(entries: ReadonlyArray<PhotoCatalogEntry>): GalleryPhoto[] 
         asBuilt: false,
         evidenceItem: null,
         snagId: e.snagId || null,
+      });
+    } else if (e.source === "itp") {
+      // Simple ITP report photo (#912 builder) — named by report + area.
+      const provenance = [
+        "ITP",
+        e.reportTitle?.trim() || null,
+        e.areaName?.trim() || null,
+        e.caption?.trim() || null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      out.push({
+        id: `itpr:${e.id || e.url}`,
+        url: e.url,
+        thumbnailUrl: null,
+        capturedAt: e.addedAt || "",
+        uploader,
+        uploaderKey: uploader,
+        provenance,
+        sourceKind: "itp",
+        isNote: false,
+        provenanceSide: "field",
+        asBuilt: false,
+        evidenceItem: null,
+        snagId: null,
       });
     } else {
       // source === 'dwelling' — dwelling stage + ITP/dwelling photos (one

@@ -130,6 +130,37 @@ describe("buildGalleryPhotos", () => {
     expect(photos[0]?.sourceKind).toBe("itp");
   });
 
+  it("names simple ITP report photos by report · area · caption, never as evidence", () => {
+    const photos = buildGalleryPhotos({
+      evidence: [],
+      catalog: [
+        {
+          source: "itp",
+          id: "p1",
+          url: "https://blob/itp-1.jpg",
+          addedBy: "Sparky",
+          addedAt: "2026-09-20T01:00:00.000Z",
+          reportId: "r1",
+          reportTitle: "Rough-in — Ground floor",
+          areaName: "Kitchen",
+          caption: "GPOs",
+        },
+        { source: "itp", id: "p2", url: "https://blob/itp-2.jpg", addedBy: "", addedAt: "", reportTitle: "Rough-in" },
+      ],
+    });
+    expect(photos[0]).toMatchObject({
+      id: "itpr:p1",
+      sourceKind: "itp",
+      provenance: "ITP · Rough-in — Ground floor · Kitchen · GPOs",
+      uploader: "Sparky",
+      provenanceSide: "field",
+      evidenceItem: null,
+      asBuilt: false,
+    });
+    // Missing parts are dropped, not rendered as blanks.
+    expect(photos[1]?.provenance).toBe("ITP · Rough-in");
+  });
+
   it("includes evidence notes as isNote with no url (no broken tile)", () => {
     const photos = buildGalleryPhotos({
       evidence: [ev({ id: "n", kind: "note", photoUrl: null, note: "done" })],
