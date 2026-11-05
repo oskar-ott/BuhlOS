@@ -1,9 +1,10 @@
+import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
-import { absorbLight, barcodeNear, cropRect, emptyTracker, findObjects, GONE_MS, GONE_SETTLED_MS, SETTLE_MS, stepTracker, type Box, type TrackerState } from "./intake-tracker";
-import { draftFor, placedAmount, productWords, sameProduct, sessionTotals } from "./intake";
+import { absorbLight, barcodeNear, addCalibrationFrame, cropRect, emptyTracker, finishCalibration, findObjects, GONE_MS, newCalibration, SETTLE_MS, sharpness, stepTracker, tableAdvice, type Box, type TrackerState } from "./intake-tracker";
+import { cardForScan, draftFor, typedInto, emptyScan, feedScan, identifiersToTeach, packNeedsCheck, placedAmount, productWords, sameInARow, sameProduct, sessionTotals, waitingQueue } from "./intake";
 import { locationText, matrixLocations, rackLabel, ruleFor, rulesOutsideRack, type LocationMatrix } from "./location-matrix";
 import { splitLocation } from "./location";
-import type { ReadProduct } from "./schema";
+import type { ReadProduct, StockItem } from "./schema";
 
 /**
  * The camera table's pure logic. What matters most: each object placed is counted
@@ -160,9 +161,20 @@ describe("stepTracker counts each object once", () => {
   });
 
   it("counts the next one placed where the last was lifted away", () => {
-    const { settled, gone } = run([{ objects: [A], ms: SETTLE_MS + 300 }, { ms: GONE_SETTLED_MS + 300 }, { objects: [A], ms: SETTLE_MS + 300 }]);
+    const { settled, gone } = run([{ objects: [A], ms: SETTLE_MS + 300 }, { arms: [A], ms: 300 }, { ms: GONE_MS + 300 }, { objects: [A], ms: SETTLE_MS + 300 }]);
     expect(gone).toEqual([1]);
     expect(settled).toEqual([1, 2]);
+  });
+
+  it("nothing leaves unless a hand was over it: a shadow or the light can't count it twice", () => {
+    const { settled, gone } = run([{ objects: [A], ms: SETTLE_MS + 300 }, { ms: 5000 }, { objects: [A], ms: SETTLE_MS + 300 }]);
+    expect(gone).toEqual([]);
+    expect(settled).toEqual([1]);
+  });
+
+  it("something unseen for a long time has gone anyway, even with no hand seen", () => {
+    const { gone } = run([{ objects: [A], ms: SETTLE_MS + 300 }, { ms: 31_000 }]);
+    expect(gone).toEqual([1]);
   });
 
   it("a counted object that flickers or breaks into pieces is never counted again (2026-11-03: 131 on the table)", () => {
@@ -313,6 +325,178 @@ describe("session totals", () => {
   });
 });
 
+describe("what a placed object teaches and asks", () => {
+  const id = (kind: string, value: string) => ({ id: value, kind, value, valueKey: value.toUpperCase().replace(/[^A-Z0-9]/g, ""), scope: null }) as unknown as StockItem["identifiers"][number];
+  const noCodes = { barcode: null, manufacturerCode: null, supplierSku: null, supplierName: null };
+
+  it("a large or changed pack size asks once, then is trusted", () => {
+    const none = new Set<string>();
+    expect(packNeedsCheck(10_000, "a", none, [])).toBe(false);
+    expect(packNeedsCheck(100_000, "a", none, [])).toBe(true);
+    expect(packNeedsCheck(10_000, "a", none, [10_000])).toBe(false);
+    expect(packNeedsCheck(20_000, "a", none, [10_000])).toBe(true);
+    expect(packNeedsCheck(100_000, "a", new Set(["a:100000"]), [])).toBe(false);
+    expect(packNeedsCheck(100_000, "b", new Set(["a:100000"]), [])).toBe(true);
+  });
+
+  it("a pick teaches every printed code the item lacks, and only those", () => {
+    expect(identifiersToTeach({ identifiers: [] }, "9300000000019", { ...noCodes, manufacturerCode: "30M-WE", supplierSku: "ABC1", supplierName: "Rexel" })).toEqual([
+      { kind: "barcode", value: "9300000000019" },
+      { kind: "manufacturer_code", value: "30M-WE" },
+      { kind: "supplier_sku", value: "ABC1", supplierName: "Rexel" },
+    ]);
+    expect(identifiersToTeach({ identifiers: [id("manufacturer_code", "30MWE")] }, null, { ...noCodes, manufacturerCode: "30M-WE" })).toEqual([]);
+    expect(identifiersToTeach({ identifiers: [] }, null, { ...noCodes, barcode: "9300000000019" })).toEqual([{ kind: "barcode", value: "9300000000019" }]);
+    expect(identifiersToTeach({ identifiers: [] }, null, null)).toEqual([]);
+  });
+
+  it("an exact match only keeps the barcode", () => {
+    expect(identifiersToTeach({ identifiers: [] }, "9300000000019", { ...noCodes, manufacturerCode: "3041" }, { barcodeOnly: true })).toEqual([{ kind: "barcode", value: "9300000000019" }]);
+  });
+
+  it("counts the same thing in a row, newest first", () => {
+    const row = (itemId: string, amountMilli = 1000, status = "logged") => ({ status, itemId, amountMilli });
+    expect(sameInARow([])).toBe(0);
+    expect(sameInARow([row("a"), row("a"), row("b"), row("a")])).toBe(2);
+    expect(sameInARow([row("a"), row("x", 1000, "undone"), row("a")])).toBe(2);
+    expect(sameInARow([row("a", 10_000), row("a", 1000)])).toBe(1);
+  });
+
+  it("a hand scan never replaces a barcode a card already has", () => {
+    const card = (id: number, status: string, barcode: string | null = null, productBarcode: string | null = null) => ({ id, status, barcode, product: productBarcode ? { barcode: productBarcode } : null });
+    expect(cardForScan([card(2, "new"), card(1, "new")])?.id).toBe(1);
+    expect(cardForScan([card(1, "new", "9300000000026")])).toBeNull();
+    expect(cardForScan([card(1, "new", null, "9300000000026")])).toBeNull();
+    expect(cardForScan([card(2, "problem"), card(1, "pick", "9300000000026")])?.id).toBe(2);
+    expect(cardForScan([card(1, "logged"), card(2, "ignored")])).toBeNull();
+  });
+
+  it("sends typing where a person meant it, and letters never run a shortcut on a new card", () => {
+    expect(typedInto("4", "new", false)).toBe("count");
+    expect(typedInto("f", "new", true)).toBe("name");
+    expect(typedInto("U", "new", true)).toBe("name");
+    expect(typedInto("/", "new", true)).toBeNull();
+    expect(typedInto(" ", "new", true)).toBeNull();
+    expect(typedInto("Enter", "new", true)).toBeNull();
+    expect(typedInto("4", "amount", false)).toBe("count");
+    expect(typedInto("x", "amount", false)).toBeNull();
+    // 1–9 picks on these.
+    expect(typedInto("1", "pick", true)).toBeNull();
+    expect(typedInto("1", "several", true)).toBeNull();
+    expect(typedInto("4", null, true)).toBe("row");
+    expect(typedInto("u", null, true)).toBeNull();
+    expect(typedInto("4", null, false)).toBeNull();
+  });
+
+  it("keeps a scan whole when a capital letter brings a Shift press", () => {
+    let buffer = emptyScan();
+    let code: string | null = null;
+    let now = 1000;
+    for (const key of ["Shift", "A", "Shift", "B", "1", "2", "3", "4"]) {
+      ({ buffer, code } = feedScan(buffer, key, now));
+      now += 2;
+    }
+    ({ code } = feedScan(buffer, "Enter", now));
+    expect(code).toBe("AB1234");
+  });
+
+  it("tells a scanner from a person typing", () => {
+    let buffer = emptyScan();
+    let code: string | null = null;
+    let now = 1000;
+    for (const key of "9300000000019") {
+      ({ buffer, code } = feedScan(buffer, key, now));
+      now += 5;
+    }
+    ({ code, buffer } = feedScan(buffer, "Enter", now));
+    expect(code).toBe("9300000000019");
+    // A person: the same keys, far apart.
+    now = 5000;
+    for (const key of "9300000") {
+      ({ buffer, code } = feedScan(buffer, key, now));
+      now += 200;
+    }
+    expect(feedScan(buffer, "Enter", now).code).toBeNull();
+    // A shortcut key and Enter close together aren't a scan: too short.
+    buffer = emptyScan();
+    ({ buffer } = feedScan(buffer, "u", 9000));
+    expect(feedScan(buffer, "Enter", 9001).code).toBeNull();
+  });
+
+  it("queues oldest first, repeats of one product on one card", () => {
+    const code = (manufacturerCode: string | null) => ({ barcode: null, manufacturerCode, supplierSku: null });
+    const q = waitingQueue([{ id: 3, product: code("A") }, { id: 2, product: code("B") }, { id: 1, product: code("A") }, { id: 4, product: code(null) }, { id: 5, product: code(null) }]);
+    expect(q.map((g) => [g.lead.id, g.repeats.map((r) => r.id)])).toEqual([[1, [3]], [2, []], [4, []], [5, []]]);
+  });
+});
+
+describe("reading the empty table", () => {
+  function frames(fill: (x: number, y: number, n: number) => number, count = 8) {
+    const c = newCalibration();
+    for (let n = 0; n < count; n++) {
+      const data = new Uint8ClampedArray(320 * 180 * 4);
+      for (let y = 0; y < 180; y++) {
+        for (let x = 0; x < 320; x++) {
+          const v = fill(x, y, n);
+          data.set([v, v, v, 255], (y * 320 + x) * 4);
+        }
+      }
+      addCalibrationFrame(c, { data, width: 320, height: 180 });
+    }
+    return c;
+  }
+
+  it("a still table reads clean", () => {
+    const read = finishCalibration(frames(() => 120))!;
+    expect(read.check.moved).toBe(false);
+    expect(read.threshold).toBe(20);
+    expect(tableAdvice(read.check)).toBeNull();
+  });
+
+  it("notices something moving through", () => {
+    const read = finishCalibration(frames((x, y, n) => (n > 3 && x > 100 && x < 200 && y > 50 && y < 120 ? 220 : 120)))!;
+    expect(read.check.moved).toBe(true);
+    expect(tableAdvice(read.check)?.code).toBe("moved");
+  });
+
+  it("says when it's too dark, or blown out", () => {
+    expect(tableAdvice(finishCalibration(frames(() => 20))!.check)?.code).toBe("dark");
+    expect(tableAdvice(finishCalibration(frames(() => 255))!.check)?.code).toBe("blown");
+  });
+
+  it("raises the threshold on a grainy picture", () => {
+    const read = finishCalibration(frames((x, y, n) => 120 + (((x * 7 + y * 13 + n * 31) % 37) - 18)))!;
+    expect(read.check.noise).toBeGreaterThan(5);
+    expect(read.threshold).toBeGreaterThan(20);
+    expect(read.threshold).toBeLessThanOrEqual(40);
+  });
+
+  it("scores an in-focus picture above a blurred one", () => {
+    const sharp = new Uint8ClampedArray(64 * 64 * 4);
+    const blurred = new Uint8ClampedArray(64 * 64 * 4);
+    for (let y = 0; y < 64; y++) {
+      for (let x = 0; x < 64; x++) {
+        const s = x % 8 < 4 ? 40 : 220;
+        const b = 130 + 90 * Math.sin((x / 8) * 2 * Math.PI);
+        sharp.set([s, s, s, 255], (y * 64 + x) * 4);
+        blurred.set([b, b, b, 255], (y * 64 + x) * 4);
+      }
+    }
+    expect(sharpness({ data: sharp, width: 64, height: 64 })).toBeGreaterThan(sharpness({ data: blurred, width: 64, height: 64 }) * 5);
+  });
+});
+
+describe("scoring a label read (scripts/qa/label-reader-compare.js)", () => {
+  const { scoreRead } = createRequire(import.meta.url)("../../../scripts/qa/label-reader-compare.js") as { scoreRead: (p: unknown, c: Array<{ value: string }>) => string };
+  it("a wrong code is told apart from no code: only one of them can log the wrong item", () => {
+    expect(scoreRead({ manufacturerCode: "3041" }, [{ value: "3041" }])).toBe("right");
+    expect(scoreRead({ manufacturerCode: "3042" }, [{ value: "3041" }])).toBe("wrong");
+    expect(scoreRead({ manufacturerCode: null }, [{ value: "3041" }])).toBe("no_code");
+    expect(scoreRead({ manufacturerCode: "3041" }, [])).toBe("unverifiable");
+    expect(scoreRead(null, [{ value: "3041" }])).toBe("no_code");
+  });
+});
+
 describe("findObjects on a real-looking webcam picture (2026-11-03: dozens of false boxes)", () => {
   // a pale table with a light falling off to the edges, a little grain, and a seeded "sensor"
   let seed = 7;
@@ -348,7 +532,9 @@ describe("findObjects on a real-looking webcam picture (2026-11-03: dozens of fa
     }
   });
 
-  it("a white bag on the white table — crinkles and a printed label — is one object", () => {
+  // One object, boxed by what it brings: on a white table the print is what stands out, so the
+  // box can be smaller than the bag. A barcode just outside it is still found (barcodeNear below).
+  it("a white bag on the white table — crinkles and a printed label — is one object, over the label", () => {
     const bg = table();
     const f = later(bg, 1.1);
     for (let y = 70; y < 120; y++) for (let x = 90; x < 190; x++) {
@@ -363,8 +549,8 @@ describe("findObjects on a real-looking webcam picture (2026-11-03: dozens of fa
     const found = findObjects(frameOf(f), bg);
     expect(found.objects).toHaveLength(1);
     const b = found.objects[0]!;
-    expect(b.x).toBeLessThan(100 / W);
-    expect(b.x + b.w).toBeGreaterThan(180 / W);
+    expect(b.x).toBeLessThanOrEqual(120 / W);
+    expect(b.x + b.w).toBeGreaterThanOrEqual(160 / W);
   });
 });
 

@@ -66,6 +66,10 @@ async function fakeCamera(page: Page) {
     w.__table = {
       put: (id: string, x: number, y: number, tw = 130, th = 110, colour = "#e8e4d8") => things.set(id, { x, y, w: tw, h: th, colour }),
       lift: (id: string) => things.delete(id),
+      handOver: (id: string) => {
+        const t = things.get(id);
+        if (t) things.set("hand", { x: t.x + t.w / 2 - 35, y: t.y + t.h / 2, w: 70, h: 720 - t.y - t.h / 2, colour: "#b98a6a" });
+      },
       barcode: (code: string | null) => { nextBarcode = code; },
     };
     w.BarcodeDetector = class {
@@ -80,7 +84,15 @@ async function fakeCamera(page: Page) {
   });
 }
 const put = (page: Page, id: string, x: number, y: number, w?: number, h?: number) => page.evaluate((a) => (window as unknown as { __table: { put: (...p: unknown[]) => void } }).__table.put(a.id, a.x, a.y, a.w, a.h), { id, x, y, w, h });
-const lift = (page: Page, id: string) => page.evaluate((a) => (window as unknown as { __table: { lift: (i: string) => void } }).__table.lift(a), id);
+/** A hand comes over it, takes it, and goes: nothing leaves the table on its own. */
+async function lift(page: Page, id: string) {
+  const call = (fn: "handOver" | "lift", arg: string) => page.evaluate(([f, a]) => (window as unknown as { __table: Record<string, (i: string) => void> }).__table[f as string]!(a as string), [fn, arg] as const);
+  await call("handOver", id);
+  await page.waitForTimeout(350);
+  await call("lift", id);
+  await page.waitForTimeout(200);
+  await call("lift", "hand");
+}
 const nextBarcode = (page: Page, code: string | null) => page.evaluate((c) => (window as unknown as { __table: { barcode: (c: string | null) => void } }).__table.barcode(c), code);
 
 async function open(page: Page) {

@@ -1,18 +1,21 @@
 "use client";
 
-import { useMemo, useState, type ButtonHTMLAttributes } from "react";
-import { Loader2, Lock, MapPin, Pencil, ScanBarcode, Undo2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ButtonHTMLAttributes, type FocusEvent } from "react";
+import { ChevronRight, Loader2, Lock, MapPin, Pencil, ScanBarcode, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
+import { cleanBarcode } from "@/domains/workshop-stock/barcode";
 import { productLabel } from "@/domains/workshop-stock/flow";
 import { balanceLabel, formatNumber, matchesSearch, parseTypedQuantity, signedQuantity, UNIT_LABEL } from "@/domains/workshop-stock/format";
-import { draftFor, labelTexts, type NewItemDraft } from "@/domains/workshop-stock/intake";
+import { draftFor, labelTexts, productWords, type NewItemDraft } from "@/domains/workshop-stock/intake";
+import { suggestBin } from "@/domains/workshop-stock/location-map";
+import { applySpoken, type Spoken, type SpokenMemory } from "@/domains/workshop-stock/spoken";
 import type { Box } from "@/domains/workshop-stock/intake-tracker";
 import type { LocationMatrix } from "@/domains/workshop-stock/location-matrix";
 import { UNIT_KEYS, type CandidateItem, type ReadPhotoResult, type ReadProduct, type StockItem, type StockUnit } from "@/domains/workshop-stock/schema";
 import { guessSpecs, STOCK_TYPES } from "@/domains/workshop-stock/types";
 
-export type PlacedStatus = "reading" | "saving" | "logged" | "pick" | "several" | "new" | "amount" | "problem" | "ignored" | "undone";
+export type PlacedStatus = "reading" | "saving" | "logged" | "pick" | "several" | "new" | "amount" | "problem" | "ignored" | "undone" | "missed";
 
 /** One object placed on the camera table, from red to green. */
 export interface Placed {
@@ -42,19 +45,37 @@ export interface Placed {
   moveKey: string | null;
   photoId: string | null;
   retryMilli: number | null;
+  /** the reader saw no label on it: turning it over reads it again, and taking it away leaves a "not logged" row */
+  unread: boolean;
+  /** a pack size off the label that a person is being asked to check */
+  askMilli: number | null;
+  /** what a person had typed before a reload; otherwise the card starts from the read */
+  draft: NewItemDraft | null;
 }
+
+/** A phrase just heard, for the card that's open. `n` makes the same words said twice count twice. */
+export interface HeardPhrase {
+  n: number;
+  text: string;
+  said: Spoken;
+}
+
+/** A count already in the box is replaced by what's typed, never added to: 1 then 40 must not become 140. */
+const selectAll = (e: FocusEvent<HTMLInputElement>) => e.currentTarget.select();
+
+const nothing = () => undefined;
 
 const INPUT = "h-9 w-full rounded-[4px] border border-border-strong bg-surface-subtle px-2.5 text-sm text-text focus:border-accent-yellow focus:outline-none";
 const LABEL = "console-label block";
 const CHOICE = "w-full rounded-[4px] border border-border bg-surface-raised px-2.5 py-1.5 text-left text-sm text-text hover:border-accent-yellow focus-visible:border-accent-yellow focus-visible:outline-none";
 
 function CropThumb({ placed, className }: { placed: Placed; className?: string }) {
-  // a scan from the USB scanner has no picture: show that it was scanned
-  if (!placed.thumb && !placed.crop) {
-    return <span aria-label="Scanned" className={cn("inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-[4px] border border-border bg-surface-subtle", className)}><ScanBarcode aria-hidden="true" className="h-6 w-6 text-text-muted" /></span>;
-  }
+  const src = placed.thumb ?? placed.crop;
+  // A scan has no picture: show that it was scanned. One back from a reload has lost its picture.
+  if (!src && placed.barcode) return <span aria-label="Scanned" className={cn("inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-[4px] border border-border bg-surface-subtle", className)}><ScanBarcode aria-hidden="true" className="h-6 w-6 text-text-muted" /></span>;
+  if (!src) return <span aria-hidden="true" className={cn("h-14 w-14 shrink-0 rounded-[4px] border border-border bg-surface-subtle", className)} />;
   // eslint-disable-next-line @next/next/no-img-element -- a local crop, never uploaded for this
-  return <img src={placed.thumb ?? placed.crop} alt="What the camera saw" className={cn("h-14 w-14 shrink-0 rounded-[4px] border border-border object-cover", className)} />;
+  return <img src={src} alt="What the camera saw" className={cn("h-14 w-14 shrink-0 rounded-[4px] border border-border object-cover", className)} />;
 }
 
 function IconAction({ label, className, children, ...rest }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string }) {
@@ -65,19 +86,32 @@ function IconAction({ label, className, children, ...rest }: ButtonHTMLAttribute
   );
 }
 
-function ItemSearch({ items, onPick, testId }: { items: StockItem[]; onPick: (item: StockItem) => void; testId?: string }) {
+function ItemSearch({ items, onPick, testId, heard, onlyWithCursor, numberFrom, exclude, onShown }: { items: StockItem[]; onPick: (item: StockItem) => void; testId?: string; heard: HeardPhrase | null; /** tucked away on a new card: words only come here if the cursor is here */ onlyWithCursor?: boolean; /** results carry on the card's numbering, so "number 4" means one thing */ numberFrom?: number; exclude?: readonly { id: string }[]; onShown?: (shown: StockItem[]) => void }) {
   const [q, setQ] = useState("");
-  const shown = useMemo(() => (q.trim() ? items.filter((i) => !i.archivedAt && matchesSearch(i, q)).slice(0, 5) : []), [items, q]);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const seenHeard = useRef(heard?.n ?? 0);
+  useEffect(() => {
+    if (!heard || heard.n === seenHeard.current) return;
+    seenHeard.current = heard.n;
+    if (onlyWithCursor && document.activeElement !== inputRef.current) return;
+    if (heard.said.scratch) setQ("");
+    else if (heard.said.name && (onlyWithCursor || heard.said.pick === null)) setQ(heard.said.name);
+  }, [heard, onlyWithCursor]);
+  const shown = useMemo(() => (q.trim() ? items.filter((i) => !i.archivedAt && !exclude?.some((x) => x.id === i.id) && matchesSearch(i, q)).slice(0, 5) : []), [items, q, exclude]);
+  useEffect(() => {
+    onShown?.(shown);
+    return () => onShown?.([]);
+  }, [shown, onShown]);
   return (
     <div className="space-y-1">
-      <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search the stock list" aria-label="Search the stock list" className={INPUT} data-testid={testId} />
+      <input ref={inputRef} type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search the stock list" aria-label="Search the stock list" className={INPUT} data-testid={testId} />
       {q.trim() ? (
         shown.length ? (
           <ul className="space-y-1">
-            {shown.map((i) => (
+            {shown.map((i, n) => (
               <li key={i.id}>
-                <button type="button" onClick={() => onPick(i)} className={CHOICE}>
-                  {i.name} <span className="text-text-muted">· {i.location ?? "no location"}</span>
+                <button type="button" onClick={() => onPick(i)} className={CHOICE} data-testid="stock-intake-search-result">
+                  {numberFrom !== undefined && numberFrom + n <= 9 ? <span className="mr-1.5 font-mono text-text-muted">{numberFrom + n}</span> : null}{i.name} <span className="text-text-muted">· {i.location ?? "no location"}</span>
                 </button>
               </li>
             ))}
@@ -90,23 +124,62 @@ function ItemSearch({ items, onPick, testId }: { items: StockItem[]; onPick: (it
   );
 }
 
-function NewItemCard({ placed, matrix, locations, typesEnabled, busy, onCreate }: { placed: Placed; matrix: LocationMatrix | null; locations: string[]; typesEnabled: boolean; busy: boolean; onCreate: (d: NewItemDraft) => void }) {
-  const [draft, setDraft] = useState<NewItemDraft>(() => draftFor(placed.product, matrix));
+function NewItemCard({ placed, items, matrix, locations, typesEnabled, busy, repeats, heard, onCreate, onDraft }: { placed: Placed; items: StockItem[]; matrix: LocationMatrix | null; locations: string[]; typesEnabled: boolean; busy: boolean; repeats: number; heard: HeardPhrase | null; onCreate: (d: NewItemDraft) => void; onDraft: (d: NewItemDraft) => void }) {
+  const [draft, setDraftState] = useState<NewItemDraft>(() => placed.draft ?? draftFor(placed.product, matrix));
+  const setDraft = (next: NewItemDraft) => {
+    setDraftState(next);
+    onDraft(next);
+  };
+  const nameRef = useRef<HTMLInputElement | null>(null);
+  // Nothing read for a name: the cursor is ready for one, unless a person is busy in another box.
+  useEffect(() => {
+    if (!nameRef.current?.value && document.activeElement === document.body) nameRef.current?.focus();
+  }, []);
+  const locationRef = useRef<HTMLInputElement | null>(null);
+  const seenHeard = useRef(heard?.n ?? 0);
+  const spokenMemory = useRef<SpokenMemory | null>(null);
+  const applyHeard = useRef<(phrase: HeardPhrase) => void>(() => undefined);
+  useEffect(() => {
+    applyHeard.current = (phrase) => {
+      const { said } = phrase;
+      const cursor = document.activeElement;
+      const saveOnly = said.save && !said.words;
+      if ((cursor as HTMLInputElement | null)?.type === "search" && !saveOnly) return;
+      let filled = draft;
+      // The cursor in "Goes to" means the words are the place, whatever they say.
+      if (cursor === locationRef.current && said.words) {
+        filled = { ...draft, location: said.words.slice(0, 60), locationFrom: null };
+        setDraft(filled);
+      } else {
+        const next = applySpoken(draft, said, spokenMemory.current);
+        spokenMemory.current = next.memory;
+        filled = next.draft;
+        setDraft(filled);
+      }
+      if (said.save && !busy) onCreate(filled);
+    };
+  });
+  useEffect(() => {
+    if (!heard || heard.n === seenHeard.current) return;
+    seenHeard.current = heard.n;
+    applyHeard.current(heard);
+  }, [heard]);
   const listId = `stock-intake-locations-${placed.id}`;
+  const suggestion = useMemo(() => (draft.location.trim() ? null : suggestBin({ text: `${draft.name} ${productWords(placed.product)}`, category: draft.category, brand: placed.product?.brand }, matrix, items)), [draft.location, draft.name, draft.category, placed.product, matrix, items]);
   function chooseType(key: string) {
     const category = key || null;
     setDraft({ ...draft, category, specs: category ? guessSpecs(category, labelTexts(placed.product)) : {} });
   }
   return (
-    <form className="space-y-2" onSubmit={(e) => { e.preventDefault(); onCreate(draft); }}>
+    <form id={`stock-intake-form-${placed.id}`} className="space-y-2" onSubmit={(e) => { e.preventDefault(); onCreate(draft); }}>
       <label className={LABEL}>
         Name
-        <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} maxLength={160} className={cn(INPUT, "mt-1 font-sans normal-case tracking-normal")} data-testid="stock-intake-new-name" />
+        <input ref={nameRef} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} maxLength={160} data-typed="name" className={cn(INPUT, "mt-1 font-sans normal-case tracking-normal")} data-testid="stock-intake-new-name" />
       </label>
       <div className="grid grid-cols-2 gap-2">
         <label className={LABEL}>
           Adding
-          <input value={draft.amount} onChange={(e) => setDraft({ ...draft, amount: e.target.value })} inputMode={draft.unit === "metre" ? "decimal" : "numeric"} className={cn(INPUT, "mt-1 font-sans normal-case tracking-normal")} data-testid="stock-intake-new-amount" />
+          <input value={draft.amount} onChange={(e) => setDraft({ ...draft, amount: e.target.value })} onFocus={selectAll} inputMode={draft.unit === "metre" ? "decimal" : "numeric"} data-typed="count" className={cn(INPUT, "mt-1 font-sans normal-case tracking-normal")} data-testid="stock-intake-new-amount" />
         </label>
         <label className={LABEL}>
           Counted in
@@ -126,104 +199,148 @@ function NewItemCard({ placed, matrix, locations, typesEnabled, busy, onCreate }
       ) : null}
       <label className={LABEL}>
         Goes to{draft.locationFrom ? ` · from “${draft.locationFrom}”` : ""}
-        <input value={draft.location} onChange={(e) => setDraft({ ...draft, location: e.target.value, locationFrom: null })} maxLength={60} list={listId} placeholder="No rule fits: pick or type a bin" className={cn(INPUT, "mt-1 font-sans normal-case tracking-normal")} data-testid="stock-intake-new-location" />
+        <input ref={locationRef} value={draft.location} onChange={(e) => setDraft({ ...draft, location: e.target.value, locationFrom: null })} maxLength={60} list={listId} placeholder="No rule fits: pick or type a bin" className={cn(INPUT, "mt-1 font-sans normal-case tracking-normal")} data-testid="stock-intake-new-location" />
         <datalist id={listId}>{locations.map((l) => <option key={l} value={l} />)}</datalist>
       </label>
+      {suggestion ? (
+        <button type="button" onClick={() => setDraft({ ...draft, location: suggestion.location, locationFrom: null })} className={CHOICE} data-testid="stock-intake-new-suggest">
+          Use {suggestion.location} <span className="text-text-muted">· {suggestion.why}</span>
+        </button>
+      ) : null}
       {placed.product?.manufacturerCode || placed.barcode ? (
         <p className="text-xs text-text-muted">Saves with {[placed.product?.manufacturerCode ? `code ${placed.product.manufacturerCode}` : null, placed.barcode ? `barcode ${placed.barcode}` : null].filter(Boolean).join(" and ")}, so the next one logs itself.</p>
       ) : (
         <p className="text-xs text-text-muted">No code or barcode was read, so the next one will ask again.</p>
       )}
       <Button type="submit" size="sm" disabled={busy} data-testid="stock-intake-new-save">
-        {busy ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> : null} Add to stock
+        {busy ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> : null} {repeats ? `Add all ${repeats + 1} to stock` : "Add to stock"}
       </Button>
     </form>
   );
 }
 
-function AmountForm({ unit, onAmount }: { unit: StockUnit; onAmount: (milli: number) => void }) {
-  const [text, setText] = useState("");
-  const milli = parseTypedQuantity(text, unit);
+function AmountForm({ id, unit, asked, heard, onAmount }: { id: string; unit: StockUnit; asked: number | null; heard: HeardPhrase | null; onAmount: (milli: number) => void }) {
+  const [text, setText] = useState(asked !== null ? formatNumber(asked) : "");
+  const seenHeard = useRef(heard?.n ?? 0);
+  const milliOf = (typed: string) => (cleanBarcode(typed) ? null : parseTypedQuantity(typed, unit));
+  const applyHeard = useRef<(said: Spoken) => void>(() => undefined);
+  useEffect(() => {
+    applyHeard.current = (said) => {
+      if (said.count) setText(said.count);
+      const spoken = milliOf(said.count ?? text);
+      if (said.save && spoken !== null) onAmount(spoken);
+    };
+  });
+  useEffect(() => {
+    if (!heard || heard.n === seenHeard.current) return;
+    seenHeard.current = heard.n;
+    applyHeard.current(heard.said);
+  }, [heard]);
+  const milli = milliOf(text);
   return (
-    <form className="flex items-center gap-2" onSubmit={(e) => { e.preventDefault(); if (milli !== null) onAmount(milli); }}>
-      <input value={text} onChange={(e) => setText(e.target.value)} inputMode={unit === "metre" ? "decimal" : "numeric"} autoFocus aria-label={`How many ${UNIT_LABEL[unit].plural}`} className={cn(INPUT, "w-24")} data-testid="stock-intake-amount" />
+    <form id={id} className="flex items-center gap-2" onSubmit={(e) => { e.preventDefault(); if (milli !== null) onAmount(milli); }}>
+      <input value={text} onChange={(e) => setText(e.target.value)} onFocus={selectAll} inputMode={unit === "metre" ? "decimal" : "numeric"} autoFocus={asked === null} aria-label={`How many ${UNIT_LABEL[unit].plural}`} data-typed="count" className={cn(INPUT, "w-24")} data-testid="stock-intake-amount" />
       <span className="text-sm text-text-muted">{UNIT_LABEL[unit].plural}</span>
       <Button type="submit" size="sm" disabled={milli === null}>Log it</Button>
     </form>
   );
 }
 
+function cardTitle(placed: Placed): string {
+  return { pick: "Which item is this?", several: "More than one product here", new: "New to the stock list", amount: `How much is this ${placed.itemName ?? ""}?`, problem: placed.unread ? "Couldn't read this" : "Needs you" }[placed.status as "pick" | "several" | "new" | "amount" | "problem"];
+}
+
+/** Waiting behind the open card, so what's being filled in never moves. */
+export function QueuedCard({ placed, repeats, onOpen, onHover }: { placed: Placed; repeats: number; onOpen: () => void; onHover: (on: boolean) => void }) {
+  return (
+    <button type="button" onClick={onOpen} onMouseEnter={() => onHover(true)} onMouseLeave={() => onHover(false)} className="flex w-full items-center gap-2.5 rounded-[4px] border border-state-danger bg-surface px-2.5 py-1.5 text-left hover:bg-surface-raised" data-testid="stock-intake-queued">
+      <CropThumb placed={placed} className="h-9 w-9" />
+      <span className="min-w-0 flex-1 truncate text-sm text-text"><span className="font-mono text-state-danger">#{placed.id}</span> {cardTitle(placed)}{repeats ? ` ×${repeats + 1}` : ""}</span>
+      <ChevronRight aria-hidden="true" className="h-4 w-4 shrink-0 text-text-muted" />
+    </button>
+  );
+}
+
 /** A red box that needs a person: one card, one decision. */
 export function NeedsYouCard({
-  placed, items, matrix, locations, typesEnabled, onPick, onChooseProduct, onCreate, onAmount, onRetry, onReadAgain, onIgnore,
+  placed, repeats = 0, items, matrix, locations, typesEnabled, heard = null, onSearchShown, onPick, onChooseProduct, onCreate, onDraft = nothing, onAmount, onRetry, onReadAgain, onIgnore, onHover = nothing,
 }: {
   placed: Placed;
+  /** the camera table's queue and Talk mode; the scanner display has neither */
+  repeats?: number;
   items: StockItem[];
   matrix: LocationMatrix | null;
   locations: string[];
   typesEnabled: boolean;
+  heard?: HeardPhrase | null;
+  onSearchShown?: (shown: StockItem[]) => void;
   onPick: (item: Pick<StockItem, "id">) => void;
   onChooseProduct: (index: number) => void;
   onCreate: (d: NewItemDraft) => void;
+  onDraft?: (d: NewItemDraft) => void;
   onAmount: (milli: number) => void;
   onRetry: () => void;
   /** only when there's a picture to read again — never for a scan */
   onReadAgain?: () => void;
   onIgnore: () => void;
+  onHover?: (on: boolean) => void;
 }) {
-  const title = { pick: "Which item is this?", several: "More than one product here", new: "New to the stock list", amount: `How much is this ${placed.itemName ?? ""}?`, problem: "Needs you" }[placed.status as "pick" | "several" | "new" | "amount" | "problem"];
+  const title = cardTitle(placed);
+  // A scanned card, or one back from a reload, has no photo to read.
+  const canRead = Boolean(onReadAgain) && (placed.onTable || Boolean(placed.crop));
   const products = placed.readResult?.reading?.products ?? [];
   return (
-    <div className="console-rise space-y-2.5 rounded-[4px] border border-state-danger bg-surface p-3" data-testid="stock-intake-card" data-status={placed.status}>
+    <div className="console-rise space-y-2.5 rounded-[4px] border border-state-danger bg-surface p-3" data-testid="stock-intake-card" data-status={placed.status} onMouseEnter={() => onHover(true)} onMouseLeave={() => onHover(false)}>
       <div className="flex items-start gap-3">
-        <CropThumb placed={placed} />
+        {placed.thumb || placed.crop ? <CropThumb placed={placed} /> : null}
         <div className="min-w-0 flex-1">
-          <p className="font-display text-[15px] font-semibold leading-snug text-text">{title}</p>
+          <p className="font-display text-[15px] font-semibold leading-snug text-text"><span className="font-mono text-state-danger">#{placed.id}</span> {title}{repeats ? <span className="font-mono text-text-muted" data-testid="stock-intake-card-repeats"> ×{repeats + 1}</span> : null}</p>
           {placed.product ? <p className="truncate text-sm text-text-muted">{[placed.product.brand, placed.product.description || placed.product.manufacturerCode].filter(Boolean).join(" ")}</p> : null}
-          {!placed.onTable && placed.crop ? <p className="text-xs text-text-muted">Off the table now.</p> : null}
-          {!placed.crop && placed.barcode ? <p className="truncate font-mono text-xs text-text-muted" data-testid="stock-intake-card-barcode">Scanned {placed.barcode}</p> : null}
+          {!placed.onTable && placed.thumb ? <p className="text-xs text-text-muted">Off the table now.</p> : null}
+          {!placed.thumb && !placed.crop && placed.barcode ? <p className="truncate font-mono text-xs text-text-muted" data-testid="stock-intake-card-barcode">Scanned {placed.barcode}</p> : null}
         </div>
       </div>
       {placed.problem ? <p className="text-sm text-state-danger" role="alert">{placed.problem}</p> : null}
 
       {placed.status === "new" ? (
         <>
-          <NewItemCard placed={placed} matrix={matrix} locations={locations} typesEnabled={typesEnabled} busy={placed.busy} onCreate={onCreate} />
+          <NewItemCard placed={placed} items={items} matrix={matrix} locations={locations} typesEnabled={typesEnabled} busy={placed.busy} repeats={repeats} heard={heard} onCreate={onCreate} onDraft={onDraft} />
           <details className="text-sm">
             <summary className="cursor-pointer text-text-muted">It&rsquo;s already on the list</summary>
-            <div className="mt-1"><ItemSearch items={items} onPick={onPick} testId="stock-intake-search" /></div>
+            <div className="mt-1"><ItemSearch items={items} onPick={onPick} testId="stock-intake-search" heard={heard} onlyWithCursor /></div>
           </details>
         </>
       ) : null}
       {placed.status === "pick" ? (
         <>
           <ul className="space-y-1">
-            {placed.choices.map((c) => (
+            {placed.choices.map((c, i) => (
               <li key={c.id}>
                 <button type="button" onClick={() => onPick(c)} className={CHOICE} data-testid="stock-intake-choice">
-                  {c.name} <span className="text-text-muted">· {balanceLabel(c)}{c.location ? ` · ${c.location}` : ""}</span>
+                  {i < 9 ? <span className="mr-1.5 font-mono text-text-muted">{i + 1}</span> : null}{c.name} <span className="text-text-muted">· {balanceLabel(c)}{c.location ? ` · ${c.location}` : ""}</span>
                 </button>
               </li>
             ))}
           </ul>
-          <ItemSearch items={items} onPick={onPick} testId="stock-intake-search" />
+          <ItemSearch items={items} onPick={onPick} testId="stock-intake-search" heard={heard} numberFrom={placed.choices.length + 1} exclude={placed.choices} onShown={onSearchShown} />
         </>
       ) : null}
       {placed.status === "several" ? (
         <ul className="space-y-1">
           {products.map((p, i) => (
             <li key={i}>
-              <button type="button" onClick={() => onChooseProduct(i)} className={CHOICE}>{productLabel(p, i)}</button>
+              <button type="button" onClick={() => onChooseProduct(i)} className={CHOICE} data-testid="stock-intake-product">{i < 9 ? <span className="mr-1.5 font-mono text-text-muted">{i + 1}</span> : null}{productLabel(p, i)}</button>
             </li>
           ))}
         </ul>
       ) : null}
-      {placed.status === "amount" && placed.unit ? <AmountForm unit={placed.unit} onAmount={onAmount} /> : null}
-      {placed.status === "problem" ? <ItemSearch items={items} onPick={onPick} testId="stock-intake-search" /> : null}
+      {placed.status === "amount" && placed.askMilli !== null ? <p className="text-sm text-text-muted" data-testid="stock-intake-amount-ask">The label looks like it says {formatNumber(placed.askMilli)}. Check that&rsquo;s right before it goes on the record.</p> : null}
+      {placed.status === "amount" && placed.unit ? <AmountForm id={`stock-intake-form-${placed.id}`} unit={placed.unit} asked={placed.askMilli} heard={heard} onAmount={onAmount} /> : null}
+      {placed.status === "problem" ? <ItemSearch items={items} onPick={onPick} testId="stock-intake-search" heard={heard} numberFrom={1} onShown={onSearchShown} /> : null}
 
       <div className="flex flex-wrap gap-1">
-        {placed.status === "problem" && (placed.itemId || onReadAgain) ? <Button type="button" variant="secondary" size="sm" onClick={onRetry} data-testid="stock-intake-retry">{placed.itemId ? "Try again" : "Read it again"}</Button> : null}
-        {onReadAgain && (placed.status === "new" || placed.status === "pick") ? <Button type="button" variant="ghost" size="sm" onClick={onReadAgain} data-testid="stock-intake-read-again">Read it again</Button> : null}
+        {placed.status === "problem" && (placed.itemId || canRead) ? <Button type="button" variant="secondary" size="sm" onClick={onRetry} data-testid="stock-intake-retry">{placed.itemId ? "Try again" : "Read it again"}</Button> : null}
+        {canRead && (placed.status === "new" || placed.status === "pick") ? <Button type="button" variant="ghost" size="sm" onClick={onReadAgain} data-testid="stock-intake-read-again">Read it again</Button> : null}
         <Button type="button" variant="ghost" size="sm" onClick={onIgnore} data-testid="stock-intake-ignore">Not stock, ignore</Button>
       </div>
     </div>
@@ -231,11 +348,16 @@ export function NeedsYouCard({
 }
 
 /** A green one: what it added and where it goes, with the amount, location and Undo a tap away. */
-export function LoggedRow({ placed, locked, locations, onChangeAmount, onSetLocation, onUndo, onLock }: { placed: Placed; locked: boolean; locations: string[]; onChangeAmount: (milli: number) => void; onSetLocation: (text: string) => void; onUndo: () => void; /** "All the same" — the camera table only */ onLock?: () => void }) {
+export function LoggedRow({ placed, locked, offerLocation = true, locations, typed = null, onTypedDone = nothing, onChangeAmount, onSetLocation, onUndo, onLock, onReadAgain, onIgnore }: { placed: Placed; locked: boolean; /** one row per item offers it: setting it sets every row of that item */ offerLocation?: boolean; locations: string[]; /** digits typed straight after this logged, opening its amount */ typed?: { text: string } | null; onTypedDone?: () => void; onChangeAmount: (milli: number) => void; onSetLocation: (text: string) => void; onUndo: () => void; /** "All the same": the camera table only */ onLock?: () => void; onReadAgain?: () => void; onIgnore?: () => void }) {
   const [editing, setEditing] = useState<string | null>(null);
+  const [seenTyped, setSeenTyped] = useState(typed);
+  if (typed !== seenTyped) {
+    setSeenTyped(typed);
+    setEditing(typed ? typed.text : null);
+  }
   const [placing, setPlacing] = useState<string | null>(null);
   const unit = placed.unit ?? "each";
-  const milli = editing === null ? null : parseTypedQuantity(editing, unit);
+  const milli = editing === null || cleanBarcode(editing) ? null : parseTypedQuantity(editing, unit);
   const listId = `stock-intake-row-locations-${placed.id}`;
   if (placed.status === "undone") {
     return (
@@ -246,29 +368,41 @@ export function LoggedRow({ placed, locked, locations, onChangeAmount, onSetLoca
       </li>
     );
   }
+  if (placed.status === "missed") {
+    return (
+      <li className="flex items-center gap-3 px-3 py-2" data-testid="stock-intake-row" data-status="missed">
+        <CropThumb placed={placed} className="h-9 w-9" />
+        <p className="min-w-0 flex-1 text-sm text-text">Not logged <span className="text-text-muted">· taken away before a label was read</span></p>
+        <Button type="button" variant="ghost" size="sm" onClick={onReadAgain} disabled={!placed.crop}>Read again</Button>
+        <Button type="button" variant="ghost" size="sm" onClick={onIgnore}>Not stock</Button>
+      </li>
+    );
+  }
   return (
-    <li className="console-rise space-y-1.5 px-3 py-2" data-testid="stock-intake-row" data-status="logged">
-      <div className="flex items-center gap-3">
-        <CropThumb placed={placed} className="h-10 w-10" />
+    <li className="console-rise space-y-1 px-3 py-1.5" data-testid="stock-intake-row" data-status="logged">
+      <div className="flex items-center gap-2.5">
+        <CropThumb placed={placed} className="h-9 w-9" />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-text">{placed.itemName}</p>
-          <p className="truncate font-mono text-xs text-text-muted" data-testid="stock-intake-row-location">
-            {placed.location ?? <span className="text-state-warning">No location</span>}
-          </p>
+          <div className="flex items-baseline gap-2">
+            <p className="min-w-0 flex-1 truncate text-sm font-medium text-text">{placed.itemName}</p>
+            <p className="shrink-0 font-mono text-sm font-bold tabular-nums text-state-success" data-testid="stock-intake-row-amount">{placed.amountMilli !== null ? signedQuantity(placed.amountMilli, unit) : ""}</p>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <p className="min-w-0 flex-1 truncate font-mono text-xs text-text-muted" data-testid="stock-intake-row-location">
+              {placed.location ?? <span className="text-state-warning">No location</span>}
+            </p>
+            {placed.recordedMilli !== null ? <p className="shrink-0 font-mono text-xs tabular-nums text-text-muted">{formatNumber(placed.recordedMilli)} on record</p> : null}
+          </div>
           {placed.fromLabel ? <p className="text-xs text-text-muted">Pack size from the label.</p> : null}
           {placed.note ? <p className="text-xs text-state-danger">{placed.note}</p> : null}
-        </div>
-        <div className="shrink-0 text-right">
-          <p className="font-mono text-sm font-bold tabular-nums text-state-success" data-testid="stock-intake-row-amount">{placed.amountMilli !== null ? signedQuantity(placed.amountMilli, unit) : ""}</p>
-          {placed.recordedMilli !== null ? <p className="font-mono text-xs tabular-nums text-text-muted">{formatNumber(placed.recordedMilli)} on record</p> : null}
         </div>
       </div>
       {placed.problem ? <p className="text-sm text-state-danger" role="alert">{placed.problem}</p> : null}
       {editing !== null ? (
-        <form className="flex items-center gap-2" onSubmit={(e) => { e.preventDefault(); if (milli !== null) { onChangeAmount(milli); setEditing(null); } }}>
-          <input value={editing} onChange={(e) => setEditing(e.target.value)} inputMode={unit === "metre" ? "decimal" : "numeric"} autoFocus aria-label={`New amount in ${UNIT_LABEL[unit].plural}`} className={cn(INPUT, "w-24")} data-testid="stock-intake-row-edit-input" />
+        <form id={`stock-intake-row-form-${placed.id}`} className="flex items-center gap-2" onSubmit={(e) => { e.preventDefault(); if (milli !== null) { onChangeAmount(milli); setEditing(null); onTypedDone(); } }}>
+          <input value={editing} onChange={(e) => setEditing(e.target.value)} onFocus={(e) => { if (typed) e.currentTarget.setSelectionRange(e.currentTarget.value.length, e.currentTarget.value.length); else e.currentTarget.select(); }} inputMode={unit === "metre" ? "decimal" : "numeric"} autoFocus aria-label={`New amount in ${UNIT_LABEL[unit].plural}`} className={cn(INPUT, "w-24")} data-testid="stock-intake-row-edit-input" />
           <Button type="submit" size="sm" disabled={milli === null} data-testid="stock-intake-row-edit-save">Save</Button>
-          <Button type="button" variant="ghost" size="sm" onClick={() => setEditing(null)}>Cancel</Button>
+          <Button type="button" variant="ghost" size="sm" onClick={() => { setEditing(null); onTypedDone(); }}>Cancel</Button>
         </form>
       ) : placing !== null ? (
         <form className="flex items-center gap-2" onSubmit={(e) => { e.preventDefault(); if (placing.trim()) { onSetLocation(placing.trim()); setPlacing(null); } }}>
@@ -278,15 +412,15 @@ export function LoggedRow({ placed, locked, locations, onChangeAmount, onSetLoca
           <Button type="button" variant="ghost" size="sm" onClick={() => setPlacing(null)}>Cancel</Button>
         </form>
       ) : (
-        <div className="flex flex-wrap items-center justify-end gap-0.5">
-          {!placed.location ? (
-            <button type="button" disabled={placed.busy} onClick={() => setPlacing("")} className="mr-auto inline-flex h-8 items-center gap-1.5 rounded-[4px] border border-state-warning-subtle-border bg-state-warning-subtle-bg px-2 text-xs font-semibold text-state-warning-subtle-text" data-testid="stock-intake-row-set-location">
+        <div className="-mt-1 flex flex-wrap items-center justify-end gap-0.5">
+          {!placed.location && offerLocation ? (
+            <button type="button" disabled={placed.busy} onClick={() => setPlacing("")} className="mr-auto inline-flex h-7 items-center gap-1.5 rounded-[4px] border border-state-warning-subtle-border bg-state-warning-subtle-bg px-2 text-xs font-semibold text-state-warning-subtle-text" data-testid="stock-intake-row-set-location">
               <MapPin aria-hidden="true" className="h-3.5 w-3.5" /> Set location
             </button>
           ) : null}
-          <IconAction label="Change amount" disabled={placed.busy} onClick={() => setEditing(placed.amountMilli !== null ? formatNumber(placed.amountMilli) : "")} data-testid="stock-intake-row-edit"><Pencil aria-hidden="true" className="h-4 w-4" /></IconAction>
-          <IconAction label="Undo this one" disabled={placed.busy} onClick={onUndo} data-testid="stock-intake-row-undo"><Undo2 aria-hidden="true" className="h-4 w-4" /></IconAction>
-          {onLock && !locked ? <IconAction label="Everything placed next is the same as this" onClick={onLock} data-testid="stock-intake-row-lock"><Lock aria-hidden="true" className="h-4 w-4" /></IconAction> : null}
+          <IconAction label="Change amount" className="h-7 w-7" disabled={placed.busy} onClick={() => setEditing(placed.amountMilli !== null ? formatNumber(placed.amountMilli) : "")} data-testid="stock-intake-row-edit"><Pencil aria-hidden="true" className="h-4 w-4" /></IconAction>
+          <IconAction label="Undo this one" className="h-7 w-7" disabled={placed.busy} onClick={onUndo} data-testid="stock-intake-row-undo"><Undo2 aria-hidden="true" className="h-4 w-4" /></IconAction>
+          {onLock && !locked ? <IconAction label="Everything placed next is the same as this" className="h-7 w-7" onClick={onLock} data-testid="stock-intake-row-lock"><Lock aria-hidden="true" className="h-4 w-4" /></IconAction> : null}
         </div>
       )}
     </li>

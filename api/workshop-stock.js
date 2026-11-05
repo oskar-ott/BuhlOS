@@ -89,6 +89,8 @@ const intakeReadLimiter = createRateLimiter({ windowMs: 10 * 60_000, max: 300 })
 const DAILY_PHOTO_READS = Math.max(1, Number(process.env.STOCK_DAILY_PHOTO_READS || 300));
 const DAILY_LOOKUPS = Math.max(1, Number(process.env.STOCK_DAILY_LOOKUPS || 60));
 const DAILY_INTAKE_READS = Math.max(1, Number(process.env.STOCK_DAILY_INTAKE_READS || 2000));
+// The camera table reads in bulk, so it can use a different model from the phone's reader. Unset: the same one.
+const INTAKE_VISION_MODEL = process.env.STOCK_INTAKE_VISION_MODEL || undefined;
 const LOOKUP_TTL_DAYS = { manufacturer_code_matched: 30, possible_match: 7, no_match: 3 };
 const CLEANUP_BUDGET_MS = 4000;
 
@@ -624,7 +626,7 @@ async function readPhoto(sql, tenant, me, body, res) {
     } else {
       limiter.record(me.id);
       try {
-        reading = await vision.readProductPhoto({ bytes: up.bytes, contentType: up.contentType });
+        reading = await vision.readProductPhoto({ bytes: up.bytes, contentType: up.contentType, ...(input.intake && INTAKE_VISION_MODEL ? { model: INTAKE_VISION_MODEL } : {}) });
         if (!reading || !reading.products.length) readStatus = 'unreadable';
       } catch (e) {
         console.error('[workshop-stock] photo read failed', { status: (e && e.status) || null });
