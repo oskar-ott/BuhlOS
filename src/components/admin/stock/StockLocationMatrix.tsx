@@ -8,6 +8,10 @@ import { fetchLocationMatrix, newOperationKey, saveLocationMatrix } from "@/doma
 import { errorCopy } from "@/domains/workshop-stock/format";
 import { locationText, MAX_BINS, MAX_SHELVES, rackLabel, ruleFor, rulesInBin, rulesOutsideRack, type LocationMatrix, type MatrixRack } from "@/domains/workshop-stock/location-matrix";
 import { Block } from "./StockAdminForms";
+import { BinLabelBar, BinLabelPreview, drawBinLabels, RackLabelPrint } from "./BinLabels";
+import type { BinLabelKind, BinLabelSpec } from "@/domains/workshop-stock/bin-label";
+import { useLabelPrinter } from "@/components/stock/useLabelPrinter";
+import { useLabelSize } from "@/components/stock/useLabelSize";
 
 const INPUT = "h-9 rounded-[4px] border border-border-strong bg-surface-subtle px-2.5 text-sm text-text focus:border-accent-yellow focus:outline-none";
 
@@ -32,6 +36,8 @@ function rackFromFields(name: string, shelves: string, bins: string): { name: st
  * shelves and bins and writes in each bin the words for what lives there ("iconic
  * switch"). The camera table uses those words to fill in the location of anything
  * with no location yet. Each change saves the whole matrix (compare-and-set).
+ * Bin labels (the code, and the contents) print from here straight to the
+ * NIIMBOT — one bin from its editor, a whole rack from its header.
  */
 export function StockLocationMatrix() {
   const [matrix, setMatrix] = useState<LocationMatrix | null>(null);
@@ -46,6 +52,17 @@ export function StockLocationMatrix() {
   const [editing, setEditing] = useState<{ id: string; name: string; shelves: string; bins: string } | null>(null);
   const [tryText, setTryText] = useState("");
   const [removing, setRemoving] = useState<MatrixRack | null>(null);
+  const lp = useLabelPrinter(true);
+  const [labelSize, setLabelSize] = useLabelSize();
+  const [labelKind, setLabelKind] = useState<BinLabelKind>("both");
+  /** which button started the last print — its result is said next to it */
+  const [printedFrom, setPrintedFrom] = useState<string | null>(null);
+
+  /** Print these bin labels; `from` names the button, so the result is said next to it. */
+  const printFrom = (from: string) => (specs: BinLabelSpec[], done: string, link?: "bluetooth" | "usb") => {
+    setPrintedFrom(from);
+    void lp.print({ size: labelSize, link, done, draw: (fitted) => drawBinLabels(fitted, specs) });
+  };
 
   const load = useCallback(async () => {
     const r = await fetchLocationMatrix();
@@ -175,6 +192,8 @@ export function StockLocationMatrix() {
         </section>
       </div>
 
+      {matrix.racks.length ? <BinLabelBar lp={lp} size={labelSize} setSize={setLabelSize} kind={labelKind} setKind={setLabelKind} /> : null}
+
       {saveError ? <Block tone="warn" title="Not saved" role="alert"><p>{saveError}</p></Block> : null}
 
       {!matrix.racks.length ? (
@@ -212,6 +231,7 @@ export function StockLocationMatrix() {
               </div>
             </Block>
           ) : null}
+          <RackLabelPrint lp={lp} kind={labelKind} matrix={matrix} rack={rack} mine={printedFrom === `rack:${rack.id}`} onPrint={printFrom(`rack:${rack.id}`)} />
           <div className="mt-3 overflow-x-auto">
             <table className="border-separate border-spacing-1 text-left">
               <thead>
@@ -270,6 +290,7 @@ export function StockLocationMatrix() {
                 <Button type="submit" size="sm" disabled={saving || !words.trim()} data-testid="stock-matrix-words-add">Add</Button>
               </form>
               <p className="mt-2 text-xs text-text-muted">Anything with all these words on its label or name goes here. If two bins fit, the one with more words wins, so &ldquo;iconic switch&rdquo; beats &ldquo;iconic&rdquo;.</p>
+              <BinLabelPreview lp={lp} size={labelSize} kind={labelKind} matrix={matrix} rack={rack} shelf={open.shelf} bin={open.bin} mine={printedFrom === `bin:${rack.id}:${open.shelf}:${open.bin}`} onPrint={printFrom(`bin:${rack.id}:${open.shelf}:${open.bin}`)} />
             </div>
           ) : null}
         </section>

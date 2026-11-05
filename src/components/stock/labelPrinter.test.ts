@@ -87,8 +87,8 @@ describe("print straight to the NIIMBOT", () => {
     const printer = await p.connectPrinter("bluetooth");
     expect(printer).toMatchObject({ name: "B1-H1234", model: "B1", printheadPixels: 384, direction: "top", link: "bluetooth" });
     expect(p.connectedPrinter()).toBe(printer);
-    await p.printCanvas(CANVAS, 1);
-    await p.printCanvas(CANVAS, 1);
+    await p.printLabels([CANVAS]);
+    await p.printLabels([CANVAS]);
     expect(calls.filter((c) => c.startsWith("connect"))).toEqual(["connect bluetooth"]);
     expect(calls.slice(calls.indexOf("connect bluetooth") + 1, calls.indexOf("heartbeat on") + 1)).toEqual([
       "encode top",
@@ -102,6 +102,30 @@ describe("print straight to the NIIMBOT", () => {
       "heartbeat on",
     ]);
     expect(seen).toEqual(["B1-H1234"]);
+  });
+
+  it("a rack's labels go as one job: totalPages = labels, one page each, one init and one end", async () => {
+    const p = await load();
+    await p.connectPrinter("bluetooth");
+    calls.length = 0;
+    await p.printLabels([CANVAS, CANVAS, CANVAS]);
+    expect(calls).toEqual([
+      "encode top",
+      "encode top",
+      "encode top",
+      'task B1 {"totalPages":3,"density":3,"labelType":1,"pageColor":0,"statusPollIntervalMs":100,"statusTimeoutMs":8000}',
+      "heartbeat off",
+      "init",
+      "page x1", "page done",
+      "page x1", "page done",
+      "page x1", "page done",
+      "finished",
+      "end",
+      "heartbeat on",
+    ]);
+    calls.length = 0;
+    await p.printLabels([]);
+    expect(calls).toEqual([]); // nothing to print, nothing sent
   });
 
   it("closing Chrome's printer chooser is not an error", async () => {
@@ -138,14 +162,14 @@ describe("print straight to the NIIMBOT", () => {
     lastClient!.emit("disconnect");
     expect(p.connectedPrinter()).toBeNull();
     expect(seen).toEqual(["B1-H1234", null]);
-    await expect(p.printCanvas(CANVAS)).rejects.toThrow(/isn't connected/);
+    await expect(p.printLabels([CANVAS])).rejects.toThrow(/isn't connected/);
   });
 
   it("a refused job says why in plain words, and the job is still ended", async () => {
     const p = await load();
     await p.connectPrinter("bluetooth");
     jobImpl = { waitForFinished: async () => { throw Object.assign(new Error("Print error"), { reasonId: 1 }); } };
-    await expect(p.printCanvas(CANVAS)).rejects.toThrow("The printer's lid is open. Shut it and try again.");
+    await expect(p.printLabels([CANVAS])).rejects.toThrow("The printer's lid is open. Shut it and try again.");
     expect(calls.slice(-2)).toEqual(["end", "heartbeat on"]);
     expect(p.printFailureCopy(2)).toMatch(/out of labels/);
     expect(p.printFailureCopy(3)).toMatch(/battery/);
@@ -183,7 +207,7 @@ describe("print straight to the NIIMBOT — what could hang or break", () => {
       const p = await load();
       await p.connectPrinter("bluetooth");
       jobImpl = { waitForFinished: () => new Promise<void>(() => undefined) };
-      const done = p.printCanvas(CANVAS).catch((e: Error) => e.message);
+      const done = p.printLabels([CANVAS]).catch((e: Error) => e.message);
       await vi.advanceTimersByTimeAsync(p.PRINT_TIMEOUT_MS + 10);
       expect(await done).toMatch(/didn't say it had finished/);
       expect(calls.slice(-2)).toEqual(["end", "heartbeat on"]);
@@ -207,7 +231,7 @@ describe("print straight to the NIIMBOT — what could hang or break", () => {
     try {
       const p = await import("./labelPrinter");
       await expect(p.connectPrinter("bluetooth")).resolves.toMatchObject({ model: "B1" });
-      await p.printCanvas(CANVAS);
+      await p.printLabels([CANVAS]);
       expect(calls).toContain("page x1");
     } finally {
       vi.doUnmock("@mmote/niimbluelib");

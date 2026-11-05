@@ -280,6 +280,46 @@ Stored as one JSON document per company with a compare-and-set revision
 `20261102100000_workshop_stock_location_matrix.sql`). Until that is applied both
 screens say so and nothing else changes.
 
+#### Bin labels
+
+Owner pull, 2026-11-05: "can we also use the printer connection to print labels
+for the bins … one label is the location code like A2 B3 for rack a shelve 2 bin 3
+… and the other label has contents … like 2 gang switches". Printed from
+`/stock/locations` on the same NIIMBOT connection as item labels
+([below](#barcode-scanner-and-niimbot-labels)); words only, no barcode (the
+owner's pick).
+
+- **Two labels per bin** (`domains/workshop-stock/bin-label.ts`):
+  - the **code** label — the bin's code as large as the label allows, `A2 B3`
+    for rack A, shelf 2, bin 3 (`binCode`; a rack named in words keeps its name,
+    "Cable bay S2 B3"), with "Rack A · Shelf 2 · Bin 3" under it on a tall label;
+  - the **contents** label — the code on top, then the matrix's words for the
+    bin ("2 gang switches", "iconic dimmer"), each on its own line where it fits,
+    smaller than the code, centred; cut with … only if nothing fits.
+  - The contents are the **matrix words**, not today's stock: a printed label
+    can't follow stock as it moves; the words are what the office set for the
+    bin. A bin with no words gets only its code label.
+  - The code is display only: items keep their location text ("Rack A Shelf 2,
+    Bin 3"), unchanged.
+- **Where** (`components/admin/stock/BinLabels.tsx`): a **Bin labels** bar above
+  the racks — label size (the roll in the printer, shared with item labels on
+  this device) and which labels (**Code + contents**, **Code only**, **Contents
+  only**) and the printer; a bin's editor shows its labels as they'll print,
+  **Print**, and **Save as pictures** (where the browser can't reach the
+  printer); each rack has **Print labels for this rack (N labels)** — asked
+  first with the count — printing every bin shelf by shelf as one job.
+- One print path for item and bin labels (`useLabelPrinter`): connect if needed,
+  refuse a size the printer doesn't take (said next to the button, nothing
+  printed), draw fitted to the head, print the labels as one job
+  (`printLabels`: totalPages = labels, one page each — NiimBlue's multi-page
+  sequence). What happened is said next to the button that started it.
+- **Checked** on the production build in Chromium against the recorded-handshake
+  B1 (as for item labels): one bin → one job of 2 labels at 240 × 384; a rack of
+  6 bins with 2 set → one job of 8; Contents only → 2; save as pictures; a D
+  size refused with nothing sent; lid open said by the rack; no ping during a
+  print; the item label still prints on the same connection. **Proof still
+  owed:** a real B1 printing them.
+
 ### The scanner display
 
 Owner pull, 2026-11-03: "i want a separate display for the barcode scanner on

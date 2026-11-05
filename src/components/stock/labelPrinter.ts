@@ -191,8 +191,10 @@ export function printFailureCopy(reasonId: number | undefined): string {
   }
 }
 
-/** How long a label may take before we stop waiting for the printer to say it's done. */
+/** How long the first label may take before we stop waiting for the printer to say it's done… */
 export const PRINT_TIMEOUT_MS = 30_000;
+/** …and how much longer each further label in the same job may add. */
+export const PRINT_TIMEOUT_PER_LABEL_MS = 5_000;
 
 /**
  * The label centred on the whole print head. A label narrower than the head
@@ -216,27 +218,33 @@ export function padToHead(canvas: HTMLCanvasElement, printheadPixels: number, di
 }
 
 /**
- * Print the canvas (drawn at the printer's 8 dots/mm, already fitted to its
- * print head) `copies` times on the connected printer. Throws PrinterError
- * with something the person can act on.
+ * Print the labels (each drawn at the printer's 8 dots/mm, already fitted to
+ * its print head) as one job on the connected printer — one for an item, a
+ * rack's worth for the bins. Throws PrinterError with something the person
+ * can act on.
  *
  * Follows NiimBlue's print sequence (the web app most B1 owners print from,
  * on this same library): the background "are you there" ping is stopped for
- * the print and started again after — unconditionally, as NiimBlue does,
+ * the job and started again after — unconditionally, as NiimBlue does,
  * because the library's isHeartbeatStarted() answers the wrong way round —
- * and the status is polled every 100 ms with an 8 s reply timeout. On top of
- * that, a print that never reports finished gives up after PRINT_TIMEOUT_MS
- * instead of leaving the button on "Printing…".
+ * totalPages is the number of labels, each label is one page, and the status
+ * is polled every 100 ms with an 8 s reply timeout. On top of that, a job that
+ * never reports finished gives up (PRINT_TIMEOUT_MS, plus
+ * PRINT_TIMEOUT_PER_LABEL_MS for each further label) instead of leaving the
+ * button on "Printing…".
  */
-export async function printCanvas(canvas: HTMLCanvasElement, copies = 1): Promise<void> {
+export async function printLabels(canvases: HTMLCanvasElement[]): Promise<void> {
   if (!lib || !client || !current || !task || !meta) throw new PrinterError("The printer isn't connected. Press Print again to connect it.");
+  if (!canvases.length) return;
   const c = client;
-  const image = lib.ImageEncoder.encodeCanvas(padToHead(canvas, meta.printheadPixels, meta.printDirection), lib.PageColorType.SingleColor, meta.printDirection);
+  const l = lib;
+  const m = meta;
+  const images = canvases.map((canvas) => l.ImageEncoder.encodeCanvas(padToHead(canvas, m.printheadPixels, m.printDirection), l.PageColorType.SingleColor, m.printDirection));
   const job = c.protocol.newPrintTask(task, {
-    totalPages: copies,
-    density: meta.densityDefault,
-    labelType: lib.LabelType.WithGaps,
-    pageColor: lib.PageColorType.SingleColor,
+    totalPages: images.length,
+    density: m.densityDefault,
+    labelType: l.LabelType.WithGaps,
+    pageColor: l.PageColorType.SingleColor,
     statusPollIntervalMs: 100,
     statusTimeoutMs: 8_000,
   });
@@ -244,12 +252,17 @@ export async function printCanvas(canvas: HTMLCanvasElement, copies = 1): Promis
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     await job.printInit();
-    await job.printPage(image, copies);
-    await job.waitForPageFinished();
+    for (const image of images) {
+      await job.printPage(image, 1);
+      await job.waitForPageFinished();
+    }
     await Promise.race([
       job.waitForFinished(),
       new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new PrinterError("The printer didn't say it had finished. Check it, then try again.")), PRINT_TIMEOUT_MS);
+        timer = setTimeout(
+          () => reject(new PrinterError(images.length > 1 ? "The printer didn't say it had finished the labels. Check it, then try again." : "The printer didn't say it had finished. Check it, then try again.")),
+          PRINT_TIMEOUT_MS + PRINT_TIMEOUT_PER_LABEL_MS * (images.length - 1),
+        );
       }),
     ]);
   } catch (e) {
