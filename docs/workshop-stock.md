@@ -435,11 +435,18 @@ owner's pick).
     Bin 4"), unchanged.
 - **Where** (`components/admin/stock/BinLabels.tsx`): a **Bin labels** bar above
   the racks — label size (the roll in the printer, shared with item labels on
-  this device) and which labels (**Code + contents**, **Code only**, **Contents
-  only**) and the printer; a bin's editor shows its labels as they'll print,
-  **Print**, and **Save as pictures** (where the browser can't reach the
-  printer); each rack has **Print labels for this rack (N labels)** — asked
-  first with the count — printing every bin shelf by shelf as one job.
+  this device), which labels to print, and the printer; a bin's editor shows its
+  labels as they'll print, **Print**, and **Save as pictures** (where the
+  browser can't reach the printer); each rack has **Print labels for this rack
+  (N labels)** — asked first, said by kind ("6 code labels and 2 contents
+  labels") — printing every bin shelf by shelf as one job.
+- **Pick which labels** (owner, 2026-11-06, after the first real prints worked:
+  "i want to be able to pick which labels not have 2 labels printed for each
+  bin"): **Code label** and **Contents label** are each ticked on their own —
+  in the bar, or by clicking a label in a bin's editor (one choice, shown in
+  both places). Print, Save as pictures and the rack count take the ticked
+  ones; nothing ticked → "Tick a label to print". Remembered on this computer
+  (`buhlos.stock.binLabelPick`); both ticked to start.
 - One print path for item and bin labels (`useLabelPrinter`): connect if needed,
   refuse a size the printer doesn't take (said next to the button, nothing
   printed), draw fitted to the head, print the labels as one job
@@ -447,10 +454,12 @@ owner's pick).
   sequence). What happened is said next to the button that started it.
 - **Checked** on the production build in Chromium against the recorded-handshake
   B1 (as for item labels): one bin → one job of 2 labels at 240 × 384; a rack of
-  6 bins with 2 set → one job of 8; Contents only → 2; save as pictures; a D
+  6 bins with 2 set → one job of 8; contents only → 2; save as pictures; a D
   size refused with nothing sent; lid open said by the rack; no ping during a
-  print; the item label still prints on the same connection. **Proof still
-  owed:** a real B1 printing them.
+  print; the item label still prints on the same connection. Picking: code
+  only → a 1-label job; nothing ticked → nothing to print; the bar and the bin
+  stay in step; the pick survives a reload. **Printed on the owner's B1,
+  2026-11-06** ("it works").
 
 ### The scanner display
 

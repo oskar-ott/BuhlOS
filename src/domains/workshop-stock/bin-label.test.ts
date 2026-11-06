@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { binCode, binLabels, layoutBinLabel, rackLabels } from "./bin-label";
+import { binCode, binLabels, layoutBinLabel, pickedLabels, rackLabels } from "./bin-label";
 import { fitToPrinthead, LABEL_SIZES, labelSize } from "./label";
 import type { LocationMatrix } from "./location-matrix";
 
@@ -30,27 +30,31 @@ describe("bin labels", () => {
     expect(binCode(bay, 1, 2)).toBe("Cable bay A-2");
   });
 
-  it("a bin gets its code label and its contents label; Code only / Contents only give one", () => {
-    const both = binLabels(matrix, rackA, 2, 3, "both");
-    expect(both.map((l) => l.kind)).toEqual(["code", "contents"]);
-    expect(both[1]).toMatchObject({ code: "3B-3", place: "Rack 3 · Shelf B · Bin 3", contents: ["2 gang switches", "iconic dimmer"] });
-    expect(binLabels(matrix, rackA, 2, 3, "code").map((l) => l.kind)).toEqual(["code"]);
-    expect(binLabels(matrix, rackA, 2, 3, "contents").map((l) => l.kind)).toEqual(["contents"]);
+  it("a bin has its code label and its contents label — each picked on its own (owner, 2026-11-06: pick which labels)", () => {
+    const all = binLabels(matrix, rackA, 2, 3);
+    expect(all.map((l) => l.kind)).toEqual(["code", "contents"]);
+    expect(all[1]).toMatchObject({ code: "3B-3", place: "Rack 3 · Shelf B · Bin 3", contents: ["2 gang switches", "iconic dimmer"] });
+    expect(pickedLabels(all, { code: true, contents: true }).map((l) => l.kind)).toEqual(["code", "contents"]);
+    expect(pickedLabels(all, { code: true, contents: false }).map((l) => l.kind)).toEqual(["code"]);
+    expect(pickedLabels(all, { code: false, contents: true }).map((l) => l.kind)).toEqual(["contents"]);
+    expect(pickedLabels(all, { code: false, contents: false })).toEqual([]);
   });
 
-  it("a bin with nothing set gets its code label only — never an empty contents label", () => {
-    expect(binLabels(matrix, rackA, 1, 1, "both").map((l) => l.kind)).toEqual(["code"]);
-    expect(binLabels(matrix, rackA, 1, 1, "contents")).toEqual([]);
+  it("a bin with nothing set has its code label only — never an empty contents label", () => {
+    expect(binLabels(matrix, rackA, 1, 1).map((l) => l.kind)).toEqual(["code"]);
+    expect(pickedLabels(binLabels(matrix, rackA, 1, 1), { code: false, contents: true })).toEqual([]);
   });
 
-  it("a rack's labels come shelf by shelf, bin by bin, the way they sit", () => {
-    const all = rackLabels(matrix, rackA, "both");
+  it("a rack's picked labels come shelf by shelf, bin by bin, the way they sit", () => {
+    const all = rackLabels(matrix, rackA, { code: true, contents: true });
     expect(all.map((l) => `${l.code} ${l.kind}`)).toEqual([
       "3A-1 code", "3A-2 code", "3A-3 code",
       "3B-1 code", "3B-2 code", "3B-3 code", "3B-3 contents",
     ]);
-    expect(rackLabels(matrix, rackA, "contents")).toHaveLength(1);
-    expect(rackLabels(matrix, bay, "both")).toHaveLength(3);
+    expect(rackLabels(matrix, rackA, { code: false, contents: true })).toHaveLength(1);
+    expect(rackLabels(matrix, rackA, { code: true, contents: false })).toHaveLength(6);
+    expect(rackLabels(matrix, rackA, { code: false, contents: false })).toEqual([]);
+    expect(rackLabels(matrix, bay, { code: true, contents: true })).toHaveLength(3);
   });
 
   it("every label size, both kinds, as printed on a B1 (48 mm head): all text inside the label", () => {
@@ -72,7 +76,7 @@ describe("bin labels", () => {
   });
 
   it("the code label is the code, large — on a 50 × 30 label it fills most of the height, the place in words under it", () => {
-    const lay = layoutBinLabel(fitToPrinthead(labelSize("50x30"), 384, "top"), binLabels(matrix, rackA, 2, 3, "code")[0]!);
+    const lay = layoutBinLabel(fitToPrinthead(labelSize("50x30"), 384, "top"), binLabels(matrix, rackA, 2, 3)[0]!);
     expect(lay.width).toBe(384);
     expect(lay.lines.map((l) => l.text)).toEqual(["3B-3", "Rack 3 · Shelf B · Bin 3"]);
     expect(lay.lines[0]!.size).toBeGreaterThan(lay.height * 0.6);

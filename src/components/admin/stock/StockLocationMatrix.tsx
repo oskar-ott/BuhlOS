@@ -12,8 +12,8 @@ import { guessType } from "@/domains/workshop-stock/types";
 import { binKey, locationText, MAX_BINS, MAX_SHELVES, rackLabel, ruleFor, rulesInBin, rulesOutsideRack, shelfLabel, type LocationMatrix, type MatrixRack } from "@/domains/workshop-stock/location-matrix";
 import { Block } from "./StockAdminForms";
 import { StockLayoutPlan } from "./StockLayoutPlan";
-import { BinLabelBar, BinLabelPreview, drawBinLabels, RackLabelPrint } from "./BinLabels";
-import type { BinLabelKind, BinLabelSpec } from "@/domains/workshop-stock/bin-label";
+import { BinLabelBar, BinLabelPreview, drawBinLabels, RackLabelPrint, useBinLabelPick } from "./BinLabels";
+import type { BinLabelSpec } from "@/domains/workshop-stock/bin-label";
 import { useLabelPrinter } from "@/components/stock/useLabelPrinter";
 import { useLabelSize } from "@/components/stock/useLabelSize";
 
@@ -64,7 +64,7 @@ export function StockLocationMatrix() {
   const [movingBusy, setMovingBusy] = useState(false);
   const lp = useLabelPrinter(true);
   const [labelSize, setLabelSize] = useLabelSize();
-  const [labelKind, setLabelKind] = useState<BinLabelKind>("both");
+  const [labelPick, toggleLabelPick] = useBinLabelPick();
   /** which button started the last print — its result is said next to it */
   const [printedFrom, setPrintedFrom] = useState<string | null>(null);
 
@@ -224,7 +224,7 @@ export function StockLocationMatrix() {
         </section>
       </div>
 
-      {matrix.racks.length ? <BinLabelBar lp={lp} size={labelSize} setSize={setLabelSize} kind={labelKind} setKind={setLabelKind} /> : null}
+      {matrix.racks.length ? <BinLabelBar lp={lp} size={labelSize} setSize={setLabelSize} pick={labelPick} togglePick={toggleLabelPick} /> : null}
 
       {saveError ? <Block tone="warn" title="Not saved" role="alert"><p>{saveError}</p></Block> : null}
       {itemsError ? <Block tone="warn" title="Stock didn't load" role="alert"><p>The grid is showing rules only, not what&rsquo;s in each bin.</p><Button type="button" variant="secondary" size="sm" className="mt-2" onClick={() => void load()}>Try again</Button></Block> : null}
@@ -300,7 +300,7 @@ export function StockLocationMatrix() {
               </div>
             </Block>
           ) : null}
-          <RackLabelPrint lp={lp} kind={labelKind} matrix={matrix} rack={rack} mine={printedFrom === `rack:${rack.id}`} onPrint={printFrom(`rack:${rack.id}`)} />
+          <RackLabelPrint lp={lp} pick={labelPick} matrix={matrix} rack={rack} mine={printedFrom === `rack:${rack.id}`} onPrint={printFrom(`rack:${rack.id}`)} />
           <div className="mt-3 overflow-x-auto">
             <table className="border-separate border-spacing-1 text-left">
               <thead>
@@ -381,7 +381,7 @@ export function StockLocationMatrix() {
                 <Button type="submit" size="sm" disabled={saving || !words.trim()} data-testid="stock-matrix-words-add">Add</Button>
               </form>
               <p className="mt-2 text-xs text-text-muted">Anything with all these words on its label or name goes here. If two bins fit, the one with more words wins, so &ldquo;iconic switch&rdquo; beats &ldquo;iconic&rdquo;.</p>
-              <BinLabelPreview lp={lp} size={labelSize} kind={labelKind} matrix={matrix} rack={rack} shelf={open.shelf} bin={open.bin} mine={printedFrom === `bin:${rack.id}:${open.shelf}:${open.bin}`} onPrint={printFrom(`bin:${rack.id}:${open.shelf}:${open.bin}`)} />
+              <BinLabelPreview lp={lp} size={labelSize} pick={labelPick} togglePick={toggleLabelPick} matrix={matrix} rack={rack} shelf={open.shelf} bin={open.bin} mine={printedFrom === `bin:${rack.id}:${open.shelf}:${open.bin}`} onPrint={printFrom(`bin:${rack.id}:${open.shelf}:${open.bin}`)} />
             </div>
           ) : null}
         </section>
