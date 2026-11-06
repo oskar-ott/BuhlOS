@@ -34,6 +34,7 @@ const { idempotencyKeyFrom, findIdempotent, recordIdempotent } = require('./_lib
 const VALID_DAY_TYPES = ['tafe', 'sick', 'holiday'];
 const { append: appendAuditLog } = require('./_lib/audit-log');
 const { buildHoursAuditEntry } = require('./_lib/hours-audit');
+const { workPlaceName } = require('./_lib/work-places');
 
 module.exports = async (req, res) => {
   setNoCache(res);
@@ -597,7 +598,7 @@ async function enrichEntries(entries, viewer) {
         const job = a.jobId ? jobById[a.jobId] : null;
         return {
           ...a,
-          jobName: job ? job.name : null,
+          jobName: job ? job.name : workPlaceName(a.jobId),
           // For LH view: every allocation's job must be one this LH is assigned to.
           // (Internal/no-job allocations require admin approval — represented as false.)
           _jobLedByMe: isLeadingHandRole(viewer.role)

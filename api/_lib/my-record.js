@@ -1,5 +1,7 @@
 'use strict';
 
+const { workPlaceName } = require('./work-places');
+
 // "Your work record" — pure aggregation for #340 (PHIL surface).
 //
 // Given the caller's OWN time entries + a today/window, this builds a quiet,
@@ -133,7 +135,7 @@ function buildMyRecord(entries, opts) {
   const jobs = Object.entries(byJob)
     .map(([jobId, h]) => ({
       jobId,
-      jobName: jobNameById[jobId] || jobId,
+      jobName: jobNameById[jobId] || workPlaceName(jobId) || jobId,
       hours: round1(h),
     }))
     .filter((j) => j.hours > 0)

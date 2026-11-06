@@ -14,6 +14,7 @@
 const { listTimeEntryBlobsForDate } = require('./time-entry-blobs'); // #935: paginated walk
 const { readBlob } = require('./blob');
 const { isAdminRole } = require('./auth');
+const { isWorkPlaceId } = require('./work-places');
 
 function sydneyToday() {
   return new Intl.DateTimeFormat('en-CA', {
@@ -80,7 +81,7 @@ async function computeDayPulse(viewer, date) {
         hours.draftCount++;
       }
       if (e.userId) crewSet.add(e.userId);
-      for (const a of allocs) if (a.jobId) jobsWithHoursToday.add(a.jobId);
+      for (const a of allocs) if (a.jobId && !isWorkPlaceId(a.jobId)) jobsWithHoursToday.add(a.jobId);
     }
   } catch (err) { console.error('day-pulse: hours walk failed', err); }
 

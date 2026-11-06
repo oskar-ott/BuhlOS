@@ -4,6 +4,7 @@ import type {
   WeeklyHoursDay,
   WeeklyWorkerHours,
 } from "./weekly-closeout";
+import { workPlaceName } from "./work-places";
 
 /**
  * Weekly review — the pure view-model behind BOTH one-at-a-time weekly-hours
@@ -358,7 +359,7 @@ export function amendDayAllocations(day: WeeklyHoursDay): AmendDayAllocation[] {
     jobId: a.jobId ?? null,
     // A null-job allocation falls back to the day's own label — which is
     // "TAFE" for a paid trade-school day (2026-08-10), "No job" otherwise.
-    label: a.jobName ?? a.jobId ?? day.jobLabel ?? "No job",
+    label: a.jobName ?? workPlaceName(a.jobId) ?? a.jobId ?? day.jobLabel ?? "No job",
     hours: Number(a.hours) || 0,
   }));
 }

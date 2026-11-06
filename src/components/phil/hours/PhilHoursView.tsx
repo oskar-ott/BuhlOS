@@ -36,6 +36,7 @@ import {
   mergeSavedEntries,
   nextPickAfterSave,
   oldestLoggableDate,
+  soleJobId,
   weekRangeLabel,
   weekRows,
   weekSummaryLine,
@@ -719,7 +720,7 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
           date={findJobFor}
           jobs={jobs}
           currentJobId={
-            jobPicks[findJobFor] ?? lastJob?.jobId ?? (jobs.length === 1 ? jobs[0]!.id : null)
+            jobPicks[findJobFor] ?? lastJob?.jobId ?? soleJobId(jobs)
           }
           entries={merged}
           onPick={(job) => foundJobForDay(findJobFor, job)}
