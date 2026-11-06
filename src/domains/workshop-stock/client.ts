@@ -204,6 +204,23 @@ export function replaceItemPhoto(itemId: string, photoId: string | null, slot: "
   return httpPost(`${BASE}?action=item-photo`, { itemId, photoId, slot }, { schema: ItemOnlySchema, init: INIT, timeoutMs: WRITE_TIMEOUT_MS });
 }
 
+const WebPhotoSchema = z.object({
+  photoId: z.string(),
+  source: z.object({ domain: z.string().nullable(), kind: z.string().nullable(), pageUrl: z.string().nullable() }),
+});
+export type WebPhoto = z.infer<typeof WebPhotoSchema>;
+
+/**
+ * Office: fetch the product image the online check found for this item (on the
+ * maker's or a wholesaler's page) and keep it as a PENDING photo to preview —
+ * replaceItemPhoto(itemId, photoId) then uses it. The server picks the image
+ * from its own check; nothing here names a URL.
+ * 409 not_checked: run lookupCode for the item first, then ask again.
+ */
+export function findWebPhoto(itemId: string) {
+  return httpPost(`${BASE}?action=web-photo`, { itemId }, { schema: WebPhotoSchema, init: INIT, timeoutMs: LOOKUP_TIMEOUT_MS });
+}
+
 export function recordVerification(itemId: string) {
   return httpPost(`${BASE}?action=verify`, { itemId }, { schema: ItemOnlySchema, init: INIT, timeoutMs: WRITE_TIMEOUT_MS });
 }

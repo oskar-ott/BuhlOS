@@ -79,18 +79,30 @@ function readPhotoUpload(dataUrl) {
   const decoded = decodeDataUrl(dataUrl, MAX_PHOTO_BYTES);
   if (!decoded) return { error: 'photo_required', status: 400 };
   if (decoded.tooLarge) return { error: 'photo_too_large', status: 413, maxBytes: MAX_PHOTO_BYTES };
-  const contentType = imageTypeOf(decoded.bytes);
+  return readPhotoBytes(decoded.bytes);
+}
+
+/**
+ * The same checks for bytes the server fetched itself (a product image from an
+ * allowlisted page): JPEG / PNG / WebP by magic number, a parseable header,
+ * sane dimensions, within the size cap. Same result shape as readPhotoUpload.
+ */
+function readPhotoBytes(raw) {
+  const bytes = Buffer.isBuffer(raw) ? raw : Buffer.from(raw || []);
+  if (!bytes.length) return { error: 'photo_required', status: 400 };
+  if (bytes.length > MAX_PHOTO_BYTES) return { error: 'photo_too_large', status: 413, maxBytes: MAX_PHOTO_BYTES };
+  const contentType = imageTypeOf(bytes);
   if (!contentType) return { error: 'photo_not_supported', status: 415 };
-  const dims = imageDimensions(decoded.bytes, contentType);
+  const dims = imageDimensions(bytes, contentType);
   if (!dims || dims.width < MIN_SIDE || dims.height < MIN_SIDE || dims.width > MAX_SIDE || dims.height > MAX_SIDE) {
     return { error: 'photo_unreadable', status: 400 };
   }
   return {
-    bytes: decoded.bytes,
+    bytes,
     contentType,
     width: dims.width,
     height: dims.height,
-    sha256: crypto.createHash('sha256').update(decoded.bytes).digest('hex'),
+    sha256: crypto.createHash('sha256').update(bytes).digest('hex'),
   };
 }
 
@@ -144,4 +156,4 @@ async function deletePhoto(urls) {
   if (list.length) await del(list, { token: process.env.BLOB_READ_WRITE_TOKEN });
 }
 
-module.exports = { MAX_PHOTO_BYTES, MAX_THUMB_BYTES, imageDimensions, readPhotoUpload, readThumbUpload, storePhoto, fetchPhoto, deletePhoto };
+module.exports = { MAX_PHOTO_BYTES, MAX_THUMB_BYTES, imageDimensions, readPhotoUpload, readPhotoBytes, readThumbUpload, storePhoto, fetchPhoto, deletePhoto };

@@ -202,6 +202,14 @@ export function errorCopy(status: number, body: unknown, fallback = "That didn't
       return "That clashed with an earlier save. Start again.";
     case "item_archived":
       return "That item has been archived by the office.";
+    case "no_web_photo":
+      return typeof b.sourceDomain === "string" && b.sourceDomain ? `The product page on ${b.sourceDomain} has no photo to use.` : "The online check didn't find a product page with a photo for this code.";
+    case "web_photo_unavailable":
+      return `Couldn't load the photo${typeof b.sourceDomain === "string" && b.sourceDomain ? ` from ${b.sourceDomain}` : ""} just now. Try again later.`;
+    case "web_photo_unusable":
+      return "The photo on that page isn't one we can use (not a JPEG, PNG or WebP, or too small).";
+    case "web_photo_limit":
+      return "That's a lot of photos in an hour — try again a bit later.";
     case "matrix_conflict":
       return "Someone else saved the matrix just now. Reload to see their changes, then make yours.";
     case "matrix_unavailable":
