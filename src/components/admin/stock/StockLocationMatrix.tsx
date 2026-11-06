@@ -11,7 +11,7 @@ import type { StockItem } from "@/domains/workshop-stock/schema";
 import { guessType } from "@/domains/workshop-stock/types";
 import { binKey, binsOn, locationText, MAX_BINS, MAX_SHELVES, rackBinCount, rackLabel, rackShape, ruleFor, rulesInBin, rulesOutsideRack, shelfLabel, shelvesDiffer, type LocationMatrix, type MatrixRack } from "@/domains/workshop-stock/location-matrix";
 import { Block } from "./StockAdminForms";
-import { StockLayoutPlan } from "./StockLayoutPlan";
+import { RackFrame, ShelfRow, StockLayoutPlan } from "./StockLayoutPlan";
 import { BinLabelBar, BinLabelPreview, drawBinLabels, RackLabelPrint, useBinLabelPick } from "./BinLabels";
 import type { BinLabelSpec } from "@/domains/workshop-stock/bin-label";
 import { useLabelPrinter } from "@/components/stock/useLabelPrinter";
@@ -360,30 +360,19 @@ export function StockLocationMatrix() {
           ) : null}
           <RackLabelPrint lp={lp} pick={labelPick} matrix={matrix} rack={rack} mine={printedFrom === `rack:${rack.id}`} onPrint={printFrom(`rack:${rack.id}`)} />
           <div className="mt-3 overflow-x-auto">
-            <table className="border-separate border-spacing-1 text-left">
-              <thead>
-                <tr>
-                  <th scope="col" className="sr-only">Shelf</th>
-                  {Array.from({ length: rack.bins }, (_, b) => (
-                    <th key={b} scope="col" className="console-label px-1 pb-0.5 text-center">Bin {b + 1}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
+            <RackFrame>
                 {Array.from({ length: rack.shelves }, (_, s) => (
-                  <tr key={s}>
-                    <th scope="row" className="console-label whitespace-nowrap pr-2">Shelf {shelfLabel(s + 1)}</th>
-                    {Array.from({ length: rack.bins }, (_, b) => {
+                  <ShelfRow key={s} shelf={s + 1} binClass="[&>*]:min-w-32" testId="stock-matrix-shelf">
+                    {Array.from({ length: binsOn(rack, s + 1) }, (_, b) => {
                       const shelf = s + 1;
                       const bin = b + 1;
-                      if (bin > binsOn(rack, shelf)) return <td key={b} className="p-0" aria-hidden="true" />;
                       const here = rulesInBin(matrix, rack.id, shelf, bin);
                       const stock = map.bins.get(binKey(rack.id, shelf, bin)) ?? [];
                       const isOpen = open?.rackId === rack.id && open.shelf === shelf && open.bin === bin;
                       const suggested = moving?.suggestion?.rackId === rack.id && moving.suggestion.shelf === shelf && moving.suggestion.bin === bin;
                       return (
-                        <td key={b} className="p-0 align-top">
                           <button
+                            key={b}
                             type="button"
                             disabled={movingBusy}
                             onClick={() => {
@@ -394,24 +383,22 @@ export function StockLocationMatrix() {
                             aria-pressed={isOpen}
                             aria-label={`${locationText(rack, shelf, bin)}: ${here.length ? here.map((r) => r.words).join(", ") : "nothing set"}; ${stock.length ? `holds ${stock.map((i) => i.name).join(", ")}` : "no stock"}${suggested ? "; suggested" : ""}`}
                             className={cn(
-                              "block h-16 w-32 overflow-hidden rounded-[4px] border p-1.5 text-left text-xs leading-tight transition-colors duration-100",
+                              "block h-16 w-full overflow-hidden rounded-[4px] border p-1.5 text-left text-xs leading-tight transition-colors duration-100",
                               suggested ? "border-accent-yellow bg-surface-raised text-text ring-2 ring-accent-yellow" : isOpen ? "border-accent-yellow bg-surface-raised text-text ring-1 ring-accent-yellow" : stock.length ? "border-border-strong bg-surface-raised font-medium text-text hover:border-accent-yellow" : here.length ? "border-dashed border-border-strong bg-surface text-text-muted hover:border-accent-yellow" : "border-border bg-surface-subtle text-text-muted hover:border-border-strong",
                             )}
                             data-testid="stock-matrix-bin"
                             data-stock={stock.length}
                           >
+                            <span aria-hidden="true" className="block font-mono text-[10px] font-normal text-text-muted">{bin}</span>
                             {stock.length ? <span className="block truncate">{stock[0]!.name}</span> : null}
                             {stock.length > 1 ? <span className="block font-mono text-text-muted">+{stock.length - 1} more</span> : null}
                             {here.length ? <span className="block truncate font-mono font-normal text-text-muted">{here.map((r) => r.words).join(", ")}</span> : null}
-                            {!stock.length && !here.length ? <span aria-hidden="true" className="font-mono">·</span> : null}
                           </button>
-                        </td>
                       );
                     })}
-                  </tr>
+                  </ShelfRow>
                 ))}
-              </tbody>
-            </table>
+            </RackFrame>
           </div>
           {open?.rackId === rack.id ? (
             <div className="console-rise mt-3 rounded-[4px] border border-accent-yellow bg-surface-subtle p-3" data-testid="stock-matrix-bin-editor">

@@ -1,5 +1,5 @@
 import { DOTS_PER_MM, wrapText, type LabelSize } from "./label";
-import { rackLabel, rulesInBin, shelfLabel, type LocationMatrix, type MatrixRack } from "./location-matrix";
+import { binsOn, rackLabel, rulesInBin, shelfLabel, type LocationMatrix, type MatrixRack } from "./location-matrix";
 
 /**
  * Labels for the bins (owner, 2026-11-05: "print labels for the bins … one
@@ -74,7 +74,7 @@ export function pickedLabels(specs: BinLabelSpec[], pick: BinLabelPick): BinLabe
 export function rackLabels(matrix: LocationMatrix, rack: MatrixRack, pick: BinLabelPick): BinLabelSpec[] {
   const out: BinLabelSpec[] = [];
   for (let shelf = 1; shelf <= rack.shelves; shelf++) {
-    for (let bin = 1; bin <= rack.bins; bin++) out.push(...pickedLabels(binLabels(matrix, rack, shelf, bin), pick));
+    for (let bin = 1; bin <= binsOn(rack, shelf); bin++) out.push(...pickedLabels(binLabels(matrix, rack, shelf, bin), pick));
   }
   return out;
 }
