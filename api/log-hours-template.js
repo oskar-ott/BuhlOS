@@ -31,6 +31,7 @@
 const { list } = require('@vercel/blob');
 const { readBlob, setNoCache } = require('./_lib/blob');
 const { getCurrentUser } = require('./_lib/auth');
+const { workPlaceName } = require('./_lib/work-places');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const LOOKBACK_DAYS = 14;
@@ -123,7 +124,7 @@ module.exports = async (req, res) => {
     seen.add(a.jobId);
     allocs.push({
       jobId: a.jobId,
-      jobName: jobNameById[a.jobId] || a.jobId,
+      jobName: jobNameById[a.jobId] || workPlaceName(a.jobId) || a.jobId,
     });
   }
 

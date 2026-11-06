@@ -24,6 +24,7 @@ import {
   type LeaveType,
 } from "@/domains/timesheets/hours-view";
 import type { HoursProblem } from "@/domains/timesheets/problem";
+import { isWorkPlaceId } from "@/domains/timesheets/work-places";
 import type { TimeEntry } from "@/domains/timesheets/types";
 import { JobChips } from "./JobChips";
 import { LEAVE_ICON } from "./LeavePills";
@@ -195,7 +196,7 @@ function PanelBody({ state, offline }: { state: PanelState; offline: boolean }):
                 Pick which job these hours are for
               </p>
               <p className="mt-1 text-[14px] text-text">
-                {`You're on ${state.jobs.length} jobs and haven't logged one yet, so there's no default.`}
+                {noDefaultLine(state.jobs)}
               </p>
             </div>
           </div>
@@ -404,4 +405,13 @@ function ActionBar({ items }: { items: ActionItem[] }): ReactNode {
       ))}
     </div>
   );
+}
+
+/** Why there's no default job — Office and Workshop are always offered and
+ *  never counted as jobs the worker is on. */
+function noDefaultLine(jobs: ReadonlyArray<HoursJob>): string {
+  const onJobs = jobs.filter((j) => !isWorkPlaceId(j.id)).length;
+  return onJobs === 0
+    ? "You're not on any jobs yet. Pick Office or Workshop, or find the job."
+    : `You're on ${onJobs} ${onJobs === 1 ? "job" : "jobs"} and haven't logged one yet, so there's no default.`;
 }

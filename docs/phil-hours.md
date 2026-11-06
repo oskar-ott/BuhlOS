@@ -54,6 +54,20 @@ or concepts. Payloads come from the existing builders in `service.ts` and
 - **Jobs are never fixed.** Every worker can change the job for the day they're
   logging (one job → a field with Change ›; several → chips). A pick applies to
   the picked day only.
+- **Office and Workshop** (owner pull 2026-11-06 — "there's no job for that,
+  and it wouldn't make sense to set one up"). Two places that are not jobs sit
+  last in the job chips, before Find another job, for every worker. They are
+  picked, remembered ("Last time") and split ("4h Workshop + 3h 36m Smith St")
+  exactly like a job, and pay as ordinary hours. They are not leave (P12 is
+  untouched: leave still never sits beside jobs). Because they are always
+  offered, every worker now sees chips, and a worker's one real job still
+  picks itself (`soleJobId`). UI slot (P10): two chips inside the existing job
+  choice, no new decision. Mechanics: reserved allocation ids `place:office` /
+  `place:workshop` (`src/domains/timesheets/work-places.ts`, server twin
+  `api/_lib/work-places.js`). They are not in jobs.json, pass the live-job
+  check, are named "Office" / "Workshop" on every hours, payroll and export
+  surface, never count on job-scoped reads (job hub, profitability), and
+  mirror to Postgres as "no job" (Blob keeps the place, as with day types).
 - **No delete.** The day-detail sheet says: "Logged days can't be deleted.
   Change the hours instead, or ask the office."
 - **No promises**: no "you'll be notified", no approval ETAs, no reviewer

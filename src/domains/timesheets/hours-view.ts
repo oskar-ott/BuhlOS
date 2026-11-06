@@ -10,6 +10,7 @@ import {
 } from "./service";
 import { formatHoursLabel } from "./format";
 import { STATUS_WORDS } from "./status-words";
+import { isWorkPlaceId, workPlaceName } from "./work-places";
 
 /**
  * Pure logic for the worker's Hours screen (the 2026-10 "Log my hours"
@@ -347,8 +348,14 @@ export function defaultJobId(input: {
 }): string | null {
   if (input.picked && input.jobs.some((j) => j.id === input.picked)) return input.picked;
   if (input.lastJobId && input.jobs.some((j) => j.id === input.lastJobId)) return input.lastJobId;
-  if (input.jobs.length === 1) return input.jobs[0]!.id;
-  return null;
+  return soleJobId(input.jobs);
+}
+
+/** The worker's only real job, else null. Office and Workshop are always on
+ *  the list, so they never count — one job still picks itself. */
+export function soleJobId(jobs: ReadonlyArray<HoursJob>): string | null {
+  const real = jobs.filter((j) => !isWorkPlaceId(j.id));
+  return real.length === 1 ? real[0]!.id : null;
 }
 
 /** Jobs matching a query by name, code or address. Leave days are not jobs
@@ -393,7 +400,7 @@ export function entryTarget(
   const names = (entry.allocations ?? []).map((a) => {
     const job = a.jobId ? jobs.find((j) => j.id === a.jobId) : undefined;
     if (job) return job.name;
-    if (a.jobId) return a.jobName?.trim() || "A job you're no longer on";
+    if (a.jobId) return workPlaceName(a.jobId) ?? (a.jobName?.trim() || "A job you're no longer on");
     return "No job recorded";
   });
   return names.length > 0 ? [...new Set(names)].join(" + ") : "No job recorded";
@@ -413,7 +420,8 @@ export function receiptLine(
     ? (entry.allocations ?? [])
         .map((a) => {
           const job = a.jobId ? jobs.find((j) => j.id === a.jobId) : undefined;
-          const name = job?.name ?? a.jobName?.trim() ?? "A job you're no longer on";
+          const name =
+            job?.name ?? workPlaceName(a.jobId) ?? a.jobName?.trim() ?? "A job you're no longer on";
           return `${name} ${formatHoursLabel(a.hours)}`;
         })
         .join(" + ") + ` · ${formatHoursLabel(entry.totalHours)} total`

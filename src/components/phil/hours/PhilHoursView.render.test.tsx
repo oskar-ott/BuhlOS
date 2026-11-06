@@ -11,6 +11,7 @@ import { PhilHoursView, type PhilHoursViewProps } from "./PhilHoursView";
 import { FindJobSheet } from "./FindJobSheet";
 import { autoSplitOT } from "@/domains/timesheets/service";
 import type { TimeEntry } from "@/domains/timesheets/types";
+import { withWorkPlaces } from "@/domains/timesheets/work-places";
 
 /**
  * SSR smoke for the Hours screen (docs/phil-hours.md). renderToString gives
@@ -241,5 +242,46 @@ describe("FindJobSheet — leave days are never jobs", () => {
     expect(list).not.toContain("TAFE");
     expect(html).not.toContain('data-testid="hours-leave-group"');
     expect(html).not.toMatch(/data-testid="hours-leave-(sick|holiday|tafe)"/);
+  });
+});
+
+describe("PhilHoursView — Office and Workshop (owner pull 2026-11-06)", () => {
+  const withPlaces = withWorkPlaces([JOBS[0]!]);
+
+  it("offers Office and Workshop after the worker's job, which still picks itself", () => {
+    const html = render({ jobs: withPlaces });
+    expect(html).toContain('data-testid="hours-job-chip-bondi"');
+    expect(html).toContain('data-testid="hours-job-chip-place:office"');
+    expect(html).toContain('data-testid="hours-job-chip-place:workshop"');
+    expect(html.indexOf("hours-job-chip-bondi")).toBeLessThan(
+      html.indexOf("hours-job-chip-place:office")
+    );
+    expect(html).toContain("Bondi switchboard · sends to the office");
+    // Two places count as choices, so a split day is on offer even with one job.
+    expect(html).toContain("hours-action-split");
+  });
+
+  it("names a Workshop day and a split Office day on the week rows, and remembers the last pick", () => {
+    const html = render({
+      jobs: withPlaces,
+      entries: [
+        entry({ date: "2026-10-12", allocations: [{ jobId: "place:workshop", hours: 7.6 }] }),
+        entry({
+          date: "2026-10-13",
+          allocations: [
+            { jobId: "place:office", hours: 4 },
+            { jobId: "bondi", hours: 3.6 },
+          ],
+        }),
+      ],
+    });
+    expect(words(html)).toContain("Workshop");
+    expect(words(html)).toContain("Workshop · tap to change");
+    expect(words(html)).toContain("Office + Bondi switchboard · tap to change");
+    // The last day logged was mostly Office, so Office is picked and says so.
+    expect(words(html)).toContain("Office Last time");
+    expect(words(html)).toContain("Office · sends to the office");
+    expect(html).not.toContain("place:office ");
+    expect(html).not.toContain("no longer on");
   });
 });

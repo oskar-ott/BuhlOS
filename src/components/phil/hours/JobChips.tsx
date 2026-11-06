@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
-import { MapPin, Search } from "lucide-react";
+import { Building2, MapPin, Search, Wrench } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { isFinishedJob, weekdayName, type HoursJob } from "@/domains/timesheets/hours-view";
+import { isWorkPlaceId } from "@/domains/timesheets/work-places";
 
 /**
  * The job chips (docs/phil-hours.md): a 2-column grid of the worker's jobs,
@@ -9,6 +10,9 @@ import { isFinishedJob, weekdayName, type HoursJob } from "@/domains/timesheets/
  * another job" chip. A job found by search joins the grid as the picked chip,
  * full width, with its address · `finished job` · `Thursday only` — a pick
  * applies to the picked day only. Selected = navy fill + filled dot.
+ *
+ * Office and Workshop (owner pull 2026-11-06) are always last, before Find:
+ * the worker's real jobs lead, the two no-job places follow.
  */
 export function JobChips({
   jobs,
@@ -31,9 +35,15 @@ export function JobChips({
   onPick: (jobId: string) => void;
   onFind: () => void;
 }): ReactNode {
-  const ordered = [...jobs].sort((a, b) =>
-    a.id === lastJobId ? -1 : b.id === lastJobId ? 1 : a.name.localeCompare(b.name)
-  );
+  const places = jobs.filter((j) => isWorkPlaceId(j.id));
+  const ordered = [
+    ...jobs
+      .filter((j) => !isWorkPlaceId(j.id))
+      .sort((a, b) =>
+        a.id === lastJobId ? -1 : b.id === lastJobId ? 1 : a.name.localeCompare(b.name)
+      ),
+    ...places,
+  ];
   return (
     <div
       role="radiogroup"
@@ -65,7 +75,9 @@ export function JobChips({
             sentJobId === job.id
               ? "What you sent"
               : job.id === lastJobId
-                ? "Your last job"
+                ? isWorkPlaceId(job.id)
+                  ? "Last time"
+                  : "Your last job"
                 : isFinishedJob(job)
                   ? "finished job"
                   : null
@@ -123,6 +135,10 @@ function Chip({
       >
         {active ? (
           <span className="h-2 w-2 rounded-full bg-white" />
+        ) : job.id === "place:office" ? (
+          <Building2 className="h-2.5 w-2.5 text-text-muted" />
+        ) : job.id === "place:workshop" ? (
+          <Wrench className="h-2.5 w-2.5 text-text-muted" />
         ) : (
           <MapPin className="h-2.5 w-2.5 text-text-muted" />
         )}

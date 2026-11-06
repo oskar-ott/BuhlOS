@@ -35,6 +35,7 @@ import {
   statusTone,
 } from "@/domains/timesheets/format";
 import type { TimeEntry } from "@/domains/timesheets/types";
+import { workPlaceName } from "@/domains/timesheets/work-places";
 
 interface HoursApprovalsQueueProps {
   initialEntries: ReadonlyArray<TimeEntry>;
@@ -655,7 +656,7 @@ function amendAllocationsFor(entry: TimeEntry): AmendAllocationInput[] {
   return (entry.allocations ?? []).map((a) => ({
     jobId: a.jobId ?? null,
     // A day-type day's null job is by design (2026-08-10) — name the real thing.
-    label: dayTypeLabel(entry.dayType) ?? a.jobName ?? a.jobId ?? "No job assigned",
+    label: dayTypeLabel(entry.dayType) ?? a.jobName ?? workPlaceName(a.jobId) ?? a.jobId ?? "No job assigned",
     hours: Number(a.hours) || 0,
   }));
 }
@@ -672,7 +673,7 @@ function AllocationLine({ entry }: { entry: TimeEntry }): ReactNode {
         // job-less: it names its type, never the warning pill.
         const typed = dayTypeLabel(entry.dayType);
         const unattributed = !a.jobId && !typed;
-        const job = typed ?? a.jobName ?? a.jobId ?? "No job assigned";
+        const job = typed ?? a.jobName ?? workPlaceName(a.jobId) ?? a.jobId ?? "No job assigned";
         return (
           <span key={i} className="inline-flex items-center gap-1 text-xs text-text-muted">
             <span>{formatHoursLabel(a.hours)} →</span>

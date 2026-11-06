@@ -1,6 +1,7 @@
 import type { MissingLog, TimeEntry, TimeEntryAllocation } from "./types";
 import { addDays, weekEndOf } from "./service";
 import { dayTypeLabel } from "./format";
+import { workPlaceName } from "./work-places";
 
 /**
  * Weekly hours closeout — the pure derivation behind /hours/weekly.
@@ -223,7 +224,7 @@ function jobLabelFor(entry: TimeEntry): string | null {
   if (allocations.length > 1) return `${allocations.length} jobs`;
   const a = allocations[0]!;
   if (!a.jobId) return "No job";
-  return a.jobName ?? a.jobId;
+  return a.jobName ?? workPlaceName(a.jobId) ?? a.jobId;
 }
 
 export function buildWeeklyHoursCloseout(input: WeeklyCloseoutInput): WeeklyHoursCloseout {
@@ -341,7 +342,7 @@ export function buildWeeklyHoursCloseout(input: WeeklyCloseoutInput): WeeklyHour
           } else {
             jobHours.set(key, {
               jobId: a.jobId ?? null,
-              jobName: a.jobId ? (a.jobName ?? a.jobId) : "Internal (no job)",
+              jobName: a.jobId ? (a.jobName ?? workPlaceName(a.jobId) ?? a.jobId) : "Internal (no job)",
               hours,
             });
           }
@@ -490,7 +491,7 @@ export function buildWeeklyHoursCloseout(input: WeeklyCloseoutInput): WeeklyHour
         byJob.set(key, {
           jobId: a.jobId ?? null,
           // Same label the overview endpoint uses for null-job allocations.
-          jobName: a.jobId ? (a.jobName ?? a.jobId) : "Internal (no job)",
+          jobName: a.jobId ? (a.jobName ?? workPlaceName(a.jobId) ?? a.jobId) : "Internal (no job)",
           hours,
         });
       }

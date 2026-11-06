@@ -61,6 +61,7 @@ const {
 } = require('./source-freshness');
 const { isLeadingHandRole, isFieldRole, isProjectManagerRole } = require('./auth');
 const { prorateAllocations } = require('./payroll-rows');
+const { workPlaceName } = require('./work-places');
 
 // ── Freshness-verified entry reads ───────────────────────────────────────────
 // Every entry read here is held against the store's own listing metadata —
@@ -458,7 +459,9 @@ async function collectRows({ status, userId, jobId, fromDate, toDate, quiet = fa
         dayType:    e.dayType || null,
         jobName:    j
           ? j.name
-          : e.dayType === 'tafe'
+          : workPlaceName(a.jobId)
+            ? workPlaceName(a.jobId)
+            : e.dayType === 'tafe'
             ? 'TAFE'
             : e.dayType === 'sick'
               ? 'Sick day'

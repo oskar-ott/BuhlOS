@@ -38,6 +38,7 @@ const { HOURS_GO_LIVE } = require('./_lib/hours-epoch');
 // The ONE missing-day rule, shared with the payroll sheet's "Not on this
 // sheet" list (api/_lib/not-on-sheet.js) — extracted from this file verbatim.
 const { missingWeekdays } = require('./_lib/missing-days');
+const { workPlaceName } = require('./_lib/work-places');
 
 module.exports = async (req, res) => {
   setNoCache(res);
@@ -171,7 +172,7 @@ module.exports = async (req, res) => {
       userRole: e.userRole || (u && u.role)     || null,
       allocations: (e.allocations || []).map(a => ({
         ...a,
-        jobName: a.jobId ? (jobById[a.jobId] && jobById[a.jobId].name) || a.jobId : null,
+        jobName: a.jobId ? (jobById[a.jobId] && jobById[a.jobId].name) || workPlaceName(a.jobId) || a.jobId : null,
       })),
     });
   });
@@ -205,7 +206,7 @@ module.exports = async (req, res) => {
     totalHours: round2(totalHours),
     byJob: Object.keys(byJob).map(jid => ({
       jobId: jid === '__internal__' ? null : jid,
-      jobName: jid === '__internal__' ? 'Internal (no job)' : ((jobById[jid] && jobById[jid].name) || jid),
+      jobName: jid === '__internal__' ? 'Internal (no job)' : ((jobById[jid] && jobById[jid].name) || workPlaceName(jid) || jid),
       hours: round2(byJob[jid]),
     })).sort((a, b) => b.hours - a.hours),
     byUser: Object.keys(byUser).map(uid => ({

@@ -35,6 +35,7 @@ const { list } = require('@vercel/blob');
 const { readBlob, setNoCache } = require('./_lib/blob');
 const { getCurrentUser } = require('./_lib/auth');
 const { buildMyRecord } = require('./_lib/my-record');
+const { workPlaceName } = require('./_lib/work-places');
 
 // Trailing-weeks window for the Phil "your work record" card (#340).
 const RECORD_WEEKS = 6;
@@ -153,7 +154,7 @@ module.exports = async (req, res) => {
   const topJobs = Object.entries(weekByJob)
     .map(([jobId, h]) => ({
       jobId,
-      jobName: jobNameById[jobId] || jobId,
+      jobName: jobNameById[jobId] || workPlaceName(jobId) || jobId,
       hours: Math.round(h * 10) / 10,
     }))
     .sort((a, b) => b.hours - a.hours)

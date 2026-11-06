@@ -12,6 +12,7 @@ import { canAccessSurface } from "@/lib/auth/permissions";
 import { parseTimeEntryListLenient } from "@/domains/timesheets/parse-entries";
 import type { TimeEntry } from "@/domains/timesheets/types";
 import { EARLIER_WEEKS_SHOWN, type HoursJob } from "@/domains/timesheets/hours-view";
+import { withWorkPlaces } from "@/domains/timesheets/work-places";
 import {
   BUSINESS_TIMEZONE,
   addDays,
@@ -106,7 +107,9 @@ export default async function PhilHoursPage({
         entries={entries}
         loadFailed={loadFailed}
         todayISO={todayISO}
-        jobs={jobs.jobs}
+        // Office and Workshop sit after the jobs: hours that belong to no job
+        // (owner pull 2026-11-06), pickable and splittable like one.
+        jobs={withWorkPlaces(jobs.jobs)}
         jobsError={jobs.error}
         viewerId={session.userId ?? null}
         canLogTafe={canLogTafe}

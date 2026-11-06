@@ -10,6 +10,7 @@ const { put, list, del } = require('@vercel/blob');
 const blobLib = require('./blob');
 const { readBlob, writeBlob, deleteBlob } = blobLib;
 const { acceptsHours } = require('./job-lifecycle');
+const { isWorkPlaceId } = require('./work-places');
 const { mirrorTimeEntry, mirrorTimeEntryDelete } = require('./hours-mirror');
 const { recordMirrorDrift } = require('./mirror-drift'); // DWD-04: surface Blob-ok/PG-fail drift
 const { listUserEntriesFromPgIfEnabled } = require('./hours-read');
@@ -143,7 +144,8 @@ function validateEntryShape(body, options = {}) {
  * allocation jobId is missing from jobs.json or sits in a non-active state
  * (draft / archived), else null.
  *
- * A null jobId PASSES here (legacy + overhead entries predate attribution) —
+ * A null jobId PASSES here (legacy + overhead entries predate attribution), and
+ * so do the Office / Workshop place ids (api/_lib/work-places.js) —
  * callers that must forbid a null job say so themselves, as the field self-edit
  * path in api/time-entries.js does.
  *
@@ -151,8 +153,10 @@ function validateEntryShape(body, options = {}) {
  * and api/time-entries-amend-approve.js. Never a second copy of the rule.
  */
 async function inactiveJobAllocationError(allocations) {
+  // Office / Workshop (api/_lib/work-places.js) are not jobs and always take
+  // hours — only real job ids are checked against jobs.json.
   const allocJobIds = [...new Set(
-    (allocations || []).map((a) => a && a.jobId).filter(Boolean)
+    (allocations || []).map((a) => a && a.jobId).filter((id) => id && !isWorkPlaceId(id))
   )];
   if (!allocJobIds.length) return null;
   const jobsBlob = await readBlob('jobs.json', { jobs: [] });

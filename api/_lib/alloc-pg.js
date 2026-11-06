@@ -18,6 +18,8 @@
 // non-null jobId must resolve to an imported job, notes <= 500. A bad entry
 // QUARANTINES (its allocations are skipped) — never guessed/coerced.
 
+const { isWorkPlaceId } = require('./work-places');
+
 const TOLERANCE = 0.011;
 const MAX_NOTES = 500;
 
@@ -84,7 +86,9 @@ function buildAllocationRows({ records = [], userMap = new Map(), jobMap = new M
       const hours = round2(a && a.hours);
       if (!(hours > 0)) { q(`allocation[${i}] hours must be > 0`); return; }
       let job_id = null;
-      if (a && a.jobId != null) {
+      // Office / Workshop (api/_lib/work-places.js) have no jobs row: they
+      // mirror as "no job" (job_id null). Blob keeps the place.
+      if (a && a.jobId != null && !isWorkPlaceId(a.jobId)) {
         job_id = jobMap.get(a.jobId) || null;
         if (!job_id) { q(`allocation[${i}] job "${a.jobId}" not imported`); return; }
       }
