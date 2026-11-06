@@ -57,6 +57,14 @@ describe("bin labels", () => {
     expect(rackLabels(matrix, bay, { code: true, contents: true })).toHaveLength(3);
   });
 
+  it("a rack whose shelves have their own bin counts (#1136) gets a label for each bin that's there — no more, no fewer", () => {
+    const uneven = { id: "ru", name: "4", shelves: 3, bins: 8, shelfBins: [8, 8, 3] };
+    const labels = rackLabels({ racks: [uneven], rules: [] }, uneven, { code: true, contents: true });
+    expect(labels).toHaveLength(19);
+    expect(labels.filter((l) => l.code.startsWith("4C")).map((l) => l.code)).toEqual(["4C-1", "4C-2", "4C-3"]);
+    expect(labels.at(-1)!.code).toBe("4C-3");
+  });
+
   it("every label size, both kinds, as printed on a B1 (48 mm head): all text inside the label", () => {
     const long = { kind: "contents" as const, code: "Cable bay Z-60", place: "Cable bay · Shelf Z · Bin 60", contents: ["2 gang switches", "iconic dimmer", "clipsal 2000 series 4 gang light switch plate"] };
     for (const s of LABEL_SIZES) {
