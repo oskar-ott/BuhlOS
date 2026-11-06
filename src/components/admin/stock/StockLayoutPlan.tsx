@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { LayoutGrid } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
@@ -24,52 +24,57 @@ function PlanSummary({ plan }: { plan: LayoutPlan<StockItem> }) {
   );
 }
 
+/**
+ * A rack drawing: every shelf is as wide as the widest one, and a shelf's bins
+ * share that width evenly, so a shelf with fewer bins has wider bins, the way the
+ * real shelf does, instead of stopping short. The column stretches each row to the
+ * widest; `binClass` gives each bin its least width (which sets the widest shelf).
+ */
+export function RackFrame({ children }: { children: ReactNode }) {
+  return <div className="inline-flex flex-col gap-1">{children}</div>;
+}
+
+export function ShelfRow({ shelf, binClass, testId, children }: { shelf: number; binClass: string; testId?: string; children: ReactNode }) {
+  return (
+    <div className="flex items-stretch gap-1" role="group" aria-label={`Shelf ${shelfLabel(shelf)}`} data-testid={testId}>
+      <span className="console-label w-16 shrink-0 self-center whitespace-nowrap">Shelf {shelfLabel(shelf)}</span>
+      <div className={cn("flex flex-1 gap-1 [&>*]:flex-1 [&>*]:basis-0", binClass)}>{children}</div>
+    </div>
+  );
+}
+
 function PlanRack({ matrix, plan, rack }: { matrix: LocationMatrix; plan: LayoutPlan<StockItem>; rack: LocationMatrix["racks"][number] }) {
   return (
     <section aria-label={`${rackLabel(rack.name)}, recommended`} data-testid="stock-layout-rack">
       <h4 className="font-display text-sm font-semibold text-text">{rackLabel(rack.name)}</h4>
       <div className="mt-1 overflow-x-auto">
-        <table className="border-separate border-spacing-1 text-left">
-          <thead>
-            <tr>
-              <th scope="col" className="sr-only">Shelf</th>
-              {Array.from({ length: rack.bins }, (_, b) => <th key={b} scope="col" className="console-label px-1 text-center">Bin {b + 1}</th>)}
-            </tr>
-          </thead>
-          <tbody>
+        <RackFrame>
             {Array.from({ length: rack.shelves }, (_, s) => (
-              <tr key={s}>
-                <th scope="row" className="console-label whitespace-nowrap pr-2">Shelf {shelfLabel(s + 1)}</th>
-                {Array.from({ length: rack.bins }, (_, b) => {
+              <ShelfRow key={s} shelf={s + 1} binClass="[&>*]:min-w-28">
+                {Array.from({ length: binsOn(rack, s + 1) }, (_, b) => {
                   const shelf = s + 1;
                   const bin = b + 1;
-                  if (bin > binsOn(rack, shelf)) return <td key={b} className="p-0" aria-hidden="true" />;
                   const planned = plan.bins.get(binKey(rack.id, shelf, bin));
                   const keptHere = rulesInBin({ racks: matrix.racks, rules: plan.kept }, rack.id, shelf, bin);
                   const where = locationText(rack, shelf, bin);
                   if (planned) {
                     const room = !planned.labels.length;
                     return (
-                      <td key={b} className="p-0 align-top">
-                        <div data-zone={planned.family.key} className="console-zone h-14 w-28 overflow-hidden rounded-[4px] border p-1 text-xs leading-tight text-text" data-testid="stock-layout-bin" aria-label={`${where}: ${room ? `room for more ${planned.family.label}` : planned.labels.join(", ")}`} role="img">
+                        <div key={b} data-zone={planned.family.key} className="console-zone h-14 overflow-hidden rounded-[4px] border p-1 text-xs leading-tight text-text" data-testid="stock-layout-bin" aria-label={`${where}: ${room ? `room for more ${planned.family.label}` : planned.labels.join(", ")}`} role="img">
                           {room ? <span className="text-text-muted">Room for more</span> : <span className="line-clamp-2 font-medium">{planned.labels.join(", ")}</span>}
                           {planned.stock ? <span className="block font-mono text-text-muted">{count(planned.stock, "item")}</span> : null}
                         </div>
-                      </td>
                     );
                   }
                   return (
-                    <td key={b} className="p-0 align-top">
-                      <div className={cn("h-14 w-28 overflow-hidden rounded-[4px] border p-1 text-xs leading-tight text-text-muted", keptHere.length ? "border-dashed border-border-strong bg-surface" : "border-border bg-surface-subtle")} role="img" aria-label={`${where}: ${keptHere.length ? `your rule, ${keptHere.map((r) => r.words).join(", ")}` : "not used"}`}>
+                      <div key={b} className={cn("h-14 overflow-hidden rounded-[4px] border p-1 text-xs leading-tight text-text-muted", keptHere.length ? "border-dashed border-border-strong bg-surface" : "border-border bg-surface-subtle")} role="img" aria-label={`${where}: ${keptHere.length ? `your rule, ${keptHere.map((r) => r.words).join(", ")}` : "not used"}`}>
                         {keptHere.length ? <span className="line-clamp-2">{keptHere.map((r) => r.words).join(", ")}</span> : <span aria-hidden="true" className="font-mono">·</span>}
                       </div>
-                    </td>
                   );
                 })}
-              </tr>
+              </ShelfRow>
             ))}
-          </tbody>
-        </table>
+        </RackFrame>
       </div>
     </section>
   );
