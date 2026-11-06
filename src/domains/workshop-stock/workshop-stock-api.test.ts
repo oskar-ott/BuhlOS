@@ -804,6 +804,19 @@ describe("a photo of where the item lives", () => {
       expect(store.saveLocationMatrix).not.toHaveBeenCalled();
     });
 
+    it("takes a different bin count on each shelf, and checks rules against their own shelf", async () => {
+      const uneven = { ...RACK, shelves: 3, bins: 2, shelfBins: [4, 8, 2] };
+      const saved = await put({ expectedRevision: 0, racks: [uneven], rules: [{ ...RULE, shelf: 2, bin: 8 }] });
+      expect(saved.statusCode).toBe(200);
+      // `bins` becomes the widest shelf, so a reader that only knows `bins` sizes the grid right
+      expect(store.saveLocationMatrix).toHaveBeenLastCalledWith(expect.anything(), TENANT.id, { racks: [{ ...uneven, bins: 8 }], rules: [{ ...RULE, shelf: 2, bin: 8 }] }, 0, expect.anything());
+      expect((await put({ expectedRevision: 0, racks: [uneven], rules: [{ ...RULE, shelf: 1, bin: 5 }] })).body).toMatchObject({ error: "rule_out_of_range" });
+      expect((await put({ expectedRevision: 0, racks: [{ ...uneven, shelfBins: [4, 8] }], rules: [] })).body).toMatchObject({ error: "invalid_request" });
+      // all the same is just one count
+      await put({ expectedRevision: 0, racks: [{ ...RACK, shelfBins: [5, 5, 5, 5] }], rules: [] });
+      expect(store.saveLocationMatrix).toHaveBeenLastCalledWith(expect.anything(), TENANT.id, { racks: [{ ...RACK, bins: 5 }], rules: [] }, 0, expect.anything());
+    });
+
     it("says so when someone saved first, or the migration isn't applied", async () => {
       store.saveLocationMatrix.mockResolvedValueOnce({ error: "matrix_conflict" });
       const conflict = await put({ expectedRevision: 0, racks: [], rules: [] });

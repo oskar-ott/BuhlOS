@@ -2,7 +2,7 @@ import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 import { absorbLight, barcodeNear, addCalibrationFrame, cropRect, emptyTracker, finishCalibration, findObjects, GONE_MS, newCalibration, SETTLE_MS, sharpness, stepTracker, tableAdvice, type Box, type TrackerState } from "./intake-tracker";
 import { cardForScan, draftFor, typedInto, emptyScan, feedScan, identifiersToTeach, packNeedsCheck, placedAmount, productWords, sameInARow, sameProduct, sessionTotals, waitingQueue } from "./intake";
-import { locationText, matrixLocations, rackLabel, ruleFor, rulesOutsideRack, type LocationMatrix } from "./location-matrix";
+import { binAt, binsOn, locationText, matrixLocations, rackBinCount, rackLabel, rackShape, ruleFor, rulesOutsideRack, shelvesDiffer, type LocationMatrix } from "./location-matrix";
 import { splitLocation } from "./location";
 import type { ReadProduct, StockItem } from "./schema";
 
@@ -255,6 +255,37 @@ describe("location matrix", () => {
     expect(rulesOutsideRack(matrix, "c", 2, 6).map((r) => r.id)).toEqual(["3"]);
     expect(rulesOutsideRack(matrix, "c", 4, 3).map((r) => r.id)).toEqual(["2"]);
     expect(rulesOutsideRack(matrix, "c", 4, 6)).toEqual([]);
+  });
+
+  it("shelves can each have their own number of bins", () => {
+    const uneven: LocationMatrix = { racks: [{ id: "c", name: "3", shelves: 3, bins: 8, shelfBins: [4, 8, 2] }], rules: [{ id: "1", words: "tps", rackId: "c", shelf: 2, bin: 7 }] };
+    const rack = uneven.racks[0]!;
+    expect([binsOn(rack, 1), binsOn(rack, 2), binsOn(rack, 3)]).toEqual([4, 8, 2]);
+    expect(rackBinCount(rack)).toBe(14);
+    expect(shelvesDiffer(rack)).toBe(true);
+    expect(matrixLocations(uneven)).toHaveLength(14);
+    expect(matrixLocations(uneven)).not.toContain("Rack 3 Shelf A, Bin 5");
+    expect(binAt("Rack 3 Shelf B, Bin 8", uneven)).toMatchObject({ shelf: 2, bin: 8 });
+    expect(binAt("Rack 3 Shelf A, Bin 8", uneven)).toBeNull();
+    expect(binAt("Rack 3 Shelf C, Bin 3", uneven)).toBeNull();
+    // shrinking only shelf B strands its rule; shrinking the others doesn't
+    expect(rulesOutsideRack(uneven, "c", 3, 8, [1, 6, 1]).map((r) => r.id)).toEqual(["1"]);
+    expect(rulesOutsideRack(uneven, "c", 3, 8, [1, 7, 1])).toEqual([]);
+    // an old rack with no shelfBins is every shelf the same
+    expect(binsOn({ bins: 6 }, 3)).toBe(6);
+    expect(shelvesDiffer({ shelves: 4, bins: 6 })).toBe(false);
+  });
+
+  it("tidies a rack's size", () => {
+    expect(rackShape(3, 6)).toEqual({ shelves: 3, bins: 6 });
+    expect(rackShape(3, 6, [4, 8, 2])).toEqual({ shelves: 3, bins: 8, shelfBins: [4, 8, 2] });
+    expect(rackShape(3, 6, [5, 5, 5])).toEqual({ shelves: 3, bins: 5 });
+    expect(rackShape(3, 6, [4])).toEqual({ shelves: 3, bins: 6, shelfBins: [4, 6, 6] });
+    expect(rackShape(2, 6, [4, 8, 2])).toEqual({ shelves: 2, bins: 8, shelfBins: [4, 8] });
+    expect(rackShape(3, 6, [4, 0, 2])).toBeNull();
+    expect(rackShape(3, 6, [4, 61, 2])).toBeNull();
+    expect(rackShape(0, 6)).toBeNull();
+    expect(rackShape(3, 1.5)).toBeNull();
   });
 });
 

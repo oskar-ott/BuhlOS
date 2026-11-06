@@ -275,7 +275,7 @@ export type LookupResult = z.infer<typeof LookupResultSchema>;
 export const LocationMatrixSchema = z.object({
   available: z.boolean(),
   matrix: z.object({
-    racks: z.array(z.object({ id: z.string(), name: z.string(), shelves: z.number(), bins: z.number() })),
+    racks: z.array(z.object({ id: z.string(), name: z.string(), shelves: z.number(), bins: z.number(), shelfBins: z.array(z.number()).optional() })),
     rules: z.array(z.object({ id: z.string(), words: z.string(), rackId: z.string(), shelf: z.number(), bin: z.number() })),
   }),
   revision: z.number(),

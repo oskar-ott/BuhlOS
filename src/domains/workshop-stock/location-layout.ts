@@ -1,6 +1,6 @@
 import { itemWords } from "./intake";
 import type { MapItem } from "./location-map";
-import { binAt, binKey, locationText, ruleFor, type LocationMatrix, type MatrixRack, type MatrixRule } from "./location-matrix";
+import { binAt, binKey, binsOn, locationText, ruleFor, type LocationMatrix, type MatrixRack, type MatrixRule } from "./location-matrix";
 import { canonicalWords } from "./trade-terms";
 
 /**
@@ -243,8 +243,9 @@ function path(matrix: LocationMatrix): Slot[] {
   const out: Slot[] = [];
   matrix.racks.forEach((rack, rackIndex) => {
     for (let shelf = 1; shelf <= rack.shelves; shelf += 1) {
-      for (let n = 1; n <= rack.bins; n += 1) {
-        out.push({ rack, rackIndex, shelf, bin: shelf % 2 ? n : rack.bins + 1 - n, index: out.length });
+      const bins = binsOn(rack, shelf);
+      for (let n = 1; n <= bins; n += 1) {
+        out.push({ rack, rackIndex, shelf, bin: shelf % 2 ? n : bins + 1 - n, index: out.length });
       }
     }
   });

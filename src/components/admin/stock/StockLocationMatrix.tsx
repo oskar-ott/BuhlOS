@@ -9,7 +9,7 @@ import { balanceLabel, errorCopy } from "@/domains/workshop-stock/format";
 import { placementIssues, shelfMap, suggestBin, type BinSuggestion } from "@/domains/workshop-stock/location-map";
 import type { StockItem } from "@/domains/workshop-stock/schema";
 import { guessType } from "@/domains/workshop-stock/types";
-import { binKey, locationText, MAX_BINS, MAX_SHELVES, rackLabel, ruleFor, rulesInBin, rulesOutsideRack, shelfLabel, type LocationMatrix, type MatrixRack } from "@/domains/workshop-stock/location-matrix";
+import { binKey, binsOn, locationText, MAX_BINS, MAX_SHELVES, rackBinCount, rackLabel, rackShape, ruleFor, rulesInBin, rulesOutsideRack, shelfLabel, shelvesDiffer, type LocationMatrix, type MatrixRack } from "@/domains/workshop-stock/location-matrix";
 import { Block } from "./StockAdminForms";
 import { StockLayoutPlan } from "./StockLayoutPlan";
 import { BinLabelBar, BinLabelPreview, drawBinLabels, RackLabelPrint, useBinLabelPick } from "./BinLabels";
@@ -28,11 +28,70 @@ function NumberField({ label, value, onChange, max, testId }: { label: string; v
   );
 }
 
-function rackFromFields(name: string, shelves: string, bins: string): { name: string; shelves: number; bins: number } | null {
-  const s = Number(shelves);
-  const b = Number(bins);
-  if (!name.trim() || !Number.isInteger(s) || !Number.isInteger(b) || s < 1 || b < 1 || s > MAX_SHELVES || b > MAX_BINS) return null;
-  return { name: name.trim(), shelves: s, bins: b };
+/** What the rack form holds: shelfBins is set once "Shelves differ" is ticked, one count per shelf. */
+interface RackFields {
+  name: string;
+  shelves: string;
+  bins: string;
+  shelfBins: string[] | null;
+}
+
+const NEW_RACK: RackFields = { name: "", shelves: "4", bins: "6", shelfBins: null };
+
+function rackFromFields(f: RackFields): Pick<MatrixRack, "name" | "shelves" | "bins" | "shelfBins"> | null {
+  if (!f.name.trim()) return null;
+  const shelves = Number(f.shelves);
+  const shape = rackShape(shelves, Number(f.bins), f.shelfBins ? Array.from({ length: Math.max(0, shelves) }, (_, i) => Number(f.shelfBins![i] ?? f.bins)) : null);
+  return shape ? { name: f.name.trim(), ...shape } : null;
+}
+
+function rackSize(rack: MatrixRack): string {
+  const shelves = `${rack.shelves} ${rack.shelves === 1 ? "shelf" : "shelves"}`;
+  if (!shelvesDiffer(rack)) return `${shelves} × ${rack.bins} ${rack.bins === 1 ? "bin" : "bins"}`;
+  return `${shelves}, ${rackBinCount(rack)} bins (${Array.from({ length: rack.shelves }, (_, i) => `${shelfLabel(i + 1)} ${binsOn(rack, i + 1)}`).join(", ")})`;
+}
+
+/** Shelves, bins, and — when the shelves aren't all the same — how many bins on each one. */
+function RackSizeFields({ fields, onChange, testId }: { fields: RackFields; onChange: (f: RackFields) => void; testId?: string }) {
+  const shelves = Math.min(MAX_SHELVES, Math.max(0, Math.floor(Number(fields.shelves)) || 0));
+  return (
+    <>
+      <NumberField label="Shelves" value={fields.shelves} onChange={(v) => onChange({ ...fields, shelves: v })} max={MAX_SHELVES} testId={testId ? `${testId}-shelves` : undefined} />
+      {fields.shelfBins ? null : <NumberField label="Bins per shelf" value={fields.bins} onChange={(v) => onChange({ ...fields, bins: v })} max={MAX_BINS} testId={testId ? `${testId}-bins` : undefined} />}
+      <label className="console-label flex h-9 items-center gap-1.5">
+        <input
+          type="checkbox"
+          checked={!!fields.shelfBins}
+          onChange={(e) => onChange({ ...fields, shelfBins: e.target.checked ? Array.from({ length: shelves }, () => fields.bins) : null })}
+          data-testid={testId ? `${testId}-differ` : undefined}
+        />
+        Shelves differ
+      </label>
+      {fields.shelfBins ? (
+        <div className="flex basis-full flex-wrap items-end gap-2" role="group" aria-label="Bins on each shelf">
+          {Array.from({ length: shelves }, (_, i) => (
+            <label key={i} className="console-label block">
+              Shelf {shelfLabel(i + 1)}
+              <input
+                type="number"
+                min={1}
+                max={MAX_BINS}
+                value={fields.shelfBins![i] ?? fields.bins}
+                onChange={(e) => {
+                  const next = Array.from({ length: shelves }, (_, j) => fields.shelfBins![j] ?? fields.bins);
+                  next[i] = e.target.value;
+                  onChange({ ...fields, shelfBins: next });
+                }}
+                aria-label={`Bins on shelf ${shelfLabel(i + 1)}`}
+                className={cn(INPUT, "mt-1 block w-16 font-sans")}
+                data-testid={testId ? `${testId}-shelf-bins` : undefined}
+              />
+            </label>
+          ))}
+        </div>
+      ) : null}
+    </>
+  );
 }
 
 /**
@@ -54,8 +113,8 @@ export function StockLocationMatrix() {
   const [saving, setSaving] = useState(false);
   const [open, setOpen] = useState<{ rackId: string; shelf: number; bin: number } | null>(null);
   const [words, setWords] = useState("");
-  const [newRack, setNewRack] = useState({ name: "", shelves: "4", bins: "6" });
-  const [editing, setEditing] = useState<{ id: string; name: string; shelves: string; bins: string } | null>(null);
+  const [newRack, setNewRack] = useState<RackFields>(NEW_RACK);
+  const [editing, setEditing] = useState<(RackFields & { id: string }) | null>(null);
   const [tryText, setTryText] = useState("");
   const [removing, setRemoving] = useState<MatrixRack | null>(null);
   const [items, setItems] = useState<StockItem[] | null>(null);
@@ -105,27 +164,28 @@ export function StockLocationMatrix() {
 
   async function addRack() {
     if (!matrix) return;
-    const fields = rackFromFields(newRack.name, newRack.shelves, newRack.bins);
+    const fields = rackFromFields(newRack);
     if (!fields) {
-      setSaveError(`Give the rack a name, up to ${MAX_SHELVES} shelves and up to ${MAX_BINS} bins per shelf.`);
+      setSaveError(`Give the rack a name, up to ${MAX_SHELVES} shelves and 1 to ${MAX_BINS} bins on each shelf.`);
       return;
     }
-    if (await save({ ...matrix, racks: [...matrix.racks, { id: newOperationKey(), ...fields }] })) setNewRack({ name: "", shelves: "4", bins: "6" });
+    if (await save({ ...matrix, racks: [...matrix.racks, { id: newOperationKey(), ...fields }] })) setNewRack(NEW_RACK);
   }
 
   async function saveRackEdit() {
     if (!matrix || !editing) return;
-    const fields = rackFromFields(editing.name, editing.shelves, editing.bins);
+    const fields = rackFromFields(editing);
     if (!fields) {
-      setSaveError(`Give the rack a name, up to ${MAX_SHELVES} shelves and up to ${MAX_BINS} bins per shelf.`);
+      setSaveError(`Give the rack a name, up to ${MAX_SHELVES} shelves and 1 to ${MAX_BINS} bins on each shelf.`);
       return;
     }
-    const stranded = rulesOutsideRack(matrix, editing.id, fields.shelves, fields.bins);
+    const stranded = rulesOutsideRack(matrix, editing.id, fields.shelves, fields.bins, fields.shelfBins);
     if (stranded.length) {
       setSaveError(`Smaller than that leaves "${stranded[0]!.words}" with no bin. Clear it first.`);
       return;
     }
-    if (await save({ ...matrix, racks: matrix.racks.map((r) => (r.id === editing.id ? { ...r, ...fields } : r)) })) setEditing(null);
+    // Spelled out so going back to one count for every shelf drops the old per-shelf counts.
+    if (await save({ ...matrix, racks: matrix.racks.map((r) => (r.id === editing.id ? { id: r.id, ...fields } : r)) })) setEditing(null);
   }
 
   async function removeRack(rack: MatrixRack) {
@@ -194,7 +254,7 @@ export function StockLocationMatrix() {
       <header className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-[4px] border border-border bg-surface px-3 py-2">
         <span className="font-mono text-[13px] font-bold uppercase tracking-[0.1em] text-text">Location matrix</span>
         <span className="console-label">{matrix.racks.length} {matrix.racks.length === 1 ? "rack" : "racks"}</span>
-        <span className="console-label">{matrix.racks.reduce((n, r) => n + r.shelves * r.bins, 0)} bins</span>
+        <span className="console-label">{matrix.racks.reduce((n, r) => n + rackBinCount(r), 0)} bins</span>
         <span className="console-label" data-testid="stock-matrix-used">{map.bins.size} in use</span>
         <span className="console-label">{matrix.rules.length} {matrix.rules.length === 1 ? "rule" : "rules"}</span>
         {items ? <span className="console-label" data-testid="stock-matrix-issue-count">{issues.length} {issues.length === 1 ? "needs" : "need"} a place</span> : null}
@@ -210,8 +270,7 @@ export function StockLocationMatrix() {
               Name
               <input value={newRack.name} onChange={(e) => setNewRack({ ...newRack, name: e.target.value })} maxLength={30} placeholder="1" className={cn(INPUT, "mt-1 block w-32 font-sans normal-case tracking-normal")} data-testid="stock-matrix-rack-name" />
             </label>
-            <NumberField label="Shelves" value={newRack.shelves} onChange={(v) => setNewRack({ ...newRack, shelves: v })} max={MAX_SHELVES} testId="stock-matrix-rack-shelves" />
-            <NumberField label="Bins each" value={newRack.bins} onChange={(v) => setNewRack({ ...newRack, bins: v })} max={MAX_BINS} testId="stock-matrix-rack-bins" />
+            <RackSizeFields fields={newRack} onChange={setNewRack} testId="stock-matrix-rack" />
             <Button type="button" size="sm" disabled={saving} onClick={() => void addRack()} data-testid="stock-matrix-rack-add"><Plus aria-hidden="true" className="h-4 w-4" /> Add rack</Button>
           </div>
         </section>
@@ -277,17 +336,16 @@ export function StockLocationMatrix() {
                 Name
                 <input value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} maxLength={30} className={cn(INPUT, "mt-1 block w-32 font-sans normal-case tracking-normal")} />
               </label>
-              <NumberField label="Shelves" value={editing.shelves} onChange={(v) => setEditing({ ...editing, shelves: v })} max={MAX_SHELVES} />
-              <NumberField label="Bins per shelf" value={editing.bins} onChange={(v) => setEditing({ ...editing, bins: v })} max={MAX_BINS} />
+              <RackSizeFields fields={editing} onChange={(f) => setEditing({ ...f, id: editing.id })} />
               <Button type="button" size="sm" disabled={saving} onClick={() => void saveRackEdit()}>Save</Button>
               <Button type="button" variant="ghost" size="sm" onClick={() => setEditing(null)}>Cancel</Button>
             </div>
           ) : (
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="font-display text-lg font-semibold text-text">{rackLabel(rack.name)}</h2>
-              <span className="console-label">{rack.shelves} {rack.shelves === 1 ? "shelf" : "shelves"} × {rack.bins} {rack.bins === 1 ? "bin" : "bins"}</span>
+              <span className="console-label" data-testid="stock-matrix-rack-size">{rackSize(rack)}</span>
               <span className="flex-1" />
-              <Button type="button" variant="ghost" size="sm" onClick={() => setEditing({ id: rack.id, name: rack.name, shelves: String(rack.shelves), bins: String(rack.bins) })}>Change</Button>
+              <Button type="button" variant="ghost" size="sm" onClick={() => setEditing({ id: rack.id, name: rack.name, shelves: String(rack.shelves), bins: String(rack.bins), shelfBins: shelvesDiffer(rack) ? Array.from({ length: rack.shelves }, (_, i) => String(binsOn(rack, i + 1))) : null })}>Change</Button>
               <Button type="button" variant="ghost" size="sm" disabled={saving} onClick={() => askRemoveRack(rack)} aria-label={`Remove ${rackLabel(rack.name)}`}><Trash2 aria-hidden="true" className="h-4 w-4" /></Button>
             </div>
           )}
@@ -318,6 +376,7 @@ export function StockLocationMatrix() {
                     {Array.from({ length: rack.bins }, (_, b) => {
                       const shelf = s + 1;
                       const bin = b + 1;
+                      if (bin > binsOn(rack, shelf)) return <td key={b} className="p-0" aria-hidden="true" />;
                       const here = rulesInBin(matrix, rack.id, shelf, bin);
                       const stock = map.bins.get(binKey(rack.id, shelf, bin)) ?? [];
                       const isOpen = open?.rackId === rack.id && open.shelf === shelf && open.bin === bin;
