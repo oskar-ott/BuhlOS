@@ -21,13 +21,16 @@ import { rackLabel, rulesInBin, shelfLabel, type LocationMatrix, type MatrixRack
  * (owner's pick, 2026-11-05, over keeping "A2 B3" literally).
  */
 
-export type BinLabelKind = "both" | "code" | "contents";
+export type BinLabelKind = "code" | "contents";
 
-export const BIN_LABEL_KINDS: ReadonlyArray<{ key: BinLabelKind; label: string }> = [
-  { key: "both", label: "Code + contents" },
-  { key: "code", label: "Code only" },
-  { key: "contents", label: "Contents only" },
-];
+/**
+ * Which of a bin's labels to print — each one picked on its own (owner,
+ * 2026-11-06: "i want to be able to pick which labels not have 2 labels
+ * printed for each bin").
+ */
+export type BinLabelPick = Readonly<Record<BinLabelKind, boolean>>;
+
+export const BIN_LABEL_NAMES: Readonly<Record<BinLabelKind, string>> = { code: "Code label", contents: "Contents label" };
 
 /**
  * "3B-4" for rack 3, shelf B, bin 4. A rack named in words keeps its name:
@@ -40,7 +43,7 @@ export function binCode(rack: Pick<MatrixRack, "name">, shelf: number, bin: numb
 }
 
 export interface BinLabelSpec {
-  kind: "code" | "contents";
+  kind: BinLabelKind;
   /** "3B-4" */
   code: string;
   /** "Rack 3 · Shelf B · Bin 4" — the place in words, under the code on a tall label */
@@ -49,22 +52,29 @@ export interface BinLabelSpec {
   contents: string[];
 }
 
-/** The labels for one bin, by kind. A bin with nothing set gets no contents label (there's nothing to say). */
-export function binLabels(matrix: LocationMatrix, rack: MatrixRack, shelf: number, bin: number, kind: BinLabelKind): BinLabelSpec[] {
+/**
+ * Every label a bin can have: its code label, and its contents label when it
+ * has words (a bin with nothing set has nothing to say on one).
+ */
+export function binLabels(matrix: LocationMatrix, rack: MatrixRack, shelf: number, bin: number): BinLabelSpec[] {
   const code = binCode(rack, shelf, bin);
   const place = `${rackLabel(rack.name)} · Shelf ${shelfLabel(shelf)} · Bin ${bin}`;
   const contents = rulesInBin(matrix, rack.id, shelf, bin).map((r) => r.words.trim()).filter(Boolean);
-  const out: BinLabelSpec[] = [];
-  if (kind !== "contents") out.push({ kind: "code", code, place, contents });
-  if (kind !== "code" && contents.length) out.push({ kind: "contents", code, place, contents });
+  const out: BinLabelSpec[] = [{ kind: "code", code, place, contents }];
+  if (contents.length) out.push({ kind: "contents", code, place, contents });
   return out;
 }
 
-/** Every bin of a rack, shelf by shelf, bin by bin — the order they sit in. */
-export function rackLabels(matrix: LocationMatrix, rack: MatrixRack, kind: BinLabelKind): BinLabelSpec[] {
+/** The labels picked to print. */
+export function pickedLabels(specs: BinLabelSpec[], pick: BinLabelPick): BinLabelSpec[] {
+  return specs.filter((s) => pick[s.kind]);
+}
+
+/** A rack's picked labels, shelf by shelf, bin by bin — the order they sit in. */
+export function rackLabels(matrix: LocationMatrix, rack: MatrixRack, pick: BinLabelPick): BinLabelSpec[] {
   const out: BinLabelSpec[] = [];
   for (let shelf = 1; shelf <= rack.shelves; shelf++) {
-    for (let bin = 1; bin <= rack.bins; bin++) out.push(...binLabels(matrix, rack, shelf, bin, kind));
+    for (let bin = 1; bin <= rack.bins; bin++) out.push(...pickedLabels(binLabels(matrix, rack, shelf, bin), pick));
   }
   return out;
 }
