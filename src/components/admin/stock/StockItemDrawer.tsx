@@ -368,7 +368,7 @@ export function StockItemDrawer({ itemId, lookupEnabled, locationPhotoEnabled = 
               {tab === "label" ? (
                 <div className="space-y-2">
                   <p className="text-sm text-text-muted">A NIIMBOT barcode label, for items with no packaging to scan.</p>
-                  <BarcodeLabel item={item} onItemChanged={changed} />
+                  <BarcodeLabel item={item} onItemChanged={changed} directPrint />
                 </div>
               ) : null}
             </>

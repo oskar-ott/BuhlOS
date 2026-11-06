@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Camera, Columns3, Globe, Grid3x3, LayoutGrid, Plus, RefreshCw, Rows3, Search, Tags } from "lucide-react";
+import { Camera, Columns3, Globe, Grid3x3, LayoutGrid, Plus, RefreshCw, Rows3, ScanBarcode, Search, Tags } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
 import { fetchStockList } from "@/domains/workshop-stock/client";
@@ -220,6 +220,9 @@ export function StockAdminClient({ initialItemId }: { initialItemId?: string | n
         <div className="flex items-center gap-1 pb-1">
           <Link href="/stock/intake" className={TOOL} title="Camera table" data-testid="stock-open-intake">
             <Camera aria-hidden="true" className="h-4 w-4" /> <span className="hidden xl:inline">Camera table</span>
+          </Link>
+          <Link href="/stock/scan" className={TOOL} title="Barcode scanner" data-testid="stock-open-scan">
+            <ScanBarcode aria-hidden="true" className="h-4 w-4" /> <span className="hidden 2xl:inline">Barcode scanner</span>
           </Link>
           <Link href="/stock/locations" className={TOOL} title="Location matrix" data-testid="stock-open-matrix">
             <Grid3x3 aria-hidden="true" className="h-4 w-4" /> <span className="hidden xl:inline">Location matrix</span>

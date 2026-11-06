@@ -782,12 +782,12 @@ describe("a photo of where the item lives", () => {
   });
 
   describe("camera table + location matrix", () => {
-    const RACK = { id: "c", name: "C", shelves: 4, bins: 6 };
+    const RACK = { id: "c", name: "3", shelves: 4, bins: 6 };
     const RULE = { id: "r1", words: "iconic switch", rackId: "c", shelf: 2, bin: 4 };
     const put = (body: unknown, user = "u_office") => call({ method: "PUT", user, query: { action: "location-matrix" }, body });
 
-    it("the matrix is the office's, read and write", async () => {
-      expect((await call({ user: "u_field", query: { action: "location-matrix" } })).statusCode).toBe(403);
+    it("anyone adding stock reads the matrix; only the office changes it", async () => {
+      expect((await call({ user: "u_field", query: { action: "location-matrix" } })).statusCode).toBe(200);
       expect((await put({ expectedRevision: 0, racks: [], rules: [] }, "u_field")).statusCode).toBe(403);
       expect(store.saveLocationMatrix).not.toHaveBeenCalled();
       expect((await call({ user: "u_office", query: { action: "location-matrix" } })).statusCode).toBe(200);
@@ -804,8 +804,21 @@ describe("a photo of where the item lives", () => {
       expect((await put({ expectedRevision: 0, racks: [RACK], rules: [{ ...RULE, shelf: 5 }] })).body).toMatchObject({ error: "rule_out_of_range" });
       expect((await put({ expectedRevision: 0, racks: [RACK], rules: [{ ...RULE, bin: 7 }] })).body).toMatchObject({ error: "rule_out_of_range" });
       expect((await put({ expectedRevision: 0, racks: [RACK], rules: [{ ...RULE, rackId: "gone" }] })).body).toMatchObject({ error: "rule_out_of_range" });
-      expect((await put({ expectedRevision: 0, racks: [RACK, { ...RACK, id: "d", name: "c" }], rules: [] })).body).toMatchObject({ error: "rack_duplicate" });
+      expect((await put({ expectedRevision: 0, racks: [{ ...RACK, name: "C" }, { ...RACK, id: "d", name: "c" }], rules: [] })).body).toMatchObject({ error: "rack_duplicate" });
       expect(store.saveLocationMatrix).not.toHaveBeenCalled();
+    });
+
+    it("takes a different bin count on each shelf, and checks rules against their own shelf", async () => {
+      const uneven = { ...RACK, shelves: 3, bins: 2, shelfBins: [4, 8, 2] };
+      const saved = await put({ expectedRevision: 0, racks: [uneven], rules: [{ ...RULE, shelf: 2, bin: 8 }] });
+      expect(saved.statusCode).toBe(200);
+      // `bins` becomes the widest shelf, so a reader that only knows `bins` sizes the grid right
+      expect(store.saveLocationMatrix).toHaveBeenLastCalledWith(expect.anything(), TENANT.id, { racks: [{ ...uneven, bins: 8 }], rules: [{ ...RULE, shelf: 2, bin: 8 }] }, 0, expect.anything());
+      expect((await put({ expectedRevision: 0, racks: [uneven], rules: [{ ...RULE, shelf: 1, bin: 5 }] })).body).toMatchObject({ error: "rule_out_of_range" });
+      expect((await put({ expectedRevision: 0, racks: [{ ...uneven, shelfBins: [4, 8] }], rules: [] })).body).toMatchObject({ error: "invalid_request" });
+      // all the same is just one count
+      await put({ expectedRevision: 0, racks: [{ ...RACK, shelfBins: [5, 5, 5, 5] }], rules: [] });
+      expect(store.saveLocationMatrix).toHaveBeenLastCalledWith(expect.anything(), TENANT.id, { racks: [{ ...RACK, bins: 5 }], rules: [] }, 0, expect.anything());
     });
 
     it("says so when someone saved first, or the migration isn't applied", async () => {

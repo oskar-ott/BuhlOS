@@ -175,7 +175,14 @@ recorded, and where they live.
 
 - **Camera table** (`/stock/intake`): log a large number of items with a webcam
   above a table. **Location matrix** (`/stock/locations`): say what goes in each
-  bin. Both [below](#camera-table-and-location-matrix).
+  bin, see what's in each bin, and place stock that has no bin. The Add form uses it
+  too. All [below](#camera-table-and-location-matrix).
+
+**Scanner display (2026-11-03)**
+
+- **Barcode scanner** (`/stock/scan`): the camera table without the camera — a
+  USB scanner at the office computer, each scan logged, and where it goes shown
+  large. [Below](#the-scanner-display).
 
 **Not gear.** Gear (tools and equipment) has custody, serials, test-and-tag and
 "who has it". Workshop stock has none of that: an item is a quantity on a shelf
@@ -213,40 +220,127 @@ accuracy nobody has measured.
 
 1. **Start** takes a picture of the empty table. A frame about 320 px wide is
    compared with it a few times a second (`intake-tracker.ts`); anything new gets
-   a dashed red box. *What counts as new* (2026-11-03, after the first real
-   webcam boxed the light band, the vignetting and the shadows as dozens of
-   objects and missed a white bag on a white table): the table's light is first
-   matched region by region as a **gain** (auto-exposure scales brightness), then
-   a spot is new when its **edges** changed (an object brings an outline and
-   print; a light change is smooth) or its colour changed a lot. Both thresholds
-   rise with the camera's own noise, measured on each frame.
+   a dashed red box.
 2. It counts once it has sat still for 0.8 s. A blob touching the edge of the
-   picture is an arm: it never counts, and whatever it covers stays on the table
-   while it does. A nudged object is the same object. Objects pushed together turn
-   amber ("Touching: move them apart") and any that split off count then.
-3. A sharp crop of the full-size frame is taken. **A barcode** in it is matched
-   against the list right there — or, if the crop has none, a barcode anywhere in
-   the full picture whose centre is on or just beside the object (a box spotted a
-   little small no longer cuts its barcode off); otherwise the crop goes to the
-   **label reader** (the same one as the phone, two at a time).
-4. **An exact barcode or code match logs by itself** and the box turns green.
+   table area is an arm: it never counts, and only what it actually lies on counts
+   as covered, so an arm resting across the table doesn't hold up the rest of it. A
+   nudged object is the same object. Objects pushed together turn amber ("Touching:
+   move them apart") and any that split off count then. A difference with no hard
+   edge of its own is a shadow, never an object. Pieces within about 2 cells of each other
+   are one thing, because a clear bag shows only its label, product and glare. Something
+   already counted keeps to its own box, so the next thing put down beside it stays
+   separate; two things put down together that close are one.
+3. **Nothing arrives without a hand near it or a sudden jump in the picture,** so glare
+   creeping in or a patch the focus has shifted never counts: it gets no box and after 3 s
+   is taken as table. Three or more new things at once with no hand in shot is the picture
+   itself jumping: "The picture isn't steady" shows and nothing new counts for 1.5 s.
+   **Nothing leaves the table unless a hand was over it.** A shadow crossing an
+   object or the light changing can't make it count twice. A spot a hand has emptied
+   is free again in about half a second, and a different-looking object found where a
+   hand has just been is a new one, so a pile can be worked through one spot.
+4. A crop of the full-size frame is taken. **A barcode** in it is matched against the
+   list right there, trying up to three frames, because barcodes are free and a webcam
+   often refocuses just after a hand leaves. If the crop holds none, a barcode anywhere
+   in the full picture on or just beside the object counts, because a box spotted a little
+   small can cut it off. Otherwise the sharpest frame goes to the **label reader** (the
+   same one as the phone, four at a time, retried once by itself if it fails in passing).
+   At most 8 reads wait at once: past that the object asks a person instead, because each
+   read costs money and a flickering table once queued 120.
+5. **An exact barcode or code match logs by itself** and the box turns green.
    Words alone never do, because two GPOs look alike: "Is it one of these?" stays
-   red until someone picks, and a pick teaches the item that barcode.
-5. **Not on the list:** stays red with one card, already filled in: name from the
-   label, amount, location from the matrix. One tap adds it. Anything else waiting
-   with the same code then logs by itself, and so does every later one.
+   red until someone picks, and a pick teaches the item every code printed on it, so
+   the next one logs itself. An exact code match also keeps a barcode it saw, so the
+   next one is free and instant.
+6. **Not on the list:** stays red with one card, already filled in: name from the
+   label, amount, location from the matrix, or a suggested free bin with its reason.
+   One tap adds it. Anything else waiting with the same code shares that card and logs
+   with it, and so does every later one.
+7. **No label it can read:** the card says to turn it label up, and turning it over
+   reads it again. Taken away unread, it stays in the log as "Not logged", with its
+   picture and a way to read it again, so a missed item can't vanish silently.
 
 **Amount.** A loose item adds 1. A box printed "Pack of 10" of something counted
 each adds 10, and the row says the size came from the label. An item counted in
 boxes adds 1 box. A length is never guessed: without a printed length it asks.
-Any logged amount can be changed afterwards, which undoes that movement and records
+A pack size of 100 or more, or one that differs from what that item's label said
+earlier in the session, is checked with a person once, then trusted: a misread "1000"
+would otherwise go straight on the record. Any logged amount can be changed afterwards, which undoes that movement and records
 a new one, both in the item's history. Each placement is its own ledger movement
 with the note "Camera table" and its own idempotency key, so a lost answer retried
 is never counted twice, and Undo takes back that one placement.
 
-**"All the same"** on a logged row: everything placed from then on logs as that item
-and amount with no read at all, until Stop. For a run of identical items, and for
-loose items with no readable label.
+**The first-session routine.** With an empty list every product is new, so the screen is built
+for: put one down, wait for the box, type how many, Enter. Digits typed with no field in use
+go to a new card's count, or to the amount of what just logged; letters go to a new card's
+name and never run a shortcut there (`typedInto`). A count already in a box is replaced, not
+added to. A blank name gets the cursor. Esc is "not stock" on a new card. Waiting cards and what
+was typed in them survive a reload, without their photos (`intake-session.ts`).
+
+**Talking instead of typing (owner pull, 2026-11-04).** `Talk` (or `V`) opens the microphone until
+it's turned off or someone says "stop listening", for when both hands are full. Say what it is and
+how many, then "add it", in one breath or over several: "Iconic single switch, forty, add it",
+"100 metres of TPS", "rack 3 shelf B bin 4". A strip under the button shows what can be said for the
+card that's open. `parseSpoken` (`spoken.ts`) splits the words:
+
+- A number on the end, or "forty of…", is how many. A number that belongs to the product stays in
+  the name ("cat 6", "IP 65"); "cat 6 times 10" says otherwise. A wrong split shows in the box.
+- The first name said replaces what the label gave; later phrases add to it, because a recogniser
+  ends a phrase at any short pause. "Scratch that" puts the card back to before anyone spoke.
+- **Saving by voice** is "add it", "log it" or "save it" (also "add that" and so on) on the end of a
+  phrase or alone, or "done" alone. Enter still works. A spoken save goes through the same checks as
+  Enter, so a card with no name stays open and says so. "Undo" takes back the last one logged, once
+  nothing is still on its way to the record. Only these fixed phrases act, so talk nearby can
+  fill a box, which shows, but can't save unless it says one of them.
+- Said while a label is being read, the words are held and land on the card when it opens. With
+  more than one being read it asks you to wait, since it can't tell which one you mean. If the read
+  logs by itself, a count that was said changes that amount.
+- A number alone fills a new card's or amount card's count, or opens the amount on what just logged;
+  "log it" lands it, "sixty log it" does both.
+- A list on a card is picked with "number 2", "pick two" or "the second one". Search results carry
+  on the card's numbering. A bare number never picks, because "to" and "for" get heard as numbers.
+  The words search the list on a pick or problem card. "Not stock" and "read it again" do what those
+  buttons do.
+- The cursor in "Goes to" takes the words as they are, for a bin with no rack and shelf in its name.
+
+It uses the browser's own speech recognition (`useSpeech.ts`, `en-AU`): no BuhlOS server or cost, but
+Chrome sends the audio to Google to turn into words, so it needs the internet. A browser without
+it (Firefox) shows no button. Proven only against a stand-in recogniser in
+`camera-table-flows.e2e.spec.ts`; accuracy on trade words, on the save phrases, a real microphone and
+workshop noise are unproven. The phone and office Add forms aren't changed: a phone keyboard already
+has a microphone.
+
+**"All the same"** on a logged row, offered by itself after three in a row: everything
+placed from then on logs as that item and amount with no read at all, until Stop. For a
+run of identical items, and for loose items with no readable label.
+
+**A hand scanner** (USB or Bluetooth, the kind that types like a keyboard) works on this
+screen with no setup. A scan goes to the oldest waiting card with no barcode of its own,
+and never replaces a barcode a card already has (`cardForScan`). Otherwise, with the table
+running, it names the next thing placed, which then logs without a read, unless that
+barcode is already waiting on the table; with the table stopped, each scan is +1 by
+itself, and a barcode the list doesn't know gets its own card, repeats sharing one. Keys
+arriving faster than anyone types, then Enter, are taken as a scan (`feedScan`), even with
+the cursor in a field: the field goes back to what it held and nothing saves.
+
+**Setting up.** "Table area" draws the part of the picture the table fills; anything
+outside it is ignored and its edge counts as the picture's edge. Reading the empty table
+restarts if something moves, sets its sensitivity from the sensor noise it measures, and
+says if the table is too dark, blown out, grainy or busy. Where a webcam allows it,
+exposure and white balance are held while counting ("Exposure: Held"; not every webcam
+does, and whether a real one does is unproven). Pale stock vanishes on a white mat and
+dark stock on a black one, so use a plain mid-coloured mat. Small print needs pixels:
+at 1920 wide across a 1 m table that's under 2 px per mm, so bring the camera as close
+as the table allows, or use a 4K one.
+
+**Light.** Exposure and white balance are allowed for per brightness and per channel,
+because exposure moves bright pixels further than dark ones (`toneCurve`). Frames are shrunk
+with averaging (`imageSmoothingQuality`): the canvas default only samples the big picture,
+which keeps three times the noise, measured in Chromium.
+
+**When things go wrong.** A webcam that stops or freezes shows "Camera lost", counting
+pauses, and it reconnects by itself and waits for "Carry on". The log survives a reload,
+Undo included, for 12 hours, on that computer only. A reload with reads or cards still
+open asks first.
 
 This is the one place stock is written without a person confirming the quantity.
 The reader still doesn't count (no field for it): the count is one per object the
@@ -269,10 +363,17 @@ rely on colour.
   away. The same text is announced to screen readers.
 - **Sound**, so nobody has to look up: a rising pair when logged, a low pair when it
   needs you. Mute with the speaker button or `M`.
-- **Keyboard:** `Space` pause, `U` undo the last one, `F` full screen, `M` sound.
-- **The status bar only shows measured values:** the camera's real resolution (flagged
-  low under 1920 wide), the real analysis rate, what's on the table now, whether this
-  browser reads barcodes, and how many bin rules exist.
+- **Keyboard:** `Space` pause, `U` undo the last one, `Enter` add the open card, `1`–`9`
+  pick a choice, `X` ignore, `R` read again, `F` full screen, `M` sound, `V` talk.
+- **Cards queue oldest first** with the same number as the box on the picture, and only
+  one is open, so what's being typed into never moves. Hover a card to find its box.
+- **The status bar only shows measured values:** the camera's real resolution and frame
+  rate, what's on the table now, barcodes read, label reads and their median time,
+  whether exposure is held, and how many bin rules exist. The analysis rate appears only
+  when it falls behind.
+- **An arm gets a faint wash**, so it's plain it has been seen and isn't being counted.
+  Something still at the edge gets "AT THE EDGE · NOT COUNTED", because a thing half out
+  of shot would otherwise be ignored in silence.
 - **Start** averages several frames of the empty table, so sensor noise isn't taken
   for an object. Motion is turned off under `prefers-reduced-motion`.
 
@@ -288,17 +389,158 @@ the words for what lives there ("iconic switch"). A product goes to a bin when
 compares (plurals and trade names folded). The rule with the most words wins, so
 "iconic switch" beats "iconic". "Test a label" shows where a label would go.
 
-A location is written as `Rack C Shelf 2, Bin 4`, which the existing by-shelf list
-already reads as shelf "Rack C Shelf 2", bin "Bin 4". The matrix **only fills a blank
+Racks are numbered, shelves lettered (A at the top of the grid, up to Z) and bins
+numbered. Shelves on a rack don't have to match: tick **Shelves differ** when adding or
+changing a rack and give each shelf its own bin count (a deep bottom shelf with 3 bins
+under shelves of 8). Saved as `shelfBins` on the rack, shelf A first; `bins` is then the
+widest shelf, and a rack without `shelfBins` has `bins` on every shelf. A rack can't
+shrink a shelf past a bin that has a rule. A location is written as `Rack 3 Shelf B, Bin 4`, which the existing by-shelf list
+already reads as shelf "Rack 3 Shelf B", bin "Bin 4". The matrix **only fills a blank
 location**: a new item's, or an existing item with none. An item that has a location
 keeps it, and changing the matrix never moves recorded stock.
+
+**The Add form** (phone and office) uses the same matrix, which is why anyone adding
+stock can read it; only the office changes it. Until someone types or picks a location,
+a rule that fits fills it in, following the name and codes as they change, and it takes
+priority over "Same as last item". With no rule, the form offers a one-tap suggestion,
+and Rack → Shelf → Bin buttons pick any bin. Typing still works, and a typed location is
+never overwritten. If the matrix can't load, the form is the same as before.
+
+**The shelf map** is the same grid, showing what the recorded stock says is in each bin
+(read from each item's location text). Click a bin to see what's in it and Move any of
+it. "Needs a place" lists stock with no location, a location that isn't a bin on the map,
+or a bin different from its rule. "Put it here" takes the suggestion; "Choose a bin" lets
+you click another. Stock only moves from those taps, each one an ordinary item edit.
+Renaming a rack or making it smaller doesn't rewrite items: anything left behind appears
+under "Needs a place".
+
+**A suggestion is a stated reason, not a score** (`location-map.ts`): a rule that fits,
+even if that bin is in use; then the free bin closest to the same type; then the same
+brand; then the first free bin. A free bin holds no stock and no rule. It doesn't know
+how often an item is taken or how big anything is, so it never claims a "fastest" or
+"best fit" spot.
+
+**A recommended layout** ("Recommend a layout" on the same screen, `location-layout.ts`)
+keeps related stock together once the racks exist: GPOs beside switches, patch leads beside
+data jacks. It sorts stock into groups by the words on its name, in the same way a rule
+matches, then runs the groups along the racks in one path that turns back at the end of
+each shelf, so neighbours stay neighbours over the turn. A group with several ranges (or,
+with no range on the label, several brands) gets a bin for each, plus one for the group.
+
+- It's shown on the racks first. "Use this layout" saves ordinary rules, so new stock goes
+  there. Recorded stock doesn't move: it appears under "Needs a place" for a tap each.
+  Undo puts the rules back, but anything already moved stays where it was moved to.
+- Rules already set are kept, and that family grows out from them, unless "Keep the rules
+  already set" is unticked, which replaces them.
+- Bins holding stock that no group covers are left alone. That stock is listed as "Not in
+  any group", because a rule can't catch a name that doesn't say what it is.
+- With room for every usual group, or with no stock at all, it readies them all, including
+  groups with no stock yet. Otherwise it only places the groups stock has.
+- Groups in a family sit touching, and any free bins go after the family. A family that
+  wouldn't fit in what's left of a rack starts on the next rack if there's room to spare.
+  With more groups than free bins, neighbours share a bin and the screen says so. Once
+  saved, those free bins are just free bins: nothing reserves them for the family.
+
+**The groups and their order are trade judgement written down in `LAYOUT_FAMILIES`, not
+measured.** It doesn't know how big anything is or how often it's taken, or which way
+shelves or racks run in the real workshop, so it only ever says what sits together.
+Cable on drums won't suit a bin, and a person should change that kind of thing by hand.
 
 Stored as one JSON document per company with a compare-and-set revision
 (`workshop_stock_location_matrix`, migration
 `20261102100000_workshop_stock_location_matrix.sql`). Until that is applied both
 screens say so and nothing else changes.
 
-### Limits on what the camera can do
+#### Bin labels
+
+Owner pull, 2026-11-05: "can we also use the printer connection to print labels
+for the bins … one label is the location code like A2 B3 for rack a shelve 2 bin 3
+… and the other label has contents … like 2 gang switches". Printed from
+`/stock/locations` on the same NIIMBOT connection as item labels
+([below](#barcode-scanner-and-niimbot-labels)); words only, no barcode (the
+owner's pick).
+
+- **Two labels per bin** (`domains/workshop-stock/bin-label.ts`):
+  - the **code** label — the bin's code as large as the label allows, `3B-4`
+    for rack 3, shelf B, bin 4 (`binCode`; a rack named in words keeps its name,
+    "Cable bay B-4"), with "Rack 3 · Shelf B · Bin 4" under it on a tall label.
+    The owner's first example was "A2 B3 for rack a shelve 2 bin 3"; once racks
+    became numbered and shelves lettered (#1128) the owner picked `3B-4`;
+  - the **contents** label — the code on top, then the matrix's words for the
+    bin ("2 gang switches", "iconic dimmer"), each on its own line where it fits,
+    smaller than the code, centred; cut with … only if nothing fits.
+  - The contents are the **matrix words**, not today's stock: a printed label
+    can't follow stock as it moves; the words are what the office set for the
+    bin. A bin with no words gets only its code label.
+  - The code is display only: items keep their location text ("Rack 3 Shelf B,
+    Bin 4"), unchanged.
+- **Where** (`components/admin/stock/BinLabels.tsx`): a **Bin labels** bar above
+  the racks — label size (the roll in the printer, shared with item labels on
+  this device), which labels to print, and the printer; a bin's editor shows its
+  labels as they'll print, **Print**, and **Save as pictures** (where the
+  browser can't reach the printer); each rack has **Print labels for this rack
+  (N labels)** — asked first, said by kind ("6 code labels and 2 contents
+  labels") — printing every bin shelf by shelf as one job.
+- **Pick which labels** (owner, 2026-11-06, after the first real prints worked:
+  "i want to be able to pick which labels not have 2 labels printed for each
+  bin"): **Code label** and **Contents label** are each ticked on their own —
+  in the bar, or by clicking a label in a bin's editor (one choice, shown in
+  both places). Print, Save as pictures and the rack count take the ticked
+  ones; nothing ticked → "Tick a label to print". Remembered on this computer
+  (`buhlos.stock.binLabelPick`); both ticked to start.
+- One print path for item and bin labels (`useLabelPrinter`): connect if needed,
+  refuse a size the printer doesn't take (said next to the button, nothing
+  printed), draw fitted to the head, print the labels as one job
+  (`printLabels`: totalPages = labels, one page each — NiimBlue's multi-page
+  sequence). What happened is said next to the button that started it.
+- **Checked** on the production build in Chromium against the recorded-handshake
+  B1 (as for item labels): one bin → one job of 2 labels at 240 × 384; a rack of
+  6 bins with 2 set → one job of 8; contents only → 2; save as pictures; a D
+  size refused with nothing sent; lid open said by the rack; no ping during a
+  print; the item label still prints on the same connection. Picking: code
+  only → a 1-label job; nothing ticked → nothing to print; the bar and the bin
+  stay in step; the pick survives a reload. **Printed on the owner's B1,
+  2026-11-06** ("it works").
+
+### The scanner display
+
+Owner pull, 2026-11-03: "i want a separate display for the barcode scanner on
+web". `/stock/scan`, linked from `/stock` as **Barcode scanner**, office only,
+same `workshop_stock` flag, same console theme. **Hypothesis:** if scanning has
+its own screen with no camera to set up, the office logs a delivery by scanning
+it instead of leaving the list behind. Reasoning only: the page has been driven
+with a simulated scanner (fast keys + Enter), never a real one.
+
+It logs the way the camera table does, with no camera. The session is its own
+(`useStockSession.ts`); the camera table keeps a larger one in `StockIntake.tsx`, with its
+queue, table and Talk, so a change to how either logs has to be made in both:
+
+- **Each scan is one placement.** A barcode on exactly one listed item logs by
+  itself: +1, or a box's worth when it is that item's box barcode. Several items
+  with it → "Which item is this?"; none → the new-item card with the barcode
+  kept; a pick teaches the item the barcode, and
+  anything else waiting with that code then logs too. A code that isn't a shop
+  barcode (EAN / UPC — a serial, a supplier's own label) can't be matched or saved
+  as one, so it says so and offers a search. On the camera table it says so and nothing
+  is logged.
+- **The last scan fills the screen:** what it was, the amount, **Goes to** in
+  large yellow, and what's on record now. The same text is announced to screen
+  readers; the same sounds as the camera table play (the first scan turns sound
+  on).
+- **Where the scan will land.** A USB scanner types into whatever has focus, so
+  the status says **Ready**, **Typing in a field** (a scan would go into that
+  field) or **Not listening** (the window isn't in front). Only measured states.
+- **Won't scan?** Type the digits under the barcode; the same as a scan.
+- **Keyboard:** `U` undo the last one, `F` full screen, `M` sound — ignored inside
+  a scanner's burst of keys, as on the camera table. "All the same" isn't here:
+  every scan already says what it is.
+- Every movement carries the note "Barcode scanner", so an item's history says
+  where it came from. Undo and Change amount work per scan, with a reason
+  written into the history.
+- Adds only. Taking stock out with a scanner stays on the phone and the office
+  list (a scan there opens the item).
+
+
 
 - **Picture quality decides what can be read.** A 1080p webcam over an 80 cm table
   gets about 2.4 pixels per mm: box labels should read, barcodes and small print on
@@ -590,6 +832,67 @@ it all works easily together".
   office drawer (**Label** tab), and the new-item form (**Make a
   barcode label for it** — ticked by itself for a loose item the photo could
   only describe); after saving, the label comes up before the next item.
+- **Print straight to the printer (office, Chrome)** — owner, 2026-11-03: "is
+  there a way to incorporate the printer", a **B1**, on the office computer, in
+  Chrome. The office drawer's label has **Print label** (`LabelDirectPrint`):
+  Chrome connects to the printer over Bluetooth (Web Bluetooth) — or **Use a
+  USB cable instead** (Web Serial) — through its own printer list the first
+  time in a tab, then prints with no NIIMBOT app (`components/stock/labelPrinter.ts`,
+  `@mmote/niimbluelib` 0.47.1, MIT, pinned — the line NiimBlue, the web app
+  most B1 owners print from, runs on). Then "on B1-…", **Disconnect printer**,
+  and "Printed." or what to fix.
+  - **The print follows NiimBlue's sequence** (B1 print task: density 3, gap
+    labels, page, status polled every 100 ms with an 8 s reply timeout). The
+    library's background ping is stopped for the print and started again
+    after, unconditionally — its `isHeartbeatStarted()` answers the wrong way
+    round (0.47.1 and upstream), so it isn't asked. A print that never
+    reports finished gives up after 30 s.
+  - **Sizes:** the B1's head is 48 mm (384 dots). A 50 × 30 label is drawn
+    48 mm wide (`label.fitToPrinthead`; NiimBlue's own default sends 400 dots
+    and warns), bars still whole dots; a narrower one (40 × 30) is sent at
+    full head width, centred (`padToHead`), so it lands in the middle however
+    the printer places what it's sent. A size the connected printer doesn't
+    take is said and **not printed** (`label.sizesForPrinter`).
+  - **What's said:** the printer's refusals (lid open, out of labels, wrong
+    labels, battery, too hot, busy) and Chrome's (no Bluetooth on this
+    computer or it's off → use the USB cable; Bluetooth/USB not allowed for
+    the site; printer list not opened in time) — never "check the printer"
+    for a computer problem. Closing the printer list is not an error.
+  - **Genuine labels:** the B1 reads the roll's RFID tag and prints near-blank
+    without one (NIIMBOT's rule, not ours) — use NIIMBOT B1 rolls.
+  - Only printers the library knows and only 203 dpi ones (D11/D110/B1/B21);
+    anything else is told to use Save image.
+  - The library is its own chunk, fetched when the label panel opens (Chrome
+    only opens its printer list shortly after a click), never with the stock
+    screen. Shown only where the browser has Bluetooth or Serial (Chrome/Edge
+    on a computer); Safari, Firefox and iPhone keep Share/Save. On Linux,
+    Chrome needs Web Bluetooth switched on in chrome://flags.
+  - **Office only.** The phone keeps Share to NIIMBOT — no new phone slot
+    until a field ask pulls it.
+  - NIIMBOT doesn't publish the protocol; the library is reverse-engineered,
+    so a printer firmware update could break it. Save image stays beside it.
+  - **Audit before release (2026-11-03/04):**
+    - unit tests: the print sequence against a stand-in; Chrome's and the
+      printer's refusals; the real library encoding a B1 label (fits the
+      head, bars read back);
+    - **a real B1's handshake** (HW 5.10 / FW 5.22, captured bytes from the
+      library's own tests) played back through the real library: found as a
+      B1 — B1 print sequence, 384-dot head, upright
+      (`labelPrinter.b1-handshake.test.ts`);
+    - checked against NiimBlue's source and the NIIMBOT protocol wiki
+      (MultiMote/niimbot-wiki: B1 print task, 384 px head, Web Bluetooth
+      service) — this found the heartbeat bug above;
+    - **the production build** (`next build` / `next start`, webpack's
+      loading of the library) in Chromium, with a B1 behind
+      `navigator.bluetooth` answering with the recorded handshake bytes and
+      the wiki's print replies: library already fetched before the click;
+      sequence = the wiki's B1 sequence; 50 × 30 → 240 × 384, 156 bar rows
+      decode as the item's code; no ping during the print, pings back after;
+      second label with no printer list; 40 × 30 centred (36 dots each side);
+      wrong size not printed; lid open, no Bluetooth, printer dropping,
+      list closed (Bluetooth and USB), reconnect — all as above.
+  - **Proof still owed:** no real B1 has printed from BuhlOS yet — the
+    owner's first label, scanned, is the proof.
 - **Together**: a loose item → photo ("looks like …") or pick by sight → its
   own barcode → label on the NIIMBOT → from then on the scanner (or the phone
   camera) finds it like any boxed product. Boxes + loose counts and the
@@ -922,6 +1225,7 @@ known until real use — watch the usage counters (`workshop_stock_usage`).
 | `STOCK_LOOKUP_DOMAINS` | replace the source allowlist, e.g. `clipsal.com=manufacturer:clipsal,rexel.com.au=supplier` (see `sources.js`) |
 | `STOCK_PHOTO_READ_DISABLED=1` / `STOCK_LOOKUP_DISABLED=1` | turn photo reading / online checks off; the flows fall back to search and by hand |
 | `STOCK_DAILY_PHOTO_READS`, `STOCK_DAILY_LOOKUPS`, `STOCK_DAILY_INTAKE_READS` | daily ceilings |
+| `STOCK_INTAKE_VISION_MODEL` | the camera table's label reader only (default: same as the phone's). Choose with `scripts/qa/label-reader-compare.js` |
 | `BLOB_READ_WRITE_TOKEN` | existing Blob store (photos) |
 
 ## Data
@@ -1062,6 +1366,8 @@ non-localhost URL):
 
 ```bash
 # 1. a local Postgres with every migration applied and a 'buhl' tenant row
+#    (plain Postgres first needs what Supabase provides: an auth schema with auth.jwt()
+#    and auth.uid(), and the roles anon, authenticated and service_role)
 # 2. the harness: the real /api/workshop-stock on :3101
 WORKSHOP_STOCK_E2E_DB_URL=postgres://…@localhost:5432/<db> SESSION_SECRET=<16+ chars> \
   node scripts/qa/workshop-stock-e2e/harness.js
@@ -1071,14 +1377,28 @@ SESSION_SECRET=<same> FLAG_WORKSHOP_STOCK=1 npx next dev -p 3000
 WORKSHOP_STOCK_E2E_API=http://localhost:3101 npx playwright test tests/workshop-stock --project=desktop-chrome
 ```
 
-`tests/workshop-stock/camera-table.e2e.spec.ts` runs the same way. Its webcam is a
+`tests/workshop-stock/shelf-map.e2e.spec.ts` (Add form, bin picker, shelf map, moves,
+the crew's read), `tests/workshop-stock/layout-plan.e2e.spec.ts` (recommended layout, use,
+undo), `tests/workshop-stock/camera-table.e2e.spec.ts` and
+`tests/workshop-stock/camera-table-flows.e2e.spec.ts` (noisy picture, a pile through one
+spot, the queue, a pack check, a scanner, a reload, a table area, a camera knocked out)
+run the same way. `intake-bench.test.ts` runs the real tracker against a simulated camera
+(noise, exposure, white balance, shadows, arms) in the unit suite; `BENCH_ALL_SEEDS=1`
+also runs the long random soak. These prove the logic against a simulation written by the
+same author. They are not evidence about a real webcam. `intake-photo.test.ts` does the
+same with real pixels: three clear bags on a woodgrain desk, from the owner's screenshot of
+the first real run (`tests/fixtures/camera-table/`, the table under the bags partly rebuilt,
+the arm drawn). It is one photo, not video. For real video, `/stock/intake?evidence=1` has
+"Record clip", which saves up to a minute of what the webcam sends to that computer. Each resets the
+harness, so run them one file at a time. The camera spec's webcam is a
 canvas the spec draws on, so the real tracker finds real objects in real frames, but
 the barcode detector and the label reader's answers are fixtures: **real webcams,
 lighting and labels are not proven**, and neither is the speed or cost of real reads.
 
 The spec covers: More → Workshop stock; add by photo with the online check and
-packs (the listing never renames it; a changed brand makes the check stale);
-search by trade name; list photos as small copies; photograph again and take;
+packs (the type guessed from the label and its brand field; the listing never
+renames it; a changed brand makes the check stale); the type tile and everything
+by shelf; search by trade name; list photos as small copies; photograph again and take;
 Undo; take from the list; return; a lost answer recovered by Try again (one
 movement) and by reopening (reconciled); several products → which one; unknown
 product → add as new; reader and check both down → by hand (container-unit

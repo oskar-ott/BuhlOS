@@ -233,6 +233,12 @@ async function openStock(page: Page) {
   await expect(page.getByTestId("stock-take-button")).toBeEnabled({ timeout: 60_000 });
 }
 
+/** Level one is tiles once anything has a type: the whole list by shelf is one tap down. */
+async function openByShelf(page: Page) {
+  await page.getByTestId("stock-by-shelf").click();
+  await expect(page.getByTestId("stock-browse")).toBeVisible();
+}
+
 async function pickFromList(page: Page, name: RegExp) {
   await page.getByTestId("stock-picker-search").fill("2025");
   await page.getByTestId("stock-picker-row").filter({ hasText: name }).first().click();
@@ -262,9 +268,11 @@ test.describe("worker on a phone", () => {
     const form = page.getByTestId("stock-new-item");
     await expect(form).toBeVisible({ timeout: 30_000 });
     await expect(form.getByText("Read from photo").first()).toBeVisible();
-    // brand, codes, colour and size fold under "Details read from the label — check them"
+    // the label says what it is, so the type's own fields ask for the brand up top
+    await expect(page.getByTestId("stock-type-switches")).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("stock-spec-brand")).toHaveValue("Clipsal");
+    // codes and size fold under "Details read from the label — check them"
     await page.getByTestId("stock-new-details").click();
-    await expect(page.getByTestId("stock-new-brand")).toHaveValue("Clipsal");
     await expect(page.getByTestId("stock-new-code")).toHaveValue("2025WE");
 
     // The online check ran on its own for the code it read.
@@ -276,10 +284,10 @@ test.describe("worker on a phone", () => {
     await expect(page.getByTestId("stock-new-name")).toHaveValue(GPO_NAME);
     await expect(page.getByTestId("stock-new-code-status")).toHaveAttribute("data-status", "manufacturer_code_matched");
     // Change what the check was for and it stops counting — change it back and it counts again.
-    await page.getByTestId("stock-new-brand").fill("HPM");
+    await page.getByTestId("stock-spec-brand").fill("HPM");
     await expect(page.getByTestId("stock-new-code-status")).toHaveAttribute("data-status", "stale");
     await expect(page.getByTestId("stock-new-check")).toHaveText("Check it again with these details");
-    await page.getByTestId("stock-new-brand").fill("Clipsal");
+    await page.getByTestId("stock-spec-brand").fill("Clipsal");
     await expect(page.getByTestId("stock-new-code-status")).toHaveAttribute("data-status", "manufacturer_code_matched");
 
     // The printed pack size is OFFERED, never applied silently.
@@ -295,13 +303,17 @@ test.describe("worker on a phone", () => {
     // Saved → back on the list, with what was recorded and an Undo.
     await expect(page.getByTestId("stock-add-flow")).toBeHidden({ timeout: 20_000 });
     await expect(page.getByTestId("stock-last-write")).toContainText("20 each recorded now");
-    const row = page.getByTestId("stock-list").getByTestId("stock-row").first();
+    // Anything with a type turns level one into tiles; the shelf list is one tap down.
+    await expect(page.getByTestId("stock-type-tile").filter({ hasText: "Switches & GPOs" })).toContainText("1 item");
+    await openByShelf(page);
+    const row = page.getByTestId("stock-browse-row").first();
     await expect(row).toContainText(GPO_NAME);
-    await expect(page.getByTestId("stock-list")).toContainText("Shelf A2"); // the shelf is the group header
+    await expect(page.getByTestId("stock-browse-list")).toContainText("Shelf A2"); // the shelf is the group header
     await expect(row).toContainText("20");
     // the list loads the small copy of the photo, not the full label shot
     await expect(row.locator("img")).toHaveAttribute("src", /action=photo&id=[^&]+&size=thumb$/);
     await shot(page, "phone-03-list-after-add");
+    await page.getByTestId("stock-browse").getByRole("button", { name: "Back", exact: true }).click();
     // Found by the trade name a worker types, whatever it was saved as.
     await page.getByTestId("stock-search").fill("gpo");
     await expect(page.getByTestId("stock-list").getByTestId("stock-row")).toHaveCount(1);
@@ -341,7 +353,7 @@ test.describe("worker on a phone", () => {
     await expect(confirm).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId("stock-move-item")).toHaveText(GPO_NAME);
     await expect(confirm).toContainText(/Matched in workshop · (barcode 9300704010017|code 2025WE)/);
-    await expect(page.getByTestId("stock-move-recorded")).toContainText("20 each");
+    await expect(page.getByTestId("stock-move-recorded")).toContainText(/20\s*each/); // the number and the unit are set apart
     await expect(page.getByTestId("stock-move-packs")).not.toBeChecked(); // a unit barcode starts in units
     await page.getByTestId("stock-move-qty-input").fill("3");
     await shot(page, "phone-04-take-confirm");
@@ -625,7 +637,8 @@ test.describe("worker on a phone, after the office", () => {
     const w = await wire(page);
     await openStock(page);
 
-    const row = page.getByTestId("stock-list").getByTestId("stock-row").filter({ hasText: "Clipsal Double power point" });
+    await openByShelf(page);
+    const row = page.getByTestId("stock-browse-row").filter({ hasText: "Clipsal Double power point" });
     await expect(row).toContainText("15");
     await row.click();
     await expect(page.getByTestId("stock-sheet-balance")).toContainText("15 each");
@@ -673,9 +686,10 @@ test.describe("phone: what the review found", () => {
     await page.getByTestId("stock-picker-search").fill("TEST double");
     await page.getByTestId("stock-picker-row").first().click();
     await expect(page.getByTestId("stock-move-confirm")).toHaveAttribute("data-fresh", "1", { timeout: 20_000 });
-    await expect(page.getByTestId("stock-move-recorded")).toContainText("2 each");
+    await expect(page.getByTestId("stock-move-recorded")).toContainText(/2\s*each/);
     await page.getByTestId("stock-move-qty-input").fill("5");
-    await expect(page.getByTestId("stock-move-short")).toContainText("Only 2 each recorded");
+    await expect(page.getByText("Only 2 each recorded.")).toBeVisible(); // the card's title; stock-move-short is the advice under it
+    await expect(page.getByTestId("stock-move-short")).toContainText("ask the office to correct the count");
     await expect(page.getByTestId("stock-move-submit")).toBeDisabled();
     await page.getByTestId("stock-move-qty-input").fill("2");
     await page.getByTestId("stock-move-submit").click();
@@ -846,6 +860,8 @@ test.describe("phone: what the review found", () => {
     await signIn(context, "worker");
     const w = await wire(page);
     await openStock(page);
+    // the switch saved above has a type, so level one is tiles: searching shows the rows
+    await page.getByTestId("stock-search").fill("TEST double");
     const row = page.getByTestId("stock-list").getByTestId("stock-row").filter({ hasText: "TEST double GPO" });
     const before = (await itemNamed(/TEST double GPO/)).item.balance_milli;
     await expect(row).toContainText(String(before / 1000));

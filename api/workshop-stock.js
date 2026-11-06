@@ -13,7 +13,7 @@
 //   GET    ?action=operation&key=             reconcile a save whose response was lost (own operations; office: any)
 //   GET    ?action=photo&id=[&size=thumb]     a product photo or its list-size copy (authenticated proxy — the Blob URL never leaves the server)
 //   GET    ?action=jobs&q=                    job picker for the optional job note
-//   GET    ?action=location-matrix            the racks and "these words go in this bin" rules   OFFICE
+//   GET    ?action=location-matrix            the racks and "these words go in this bin" rules   anyone adding stock
 //   PUT    ?action=location-matrix { expectedRevision, racks, rules }   save the whole matrix (compare-and-set)   OFFICE
 //   POST   ?action=read-photo  { dataUrl, thumbDataUrl?, purpose: 'add'|'take', intake? }  read a photo, match the catalogue (writes no stock; intake = the camera table, OFFICE, its own limits)
 //   POST   ?action=store-photo { dataUrl, thumbDataUrl? }  keep a product photo for a new item without reading it again (no AI call)
@@ -94,6 +94,8 @@ const intakeReadLimiter = createRateLimiter({ windowMs: 10 * 60_000, max: 300 })
 const DAILY_PHOTO_READS = Math.max(1, Number(process.env.STOCK_DAILY_PHOTO_READS || 300));
 const DAILY_LOOKUPS = Math.max(1, Number(process.env.STOCK_DAILY_LOOKUPS || 60));
 const DAILY_INTAKE_READS = Math.max(1, Number(process.env.STOCK_DAILY_INTAKE_READS || 2000));
+// The camera table reads in bulk, so it can use a different model from the phone's reader. Unset: the same one.
+const INTAKE_VISION_MODEL = process.env.STOCK_INTAKE_VISION_MODEL || undefined;
 const LOOKUP_TTL_DAYS = { manufacturer_code_matched: 30, possible_match: 7, no_match: 3 };
 const CLEANUP_BUDGET_MS = 4000;
 
@@ -410,15 +412,17 @@ function parseOr400(schema, body, res) {
   return r.data;
 }
 
-// ── location matrix (office) ──────────────────────────────────────────────────
+// ── location matrix (office saves, everyone reads) ──────────────────────────────────────────────────
 
 const MatrixBody = z.object({
   expectedRevision: z.number().int().min(0),
   racks: z.array(z.object({
     id: z.string().trim().min(1).max(60),
     name: z.string().trim().min(1).max(30),
-    shelves: z.number().int().min(1).max(30),
+    shelves: z.number().int().min(1).max(26),
     bins: z.number().int().min(1).max(60),
+    // Bins on each shelf, shelf A first, when the shelves differ. Absent = every shelf has `bins`.
+    shelfBins: z.array(z.number().int().min(1).max(60)).max(26).optional(),
   })).max(60),
   rules: z.array(z.object({
     id: z.string().trim().min(1).max(60),
@@ -429,8 +433,8 @@ const MatrixBody = z.object({
   })).max(1000),
 });
 
-async function locationMatrix(sql, tenant, me, res) {
-  if (!policy.isOffice(me.role)) return res.status(403).json({ error: 'office_only' });
+// Read by anyone adding stock (the Add form picks a bin from it); only the office changes it.
+async function locationMatrix(sql, tenant, res) {
   return res.status(200).json(await store.getLocationMatrix(sql, tenant.id));
 }
 
@@ -442,9 +446,17 @@ async function saveLocationMatrix(sql, tenant, me, body, res) {
   if (racks.size !== input.racks.length) return bad(res, 'rack_duplicate');
   const names = new Set(input.racks.map((r) => r.name.toLowerCase()));
   if (names.size !== input.racks.length) return bad(res, 'rack_duplicate');
+  for (const rack of input.racks) {
+    if (!rack.shelfBins) continue;
+    if (rack.shelfBins.length !== rack.shelves) return bad(res, 'invalid_request', { field: 'racks.shelfBins' });
+    // `bins` is the widest shelf, so anything reading only `bins` still sizes the grid right.
+    rack.bins = Math.max(...rack.shelfBins);
+    if (rack.shelfBins.every((n) => n === rack.bins)) delete rack.shelfBins;
+  }
+  const binsOn = (rack, shelf) => (rack.shelfBins ? rack.shelfBins[shelf - 1] : rack.bins);
   for (const rule of input.rules) {
     const rack = racks.get(rule.rackId);
-    if (!rack || rule.shelf > rack.shelves || rule.bin > rack.bins) return bad(res, 'rule_out_of_range', { ruleId: rule.id });
+    if (!rack || rule.shelf > rack.shelves || rule.bin > binsOn(rack, rule.shelf)) return bad(res, 'rule_out_of_range', { ruleId: rule.id });
   }
   const current = await store.getLocationMatrix(sql, tenant.id);
   if (!current.available) return res.status(503).json({ error: 'matrix_unavailable' });
@@ -629,7 +641,7 @@ async function readPhoto(sql, tenant, me, body, res) {
     } else {
       limiter.record(me.id);
       try {
-        reading = await vision.readProductPhoto({ bytes: up.bytes, contentType: up.contentType });
+        reading = await vision.readProductPhoto({ bytes: up.bytes, contentType: up.contentType, ...(input.intake && INTAKE_VISION_MODEL ? { model: INTAKE_VISION_MODEL } : {}) });
         if (!reading || !reading.products.length) readStatus = 'unreadable';
       } catch (e) {
         console.error('[workshop-stock] photo read failed', { status: (e && e.status) || null });
@@ -1468,7 +1480,7 @@ async function handler(req, res) {
         case 'operation': return operation(sql, tenant, me, q.key, r);
         case 'photo': return servePhoto(sql, tenant, me, String(q.id || ''), String(q.size || ''), r);
         case 'lists': return lists(sql, tenant, me, r);
-        case 'location-matrix': return locationMatrix(sql, tenant, me, r);
+        case 'location-matrix': return locationMatrix(sql, tenant, r);
         default: return r.status(400).json({ error: 'unknown_action' });
       }
     });
