@@ -332,3 +332,60 @@ describe("PhilHoursView — a day sent back last week leads this week (P9)", () 
     expect(words(html)).toContain("1 day needs fixing · Thu 8 Oct");
   });
 });
+
+describe("Change the job on a waiting day (owner pull 2026-11-09)", () => {
+  // Static imports keep the render-test pattern; the sheets render open.
+  it("the day detail offers Change the job for a one-job waiting day, not for an approved one", async () => {
+    const { DayDetailSheet } = await import("./DayDetailSheet");
+    const base = {
+      open: true,
+      onClose: () => {},
+      jobs: JOBS,
+      jobsError: false,
+      onChangeHours: () => {},
+      onSaveNote: () => {},
+      onSendDraft: () => {},
+    };
+    const waiting = renderToString(
+      createElement(DayDetailSheet, {
+        ...base,
+        entry: entry({ date: "2026-10-13" }),
+        onChangeJob: () => {},
+      })
+    );
+    expect(waiting).toContain('data-testid="hours-change-job"');
+    expect(words(waiting)).toContain("change the hours or the job");
+    const approved = renderToString(
+      createElement(DayDetailSheet, {
+        ...base,
+        entry: entry({ date: "2026-10-13", status: "approved" }),
+        onChangeJob: null,
+      })
+    );
+    expect(approved).not.toContain('data-testid="hours-change-job"');
+  });
+
+  it("the sheet sends only once a different job is picked", async () => {
+    const { ChangeJobSheet } = await import("./ChangeJobSheet");
+    const props = {
+      open: true,
+      onClose: () => {},
+      entry: entry({ date: "2026-10-13" }),
+      sentJobId: "bondi",
+      jobs: JOBS,
+      onFindJob: () => {},
+      onSend: () => {},
+    };
+    const html = renderToString(createElement(ChangeJobSheet, props));
+    expect(html).toContain("What you sent");
+    expect(html).toContain("Pick the job these hours were really for.");
+    expect(html).not.toContain('data-testid="hours-change-job-send"');
+    const found = renderToString(
+      createElement(ChangeJobSheet, {
+        ...props,
+        foundJob: { id: "kogarah", name: "Kogarah shop" },
+      })
+    );
+    expect(words(found)).toContain("Send Tuesday · Kogarah shop");
+  });
+});

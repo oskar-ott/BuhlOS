@@ -55,6 +55,7 @@ import {
 import type { HoursProblem } from "@/domains/timesheets/problem";
 import type { PatchTimeEntryPayload, TimeEntry } from "@/domains/timesheets/types";
 import { useOnline } from "../useOnline";
+import { ChangeJobSheet } from "./ChangeJobSheet";
 import { DayDetailSheet } from "./DayDetailSheet";
 import { EarlierWeeks } from "./EarlierWeeks";
 import { FindJobSheet } from "./FindJobSheet";
@@ -105,6 +106,7 @@ type Sheet =
   | { kind: "split"; date: string }
   | { kind: "detail"; date: string }
   | { kind: "change"; date: string }
+  | { kind: "changeJob"; date: string }
   | { kind: "fix"; date: string };
 
 type Result =
@@ -336,6 +338,15 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
     if (!payload) return;
     void run(attemptFor("patch", entry.date, payload, "change"), "send");
   }
+  /** A one-job waiting day moved to another job — the hours stay as sent. */
+  function changeJob(entry: TimeEntry, jobId: string) {
+    const payload = buildResubmitPayload(entry, {
+      totalHours: entry.totalHours,
+      jobId,
+      notes: entry.notes ?? null,
+    });
+    void run(attemptFor("patch", entry.date, payload, "change"), "send");
+  }
   function changeSplit(
     entry: TimeEntry,
     totalHours: number,
@@ -546,7 +557,10 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
 
   // ── Sheets (the entry is looked up live so a save re-renders them) ─────
   const sheetEntry =
-    sheet.kind === "detail" || sheet.kind === "change" || sheet.kind === "fix"
+    sheet.kind === "detail" ||
+    sheet.kind === "change" ||
+    sheet.kind === "changeJob" ||
+    sheet.kind === "fix"
       ? entryFor(sheet.date)
       : null;
   const busyFor = (date: string) => rowState[date] === "saving";
@@ -672,6 +686,13 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
           busy={busyFor(sheetEntry.date)}
           problem={problemFor(sheetEntry.date)}
           onChangeHours={() => setSheet({ kind: "change", date: sheetEntry.date })}
+          onChangeJob={
+            sheetEntry.status === "submitted" &&
+            !sheetEntry.dayType &&
+            (sheetEntry.allocations ?? []).length === 1
+              ? () => setSheet({ kind: "changeJob", date: sheetEntry.date })
+              : null
+          }
           onSaveNote={(note) => saveNote(sheetEntry, note)}
           onSendDraft={() => sendDraft(sheetEntry)}
         />
@@ -713,6 +734,23 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
         )
       ) : null}
 
+      {sheet.kind === "changeJob" && sheetEntry ? (
+        <ChangeJobSheet
+          key={`change-job-${sheetEntry.id}-${foundJobs[sheetEntry.date]?.id ?? ""}`}
+          open
+          onClose={closeSheet}
+          entry={sheetEntry}
+          sentJobId={primaryJobId(sheetEntry)}
+          jobs={jobs}
+          entries={merged}
+          foundJob={foundJobs[sheetEntry.date] ?? null}
+          onFindJob={() => setFindJobFor(sheetEntry.date)}
+          busy={busyFor(sheetEntry.date)}
+          problem={problemFor(sheetEntry.date)}
+          onSend={(jobId) => changeJob(sheetEntry, jobId)}
+        />
+      ) : null}
+
       {sheet.kind === "fix" && sheetEntry && sheetEntry.status === "rejected" ? (
         <FixSheet
           key={`fix-${sheetEntry.id}-${foundJobs[sheetEntry.date]?.id ?? ""}`}
@@ -742,7 +780,7 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
           }
           entries={merged}
           onPick={(job) => foundJobForDay(findJobFor, job)}
-          nested={sheet.kind === "fix"}
+          nested={sheet.kind === "fix" || sheet.kind === "changeJob"}
         />
       ) : null}
     </div>
