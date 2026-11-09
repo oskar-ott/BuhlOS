@@ -1199,8 +1199,35 @@ export).
   search, "You often take" and the label photo carry on. "You often take" and
   the pending-save memory live in the phone's storage per worker and are
   cleared on sign-out.
-- Office: "Workshop stock" in the People & gear nav group, flag-gated.
+- Office: "Workshop stock" in the People & gear nav group, flag-gated. `/stock`
+  opens as the catalogue (below); the shelf list is one click away.
 - Routes: [route-ownership.md](route-ownership.md) §4/§8/§9.
+
+### The office catalogue
+
+Owner pull, 2026-11-09: "i want the web view of the workshop stock to feel like
+an online store catalog". `/stock` opens as a grid of product cards
+(`StockCatalog.tsx`, order and card lines in `domains/workshop-stock/catalog.ts`):
+
+- **A card per item:** the photo large (the small copy, the full photo where the
+  card is big; a package icon when there's none), its department on the photo,
+  brand over name, its fields, what's recorded ("14 each recorded", "≈ 22.5 m ·
+  estimate", "None recorded" with the photo dimmed), shelf and bin, and whether
+  its code is confirmed (a glyph plus a word). Clicking opens the same drawer as
+  the list: the quick view.
+- **Departments down the side** (a row of chips on a narrow screen): one per item
+  type in view, with its count. Picking one shows its filters (brand, range,
+  gang, colour temperature…), built from what's in stock, each value with how
+  many items it leaves (`facetsFor`, the same as the phone's type browsing).
+  Chosen filters sit above the cards and come off with one click.
+- **Sort:** name A–Z, shelf order (the cards under a heading per shelf, like
+  aisles), recently moved, newest first. No sort by quantity, because items are
+  counted in different units.
+- **Search bar, status filters** (None recorded, Estimates, Code not confirmed,
+  Not sorted, Archived) and the **List** view are unchanged. The choice of
+  catalogue or list, and the sort, are remembered in that browser.
+- **Nothing invented (P7):** no prices, ratings, "low stock" or reorder points.
+  The record holds none of them. A quantity is still *recorded*.
 
 ## Activation (operator steps — none performed by the PR)
 
