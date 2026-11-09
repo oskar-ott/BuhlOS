@@ -68,6 +68,16 @@ or concepts. Payloads come from the existing builders in `service.ts` and
   check, are named "Office" / "Workshop" on every hours, payroll and export
   surface, never count on job-scoped reads (job hub, profitability), and
   mirror to Postgres as "no job" (Blob keeps the place, as with day types).
+- **At most four job chips** (owner pull 2026-11-09 — "the jobs saturating the
+  screen when you click on hours"). The chips sit in the sticky log panel, so
+  one chip per job let a long job list cover the week. The chips now show the
+  last job, then the jobs logged most recently, then the rest by name — four
+  real jobs at most, plus Office and Workshop. The picked job and (in Fix) the
+  sent job always show. Find another job says how many are left ("12 more jobs
+  · search") and still lists every job with search. Rule: `chipJobs` /
+  `CHIP_JOB_LIMIT` in `hours-view.ts`. UI slot (P10): removes chips from the
+  existing job choice; adds one count line to the existing Find chip. Real
+  count only (P7).
 - **No delete.** The day-detail sheet says: "Logged days can't be deleted.
   Change the hours instead, or ask the office."
 - **No promises**: no "you'll be notified", no approval ETAs, no reviewer

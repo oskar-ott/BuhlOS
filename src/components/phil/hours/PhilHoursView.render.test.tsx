@@ -285,3 +285,40 @@ describe("PhilHoursView — Office and Workshop (owner pull 2026-11-06)", () => 
     expect(html).not.toContain("no longer on");
   });
 });
+
+describe("PhilHoursView — a long job list stays compact (owner pull 2026-11-09)", () => {
+  const many = withWorkPlaces(
+    Array.from({ length: 14 }, (_, i) => ({
+      id: `job${String(i).padStart(2, "0")}`,
+      name: `Job ${String.fromCharCode(65 + i)}`,
+      address: `${i + 1} Test St`,
+    }))
+  );
+
+  it("shows the last job, the recent ones and the places — the rest wait in Find another job", () => {
+    const html = render({
+      jobs: many,
+      entries: [
+        entry({ date: "2026-10-09", allocations: [{ jobId: "job10", hours: 7.6 }] }),
+        entry({ date: "2026-10-08", allocations: [{ jobId: "job12", hours: 7.6 }] }),
+      ],
+    });
+    const chips = html.match(/data-testid="hours-job-chip-[^"]+"/g) ?? [];
+    expect(chips).toEqual([
+      'data-testid="hours-job-chip-job10"',
+      'data-testid="hours-job-chip-job12"',
+      'data-testid="hours-job-chip-job00"',
+      'data-testid="hours-job-chip-job01"',
+      'data-testid="hours-job-chip-place:office"',
+      'data-testid="hours-job-chip-place:workshop"',
+    ]);
+    expect(words(html)).toContain("10 more jobs · search");
+  });
+
+  it("a short job list shows every job and no 'more' line", () => {
+    const html = render({ jobs: withWorkPlaces(JOBS) });
+    expect(html).toContain('data-testid="hours-job-chip-bondi"');
+    expect(html).toContain('data-testid="hours-job-chip-mascot"');
+    expect(html).not.toContain("hours-find-job-more");
+  });
+});

@@ -358,6 +358,66 @@ export function soleJobId(jobs: ReadonlyArray<HoursJob>): string | null {
   return real.length === 1 ? real[0]!.id : null;
 }
 
+/** How many real jobs the job chips show before the rest move to Find. */
+export const CHIP_JOB_LIMIT = 4;
+
+/**
+ * Which jobs the job chips show (owner pull 2026-11-09: "the jobs saturating
+ * the screen when you click on hours"). The chips live in the sticky log
+ * panel, so every chip pushes the week up; a worker on many jobs (or anyone
+ * whose read is unscoped) used to get one chip per job and the panel covered
+ * the screen. Now: the last job first, then the jobs logged most recently,
+ * then the rest by name — at most `limit` real jobs. Jobs in `keep` (the
+ * picked one, the one that was sent) always make the cut. Office and Workshop
+ * are returned apart, always shown. `hidden` is how many real jobs are left
+ * for Find another job, which lists every job with search.
+ */
+export function chipJobs<J extends HoursJob>(
+  jobs: ReadonlyArray<J>,
+  opts: {
+    lastJobId: string | null;
+    keep?: ReadonlyArray<string | null | undefined>;
+    entries?: ReadonlyArray<Pick<TimeEntry, "date" | "allocations">>;
+    limit?: number;
+  }
+): { shown: J[]; places: J[]; hidden: number } {
+  const limit = opts.limit ?? CHIP_JOB_LIMIT;
+  const lastLogged = new Map<string, string>();
+  for (const e of opts.entries ?? []) {
+    for (const a of e.allocations ?? []) {
+      if (!a.jobId) continue;
+      const prev = lastLogged.get(a.jobId);
+      if (!prev || e.date > prev) lastLogged.set(a.jobId, e.date);
+    }
+  }
+  const places = jobs.filter((j) => isWorkPlaceId(j.id));
+  const real = jobs
+    .filter((j) => !isWorkPlaceId(j.id))
+    .sort((a, b) => {
+      if (a.id === opts.lastJobId) return -1;
+      if (b.id === opts.lastJobId) return 1;
+      const la = lastLogged.get(a.id) ?? "";
+      const lb = lastLogged.get(b.id) ?? "";
+      if (la !== lb) return la > lb ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+  const shown = real.slice(0, limit);
+  for (const id of opts.keep ?? []) {
+    if (!id || shown.some((j) => j.id === id)) continue;
+    const job = real.find((j) => j.id === id);
+    if (!job) continue;
+    // Swap out the lowest-ranked chip that isn't itself kept.
+    const keepSet = new Set(opts.keep);
+    let at = shown.length - 1;
+    while (at >= 0 && keepSet.has(shown[at]!.id)) at -= 1;
+    if (at < 0) shown.push(job);
+    else shown[at] = job;
+  }
+  // Keep the ranked order after any swap.
+  shown.sort((a, b) => real.indexOf(a) - real.indexOf(b));
+  return { shown, places, hidden: real.length - shown.length };
+}
+
 /** Jobs matching a query by name, code or address. Leave days are not jobs
  *  and are never in the input, so they can never be in the output. */
 export function searchJobs<J extends HoursJob>(jobs: ReadonlyArray<J>, query: string): J[] {

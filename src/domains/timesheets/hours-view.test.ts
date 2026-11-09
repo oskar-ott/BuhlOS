@@ -4,6 +4,7 @@ import {
   MAX_OT_HOURS,
   OT_PRESET_MINUTES,
   buildEarlierWeeks,
+  chipJobs,
   dayDate,
   defaultJobId,
   draftSendBlockReason,
@@ -350,5 +351,42 @@ describe("office drafts", () => {
     expect(
       draftSendBlockReason(entry({ date: "2026-10-12", status: "draft" }), JOBS, true)
     ).toMatch(/jobs/);
+  });
+});
+
+describe("chipJobs — the job chips stay compact (owner pull 2026-11-09)", () => {
+  const job = (id: string, name = id) => ({ id, name });
+  const jobs = [
+    job("e", "Echo"),
+    job("a", "Alpha"),
+    job("place:office", "Office"),
+    job("d", "Delta"),
+    job("b", "Bravo"),
+    job("c", "Charlie"),
+    job("f", "Foxtrot"),
+    job("place:workshop", "Workshop"),
+  ];
+  const day = (date: string, jobId: string) => ({ date, allocations: [{ jobId, hours: 7.6 }] });
+
+  it("last job first, then most recently logged, then by name; places apart", () => {
+    const out = chipJobs(jobs, {
+      lastJobId: "f",
+      entries: [day("2026-10-09", "f"), day("2026-10-07", "d"), day("2026-10-08", "c")],
+    });
+    expect(out.shown.map((j) => j.id)).toEqual(["f", "c", "d", "a"]);
+    expect(out.places.map((j) => j.id)).toEqual(["place:office", "place:workshop"]);
+    expect(out.hidden).toBe(2);
+  });
+
+  it("a picked or sent job outside the cut still shows, swapped for the lowest-ranked chip", () => {
+    const out = chipJobs(jobs, { lastJobId: null, keep: ["f", "e"] });
+    expect(out.shown.map((j) => j.id)).toEqual(["a", "b", "e", "f"]);
+    expect(out.hidden).toBe(2);
+  });
+
+  it("a short list shows everything", () => {
+    const out = chipJobs([job("a"), job("b")], { lastJobId: null });
+    expect(out.shown).toHaveLength(2);
+    expect(out.hidden).toBe(0);
   });
 });

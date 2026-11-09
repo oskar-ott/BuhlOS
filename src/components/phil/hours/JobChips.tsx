@@ -1,7 +1,13 @@
 import type { ReactNode } from "react";
 import { Building2, MapPin, Search, Wrench } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { isFinishedJob, weekdayName, type HoursJob } from "@/domains/timesheets/hours-view";
+import {
+  chipJobs,
+  isFinishedJob,
+  weekdayName,
+  type HoursJob,
+} from "@/domains/timesheets/hours-view";
+import type { TimeEntry } from "@/domains/timesheets/types";
 import { isWorkPlaceId } from "@/domains/timesheets/work-places";
 
 /**
@@ -13,6 +19,11 @@ import { isWorkPlaceId } from "@/domains/timesheets/work-places";
  *
  * Office and Workshop (owner pull 2026-11-06) are always last, before Find:
  * the worker's real jobs lead, the two no-job places follow.
+ *
+ * At most CHIP_JOB_LIMIT real jobs (owner pull 2026-11-09 — the chips sit in
+ * the sticky panel and a long job list buried the week): the last job, then
+ * the most recently logged, then by name; the picked and sent jobs always
+ * show. The rest are one tap away in Find another job, which says how many.
  */
 export function JobChips({
   jobs,
@@ -21,6 +32,7 @@ export function JobChips({
   foundJob,
   date,
   sentJobId = null,
+  entries,
   onPick,
   onFind,
 }: {
@@ -32,18 +44,18 @@ export function JobChips({
   date: string;
   /** In the Fix sheet: the job that was sent, marked "What you sent". */
   sentJobId?: string | null;
+  /** The worker's days — ranks the chips by when each job was last logged. */
+  entries?: ReadonlyArray<Pick<TimeEntry, "date" | "allocations">>;
   onPick: (jobId: string) => void;
   onFind: () => void;
 }): ReactNode {
-  const places = jobs.filter((j) => isWorkPlaceId(j.id));
-  const ordered = [
-    ...jobs
-      .filter((j) => !isWorkPlaceId(j.id))
-      .sort((a, b) =>
-        a.id === lastJobId ? -1 : b.id === lastJobId ? 1 : a.name.localeCompare(b.name)
-      ),
-    ...places,
-  ];
+  const { shown, places, hidden } = chipJobs(
+    jobs.filter((j) => j.id !== foundJob?.id),
+    { lastJobId, keep: [pickedJobId, sentJobId], entries }
+  );
+  const ordered = [...shown, ...places];
+  // Find fills the last cell when the grid has one free, else takes a row.
+  const findWide = (ordered.length + (foundJob ? 2 : 0)) % 2 === 0;
   return (
     <div
       role="radiogroup"
@@ -88,10 +100,22 @@ export function JobChips({
         type="button"
         onClick={onFind}
         data-testid="hours-find-job"
-        className="flex min-h-[56px] items-center justify-center gap-2 rounded-card border border-dashed border-border-strong px-3 font-display text-[15px] font-semibold text-text active:bg-surface-subtle"
+        className={cn(
+          "flex min-h-[56px] items-center justify-center gap-2 rounded-card border border-dashed border-border-strong px-3 py-2 text-text active:bg-surface-subtle",
+          findWide && "col-span-2"
+        )}
       >
-        <Search aria-hidden="true" className="h-4 w-4 text-text-muted" />
-        Find another job
+        <Search aria-hidden="true" className="h-4 w-4 shrink-0 text-text-muted" />
+        <span className="min-w-0 text-left">
+          <span className="block font-display text-[15px] font-semibold leading-tight">
+            Find another job
+          </span>
+          {hidden > 0 ? (
+            <span className="block text-[12px] text-text-muted" data-testid="hours-find-job-more">
+              {`${hidden} more ${hidden === 1 ? "job" : "jobs"} · search`}
+            </span>
+          ) : null}
+        </span>
       </button>
     </div>
   );

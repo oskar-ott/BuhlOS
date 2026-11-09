@@ -480,6 +480,7 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
       kind: "noDefault",
       date: pickedDate,
       jobs,
+      entries: merged,
       onPickJob: (id) => pickJobForDay(pickedDate, id),
       onFind: () => setFindJobFor(pickedDate),
       ...leaveActions,
@@ -493,6 +494,7 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
       weekend,
       backdated: weekStartOf(pickedDate) !== currentMonday,
       jobs,
+      entries: merged,
       pickedJob,
       lastJobId: lastJob?.jobId ?? null,
       foundJob: foundJobs[pickedDate] ?? null,
@@ -703,6 +705,7 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
           onClose={closeSheet}
           entry={sheetEntry}
           jobs={jobs}
+          entries={merged}
           canLogTafe={canLogTafe}
           busy={busyFor(sheetEntry.date)}
           problem={problemFor(sheetEntry.date)}

@@ -59,6 +59,7 @@ export type PanelState =
       kind: "noDefault";
       date: string;
       jobs: ReadonlyArray<HoursJob>;
+      entries: ChipEntries;
       onPickJob: (jobId: string) => void;
       onFind: () => void;
     } & PanelLeaveActions)
@@ -69,6 +70,7 @@ export type PanelState =
       /** The picked day sits in an earlier week. */
       backdated: boolean;
       jobs: ReadonlyArray<HoursJob>;
+      entries: ChipEntries;
       pickedJob: HoursJob;
       lastJobId: string | null;
       foundJob: HoursJob | null;
@@ -81,6 +83,9 @@ export type PanelState =
       /** A refused save for this day, shown in this slot. */
       problem?: PanelProblem | null;
     } & PanelLeaveActions);
+
+/** The worker's days, for ranking the job chips by when each was last logged. */
+type ChipEntries = ReadonlyArray<Pick<TimeEntry, "date" | "allocations">>;
 
 export function HoursBottomPanel({
   state,
@@ -205,6 +210,7 @@ function PanelBody({ state, offline }: { state: PanelState; offline: boolean }):
             jobs={state.jobs}
             pickedJobId={null}
             lastJobId={null}
+            entries={state.entries}
             date={state.date}
             onPick={state.onPickJob}
             onFind={state.onFind}
@@ -236,6 +242,7 @@ function PanelBody({ state, offline }: { state: PanelState; offline: boolean }):
                 jobs={state.jobs}
                 pickedJobId={state.pickedJob.id}
                 lastJobId={state.lastJobId}
+                entries={state.entries}
                 foundJob={state.foundJob}
                 date={state.date}
                 onPick={state.onPickJob}
