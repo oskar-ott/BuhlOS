@@ -106,17 +106,54 @@ recorded, and where they live.
 
 **Office (`/stock`, desktop and phone)**
 
-- The full list read by shelf with filters (None recorded · Estimates · Code
-  not confirmed · Archived — counts read "—" when the list didn't load), when
-  each item last moved and was last counted, and the product-code status with
-  its reason ("Possible match — colour not confirmed"). No KPI row, no gauges.
-- Per item, ordered by use: what's recorded and **correct the count** (counting
-  starts when the drawer opens; a stale-count guard shows what moved
-  meanwhile), the full movement history with **Undo** (any movement, a reason
-  required, written into the history), the **catalogue folded** (details with
-  a compare-and-set conflict block, codes / barcodes / pack sizes, the online
-  code check, the photo, the item's own history), and **archive last and
-  apart** (confirmed; read-only after; restore says which codes come back).
+- One toolbar — search and type on the left; Camera table, Location matrix,
+  Categories and **Add item** on the right — then the views as tabs on the
+  list (All · None recorded · Estimates · Code not confirmed · Not sorted ·
+  Archived, each with its count; no count when the list didn't load). The
+  list is read by shelf: what's recorded (right-aligned, "≈" for an
+  estimate), when each item last moved and was last counted, and a short
+  product-code status (Matched · Possible match · Not checked) whose tooltip
+  carries the reason ("Possible match — colour not confirmed"). The Bin column
+  shows only when something in view has a bin. "Recorded, not a guarantee"
+  is one line under the list. No KPI row, no gauges.
+- **Three views and a grouping** (office pull 2026-11-03: "give me
+  different views not just the table view"), all over the same filtered,
+  grouped items (`src/domains/workshop-stock/views.ts`), all opening the same
+  drawer: **Table** (read across; rows on a phone), **Cards** (a photo grid,
+  to recognise items by sight), **Board** (one column per group — the
+  workshop as you'd walk it, scrolling sideways). **Group by** Shelf (default),
+  Type (once the server has types) or nothing (A–Z); grouped by anything but
+  shelf, the full location shows instead of just the bin. The chosen view and
+  grouping are remembered in this browser only (a convenience; the page
+  works without it). No view adds a number the list doesn't already hold.
+- **Each view, sharpened** (office pull 2026-11-03: "improve the individual
+  views"). One toolbar row says how you're looking — search, type, **Group**,
+  **Sort**, the view, then Add item; the filter tabs sit under it with the
+  workshop tools (Camera table, Location matrix, Categories) as quiet links
+  on the right. **Sort** works within each group in every view: name A–Z,
+  lowest recorded first, last moved newest first, or longest since counted
+  (never-counted first — a count round); remembered with the view. Every
+  group header counts its own rows with nothing recorded ("3 items · 1 none
+  recorded").
+  - **Table**: click a column head to sort by it (again to reverse); the heads
+    stay pinned while the page scrolls; groups fold.
+  - **Cards**: "None recorded" / "Estimate" on the photo, the last count and
+    where it lives in the footer, a "No photo" tile instead of a blank icon;
+    groups fold.
+  - **Board**: each column scrolls on its own so the board fits the screen; a
+    fade and arrow buttons when there are more columns off to the side; an
+    empty item carries a warning edge.
+- Per item, a drawer with three tabs (office pull 2026-11-03: "the web view
+  is clunky" — one long scroll became three views):
+  - **Stock** (opens first): what's recorded, the shelf, last count and code
+    status; **correct the count** (counting starts when the drawer opens; a
+    stale-count guard shows what moved meanwhile); the full movement history
+    with **Undo** (any movement, a reason required, written into the history).
+  - **Details**: the catalogue — details with a compare-and-set conflict
+    block, codes / barcodes / pack sizes, the online code check, the photos,
+    the item's own history — and **archive last and apart** (confirmed;
+    read-only after; restore says which codes come back).
+  - **Label**: the NIIMBOT barcode label.
 - Add items the same way the crew does, by hand or with a photo.
 
 **Types, browsing, lists (2026-11-01)**
@@ -600,7 +637,7 @@ it wrong, but the photo is the reference"):
   shelf text — on the take/return/add confirmation and on the item sheet; one
   tap opens it full screen. A list row with one carries a small camera mark.
 - **The office** sees it in the item drawer and can add, replace or remove it
-  (catalogue → "Photo of where it lives").
+  (the Details tab → "Photo of where it lives").
 - It is the item's second photo, stored and served exactly like the product
   photo (`items.location_photo_id`, migration
   `20261026100000_workshop_stock_location_photo.sql`). The option appears only
@@ -635,7 +672,7 @@ the colour temperature, the width, the length, the brand, the voltage."
   a type sets the usual unit (cable: metres) until the unit is picked by hand.
 - **Existing items** start **not sorted** (no type) — nothing is sorted by
   guesswork. The office sorts them: the list's **Not sorted** filter, then
-  Catalogue → Details → **Type**; an unsorted item says what it looks like
+  the item's **Details** tab → **Type**; an unsorted item says what it looks like
   ("Looks like LED strip — Use it"), and picking a type fills its fields from
   the name and details, marked "check them before saving". Type edits are
   compare-and-set with the rest of the catalogue and written to the item's
@@ -792,7 +829,7 @@ it all works easily together".
   the choice is remembered on the device. **Share to NIIMBOT** (the phone's
   share sheet) or **Save image**, then print it as a picture in the NIIMBOT app.
 - **Where**: the phone item sheet (**Print / Make a barcode label**), the
-  office drawer (**Barcode label** fold), and the new-item form (**Make a
+  office drawer (**Label** tab), and the new-item form (**Make a
   barcode label for it** — ticked by itself for a loose item the photo could
   only describe); after saving, the label comes up before the next item.
 - **Print straight to the printer (office, Chrome)** — owner, 2026-11-03: "is
@@ -1002,6 +1039,54 @@ no-match that couldn't open every page it found; listings found but impossible
 to open are "Couldn't check online", not "No listing found". The office can
 re-check and record the result on an item; changing an item's maker's code or
 brand clears a verification that was for the old one.
+
+### A product photo from the web (2026-11-05)
+
+Owner pull: "grab an image from the internet as the stock image in the app".
+The office can give an item the **product photo from the page the online code
+check matched** — never an image search across the web, never a URL anyone
+types.
+
+- **Where**: the office item drawer — Details → Photo → **Find a photo
+  online**, and on the Stock tab beside the summary while the item has no
+  photo at all. Office only (the crew's phone flow is unchanged).
+- **What it uses**: the server reads its own cached check for exactly this
+  item (brand, code, colour, size — the same key Record the check reads) and
+  takes the image that check found on the product page (JSON-LD `image`, else
+  `og:image`), already limited to an allowlisted host when the check ran. No
+  check on record → the drawer runs the check first (from the cache when there
+  is one), then asks again. No match, or a page with no image → it says so.
+- **How it's fetched** (`safe-fetch.js` `fetchAllowlistedImage`): the page
+  fetcher's guards — https, the source allowlist on every redirect hop, every
+  resolved address public at connect time, 8 s — with JPEG / PNG / WebP
+  content types only, no compressed transfer, 3 MB. The bytes are then
+  checked like any upload (`photo.readPhotoBytes`: magic number, parseable
+  header, 64–10 000 px) and stored privately like any photo.
+- **Seen before it's used**: it's kept as a **pending** photo and shown through
+  the photo proxy (the browser never loads the outside site) with where it came
+  from ("Product photo from clipsal.com · from the maker's site · Open the
+  product page") and that it's a catalogue photo, not one taken in the
+  workshop (P7). **Use this photo** claims it like any other photo; **Not this
+  one** leaves it to expire with the other pending photos (24 h).
+- **Where it came from stays with it**: the photo row keeps `{ webImage: {
+  domain, kind, pageUrl, imageUrl, productName, fetchedAt } }` in its
+  `reading`; using it writes `source: web` and the domain into the item's
+  history ("Photo changed — product photo from clipsal.com") and the audit
+  summary. No migration.
+- **Every item without one, in one go**: **Find photos** on the list's tool
+  row (with a count) opens a drawer of the live items that have a maker's code
+  and no photo, up to 25 a run. It runs the same steps per item, one at a
+  time (`src/domains/workshop-stock/web-photo.ts`), and **applies nothing by
+  itself**: each photo found waits for **Use** / **Skip**, or **Use all
+  found** — a product page sometimes carries a logo or another variant. A
+  limit, today's checks used up, or lost signal stops the run and says so; the
+  items not looked at yet are left as they were ("Carry on" picks up there).
+  Items without a code are counted and named as unable to be looked up.
+- **Limits**: 40 fetches per person per hour; a check it has to run first
+  counts against the daily online-check budget like any other.
+- **Copyright**: these are the maker's / wholesaler's catalogue images, used
+  inside BuhlOS to recognise stock — not republished. Swap one for a workshop
+  photo any time (Replace photo).
 
 ## Information kept apart
 

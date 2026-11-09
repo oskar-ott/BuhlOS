@@ -1057,6 +1057,14 @@ async function setPhotoReading(sql, tenantId, photoId, reading) {
   await sql`update public.workshop_stock_photos set reading = ${sql.json(reading)} where tenant_id = ${tenantId} and id = ${photoId}`;
 }
 
+/** Where a photo came from when the server fetched it from a product page ({ domain, kind, pageUrl }), else null. */
+async function getPhotoWebSource(sql, tenantId, photoId) {
+  const rows = await sql`select reading -> 'webImage' as web from public.workshop_stock_photos where tenant_id = ${tenantId} and id = ${photoId}`;
+  const w = rows[0] && rows[0].web;
+  if (!w || typeof w !== 'object') return null;
+  return { domain: typeof w.domain === 'string' ? w.domain : null, kind: typeof w.kind === 'string' ? w.kind : null, pageUrl: typeof w.pageUrl === 'string' ? w.pageUrl : null };
+}
+
 /**
  * Server-only: the Blob URL + type of a photo the viewer may see, or null.
  * `size: 'thumb'` serves the small copy when there is one (else the photo).
@@ -1084,7 +1092,7 @@ async function getPhotoForServing(sql, tenantId, photoId, { viewerId, office, si
  * they uploaded themselves — never replace one. Replacing stays the office's,
  * like the shelf text.
  */
-async function replaceItemPhoto(sql, tenantId, itemId, photoId, actor, slot = 'product', { onlyIfEmpty = false } = {}) {
+async function replaceItemPhoto(sql, tenantId, itemId, photoId, actor, slot = 'product', { onlyIfEmpty = false, eventDetail = null } = {}) {
   const location = slot === 'location';
   if (location && !(await hasLocationPhoto(sql))) return { error: 'location_photo_unavailable' };
   if (!location && !photoId) return { error: 'photo_not_available' };
@@ -1122,7 +1130,7 @@ async function replaceItemPhoto(sql, tenantId, itemId, photoId, actor, slot = 'p
               and (i.photo_id = p.id or (to_jsonb(i) ->> 'location_photo_id') = p.id::text))`;
     }
     // one event name for both slots (the events table allows a fixed set); the slot says which
-    await insertEvent(tx, tenantId, itemId, 'photo_changed', location ? { slot: 'location', from: old, to: photoId } : { from: old, to: photoId }, actor);
+    await insertEvent(tx, tenantId, itemId, 'photo_changed', location ? { slot: 'location', from: old, to: photoId } : { from: old, to: photoId, ...(eventDetail || {}) }, actor);
     return { ok: true };
   });
 }
@@ -1440,6 +1448,7 @@ module.exports = {
   recordVerification,
   insertPhoto,
   setPhotoReading,
+  getPhotoWebSource,
   getPhotoForServing,
   replaceItemPhoto,
   hasLocationPhoto,

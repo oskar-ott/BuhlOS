@@ -310,4 +310,48 @@ describe("safe page fetch", () => {
       lookup: lookupFor({}),
     })).rejects.toMatchObject({ code: "too_large" });
   });
+
+  // ── a product image (2026-11-05) — the same guards, image types only ──
+  const IMG = "https://www.clipsal.com/media/2025WE.png";
+  const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]);
+
+  it("fetches an image from an allowlisted host as bytes", async () => {
+    const r = await safe.fetchAllowlistedImage(IMG, {
+      request: fakeRequest({ [IMG]: { status: 200, headers: { "content-type": "image/png" }, body: pngBytes } }, {}),
+      lookup: lookupFor({}),
+    });
+    expect(r.finalUrl).toBe(IMG);
+    expect(Buffer.isBuffer(r.bytes)).toBe(true);
+    expect(r.bytes.equals(pngBytes)).toBe(true);
+  });
+
+  it("an image gets every page guard: allowlist on each hop, public addresses, https", async () => {
+    await expect(safe.fetchAllowlistedImage("https://evil.example/x.png", { request: fakeRequest({}, {}), lookup: lookupFor({}) })).rejects.toMatchObject({ code: "host_not_allowlisted" });
+    await expect(safe.fetchAllowlistedImage(IMG, {
+      request: fakeRequest({ [IMG]: { status: 302, headers: { location: "https://cdn.evil.example/x.png" } } }, {}),
+      lookup: lookupFor({}),
+    })).rejects.toMatchObject({ code: "host_not_allowlisted" });
+    await expect(safe.fetchAllowlistedImage(IMG, {
+      request: fakeRequest({ [IMG]: { status: 200, headers: { "content-type": "image/png" }, body: pngBytes } }, {}),
+      lookup: lookupFor({ "www.clipsal.com": "10.0.0.5" }),
+    })).rejects.toMatchObject({ code: "address_not_public" });
+    await expect(safe.fetchAllowlistedImage("http://www.clipsal.com/media/2025WE.png", { request: fakeRequest({}, {}), lookup: lookupFor({}) })).rejects.toMatchObject({ code: "scheme_not_allowed" });
+  });
+
+  it("an image fetch takes image types only, uncompressed, within its cap", async () => {
+    for (const type of ["text/html", "image/svg+xml", "image/gif"]) {
+      await expect(safe.fetchAllowlistedImage(IMG, {
+        request: fakeRequest({ [IMG]: { status: 200, headers: { "content-type": type }, body: pngBytes } }, {}),
+        lookup: lookupFor({}),
+      })).rejects.toMatchObject({ code: "content_type_not_allowed" });
+    }
+    await expect(safe.fetchAllowlistedImage(IMG, {
+      request: fakeRequest({ [IMG]: { status: 200, headers: { "content-type": "image/png", "content-encoding": "gzip" }, body: gzipSync(pngBytes) } }, {}),
+      lookup: lookupFor({}),
+    })).rejects.toMatchObject({ code: "encoding_not_supported" });
+    await expect(safe.fetchAllowlistedImage(IMG, {
+      request: fakeRequest({ [IMG]: { status: 200, headers: { "content-type": "image/png" }, body: Buffer.alloc(safe.MAX_IMAGE_BYTES + 10, 1) } }, {}),
+      lookup: lookupFor({}),
+    })).rejects.toMatchObject({ code: "too_large" });
+  });
 });

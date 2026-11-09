@@ -10,7 +10,7 @@ import { addIdentifier, editItem, lookupCode, newOperationKey, recordCount, reco
 import { clockTime, errorCopy, formatNumber, formatQuantity, movementSummary, movementWho, parseTypedQuantity, toQuantityString, UNIT_LABEL, VERIFICATION_LABEL, whenLabel } from "@/domains/workshop-stock/format";
 import { PACK_UNITS, UNIT_KEYS, type LookupResult, type PackUnit, type StockItem, type StockMovement, type StockUnit, type WriteResult } from "@/domains/workshop-stock/schema";
 import { guessSpecs, guessType, normaliseValue, specsForType, STOCK_TYPES, typeLabel, typeOf } from "@/domains/workshop-stock/types";
-import { CODE_TONE } from "./StockAdminClient";
+import { CODE_TONE } from "./code-status";
 
 export const INPUT = "h-9 w-full rounded-[4px] border border-border-strong bg-surface px-2.5 text-sm text-text disabled:bg-surface-subtle disabled:text-text-muted";
 export const LABEL = "block text-xs font-semibold text-text-muted";
@@ -79,10 +79,6 @@ export function CountForm({ item, onSaved }: { item: StockItem; onSaved: (r: Wri
 
   return (
     <div className="space-y-2.5" data-testid="stock-count-form">
-      <p className="flex items-start gap-1.5 rounded-[4px] bg-surface-subtle px-2.5 py-1.5 text-xs text-text-muted">
-        <Lock aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-        Counting since {clockTime(started.at)} — movements after this will be shown before you save.
-      </p>
       <div className="grid grid-cols-2 gap-2">
         <label className="block">
           <span className={LABEL}>Counted on the shelf</span>
@@ -96,7 +92,6 @@ export function CountForm({ item, onSaved }: { item: StockItem; onSaved: (r: Wri
           <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. monthly shelf count" className={cn(INPUT, "mt-1")} data-testid="stock-count-reason" disabled={busy} />
         </label>
       </div>
-      <label className="flex items-center gap-2 text-sm text-text"><input type="checkbox" checked={estimated} onChange={(e) => setEstimated(e.target.checked)} className="h-4 w-4 accent-brand-navy" /> Estimate (e.g. a part-used roll)</label>
       {stale ? (
         <Block tone="warn" title="Stock changed while you were counting" testId="stock-count-stale" role="alert">
           <p>You started counting at {clockTime(started.at)}, when {formatQuantity(started.balanceMilli, unit)} were recorded. Since then:</p>
@@ -122,12 +117,19 @@ export function CountForm({ item, onSaved }: { item: StockItem; onSaved: (r: Wri
         </Block>
       ) : (
         <>
-          {counted !== null ? <p className="rounded-[4px] bg-surface-subtle px-2.5 py-1.5 text-sm font-medium text-text">Saves: Counted {formatQuantity(counted, unit)} — {diff(started.balanceMilli)}.{clears}</p> : null}
-          <Button type="button" size="sm" onClick={() => void submit(started.version)} disabled={busy || !ready || Boolean(item.archivedAt)} data-testid="stock-count-save">
-            {busy ? "Saving…" : `Save count${counted !== null ? ` · ${formatQuantity(counted, unit)}` : ""}`}
-          </Button>
+          {counted !== null ? <p className="text-sm font-medium text-text">Saves: Counted {formatQuantity(counted, unit)} — {diff(started.balanceMilli)}.{clears}</p> : null}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <label className="flex items-center gap-2 text-sm text-text"><input type="checkbox" checked={estimated} onChange={(e) => setEstimated(e.target.checked)} className="h-4 w-4 accent-brand-navy" /> Estimate (e.g. a part-used roll)</label>
+            <Button type="button" size="sm" onClick={() => void submit(started.version)} disabled={busy || !ready || Boolean(item.archivedAt)} data-testid="stock-count-save">
+              {busy ? "Saving…" : `Save count${counted !== null ? ` · ${formatQuantity(counted, unit)}` : ""}`}
+            </Button>
+          </div>
         </>
       )}
+      <p className="flex items-center gap-1.5 text-xs text-text-muted">
+        <Lock aria-hidden="true" className="h-3 w-3 shrink-0" />
+        Counting from {clockTime(started.at)} — anything taken or added after that is shown before your count saves.
+      </p>
       <Err text={error} />
     </div>
   );

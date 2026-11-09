@@ -74,7 +74,9 @@ const vision = require('./_lib/workshop-stock/vision');
 const photo = require('./_lib/workshop-stock/photo');
 const search = require('./_lib/workshop-stock/search');
 const { lookupProduct } = require('./_lib/workshop-stock/lookup');
-const { fetchAllowlistedPage } = require('./_lib/workshop-stock/safe-fetch');
+const safeFetch = require('./_lib/workshop-stock/safe-fetch');
+const { fetchAllowlistedPage } = safeFetch;
+const { sourceList } = require('./_lib/workshop-stock/sources');
 const { withTimeout } = require('./_lib/with-timeout');
 
 const FLAG = 'workshop_stock';
@@ -83,6 +85,9 @@ const FLAG = 'workshop_stock';
 // for the two calls that cost money.
 const photoReadLimiter = createRateLimiter({ windowMs: 10 * 60_000, max: 30 });
 const lookupLimiter = createRateLimiter({ windowMs: 60 * 60_000, max: 20 });
+// Fetching a product image the check already found: one small request each, so a
+// looser burst limit than a search — but still a limit.
+const webPhotoLimiter = createRateLimiter({ windowMs: 60 * 60_000, max: 40 });
 // The camera table reads one object at a time in bulk, so it has its own burst
 // limit and its own daily counter — a big session can't use up the crew's reads.
 const intakeReadLimiter = createRateLimiter({ windowMs: 10 * 60_000, max: 300 });
@@ -1172,14 +1177,78 @@ async function itemPhoto(sql, tenant, me, body, res) {
   const office = policy.isOffice(me.role);
   const crewFill = !office && input.slot === 'location' && input.photoId !== null;
   if (!office && !crewFill) return res.status(403).json({ error: 'office_only' });
-  const r = await store.replaceItemPhoto(sql, tenant.id, input.itemId, input.photoId, actorOf(me), input.slot, { onlyIfEmpty: crewFill });
+  // A product image fetched from the web says where it came from in the item's history.
+  const web = input.slot === 'product' && input.photoId ? await store.getPhotoWebSource(sql, tenant.id, input.photoId) : null;
+  const r = await store.replaceItemPhoto(sql, tenant.id, input.itemId, input.photoId, actorOf(me), input.slot, { onlyIfEmpty: crewFill, eventDetail: web ? { source: 'web', domain: web.domain, pageUrl: web.pageUrl } : null });
   if (r.error) return res.status(r.error === 'item_not_found' ? 404 : r.error === 'location_photo_unavailable' ? 503 : 409).json({ error: r.error });
   const where = input.slot === 'location';
   // the crew's fill is in the item's own history (like their creates), not the shared journal
   if (office) {
-    await journal(me, 'workshop_stock.photo_changed', input.itemId, where ? (input.photoId ? 'Changed where a workshop item lives (photo)' : 'Removed the photo of where a workshop item lives') : 'Changed a workshop item photo', { slot: input.slot });
+    await journal(me, 'workshop_stock.photo_changed', input.itemId, where ? (input.photoId ? 'Changed where a workshop item lives (photo)' : 'Removed the photo of where a workshop item lives') : web ? `Changed a workshop item photo (product image from ${web.domain})` : 'Changed a workshop item photo', web ? { slot: input.slot, source: 'web', domain: web.domain } : { slot: input.slot });
   }
   return res.status(200).json({ item: await store.getItem(sql, tenant.id, input.itemId) });
+}
+
+/**
+ * A product image from the web for an item (owner pull 2026-11-05: "grab an
+ * image from the internet as the stock image"). Office only. The image is the
+ * one the online code check found on the product page it matched — so it only
+ * ever comes from an allowlisted maker or wholesaler site, and the URL is read
+ * from the server's own cached check for THIS item, never from the request.
+ *
+ * It is fetched with the page fetcher's guards (fetchAllowlistedImage), checked
+ * like any upload (readPhotoBytes) and kept as a PENDING photo: the office sees
+ * it first and "Use this photo" claims it through item-photo, like any other
+ * photo. Not used, it expires with the other pending photos in 24 h.
+ *
+ *   409 not_checked   no check on record for this item's code — run one first
+ *   404 no_web_photo  the check found nothing, or its page had no product image
+ *   502 web_photo_unavailable / 415 web_photo_unusable — the image itself
+ */
+async function webPhoto(sql, tenant, me, body, res) {
+  if (!policy.isOffice(me.role)) return res.status(403).json({ error: 'office_only' });
+  const input = parseOr400(ItemIdBody, body, res);
+  if (!input) return;
+  const item = await store.getItem(sql, tenant.id, input.itemId);
+  if (!item) return res.status(404).json({ error: 'item_not_found' });
+  if (item.archivedAt) return res.status(409).json({ error: 'item_archived' });
+  if (!item.manufacturerCode) return res.status(409).json({ error: 'no_code' });
+  const key = codes.lookupKey({ brand: item.brand, manufacturerCode: item.manufacturerCode, colourFinish: item.colourFinish, variantDetails: item.variant });
+  const cached = key ? await store.getCachedLookup(sql, tenant.id, key) : null;
+  if (!cached) return res.status(409).json({ error: 'not_checked' });
+  const c = cached.candidate;
+  if (!['manufacturer_code_matched', 'possible_match'].includes(cached.status) || !c || !c.imageUrl) {
+    return res.status(404).json({ error: 'no_web_photo', sourceDomain: (c && c.sourceDomain) || null });
+  }
+  if (webPhotoLimiter.isLimited(me.id)) return res.status(429).json({ error: 'web_photo_limit', retryAfterSec: webPhotoLimiter.retryAfterSec(me.id) });
+  webPhotoLimiter.record(me.id);
+
+  let fetched;
+  try {
+    fetched = await safeFetch.fetchAllowlistedImage(c.imageUrl, { sources: sourceList() });
+  } catch (e) {
+    console.error('[workshop-stock] web photo fetch failed', { code: (e && e.code) || 'fetch_failed', domain: c.sourceDomain || null });
+    return res.status(502).json({ error: 'web_photo_unavailable', sourceDomain: c.sourceDomain || null });
+  }
+  const up = photo.readPhotoBytes(fetched.bytes);
+  if (up.error) return res.status(415).json({ error: 'web_photo_unusable', sourceDomain: c.sourceDomain || null });
+
+  const source = { domain: c.sourceDomain || (fetched.source && fetched.source.domain) || null, kind: c.sourceKind || (fetched.source && fetched.source.kind) || null, pageUrl: c.sourceUrl || null };
+  const cleanup = cleanupAlongside(sql, tenant.id);
+  let photoId;
+  try {
+    photoId = await keepPhoto(sql, tenant, me, up, null);
+  } catch (e) {
+    console.error('[workshop-stock] photo store failed', { code: (e && e.code) || 'blob' });
+    await cleanup;
+    return res.status(502).json({ error: 'photo_store_failed' });
+  }
+  // where it came from, kept with the photo (provenance — the claim reads it back)
+  try {
+    await store.setPhotoReading(sql, tenant.id, photoId, { webImage: { ...source, imageUrl: fetched.finalUrl, productName: c.name || null, fetchedAt: new Date().toISOString() } });
+  } catch { /* provenance only */ }
+  await cleanup;
+  return res.status(201).json({ photoId, source });
 }
 
 async function verify(sql, tenant, me, body, res) {
@@ -1429,6 +1498,7 @@ async function handler(req, res) {
       case 'archive': return archive(sql, tenant, me, body, res, true);
       case 'restore': return archive(sql, tenant, me, body, res, false);
       case 'item-photo': return itemPhoto(sql, tenant, me, body, res);
+      case 'web-photo': return webPhoto(sql, tenant, me, body, res);
       case 'verify': return verify(sql, tenant, me, body, res);
       case 'list': return saveList(sql, tenant, me, body, res);
       case 'type': return saveType(sql, tenant, me, body, res);
