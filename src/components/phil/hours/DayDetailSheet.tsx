@@ -47,7 +47,7 @@ export function DayDetailSheet({
   busy?: boolean;
   problem?: { problem: HoursProblem; onRetry?: (() => void) | null; retryLabel?: string } | null;
   onChangeHours: () => void;
-  /** A one-job day waiting on the office: change its job. Null hides it. */
+  /** A day waiting on the office: change its job, split it, or make it leave. Null hides it. */
   onChangeJob?: (() => void) | null;
   onSaveNote: (note: string) => void;
   onSendDraft: () => void;
@@ -113,7 +113,7 @@ export function DayDetailSheet({
           <>
             <p className="text-[14px] text-text">
               {onChangeJob
-                ? "The office hasn\u2019t decided on this day yet, so you can still change the hours or the job."
+                ? "The office hasn\u2019t decided on this day yet, so you can still change it."
                 : "The office hasn\u2019t decided on this day yet, so you can still change the hours."}
             </p>
             <button
@@ -138,9 +138,11 @@ export function DayDetailSheet({
                 className="flex min-h-[64px] w-full items-center justify-between gap-3 rounded-card border border-border-strong bg-surface px-4 text-left active:bg-surface-subtle"
               >
                 <span>
-                  <span className="block font-display text-[16px] font-bold">Change the job</span>
+                  <span className="block font-display text-[16px] font-bold">
+                    Change the job or split the day
+                  </span>
                   <span className="block text-[13px] text-text-muted">
-                    The office will see the new job instead
+                    Another job, several jobs, or a sick day or holiday
                   </span>
                 </span>
                 <ChevronRight aria-hidden="true" className="h-5 w-5 shrink-0 text-text-muted" />

@@ -86,16 +86,26 @@ or concepts. Payloads come from the existing builders in `service.ts` and
 - **On Earlier weeks the log panel steps aside** until an earlier day is picked
   (or a save result is showing), so it no longer covers the list (and its Fix
   button) with this week's Monday. UI slot (P10): none added.
-- **Change the job on a waiting day** (owner pull 2026-11-09 — "they should
-  be able to change it"). A one-job day still Waiting on the office offers
-  "Change the job" in its day detail, under "Change these hours". It opens
-  `ChangeJobSheet.tsx`: the same job chips (the sent job marked "What you
-  sent"), Find another job, and Send ("The office sees the new job instead").
-  The hours stay as sent. The payload is the existing `buildResubmitPayload`
-  with the same total and the new job. Before, only a split day could change
-  its jobs; a one-job day said "ask the office". Approved days stay locked;
-  leave days are unchanged. UI slot (P10): one row in the existing day-detail
-  sheet.
+- **A worker corrects their own day while it waits** (owner pull 2026-11-09 —
+  "they should be able to change it", then "fix it and audit for other
+  mistakes"). A day still Waiting on the office offers "Change the job or split
+  the day" in its day detail, under "Change these hours". It opens the Fix
+  sheet in `mode="change"` (no office reason; "Send changed Tuesday · The
+  office sees this instead"): job chips, Find another job, Sick day /
+  Holiday, Split jobs, and the hours. The same sheet, sent back by the office,
+  is the Fix sheet. Both now cover every correction:
+  - another job (one-job day);
+  - **a one-job day split across jobs** (before: Split jobs only showed for a
+    day that was already split);
+  - **a split day back onto one job** (pick a chip; before: impossible);
+  - a job day to sick day / holiday, or back.
+  Payloads are the existing `buildResubmitPayload` /
+  `buildSplitResubmitPayload` / `buildDayTypeResubmitPayload`, which the
+  server already accepts on a waiting day. Approved days stay locked. UI slot
+  (P10): one row in the existing day-detail sheet.
+- **Still needs the office:** a day logged on the **wrong date** (no delete, no
+  move — owner ruling), and changing an **approved** day (locked for pay; the
+  office reopens it).
 - **No delete.** The day-detail sheet says: "Logged days can't be deleted.
   Change the hours instead, or ask the office."
 - **No promises**: no "you'll be notified", no approval ETAs, no reviewer
@@ -140,7 +150,7 @@ catches up, so the row never vanishes on refresh.
 
 Standard day 1 · Mon–Fri catch-up 5 · +1h OT 3 (Custom or OT → chip → Send) ·
 log on a different listed job 2 · sick day 2 · fix a wrong job 3 (Fix → chip →
-Send) · change the job on a waiting day 4 (day → Change the job → chip → Send).
+Send) · change the job on a waiting day 4 (day → Change the job or split the day → chip → Send).
 
 ## Arrival
 

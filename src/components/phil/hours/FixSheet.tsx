@@ -48,6 +48,7 @@ export function FixSheet({
   onFindJob,
   foundJob,
   onSend,
+  mode = "fix",
 }: {
   open: boolean;
   onClose: () => void;
@@ -62,12 +63,21 @@ export function FixSheet({
   onFindJob: () => void;
   foundJob?: HoursJob | null;
   onSend: (payload: PatchTimeEntryPayload) => void;
+  /**
+   * "fix": a day the office sent back (its reason leads). "change": a day
+   * still waiting on the office, changed by the worker before anyone decides
+   * (owner pull 2026-11-09 — a worker corrects their own mistakes: another
+   * job, split across jobs, back to one job, or sick day / holiday).
+   */
+  mode?: "fix" | "change";
 }): ReactNode {
   const sentJobId = (entry.allocations ?? []).find((a) => a.jobId)?.jobId ?? null;
   const sentType = (entry.dayType as LeaveType | null | undefined) ?? null;
   const split = (entry.allocations ?? []).length > 1;
 
   const [jobId, setJobId] = useState<string | null>(foundJob?.id ?? sentJobId);
+  // A split day stays split until the worker picks one job for the whole day.
+  const [asOneJob, setAsOneJob] = useState<boolean>(!split || Boolean(foundJob));
   const [leave, setLeave] = useState<LeaveType | null>(sentType);
   const [hours, setHours] = useState<number>(entry.totalHours);
   const [splitRows, setSplitRows] = useState<Array<{ jobId: string; hours: number }> | null>(null);
@@ -76,7 +86,7 @@ export function FixSheet({
   const effectiveJobId =
     foundJob && jobId === sentJobId && foundJob.id !== sentJobId ? foundJob.id : jobId;
 
-  const jobChanged = leave === null && effectiveJobId !== sentJobId;
+  const jobChanged = leave === null && asOneJob && (split || effectiveJobId !== sentJobId);
   const typeChanged = leave !== sentType;
   const hoursChanged = Math.abs(hours - entry.totalHours) > 0.005;
   const changed = jobChanged || typeChanged || hoursChanged || splitRows !== null;
@@ -99,7 +109,7 @@ export function FixSheet({
         allocations: splitRows,
         notes: entry.notes ?? null,
       });
-    if (split && !splitRows) {
+    if (!asOneJob) {
       // A split day fixed only in hours keeps its jobs; share the new total pro rata is a
       // guess, so the split sheet is the only way to change a split day's hours.
       return null;
@@ -127,12 +137,17 @@ export function FixSheet({
       )
     : null;
 
+  const isChange = mode === "change";
+  // What the day looks like right now in this sheet: split across jobs or not.
+  const splitShape = leave === null && (splitRows !== null || !asOneJob);
   const reason = !changed
-    ? "Nothing changed yet. Pick the right job or hours, then you can send it back to the office."
+    ? isChange
+      ? "Nothing changed yet. Pick the right job, split it, or change the hours."
+      : "Nothing changed yet. Pick the right job or hours, then you can send it back to the office."
     : !draft
-      ? split
+      ? splitShape
         ? "Use Split jobs to change a split day's hours."
-        : "Pick a job to send it back."
+        : "Pick a job to send it."
       : null;
 
   return (
@@ -140,16 +155,16 @@ export function FixSheet({
       <HoursSheet
         open={open}
         onClose={onClose}
-        title={`Fix ${day}`}
+        title={isChange ? `Change ${day}` : `Fix ${day}`}
         subtitle={dayDate(entry.date)}
-        testId="hours-sheet-fix"
+        testId={isChange ? "hours-sheet-change-day" : "hours-sheet-fix"}
         footer={{
           problem: problem ?? null,
           reason,
           review: reason || !preview ? null : { lead: "You're sending instead", line: preview },
           send: {
-            label: `Send fixed ${day}`,
-            sub: "Goes back to the office",
+            label: isChange ? `Send changed ${day}` : `Send fixed ${day}`,
+            sub: isChange ? "The office sees this instead" : "Goes back to the office",
             onClick: () => {
               if (draft) onSend(draft);
             },
@@ -159,20 +174,22 @@ export function FixSheet({
         }}
       >
         <div className="space-y-4">
-          <div
-            className="rounded-[16px] border border-[#f4c9c9] bg-[#fee2e2] p-4"
-            data-testid="hours-fix-reason"
-          >
-            <p className="flex items-center gap-2 font-display text-[13px] font-bold uppercase tracking-[0.06em] text-state-danger">
-              <MessageSquareWarning aria-hidden="true" className="h-4 w-4" />
-              Fix needed · the office says
-            </p>
-            <p className="mt-1 whitespace-pre-line text-[16px] text-text">
-              {entry.rejectedReason?.trim()
-                ? `“${entry.rejectedReason.trim()}”`
-                : "No reason was written."}
-            </p>
-          </div>
+          {isChange ? null : (
+            <div
+              className="rounded-[16px] border border-[#f4c9c9] bg-[#fee2e2] p-4"
+              data-testid="hours-fix-reason"
+            >
+              <p className="flex items-center gap-2 font-display text-[13px] font-bold uppercase tracking-[0.06em] text-state-danger">
+                <MessageSquareWarning aria-hidden="true" className="h-4 w-4" />
+                Fix needed · the office says
+              </p>
+              <p className="mt-1 whitespace-pre-line text-[16px] text-text">
+                {entry.rejectedReason?.trim()
+                  ? `“${entry.rejectedReason.trim()}”`
+                  : "No reason was written."}
+              </p>
+            </div>
+          )}
 
           <div>
             <p className="text-[13px] font-semibold uppercase tracking-[0.06em] text-text-muted">
@@ -186,10 +203,15 @@ export function FixSheet({
           <div className="space-y-3">
             <p className="font-display text-[15px] font-bold">Change what&rsquo;s wrong</p>
 
-            {!split ? (
+            {split ? (
+              <p className="text-[13px] text-text-muted">
+                Pick one job to put the whole day on it, or use Split jobs.
+              </p>
+            ) : null}
+            {
               <JobChips
                 jobs={jobs}
-                pickedJobId={leave ? null : effectiveJobId}
+                pickedJobId={leave || splitShape ? null : effectiveJobId}
                 lastJobId={sentJobId}
                 sentJobId={sentJobId}
                 entries={entries}
@@ -198,10 +220,12 @@ export function FixSheet({
                 onPick={(id) => {
                   setJobId(id);
                   setLeave(null);
+                  setSplitRows(null);
+                  setAsOneJob(true);
                 }}
                 onFind={onFindJob}
               />
-            ) : null}
+            }
 
             <LeavePills
               options={leaveOptions(canLogTafe || sentType === "tafe")}
@@ -214,7 +238,7 @@ export function FixSheet({
               sentType={sentType}
             />
 
-            {split && !leave ? (
+            {!leave ? (
               <button
                 type="button"
                 onClick={() => setNested("split")}
@@ -223,11 +247,18 @@ export function FixSheet({
               >
                 <span>
                   <span className="block font-display text-[15px] font-bold">Split jobs</span>
-                  <span className="block text-[13px] text-text-muted tabular-nums">{`Now: ${splitLabel(entry)} across ${(entry.allocations ?? []).length} jobs`}</span>
+                  <span className="block text-[13px] text-text-muted tabular-nums">
+                    {splitRows
+                      ? `Now: ${formatHoursLabel(hours)} across ${splitRows.length} jobs`
+                      : splitShape
+                        ? `Now: ${splitLabel(entry)} across ${(entry.allocations ?? []).length} jobs`
+                        : "Spread the hours over two or more jobs"}
+                  </span>
                 </span>
                 <ChevronRight aria-hidden="true" className="h-5 w-5 shrink-0 text-text-muted" />
               </button>
-            ) : (
+            ) : null}
+            {splitShape ? null : (
               <button
                 type="button"
                 onClick={() => setNested("hours")}
@@ -272,7 +303,7 @@ export function FixSheet({
           onClose={() => setNested("none")}
           date={entry.date}
           jobs={jobs}
-          defaultJobId={sentJobId}
+          defaultJobId={leave ? sentJobId : (effectiveJobId ?? sentJobId)}
           initialTotal={hours}
           initialRows={(
             splitRows ?? (entry.allocations ?? []).map((a) => ({ jobId: a.jobId, hours: a.hours }))
