@@ -55,7 +55,6 @@ import {
 import type { HoursProblem } from "@/domains/timesheets/problem";
 import type { PatchTimeEntryPayload, TimeEntry } from "@/domains/timesheets/types";
 import { useOnline } from "../useOnline";
-import { ChangeJobSheet } from "./ChangeJobSheet";
 import { DayDetailSheet } from "./DayDetailSheet";
 import { EarlierWeeks } from "./EarlierWeeks";
 import { FindJobSheet } from "./FindJobSheet";
@@ -336,15 +335,6 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
         ? buildResubmitPayload(entry, { totalHours, jobId, notes })
         : null;
     if (!payload) return;
-    void run(attemptFor("patch", entry.date, payload, "change"), "send");
-  }
-  /** A one-job waiting day moved to another job — the hours stay as sent. */
-  function changeJob(entry: TimeEntry, jobId: string) {
-    const payload = buildResubmitPayload(entry, {
-      totalHours: entry.totalHours,
-      jobId,
-      notes: entry.notes ?? null,
-    });
     void run(attemptFor("patch", entry.date, payload, "change"), "send");
   }
   function changeSplit(
@@ -687,9 +677,7 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
           problem={problemFor(sheetEntry.date)}
           onChangeHours={() => setSheet({ kind: "change", date: sheetEntry.date })}
           onChangeJob={
-            sheetEntry.status === "submitted" &&
-            !sheetEntry.dayType &&
-            (sheetEntry.allocations ?? []).length === 1
+            sheetEntry.status === "submitted"
               ? () => setSheet({ kind: "changeJob", date: sheetEntry.date })
               : null
           }
@@ -734,20 +722,21 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
         )
       ) : null}
 
-      {sheet.kind === "changeJob" && sheetEntry ? (
-        <ChangeJobSheet
-          key={`change-job-${sheetEntry.id}-${foundJobs[sheetEntry.date]?.id ?? ""}`}
+      {sheet.kind === "changeJob" && sheetEntry && sheetEntry.status === "submitted" ? (
+        <FixSheet
+          key={`change-day-${sheetEntry.id}-${foundJobs[sheetEntry.date]?.id ?? ""}`}
+          mode="change"
           open
           onClose={closeSheet}
           entry={sheetEntry}
-          sentJobId={primaryJobId(sheetEntry)}
           jobs={jobs}
           entries={merged}
-          foundJob={foundJobs[sheetEntry.date] ?? null}
-          onFindJob={() => setFindJobFor(sheetEntry.date)}
+          canLogTafe={canLogTafe}
           busy={busyFor(sheetEntry.date)}
           problem={problemFor(sheetEntry.date)}
-          onSend={(jobId) => changeJob(sheetEntry, jobId)}
+          onFindJob={() => setFindJobFor(sheetEntry.date)}
+          foundJob={foundJobs[sheetEntry.date] ?? null}
+          onSend={(payload) => sendFix(sheetEntry, payload)}
         />
       ) : null}
 

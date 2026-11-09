@@ -354,7 +354,7 @@ export function OtSheet(props: OtSheetProps): ReactNode {
 
             {variant === "change" ? (
               <p className="text-[13px] text-text-muted">
-                Wrong job? Close this and use Change the job. Not a work day? Ask the office.
+                Wrong job, several jobs, or not a work day? Close this and use Change the job or split the day.
               </p>
             ) : null}
           </>

@@ -354,7 +354,7 @@ describe("Change the job on a waiting day (owner pull 2026-11-09)", () => {
       })
     );
     expect(waiting).toContain('data-testid="hours-change-job"');
-    expect(words(waiting)).toContain("change the hours or the job");
+    expect(words(waiting)).toContain("Change the job or split the day");
     const approved = renderToString(
       createElement(DayDetailSheet, {
         ...base,
@@ -365,27 +365,63 @@ describe("Change the job on a waiting day (owner pull 2026-11-09)", () => {
     expect(approved).not.toContain('data-testid="hours-change-job"');
   });
 
-  it("the sheet sends only once a different job is picked", async () => {
-    const { ChangeJobSheet } = await import("./ChangeJobSheet");
-    const props = {
-      open: true,
-      onClose: () => {},
-      entry: entry({ date: "2026-10-13" }),
-      sentJobId: "bondi",
-      jobs: JOBS,
-      onFindJob: () => {},
-      onSend: () => {},
-    };
-    const html = renderToString(createElement(ChangeJobSheet, props));
-    expect(html).toContain("What you sent");
-    expect(html).toContain("Pick the job these hours were really for.");
-    expect(html).not.toContain('data-testid="hours-change-job-send"');
-    const found = renderToString(
-      createElement(ChangeJobSheet, {
-        ...props,
-        foundJob: { id: "kogarah", name: "Kogarah shop" },
+  const sheetBase = {
+    open: true,
+    onClose: () => {},
+    jobs: JOBS,
+    canLogTafe: false,
+    onFindJob: () => {},
+    onSend: () => {},
+  };
+
+  it("a waiting one-job day opens the change sheet: job chips, Split jobs, leave — no office reason", async () => {
+    const { FixSheet } = await import("./FixSheet");
+    const html = renderToString(
+      createElement(FixSheet, {
+        ...sheetBase,
+        mode: "change",
+        entry: entry({ date: "2026-10-13" }),
       })
     );
-    expect(words(found)).toContain("Send Tuesday · Kogarah shop");
+    expect(words(html)).toContain("Change Tuesday");
+    expect(html).not.toContain('data-testid="hours-fix-reason"');
+    expect(html).toContain('data-testid="hours-job-chip-mascot"');
+    expect(html).toContain('data-testid="hours-fix-split"');
+    expect(words(html)).toContain("Spread the hours over two or more jobs");
+    expect(html).toContain("Sick day");
+    expect(words(html)).toContain("Nothing changed yet");
+  });
+
+  it("a sent-back one-job day can be split (owner pull 2026-11-09)", async () => {
+    const { FixSheet } = await import("./FixSheet");
+    const html = renderToString(
+      createElement(FixSheet, {
+        ...sheetBase,
+        entry: entry({ date: "2026-10-13", status: "rejected", rejectedReason: "Half at Mascot" }),
+      })
+    );
+    expect(html).toContain('data-testid="hours-fix-reason"');
+    expect(html).toContain('data-testid="hours-fix-split"');
+  });
+
+  it("a split day can go back to one job: chips show, none picked", async () => {
+    const { FixSheet } = await import("./FixSheet");
+    const html = renderToString(
+      createElement(FixSheet, {
+        ...sheetBase,
+        mode: "change",
+        entry: entry({
+          date: "2026-10-13",
+          allocations: [
+            { jobId: "bondi", hours: 4 },
+            { jobId: "mascot", hours: 3.6 },
+          ],
+        }),
+      })
+    );
+    expect(words(html)).toContain("Pick one job to put the whole day on it");
+    expect(html).toContain('data-testid="hours-job-chip-bondi"');
+    expect(html).not.toContain('aria-checked="true"');
+    expect(html).not.toContain('data-testid="hours-fix-hours"');
   });
 });
