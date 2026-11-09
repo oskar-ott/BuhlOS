@@ -551,6 +551,12 @@ test.describe("office on a desktop", () => {
     const w = await wire(page);
 
     await page.goto("/stock", { timeout: 120_000 });
+    // it opens as the catalogue: a card per item, what's recorded and where it lives
+    const cards = page.getByTestId("stock-admin-card");
+    await expect(cards).toHaveCount(3, { timeout: 60_000 });
+    await expect(cards.filter({ hasText: "Clipsal Double power point" })).toContainText("12 each");
+    await shot(page, "desktop-00-office-catalogue");
+    await page.getByTestId("stock-view-list").click();
     const table = page.getByTestId("stock-admin-table");
     await expect(table).toBeVisible({ timeout: 60_000 });
     await expect(table.getByTestId("stock-admin-row")).toHaveCount(3);
@@ -652,7 +658,7 @@ test.describe("worker on a phone, after the office", () => {
     await signIn(context, "office");
     const w = await wire(page);
     await page.goto("/stock", { timeout: 120_000 });
-    await expect(page.getByTestId("stock-admin").getByTestId("stock-row").first()).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByTestId("stock-admin").getByTestId("stock-admin-card").first()).toBeVisible({ timeout: 60_000 });
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     expect(overflow).toBeLessThanOrEqual(0);
     await shot(page, "phone-12-office-list");
@@ -935,6 +941,7 @@ test.describe("office: what the review found", () => {
     await signIn(context, "office");
     const w = await wire(page);
     await page.goto("/stock", { timeout: 120_000 });
+    await page.getByTestId("stock-view-list").click();
     await expect(page.getByTestId("stock-admin-table")).toBeVisible({ timeout: 60_000 });
     await page.getByRole("tab", { name: /Archived/ }).click();
     await page.getByTestId("stock-admin-row").filter({ hasText: "TEST old switch" }).click();
@@ -953,7 +960,7 @@ test.describe("office: what the review found", () => {
     await signIn(context, "office");
     const w = await wire(page);
     await page.goto("/stock", { timeout: 120_000 });
-    await page.getByTestId("stock-admin-row").filter({ hasText: "TEST double GPO" }).click();
+    await page.getByTestId("stock-admin-card").filter({ hasText: "TEST double GPO" }).click();
     await expect(page.getByTestId("stock-drawer")).toBeVisible({ timeout: 20_000 });
     await page.getByTestId("stock-catalogue-toggle").click();
     await page.getByTestId("stock-edit-location").fill("Shelf T9");
