@@ -68,6 +68,34 @@ or concepts. Payloads come from the existing builders in `service.ts` and
   check, are named "Office" / "Workshop" on every hours, payroll and export
   surface, never count on job-scoped reads (job hub, profitability), and
   mirror to Postgres as "no job" (Blob keeps the place, as with day types).
+- **At most four job chips** (owner pull 2026-11-09 — "the jobs saturating the
+  screen when you click on hours"). The chips sit in the sticky log panel, so
+  one chip per job let a long job list cover the week. The chips now show the
+  last job, then the jobs logged most recently, then the rest by name — four
+  real jobs at most, plus Office and Workshop. The picked job and (in Fix) the
+  sent job always show. Find another job says how many are left ("12 more jobs
+  · search") and still lists every job with search. Rule: `chipJobs` /
+  `CHIP_JOB_LIMIT` in `hours-view.ts`. UI slot (P10): removes chips from the
+  existing job choice; adds one count line to the existing Find chip. Real
+  count only (P7).
+- **Every sent-back day leads This week** (owner pull 2026-11-09, restoring
+  P9). The fix line counts every Fix-needed day still inside the 14-day window,
+  not just this week's. An earlier week's day reads with its date ("1 day needs
+  fixing · Thu 5 Nov"). The line is a button that opens the oldest one's Fix
+  sheet. Before, a day sent back last week showed only inside Earlier weeks.
+- **On Earlier weeks the log panel steps aside** until an earlier day is picked
+  (or a save result is showing), so it no longer covers the list (and its Fix
+  button) with this week's Monday. UI slot (P10): none added.
+- **Change the job on a waiting day** (owner pull 2026-11-09 — "they should
+  be able to change it"). A one-job day still Waiting on the office offers
+  "Change the job" in its day detail, under "Change these hours". It opens
+  `ChangeJobSheet.tsx`: the same job chips (the sent job marked "What you
+  sent"), Find another job, and Send ("The office sees the new job instead").
+  The hours stay as sent. The payload is the existing `buildResubmitPayload`
+  with the same total and the new job. Before, only a split day could change
+  its jobs; a one-job day said "ask the office". Approved days stay locked;
+  leave days are unchanged. UI slot (P10): one row in the existing day-detail
+  sheet.
 - **No delete.** The day-detail sheet says: "Logged days can't be deleted.
   Change the hours instead, or ask the office."
 - **No promises**: no "you'll be notified", no approval ETAs, no reviewer
@@ -112,7 +140,7 @@ catches up, so the row never vanishes on refresh.
 
 Standard day 1 · Mon–Fri catch-up 5 · +1h OT 3 (Custom or OT → chip → Send) ·
 log on a different listed job 2 · sick day 2 · fix a wrong job 3 (Fix → chip →
-Send).
+Send) · change the job on a waiting day 4 (day → Change the job → chip → Send).
 
 ## Arrival
 

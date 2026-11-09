@@ -41,6 +41,7 @@ export function FixSheet({
   onClose,
   entry,
   jobs,
+  entries,
   canLogTafe,
   busy = false,
   problem,
@@ -52,6 +53,8 @@ export function FixSheet({
   onClose: () => void;
   entry: TimeEntry;
   jobs: ReadonlyArray<HoursJob>;
+  /** The worker's days — ranks the job chips by when each was last logged. */
+  entries?: ReadonlyArray<Pick<TimeEntry, "date" | "allocations">>;
   canLogTafe: boolean;
   busy?: boolean;
   problem?: { problem: HoursProblem; onRetry?: (() => void) | null; retryLabel?: string } | null;
@@ -189,6 +192,7 @@ export function FixSheet({
                 pickedJobId={leave ? null : effectiveJobId}
                 lastJobId={sentJobId}
                 sentJobId={sentJobId}
+                entries={entries}
                 foundJob={foundJob ?? null}
                 date={entry.date}
                 onPick={(id) => {

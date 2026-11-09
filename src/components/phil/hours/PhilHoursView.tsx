@@ -30,6 +30,7 @@ import {
   defaultJobId,
   entriesInWeek,
   entryTarget,
+  firstFixDays,
   fixNeededLine,
   initialPick,
   isLoggableDate,
@@ -54,6 +55,7 @@ import {
 import type { HoursProblem } from "@/domains/timesheets/problem";
 import type { PatchTimeEntryPayload, TimeEntry } from "@/domains/timesheets/types";
 import { useOnline } from "../useOnline";
+import { ChangeJobSheet } from "./ChangeJobSheet";
 import { DayDetailSheet } from "./DayDetailSheet";
 import { EarlierWeeks } from "./EarlierWeeks";
 import { FindJobSheet } from "./FindJobSheet";
@@ -104,6 +106,7 @@ type Sheet =
   | { kind: "split"; date: string }
   | { kind: "detail"; date: string }
   | { kind: "change"; date: string }
+  | { kind: "changeJob"; date: string }
   | { kind: "fix"; date: string };
 
 type Result =
@@ -335,6 +338,15 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
     if (!payload) return;
     void run(attemptFor("patch", entry.date, payload, "change"), "send");
   }
+  /** A one-job waiting day moved to another job — the hours stay as sent. */
+  function changeJob(entry: TimeEntry, jobId: string) {
+    const payload = buildResubmitPayload(entry, {
+      totalHours: entry.totalHours,
+      jobId,
+      notes: entry.notes ?? null,
+    });
+    void run(attemptFor("patch", entry.date, payload, "change"), "send");
+  }
   function changeSplit(
     entry: TimeEntry,
     totalHours: number,
@@ -480,6 +492,7 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
       kind: "noDefault",
       date: pickedDate,
       jobs,
+      entries: merged,
       onPickJob: (id) => pickJobForDay(pickedDate, id),
       onFind: () => setFindJobFor(pickedDate),
       ...leaveActions,
@@ -493,6 +506,7 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
       weekend,
       backdated: weekStartOf(pickedDate) !== currentMonday,
       jobs,
+      entries: merged,
       pickedJob,
       lastJobId: lastJob?.jobId ?? null,
       foundJob: foundJobs[pickedDate] ?? null,
@@ -515,7 +529,18 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
     };
   }
 
-  const fixLine = fixNeededLine(weekEntries);
+  // Every sent-back day leads the screen (P9), whatever week it sits in, and
+  // the line opens the oldest one's Fix sheet.
+  // Only days a worker can still send (the 14-day window the server enforces).
+  const fixable = merged.filter((e) => e.date >= oldestLoggableDate(todayISO));
+  const fixLine = fixNeededLine(fixable, currentMonday);
+  const firstFix = firstFixDays(fixable)[0] ?? null;
+  // On Earlier weeks the panel steps aside until an earlier day is picked (or
+  // a result is showing), so it doesn't cover the list with this week's Monday.
+  const showPanel =
+    view === "week" ||
+    result !== null ||
+    (pickedDate !== null && weekStartOf(pickedDate) !== currentMonday);
   const summary = weekSummaryLine(weekEntries);
   const rowProps = {
     pickedDate,
@@ -532,7 +557,10 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
 
   // ── Sheets (the entry is looked up live so a save re-renders them) ─────
   const sheetEntry =
-    sheet.kind === "detail" || sheet.kind === "change" || sheet.kind === "fix"
+    sheet.kind === "detail" ||
+    sheet.kind === "change" ||
+    sheet.kind === "changeJob" ||
+    sheet.kind === "fix"
       ? entryFor(sheet.date)
       : null;
   const busyFor = (date: string) => rowState[date] === "saving";
@@ -558,15 +586,18 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
       <div className="flex-1 space-y-3 pb-4 pt-4">
         {view === "week" ? (
           <>
-            {fixLine ? (
-              <p
-                className="flex items-center gap-2 rounded-card bg-[#fee2e2] px-3 py-2 font-display text-[14px] font-bold text-state-danger"
+            {fixLine && firstFix ? (
+              <button
+                type="button"
+                onClick={() => openEntry(firstFix)}
+                className="flex min-h-[44px] w-full items-center gap-2 rounded-card bg-[#fee2e2] px-3 py-2 text-left font-display text-[14px] font-bold text-state-danger active:opacity-80"
                 role="alert"
                 data-testid="hours-fix-line"
               >
-                <AlertCircle aria-hidden="true" className="h-4 w-4" />
-                {fixLine}
-              </p>
+                <AlertCircle aria-hidden="true" className="h-4 w-4 shrink-0" />
+                <span className="min-w-0 flex-1">{fixLine}</span>
+                <ChevronRight aria-hidden="true" className="h-4 w-4 shrink-0" />
+              </button>
             ) : null}
             <div className="flex items-center justify-between gap-3 px-1">
               <p
@@ -600,7 +631,7 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
         )}
       </div>
 
-      <HoursBottomPanel state={panel} offline={!online} />
+      {showPanel ? <HoursBottomPanel state={panel} offline={!online} /> : null}
 
       {sheet.kind === "ot" ? (
         <OtSheet
@@ -655,6 +686,13 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
           busy={busyFor(sheetEntry.date)}
           problem={problemFor(sheetEntry.date)}
           onChangeHours={() => setSheet({ kind: "change", date: sheetEntry.date })}
+          onChangeJob={
+            sheetEntry.status === "submitted" &&
+            !sheetEntry.dayType &&
+            (sheetEntry.allocations ?? []).length === 1
+              ? () => setSheet({ kind: "changeJob", date: sheetEntry.date })
+              : null
+          }
           onSaveNote={(note) => saveNote(sheetEntry, note)}
           onSendDraft={() => sendDraft(sheetEntry)}
         />
@@ -696,6 +734,23 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
         )
       ) : null}
 
+      {sheet.kind === "changeJob" && sheetEntry ? (
+        <ChangeJobSheet
+          key={`change-job-${sheetEntry.id}-${foundJobs[sheetEntry.date]?.id ?? ""}`}
+          open
+          onClose={closeSheet}
+          entry={sheetEntry}
+          sentJobId={primaryJobId(sheetEntry)}
+          jobs={jobs}
+          entries={merged}
+          foundJob={foundJobs[sheetEntry.date] ?? null}
+          onFindJob={() => setFindJobFor(sheetEntry.date)}
+          busy={busyFor(sheetEntry.date)}
+          problem={problemFor(sheetEntry.date)}
+          onSend={(jobId) => changeJob(sheetEntry, jobId)}
+        />
+      ) : null}
+
       {sheet.kind === "fix" && sheetEntry && sheetEntry.status === "rejected" ? (
         <FixSheet
           key={`fix-${sheetEntry.id}-${foundJobs[sheetEntry.date]?.id ?? ""}`}
@@ -703,6 +758,7 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
           onClose={closeSheet}
           entry={sheetEntry}
           jobs={jobs}
+          entries={merged}
           canLogTafe={canLogTafe}
           busy={busyFor(sheetEntry.date)}
           problem={problemFor(sheetEntry.date)}
@@ -724,7 +780,7 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
           }
           entries={merged}
           onPick={(job) => foundJobForDay(findJobFor, job)}
-          nested={sheet.kind === "fix"}
+          nested={sheet.kind === "fix" || sheet.kind === "changeJob"}
         />
       ) : null}
     </div>
