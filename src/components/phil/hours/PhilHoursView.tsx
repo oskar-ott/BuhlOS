@@ -30,6 +30,7 @@ import {
   defaultJobId,
   entriesInWeek,
   entryTarget,
+  firstFixDays,
   fixNeededLine,
   initialPick,
   isLoggableDate,
@@ -517,7 +518,18 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
     };
   }
 
-  const fixLine = fixNeededLine(weekEntries);
+  // Every sent-back day leads the screen (P9), whatever week it sits in, and
+  // the line opens the oldest one's Fix sheet.
+  // Only days a worker can still send (the 14-day window the server enforces).
+  const fixable = merged.filter((e) => e.date >= oldestLoggableDate(todayISO));
+  const fixLine = fixNeededLine(fixable, currentMonday);
+  const firstFix = firstFixDays(fixable)[0] ?? null;
+  // On Earlier weeks the panel steps aside until an earlier day is picked (or
+  // a result is showing), so it doesn't cover the list with this week's Monday.
+  const showPanel =
+    view === "week" ||
+    result !== null ||
+    (pickedDate !== null && weekStartOf(pickedDate) !== currentMonday);
   const summary = weekSummaryLine(weekEntries);
   const rowProps = {
     pickedDate,
@@ -560,15 +572,18 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
       <div className="flex-1 space-y-3 pb-4 pt-4">
         {view === "week" ? (
           <>
-            {fixLine ? (
-              <p
-                className="flex items-center gap-2 rounded-card bg-[#fee2e2] px-3 py-2 font-display text-[14px] font-bold text-state-danger"
+            {fixLine && firstFix ? (
+              <button
+                type="button"
+                onClick={() => openEntry(firstFix)}
+                className="flex min-h-[44px] w-full items-center gap-2 rounded-card bg-[#fee2e2] px-3 py-2 text-left font-display text-[14px] font-bold text-state-danger active:opacity-80"
                 role="alert"
                 data-testid="hours-fix-line"
               >
-                <AlertCircle aria-hidden="true" className="h-4 w-4" />
-                {fixLine}
-              </p>
+                <AlertCircle aria-hidden="true" className="h-4 w-4 shrink-0" />
+                <span className="min-w-0 flex-1">{fixLine}</span>
+                <ChevronRight aria-hidden="true" className="h-4 w-4 shrink-0" />
+              </button>
             ) : null}
             <div className="flex items-center justify-between gap-3 px-1">
               <p
@@ -602,7 +617,7 @@ export function PhilHoursView(props: PhilHoursViewProps): ReactNode {
         )}
       </div>
 
-      <HoursBottomPanel state={panel} offline={!online} />
+      {showPanel ? <HoursBottomPanel state={panel} offline={!online} /> : null}
 
       {sheet.kind === "ot" ? (
         <OtSheet

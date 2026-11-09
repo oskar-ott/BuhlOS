@@ -322,3 +322,13 @@ describe("PhilHoursView — a long job list stays compact (owner pull 2026-11-09
     expect(html).not.toContain("hours-find-job-more");
   });
 });
+
+describe("PhilHoursView — a day sent back last week leads this week (P9)", () => {
+  it("shows the fix line on This week for a sent-back day in an earlier week", () => {
+    const html = render({
+      entries: [entry({ date: "2026-10-08", status: "rejected", rejectedReason: "Wrong job" })],
+    });
+    expect(html).toContain('data-testid="hours-fix-line"');
+    expect(words(html)).toContain("1 day needs fixing · Thu 8 Oct");
+  });
+});

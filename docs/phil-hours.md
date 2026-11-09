@@ -78,6 +78,14 @@ or concepts. Payloads come from the existing builders in `service.ts` and
   `CHIP_JOB_LIMIT` in `hours-view.ts`. UI slot (P10): removes chips from the
   existing job choice; adds one count line to the existing Find chip. Real
   count only (P7).
+- **Every sent-back day leads This week** (owner pull 2026-11-09, restoring
+  P9). The fix line counts every Fix-needed day still inside the 14-day window,
+  not just this week's. An earlier week's day reads with its date ("1 day needs
+  fixing · Thu 5 Nov"). The line is a button that opens the oldest one's Fix
+  sheet. Before, a day sent back last week showed only inside Earlier weeks.
+- **On Earlier weeks the log panel steps aside** until an earlier day is picked
+  (or a save result is showing), so it no longer covers the list (and its Fix
+  button) with this week's Monday. UI slot (P10): none added.
 - **No delete.** The day-detail sheet says: "Logged days can't be deleted.
   Change the hours instead, or ask the office."
 - **No promises**: no "you'll be notified", no approval ETAs, no reviewer

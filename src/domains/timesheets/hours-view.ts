@@ -273,15 +273,32 @@ export function weekSummaryLine(weekEntries: ReadonlyArray<TimeEntry>): string {
 }
 
 /** "1 day needs fixing · Tue" / "2 days need fixing · Tue, Thu" / null. */
-export function fixNeededLine(weekEntries: ReadonlyArray<TimeEntry>): string | null {
-  const fix = weekEntries
-    .filter((e) => e.status === "rejected")
-    .sort((a, b) => a.date.localeCompare(b.date));
+export function fixNeededLine(
+  entries: ReadonlyArray<TimeEntry>,
+  /** This week's Monday: a day outside it reads with its date ("Thu 5 Nov"). */
+  currentMonday?: string
+): string | null {
+  const fix = firstFixDays(entries);
   if (fix.length === 0) return null;
-  const days = fix.map((e) => weekdayShort(e.date)).join(", ");
+  const days = fix
+    .map((e) =>
+      currentMonday && weekStartOf(e.date) !== currentMonday ? dayDate(e.date) : weekdayShort(e.date)
+    )
+    .join(", ");
   return fix.length === 1
     ? `1 day needs fixing · ${days}`
     : `${fix.length} days need fixing · ${days}`;
+}
+
+/**
+ * Every sent-back day, oldest first, from ALL the worker's days — not just
+ * this week (owner pull 2026-11-09: a day sent back last week was only
+ * findable inside Earlier weeks, against P9 "a sent-back day leads").
+ */
+export function firstFixDays<E extends Pick<TimeEntry, "date" | "status">>(
+  entries: ReadonlyArray<E>
+): E[] {
+  return entries.filter((e) => e.status === "rejected").sort((a, b) => a.date.localeCompare(b.date));
 }
 
 /* ── Picking and auto-advance ─────────────────────────────────────────── */

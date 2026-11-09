@@ -390,3 +390,16 @@ describe("chipJobs — the job chips stay compact (owner pull 2026-11-09)", () =
     expect(out.hidden).toBe(0);
   });
 });
+
+describe("fixNeededLine across weeks (owner pull 2026-11-09)", () => {
+  it("names a sent-back day from an earlier week by its date", () => {
+    const line = fixNeededLine(
+      [
+        entry({ date: "2026-10-08", status: "rejected" }),
+        entry({ date: "2026-10-13", status: "rejected" }),
+      ],
+      "2026-10-12"
+    );
+    expect(line).toBe("2 days need fixing · Thu 8 Oct, Tue");
+  });
+});
