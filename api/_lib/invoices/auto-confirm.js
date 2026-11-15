@@ -136,13 +136,18 @@ function buildDigest(d) {
   section('Waiting on a person', d.pending, 'Nothing waiting.');
   if (d.bookingSoon && d.bookingSoon.length) section('Booking automatically soon (hold one to stop it)', d.bookingSoon, 'None.');
 
-  const health = [];
-  if (d.failedCount > 0) health.push(`${d.failedCount} document(s) could not be read — open the inbox → Failed.`);
-  if (d.stuckCount > 0) health.push(`${d.stuckCount} document(s) have waited more than a day to be read — the processing sweep may be stopped.`);
-  if (d.lastReceivedAt) {
-    const days = Math.floor((Date.now() - new Date(d.lastReceivedAt).getTime()) / 86_400_000);
-    if (days >= 14) health.push(`No supplier email has arrived for ${days} days — check the mailbox forwarding rule.`);
-  } else if (d.everReceived === false) {
+  // `d.health` is the alert-condition list (api/_lib/invoices/alerts.js) when
+  // the caller has a health snapshot; otherwise derive from the digest stats.
+  const health = Array.isArray(d.health) ? d.health.slice() : [];
+  if (!Array.isArray(d.health)) {
+    if (d.failedCount > 0) health.push(`${d.failedCount} document(s) could not be read — open the inbox → Failed.`);
+    if (d.stuckCount > 0) health.push(`${d.stuckCount} document(s) have waited more than a day to be read — the processing sweep may be stopped.`);
+    if (d.lastReceivedAt) {
+      const days = Math.floor((Date.now() - new Date(d.lastReceivedAt).getTime()) / 86_400_000);
+      if (days >= 14) health.push(`No supplier email has arrived for ${days} days — check the mailbox forwarding rule.`);
+    }
+  }
+  if (!d.lastReceivedAt && d.everReceived === false) {
     health.push('No supplier email has ever arrived — the mailbox forwarding rule may not be set.');
   }
   lines.push('', health.length ? 'Health' : 'Health: all good.');

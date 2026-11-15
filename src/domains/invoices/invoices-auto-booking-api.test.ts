@@ -270,6 +270,18 @@ describe("the Monday digest", () => {
     expect((sent[0] as { html: string }).html).toContain(`/invoices/${second.id}`);
     expect(sent[0]!.text).toContain("IV0041 · Birdwood");
   });
+  it("carries every mid-week health condition, so Monday is the only email (2026-11-03)", async () => {
+    store.invoices.push({ ...(await (store.createInvoice as (...a: unknown[]) => Promise<Record<string, unknown>>)(null, "t", { source: "upload" })), status: "failed" } as never);
+    store.invoices.splice(store.invoices.length - 2, 1);
+    store.inbound.push({ id: "i1", svixId: "old", emailId: "e", toMatched: true, status: "processed", createdAt: "2026-09-10T00:00:00Z", processedAt: null } as never);
+    settings({ alertQuietDays: 7 });
+    const r = await call({ query: { action: "digest" }, cron: true });
+    expect(r.body).toMatchObject({ sent: true, attention: true });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.subject).toContain("attention needed");
+    expect(sent[0]!.text).toContain("could not be read after three attempts");
+    expect(sent[0]!.text).toContain("No supplier email has arrived for 12 days");
+  });
   it("goes to the invoice list, not the timesheet list, once the owner sets one (2026-09-28)", async () => {
     settings({ emailRecipients: "Thomas@example.com, not-an-email; oskar@example.com" });
     const r = await call({ query: { action: "digest" }, cron: true });
@@ -286,15 +298,25 @@ describe("the Monday digest", () => {
   });
 });
 
-describe("mid-week alerts from the sweep (2026-09-23)", () => {
+describe("mid-week alerts from the sweep (2026-09-23; off by default since 2026-11-03)", () => {
   const alertsSent = () => sent.filter((m) => m.subject.startsWith("BuhlOS invoices need attention"));
+  it("off by default: a failed document sends nothing mid-week, and the sweep still names the condition", async () => {
+    store.invoices.push({ ...(await (store.createInvoice as (...a: unknown[]) => Promise<Record<string, unknown>>)(null, "t", { source: "upload" })), status: "failed" } as never);
+    store.invoices.splice(store.invoices.length - 2, 1);
+    const r = await sweep();
+    expect((r.body as { alert: unknown }).alert).toEqual({ key: "failed", sent: false, reason: "off" });
+    expect(alertsSent()).toEqual([]);
+    expect(blob.has("invoices/alert-state.json")).toBe(false);
+  });
   it("a healthy inbox sends nothing and leaves no state", async () => {
+    settings({ midweekAlerts: true });
     const r = await sweep();
     expect((r.body as { alert: { key: string; sent: boolean } }).alert).toEqual({ key: "", sent: false });
     expect(alertsSent()).toEqual([]);
     expect(blob.has("invoices/alert-state.json")).toBe(false);
   });
   it("a failed document alerts the accounts list once, not again on the next sweep, again after a day, and clears when fixed", async () => {
+    settings({ midweekAlerts: true });
     store.invoices.push({ ...(await (store.createInvoice as (...a: unknown[]) => Promise<Record<string, unknown>>)(null, "t", { source: "upload" })), status: "failed" } as never);
     // createInvoice already pushed the row; keep only the failed copy
     store.invoices.splice(store.invoices.length - 2, 1);
@@ -321,11 +343,11 @@ describe("mid-week alerts from the sweep (2026-09-23)", () => {
   });
   it("a long silence alerts according to the owner knob; 0 turns it off", async () => {
     store.inbound.push({ id: "i1", svixId: "old", emailId: "e", toMatched: true, status: "processed", createdAt: "2026-09-10T00:00:00Z", processedAt: null } as never);
-    settings({ alertQuietDays: 7 });
+    settings({ midweekAlerts: true, alertQuietDays: 7 });
     let r = await sweep();
     expect((r.body as { alert: { key: string; sent: boolean } }).alert).toEqual({ key: "quiet", sent: true });
     expect(alertsSent()[0]!.text).toContain("No supplier email has arrived for 12 days");
-    settings({ alertQuietDays: 0 });
+    settings({ midweekAlerts: true, alertQuietDays: 0 });
     blob.delete("invoices/alert-state.json");
     r = await sweep();
     expect((r.body as { alert: { key: string } }).alert.key).toBe("");

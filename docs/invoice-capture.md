@@ -406,18 +406,28 @@ A failed forward is recorded `ignored` with `failure_code forward_failed:<why>`
 and counted by the mid-week alert. Anything else addressed to the domain stays
 `ignored` — nobody has a mailbox there. `api/_lib/invoices/forward.js`.
 
-### Alerts between Mondays (owner direction 2026-09-23)
+### Alerts between Mondays (owner direction 2026-09-23; off by default 2026-11-03)
 
-Every 15-minute sweep evaluates a health snapshot (`store.healthSnapshot`) and
-emails the accounts list when a person is needed — **at most once a day per
-condition set** (state in blob `invoices/alert-state.json`, so a redeploy never
-re-alerts; a cleared condition set resets it so the next new problem alerts at
-once). Conditions (`api/_lib/invoices/alerts.js`): the Resend key rejected
-(`provider_auth` during re-ingest), documents `failed` after three attempts,
-documents waiting more than two hours to be read, quarantined emails older than
-a day, failed forwards in the last day, and **quiet**: no supplier email for
-`alertQuietDays` days (owner knob, default 7, 0 = never) after the first one
-ever arrived. The Monday digest is unchanged.
+**Owner direction 2026-11-03: one invoice email, Monday morning.** The
+mid-week alert is built but **off** unless the owner turns on
+`invoice_capture.midweekAlerts` (Owner console → settings, "Alert between
+Mondays"). With it off, the sweep still evaluates the conditions (the sweep
+response reports `alert: { key, sent: false, reason: 'off' }`) and the
+**Monday digest's Health section carries the same list**, so nothing is lost —
+it is said once, on Monday.
+
+With it on: every 15-minute sweep evaluates a health snapshot
+(`store.healthSnapshot`) and emails the accounts list when a person is needed —
+**at most once a day per condition set** (state in blob
+`invoices/alert-state.json`, so a redeploy never re-alerts; a cleared condition
+set resets it so the next new problem alerts at once).
+
+Conditions either way (`api/_lib/invoices/alerts.js`): the Resend key rejected
+(`provider_auth` during re-ingest — sweep only, the digest cannot see it),
+documents `failed` after three attempts, documents waiting more than two hours
+to be read, quarantined emails older than a day, failed forwards in the last
+day, and **quiet**: no supplier email for `alertQuietDays` days (owner knob,
+default 7, 0 = never) after the first one ever arrived.
 
 ### Catching up on past emails (2026-09-27)
 

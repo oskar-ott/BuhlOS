@@ -705,8 +705,10 @@ async function sweep(req, res) {
 
 /**
  * Mid-week alert (docs/invoice-capture.md "Alerts"): evaluate the health
- * snapshot every sweep; email the accounts list at most once a day per
- * condition set. State lives in a small blob so a redeploy never re-alerts.
+ * snapshot every sweep; when the owner has turned `midweekAlerts` on, email
+ * the accounts list at most once a day per condition set. State lives in a
+ * small blob so a redeploy never re-alerts. Off (the default) still returns
+ * the condition key so the sweep response shows what Monday will say.
  */
 async function maybeAlert(sql, tenant, { providerAuthFailed }) {
   try {
@@ -718,6 +720,9 @@ async function maybeAlert(sql, tenant, { providerAuthFailed }) {
     const conditions = evaluateAlerts(snap, { quietDays: Number(settings.alertQuietDays), providerAuthFailed });
     const key = alertKey(conditions);
     const now = Date.now();
+    // Owner direction 2026-11-03: one invoice email, Monday morning. Off by
+    // default; the Monday digest carries the same conditions.
+    if (settings.midweekAlerts !== true) return { key, sent: false, reason: 'off' };
     if (!key) {
       if (state.key) await writeBlob(ALERT_STATE_KEY, { key: '', sentAt: null, clearedAt: new Date(now).toISOString() });
       return { key: '', sent: false };
@@ -809,7 +814,13 @@ async function digest(req, res) {
   const recipients = await readInvoiceRecipients();
   if (!recipients.length) return res.status(200).json({ skipped: 'no_recipients' });
   const since = new Date(Date.now() - 7 * 86_400_000).toISOString();
-  const stats = await store.digestStats(sql, tenant.id, { since });
+  const [stats, snap, settings] = await Promise.all([
+    store.digestStats(sql, tenant.id, { since }),
+    store.healthSnapshot(sql, tenant.id),
+    getSettings('invoice_capture').catch(() => ({})),
+  ]);
+  // The same health conditions the mid-week alert would raise, said once on Monday.
+  const health = evaluateAlerts(snap, { quietDays: Number(settings.alertQuietDays), providerAuthFailed: false }).map((c) => c.text);
   const jobs = await readJobs();
   const label = (row) => { const j = jobs.find((x) => x && x.id === row.matchedJobId); return j ? `${j.code ? `${j.code} · ` : ''}${j.name || j.id}` : row.matchedJobId; };
   const base = process.env.APP_BASE_URL || 'https://buhlos.com';
@@ -820,6 +831,7 @@ async function digest(req, res) {
     autoBooked: decorate(stats.autoBooked), humanBooked: decorate(stats.humanBooked),
     pending: decorate(stats.pending), bookingSoon: decorate(stats.bookingSoon),
     failedCount: stats.failedCount, stuckCount: stats.stuckCount, lastReceivedAt: stats.lastReceivedAt, everReceived: stats.everReceived,
+    health,
     inboxUrl: `${base}/invoices`,
   });
   const sent = await sendEmail({ to: recipients, subject: msg.subject, html: msg.html, text: msg.text });

@@ -124,10 +124,19 @@ const SETTINGS_REGISTRY = {
       default: '',
       maxLength: 500,
     },
+    // Owner direction 2026-11-03: one invoice email, Monday morning. The
+    // mid-week alert stays built but is off unless the owner turns it on;
+    // the Monday summary carries every health condition instead.
+    midweekAlerts: {
+      type: 'boolean',
+      label: 'Alert between Mondays',
+      description: 'When something on the invoice inbox needs a person mid-week (a failed read, a rejected email key, a long silence), email the recipients at most once a day. Off = the Monday summary is the only invoice email.',
+      default: false,
+    },
     alertQuietDays: {
       type: 'number',
-      label: 'Alert after this many quiet days',
-      description: 'If no supplier email arrives for this long, the accounts list gets an alert (the forwarding rule or the webhook may have broken). 0 = never.',
+      label: 'Flag after this many quiet days',
+      description: 'If no supplier email arrives for this long, the Monday summary flags it (the forwarding rule or the webhook may have broken), and so does the mid-week alert when that is on. 0 = never.',
       default: 7,
       min: 0,
       max: 60,
