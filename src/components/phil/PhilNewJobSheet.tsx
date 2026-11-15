@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, ChevronLeft, Link2, Loader2, MapPin, SquarePen, Wand2 } from "lucide-react";
+import { Building2, Check, ChevronLeft, Link2, Loader2, MapPin, SquarePen, Wand2 } from "lucide-react";
 import { AddressAutocompleteInput } from "@/components/ui/AddressAutocompleteInput";
+import { ClientNameInput } from "@/components/admin/ClientNameInput";
+import { clientNameSuggestions } from "@/domains/jobs/client-names";
 import { PhilNotice } from "./ui/PhilNotice";
 import { philWrite } from "@/domains/phil/write-client";
 import { cn } from "@/lib/cn";
@@ -36,6 +38,10 @@ import {
  *   - Custom default = the real next free 7000-series number computed from
  *     the worker's actual list; the server validates format + uniqueness
  *     globally anyway.
+ *   - Builder / client (optional, owner pull 2026-11-15): free text, the same
+ *     `clientName` the office form sets. Suggestions are ONLY the clients
+ *     already on the worker's own list (nothing invented, nothing leaked);
+ *     a same-client spelling snaps onto the existing one on blur.
  *
  * Writes via philWrite (non-optimistic — the job exists only on a confirmed
  * server reply); server errors (duplicate code etc.) surface as inline
@@ -48,11 +54,12 @@ interface PhilNewJobSheetProps {
   open: boolean;
   /** Cancel / after-create dismissal — returns to the list. */
   onClose: () => void;
-  /** The worker's OWN job list (id + name + code is all the form needs).
-   *  Drives the reference row + the next-free-7000 default, the duplicate-
-   *  code pre-guard ("that's {name} — already on your list"), and the
-   *  pre-submit id snapshot the timeout-recovery probe checks against. */
-  jobs: ReadonlyArray<Pick<Job, "id" | "name" | "code">>;
+  /** The worker's OWN job list (id + name + code + clientName is all the
+   *  form needs). Drives the reference row + the next-free-7000 default, the
+   *  duplicate-code pre-guard ("that's {name} — already on your list"), the
+   *  builder/client suggestions, and the pre-submit id snapshot the
+   *  timeout-recovery probe checks against. */
+  jobs: ReadonlyArray<Pick<Job, "id" | "name" | "code" | "clientName">>;
   /** Initial toggle side. Default ServiceMate (the prototype's lead side). */
   initialMode?: NewJobCodeMode;
 }
@@ -88,6 +95,10 @@ export function PhilNewJobSheet({
   const nextFree = useMemo(() => nextFree7000(existingCodes), [existingCodes]);
   const [customDigits, setCustomDigits] = useState(nextFree ?? "");
   const [siteAddress, setSiteAddress] = useState("");
+  const [clientName, setClientName] = useState("");
+  // Builders already on the worker's own list — suggestions only, never a
+  // gate: a new builder is just typed in.
+  const clientSuggestions = useMemo(() => clientNameSuggestions(jobs), [jobs]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -127,6 +138,7 @@ export function PhilNewJobSheet({
       code,
     };
     if (siteAddress.trim()) body.siteAddress = siteAddress.trim();
+    if (clientName.trim()) body.clientName = clientName.trim();
     const result = await philWrite("/api/jobs", body, parseCreated);
     if (result.ok) {
       // Keep `submitting` true through the navigation — no double-create tap.
@@ -158,7 +170,7 @@ export function PhilNewJobSheet({
     }
     setError(result.error.message || "Couldn't create the job. Try again.");
     setSubmitting(false);
-  }, [name, digits, codeClash, jobs, siteAddress, submitting, router]);
+  }, [name, digits, codeClash, jobs, siteAddress, clientName, submitting, router]);
 
   if (!open) return null;
 
@@ -353,6 +365,28 @@ export function PhilNewJobSheet({
                 code. The office can match it to ServiceMate later.
               </p>
             )}
+          </div>
+
+          {/* Builder / client (optional) — who the job is for. */}
+          <div className="space-y-1.5">
+            <label
+              htmlFor="phil-new-job-client"
+              className="font-display text-[13px] font-bold text-text"
+            >
+              Builder / client
+            </label>
+            <div className="flex h-[54px] items-center gap-2.5 rounded-card border border-border bg-surface-raised px-4 focus-within:border-brand-navy">
+              <Building2 aria-hidden="true" className="h-5 w-5 shrink-0 text-text-muted" />
+              <ClientNameInput
+                id="phil-new-job-client"
+                data-testid="phil-new-job-client"
+                value={clientName}
+                onChange={setClientName}
+                suggestions={clientSuggestions}
+                placeholder="Who's it for?"
+                className="min-w-0 flex-1 bg-transparent text-base text-text outline-none"
+              />
+            </div>
           </div>
 
           {/* Site address (optional) */}

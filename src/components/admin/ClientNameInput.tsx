@@ -15,6 +15,10 @@ import { clientNameSuggestions, canonicalClientName } from "@/domains/jobs/clien
  * Suggestions come from the light admin summary read, fetched once per page
  * load and shared by every instance; a failed read just means no
  * suggestions — the field still works as plain text.
+ *
+ * Callers that can't use the admin summary read (the field "+ New job" sheet)
+ * pass `suggestions` themselves — e.g. the clients on the worker's own job
+ * list — and no fetch happens.
  */
 let suggestionsOnce: Promise<string[]> | null = null;
 
@@ -35,29 +39,40 @@ export function ClientNameInput({
   value,
   onChange,
   className,
+  id,
+  placeholder = "e.g. Hutchinson Builders",
+  suggestions: providedSuggestions,
   "data-testid": testId,
 }: {
   value: string;
   onChange: (next: string) => void;
   className?: string;
+  id?: string;
+  placeholder?: string;
+  /** Caller-supplied suggestions; when given, the admin summary read is skipped. */
+  suggestions?: ReadonlyArray<string>;
   "data-testid"?: string;
 }) {
   const listId = useId();
-  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [fetchedSuggestions, setFetchedSuggestions] = useState<string[]>([]);
+  const suggestions = providedSuggestions ?? fetchedSuggestions;
+  const fetchSuggestions = providedSuggestions === undefined;
 
   useEffect(() => {
+    if (!fetchSuggestions) return;
     let live = true;
     void loadSuggestions().then((s) => {
-      if (live) setSuggestions(s);
+      if (live) setFetchedSuggestions(s);
     });
     return () => {
       live = false;
     };
-  }, []);
+  }, [fetchSuggestions]);
 
   return (
     <>
       <input
+        id={id}
         data-testid={testId}
         className={className}
         list={listId}
@@ -70,7 +85,7 @@ export function ClientNameInput({
         autoComplete="off"
         autoCapitalize="words"
         maxLength={120}
-        placeholder="e.g. Hutchinson Builders"
+        placeholder={placeholder}
       />
       <datalist id={listId}>
         {suggestions.map((name) => (

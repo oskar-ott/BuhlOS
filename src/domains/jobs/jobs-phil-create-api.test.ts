@@ -411,6 +411,27 @@ describe("POST /api/jobs — flag ON field create (phil_sharpened)", () => {
     expect(jobsInStore().find((j) => j.name === "Stamped")!.createdByUserId).toBe("u_field");
   });
 
+  it("stores the builder/client name (free text) — but never the portal clientUserId", async () => {
+    const res = await post("u_field", "electrician", {
+      name: "Glenelg Units",
+      code: "IV7006",
+      clientName: "  Hutchinson Builders ",
+      clientUserId: "u_client",
+    });
+    expect(res.statusCode).toBe(200);
+    expect((res.body as { job: Record<string, unknown> }).job.clientName).toBe("Hutchinson Builders");
+    const stored = jobsInStore().find((j) => j.name === "Glenelg Units")!;
+    expect(stored.clientName).toBe("Hutchinson Builders");
+    expect(stored.clientUserId).toBeNull();
+  });
+
+  it("a blank / non-string clientName is simply not stored", async () => {
+    await post("u_field", "electrician", { name: "No Client A", code: "IV7007", clientName: "   " });
+    await post("u_field", "electrician", { name: "No Client B", code: "IV7008", clientName: 42 });
+    expect(jobsInStore().find((j) => j.name === "No Client A")!.clientName).toBeUndefined();
+    expect(jobsInStore().find((j) => j.name === "No Client B")!.clientName).toBeUndefined();
+  });
+
   it("ignores every non-whitelisted field — structure, money, client, status", async () => {
     const res = await post("u_field", "electrician", {
       name: "Restricted",
