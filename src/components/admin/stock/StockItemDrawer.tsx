@@ -48,6 +48,20 @@ function Fold({ label, sub, open, onClick, testId }: { label: string; sub?: Reac
   );
 }
 
+/**
+ * What a history row adds after its summary. A count says what it changed
+ * ("· was 17 each"), an opening count says nothing more (it *is* the balance);
+ * everything else keeps "· 12 each after".
+ */
+function afterNote(m: StockMovement, unit: string): string {
+  if (m.kind === "opening") return "";
+  if (m.kind === "count") {
+    const was = m.balanceAfterMilli - m.quantityMilli;
+    return m.quantityMilli === 0 ? "· no change" : `· was ${formatQuantity(was, unit)}`;
+  }
+  return `· ${formatQuantity(m.balanceAfterMilli, unit)} after`;
+}
+
 const EVENT_LABEL: Record<string, string> = {
   created: "Added to the catalogue", updated: "Details edited", archived: "Archived", restored: "Restored",
   identifier_added: "Code added", identifier_removed: "Code removed", photo_changed: "Photo changed", verification_recorded: "Online check recorded",
@@ -148,7 +162,6 @@ export function StockItemDrawer({ itemId, lookupEnabled, locationPhotoEnabled = 
   const movements = [...(detail?.movements ?? []), ...older];
   const unitLocked = movements.some((m) => m.quantityMilli !== 0 || (m.countedMilli ?? 0) !== 0);
   const unit = item?.baseUnit ?? "each";
-  const lastMove = movements[0];
 
   const history = (
     <>
@@ -161,7 +174,7 @@ export function StockItemDrawer({ itemId, lookupEnabled, locationPhotoEnabled = 
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p className={cn("font-semibold", m.reversedBy ? "text-text-muted line-through" : "text-text")}>
-                    {movementSummary(m, unit)} <span className="font-normal text-text-muted">· {formatQuantity(m.balanceAfterMilli, unit)} after</span>
+                    {movementSummary(m, unit)} <span className="font-normal text-text-muted">{afterNote(m, unit)}</span>
                   </p>
                   <p className="text-xs text-text-muted">{movementWho(m)}{m.estimated ? " · estimate" : ""}</p>
                   {m.reason || m.note ? <p className="text-xs text-text">{m.reason || m.note}</p> : null}
@@ -194,7 +207,7 @@ export function StockItemDrawer({ itemId, lookupEnabled, locationPhotoEnabled = 
   );
 
   return (
-    <Drawer open onClose={onClose} title={item ? item.name : "Workshop item"} subtitle={item ? [identityLine(item), item.location].filter(Boolean).join(" · ") || undefined : undefined}>
+    <Drawer open onClose={onClose} title={item ? item.name : "Workshop item"} subtitle={item ? [identityLine(item), item.archivedAt ? item.location : null].filter(Boolean).join(" · ") || undefined : undefined}>
       {!item ? (
         <p className="text-sm text-text-muted">{error ?? "Loading…"}</p>
       ) : (
@@ -251,14 +264,16 @@ export function StockItemDrawer({ itemId, lookupEnabled, locationPhotoEnabled = 
                   </div>
                 </div>
                 {item.locationPhotoId ? <LocationPhoto photoId={item.locationPhotoId} location={item.location} /> : null}
+                {/* the shelf has its own slot (it used to trail the long code line in the header);
+                    the last movement isn't repeated here — it's the top row of the history below */}
                 <dl className="grid grid-cols-2 gap-2 text-sm">
+                  <div>
+                    <dt className={LABEL}>Shelf</dt>
+                    <dd className={item.location ? "font-semibold text-text" : "text-text-muted"} data-testid="stock-drawer-location">{item.location || "Not set — add it under Catalogue"}</dd>
+                  </div>
                   <div>
                     <dt className={LABEL}>Last counted</dt>
                     <dd className="text-text">{item.lastCountedAt ? `${whenLabel(item.lastCountedAt)}${item.lastCountedByName ? ` · ${item.lastCountedByName}` : ""}` : "Never"}</dd>
-                  </div>
-                  <div>
-                    <dt className={LABEL}>Last movement</dt>
-                    <dd className="text-text">{lastMove ? `${movementSummary(lastMove, unit)} · ${movementWho(lastMove)}` : "None yet"}</dd>
                   </div>
                 </dl>
               </Section>

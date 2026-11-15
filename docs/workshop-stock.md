@@ -110,10 +110,13 @@ recorded, and where they live.
   not confirmed · Archived — counts read "—" when the list didn't load), when
   each item last moved and was last counted, and the product-code status with
   its reason ("Possible match — colour not confirmed"). No KPI row, no gauges.
-- Per item, ordered by use: what's recorded and **correct the count** (counting
-  starts when the drawer opens; a stale-count guard shows what moved
-  meanwhile), the full movement history with **Undo** (any movement, a reason
-  required, written into the history), the **catalogue folded** (details with
+- Per item, ordered by use: what's recorded, with the **shelf** and when it was
+  last counted beside it, and **correct the count** (counting starts when the
+  drawer opens; a stale-count guard shows what moved meanwhile; one-tap common
+  reasons — the reason stays free text and required; the save says what's
+  still missing; Enter saves), the full movement history with **Undo** (any
+  movement, a reason required, written into the history; a count row says what
+  it changed — "Counted 15 each · was 17 each"), the **catalogue folded** (details with
   a compare-and-set conflict block, codes / barcodes / pack sizes, the online
   code check, the photo, the item's own history), and **archive last and
   apart** (confirmed; read-only after; restore says which codes come back).

@@ -36,6 +36,9 @@ export function Block({ tone, title, children, className, testId, role }: { tone
  * If anything moved in the meantime the server refuses and returns those
  * movements; the counter decides whether their count already reflects them.
  */
+/** One tap for the reasons a count is usually corrected; the field stays free text. */
+const COUNT_REASONS = ["Shelf count", "Found more", "Used, not logged", "Damaged — binned"] as const;
+
 export function CountForm({ item, onSaved }: { item: StockItem; onSaved: (r: WriteResult) => void }) {
   const [started, setStarted] = useState(() => ({ version: item.version, balanceMilli: item.balanceMilli, at: new Date().toISOString() }));
   const [text, setText] = useState("");
@@ -78,16 +81,12 @@ export function CountForm({ item, onSaved }: { item: StockItem; onSaved: (r: Wri
   const clears = item.estimated && !estimated ? " Clears the estimate." : estimated ? " Saved as an estimate." : "";
 
   return (
-    <div className="space-y-2.5" data-testid="stock-count-form">
-      <p className="flex items-start gap-1.5 rounded-[4px] bg-surface-subtle px-2.5 py-1.5 text-xs text-text-muted">
-        <Lock aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-        Counting since {clockTime(started.at)} — movements after this will be shown before you save.
-      </p>
+    <form className="space-y-2.5" data-testid="stock-count-form" onSubmit={(e) => { e.preventDefault(); if (!stale && ready && !busy && !item.archivedAt) void submit(started.version); }}>
       <div className="grid grid-cols-2 gap-2">
         <label className="block">
           <span className={LABEL}>Counted on the shelf</span>
           <div className={cn(INPUT, "mt-1 flex items-center gap-1 px-0")}>
-            <input value={text} onChange={(e) => setText(e.target.value)} inputMode={UNIT_LABEL[unit].decimals ? "decimal" : "numeric"} className="h-full min-w-0 flex-1 rounded-[4px] bg-transparent px-2.5 font-semibold text-text outline-none" data-testid="stock-count-qty" disabled={busy} />
+            <input value={text} onChange={(e) => setText(e.target.value)} inputMode={UNIT_LABEL[unit].decimals ? "decimal" : "numeric"} placeholder="How many?" aria-label={`Counted on the shelf, in ${UNIT_LABEL[unit].plural}`} className="h-full min-w-0 flex-1 rounded-[4px] bg-transparent px-2.5 font-semibold text-text outline-none placeholder:font-normal placeholder:text-text-muted" data-testid="stock-count-qty" disabled={busy} />
             <span className="pr-2.5 text-[13px] text-text-muted">{UNIT_LABEL[unit].plural}</span>
           </div>
         </label>
@@ -95,6 +94,11 @@ export function CountForm({ item, onSaved }: { item: StockItem; onSaved: (r: Wri
           <span className={LABEL}>Reason</span>
           <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. monthly shelf count" className={cn(INPUT, "mt-1")} data-testid="stock-count-reason" disabled={busy} />
         </label>
+      </div>
+      <div className="flex flex-wrap gap-1.5" role="group" aria-label="Common reasons">
+        {COUNT_REASONS.map((r) => (
+          <button key={r} type="button" onClick={() => setReason(r)} disabled={busy} aria-pressed={reason === r} className={cn("min-h-[32px] rounded-full border px-3 text-xs font-medium", reason === r ? "border-brand-navy bg-brand-navy text-text-inverse" : "border-border-strong bg-surface text-text hover:bg-surface-subtle")} data-testid="stock-count-reason-chip">{r}</button>
+        ))}
       </div>
       <label className="flex items-center gap-2 text-sm text-text"><input type="checkbox" checked={estimated} onChange={(e) => setEstimated(e.target.checked)} className="h-4 w-4 accent-brand-navy" /> Estimate (e.g. a part-used roll)</label>
       {stale ? (
@@ -122,14 +126,22 @@ export function CountForm({ item, onSaved }: { item: StockItem; onSaved: (r: Wri
         </Block>
       ) : (
         <>
-          {counted !== null ? <p className="rounded-[4px] bg-surface-subtle px-2.5 py-1.5 text-sm font-medium text-text">Saves: Counted {formatQuantity(counted, unit)} — {diff(started.balanceMilli)}.{clears}</p> : null}
-          <Button type="button" size="sm" onClick={() => void submit(started.version)} disabled={busy || !ready || Boolean(item.archivedAt)} data-testid="stock-count-save">
-            {busy ? "Saving…" : `Save count${counted !== null ? ` · ${formatQuantity(counted, unit)}` : ""}`}
-          </Button>
+          {counted !== null ? (
+            <div className="rounded-[4px] bg-surface-subtle px-2.5 py-1.5" data-testid="stock-count-preview">
+              <p className="text-sm font-medium text-text">Saves: Counted {formatQuantity(counted, unit)} — {diff(started.balanceMilli)}.{clears}</p>
+              <p className="text-xs text-text-muted">Anything taken or added since {clockTime(started.at)} is shown before it saves.</p>
+            </div>
+          ) : null}
+          <div className="flex flex-wrap items-center gap-3">
+            <Button type="submit" size="sm" disabled={busy || !ready || Boolean(item.archivedAt)} data-testid="stock-count-save">
+              {busy ? "Saving…" : `Save count${counted !== null ? ` · ${formatQuantity(counted, unit)}` : ""}`}
+            </Button>
+            {!busy && !ready ? <span className="text-xs text-text-muted" data-testid="stock-count-needs">{counted === null ? (reason.trim().length >= 3 ? "Type what's on the shelf." : "Type what's on the shelf, and a reason.") : "Add a reason to save."}</span> : null}
+          </div>
         </>
       )}
       <Err text={error} />
-    </div>
+    </form>
   );
 }
 
