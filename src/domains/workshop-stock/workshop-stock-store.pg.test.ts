@@ -8,7 +8,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
  * Runs only with WORKSHOP_STOCK_PG_TEST=1 and SUPABASE_ENV=local (a throwaway
  * local database with supabase/migrations/20260611142758_phase1_core_schema.sql,
  * 20261009100000_workshop_stock.sql, 20261026100000_workshop_stock_location_photo.sql
- * and 20261101100000_workshop_stock_types_and_lists.sql applied — see docs/workshop-stock.md
+ * 20261101100000_workshop_stock_types_and_lists.sql, 20261102100000_workshop_stock_location_matrix.sql,
+ * 20261103100000_workshop_stock_custom_types.sql and 20261115100000_workshop_stock_product_links.sql
+ * applied — see docs/workshop-stock.md
  * "Testing"). Local only on purpose: the ledger is append-only by trigger, so
  * cleanup needs session_replication_role (superuser), which a shared dev
  * project must not hand out. Skipped in CI.
@@ -728,5 +730,25 @@ describe.skipIf(!ENABLED)("workshop stock store — real Postgres", () => {
     const made = await makeItem({ name: `Fronius ${++n}` }, 1000, office, { category: "c_solar_inverters", specs: { power: "5kW", phase: "Single" } });
     const item = await store.getItem(sql, tenantA, made.item.id);
     expect(item).toMatchObject({ category: "c_solar_inverters", specs: { power: "5kW", phase: "Single" } });
+  });
+
+  it("product links: saved from a check on create, edited compare-and-set, a recorded check fills only an empty one", async () => {
+    expect(await store.hasLinks(sql)).toBe(true);
+    const rexel = "https://www.rexel.com.au/p/2025WE";
+    const maker = "https://www.clipsal.com/p/2025WE";
+    const made = await makeItem({ name: `Linked GPO ${++n}` }, 1000, worker, { links: { productUrl: rexel, specUrl: null } });
+    expect(made.item).toMatchObject({ productUrl: rexel, specUrl: null });
+    expect((await store.listItems(sql, tenantA)).find((i: { id: string }) => i.id === made.item.id)).toMatchObject({ productUrl: rexel });
+    // the office clears the wholesaler link: a catalogue edit, the revision moves
+    const edited = await store.updateItem(sql, tenantA, made.item.id, { patch: { productUrl: null }, expectedRevision: made.item.metaRevision, actor: office });
+    expect(edited).toMatchObject({ ok: true, changes: { productUrl: { from: rexel, to: null } }, item: { productUrl: null, metaRevision: made.item.metaRevision + 1 } });
+    const typed = "https://www.middys.com.au/our-one";
+    await store.updateItem(sql, tenantA, made.item.id, { patch: { productUrl: typed }, expectedRevision: made.item.metaRevision + 1, actor: office });
+    // recording a check: the typed wholesaler link stays, the empty maker's link fills
+    const r = await store.recordVerification(sql, tenantA, made.item.id, { status: "manufacturer_code_matched", verification: { sourceUrl: maker }, actor: office, links: { productUrl: rexel, specUrl: maker } });
+    expect(r).toMatchObject({ ok: true, linksFilled: ["specUrl"] });
+    expect(await store.getItem(sql, tenantA, made.item.id)).toMatchObject({ productUrl: typed, specUrl: maker, metaRevision: made.item.metaRevision + 2 });
+    // the length guard is the database's too
+    await expect(sql`update public.workshop_stock_items set spec_url = ${"https://a.com/" + "x".repeat(700)} where id = ${made.item.id}`).rejects.toThrow(/links_len/);
   });
 });

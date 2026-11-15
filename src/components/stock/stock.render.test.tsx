@@ -16,6 +16,7 @@ import { PhilWorkshopStock } from "@/components/phil/PhilWorkshopStock";
 import { BrowseSheet } from "./BrowseSheet";
 import { LocationPhotoPrompt } from "./LocationPhotoPrompt";
 import { PhotoCapture } from "./PhotoCapture";
+import { StockItemSheet } from "./StockItemSheet";
 
 /**
  * SSR smoke for the Workshop Stock screens. Interaction flows (code read →
@@ -382,5 +383,22 @@ describe("scanner + NIIMBOT labels (2026-11-03)", () => {
     expect(html).toContain("Make a barcode label for it");
     const option = html.slice(html.indexOf('data-testid="stock-new-make-label"'), html.indexOf("Make a barcode label for it"));
     expect(option).toContain('checked=""');
+  });
+});
+
+describe("product links (2026-11-15)", () => {
+  const sheet = (over: Record<string, unknown>) => flat(renderToString(createElement(StockItemSheet, { item: { ...full, ...over }, onChanged: () => undefined, onClose: () => undefined })));
+  it("the phone's item shows the wholesaler page and the maker's specs, opening in a new tab", () => {
+    const html = sheet({ productUrl: "https://www.rexel.com.au/p/2025WE", specUrl: "https://www.clipsal.com/p/2025WE" });
+    expect(html).toContain('href="https://www.rexel.com.au/p/2025WE"');
+    const text = html.replace(/<[^>]+>/g, "");
+    expect(text).toContain("Wholesaler page · rexel.com.au");
+    expect(text).toContain("Maker’s specs · clipsal.com");
+    expect(html).toContain('target="_blank"');
+    expect(html).toContain('rel="noopener noreferrer nofollow"');
+  });
+  it("no links, no slot — and never a non-web link", () => {
+    expect(sheet({})).not.toContain("stock-product-links");
+    expect(sheet({ productUrl: "javascript:alert(1)" })).not.toContain("javascript:");
   });
 });

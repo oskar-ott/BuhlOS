@@ -85,6 +85,9 @@ function mapItem(r, identifiers) {
     // the item's type and that type's fields (20261101100000); null / {} before the migration
     category: r.category || null,
     specs: specsOf(r.specs),
+    // the wholesaler page and the maker's spec page (20261115100000); null before the migration
+    productUrl: r.product_url || null,
+    specUrl: r.spec_url || null,
     defaultPack: r.default_pack_unit ? { unit: r.default_pack_unit, sizeMilli: toMilli(r.default_pack_size_milli) } : null,
     balanceMilli: toMilli(r.balance_milli),
     estimated: r.estimated === true,
@@ -135,7 +138,9 @@ const ITEM_COLUMNS = (sql) => sql`
   i.last_counted_at, i.last_counted_by_name, i.archived_at, i.created_at, i.created_by_name, i.updated_at,
   (to_jsonb(i) ->> 'location_photo_id') as location_photo_id,
   (to_jsonb(i) ->> 'category') as category,
-  (to_jsonb(i) -> 'specs') as specs`;
+  (to_jsonb(i) -> 'specs') as specs,
+  (to_jsonb(i) ->> 'product_url') as product_url,
+  (to_jsonb(i) ->> 'spec_url') as spec_url`;
 
 // ── later, additive migrations: what this database has yet ───────────────────
 //
@@ -143,6 +148,7 @@ const ITEM_COLUMNS = (sql) => sql`
 //   types          items.category + items.specs       (20261101100000)
 //   lists          workshop_stock_lists + _list_lines (20261101100000)
 //   customTypes    workshop_stock_types               (20261103100000)
+//   links          items.product_url + items.spec_url (20261115100000)
 //
 // Reads go through to_jsonb(i) above, which is null while a column doesn't
 // exist — so this code can deploy before a migration is applied. Writes, and
@@ -158,7 +164,7 @@ let schemaCheckedAt = 0;
 // hung on the pooler. Callers arriving mid-check share it.
 let schemaInflight = null;
 async function schemaFeatures(sql) {
-  if (schemaSeen && schemaSeen.locationPhoto && schemaSeen.types && schemaSeen.lists && schemaSeen.customTypes) return schemaSeen;
+  if (schemaSeen && schemaSeen.locationPhoto && schemaSeen.types && schemaSeen.lists && schemaSeen.customTypes && schemaSeen.links) return schemaSeen;
   if (schemaSeen && Date.now() - schemaCheckedAt < SCHEMA_RECHECK_MS) return schemaSeen;
   if (schemaInflight) return schemaInflight;
   schemaInflight = checkSchema(sql).finally(() => { schemaInflight = null; });
@@ -169,7 +175,7 @@ async function checkSchema(sql) {
     const rows = await sql`
       select table_name, column_name from information_schema.columns
       where table_schema = 'public' and (
-        (table_name = 'workshop_stock_items' and column_name in ('location_photo_id', 'category', 'specs'))
+        (table_name = 'workshop_stock_items' and column_name in ('location_photo_id', 'category', 'specs', 'product_url', 'spec_url'))
         or (table_name in ('workshop_stock_lists', 'workshop_stock_list_lines', 'workshop_stock_types') and column_name = 'id'))`;
     const has = (t, c) => rows.some((r) => r.table_name === t && r.column_name === c);
     schemaSeen = {
@@ -177,10 +183,11 @@ async function checkSchema(sql) {
       types: has('workshop_stock_items', 'category') && has('workshop_stock_items', 'specs'),
       lists: has('workshop_stock_lists', 'id') && has('workshop_stock_list_lines', 'id'),
       customTypes: has('workshop_stock_types', 'id'),
+      links: has('workshop_stock_items', 'product_url') && has('workshop_stock_items', 'spec_url'),
     };
   } catch {
     // keep what was already seen (a column never disappears); otherwise "not yet"
-    schemaSeen = schemaSeen || { locationPhoto: false, types: false, lists: false, customTypes: false };
+    schemaSeen = schemaSeen || { locationPhoto: false, types: false, lists: false, customTypes: false, links: false };
   }
   schemaCheckedAt = Date.now();
   return schemaSeen;
@@ -193,6 +200,9 @@ async function hasTypes(sql) {
 }
 async function hasLists(sql) {
   return (await schemaFeatures(sql)).lists === true;
+}
+async function hasLinks(sql) {
+  return (await schemaFeatures(sql)).links === true;
 }
 async function hasCustomTypes(sql) {
   const f = await schemaFeatures(sql);
@@ -684,6 +694,12 @@ async function createItemWithOpening(sql, tenantId, input) {
         await tx`update public.workshop_stock_items set category = ${input.category || null}, specs = ${tx.json(input.specs || {})}
                  where tenant_id = ${tenantId} and id = ${itemId}`;
       }
+      // The product links — only sent once their columns exist (the API asks
+      // hasLinks first).
+      if (input.links && (input.links.productUrl || input.links.specUrl)) {
+        await tx`update public.workshop_stock_items set product_url = ${input.links.productUrl || null}, spec_url = ${input.links.specUrl || null}
+                 where tenant_id = ${tenantId} and id = ${itemId}`;
+      }
       // The location photo: claimed exactly like the product photo — or, setting
       // up a shelf, the SAME photo another item already shows (one shelf, one
       // photo). Only sent when the column exists (the API asks hasLocationPhoto).
@@ -764,6 +780,8 @@ async function identifierOwners(sql, tenantId, identifiers) {
 const EDITABLE = {
   name: 'name', brand: 'brand', manufacturerCode: 'manufacturer_code', supplierSku: 'supplier_sku',
   supplierName: 'supplier_name', variant: 'variant', colourFinish: 'colour_finish', location: 'location', baseUnit: 'base_unit',
+  // only in a patch once their columns exist (the API asks hasLinks)
+  productUrl: 'product_url', specUrl: 'spec_url',
 };
 
 const UNVERIFIED = { verification_status: 'unverified', verification: null };
@@ -1025,7 +1043,7 @@ async function retireIdentifier(sql, tenantId, identifierId, actor) {
 }
 
 /** Office: record (or clear) a product-code verification on an item from a server-side lookup result. */
-async function recordVerification(sql, tenantId, itemId, { status, verification, actor }) {
+async function recordVerification(sql, tenantId, itemId, { status, verification, actor, links = null }) {
   return sql.begin(async (tx) => {
     const items = await tx`select id, archived_at from public.workshop_stock_items where tenant_id = ${tenantId} and id = ${itemId} for update`;
     if (!items.length) return { error: 'item_not_found' };
@@ -1034,8 +1052,23 @@ async function recordVerification(sql, tenantId, itemId, { status, verification,
       update public.workshop_stock_items set verification_status = ${status}, verification = ${verification ? tx.json(verification) : null},
         updated_by_legacy_id = ${actor.id}, updated_by_name = ${actor.name || null}
       where tenant_id = ${tenantId} and id = ${itemId}`;
-    await insertEvent(tx, tenantId, itemId, 'verification_recorded', { status, sourceUrl: verification ? verification.sourceUrl : null }, actor);
-    return { ok: true };
+    // The pages the check found fill only an EMPTY link — never one a person set.
+    // (Sent only once the columns exist; the API asks hasLinks.)
+    const filled = [];
+    if (links && (links.productUrl || links.specUrl)) {
+      const before = await tx`select product_url, spec_url from public.workshop_stock_items where tenant_id = ${tenantId} and id = ${itemId}`;
+      const b = before[0] || {};
+      if (links.productUrl && !b.product_url) filled.push('productUrl');
+      if (links.specUrl && !b.spec_url) filled.push('specUrl');
+      if (filled.length) {
+        await tx`update public.workshop_stock_items set
+                   product_url = coalesce(product_url, ${links.productUrl || null}),
+                   spec_url = coalesce(spec_url, ${links.specUrl || null})
+                 where tenant_id = ${tenantId} and id = ${itemId}`;
+      }
+    }
+    await insertEvent(tx, tenantId, itemId, 'verification_recorded', { status, sourceUrl: verification ? verification.sourceUrl : null, ...(filled.length ? { linksFilled: filled } : {}) }, actor);
+    return { ok: true, linksFilled: filled };
   });
 }
 
@@ -1438,6 +1471,7 @@ module.exports = {
   addIdentifier,
   retireIdentifier,
   recordVerification,
+  hasLinks,
   insertPhoto,
   setPhotoReading,
   getPhotoForServing,

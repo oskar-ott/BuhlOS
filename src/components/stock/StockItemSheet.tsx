@@ -11,6 +11,7 @@ import { FlowSheet } from "./FlowSheet";
 import { LocationPhoto } from "./LocationPhoto";
 import { LocationPhotoPrompt } from "./LocationPhotoPrompt";
 import { MoveConfirm, type MoveItem } from "./MoveConfirm";
+import { ProductLinks } from "./ProductLinks";
 import { StockReceipt } from "./StockReceipt";
 import { StockThumb } from "./StockThumb";
 import { BigButton, Kicker, Slot } from "./ui";
@@ -26,7 +27,8 @@ const DIRECTION = { take: "out", return: "return", add: "in" } as const;
  * item sit in the footer and go one level deeper to the same confirmation.
  * Where a worker would look for edit or delete, the sentence says the office
  * can. With no photo of where it lives yet, anyone can add one; and it can go
- * on a shopping list from here.
+ * on a shopping list from here. Its product links (the wholesaler's page, the
+ * maker's specs) sit under what it is — context on the record, only when set.
  */
 export function StockItemSheet({
   item: initial,
@@ -118,6 +120,8 @@ export function StockItemSheet({
           <p className="mt-1 text-[13px] font-semibold text-text">{item.location || "No shelf set"}</p>
         </div>
       </div>
+
+      <ProductLinks item={item} size="field" />
 
       {item.locationPhotoId ? <LocationPhoto photoId={item.locationPhotoId} location={item.location} size="lg" /> : null}
       {locationPhotoEnabled && detail && !item.locationPhotoId && !archived ? <LocationPhotoPrompt itemId={item.id} onSaved={() => { void load(); onChanged(); }} /> : null}
