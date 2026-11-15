@@ -2,6 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import {
+  Building2,
   ChevronDown,
   KeyRound,
   MapPin,
@@ -20,8 +21,8 @@ import { cn } from "@/lib/cn";
 /**
  * Phil — Site details card.
  *
- * Reference info for the job: address, contact, access, parking, safety and the
- * induction flag. Collapsible, **collapsed by default** — it's bottom-of-page
+ * Reference info for the job: builder/client, address, contact, access,
+ * parking, safety and the induction flag. Collapsible, **collapsed by default** — it's bottom-of-page
  * reference material a worker wants on arrival, not on every glance, and the
  * address is already in the hero while induction is already surfaced in the
  * attention strip. So the default screen stays quiet; the worker taps once to
@@ -59,7 +60,11 @@ export function PhilJobSiteCard({
   defaultOpen?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
-  if (!hasSiteContext(job)) return null;
+  // The builder/client (owner pull 2026-11-15) is shown here too, so a job
+  // whose only reference info is who it's for still gets the card. Checked
+  // locally — hasSiteContext is shared with the office screens.
+  const clientName = job.clientName?.trim() ?? "";
+  if (!hasSiteContext(job) && !clientName) return null;
 
   return (
     <section
@@ -88,6 +93,11 @@ export function PhilJobSiteCard({
         </button>
         {open ? (
           <dl id="phil-job-site-body" className="mt-3 space-y-3 text-sm">
+            {clientName ? (
+              <SiteField icon={<Building2 className="h-4 w-4" />} label="Builder / client">
+                {clientName}
+              </SiteField>
+            ) : null}
             {job.siteAddress ? (
               <SiteField icon={<MapPin className="h-4 w-4" />} label="Address">
                 {job.siteAddress}
