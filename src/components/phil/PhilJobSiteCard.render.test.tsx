@@ -68,6 +68,20 @@ describe("PhilJobSiteCard", () => {
     expect(html).not.toContain("Gate code 1234");
   });
 
+  it("shows the builder / client when the job has one — even with no other site context", () => {
+    const html = renderToString(
+      createElement(PhilJobSiteCard, {
+        job: job({ clientName: "  Hutchinson Builders " }),
+        defaultOpen: true,
+      }),
+    );
+    expect(html).toContain("Site details");
+    expect(html).toContain("Builder / client");
+    expect(html).toContain("Hutchinson Builders");
+    // A blank client is no context at all.
+    expect(renderToString(createElement(PhilJobSiteCard, { job: job({ clientName: "   " }) }))).toBe("");
+  });
+
   it("renders nothing when the job has no site context", () => {
     const html = renderToString(createElement(PhilJobSiteCard, { job: job() }));
     expect(html).toBe("");

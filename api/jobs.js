@@ -263,8 +263,9 @@ async function enrichJobsWithStats(jobs, crewCountByJob) {
 // Phil sharpened W2b — the flag-gated FIELD create ("+ New job" on /phil/jobs).
 // Reached only for a field/leading-hand caller with `phil_sharpened` enabled
 // (the POST gate above this in the handler). Accepts a RESTRICTED body —
-// { name (required), code (required, IV####), siteAddress? } and NOTHING else:
-// structure / money / modules / client fields in the body are ignored, so a
+// { name (required), code (required, IV####), siteAddress?, clientName? } and
+// NOTHING else: structure / money / modules / clientUserId (portal login) in the
+// body are ignored, so a
 // field phone can never smuggle a full admin create through this branch.
 // Routes through createJob (THE one sanctioned jobs.json job writer — one
 // jobs.json write) with safe defaults: status 'active', empty structure.
@@ -344,6 +345,13 @@ async function handlePhilFieldCreate(req, res, me, data) {
   const input = { name, code, status: 'active', createdByUserId: me.id };
   if (typeof body.siteAddress === 'string' && body.siteAddress.trim()) {
     input.siteAddress = body.siteAddress.trim();
+  }
+  // The builder/client the job is for (owner pull 2026-11-15: "enter the
+  // builder/client in the creation form" on mobile). Free-text site language,
+  // the same basics field the office form sets — NOT clientUserId (portal
+  // login), which stays office-only. Length-capped by validateJobBasics.
+  if (typeof body.clientName === 'string' && body.clientName.trim()) {
+    input.clientName = body.clientName.trim();
   }
 
   const result = await createJob(data, input);
@@ -875,7 +883,7 @@ module.exports = async (req, res) => {
     // in src/lib/auth/permissions.ts + /v2/jobs/new) — widening is a product
     // decision. That decision was made, flag-dark, for ONE restricted shape:
     // a phil-surface field/leading-hand caller with `phil_sharpened` enabled
-    // may create a name+code(+siteAddress) job ("+ New job" on /phil/jobs,
+    // may create a name+code(+siteAddress, +clientName) job ("+ New job" on /phil/jobs,
     // Phil sharpened W2b). The user ratifies the widening by flipping the
     // flag (P15 governance); flag off = literal-admin, byte-identical.
     // role-literal-ok: full-body create stays literal-admin — see block above

@@ -54,6 +54,26 @@ describe("PhilNewJobSheet", () => {
     expect(html).toContain("fixed inset-0 z-50");
   });
 
+  it("offers an optional Builder / client field, suggesting ONLY clients on the worker's own list", () => {
+    const empty = render();
+    expect(empty).toContain("Builder / client");
+    expect(empty).toContain('data-testid="phil-new-job-client"');
+    expect(empty).not.toContain("<option");
+
+    const html = render({
+      jobs: [
+        { id: "a", name: "A", code: "IV0001", clientName: "Hutchinson Builders" },
+        { id: "b", name: "B", code: "IV0002", clientName: "hutchinson  builders" },
+        { id: "c", name: "C", code: "IV0003", clientName: "Sarah Smith" },
+        { id: "d", name: "D", code: "IV0004" },
+      ],
+    });
+    const options = html.match(/<option [^>]*>/g) ?? [];
+    expect(options).toHaveLength(2); // same-client spellings collapse
+    expect(html).toContain('value="Hutchinson Builders"');
+    expect(html).toContain('value="Sarah Smith"');
+  });
+
   it("starts on the ServiceMate side with the HONEST helper — no fake Found/pull claim", () => {
     const html = render();
     expect(html).toContain(
