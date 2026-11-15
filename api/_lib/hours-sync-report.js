@@ -129,6 +129,9 @@ function buildHoursSyncReport({ blobEntries = [], pgEntries = [] } = {}) {
     mismatchedCount: mismatched.length,
     blobHash,
     pgHash,
+    // FULL key lists for the mirror repair (api/_lib/hours-repair.js). Not
+    // persisted — the recorded row keeps the capped `details` below.
+    keys: { onlyInBlob, onlyInPg, mismatched: mismatched.map((m) => m.key) },
     // hashMatch is an independent cross-check of inSync (same inputs → same hash).
     details: {
       hashMatch: blobHash === pgHash,

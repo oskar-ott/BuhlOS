@@ -29,7 +29,7 @@ source of truth (that is a separate, later ADR — see "Out of scope").
 | Jobs structure | `supabase_dual_write_jobs` (J8) | `supabase_read_jobs` (J6, admin) · `supabase_read_phil_jobs` (J7, field) | admin jobs probe (parity / faithful counts) |
 | Task status | `supabase_dual_write_tasks` (J9, cron every 10 min) | `supabase_read_admin_tasks` (J11) · `supabase_read_phil_tasks` (J10) | task-status probe (`readyForPromotion`) |
 | Evidence metadata | `supabase_dual_write_evidence` (cron `/api/internal/mirror-evidence`, every 15 min, off the capture path) | `supabase_read_admin_evidence` · `supabase_read_phil_evidence` | evidence probe (`readyForOverlay`) |
-| Hours | `supabase_dual_write` (hours pilot) | `supabase_read_hours` | hours parity (`scripts/importers/hours-parity.js`) |
+| Hours | `supabase_dual_write` (hours pilot) + repair sweep `supabase_repair_hours` (cron `/api/internal/mirror-hours`, every 15 min) | `supabase_read_hours` | hours parity (`scripts/importers/hours-parity.js`) · daily sync-check |
 | Connectivity | — | `supabase_read_health` (gates `GET /api/supabase-health`) | the health endpoint itself |
 
 All flags resolve **env `FLAG_<UPPER>` > `flags.json` blob override > default(false)**
@@ -125,6 +125,24 @@ capture**; a PG write error just leaves that record to the next sync/drift pass.
 - **Gate 2b:** make a small real edit in the office (e.g. rename a job / toggle a
   task / log an hour), wait for the mirror, re-run the relevant sync-check → still
   **IN SYNC**. The drift-check shows zero. Leave the dual-writers on.
+
+### 2c. Hours repair sweep (2026-10-11)
+
+The live hours mirror is best-effort and one-shot, and production showed what that
+costs: from mid-September the daily hours sync-check failed every day — 67 approvals
+stuck "submitted" in PG after their mirror write timed out (12 s), and split days
+whose allocations were skipped because their job wasn't in PG yet. Nothing retried
+them. `/api/internal/mirror-hours` (cron, every 15 min; `api/_lib/hours-repair.js`)
+now diffs every Blob day-file against PG with the sync-check's own report and
+re-mirrors each drifted day through the LIVE mirror write.
+
+Guards: a day saved in the last 5 min is skipped (its CDN copy may still be the
+pre-save body — never written over a fresh PG row); an unreadable day is never
+treated as absent; more than 5 PG-only days in one run trips a delete breaker
+(nothing deleted, run goes red); at most 40 writes per run (the rest follow on the next run). `supabase_repair_hours`
+(protected, env-only, default ON) off → dry run: the plan is logged, nothing written.
+First production dry run (2026-10-11): 458 days each side, 68 to re-mirror
+(17–22 Aug, 21–26 Sep, 7 Oct), 0 to delete, 0 unreadable.
 
 ## Phase 3 — flip the READ flags, tier-by-tier, under the probes
 
