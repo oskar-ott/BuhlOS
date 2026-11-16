@@ -866,6 +866,56 @@ export function barcodeNear(box: Box, found: ReadonlyArray<{ value: string; box:
   return best?.value ?? null;
 }
 
+/**
+ * The object a person clicked on the picture. A little slack round each box, so a
+ * click on a label just past the edge of a box spotted a little small still counts.
+ * Where boxes overlap, the smallest wins: it's the one on top. Null when the click
+ * is on bare table. Fractions of the picture, like everything here.
+ */
+export function trackAt<T extends { box: Box }>(tracks: readonly T[], at: { x: number; y: number }, slack = 0.15): T | null {
+  let best: { track: T; area: number } | null = null;
+  for (const track of tracks) {
+    const { x, y, w, h } = track.box;
+    if (w <= 0 || h <= 0) continue;
+    const padX = w * slack;
+    const padY = h * slack;
+    if (at.x < x - padX || at.x > x + w + padX || at.y < y - padY || at.y > y + h + padY) continue;
+    const area = w * h;
+    if (!best || area < best.area) best = { track, area };
+  }
+  return best?.track ?? null;
+}
+
+/** Where on an object a click landed, as a share of its box, so the spot follows it when it's nudged. */
+export function spotOn(box: Box, at: { x: number; y: number }): { x: number; y: number } {
+  const clamp = (v: number) => Math.max(0, Math.min(1, v));
+  return { x: box.w > 0 ? clamp((at.x - box.x) / box.w) : 0.5, y: box.h > 0 ? clamp((at.y - box.y) / box.h) : 0.5 };
+}
+
+/**
+ * The part of the picture to read when a person points at a barcode or a label on
+ * an object: a square round that spot, about half the object across (a barcode or
+ * a block of print, not the whole face of the box), never so small a code is cut
+ * in half, and kept inside the picture. Square in real pixels, so `videoWidth` and
+ * `videoHeight` are needed; the answer is in fractions, like the box.
+ */
+export function pointedBox(box: Box, spot: { x: number; y: number }, videoWidth: number, videoHeight: number): Box {
+  const W = Math.max(1, videoWidth);
+  const H = Math.max(1, videoHeight);
+  const objectPx = Math.max(box.w * W, box.h * H);
+  const side = Math.min(W, H, Math.max(objectPx * 0.55, Math.min(W, H) * 0.14));
+  const w = side / W;
+  const h = side / H;
+  const cx = box.x + spot.x * box.w;
+  const cy = box.y + spot.y * box.h;
+  return {
+    x: Math.max(0, Math.min(1 - w, cx - w / 2)),
+    y: Math.max(0, Math.min(1 - h, cy - h / 2)),
+    w,
+    h,
+  };
+}
+
 /** How sharp a picture is: the spread of a small edge filter. A webcam refocusing scores far lower than one in focus. */
 export function sharpness(frame: RawFrame): number {
   const { data, width, height } = frame;

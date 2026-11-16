@@ -14,6 +14,8 @@ export interface OverlayTag {
   tone: OverlayTone;
   title: string | null;
   detail: string | null;
+  /** the part a person clicked to have read, in fractions of the picture, while it's being read */
+  focus?: Box | null;
 }
 
 interface Remembered extends Box {
@@ -268,14 +270,24 @@ export function drawOverlay({ canvas, video, tracks, describe, memory, colours: 
       ctx.strokeStyle = colour;
     }
 
+    // The part a person pointed at: the scan line runs there, so it's plain what is being read.
+    const focus = tag.tone === "reading" && tag.focus ? { x: area.x + tag.focus.x * area.w, y: area.y + tag.focus.y * area.h, w: tag.focus.w * area.w, h: tag.focus.h * area.h } : null;
+    if (focus) {
+      ctx.strokeStyle = c.accent;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 4]);
+      ctx.strokeRect(focus.x, focus.y, focus.w, focus.h);
+      ctx.setLineDash([]);
+    }
     if (tag.tone === "reading" && !reducedMotion) {
+      const scan = focus ?? { x, y, w, h };
       const sweep = (now % 1100) / 1100;
-      const ly = y + h * (sweep < 0.5 ? sweep * 2 : 2 - sweep * 2);
+      const ly = scan.y + scan.h * (sweep < 0.5 ? sweep * 2 : 2 - sweep * 2);
       ctx.strokeStyle = c.accent;
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.moveTo(x, ly);
-      ctx.lineTo(x + w, ly);
+      ctx.moveTo(scan.x, ly);
+      ctx.lineTo(scan.x + scan.w, ly);
       ctx.stroke();
     }
     plate(ctx, c, colour, tag, x, y, w, h, area);

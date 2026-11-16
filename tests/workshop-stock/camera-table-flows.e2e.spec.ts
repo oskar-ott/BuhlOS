@@ -13,6 +13,7 @@ const API = process.env.WORKSHOP_STOCK_E2E_API ?? "";
 const SHOTS = process.env.WORKSHOP_STOCK_E2E_SHOTS ?? "test-results/workshop-stock";
 
 test.skip(!API, "needs the local Workshop Stock harness (docs/workshop-stock.md → Testing)");
+if (process.env.WORKSHOP_STOCK_E2E_CHROMIUM) test.use({ launchOptions: { executablePath: process.env.WORKSHOP_STOCK_E2E_CHROMIUM } });
 test.describe.configure({ mode: "serial" });
 test.use({ viewport: { width: 1440, height: 1000 } });
 
@@ -523,6 +524,66 @@ test("a pick teaches the printed code, so the next one logs itself", async ({ pa
   await expect(logged(page)).toHaveText("2", { timeout: 15_000 });
   await expect(waiting(page)).toHaveText("0");
   expect(await balance(/Iconic switch mechanism/)).toBe(3000);
+});
+
+/** A click on the live picture at a point of the fake webcam's 1280×720 frame (the video is letterboxed in its box). */
+async function clickPicture(page: Page, x: number, y: number) {
+  const feed = page.getByTestId("stock-intake-feed");
+  const b = (await feed.boundingBox())!;
+  const scale = Math.min(b.width / 1280, b.height / 720);
+  await feed.click({ position: { x: (b.width - 1280 * scale) / 2 + x * scale, y: (b.height - 720 * scale) / 2 + y * scale } });
+}
+
+test("clicking a label on the picture reads just that part", async ({ page }) => {
+  test.setTimeout(90_000);
+  await fakeCamera(page);
+  await open(page);
+  await start(page);
+
+  await harness("/__harness/vision", { queue: [unreadable] });
+  await put(page, "a", 300, 200, 300, 240);
+  await expect(card(page)).toHaveAttribute("data-status", "problem", { timeout: 15_000 });
+  const before = (await state()).calls.vision as Array<{ imageBytes: number }>;
+  expect(before).toHaveLength(1);
+
+  // Bare table says what to do; the object's label reads again, just that part.
+  await clickPicture(page, 1100, 650);
+  await expect(page.getByTestId("stock-intake-notice")).toContainText("Click on something the camera has boxed");
+  await harness("/__harness/vision", { queue: [reading(product({ manufacturerCode: "POINT1", description: "Pointed-at label" }))] });
+  await clickPicture(page, 340, 230);
+  await expect(card(page)).toHaveAttribute("data-status", "new", { timeout: 15_000 });
+  await expect(page.getByTestId("stock-intake-new-name")).toHaveValue(/Pointed-at label|POINT1/);
+  const after = (await state()).calls.vision as Array<{ imageBytes: number }>;
+  expect(after).toHaveLength(2);
+  // Only the part round the click went, not the whole object again.
+  expect(after[1]!.imageBytes).toBeLessThan(after[0]!.imageBytes);
+});
+
+test("clicking a barcode on the picture logs it, with no label read", async ({ page }) => {
+  test.setTimeout(90_000);
+  const s = await harness<{ name: string; value: string }>("/__harness/session?as=office");
+  const headers = { cookie: `${s.name}=${s.value}`, "content-type": "application/json" };
+  const made = await fetch(`${API}/api/workshop-stock?action=create`, { method: "POST", headers: { ...headers, "idempotency-key": "flows-seed-point" }, body: JSON.stringify({ name: "Pointed RCBO", brand: "Clipsal", barcode: "9300000000033", baseUnit: "each", location: "Bin 7", openingQuantity: "1" }) });
+  expect(made.status).toBe(201);
+
+  await fakeCamera(page);
+  await open(page);
+  await start(page);
+  await harness("/__harness/vision", { queue: [unreadable] });
+  await put(page, "a", 300, 200, 300, 240);
+  await expect(card(page)).toHaveAttribute("data-status", "problem", { timeout: 15_000 });
+
+  // The code the whole-object crop missed reads once it's pointed at.
+  await table(page, "barcode", "9300000000033");
+  await clickPicture(page, 360, 300);
+  await expect(logged(page)).toHaveText("1", { timeout: 15_000 });
+  expect((await state()).calls.vision).toHaveLength(1);
+  expect(await balance(/Pointed RCBO/)).toBe(2000);
+
+  // Logged is logged: a click doesn't read it again.
+  await clickPicture(page, 360, 300);
+  await expect(page.getByTestId("stock-intake-notice")).toContainText("already logged");
+  await expect(logged(page)).toHaveText("1");
 });
 
 test("a big pack size is checked once, then trusted", async ({ page }) => {

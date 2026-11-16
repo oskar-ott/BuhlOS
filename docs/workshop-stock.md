@@ -222,6 +222,21 @@ accuracy nobody has measured.
    reads it again. Taken away unread, it stays in the log as "Not logged", with its
    picture and a way to read it again, so a missed item can't vanish silently.
 
+**Pointing at the part to read (owner pull, 2026-11-16: "with the camera i want to be
+able to click on the barcode or info section to direct the ai").** Clicking an object on
+the picture reads just the part clicked: a square round the spot about half the object
+across (never less than about a seventh of the picture, so a whole barcode fits), taken
+from the full-size frame and enlarged. A barcode in it is tried first, over up to three
+frames, as above; with none, that close crop alone goes to the label reader, ahead of
+anything queued, so it reads the print pointed at and not whatever else is on the box. A
+dashed yellow square shows the part being read and the box says "READING THERE". It works on
+anything not yet on its way to the record (reading, a choice, new, a problem, "not stock");
+a newer read always wins over an older one still on its way. A click on something logged
+says to undo it first, and a click on bare table says what to click. The object's photo
+stays the whole object. Each click that reaches the label reader is one paid read, under the
+same limits. Its own hypothesis: when a read is wrong or empty, pointing is quicker than
+turning the item over or searching. Untested with a real webcam.
+
 **Amount.** A loose item adds 1. A box printed "Pack of 10" of something counted
 each adds 10, and the row says the size came from the label. An item counted in
 boxes adds 1 box. A length is never guessed: without a printed length it asks.
@@ -1323,7 +1338,8 @@ WORKSHOP_STOCK_E2E_API=http://localhost:3101 npx playwright test tests/workshop-
 the crew's read), `tests/workshop-stock/layout-plan.e2e.spec.ts` (recommended layout, use,
 undo), `tests/workshop-stock/camera-table.e2e.spec.ts` and
 `tests/workshop-stock/camera-table-flows.e2e.spec.ts` (noisy picture, a pile through one
-spot, the queue, a pack check, a scanner, a reload, a table area, a camera knocked out)
+spot, the queue, a pack check, a scanner, a reload, a table area, a camera knocked out,
+clicking a label or barcode to read just that part)
 run the same way. `intake-bench.test.ts` runs the real tracker against a simulated camera
 (noise, exposure, white balance, shadows, arms) in the unit suite; `BENCH_ALL_SEEDS=1`
 also runs the long random soak. These prove the logic against a simulation written by the

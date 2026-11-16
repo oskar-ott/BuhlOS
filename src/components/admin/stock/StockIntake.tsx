@@ -10,7 +10,7 @@ import { decideRead } from "@/domains/workshop-stock/flow";
 import { errorCopy, formatNumber, parseTypedQuantity, READ_STATUS_COPY, signedQuantity, toQuantityString } from "@/domains/workshop-stock/format";
 import { cardForScan, emptyScan, feedScan, identifiersToTeach, itemWords, packNeedsCheck, placedAmount, productWords, sameInARow, sameProduct, sessionTotals, typedInto, waitingQueue, type NewItemDraft } from "@/domains/workshop-stock/intake";
 import { clearSession, loadSession, loadWaiting, loadZone, saveSession, saveZone, type SavedWaiting } from "@/domains/workshop-stock/intake-session";
-import { addCalibrationFrame, analyseFrame, barcodeNear, cropRect, emptyTracker, finishCalibration, newCalibration, sharpness, tableAdvice, type Box, type Calibration, type FoundObjects, type RawFrame, type TableState, type Track } from "@/domains/workshop-stock/intake-tracker";
+import { addCalibrationFrame, analyseFrame, barcodeNear, cropRect, emptyTracker, finishCalibration, newCalibration, pointedBox, sharpness, spotOn, tableAdvice, trackAt, type Box, type Calibration, type FoundObjects, type RawFrame, type TableState, type Track } from "@/domains/workshop-stock/intake-tracker";
 import { matrixLocations, ruleFor, type LocationMatrix } from "@/domains/workshop-stock/location-matrix";
 import type { ReadPhotoResult, ReadProduct, StockItem, StockUnit } from "@/domains/workshop-stock/schema";
 import { parseSpoken, type Spoken } from "@/domains/workshop-stock/spoken";
@@ -76,7 +76,9 @@ const REASON_UNDO = "Logged by mistake at the camera table";
 const REASON_AMOUNT = "Amount corrected at the camera table";
 const CAMERA_KEY = "buhlos.stock.intake.camera";
 const BUILT_IN_CAMERA = /facetime|built-?in|macbook|integrated/i;
-const UNREADABLE = "Couldn't read a label on this. Turn it label up and it reads again by itself, or search below.";
+const UNREADABLE = "Couldn't read a label on this. Turn it label up and it reads again by itself, click its barcode or label on the picture, or search below.";
+/** What a click on the picture can still change: anything not yet on its way to the record. */
+const POINTABLE = new Set<string>(["reading", "pick", "several", "new", "problem", "ignored"]);
 
 const wait = (ms: number) => new Promise<void>((done) => setTimeout(done, ms));
 
@@ -165,13 +167,15 @@ function talkHint(card: PlacedStatus | null, working: boolean, canChangeLast: bo
 }
 
 /** What the reticle on an object says. It only ever repeats what the save and the read say. */
-function describeTrack(track: Track, placed: Placed | undefined): OverlayTag {
+function describeTrack(track: Track, placed: Placed | undefined, pointed: Box | null = null): OverlayTag {
   if (track.touching) return { tone: "touching", title: "MOVE APART", detail: null };
   if (!track.settled) return { tone: "settling", title: null, detail: null };
   if (!placed) return { tone: "reading", title: "READING", detail: null };
   const tag = `#${track.id}`;
   switch (placed.status) {
-    case "reading": return { tone: "reading", title: `${tag} READING ${Math.max(0, Math.floor((Date.now() - placed.at) / 1000))}s`, detail: null };
+    case "reading": return pointed
+      ? { tone: "reading", title: `${tag} READING THERE`, detail: null, focus: pointed }
+      : { tone: "reading", title: `${tag} READING ${Math.max(0, Math.floor((Date.now() - placed.at) / 1000))}s`, detail: null };
     case "saving": return { tone: "reading", title: `${tag} LOGGING`, detail: null };
     case "logged": return { tone: "logged", title: `✓ ${amountText(placed)} ${placed.itemName ?? ""}`.trim(), detail: placed.location ?? "NO LOCATION" };
     case "pick": return { tone: "needs", title: `${tag} WHICH ITEM?`, detail: null };
@@ -261,6 +265,10 @@ export function StockIntake() {
   const armsRef = useRef<FoundObjects["armCells"] | null>(null);
   const atEdgeRef = useRef<Box[]>([]);
   const highlightRef = useRef<number | null>(null);
+  /** Bumped each time an object is read afresh, so an older read still on its way can't land over a newer one. */
+  const readGen = useRef(new Map<number, number>());
+  /** Where a person clicked on an object to say "read this bit", as a share of its box. */
+  const pointedRef = useRef(new Map<number, { x: number; y: number }>());
   const streamRef = useRef<MediaStream | null>(null);
   const readTimes = useRef<number[]>([]);
   const confirmedPacks = useRef(new Set<string>());
@@ -740,23 +748,36 @@ export function StockIntake() {
     }
   }
 
-  function queueRead(id: number, crop: string) {
+  /** True once this read has been overtaken: a person, a scanner or a newer read got there first. */
+  function overtaken(id: number, gen: number): boolean {
+    return placedById(id)?.status !== "reading" || (readGen.current.get(id) ?? 0) !== gen;
+  }
+
+  function freshRead(id: number): number {
+    const gen = (readGen.current.get(id) ?? 0) + 1;
+    readGen.current.set(id, gen);
+    return gen;
+  }
+
+  /** `first`: a person is waiting on this one (they pointed at it), so it goes ahead of the queue. */
+  function queueRead(id: number, crop: string, first = false) {
     if (readQueue.current.length >= MAX_QUEUED_READS) {
       patch(id, { status: "problem", problem: "Lots on the table at once, so this one wasn't read. Read it again when the others are done, or scan its barcode." });
       return;
     }
-    readQueue.current.push(async () => {
-      if (placedById(id)?.status !== "reading") return;
+    const gen = readGen.current.get(id) ?? 0;
+    const task = async () => {
+      if (overtaken(id, gen)) return;
       const started = performance.now();
       let r = await readIntakeCrop(crop);
       const passing = !r.ok ? r.error.status === 0 || r.error.status >= 500 : r.data.readStatus === "unavailable";
       if (passing) {
         // Most failures here pass in a moment: once more before bothering anyone.
         await wait(READ_RETRY_MS);
-        if (placedById(id)?.status !== "reading") return;
+        if (overtaken(id, gen)) return;
         r = await readIntakeCrop(crop);
       }
-      if (placedById(id)?.status !== "reading") return; // a person or a scanner got there first
+      if (overtaken(id, gen)) return;
       if (!r.ok) {
         patch(id, { status: "problem", problem: errorCopy(r.error.status, r.error.body, "The label reader didn't answer. Try again.") });
         return;
@@ -765,8 +786,11 @@ export function StockIntake() {
         readTimes.current.push(performance.now() - started);
         setReads((now) => ({ ...now, labels: now.labels + 1, medianMs: median(readTimes.current) }));
       }
+      pointedRef.current.delete(id);
       await applyRead(id, r.data, null);
-    });
+    };
+    if (first) readQueue.current.unshift(task);
+    else readQueue.current.push(task);
     pumpReads();
   }
 
@@ -785,6 +809,8 @@ export function StockIntake() {
    * frame came out sharpest is the one that gets read.
    */
   async function identify(id: number, first: HTMLCanvasElement) {
+    pointedRef.current.delete(id);
+    const gen = freshRead(id);
     let best = first;
     let bestScore = sharpnessOf(first);
     let barcode: string | null = null;
@@ -792,7 +818,7 @@ export function StockIntake() {
       let canvas: HTMLCanvasElement | null = first;
       if (attempt > 0) {
         await wait(SHARPEST_GAP_MS);
-        if (placedById(id)?.status !== "reading") return;
+        if (overtaken(id, gen)) return;
         const track = tableRef.current?.tracker.tracks.find((t) => t.id === id);
         canvas = track && !track.disturbed && !track.touching ? grabCanvas(track.box) : null;
         if (!canvas) break;
@@ -805,32 +831,88 @@ export function StockIntake() {
       barcode = await detectBarcode(canvas);
       if (barcode) break;
     }
-    if (placedById(id)?.status !== "reading") return;
+    if (overtaken(id, gen)) return;
     // Not in the crop? A barcode anywhere in the picture on or just beside this object (2026-11-03: a box spotted too small cut it off).
     const box = tableRef.current?.tracker.tracks.find((t) => t.id === id)?.box;
     if (!barcode && box) barcode = await barcodeInFrame(box);
-    if (placedById(id)?.status !== "reading") return;
+    if (overtaken(id, gen)) return;
     const crop = best.toDataURL("image/jpeg", 0.85);
     patch(id, { barcode, crop, thumb: thumbOf(best) });
-    if (barcode) {
-      setReads((now) => ({ ...now, barcodes: now.barcodes + 1 }));
-      const hits = findByBarcode(itemsRef.current, barcode);
-      if (hits.length === 1) {
-        await logTo(id, hits[0]!.item, hits[0]!.identifier.packSizeMilli ?? null);
-        return;
-      }
-      if (hits.length > 1) {
-        patch(id, { status: "pick", choices: hits.map((h) => h.item) });
-        return;
-      }
-      // Another of the same is already waiting on a person: no need to pay to read it twice.
-      const twin = placedRef.current.find((p) => p.id !== id && p.status === "new" && sameProduct({ barcode }, p));
-      if (twin) {
-        patch(id, { status: "new", product: twin.product });
-        return;
-      }
-    }
+    if (barcode && (await settledByBarcode(id, barcode))) return;
     queueRead(id, crop);
+  }
+
+  /** A barcode read on the table: logs it, asks which, or shares a card already waiting. False when the label still needs reading. */
+  async function settledByBarcode(id: number, barcode: string): Promise<boolean> {
+    setReads((now) => ({ ...now, barcodes: now.barcodes + 1 }));
+    const hits = findByBarcode(itemsRef.current, barcode);
+    if (hits.length === 1) {
+      pointedRef.current.delete(id);
+      await logTo(id, hits[0]!.item, hits[0]!.identifier.packSizeMilli ?? null);
+      return true;
+    }
+    if (hits.length > 1) {
+      pointedRef.current.delete(id);
+      patch(id, { status: "pick", choices: hits.map((h) => h.item) });
+      return true;
+    }
+    // Another of the same is already waiting on a person: no need to pay to read it twice.
+    const twin = placedRef.current.find((p) => p.id !== id && p.status === "new" && sameProduct({ barcode }, p));
+    if (twin) {
+      pointedRef.current.delete(id);
+      patch(id, { status: "new", product: twin.product });
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * A person clicked a barcode or a label on an object: read just that part. A close
+   * crop round the spot, enlarged, is tried for a barcode first (free and exact, and a
+   * small code the whole-object crop was too coarse for often reads here). With none
+   * there, that close crop alone goes to the label reader, ahead of the queue, so it
+   * reads the print that was pointed at rather than whatever else is on the box. The
+   * object's own picture, kept for its photo, stays the whole object.
+   */
+  async function readPointed(id: number, spot: { x: number; y: number }) {
+    const gen = freshRead(id);
+    pointedRef.current.set(id, spot);
+    patch(id, { status: "reading", problem: null, unread: false, moveKey: null });
+    const grab = (): HTMLCanvasElement | null => {
+      const video = videoRef.current;
+      const track = tableRef.current?.tracker.tracks.find((t) => t.id === id);
+      if (!video?.videoWidth || !track || track.touching) return null;
+      return grabRect(cropRect(pointedBox(track.box, spot, video.videoWidth, video.videoHeight), video.videoWidth, video.videoHeight, 0));
+    };
+    let best: HTMLCanvasElement | null = null;
+    let bestScore = -1;
+    let barcode: string | null = null;
+    for (let attempt = 0; attempt < SHARPEST_TRIES; attempt++) {
+      if (attempt > 0) {
+        await wait(SHARPEST_GAP_MS);
+        if (overtaken(id, gen)) return;
+      }
+      const canvas = grab();
+      if (!canvas) break;
+      const score = sharpnessOf(canvas);
+      if (score > bestScore) {
+        best = canvas;
+        bestScore = score;
+      }
+      barcode = await detectBarcode(canvas);
+      if (barcode) break;
+    }
+    if (overtaken(id, gen)) return;
+    if (!best) {
+      pointedRef.current.delete(id);
+      patch(id, { status: "problem", problem: "It moved before that part could be read. Let it settle, then click it again." });
+      return;
+    }
+    if (barcode) {
+      patch(id, { barcode });
+      if (await settledByBarcode(id, barcode)) return;
+    }
+    queueRead(id, best.toDataURL("image/jpeg", 0.85), true);
   }
 
   async function barcodeInFrame(box: Box): Promise<string | null> {
@@ -859,7 +941,13 @@ export function StockIntake() {
   function grabCanvas(box: Box): HTMLCanvasElement | null {
     const video = videoRef.current;
     if (!video || !video.videoWidth) return null;
-    const rect = cropRect(box, video.videoWidth, video.videoHeight);
+    return grabRect(cropRect(box, video.videoWidth, video.videoHeight));
+  }
+
+  /** A part of the full-size frame, in its pixels, enlarged when small so print stays legible. */
+  function grabRect(rect: { x: number; y: number; w: number; h: number }): HTMLCanvasElement | null {
+    const video = videoRef.current;
+    if (!video || !video.videoWidth) return null;
     const long = Math.max(rect.w, rect.h);
     const scale = long > CROP_LONG_SIDE_MAX ? CROP_LONG_SIDE_MAX / long : long < CROP_LONG_SIDE_MIN ? Math.min(3, CROP_LONG_SIDE_MIN / long) : 1;
     const canvas = document.createElement("canvas");
@@ -918,7 +1006,11 @@ export function StockIntake() {
     if (!canvas && !p.crop) return;
     patch(id, { status: "reading", problem: null, unread: false, moveKey: null });
     if (canvas) void identify(id, canvas);
-    else queueRead(id, p.crop);
+    else {
+      pointedRef.current.delete(id);
+      freshRead(id);
+      queueRead(id, p.crop);
+    }
   }
 
   /** A hand scanner: the code it just read goes to whatever is waiting, the next thing placed, or straight on the record. */
@@ -1088,7 +1180,11 @@ export function StockIntake() {
           canvas,
           video,
           tracks: tableRef.current?.tracker.tracks ?? [],
-          describe: (track) => describeTrack(track, placedRef.current.find((p) => p.id === track.id)),
+          describe: (track) => {
+            const spot = pointedRef.current.get(track.id);
+            const pointed = spot && video.videoWidth ? pointedBox(track.box, spot, video.videoWidth, video.videoHeight) : null;
+            return describeTrack(track, placedRef.current.find((p) => p.id === track.id), pointed);
+          },
           memory: memory.current,
           colours,
           now: Date.now(),
@@ -1487,6 +1583,44 @@ export function StockIntake() {
     };
   }
 
+  /** Where on the picture a click landed, in fractions of it; null off the picture (the letterbox bars). */
+  function picturePoint(e: { clientX: number; clientY: number }): { x: number; y: number } | null {
+    const canvas = overlayRef.current;
+    const video = videoRef.current;
+    if (!canvas || !video?.videoWidth) return null;
+    const rect = canvas.getBoundingClientRect();
+    const picture = videoArea(rect.width, rect.height, video.videoWidth, video.videoHeight);
+    const x = (e.clientX - rect.left - picture.x) / picture.w;
+    const y = (e.clientY - rect.top - picture.y) / picture.h;
+    return x >= 0 && x <= 1 && y >= 0 && y <= 1 ? { x, y } : null;
+  }
+
+  /** A click on the picture: "read this bit". The object under it reads the barcode or label clicked. */
+  function pointAt(e: { clientX: number; clientY: number }) {
+    if (!running || paused || calibrating || drawingZone) return;
+    const at = picturePoint(e);
+    if (!at) return;
+    const tracks = (tableRef.current?.tracker.tracks ?? []).filter((t) => t.arrived !== false && t.settled);
+    const track = trackAt(tracks, at);
+    if (!track) {
+      say("Click on something the camera has boxed: its barcode, or the part of the label to read.");
+      return;
+    }
+    if (track.touching) {
+      say(`#${track.id} is touching something. Move them apart, then click it again.`);
+      return;
+    }
+    const p = placedById(track.id);
+    if (!p) return;
+    if (!POINTABLE.has(p.status) || p.busy) {
+      say(p.status === "logged" ? `#${p.id} is already logged. Undo it on its row to read it again.` : p.status === "amount" ? `#${p.id} is already known. It only needs how many.` : `#${p.id} is being saved.`);
+      return;
+    }
+    unlockSound();
+    setFocusId(p.id);
+    void readPointed(p.id, spotOn(track.box, at));
+  }
+
   function setZone(next: Box | null) {
     zoneRef.current = next;
     setZoneState(next);
@@ -1623,7 +1757,7 @@ export function StockIntake() {
 
       <div className="grid min-h-0 flex-1 gap-2 lg:grid-cols-[minmax(0,1fr)_380px]">
         <div className="flex min-h-0 min-w-0 flex-col gap-2">
-          <div className="relative aspect-video w-full overflow-hidden rounded-[4px] border border-border bg-surface-subtle lg:aspect-auto lg:min-h-0 lg:flex-1" data-testid="stock-intake-feed" data-camera={camera} data-running={running} data-analysis-ms={telemetry ? telemetry.analysisMs.toFixed(1) : undefined}>
+          <div className={cn("relative aspect-video w-full overflow-hidden rounded-[4px] border border-border bg-surface-subtle lg:aspect-auto lg:min-h-0 lg:flex-1", running && !paused && !drawingZone && "cursor-crosshair")} onClick={pointAt} title={running && !paused && !drawingZone ? "Click a barcode or label to read just that part" : undefined} data-testid="stock-intake-feed" data-camera={camera} data-running={running} data-analysis-ms={telemetry ? telemetry.analysisMs.toFixed(1) : undefined}>
             <video ref={videoRef} playsInline muted autoPlay aria-hidden="true" className="absolute inset-0 h-full w-full object-contain" />
             <canvas ref={overlayRef} aria-hidden="true" className="absolute inset-0 h-full w-full font-mono" />
             {drawingZone ? (
@@ -1667,6 +1801,7 @@ export function StockIntake() {
                 <div className="max-w-md">
                   <p className="font-display text-2xl font-semibold text-text">Clear the table, then start</p>
                   <p className="mt-1.5 text-sm text-text-muted">It reads the empty table first and spots anything new against it. A plain, mid-coloured mat works best: white stock vanishes on white, black on black. Bring the camera as close as the table allows, so small print stays sharp.</p>
+                  <p className="mt-1.5 text-sm text-text-muted" data-testid="stock-intake-point-tip">Read the wrong thing, or nothing? Click its barcode or label on the picture and it reads just that part.</p>
                   <p className="mt-1.5 text-sm text-text-muted" data-testid="stock-intake-scanner-tip">Only using a barcode scanner? Just scan. You don&rsquo;t need to press Start.</p>
                   <Button type="button" size="lg" className="mt-4" disabled={!ready || !matrixAvailable} onClick={() => void startTable()} data-testid="stock-intake-start"><Play aria-hidden="true" className="h-4 w-4" /> Start</Button>
                 </div>

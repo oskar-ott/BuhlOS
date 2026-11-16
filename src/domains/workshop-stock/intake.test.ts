@@ -1,6 +1,6 @@
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
-import { absorbLight, barcodeNear, addCalibrationFrame, cropRect, emptyTracker, finishCalibration, findObjects, GONE_MS, newCalibration, SETTLE_MS, sharpness, stepTracker, tableAdvice, type Box, type TrackerState } from "./intake-tracker";
+import { absorbLight, barcodeNear, addCalibrationFrame, cropRect, emptyTracker, finishCalibration, findObjects, GONE_MS, newCalibration, pointedBox, SETTLE_MS, sharpness, spotOn, stepTracker, tableAdvice, trackAt, type Box, type TrackerState } from "./intake-tracker";
 import { cardForScan, draftFor, typedInto, emptyScan, feedScan, identifiersToTeach, packNeedsCheck, placedAmount, productWords, sameInARow, sameProduct, sessionTotals, waitingQueue } from "./intake";
 import { binAt, binsOn, locationText, matrixLocations, rackBinCount, rackLabel, rackShape, ruleFor, rulesOutsideRack, shelvesDiffer, type LocationMatrix } from "./location-matrix";
 import { splitLocation } from "./location";
@@ -194,6 +194,48 @@ describe("stepTracker counts each object once", () => {
     const apart = run([{ objects: [A], ms: SETTLE_MS + 300 }, { objects: [merged], ms: 1000 }, { objects: [A, B], ms: SETTLE_MS + 300 }]);
     expect(apart.settled).toEqual([1, 2]);
     expect(apart.state.tracks[0]!.touching).toBe(false);
+  });
+});
+
+describe("pointing at a barcode or label", () => {
+  const big = { id: 1, box: { x: 0.1, y: 0.1, w: 0.5, h: 0.5 } };
+  const small = { id: 2, box: { x: 0.3, y: 0.3, w: 0.1, h: 0.1 } };
+
+  it("finds the object clicked, the smaller one where they overlap, none on bare table", () => {
+    expect(trackAt([big, small], { x: 0.2, y: 0.2 })?.id).toBe(1);
+    expect(trackAt([big, small], { x: 0.35, y: 0.35 })?.id).toBe(2);
+    expect(trackAt([big, small], { x: 0.9, y: 0.9 })).toBeNull();
+    // just past the edge of a box spotted a little small still counts
+    expect(trackAt([small], { x: 0.41, y: 0.35 })?.id).toBe(2);
+    expect(trackAt([{ id: 3, box: { x: 0.5, y: 0.5, w: 0, h: 0 } }], { x: 0.5, y: 0.5 })).toBeNull();
+  });
+
+  it("remembers the spot as a share of the object, so it follows a nudge", () => {
+    const spot = spotOn(big.box, { x: 0.35, y: 0.1 });
+    expect(spot.x).toBeCloseTo(0.5, 9);
+    expect(spot.y).toBe(0);
+    expect(spotOn(big.box, { x: 0.9, y: 0 })).toEqual({ x: 1, y: 0 });
+    const nudged = { ...big.box, x: 0.2 };
+    const before = pointedBox(big.box, { x: 0.5, y: 0.5 }, 1920, 1080);
+    const after = pointedBox(nudged, { x: 0.5, y: 0.5 }, 1920, 1080);
+    expect(after.x - before.x).toBeCloseTo(0.1, 6);
+  });
+
+  it("reads a square round the spot, about half the object, inside the picture", () => {
+    const W = 1920;
+    const H = 1080;
+    const area = pointedBox({ x: 0.2, y: 0.2, w: 0.4, h: 0.4 }, { x: 0.5, y: 0.5 }, W, H);
+    expect(area.w * W).toBeCloseTo(area.h * H, 6); // square in real pixels
+    expect(area.w * W).toBeCloseTo(0.55 * 0.4 * W, 6);
+    expect(area.x + area.w / 2).toBeCloseTo(0.4, 6);
+    // a small object still gets enough around the spot for a whole barcode
+    const tiny = pointedBox({ x: 0.5, y: 0.5, w: 0.02, h: 0.02 }, { x: 0.5, y: 0.5 }, W, H);
+    expect(tiny.h * H).toBeCloseTo(0.14 * H, 6);
+    // a spot at the corner of the picture stays inside it
+    const corner = pointedBox({ x: 0.9, y: 0.9, w: 0.1, h: 0.1 }, { x: 1, y: 1 }, W, H);
+    expect(corner.x + corner.w).toBeLessThanOrEqual(1);
+    expect(corner.y + corner.h).toBeLessThanOrEqual(1);
+    expect(corner.x).toBeGreaterThanOrEqual(0);
   });
 });
 
