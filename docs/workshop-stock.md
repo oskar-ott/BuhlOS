@@ -65,6 +65,26 @@
 > **Hypothesis:** if items carry their type's fields and the phone opens on
 > types, workers find what they need without scrolling or searching names, and
 > they use a list for a job's pick-up instead of a text message.
+>
+> **Product links (owner pull, 2026-11-15)** — inside the same flag:
+> [the wholesaler's page and the maker's specs](#product-links) on every item
+> that has them. Owner's words: "a product link when viewing items that have
+> been added — basically a link to the product page in an online wholesaler and
+> if available the product spec on the manufacturer's page". Needs migration
+> `20261115100000_workshop_stock_product_links.sql`; before it is applied
+> nothing changes and nothing breaks (see [Data](#data)). **Not yet applied to
+> dev or production.** **Hypothesis:** if an item opens straight onto its
+> wholesaler page and the maker's specs, the office reorders and the crew check
+> a rating from the item instead of searching the web for the code again.
+>
+> **More photos of an item (owner pull, 2026-11-16)** — inside the same flag:
+> [several photos per item](#more-photos-of-an-item), not just one. Owner's
+> words: "i want to be able to add multiple photos of items". Needs migration
+> `20261116100000_workshop_stock_item_photos.sql`; before it is applied
+> nothing changes and nothing breaks (see [Data](#data)). **Not yet applied to
+> dev or production.** **Hypothesis:** if an item carries the back of the box,
+> the terminals and the rating plate as well as the front, the crew pick the
+> right one from the photos instead of asking the office or opening the box.
 
 ## What it does
 
@@ -906,6 +926,74 @@ now"** answer (503 `store_unavailable` / `store_unprovisioned`: the server
 refused before trying) is definite — nothing was saved and the form unlocks.
 Offline, nothing is queued silently; the screen says it didn't save.
 
+### More photos of an item
+
+An item can carry **up to 9 photos**: its **main photo** (unchanged — the
+catalogue card, the list thumbnail) and up to 8 more, in order (the back of the
+box, the terminals, the rating plate). Wherever the item is viewed — the
+phone's item sheet and the office drawer — a strip shows every photo, main
+first (marked **Main**), with an **Add photos** tile at the end; one tap opens
+them full screen to swipe (or arrow) through, "Photo 2 of 3".
+
+- **Adding — anyone.** The tile opens the phone's own chooser (camera or camera
+  roll), and **several can be picked at once**; each is downscaled on the phone,
+  uploaded with `store-photo`, and put on the item on its own (`POST
+  ?action=item-photos { itemId, photoId, op: 'add' }`), saying "Saving photo 2
+  of 3…". An item with no photo yet takes the first one as its main photo. The
+  crew can only add a photo they took themselves (the server checks who
+  uploaded it); the office any pending one. At 9 the tile goes and the strip
+  says it's full (`photos_full` from the server too).
+- **Taking one off, choosing the main one — the office**, from the full-screen
+  view: **Make this the main photo** (the two swap places), and, apart at the
+  far end and asked first (P12), **Remove photo…**. Removing the main photo moves
+  the next one up; the only photo can't be removed (replace it: Catalogue →
+  Main photo). Removed photos are retired and deleted a day later, like a
+  replaced one.
+- Every change is in the item's catalogue history ("Photo added", "Photo
+  removed", "Main photo chosen"); the office's are also in the audit journal.
+  None of it moves the item's revision, so an open Details form never goes stale
+  over a photo.
+- An archived item shows its photos, read-only.
+- Photo matching still reads the main photo; the others are for people.
+
+Phone slot (P10): the strip is context on a record, one level down; it adds no
+door, tab or level-one control.
+
+### Product links
+
+Each item can carry two links, shown wherever the item is viewed — the phone's
+item sheet (under what it is; 44 px rows) and the office drawer (under what's
+recorded) — each opening in a new tab:
+
+| Link | Shown as | What it is |
+| --- | --- | --- |
+| `productUrl` | **Wholesaler page** · rexel.com.au | the item's page at an online wholesaler |
+| `specUrl` | **Maker's specs** · clipsal.com | the maker's own product / spec page, when there is one |
+
+How a link gets there (`api/_lib/workshop-stock/links.js`):
+
+- **From the online check.** When a worker accepts a check on a new item (the
+  same server-side gate as the verification: the server's own cached result,
+  only while it still describes the item), or the office records a check on an
+  existing one, the pages **that check found** fill the links: a supplier page
+  for the wholesaler link, a maker's page for the specs. Only a page whose own
+  code matched, or the very listing the person accepted — never a "possible"
+  page from another site. Recording a check fills only an **empty** link; it
+  never replaces one a person set.
+- **Typed by the office.** Catalogue → Details: paste any http(s) page (not
+  only the allowlisted sites the check searches — the owner's wholesaler may
+  not be on it; a bare `www.…` gets `https://`). Blank clears it. Anything else
+  (`javascript:`, credentials in the link, an IP or an intranet name, over 600
+  characters) is refused as `link_invalid`. It is a catalogue edit:
+  compare-and-set on the item's revision, written to its history.
+- The crew don't type links (the phone has no edit form — "the office can
+  change the details").
+
+Nothing is invented (P7): no link, no slot. A link is where someone found the
+product, **not** a promise of price or stock at that wholesaler. Nothing is
+fetched from a typed link — the app only shows it (`rel="noopener noreferrer
+nofollow"`). The phone's slot is context on a record (P10); it removes nothing.
+
 ## Identification
 
 `api/_lib/workshop-stock/match.js` — pure, over the live catalogue:
@@ -1108,7 +1196,9 @@ item's own history (`workshop_stock_item_events`), not the shared audit journal
   when there isn't one), so a long list never downloads every label shot.
 - **Retention:** take photos are not stored. An add photo is **pending** for a
   day — claimed by the item it becomes, otherwise deleted. A replaced item photo
-  is retired and deleted a day later. An expired photo can't be claimed, and a
+  is retired and deleted a day later, and so is one the office takes off an
+  item's other photos; a photo on an item (main or other) is never cleaned up.
+  An expired photo can't be claimed, and a
   deletion marks the row first and removes the blobs second (a failed blob
   delete is retried), so a save and a clean-up can never both win. Clean-up
   runs alongside the next photo upload's own work (capped at 4 s), not in
@@ -1161,6 +1251,19 @@ first: `workshop_stock_items`, `_identifiers`, `_movements`, `_item_events`,
 `workshop_stock_types` — the office's categories (key `c_<slug>`, label, unit,
 fields jsonb ≤ 8; one live label per tenant, case-insensitive); the store finds
 it as `schemaFeatures.customTypes` and the list says `capabilities.customTypes`.
+`20261115100000_workshop_stock_product_links.sql` (re-runnable) adds
+`workshop_stock_items.product_url` and `.spec_url` (nullable text, ≤ 600
+characters by check constraint); the store finds them as `schemaFeatures.links`
+and the list says `capabilities.links`. Before it is applied the links are read
+as null, an accepted check simply doesn't keep them, the office form doesn't
+offer them, and an edit naming one answers 503 `links_unavailable`.
+`20261116100000_workshop_stock_item_photos.sql` (re-runnable) adds
+`workshop_stock_item_photos` — an item's photos beyond its main one (item, photo,
+position, who added it; composite tenant foreign keys to the item and the photo;
+one photo once per item; RLS on, no policies). The store finds it as
+`schemaFeatures.itemPhotos` and the list says `capabilities.morePhotos`; before
+it exists every item reads `photos: []`, the screens show no strip, and
+`?action=item-photos` answers 503 `photos_unavailable`.
 
 **Deploy order is free** for both later migrations: the store reads the new
 columns through `to_jsonb(i)` (absent → null / `{}`) and finds what the database
@@ -1236,7 +1339,9 @@ an online store catalog". `/stock` opens as a grid of product cards
    item lives, `20261026100000_workshop_stock_location_photo.sql`, and for item
    types and shopping lists, `20261101100000_workshop_stock_types_and_lists.sql`,
    and for the camera table and location matrix,
-   `20261102100000_workshop_stock_location_matrix.sql`
+   `20261102100000_workshop_stock_location_matrix.sql`, for product links,
+   `20261115100000_workshop_stock_product_links.sql`, and for more photos of an
+   item, `20261116100000_workshop_stock_item_photos.sql`
    (each safe to apply before or after the code ships; its options appear
    within a minute of it) — to the **dev** project, then to
    **production** as an operator release step (Supabase migration process —
@@ -1298,9 +1403,9 @@ an online store catalog". `/stock` opens as a grid of product cards
 
 | Layer | What | Run |
 | --- | --- | --- |
-| Unit | quantities, codes, barcodes, matching, trade names, variants, extraction, verification, SSRF guards, client decisions, pending saves (several, per person, the 90 s "lost" rule), the phone's copies of server rules (parity); the type catalogue, value tidying, guessing a type and its fields from label text, filters and their counts, suggested names (`types.test.ts`); a list read against stock — workshop in shelf order, short lines in both, the wholesaler text (`lists.test.ts`) | `npx vitest run src/domains/workshop-stock src/components/stock` |
+| Unit | quantities, codes, barcodes, matching, trade names, variants, extraction, verification, SSRF guards, client decisions, pending saves (several, per person, the 90 s "lost" rule), the phone's copies of server rules (parity); the type catalogue, value tidying, guessing a type and its fields from label text, filters and their counts, suggested names (`types.test.ts`); a list read against stock — workshop in shelf order, short lines in both, the wholesaler text (`lists.test.ts`); product links — which links are kept, which pages a check contributes (`links.test.ts`); the photo strip's order and the phone's copy of the photo limit (`item-photos.test.ts`) | `npx vitest run src/domains/workshop-stock src/components/stock` |
 | API | the real handler with mocked store/AI: auth, flag 404, office-only, actor from session, idempotency keys answered first, pack size as shown, the accepted check re-validated, uploads + list copies, photo clean-up order, cache keys, statuses; types and fields (validated, dropped before the migration, office-only edits); the crew filling a missing photo of where it lives; lists (503 before the migration, owner from the session, jobs resolved, quantities in the item's unit, delete rights), a take ticking its line | (same; `workshop-stock-api.test.ts`) |
-| Postgres | the store + triggers against a real local Postgres: atomic ledger, no negatives, concurrent takes (10 connections), idempotent replays/conflicts (incl. two creates racing with one key), replay after archive, stale counts, one-time undo, counted-since, undoing a count restores its estimate/last-count, server time order, atomic create, tenants, archive/restore codes, code fields following codes, verification cleared on a code change, edit revision, photo claim vs clean-up, cost ceiling, cache per colour; types saved/read/edited compare-and-set; one shelf photo shared by two items and never retired while either shows it; the crew filling (never replacing) a photo with their own; lists started once per id, lines once, other tenants' ids refused, delete rights; a take ticking its line in the same transaction, once, a failed take ticking nothing, the undo un-ticking it. Also run against a database WITHOUT `20261101100000`: everything but the three types/lists tests passes (deploy order) | `WORKSHOP_STOCK_PG_TEST=1 SUPABASE_ENV=local SUPABASE_PROJECT_REF=localstack SUPABASE_DB_URL=postgres://…@localhost:5432/<db> npx vitest run src/domains/workshop-stock/workshop-stock-store.pg.test.ts` (migrations applied to `<db>`) |
+| Postgres | the store + triggers against a real local Postgres: atomic ledger, no negatives, concurrent takes (10 connections), idempotent replays/conflicts (incl. two creates racing with one key), replay after archive, stale counts, one-time undo, counted-since, undoing a count restores its estimate/last-count, server time order, atomic create, tenants, archive/restore codes, code fields following codes, verification cleared on a code change, edit revision, photo claim vs clean-up, cost ceiling, cache per colour; types saved/read/edited compare-and-set; one shelf photo shared by two items and never retired while either shows it; the crew filling (never replacing) a photo with their own; lists started once per id, lines once, other tenants' ids refused, delete rights; a take ticking its line in the same transaction, once, a failed take ticking nothing, the undo un-ticking it; product links saved on create, edited compare-and-set, a recorded check filling only an empty one, the length guard; more photos — the first filling the main, order, the crew only their own, make-main swapping, removing the main moving the next up, the only photo kept, the limit, retired on removal and never cleaned up while shown, tenants, archived. Run 2026-11-15 against a local Postgres 16 before and after `20261115100000` (34 → 35 pass), and 2026-11-16 before and after `20261116100000` (35 pass + the new one fails without its table, as designed → 36 pass). Also run against a database WITHOUT `20261101100000`: everything but the three types/lists tests passes (deploy order) | `WORKSHOP_STOCK_PG_TEST=1 SUPABASE_ENV=local SUPABASE_PROJECT_REF=localstack SUPABASE_DB_URL=postgres://…@localhost:5432/<db> npx vitest run src/domains/workshop-stock/workshop-stock-store.pg.test.ts` (migrations applied to `<db>`) |
 | Browser E2E | phone (Pixel 7) + desktop, real pages + real handler + real local Postgres; the photo reader's model answer, the search response and the listing pages are **fixtures** (`scripts/qa/workshop-stock-e2e/harness.js`) | below |
 
 Browser E2E, locally (never against a hosted database — the harness refuses a
@@ -1319,7 +1424,13 @@ SESSION_SECRET=<same> FLAG_WORKSHOP_STOCK=1 npx next dev -p 3000
 WORKSHOP_STOCK_E2E_API=http://localhost:3101 npx playwright test tests/workshop-stock --project=desktop-chrome
 ```
 
-`tests/workshop-stock/shelf-map.e2e.spec.ts` (Add form, bin picker, shelf map, moves,
+`tests/workshop-stock/item-photos.e2e.spec.ts` (a worker picking three photos at once on
+the phone — the first becomes the main, all three show and swipe; the office making
+another the main one and taking one off, asked first — run 2026-11-16, 3 pass, three
+runs in a row), `tests/workshop-stock/product-links.e2e.spec.ts` (an accepted check saving both
+links from the fixture Clipsal and Rexel pages; the phone sheet and office drawer
+showing them; the office replacing one, a re-recorded check keeping it — run
+2026-11-15, 3 pass), `tests/workshop-stock/shelf-map.e2e.spec.ts` (Add form, bin picker, shelf map, moves,
 the crew's read), `tests/workshop-stock/layout-plan.e2e.spec.ts` (recommended layout, use,
 undo), `tests/workshop-stock/camera-table.e2e.spec.ts` and
 `tests/workshop-stock/camera-table-flows.e2e.spec.ts` (noisy picture, a pile through one

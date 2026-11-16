@@ -16,6 +16,7 @@ import { PhilWorkshopStock } from "@/components/phil/PhilWorkshopStock";
 import { BrowseSheet } from "./BrowseSheet";
 import { LocationPhotoPrompt } from "./LocationPhotoPrompt";
 import { PhotoCapture } from "./PhotoCapture";
+import { StockItemSheet } from "./StockItemSheet";
 
 /**
  * SSR smoke for the Workshop Stock screens. Interaction flows (code read →
@@ -382,5 +383,43 @@ describe("scanner + NIIMBOT labels (2026-11-03)", () => {
     expect(html).toContain("Make a barcode label for it");
     const option = html.slice(html.indexOf('data-testid="stock-new-make-label"'), html.indexOf("Make a barcode label for it"));
     expect(option).toContain('checked=""');
+  });
+});
+
+describe("product links (2026-11-15)", () => {
+  const sheet = (over: Record<string, unknown>) => flat(renderToString(createElement(StockItemSheet, { item: { ...full, ...over }, onChanged: () => undefined, onClose: () => undefined })));
+  it("the phone's item shows the wholesaler page and the maker's specs, opening in a new tab", () => {
+    const html = sheet({ productUrl: "https://www.rexel.com.au/p/2025WE", specUrl: "https://www.clipsal.com/p/2025WE" });
+    expect(html).toContain('href="https://www.rexel.com.au/p/2025WE"');
+    const text = html.replace(/<[^>]+>/g, "");
+    expect(text).toContain("Wholesaler page · rexel.com.au");
+    expect(text).toContain("Maker’s specs · clipsal.com");
+    expect(html).toContain('target="_blank"');
+    expect(html).toContain('rel="noopener noreferrer nofollow"');
+  });
+  it("no links, no slot — and never a non-web link", () => {
+    expect(sheet({})).not.toContain("stock-product-links");
+    expect(sheet({ productUrl: "javascript:alert(1)" })).not.toContain("javascript:");
+  });
+});
+
+describe("more photos of an item (2026-11-16)", () => {
+  const sheet = (over: Record<string, unknown>, morePhotosEnabled = true) => flat(renderToString(createElement(StockItemSheet, { item: { ...full, ...over }, morePhotosEnabled, onChanged: () => undefined, onClose: () => undefined })));
+  it("the phone's item shows every photo, main first and marked, and offers to add more", () => {
+    const html = sheet({ photoId: "p-main", photos: [{ id: "p-2", addedByName: "Sam", addedAt: null }, { id: "p-3", addedByName: null, addedAt: null }] });
+    const strip = html.slice(html.indexOf('data-testid="stock-item-photos"'));
+    expect((strip.match(/data-testid="stock-item-photo"/g) ?? []).length).toBe(3);
+    expect(strip.indexOf("id=p-main")).toBeLessThan(strip.indexOf("id=p-2"));
+    expect(strip).toContain(">Main<");
+    expect(strip).toContain("Add photos");
+    expect(strip).toContain('multiple=""');
+  });
+  it("no photos yet: just 'Add a photo'; full: no add; archived or not set up: nothing to add", () => {
+    expect(sheet({ photoId: null, photos: [] })).toContain("Add a photo");
+    const full8 = sheet({ photoId: "m", photos: Array.from({ length: 8 }, (_, i) => ({ id: `x${i}`, addedByName: null, addedAt: null })) });
+    expect(full8).not.toContain("stock-item-photo-add");
+    expect(full8).toContain("9 photos — the most an item can have.");
+    expect(sheet({ photoId: "m", archivedAt: "2026-11-16T00:00:00Z" })).not.toContain("stock-item-photo-add");
+    expect(sheet({ photoId: "m" }, false)).not.toContain("stock-item-photos");
   });
 });
