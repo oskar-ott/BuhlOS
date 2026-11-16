@@ -11,7 +11,7 @@ import { PhotoCapture } from "@/components/stock/PhotoCapture";
 import { StockThumb } from "@/components/stock/StockThumb";
 import { cn } from "@/lib/cn";
 import { fetchHistory, fetchItem, newOperationKey, replaceItemPhoto, setArchived, storePhoto, undoMovement } from "@/domains/workshop-stock/client";
-import { balanceLabel, errorCopy, formatQuantity, identityLine, movementSummary, movementWho, signedQuantity, undoLabelFor, whenLabel } from "@/domains/workshop-stock/format";
+import { balanceLabel, errorCopy, formatQuantity, itemHeading, movementSummary, movementWho, signedQuantity, undoLabelFor, whenLabel } from "@/domains/workshop-stock/format";
 import { isUncertain } from "@/domains/workshop-stock/pending";
 import type { ItemDetail, StockMovement } from "@/domains/workshop-stock/schema";
 import { Block, CheckSection, CountForm, EditForm, IdentifiersEditor, INPUT, LABEL } from "./StockAdminForms";
@@ -162,6 +162,7 @@ export function StockItemDrawer({ itemId, lookupEnabled, locationPhotoEnabled = 
   const movements = [...(detail?.movements ?? []), ...older];
   const unitLocked = movements.some((m) => m.quantityMilli !== 0 || (m.countedMilli ?? 0) !== 0);
   const unit = item?.baseUnit ?? "each";
+  const heading = item ? itemHeading(item) : null;
 
   const history = (
     <>
@@ -207,7 +208,17 @@ export function StockItemDrawer({ itemId, lookupEnabled, locationPhotoEnabled = 
   );
 
   return (
-    <Drawer open onClose={onClose} title={item ? item.name : "Workshop item"} subtitle={item ? [identityLine(item), item.archivedAt ? item.location : null].filter(Boolean).join(" · ") || undefined : undefined}>
+    <Drawer open onClose={onClose} title={heading ? <span title={item?.name}>{heading.title}</span> : "Workshop item"} subtitle={heading && (heading.code || heading.details || item?.archivedAt) ? (
+      <>
+        {heading.code ? <span className="tracking-wider" data-testid="stock-drawer-code">{heading.code}</span> : null}
+        {/* the details are words, not a code: read them in normal case */}
+        {heading.details || (item?.archivedAt && item.location) ? (
+          <span className={cn("block font-sans text-[13px] normal-case tracking-normal", heading.code && "mt-0.5")} data-testid="stock-drawer-details">
+            {[heading.details, item?.archivedAt ? item.location : null].filter(Boolean).join(" · ")}
+          </span>
+        ) : null}
+      </>
+    ) : undefined}>
       {!item ? (
         <p className="text-sm text-text-muted">{error ?? "Loading…"}</p>
       ) : (

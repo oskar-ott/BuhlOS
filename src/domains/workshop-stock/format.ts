@@ -106,6 +106,42 @@ export function identityLine(item: Pick<StockItem, "brand" | "manufacturerCode" 
   return [item.brand, item.manufacturerCode, item.colourFinish, item.variant].filter(Boolean).join(" · ");
 }
 
+type HeadingItem = Pick<StockItem, "name" | "brand" | "manufacturerCode" | "colourFinish" | "variant"> & { category?: string | null; specs?: Record<string, string> };
+
+const words = (s: string) => s.toLowerCase().split(/[\s·,/]+/).filter(Boolean);
+
+/**
+ * The office drawer's heading, said once. Saved names often carry the colour
+ * and size after a dash ("… Downlight — White LED 10W", from suggestName) and
+ * start with the brand, and the identity line then said brand, colour and size
+ * again. Here the name drops a dash tail that only repeats the details shown
+ * under it, the details drop the brand when the name already starts with it,
+ * and the maker's code stands on its own. Display only — the saved name is
+ * untouched.
+ */
+export function itemHeading(item: HeadingItem): { title: string; code: string | null; details: string } {
+  const code = item.manufacturerCode?.trim() || null;
+  const brand = item.brand?.trim() || null;
+  const typed = Boolean(typeOf(item.category));
+  const fieldValues = typed ? filledFields(item).map((f) => f.value) : [];
+  const named = new Set(fieldValues.map((v) => v.toLowerCase()));
+  const raw = typed
+    ? [...fieldValues, item.variant && !named.has(item.variant.toLowerCase()) ? item.variant : null]
+    : [brand, item.colourFinish, item.variant];
+  const nameStartsWithBrand = brand ? item.name.toLowerCase().startsWith(brand.toLowerCase()) : false;
+  const parts = raw.filter((v): v is string => Boolean(v && v.trim()))
+    .filter((v) => !(nameStartsWithBrand && brand && v.toLowerCase() === brand.toLowerCase()))
+    .filter((v) => !(code && v.toLowerCase() === code.toLowerCase()));
+  const shown = new Set(parts.flatMap(words));
+  let title = item.name.trim();
+  const dash = title.lastIndexOf(" — ");
+  if (dash > 0) {
+    const tail = words(title.slice(dash + 3));
+    if (tail.length && tail.every((w) => shown.has(w))) title = title.slice(0, dash).trim();
+  }
+  return { title, code, details: parts.join(" · ") };
+}
+
 export const MOVEMENT_LABEL: Record<MovementKind, string> = {
   opening: "Opening count",
   add: "Added",
