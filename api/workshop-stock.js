@@ -28,6 +28,9 @@
 //   DELETE ?action=identifier&id=                                        OFFICE
 //   POST   ?action=archive | restore  { itemId }                         OFFICE (restore says which codes another item now holds)
 //   POST   ?action=item-photo  { itemId, photoId, slot?: product|location }   OFFICE (location: photoId may be null = remove)
+//   POST   ?action=item-photos { itemId, photoId, op: add|remove|main }   more photos of an item (20261116100000):
+//                              add — anyone, a photo they uploaded (office: any pending one); with no main photo yet it becomes the main
+//                              remove | main — OFFICE (remove the main → the next moves up; the only photo can't go)
 //   POST   ?action=label       { itemId }   give an item with no barcode its own (in-store EAN-13, made here) — for a printed label; answers the barcode it already has otherwise
 //   POST   ?action=type        { key?, label, unit, fields: [{ key?, label }] }   OFFICE — add a category (no key) or change one (its key); fields are only added or renamed
 //                              the crew: slot location only, to FILL a missing photo of where it lives with one they took
@@ -369,6 +372,9 @@ const ItemPhotoBody = z
   .object({ itemId: uuid, photoId: uuid.nullable(), slot: z.enum(['product', 'location']).default('product') })
   .refine((b) => b.slot === 'location' || b.photoId !== null, { path: ['photoId'] });
 
+// More photos of an item (20261116100000).
+const ItemPhotosBody = z.object({ itemId: uuid, photoId: uuid, op: z.enum(['add', 'remove', 'main']) });
+
 // A category the office makes (20261103100000). No key = a new one; its key
 // and its fields' keys are made from the names here, on the server.
 const TypeBody = z.object({
@@ -478,13 +484,14 @@ async function list(sql, tenant, me, req, res) {
   const lists = await store.hasLists(sql);
   const customTypesReady = await store.hasCustomTypes(sql);
   const linksReady = await store.hasLinks(sql);
+  const itemPhotosReady = await store.hasItemPhotos(sql);
   const items = await store.listItems(sql, tenant.id, { includeArchived });
   const customTypes = customTypesReady ? await store.listCustomTypes(sql, tenant.id) : [];
   return res.status(200).json({
     items,
     viewer: { id: me.id, office },
     // locationPhoto / types / lists: what this database has yet (later, additive migrations)
-    capabilities: { photoRead: vision.enabled(), lookup: search.enabled(), locationPhoto: locationPhoto === true, types: types === true, lists: lists === true, customTypes: customTypesReady === true, links: linksReady === true },
+    capabilities: { photoRead: vision.enabled(), lookup: search.enabled(), locationPhoto: locationPhoto === true, types: types === true, lists: lists === true, customTypes: customTypesReady === true, links: linksReady === true, morePhotos: itemPhotosReady === true },
     // the office's own categories, alongside the built-in ones the app knows
     customTypes,
     undoMinutes: policy.WORKER_UNDO_MINUTES,
@@ -1203,6 +1210,30 @@ async function itemPhoto(sql, tenant, me, body, res) {
   return res.status(200).json({ item: await store.getItem(sql, tenant.id, input.itemId) });
 }
 
+const ITEM_PHOTOS_STATUS = { item_not_found: 404, photo_not_on_item: 404, photos_unavailable: 503 };
+
+async function itemPhotos(sql, tenant, me, body, res) {
+  const input = parseOr400(ItemPhotosBody, body, res);
+  if (!input) return;
+  const office = policy.isOffice(me.role);
+  // Anyone can add a photo they took; taking one off or choosing the main one
+  // stays the office's (like replacing the main photo).
+  if (input.op !== 'add' && !office) return res.status(403).json({ error: 'office_only' });
+  const actor = actorOf(me);
+  const r = input.op === 'add'
+    ? await store.addItemPhoto(sql, tenant.id, input.itemId, input.photoId, actor, { office })
+    : input.op === 'remove'
+      ? await store.removeItemPhoto(sql, tenant.id, input.itemId, input.photoId, actor)
+      : await store.setMainItemPhoto(sql, tenant.id, input.itemId, input.photoId, actor);
+  if (r.error) return res.status(ITEM_PHOTOS_STATUS[r.error] || 409).json({ error: r.error, ...(r.max ? { max: r.max } : {}) });
+  // the crew's additions are in the item's own history (like their creates), not the shared journal
+  if (office && !r.unchanged) {
+    const what = { add: 'Added a photo to', remove: 'Removed a photo from', main: 'Chose the main photo of' }[input.op];
+    await journal(me, 'workshop_stock.photo_changed', input.itemId, `${what} a workshop item`, { slot: 'gallery', op: input.op });
+  }
+  return res.status(200).json({ item: await store.getItem(sql, tenant.id, input.itemId) });
+}
+
 async function verify(sql, tenant, me, body, res) {
   if (!policy.isOffice(me.role)) return res.status(403).json({ error: 'office_only' });
   const input = parseOr400(ItemIdBody, body, res);
@@ -1453,6 +1484,7 @@ async function handler(req, res) {
       case 'archive': return archive(sql, tenant, me, body, res, true);
       case 'restore': return archive(sql, tenant, me, body, res, false);
       case 'item-photo': return itemPhoto(sql, tenant, me, body, res);
+      case 'item-photos': return itemPhotos(sql, tenant, me, body, res);
       case 'verify': return verify(sql, tenant, me, body, res);
       case 'list': return saveList(sql, tenant, me, body, res);
       case 'type': return saveType(sql, tenant, me, body, res);

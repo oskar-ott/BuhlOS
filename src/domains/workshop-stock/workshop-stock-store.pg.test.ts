@@ -9,8 +9,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
  * local database with supabase/migrations/20260611142758_phase1_core_schema.sql,
  * 20261009100000_workshop_stock.sql, 20261026100000_workshop_stock_location_photo.sql
  * 20261101100000_workshop_stock_types_and_lists.sql, 20261102100000_workshop_stock_location_matrix.sql,
- * 20261103100000_workshop_stock_custom_types.sql and 20261115100000_workshop_stock_product_links.sql
- * applied — see docs/workshop-stock.md
+ * 20261103100000_workshop_stock_custom_types.sql, 20261115100000_workshop_stock_product_links.sql
+ * and 20261116100000_workshop_stock_item_photos.sql applied — see docs/workshop-stock.md
  * "Testing"). Local only on purpose: the ledger is append-only by trigger, so
  * cleanup needs session_replication_role (superuser), which a shared dev
  * project must not hand out. Skipped in CI.
@@ -750,5 +750,71 @@ describe.skipIf(!ENABLED)("workshop stock store — real Postgres", () => {
     expect(await store.getItem(sql, tenantA, made.item.id)).toMatchObject({ productUrl: typed, specUrl: maker, metaRevision: made.item.metaRevision + 2 });
     // the length guard is the database's too
     await expect(sql`update public.workshop_stock_items set spec_url = ${"https://a.com/" + "x".repeat(700)} where id = ${made.item.id}`).rejects.toThrow(/links_len/);
+  });
+
+  it("more photos of an item: the first fills the main, then in order up to the limit; the crew only their own; remove and make-main keep one main", async () => {
+    expect(await store.hasItemPhotos(sql)).toBe(true);
+    const { item } = await makeItem({ name: `Gallery GPO ${++n}` }, 1000);
+    expect(item.photos).toEqual([]);
+    const purpose = async (id: string) => (await sql`select purpose, expires_at is not null as expires from public.workshop_stock_photos where id = ${id}`)[0];
+
+    // no main yet → the first photo added becomes the main one
+    const first = await pendingPhoto(`g1-${n}`);
+    expect(await store.addItemPhoto(sql, tenantA, item.id, first, worker)).toMatchObject({ ok: true, main: true });
+    const second = await pendingPhoto(`g2-${n}`);
+    const third = await pendingPhoto(`g3-${n}`);
+    expect(await store.addItemPhoto(sql, tenantA, item.id, second, worker)).toMatchObject({ ok: true, main: false });
+    expect(await store.addItemPhoto(sql, tenantA, item.id, third, worker)).toMatchObject({ ok: true, main: false });
+    let now = await store.getItem(sql, tenantA, item.id);
+    expect(now.photoId).toBe(first);
+    expect(now.photos.map((p: { id: string }) => p.id)).toEqual([second, third]);
+    expect(now.photos[0]).toMatchObject({ addedByName: "Sam Sparky" });
+    expect(await purpose(second)).toEqual({ purpose: "item", expires: false });
+    // listed with the item too
+    expect((await store.listItems(sql, tenantA)).find((i: { id: string }) => i.id === item.id).photos).toHaveLength(2);
+
+    // the crew can't claim someone else's upload; the same photo can't go on twice
+    const othersPhoto = await pendingPhoto(`g-other-${n}`, office);
+    expect(await store.addItemPhoto(sql, tenantA, item.id, othersPhoto, worker)).toEqual({ error: "photo_not_available" });
+    expect(await store.addItemPhoto(sql, tenantA, item.id, second, office, { office: true })).toEqual({ error: "photo_not_available" });
+    // the office can use any pending photo
+    expect(await store.addItemPhoto(sql, tenantA, item.id, othersPhoto, office, { office: true })).toMatchObject({ ok: true });
+
+    // make an other photo the main: the two swap places
+    expect(await store.setMainItemPhoto(sql, tenantA, item.id, third, office)).toEqual({ ok: true });
+    now = await store.getItem(sql, tenantA, item.id);
+    expect(now.photoId).toBe(third);
+    expect(now.photos.map((p: { id: string }) => p.id)).toEqual([second, first, othersPhoto]);
+    expect(await store.setMainItemPhoto(sql, tenantA, item.id, "00000000-0000-4000-8000-000000000000", office)).toEqual({ error: "photo_not_on_item" });
+
+    // remove an other photo → retired (expires), off the item
+    expect(await store.removeItemPhoto(sql, tenantA, item.id, first, office)).toEqual({ ok: true });
+    expect(await purpose(first)).toEqual({ purpose: "retired", expires: true });
+    // remove the main → the next one moves up
+    expect(await store.removeItemPhoto(sql, tenantA, item.id, third, office)).toEqual({ ok: true });
+    now = await store.getItem(sql, tenantA, item.id);
+    expect(now.photoId).toBe(second);
+    expect(now.photos.map((p: { id: string }) => p.id)).toEqual([othersPhoto]);
+    expect(await store.removeItemPhoto(sql, tenantA, item.id, othersPhoto, office)).toEqual({ ok: true });
+    // the only photo can't be removed (replace it instead)
+    expect(await store.removeItemPhoto(sql, tenantA, item.id, second, office)).toEqual({ error: "only_photo" });
+
+    // the limit: 8 besides the main
+    for (let i = 0; i < 8; i++) expect(await store.addItemPhoto(sql, tenantA, item.id, await pendingPhoto(`gl-${n}-${i}`), worker)).toMatchObject({ ok: true });
+    const extra = await pendingPhoto(`gl-${n}-x`);
+    expect(await store.addItemPhoto(sql, tenantA, item.id, extra, worker)).toEqual({ error: "photos_full", max: 8 });
+    expect(await purpose(extra)).toMatchObject({ purpose: "pending" }); // not claimed
+
+    // a photo on an item is never cleaned up; history says what happened
+    const due = await store.photosDueForDeletion(sql, tenantA, 100);
+    expect(due.map((d: { id: string }) => d.id)).not.toContain(second);
+    const events = (await store.itemEvents(sql, tenantA, item.id, { limit: 50 })).filter((e: { event: string }) => e.event === "photo_changed");
+    expect(events.length).toBeGreaterThanOrEqual(13);
+
+    // other tenants and archived items are refused
+    expect(await store.addItemPhoto(sql, tenantB, item.id, extra, worker)).toEqual({ error: "item_not_found" });
+    await store.setArchived(sql, tenantA, item.id, true, office);
+    expect(await store.addItemPhoto(sql, tenantA, item.id, extra, worker)).toEqual({ error: "item_archived" });
+    expect((await store.getItem(sql, tenantA, item.id)).photos).toHaveLength(8); // kept while archived
   });
 });

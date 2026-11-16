@@ -46,7 +46,7 @@ type Res = { statusCode: number; body: unknown; headers: Record<string, string>;
 let blob: Map<string, unknown>;
 let auth: { signSession: (p: Record<string, unknown>) => string };
 let handler: (req: Record<string, unknown>, res: Res) => Promise<unknown>;
-type StoreFn = "hasCustomTypes" | "listCustomTypes" | "saveCustomType" | "resolveTenant" | "listItems" | "getItem" | "listMovements" | "itemEvents" | "getOperation" | "replayOperation" | "recordMovement" | "recordCount" | "reverseMovement" | "createItemWithOpening" | "updateItem" | "setArchived" | "addIdentifier" | "retireIdentifier" | "recordVerification" | "insertPhoto" | "setPhotoReading" | "getPhotoForServing" | "replaceItemPhoto" | "hasLocationPhoto" | "hasTypes" | "hasLists" | "listLists" | "getList" | "saveList" | "deleteList" | "saveListLine" | "deleteListLine" | "photosDueForDeletion" | "markPhotoDeleted" | "markBlobDeleted" | "consumeUsage" | "getLocationMatrix" | "saveLocationMatrix" | "getCachedLookup" | "putCachedLookup" | "hasLinks";
+type StoreFn = "hasCustomTypes" | "listCustomTypes" | "saveCustomType" | "resolveTenant" | "listItems" | "getItem" | "listMovements" | "itemEvents" | "getOperation" | "replayOperation" | "recordMovement" | "recordCount" | "reverseMovement" | "createItemWithOpening" | "updateItem" | "setArchived" | "addIdentifier" | "retireIdentifier" | "recordVerification" | "insertPhoto" | "setPhotoReading" | "getPhotoForServing" | "replaceItemPhoto" | "hasLocationPhoto" | "hasTypes" | "hasLists" | "listLists" | "getList" | "saveList" | "deleteList" | "saveListLine" | "deleteListLine" | "photosDueForDeletion" | "markPhotoDeleted" | "markBlobDeleted" | "consumeUsage" | "getLocationMatrix" | "saveLocationMatrix" | "getCachedLookup" | "putCachedLookup" | "hasLinks" | "hasItemPhotos" | "addItemPhoto" | "removeItemPhoto" | "setMainItemPhoto";
 let store: Record<StoreFn, ReturnType<typeof vi.fn>>;
 let audit: { append: ReturnType<typeof vi.fn> };
 let lookupProduct: ReturnType<typeof vi.fn>;
@@ -161,6 +161,10 @@ beforeEach(() => {
     hasLists: vi.fn(async () => true),
     hasCustomTypes: vi.fn(async () => true),
     hasLinks: vi.fn(async () => true),
+    hasItemPhotos: vi.fn(async () => true),
+    addItemPhoto: vi.fn(async () => ({ ok: true, main: false })),
+    removeItemPhoto: vi.fn(async () => ({ ok: true })),
+    setMainItemPhoto: vi.fn(async () => ({ ok: true })),
     listCustomTypes: vi.fn(async () => []),
     saveCustomType: vi.fn(async (_sql: unknown, _t: string, def: { key: string; label: string; unit: string; fields: unknown[] }) => ({ ok: true, created: true, type: { ...def, createdByName: "Olive Office", updatedAt: null } })),
     listLists: vi.fn(async () => []),
@@ -941,6 +945,47 @@ describe("product links (2026-11-15: the wholesaler's page and the maker's specs
     // nothing found → nothing handed over
     await post("verify", { itemId: ITEM_ID }, "u_office");
     expect(store.recordVerification.mock.calls[1]![3]).toMatchObject({ status: "unverified", links: null });
+  });
+});
+
+describe("more photos of an item (2026-11-16)", () => {
+  const photos = (body: Record<string, unknown>, user = "u_field") => post("item-photos", { itemId: ITEM_ID, photoId: PHOTO_ID, ...body }, user);
+
+  it("the list says whether they exist yet", async () => {
+    expect((await call({ query: { action: "list" } })).body).toMatchObject({ capabilities: { morePhotos: true } });
+    store.hasItemPhotos.mockResolvedValueOnce(false);
+    expect((await call({ query: { action: "list" } })).body).toMatchObject({ capabilities: { morePhotos: false } });
+  });
+
+  it("anyone adds a photo (the crew only one they took — the store is told who); taking one off or choosing the main is the office's", async () => {
+    const r = await photos({ op: "add" });
+    expect(r.statusCode).toBe(200);
+    expect(store.addItemPhoto).toHaveBeenCalledWith(expect.anything(), TENANT.id, ITEM_ID, PHOTO_ID, expect.objectContaining({ id: "u_field" }), { office: false });
+    expect(audit.append).not.toHaveBeenCalled(); // the crew's addition is in the item's own history
+    await photos({ op: "add" }, "u_office");
+    expect(store.addItemPhoto.mock.calls[1]![5]).toEqual({ office: true });
+    expect((await photos({ op: "remove" })).statusCode).toBe(403);
+    expect((await photos({ op: "main" })).statusCode).toBe(403);
+    expect(store.removeItemPhoto).not.toHaveBeenCalled();
+    expect((await photos({ op: "remove" }, "u_office")).statusCode).toBe(200);
+    expect((await photos({ op: "main" }, "u_office")).statusCode).toBe(200);
+    expect(store.setMainItemPhoto).toHaveBeenCalledTimes(1);
+    expect(audit.append).toHaveBeenCalled();
+  });
+
+  it("refusals are stable codes; a bad op or id is a 400", async () => {
+    store.addItemPhoto.mockResolvedValueOnce({ error: "photos_full", max: 8 });
+    expect(await photos({ op: "add" })).toMatchObject({ statusCode: 409, body: { error: "photos_full", max: 8 } });
+    store.addItemPhoto.mockResolvedValueOnce({ error: "photo_not_available" });
+    expect(await photos({ op: "add" })).toMatchObject({ statusCode: 409, body: { error: "photo_not_available" } });
+    store.addItemPhoto.mockResolvedValueOnce({ error: "photos_unavailable" });
+    expect((await photos({ op: "add" })).statusCode).toBe(503);
+    store.removeItemPhoto.mockResolvedValueOnce({ error: "photo_not_on_item" });
+    expect((await photos({ op: "remove" }, "u_office")).statusCode).toBe(404);
+    store.removeItemPhoto.mockResolvedValueOnce({ error: "only_photo" });
+    expect(await photos({ op: "remove" }, "u_office")).toMatchObject({ statusCode: 409, body: { error: "only_photo" } });
+    expect((await photos({ op: "delete" }, "u_office")).statusCode).toBe(400);
+    expect((await photos({ op: "add", photoId: "not-a-uuid" })).statusCode).toBe(400);
   });
 });
 

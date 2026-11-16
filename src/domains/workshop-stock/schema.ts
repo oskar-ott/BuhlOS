@@ -78,6 +78,8 @@ export const StockItemSchema = z.object({
   createdByName: z.string().nullable(),
   updatedAt: z.string().nullable(),
   identifiers: z.array(IdentifierSchema),
+  /** the item's photos beyond its main one, in order; absent / [] before the migration */
+  photos: z.array(z.object({ id: z.string(), addedByName: z.string().nullable(), addedAt: z.string().nullable() })).optional(),
 });
 export type StockItem = z.infer<typeof StockItemSchema>;
 
@@ -134,7 +136,7 @@ export const StockListSchema = z.object({
   items: z.array(StockItemSchema),
   viewer: z.object({ id: z.string(), office: z.boolean() }),
   /** locationPhoto / types / lists / customTypes: the server has the migration for a photo of where an item lives, item types, shopping lists, office categories */
-  capabilities: z.object({ photoRead: z.boolean(), lookup: z.boolean(), locationPhoto: z.boolean().optional(), types: z.boolean().optional(), lists: z.boolean().optional(), customTypes: z.boolean().optional(), links: z.boolean().optional() }),
+  capabilities: z.object({ photoRead: z.boolean(), lookup: z.boolean(), locationPhoto: z.boolean().optional(), types: z.boolean().optional(), lists: z.boolean().optional(), customTypes: z.boolean().optional(), links: z.boolean().optional(), morePhotos: z.boolean().optional() }),
   customTypes: z.array(CustomTypeSchema).optional(),
   undoMinutes: z.number(),
   asOf: z.string(),

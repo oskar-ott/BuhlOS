@@ -407,6 +407,7 @@ export function PhilWorkshopStock() {
           viewerId={viewerId}
           locationPhotoEnabled={caps?.locationPhoto === true}
           listsEnabled={caps?.lists === true}
+          morePhotosEnabled={caps?.morePhotos === true}
           onOpenList={openList}
           onBack={flow.from ? () => setFlow(flow.from ?? null) : null}
           onChanged={(r) => { if (r) saved(r); else void load(); }}

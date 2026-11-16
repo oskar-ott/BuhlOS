@@ -68,7 +68,7 @@ function specsOf(v) {
   return out;
 }
 
-function mapItem(r, identifiers) {
+function mapItem(r, identifiers, photos) {
   return {
     id: r.id,
     name: r.name,
@@ -103,6 +103,8 @@ function mapItem(r, identifiers) {
     createdByName: r.created_by_name || null,
     updatedAt: iso(r.updated_at),
     identifiers: identifiers || [],
+    // the item's photos beyond its main one, in order (20261116100000); [] before the migration
+    photos: photos || [],
   };
 }
 
@@ -149,6 +151,7 @@ const ITEM_COLUMNS = (sql) => sql`
 //   lists          workshop_stock_lists + _list_lines (20261101100000)
 //   customTypes    workshop_stock_types               (20261103100000)
 //   links          items.product_url + items.spec_url (20261115100000)
+//   itemPhotos     workshop_stock_item_photos          (20261116100000)
 //
 // Reads go through to_jsonb(i) above, which is null while a column doesn't
 // exist — so this code can deploy before a migration is applied. Writes, and
@@ -164,7 +167,7 @@ let schemaCheckedAt = 0;
 // hung on the pooler. Callers arriving mid-check share it.
 let schemaInflight = null;
 async function schemaFeatures(sql) {
-  if (schemaSeen && schemaSeen.locationPhoto && schemaSeen.types && schemaSeen.lists && schemaSeen.customTypes && schemaSeen.links) return schemaSeen;
+  if (schemaSeen && schemaSeen.locationPhoto && schemaSeen.types && schemaSeen.lists && schemaSeen.customTypes && schemaSeen.links && schemaSeen.itemPhotos) return schemaSeen;
   if (schemaSeen && Date.now() - schemaCheckedAt < SCHEMA_RECHECK_MS) return schemaSeen;
   if (schemaInflight) return schemaInflight;
   schemaInflight = checkSchema(sql).finally(() => { schemaInflight = null; });
@@ -176,7 +179,7 @@ async function checkSchema(sql) {
       select table_name, column_name from information_schema.columns
       where table_schema = 'public' and (
         (table_name = 'workshop_stock_items' and column_name in ('location_photo_id', 'category', 'specs', 'product_url', 'spec_url'))
-        or (table_name in ('workshop_stock_lists', 'workshop_stock_list_lines', 'workshop_stock_types') and column_name = 'id'))`;
+        or (table_name in ('workshop_stock_lists', 'workshop_stock_list_lines', 'workshop_stock_types', 'workshop_stock_item_photos') and column_name = 'id'))`;
     const has = (t, c) => rows.some((r) => r.table_name === t && r.column_name === c);
     schemaSeen = {
       locationPhoto: has('workshop_stock_items', 'location_photo_id'),
@@ -184,10 +187,11 @@ async function checkSchema(sql) {
       lists: has('workshop_stock_lists', 'id') && has('workshop_stock_list_lines', 'id'),
       customTypes: has('workshop_stock_types', 'id'),
       links: has('workshop_stock_items', 'product_url') && has('workshop_stock_items', 'spec_url'),
+      itemPhotos: has('workshop_stock_item_photos', 'id'),
     };
   } catch {
     // keep what was already seen (a column never disappears); otherwise "not yet"
-    schemaSeen = schemaSeen || { locationPhoto: false, types: false, lists: false, customTypes: false, links: false };
+    schemaSeen = schemaSeen || { locationPhoto: false, types: false, lists: false, customTypes: false, links: false, itemPhotos: false };
   }
   schemaCheckedAt = Date.now();
   return schemaSeen;
@@ -200,6 +204,9 @@ async function hasTypes(sql) {
 }
 async function hasLists(sql) {
   return (await schemaFeatures(sql)).lists === true;
+}
+async function hasItemPhotos(sql) {
+  return (await schemaFeatures(sql)).itemPhotos === true;
 }
 async function hasLinks(sql) {
   return (await schemaFeatures(sql)).links === true;
@@ -285,6 +292,22 @@ async function identifiersFor(sql, tenantId, itemIds) {
   return by;
 }
 
+/** Each item's photos beyond its main one, in order — empty before 20261116100000. */
+async function photosFor(sql, tenantId, itemIds) {
+  if (!itemIds.length || !(await hasItemPhotos(sql))) return new Map();
+  const rows = await sql`
+    select item_id, photo_id, added_by_name, created_at
+    from public.workshop_stock_item_photos
+    where tenant_id = ${tenantId} and item_id in ${sql(itemIds)}
+    order by position, created_at`;
+  const by = new Map();
+  for (const r of rows) {
+    if (!by.has(r.item_id)) by.set(r.item_id, []);
+    by.get(r.item_id).push({ id: r.photo_id, addedByName: r.added_by_name || null, addedAt: iso(r.created_at) });
+  }
+  return by;
+}
+
 // ── reads ─────────────────────────────────────────────────────────────────────
 
 /** Every live item (or archived too) with its identifiers — the catalogue is small; the client searches it. */
@@ -293,14 +316,16 @@ async function listItems(sql, tenantId, { includeArchived = false } = {}) {
     ? await sql`select ${ITEM_COLUMNS(sql)} from public.workshop_stock_items i where i.tenant_id = ${tenantId} order by i.archived_at nulls first, lower(i.name) limit 3000`
     : await sql`select ${ITEM_COLUMNS(sql)} from public.workshop_stock_items i where i.tenant_id = ${tenantId} and i.archived_at is null order by lower(i.name) limit 3000`;
   const ids = await identifiersFor(sql, tenantId, rows.map((r) => r.id));
-  return rows.map((r) => mapItem(r, ids.get(r.id)));
+  const photos = await photosFor(sql, tenantId, rows.map((r) => r.id));
+  return rows.map((r) => mapItem(r, ids.get(r.id), photos.get(r.id)));
 }
 
 async function getItem(sql, tenantId, itemId) {
   const rows = await sql`select ${ITEM_COLUMNS(sql)} from public.workshop_stock_items i where i.tenant_id = ${tenantId} and i.id = ${itemId}`;
   if (!rows.length) return null;
   const ids = await identifiersFor(sql, tenantId, [itemId]);
-  return mapItem(rows[0], ids.get(itemId));
+  const photos = await photosFor(sql, tenantId, [itemId]);
+  return mapItem(rows[0], ids.get(itemId), photos.get(itemId));
 }
 
 async function reversalsFor(sql, tenantId, movementIds) {
@@ -1160,6 +1185,111 @@ async function replaceItemPhoto(sql, tenantId, itemId, photoId, actor, slot = 'p
   });
 }
 
+// ── more photos of an item (20261116100000) ──────────────────────────────────
+//
+// The main photo stays items.photo_id; these are the others, in order. A photo
+// is never both an item's main photo and one of its others. None of this moves
+// meta_revision (a photo never invalidates an open edit form).
+
+const MAX_ITEM_PHOTOS = 8;
+
+/** Retire a photo nothing shows any more (it expires a day later and the clean-up takes it). */
+async function retireIfUnused(tx, tenantId, photoId) {
+  await tx`
+    update public.workshop_stock_photos p set purpose = 'retired', expires_at = now() + interval '1 day'
+    where p.tenant_id = ${tenantId} and p.id = ${photoId} and p.purpose = 'item'
+      and not exists (select 1 from public.workshop_stock_items i where i.tenant_id = p.tenant_id
+                        and (i.photo_id = p.id or (to_jsonb(i) ->> 'location_photo_id') = p.id::text))
+      and not exists (select 1 from public.workshop_stock_item_photos g where g.tenant_id = p.tenant_id and g.photo_id = p.id)`;
+}
+
+async function lockItemForPhotos(tx, tenantId, itemId) {
+  const rows = await tx`select id, photo_id, archived_at from public.workshop_stock_items where tenant_id = ${tenantId} and id = ${itemId} for update`;
+  if (!rows.length) return { error: 'item_not_found' };
+  if (rows[0].archived_at) return { error: 'item_archived' };
+  return { item: rows[0] };
+}
+
+/**
+ * Add a photo (uploaded pending with store-photo) to an item. With no main
+ * photo yet it becomes the main one. The crew can add only a photo they took;
+ * the office any pending one. At most MAX_ITEM_PHOTOS besides the main.
+ */
+async function addItemPhoto(sql, tenantId, itemId, photoId, actor, { office = false } = {}) {
+  if (!(await hasItemPhotos(sql))) return { error: 'photos_unavailable' };
+  return sql.begin(async (tx) => {
+    const locked = await lockItemForPhotos(tx, tenantId, itemId);
+    if (locked.error) return locked;
+    const asMain = !locked.item.photo_id;
+    let position = 0;
+    if (!asMain) {
+      const [{ n, top }] = await tx`select count(*)::int as n, coalesce(max(position), -1)::int as top from public.workshop_stock_item_photos where tenant_id = ${tenantId} and item_id = ${itemId}`;
+      if (n >= MAX_ITEM_PHOTOS) return { error: 'photos_full', max: MAX_ITEM_PHOTOS };
+      position = top + 1;
+    }
+    const claimed = await tx`
+      update public.workshop_stock_photos set purpose = 'item', expires_at = null
+      where tenant_id = ${tenantId} and id = ${photoId} and purpose = 'pending' and deleted_at is null and expires_at > now()
+        and (uploaded_by_legacy_id = ${actor.id} or ${office === true})
+      returning id`;
+    if (!claimed.length) return { error: 'photo_not_available' };
+    if (asMain) {
+      await tx`update public.workshop_stock_items set photo_id = ${photoId}, updated_by_legacy_id = ${actor.id}, updated_by_name = ${actor.name || null} where tenant_id = ${tenantId} and id = ${itemId}`;
+      await insertEvent(tx, tenantId, itemId, 'photo_changed', { from: null, to: photoId }, actor);
+    } else {
+      await tx`insert into public.workshop_stock_item_photos (tenant_id, item_id, photo_id, position, added_by_legacy_id, added_by_name)
+               values (${tenantId}, ${itemId}, ${photoId}, ${position}, ${actor.id}, ${actor.name || null})`;
+      await insertEvent(tx, tenantId, itemId, 'photo_changed', { slot: 'gallery', added: photoId }, actor);
+    }
+    return { ok: true, main: asMain };
+  });
+}
+
+/**
+ * Office: take a photo off an item. Removing the main photo moves the next one
+ * up; the only photo can't be removed (replace it instead). The photo is
+ * retired unless something else still shows it.
+ */
+async function removeItemPhoto(sql, tenantId, itemId, photoId, actor) {
+  if (!(await hasItemPhotos(sql))) return { error: 'photos_unavailable' };
+  return sql.begin(async (tx) => {
+    const locked = await lockItemForPhotos(tx, tenantId, itemId);
+    if (locked.error) return locked;
+    let promoted = null;
+    if (locked.item.photo_id === photoId) {
+      const next = await tx`select id, photo_id from public.workshop_stock_item_photos where tenant_id = ${tenantId} and item_id = ${itemId} order by position, created_at limit 1`;
+      if (!next.length) return { error: 'only_photo' };
+      promoted = next[0].photo_id;
+      await tx`delete from public.workshop_stock_item_photos where tenant_id = ${tenantId} and id = ${next[0].id}`;
+      await tx`update public.workshop_stock_items set photo_id = ${promoted}, updated_by_legacy_id = ${actor.id}, updated_by_name = ${actor.name || null} where tenant_id = ${tenantId} and id = ${itemId}`;
+    } else {
+      const gone = await tx`delete from public.workshop_stock_item_photos where tenant_id = ${tenantId} and item_id = ${itemId} and photo_id = ${photoId} returning id`;
+      if (!gone.length) return { error: 'photo_not_on_item' };
+    }
+    await retireIfUnused(tx, tenantId, photoId);
+    await insertEvent(tx, tenantId, itemId, 'photo_changed', { slot: 'gallery', removed: photoId, ...(promoted ? { main: promoted } : {}) }, actor);
+    return { ok: true };
+  });
+}
+
+/** Office: make one of the item's other photos its main one (the old main takes its place). */
+async function setMainItemPhoto(sql, tenantId, itemId, photoId, actor) {
+  if (!(await hasItemPhotos(sql))) return { error: 'photos_unavailable' };
+  return sql.begin(async (tx) => {
+    const locked = await lockItemForPhotos(tx, tenantId, itemId);
+    if (locked.error) return locked;
+    const old = locked.item.photo_id;
+    if (old === photoId) return { ok: true, unchanged: true };
+    const row = await tx`select id from public.workshop_stock_item_photos where tenant_id = ${tenantId} and item_id = ${itemId} and photo_id = ${photoId} for update`;
+    if (!row.length) return { error: 'photo_not_on_item' };
+    if (old) await tx`update public.workshop_stock_item_photos set photo_id = ${old} where tenant_id = ${tenantId} and id = ${row[0].id}`;
+    else await tx`delete from public.workshop_stock_item_photos where tenant_id = ${tenantId} and id = ${row[0].id}`;
+    await tx`update public.workshop_stock_items set photo_id = ${photoId}, updated_by_legacy_id = ${actor.id}, updated_by_name = ${actor.name || null} where tenant_id = ${tenantId} and id = ${itemId}`;
+    await insertEvent(tx, tenantId, itemId, 'photo_changed', { slot: 'gallery', main: photoId, from: old }, actor);
+    return { ok: true };
+  });
+}
+
 /**
  * Photos to delete: expired pending/retired photos no item points at, plus any
  * whose blob delete failed last time (marked, blob still there).
@@ -1472,6 +1602,11 @@ module.exports = {
   retireIdentifier,
   recordVerification,
   hasLinks,
+  hasItemPhotos,
+  addItemPhoto,
+  removeItemPhoto,
+  setMainItemPhoto,
+  MAX_ITEM_PHOTOS,
   insertPhoto,
   setPhotoReading,
   getPhotoForServing,
