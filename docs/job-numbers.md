@@ -6,8 +6,8 @@ phone.
 
 **Status: built, dark** behind `job_code_auto`
 ([#1152](https://github.com/oskar-ott/BuhlOS/issues/1152)). Proven against a
-local database only. Never used on a real job. The migration is applied
-nowhere yet.
+local database only. Never used on a real job. The migration is applied to dev
+and production (2026-11-22); the tables are empty.
 
 **Part of** the job-invoicing plan
 ([product/job-invoicing-xero-plan.md](product/job-invoicing-xero-plan.md),
@@ -137,14 +137,15 @@ with no code has no code, and the phone still requires one.
 
 ## Turning it on
 
-1. Apply `20261124100000_job_codes.sql` to the dev Supabase project, then
-   production. An operator step, owner-approved each time.
+1. **Done 2026-11-22.** `20261124100000_job_codes.sql` is applied to the dev
+   Supabase project and to production (owner-approved each time), and checked
+   against the file character for character.
 2. In the Owner Console, set **BuhlOS job numbers** to owner preview, then
    Live. It is a global flag: once Live it applies to everyone who creates a
    job.
 3. The phone side lives on the "+ New job" sheet, which only exists while `phil_sharpened` is on.
 
-Without step 1, a create with no number fails with "Couldn't get the next job
+On a database without step 1, a create with no number fails with "Couldn't get the next job
 number just now, so nothing was created" and typing a number still works.
 
 Preview deployments cannot reach Postgres, and a preview may share the
