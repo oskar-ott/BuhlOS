@@ -23,6 +23,10 @@ job page.
 | Send to Xero as a draft | [#1150](https://github.com/oskar-ott/BuhlOS/issues/1150) | **Built, dark** behind `customer_invoices`. Proven against a stand-in for Xero only — **never run against real Xero**. The proving run on the Demo Company (plan §8) is still owed, with a hard stop before the first create |
 | Invoiced and paid on the job | [#1151](https://github.com/oskar-ott/BuhlOS/issues/1151) | **Built, dark** behind `customer_invoices`. Reads only. Proven against a stand-in for Xero only — **never run against real Xero** |
 | BuhlOS-issued IV numbers | [#1152](https://github.com/oskar-ott/BuhlOS/issues/1152) | **Built, dark** behind its own flag, `job_code_auto`. Starts at IV4000. See [job-numbers.md](job-numbers.md) |
+| Itemised invoices | [#1161](https://github.com/oskar-ott/BuhlOS/issues/1161) | **Built, dark** behind `customer_invoices`. Proven against a stand-in for Xero only — **never run against real Xero** |
+| Add from the job's hours and materials, markup, usual charges | [#1162](https://github.com/oskar-ott/BuhlOS/issues/1162) | **Built, dark** behind `customer_invoices`. Never used on a real job |
+| Variations | [#1163](https://github.com/oskar-ott/BuhlOS/issues/1163) | **Built, dark** behind `customer_invoices`. Never used on a real job |
+| Payment-claim wording | [#1164](https://github.com/oskar-ott/BuhlOS/issues/1164) | **Built, dark** behind `customer_invoices`, and off per job by default. **Never run against real Xero** |
 
 Each part updates its own row, and adds its section below, in the PR that
 builds it. Nothing in this document describes behaviour that is not merged.
@@ -479,10 +483,199 @@ the first migration.
 - the shape of `FullyPaidOnDate`
 - that an unknown invoice id answers 404
 
+## What is built: part 2 — small jobs, job data and variations (#1161–#1164)
+
+Research and plan: [product/job-invoicing-part-2-plan.md](product/job-invoicing-part-2-plan.md).
+All of it sits behind the same `customer_invoices` flag and on the same
+"Getting paid" card. **A stage invoice is unchanged: one line and its amount.**
+Proven against a stand-in for Xero and a local Postgres only. **Never run
+against real Xero; never used on a real job.** Its migration
+(`20261125100000_customer_invoices_itemised_and_variations.sql`) is applied
+nowhere yet.
+
+### Itemised invoices (#1161)
+
+A second kind of invoice, for small jobs: **Add itemised invoice** on the
+card. It has a heading ("What was the work?") and lines. A line is a **charge**
+(description, quantity, unit, unit price) or a **note** (wording only). A
+negative price is a discount or credit.
+
+- Quantity is whole **thousandths** (2.5 hours = 2500), money is whole cents, a
+  line total is `quantity × price` rounded once, half away from zero
+  (`api/_lib/customer-invoices/amounts.js` `lineAmountCents`). The browser
+  mirrors the same maths so the preview never disagrees with what is saved.
+- The invoice's amount is its lines added up. The stored `amount_cents` is
+  never trusted over the lines.
+- It takes the job's retention like any other invoice, and it counts toward
+  the contract on a job that has one.
+- **To Xero** it goes through the same send as a stage: draft, create-only,
+  read back, never twice. Xero receives a wording-only first line (the heading
+  and the job's name and address), then each charge with its `Quantity` and
+  `UnitAmount`, notes as wording-only lines, and retention last.
+- The row on the card lists the first six lines as they will be invoiced.
+- The GST shown before sending is worked out **per line, rounded, then added
+  up**, which is how Xero does it. It is still labelled an estimate.
+
+### Add from this job (#1162)
+
+In the editor, **Add from this job** offers three things. Nothing here saves
+an invoice: it adds rows the person can still change.
+
+- **Hours.** The job's *approved* hours that are not on an invoice yet, per
+  worker, up to an optional date. The price is the worker's charge-out rate
+  (`api/_lib/cost-rates.js`), or one typed on the spot, or one of the
+  business's usual hourly rates. A worker with no charge-out rate gets a
+  **blank** price. One line per worker or one per rate; hours can be rounded
+  **up** to 15, 30 or 60 minutes per line. Hours logged but not approved are
+  counted and named, and cannot be invoiced.
+- **Materials.** Captured supplier-invoice lines (`invoice_capture`) and
+  dockets typed into the job's materials ledger (`job_materials_spend`) that
+  are not on an invoice yet, at cost plus a markup. The markup can be changed
+  for the batch and the price on any line. Each item, or one "Materials" line.
+  A supplier invoice's lines are only offered one by one when they add up to
+  what was booked to this job; an invoice split across jobs is offered as the
+  one amount booked here. The supplier's name shows to the office in the
+  picker and is **never put on the client's invoice by default**.
+- **Usual charges.** The business's own short list (a call-out fee, its hourly
+  rates, travel), added with one tap, with its usual markup and how it rounds
+  hours. **BuhlOS ships none of these**: the list starts empty and the markup
+  starts unset.
+
+**Nothing is billed twice.** A charge pulled from the job carries what it
+bills (`items[].refs`). What is "on an invoice" is *read from the invoices'
+own lines*, never kept as a separate flag (`api/_lib/customer-invoices/billable.js`):
+
+- a save that bills something another invoice holds is refused
+  (`409 already_billed`, naming the invoice), checked inside the write's
+  transaction under a per-job lock, so two saves at the same instant cannot
+  both win;
+- removing an invoice, or Xero showing it deleted or voided, frees what it
+  billed with no extra step;
+- hours added to a day after it was billed, and costs that arrive after an
+  invoice has gone, show as not yet on an invoice.
+
+**Not yet on an invoice.** On a job with no contract value, or one that has an
+itemised invoice, the card says what approved hours and materials are on no
+invoice, with "Start an invoice". It loads after the card (it reads every time
+sheet) and never holds it up.
+
+**Cost and margin are the office's.** The cost of a pulled line is always
+worked out on the server from the job's own data (hours × the cost rate that
+applied; the supplier's line total), never taken from the browser. The editor
+and the planned row show cost and margin, marked "office only". A margin is a
+share of the *sale* (a 30% markup is a 23% margin) and is left out, with the
+reason, when a worker on the invoice has no cost rate. **Cost, markup and what
+a line bills are never sent to Xero.**
+
+On the Money card, a job with **no contract value** now shows what is left of
+what has been sent to Xero after labour and materials: its margin so far.
+
+### Variations (#1163)
+
+A **Variations** list on the card: number (V1, V2, per job, never reused),
+what it is, who asked and when, the price put, and proposed / approved /
+declined, with how it was approved and the approved amount (which may differ
+from the quote).
+
+- **Approved variations add to the contract.** The card's first figure becomes
+  "Contract + variations", and "still to invoice" and the over-contract
+  warning use that total. Proposed and declined ones change nothing. The Money
+  card says what they add; its margin stays on the contract alone.
+- **Only an approved variation can be billed, once, at exactly what was
+  approved**: on a planned stage (as an extra line that remembers which
+  variation it bills) or on an invoice of its own.
+- An approved one that is on no invoice reads "Approved, not billed".
+- **A billed variation is settled.** It can't be edited, re-decided or removed
+  until it is taken off the invoice. An approved one can't be edited without
+  first being put back to proposed.
+- Whether a variation is billed is read from the invoices, as above.
+
+### Payment-claim wording (#1164)
+
+A per-job switch, **off by default**, next to the retention line. Before it is
+turned on the card shows the exact sentence. While it is on, every invoice
+sent for the job carries one more wording-only line:
+
+> This is a payment claim made under the Building and Construction Industry
+> Security of Payment Act 2009 (SA).
+> Contract sum including approved variations: $X. Claimed to date including
+> this claim: $Y. Remaining: $Z. All ex GST, before retention.
+
+The figures line is left out on a job with no contract value. The wording is
+frozen on the row at send (`sent_footer`), so a retry sends exactly the same
+invoice even if the switch or the job has changed since.
+
+The sentence is what s 13(2)(c) of the Act asks a payment claim to state.
+Turning it on is the office's decision per job; the Act does not cover work
+for an owner who lives in the home. This is not legal advice.
+
+### API added
+
+| Call | Does |
+| --- | --- |
+| `POST ?action=stage-add` / `stage-edit&id=` with `stage.kind = "itemised"` | add / replace a planned itemised invoice: `{ kind, title, items[] }`. `409 kind_mismatch` if the kind would change; `409 already_billed` / `ref_not_found` / `variation_amount` when a line bills something it can't |
+| `GET ?action=billable&jobId=[&invoiceId=]` | the job's approved hours and materials, each marked with the invoice it is on, a summary of what is unbilled, and the business's habits |
+| `GET` / `PUT ?action=prefs` | usual materials markup, usual charges, hours rounding (compare-and-swap) |
+| `POST ?action=variation-add` | `{ jobId, variation }` |
+| `POST ?action=variation-edit&id=` | `{ variation, expectedVersion }`; `409 variation_decided` once approved |
+| `POST ?action=variation-decide&id=` | `{ status, approvedCents?, approvalRef?, decidedOn?, expectedVersion }` |
+| `POST ?action=variation-remove&id=` | `{ expectedVersion }` |
+| `POST ?action=variation-bill&id=` | `{ stageId, expectedStageVersion }` onto a planned stage, or `{}` for an invoice of its own |
+| `PUT ?action=payment-claim` | `{ jobId, on, expectedVersion }` |
+
+`409 variation_billed` answers any change to a variation that is on an
+invoice. New audit actions: `customer_invoice.prefs_updated` and
+`customer_invoice.variation_added` / `_edited` / `_approved` / `_declined` /
+`_reopened` / `_removed` / `_billed`. As everywhere here, never an amount.
+
+Everything is office tier only and `404` while the flag is off, including for
+a leading hand: hours, costs and prices are office data.
+
+### Data
+
+`20261125100000_customer_invoices_itemised_and_variations.sql`, additive:
+
+| Change | Why |
+| --- | --- |
+| `customer_invoices.kind` may be `itemised`; `items jsonb` | the lines |
+| `customer_invoices.sent_footer` | wording frozen at send |
+| `customer_invoice_job_profiles.payment_claim` | the per-job switch |
+| `customer_invoice_prefs` (one row per tenant) | usual markup, usual charges, rounding. Not tied to a Xero organisation |
+| `customer_invoice_variations` | the register; `unique (tenant, job, seq)`; an approved row must have an approved amount; a removed row is kept so its number is never reused |
+| `customer_invoice_events.event` | accepts `prefs_updated` and `variation_*` |
+
+### Not yet confirmed against real Xero
+
+In addition to the lists above, for the proving run:
+
+- one itemised invoice with fractional quantities, a wording-only line and a
+  negative line: every line stored as sent
+- **which way Xero rounds an exact half cent** on a line and on its GST
+  (`2.5 × $33.33`; a `$0.25` line at 10%). It is not documented. BuhlOS rounds
+  half away from zero; if Xero differs, the read-back flags the invoice and
+  `lineAmountCents` / `estimateTaxCents` are changed to match
+- that a wording-only line prints on Xero's invoice template, including the
+  payment-claim line
+
+### Known limits
+
+- One sales account and one tax rate for every line.
+- Markup is one figure per batch and per line; no tiered, per-supplier or
+  per-client markups, and no price book.
+- A variation is billed in full, once; it cannot be part-claimed.
+- Variations are office only; nothing is raised from the phone.
+- Credit notes applied in Xero still lower Owing without counting as paid.
+
 ## Testing
 
 | What | Where |
 | --- | --- |
+| Part 2 — the editor's maths: quantity × price, hours and materials into lines, markup, margin, every refusal | `src/domains/customer-invoices/itemised.test.ts` |
+| Part 2 — itemised lines to Xero, per-line GST, wording frozen for a retry, payment-claim wording, totals with variations | `src/domains/customer-invoices/itemised-payload.test.ts` |
+| Part 2 — nothing billed twice; reading the job's hours and materials; cost worked out on the server | `src/domains/customer-invoices/billable.test.ts` |
+| Part 2 — the routes through the real handler: itemised, billable, usual charges, variations, payment claim, gating, audit | `src/domains/customer-invoices/customer-invoices-itemised-api.test.ts` |
+| Part 2 — the editor, Add from this job, the variations list, the card and the Money card, every state | `src/components/admin/customer-invoices/itemised.render.test.tsx` |
+| Part 2 — the real SQL: lines, eight simultaneous claims on the same hours, the register, wording frozen at send (local Postgres, skipped in CI) | `src/domains/customer-invoices/customer-invoices-itemised.pg.test.ts` |
 | The status check against a stand-in Xero in which the test plays the office: approve, pay, edit, void, delete, vanish, Xero down | `src/domains/customer-invoices/xero-status.test.ts` |
 | Check Xero now, the hourly check (cron gate, flag off, sync log + its Retry) and raising a dead invoice again | `src/domains/customer-invoices/customer-invoices-status-api.test.ts` |
 | Every row state after a send, the money-in strip, the Money card line | `src/components/admin/customer-invoices/paid-status.render.test.tsx` |

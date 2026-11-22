@@ -72,6 +72,12 @@ export const JobProfitabilityResponseSchema = z.object({
       retentionHeldCents: z.number().default(0),
       overdueCount: z.number().default(0),
       cashCents: z.number().nullable().default(null),
+      /** Approved variations (#1163) and the contract with them added. */
+      variationsApprovedCents: z.number().default(0),
+      revisedContractCents: z.number().nullable().default(null),
+      /** Sent to Xero (approved + draft, ex GST), and that less the job's costs. */
+      billedCents: z.number().default(0),
+      billedMarginCents: z.number().nullable().default(null),
       asOf: z.string().nullable().default(null),
     })
     .nullable()

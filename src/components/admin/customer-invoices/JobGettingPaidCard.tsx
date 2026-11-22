@@ -7,7 +7,9 @@ import { cn } from "@/lib/cn";
 import {
   JOB_CONTRACT_CHANGED_EVENT,
   errorCodeOf,
+  jobBillable,
   jobInvoicing,
+  setPaymentClaim,
   addRetentionRelease,
   raiseAgain,
   refreshJobInvoices,
@@ -35,8 +37,11 @@ import type {
   Stage,
 } from "@/domains/customer-invoices/schema";
 import type { HttpResult } from "@/lib/http";
+import { formatHours } from "@/domains/customer-invoices/itemised";
+import { ItemisedEditor } from "./ItemisedEditor";
 import { SendToXeroPreview } from "./SendToXeroPreview";
 import { StageEditor } from "./StageEditor";
+import { VariationsSection } from "./VariationsSection";
 import { StageRow } from "./StageRow";
 import { XeroClientLine } from "./XeroClientLine";
 
@@ -69,6 +74,13 @@ import { XeroClientLine } from "./XeroClientLine";
  *     block (variations are real).
  *   - A failed read says so and offers a retry; only a 401/403/404 (a viewer
  *     who mustn't see money, or the feature switched off) hides the card.
+ *
+ * Part 2 (docs/product/job-invoicing-part-2-plan.md): a second kind of
+ * invoice, ITEMISED (#1161/#1162), for small jobs — lines with a quantity and
+ * a unit price, typed or pulled from the job's own hours and materials; the
+ * job's VARIATIONS (#1163), whose approved amounts add to the contract; a line
+ * saying what on the job is not on an invoice yet; and optional payment-claim
+ * wording (#1164). A stage invoice is unchanged: one line and its amount.
  */
 export function JobGettingPaidCard({ jobId }: { jobId: string }) {
   const [data, setData] = useState<JobInvoicingResponse | null>(null);
@@ -110,13 +122,13 @@ export function JobGettingPaidCard({ jobId }: { jobId: string }) {
     <Card role="region" aria-label="Getting paid" className="p-0" data-testid="getting-paid-card">
       <div className="flex flex-wrap items-baseline justify-between gap-3 px-4 pt-4 sm:px-6 sm:pt-5">
         <CardKicker>Getting paid</CardKicker>
-        <p className="text-xs text-text-muted">Stage invoices for this job · all figures ex GST</p>
+        <p className="text-xs text-text-muted">Invoices for this job · all figures ex GST</p>
       </div>
 
       {state === "error" ? (
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-4 sm:px-6">
           <p className="text-sm text-text-muted" role="alert">
-            Couldn&rsquo;t load the stage invoices. {loadError}
+            Couldn&rsquo;t load the invoices. {loadError}
           </p>
           <Button size="sm" variant="secondary" onClick={() => void load()}>
             Try again
@@ -167,6 +179,7 @@ export function JobGettingPaidBody({
   onStale: () => Promise<void> | void;
 }) {
   const [editor, setEditor] = useState<{ mode: "add" } | { mode: "edit"; stage: Stage } | null>(null);
+  const [itemised, setItemised] = useState<{ mode: "add" } | { mode: "edit"; stage: Stage } | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -176,8 +189,11 @@ export function JobGettingPaidBody({
 
   const t = data.totals;
   const contract = data.job.contractCents;
+  // What there is to invoice in the end: the contract plus approved variations.
+  const variationsApproved = t.variationsApprovedCents ?? 0;
+  const jobTotal = contract == null ? null : (t.revisedContractCents ?? contract);
   const notPlanned =
-    contract == null ? null : contract - t.claimedCents - t.plannedGrossCents;
+    jobTotal == null ? null : jobTotal - t.claimedCents - t.plannedGrossCents;
 
   /** Run a mutation; on a conflict re-read so the list is true again. */
   async function run(call: () => Mutation): Promise<boolean> {
@@ -276,15 +292,18 @@ export function JobGettingPaidBody({
         t.sentCount > 0
         ? "nothing waiting to be sent"
         : "no stages yet"
-      : `${t.plannedCount} ${t.plannedCount === 1 ? "stage" : "stages"}${
+      : `${t.plannedCount} ${t.plannedCount === 1 ? "invoice" : "invoices"} not sent yet${
           t.unresolvedCount > 0 ? ` · ${t.unresolvedCount} not worked out` : ""
         }`;
 
   const overdueCount = data.stages.filter((s) => s.display === "overdue").length;
 
+  const hasItemised = data.stages.some((s) => s.kind === "itemised");
   const stillCaption =
     contract == null
-      ? "set the contract value on the Money card"
+      ? hasItemised
+        ? "this job has no contract value"
+        : "set the contract value on the Money card"
       : notPlanned != null && notPlanned > 0
         ? `${formatCents(notPlanned)} not yet planned`
         : notPlanned === 0
@@ -296,10 +315,16 @@ export function JobGettingPaidBody({
       <dl className="mt-4 grid grid-cols-2 border-t border-border sm:grid-cols-4">
         <div className={cn("px-4 py-3 sm:px-6 sm:py-4", CELLS[0])}>
           <Figure
-            label="Contract"
-            value={contract == null ? "—" : formatCents(contract)}
-            muted={contract == null}
-            caption={contract == null ? "not set" : undefined}
+            label={variationsApproved > 0 && contract != null ? "Contract + variations" : "Contract"}
+            value={jobTotal == null ? "—" : formatCents(jobTotal)}
+            muted={jobTotal == null}
+            caption={
+              contract == null
+                ? "not set"
+                : variationsApproved > 0
+                  ? `${formatCents(contract)} + ${formatCents(variationsApproved)} approved variations`
+                  : undefined
+            }
             testid="gp-contract"
           />
         </div>
@@ -409,8 +434,10 @@ export function JobGettingPaidBody({
             card above and the amount fills in.
           </p>
         ) : null}
+        <UnbilledLine data={data} onStart={() => setItemised({ mode: "add" })} />
         <RetentionLine data={data} run={run} />
         <RetentionHeldLine data={data} run={run} />
+        <PaymentClaimLine data={data} run={run} />
         <XeroClientLine data={data} run={run} />
       </div>
 
@@ -443,8 +470,9 @@ export function JobGettingPaidBody({
 
       {data.stages.length === 0 ? (
         <p className="border-t border-border px-4 py-4 text-sm text-text-muted sm:px-6" data-testid="gp-empty">
-          No stage invoices yet. Add the stages this job will be paid in — all of them up front for
-          a fixed schedule, or one each month for a monthly claim.
+          No invoices yet. For a job paid in stages, add the stages — all of them up front for a
+          fixed schedule, or one each month for a monthly claim. For a small job, add an itemised
+          invoice.
         </p>
       ) : (
         <ul className="border-t border-border" data-testid="gp-stages">
@@ -462,7 +490,8 @@ export function JobGettingPaidBody({
                 actions={{
                   onEdit: () => {
                     setError(null);
-                    setEditor({ mode: "edit", stage: s });
+                    if (s.kind === "itemised") setItemised({ mode: "edit", stage: s });
+                    else setEditor({ mode: "edit", stage: s });
                   },
                   onAskRemove: () => setRemoving(s.id),
                   onCancelRemove: () => setRemoving(null),
@@ -482,21 +511,36 @@ export function JobGettingPaidBody({
         </ul>
       )}
 
+      <VariationsSection data={data} run={run} />
+
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-3 sm:px-6">
-        <p className="text-xs text-text-muted" data-testid="gp-drafts-only">
-          A stage is sent to Xero as a draft. Approve and email it from Xero — BuhlOS never does
+        <p className="text-xs text-text-muted sm:flex-1" data-testid="gp-drafts-only">
+          An invoice is sent to Xero as a draft. Approve and email it from Xero — BuhlOS never does
           either. What Xero says about payment shows here.
         </p>
-        <Button
-          size="sm"
-          onClick={() => {
-            setError(null);
-            setEditor({ mode: "add" });
-          }}
-          data-testid="gp-add-stage"
-        >
-          Add stage
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => {
+              setError(null);
+              setItemised({ mode: "add" });
+            }}
+            data-testid="gp-add-itemised"
+          >
+            Add itemised invoice
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => {
+              setError(null);
+              setEditor({ mode: "add" });
+            }}
+            data-testid="gp-add-stage"
+          >
+            Add stage
+          </Button>
+        </div>
       </div>
 
       {sendFor ? (
@@ -511,6 +555,21 @@ export function JobGettingPaidBody({
             setSendFor(null);
             await problem(code, status);
           }}
+        />
+      ) : null}
+
+      {itemised ? (
+        <ItemisedEditor
+          jobId={data.jobId}
+          jobRetentionBp={data.profile.retentionBp}
+          stage={itemised.mode === "edit" ? itemised.stage : null}
+          onClose={() => setItemised(null)}
+          onSaved={(next) => {
+            onData(next);
+            setItemised(null);
+            announceJobMoneyChanged(next.jobId);
+          }}
+          onStale={onStale}
         />
       ) : null}
 
@@ -723,6 +782,137 @@ function RetentionHeldLine({
         }}
       >
         Release retention
+      </button>
+    </p>
+  );
+}
+
+/**
+ * What on this job is not on an invoice yet (#1162) — the hours and materials
+ * that have been logged and never billed, including ones that arrived after an
+ * invoice went out. Only asked for on a job that is billed by the hour: one
+ * with no contract value, or one that already has an itemised invoice. Reads
+ * every time sheet, so it loads after the card and never holds it up.
+ */
+function UnbilledLine({ data, onStart }: { data: JobInvoicingResponse; onStart: () => void }) {
+  const relevant = data.job.contractCents == null || data.stages.some((s) => s.kind === "itemised");
+  // Re-read only when what is on an invoice could have changed.
+  const stamp = data.stages
+    .filter((s) => s.kind === "itemised")
+    .map((s) => `${s.id}:${s.version}:${s.xeroStatus ?? ""}`)
+    .join("|");
+  const [found, setFound] = useState<{ hoursMilli: number; count: number; costCents: number; anyBilled: boolean } | null>(null);
+
+  useEffect(() => {
+    if (!relevant) return;
+    let live = true;
+    void jobBillable(data.jobId).then((res) => {
+      if (!live || !res.ok) return;
+      const s = res.data.summary;
+      setFound({ hoursMilli: s.unbilledHoursMilli, count: s.unbilledMaterialCount, costCents: s.unbilledMaterialCostCents, anyBilled: s.anyBilled });
+    });
+    return () => {
+      live = false;
+    };
+  }, [relevant, data.jobId, stamp]);
+
+  if (!relevant || !found) return null;
+  const parts = [
+    found.hoursMilli > 0 ? `${formatHours(found.hoursMilli)} of approved hours` : null,
+    found.count > 0
+      ? `${found.count} materials ${found.count === 1 ? "item" : "items"} (cost ${formatCents(found.costCents)})`
+      : null,
+  ].filter(Boolean);
+  if (parts.length === 0) {
+    return found.anyBilled ? (
+      <p className="text-text-muted" data-testid="gp-unbilled-none">
+        Everything logged on this job is on an invoice.
+      </p>
+    ) : null;
+  }
+  return (
+    <p className="flex flex-wrap items-baseline gap-x-2 text-state-warning-subtle-text" data-testid="gp-unbilled">
+      <span>Not yet on an invoice: {parts.join(" and ")}.</span>
+      <button
+        type="button"
+        className="font-medium text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-2"
+        onClick={onStart}
+      >
+        Start an invoice
+      </button>
+    </p>
+  );
+}
+
+/** The sentence s 13(2)(c) of the SA Act asks a payment claim to carry. */
+const CLAIM_SENTENCE =
+  "This is a payment claim made under the Building and Construction Industry Security of Payment Act 2009 (SA).";
+
+/**
+ * Payment-claim wording (#1164): off unless the office turns it on for this
+ * job. Before it is turned on, the exact sentence is shown — it goes on every
+ * invoice sent for the job from then on, with where the claim stands against
+ * the contract.
+ */
+function PaymentClaimLine({
+  data,
+  run,
+}: {
+  data: JobInvoicingResponse;
+  run: (call: () => Mutation) => Promise<boolean>;
+}) {
+  const on = data.profile.paymentClaim === true;
+  const [asking, setAsking] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  async function set(next: boolean) {
+    setBusy(true);
+    const ok = await run(() => setPaymentClaim(data.jobId, next, data.profile.version));
+    setBusy(false);
+    if (ok) setAsking(false);
+  }
+
+  if (asking) {
+    return (
+      <div className="grid gap-1.5" data-testid="gp-claim-ask">
+        <p className="text-sm text-text">
+          {on ? "Stop adding this to this job's invoices?" : "Add this to every invoice sent for this job?"}
+        </p>
+        <p className="rounded-card border border-border bg-surface-subtle px-2 py-1.5 text-xs text-text">
+          {CLAIM_SENTENCE}
+        </p>
+        {!on ? (
+          <p className="text-xs text-text-muted">
+            It makes each invoice a payment claim under the Act, with the contract, claimed-to-date and
+            remaining figures under it. It is for builder and commercial jobs; the Act doesn&rsquo;t cover
+            work for an owner who lives in the home. Check with your adviser if you are unsure.
+          </p>
+        ) : null}
+        <div className="flex flex-wrap gap-1.5">
+          <Button size="sm" onClick={() => void set(!on)} disabled={busy} data-testid="gp-claim-confirm">
+            {on ? "Yes, stop" : "Yes, add it"}
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setAsking(false)} disabled={busy}>
+            Cancel
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <p className="flex flex-wrap items-baseline gap-x-2 text-text-muted" data-testid="gp-claim">
+      <span>
+        {on
+          ? "Payment-claim wording: on. Invoices sent for this job say they are a claim under the SA Security of Payment Act."
+          : "Payment-claim wording: off."}
+      </span>
+      <button
+        type="button"
+        className="font-medium text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-2"
+        onClick={() => setAsking(true)}
+      >
+        Change
       </button>
     </p>
   );

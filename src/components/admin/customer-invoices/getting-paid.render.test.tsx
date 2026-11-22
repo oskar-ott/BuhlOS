@@ -104,7 +104,7 @@ describe("JobGettingPaidBody", () => {
 
   it("says a stage goes to Xero as a draft and that BuhlOS never approves or emails — and shows no paid figures before anything is sent", () => {
     const html = body(data({ stages: [stage()], totals: { ...data().totals, plannedCount: 1, plannedGrossCents: 50_000_00, plannedNetCents: 50_000_00 } }));
-    expect(html).toContain("A stage is sent to Xero as a draft.");
+    expect(html).toContain("An invoice is sent to Xero as a draft.");
     expect(html).toContain("BuhlOS never does");
     // Approved / Paid / Owing are Xero's figures — with nothing in Xero there
     // is nothing to show, so the strip (and its Check Xero now) is absent.
@@ -141,7 +141,7 @@ describe("JobGettingPaidBody", () => {
     expect(html).toContain("planned for 1 Dec 2026");
     expect(html).toContain("$50,000.00");
     expect(html).toContain("Planned");
-    expect(html).toContain("1 stage");
+    expect(html).toContain("1 invoice not sent yet");
     expect(html).toContain("$200,000.00 not yet planned");
     expect(html).toContain("Edit");
     expect(html).toContain("Remove");

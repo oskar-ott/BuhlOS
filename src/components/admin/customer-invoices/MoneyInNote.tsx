@@ -17,18 +17,30 @@ import type { JobProfitabilityResponse } from "@/domains/jobs/profitability-clie
 export function MoneyInNote({
   moneyIn,
   labourUnderstated,
+  hasContract = true,
 }: {
   moneyIn: JobProfitabilityResponse["customerInvoices"];
   /** Some approved hours carry no cost rate, so the costs are too low. */
   labourUnderstated: boolean;
+  /** The job has a contract value. Without one (a small do-and-charge job)
+   *  the margin is measured against what has been invoiced instead. */
+  hasContract?: boolean;
 }) {
   if (!moneyIn) return null;
+  const variations =
+    moneyIn.variationsApprovedCents > 0 && moneyIn.revisedContractCents != null ? (
+      <p className="text-xs text-text-muted" data-testid="money-in-variations">
+        Approved variations add {formatCents(moneyIn.variationsApprovedCents)}: with them the job is
+        worth <span className="font-semibold text-text">{formatCents(moneyIn.revisedContractCents)}</span>{" "}
+        ex GST. The margin above is on the contract alone.
+      </p>
+    ) : null;
 
   if (moneyIn.unavailable) {
     return (
       <div className="border-t border-border px-4 py-3 sm:px-6" data-testid="money-in">
         <p className="text-xs text-text-muted" role="alert">
-          The stage invoices couldn&rsquo;t be read just now, so money in isn&rsquo;t shown. That is
+          The invoices couldn&rsquo;t be read just now, so money in isn&rsquo;t shown. That is
           not the same as nothing invoiced.
         </p>
       </div>
@@ -41,9 +53,10 @@ export function MoneyInNote({
         <p className="text-xs text-text-muted">
           Money in: nothing has been invoiced on this job yet
           {moneyIn.plannedCount > 0
-            ? ` — ${moneyIn.plannedCount} ${moneyIn.plannedCount === 1 ? "stage is" : "stages are"} planned in Getting paid below.`
+            ? ` — ${moneyIn.plannedCount} ${moneyIn.plannedCount === 1 ? "invoice is" : "invoices are"} planned in Getting paid below.`
             : "."}
         </p>
+        {variations}
       </div>
     );
   }
@@ -100,6 +113,23 @@ export function MoneyInNote({
           haven&rsquo;t all come through yet.
         </p>
       ) : null}
+      {!hasContract && moneyIn.billedMarginCents != null ? (
+        <p className="text-xs text-text-muted" data-testid="money-in-billed-margin">
+          On the {formatCents(moneyIn.billedCents)} sent to Xero so far:{" "}
+          <span
+            className={
+              moneyIn.billedMarginCents < 0
+                ? "font-semibold tabular-nums text-state-danger-subtle-text"
+                : "font-semibold tabular-nums text-state-success-subtle-text"
+            }
+          >
+            {formatCents(moneyIn.billedMarginCents)}
+          </span>{" "}
+          left after labour and materials to date{labourUnderstated ? ", before uncosted labour" : ""}. This
+          job has no contract value, so that is its margin so far.
+        </p>
+      ) : null}
+      {variations}
     </div>
   );
 }

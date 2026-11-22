@@ -19,7 +19,7 @@
 //   * Retention is a NEGATIVE line on the same account and tax rate.
 
 const crypto = require('crypto');
-const { computeStage, portionCents, isCents } = require('./amounts');
+const { computeStage, isCents, itemsOf } = require('./amounts');
 
 const MAX_REFERENCE = 255;
 const MAX_DESCRIPTION = 4000;
@@ -87,9 +87,19 @@ function timestampFromXero(utcString, msDate) {
  * retention held back as a negative line. One place builds them, so a first
  * send and a retry from the frozen snapshot can never word them differently.
  */
-function linesOf({ stage, job, baseCents, retentionBp, retentionCents }) {
+function linesOf({ stage, job, baseCents, retentionBp, retentionCents, footer }) {
+  const lines = chargeLines({ stage, job, baseCents, retentionBp, retentionCents });
+  // Wording added at send (the payment-claim statement) goes last, with no amount.
+  if (typeof footer === 'string' && footer.trim()) {
+    lines.push({ description: footer.slice(0, MAX_DESCRIPTION), amountCents: 0, note: true });
+  }
+  return lines;
+}
+
+function chargeLines({ stage, job, baseCents, retentionBp, retentionCents }) {
   const where = [job.name || job.id, typeof job.siteAddress === 'string' && job.siteAddress.trim() ? job.siteAddress.trim() : null]
     .filter(Boolean).join(', ');
+  if (stage.kind === 'itemised') return itemisedLines({ stage, where, retentionBp, retentionCents });
   const headline =
     stage.kind !== 'retention_release' && stage.basis === 'percent' && Number.isInteger(stage.percentBp)
       ? `${stage.title} (${formatPercent(stage.percentBp)} of contract)`
@@ -102,6 +112,91 @@ function linesOf({ stage, job, baseCents, retentionBp, retentionCents }) {
     lines.push({ description: `Less retention (${formatPercent(retentionBp)})`, amountCents: -retentionCents });
   }
   return lines;
+}
+
+/**
+ * An ITEMISED invoice's lines: a wording-only first line saying what the work
+ * was and where, then each charge with its quantity and unit price, the notes
+ * in the order they were written, and retention (if the job has any) last.
+ * Cost, markup and what job data a line bills never leave BuhlOS.
+ */
+function itemisedLines({ stage, where, retentionBp, retentionCents }) {
+  const lines = [{ description: `${stage.title}\n${where}`.slice(0, MAX_DESCRIPTION), amountCents: 0, note: true }];
+  for (const it of itemsOf(stage)) {
+    if (it.type === 'note') {
+      lines.push({ description: String(it.description).slice(0, MAX_DESCRIPTION), amountCents: 0, note: true });
+    } else {
+      lines.push({
+        description: String(it.description).slice(0, MAX_DESCRIPTION),
+        quantityMilli: it.quantityMilli,
+        unit: it.unit,
+        unitCents: it.unitCents,
+        amountCents: it.amountCents,
+      });
+    }
+  }
+  if (retentionCents > 0) {
+    lines.push({ description: `Less retention (${formatPercent(retentionBp)})`, amountCents: -retentionCents });
+  }
+  return lines;
+}
+
+/** "$12,345.60" — for wording that goes on the invoice. */
+function moneyText(cents) {
+  const abs = Math.abs(Math.trunc(cents));
+  const whole = String(Math.floor(abs / 100)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return `${cents < 0 ? '-' : ''}$${whole}.${String(abs % 100).padStart(2, '0')}`;
+}
+
+/** What s 13(2)(c) of the SA Act asks a payment claim to state. */
+const CLAIM_STATEMENT =
+  'This is a payment claim made under the Building and Construction Industry Security of Payment Act 2009 (SA).';
+
+/**
+ * The wording a payment claim carries (#1164): the statement, and — when the
+ * job has a contract value — where the claim stands against it. `totals` is
+ * the job BEFORE this invoice is sent. Amounts are ex GST, before retention.
+ */
+function claimFooter({ stage, grossCents, totals }) {
+  const out = [CLAIM_STATEMENT];
+  if (totals && Number.isInteger(totals.revisedContractCents) && Number.isInteger(grossCents)) {
+    const claimed = totals.claimedCents + (stage && stage.kind === 'retention_release' ? 0 : grossCents);
+    const sum = totals.variationsApprovedCents > 0 ? 'Contract sum including approved variations' : 'Contract sum';
+    out.push(
+      `${sum}: ${moneyText(totals.revisedContractCents)}. Claimed to date including this claim: ${moneyText(claimed)}. ` +
+      `Remaining: ${moneyText(totals.revisedContractCents - claimed)}. All ex GST, before retention.`
+    );
+  }
+  return out.join('\n');
+}
+
+/** One line as Xero receives it. A note carries wording only. */
+function xeroLine(l, settings) {
+  if (l.note) return { Description: l.description };
+  const priced = Number.isInteger(l.quantityMilli) && Number.isInteger(l.unitCents);
+  return {
+    Description: l.description,
+    Quantity: priced ? l.quantityMilli / 1000 : 1,
+    UnitAmount: dollars(priced ? l.unitCents : l.amountCents),
+    AccountCode: settings.salesAccountCode,
+    TaxType: settings.taxType,
+  };
+}
+
+/**
+ * GST as Xero works it out: per line, rounded to the cent, then added up
+ * (developer.xero.com "Rounding in Xero"). Still an ESTIMATE until Xero
+ * answers — it is shown as one, and Xero's own figure replaces it.
+ */
+function estimateTaxCents(lines, taxRateBp) {
+  if (!Number.isInteger(taxRateBp) || taxRateBp < 0) return null;
+  let total = 0;
+  for (const l of lines) {
+    const a = Math.abs(l.amountCents);
+    const t = Math.floor((a * taxRateBp + 5000) / 10000);
+    total += l.amountCents < 0 ? -t : t;
+  }
+  return total;
 }
 
 /**
@@ -125,7 +220,9 @@ function blockersFor(ctx) {
   if (!job || typeof job.code !== 'string' || !JOB_CODE.test(job.code)) out.push({ code: 'no_job_code' });
   if (stage) {
     const c = computeStage(stage, { contractCents: ctx.contractCents, retentionBp: profile ? profile.retentionBp : 0 });
-    if (c.grossCents == null) out.push({ code: c.reason === 'no_contract_value' ? 'no_contract_value' : 'amount_invalid' });
+    if (c.grossCents == null) {
+      out.push({ code: c.reason === 'no_contract_value' ? 'no_contract_value' : c.reason === 'no_lines' ? 'no_lines' : 'amount_invalid' });
+    }
     else if (c.netCents <= 0) out.push({ code: 'nothing_to_invoice' });
   }
   return out;
@@ -144,7 +241,9 @@ function composeInvoice(ctx) {
   const c = computeStage(stage, { contractCents: ctx.contractCents, retentionBp: profile ? profile.retentionBp : 0 });
   if (c.grossCents == null) return null;
 
-  const lines = linesOf({ stage, job, baseCents: c.baseCents, retentionBp: c.retentionBp, retentionCents: c.retentionCents });
+  // The payment-claim wording (#1164) — only when the job has it switched on.
+  const footer = ctx.claim ? claimFooter({ stage, grossCents: c.grossCents, totals: ctx.claim.totals }) : null;
+  const lines = linesOf({ stage, job, baseCents: c.baseCents, retentionBp: c.retentionBp, retentionCents: c.retentionCents, footer });
 
   const invoiceDate = ctx.invoiceDate;
   const dueDate = addDays(invoiceDate, settings.paymentTermsDays);
@@ -161,9 +260,10 @@ function composeInvoice(ctx) {
     invoiceDate,
     dueDate,
     reference,
+    footer,
     // What Xero is expected to add — an ESTIMATE from the rate Xero gave us,
     // shown as such before sending. After sending, Xero's own figure is used.
-    estimatedTaxCents: portionCents(c.netCents, settings.taxRateBp),
+    estimatedTaxCents: estimateTaxCents(lines, settings.taxRateBp),
   };
 }
 
@@ -182,7 +282,10 @@ function composeFromSnapshot(row, job) {
       baseCents: row.grossCents - extras,
       retentionBp: row.retentionBp == null ? 0 : row.retentionBp,
       retentionCents,
+      // exactly the wording that was frozen when it was first sent
+      footer: row.sentFooter || null,
     }),
+    footer: row.sentFooter || null,
     grossCents: row.grossCents,
     retentionCents,
     netCents: row.netCents,
@@ -207,13 +310,7 @@ function buildXeroBody(p) {
     Reference: p.composed.reference,
     Date: p.composed.invoiceDate,
     DueDate: p.composed.dueDate,
-    LineItems: p.composed.lines.map((l) => ({
-      Description: l.description,
-      Quantity: 1,
-      UnitAmount: dollars(l.amountCents),
-      AccountCode: p.settings.salesAccountCode,
-      TaxType: p.settings.taxType,
-    })),
+    LineItems: p.composed.lines.map((l) => xeroLine(l, p.settings)),
   };
   if (p.url) invoice.Url = p.url;
   return { Invoices: [invoice] };
@@ -298,8 +395,11 @@ function verifyAgainst(got, sent, { requireDraft = true } = {}) {
   else if (requireDraft && got.status !== 'DRAFT') mism.push(`status:${got.status}`);
   if (got.subtotalCents !== sent.netCents) mism.push('subtotal');
   if (got.lineCents) {
-    const a = got.lineCents.slice().sort((x, y) => x - y).join(',');
-    const b = sent.lineCents.slice().sort((x, y) => x - y).join(',');
+    // Wording-only lines carry no amount on either side, so only the charges
+    // are compared.
+    const charges = (list) => list.filter((c) => Number.isInteger(c) && c !== 0).sort((x, y) => x - y).join(',');
+    const a = charges(got.lineCents);
+    const b = charges(sent.lineCents);
     if (a !== b) mism.push('lines');
   }
   return { verified: mism.length === 0, mismatches: mism };
@@ -329,4 +429,8 @@ module.exports = {
   verifyAgainst,
   isNumberTaken,
   isCents,
+  estimateTaxCents,
+  claimFooter,
+  CLAIM_STATEMENT,
+  moneyText,
 };

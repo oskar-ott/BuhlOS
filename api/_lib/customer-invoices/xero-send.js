@@ -29,7 +29,7 @@ const { XeroError } = require('../xero/errors');
 const client = require('../xero/client');
 const lookups = require('./xero-lookups');
 const defaultStore = require('./store');
-const { contractCentsOf } = require('./amounts');
+const { contractCentsOf, jobTotals } = require('./amounts');
 const P = require('./payload');
 
 // Xero answered and created nothing → the stage is `failed` (safe to fix and resend).
@@ -64,12 +64,24 @@ async function loadContext(d, tenantId, job) {
     d.store.getProfile(d.sql, tenantId, job.id),
     d.store.getSettings(d.sql, tenantId, ready.externalTenantId),
   ]);
+  const contractCents = contractCentsOf(job.contractValue);
+  // The job's standing before this invoice — only read when the job's
+  // invoices carry payment-claim wording (#1164).
+  let claim = null;
+  if (profile && profile.paymentClaim) {
+    const [rows, variations] = await Promise.all([
+      d.store.listJobInvoices(d.sql, tenantId, job.id),
+      d.store.listVariations ? d.store.listVariations(d.sql, tenantId, job.id) : [],
+    ]);
+    claim = { totals: jobTotals(rows, { contractCents, retentionBp: profile.retentionBp, variations }) };
+  }
   return {
     ready,
     profile,
     settings,
     settingsComplete: d.store.settingsComplete(settings),
-    contractCents: contractCentsOf(job.contractValue),
+    contractCents,
+    claim,
   };
 }
 
@@ -104,7 +116,7 @@ async function preview({ tenant, invoice, job, options = {}, deps }) {
   if (ctx.settingsComplete && typeof job.code === 'string') {
     const composed = P.composeInvoice({
       stage: invoice, job, profile: ctx.profile || { retentionBp: 0 }, settings: ctx.settings,
-      contractCents: ctx.contractCents,
+      contractCents: ctx.contractCents, claim: ctx.claim,
       invoiceDate: options.invoiceDate || sydneyToday(), reference: options.reference,
     });
     if (composed) {
@@ -243,7 +255,7 @@ async function send({ tenant, invoice, job, options = {}, actor, deps }) {
   if (blockers.length) return { outcome: 'blocked', blockers };
 
   const composed = P.composeInvoice({
-    stage: invoice, job, profile: ctx.profile, settings: ctx.settings, contractCents: ctx.contractCents,
+    stage: invoice, job, profile: ctx.profile, settings: ctx.settings, contractCents: ctx.contractCents, claim: ctx.claim,
     invoiceDate: options.invoiceDate || sydneyToday(), reference: options.reference,
   });
   if (!composed || !composed.dueDate) return { outcome: 'blocked', blockers: [{ code: 'amount_invalid' }] };
@@ -260,6 +272,7 @@ async function send({ tenant, invoice, job, options = {}, actor, deps }) {
     invoiceDate: composed.invoiceDate,
     dueDate: composed.dueDate,
     reference: composed.reference,
+    footer: composed.footer || null,
     externalTenantId: ctx.ready.externalTenantId,
     xeroContactId: ctx.profile.xeroContactId,
     xeroContactName: ctx.profile.xeroContactName,

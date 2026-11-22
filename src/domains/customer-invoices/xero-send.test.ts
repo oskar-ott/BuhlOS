@@ -463,3 +463,156 @@ describe("the number is never reused once it is burned", () => {
     expect(out).toMatchObject({ outcome: "sent", invoiceNumber: "IV3345-2", verified: true });
   });
 });
+
+// ── part 2: itemised invoices (#1161) and payment-claim wording (#1164) ─────
+
+const ITEMS = [
+  { id: "n1", type: "note", description: "Rewired the shop front." },
+  { id: "a", type: "line", description: "Call-out fee", quantityMilli: 1000, unit: "ea", unitCents: 9500, source: "manual", costCents: null, refs: [] },
+  { id: "b", type: "line", description: "Labour", quantityMilli: 14350, unit: "hr", unitCents: 9500, source: "labour", costCents: 68880, refs: [{ t: "h", u: "u_field", d: "2026-11-10", m: 14350 }] },
+  { id: "c", type: "line", description: "Half-cent line", quantityMilli: 2500, unit: "ea", unitCents: 3333, source: "manual", costCents: null, refs: [] },
+  { id: "d", type: "line", description: "Discount", quantityMilli: 1000, unit: null, unitCents: -5000, source: "manual", costCents: null, refs: [] },
+];
+const addItemised = (over: Record<string, unknown> = {}) =>
+  mem.createStage({}, "t1", "tower", {
+    kind: "itemised", title: "Shop front rewire", basis: "amount", amountCents: 149158, percentBp: null, extraLines: [], items: ITEMS, retentionBp: null, plannedDate: null, note: null, ...over,
+  });
+const putBodies = () => xero.calls.filter((c) => c.method === "PUT").map((c) => c.body as { Invoices: Array<{ LineItems: Array<Record<string, unknown>> }> });
+
+describe("sending an itemised invoice", () => {
+  it("creates ONE draft with each charge's quantity and unit price, and matches on the read-back", async () => {
+    const s = await addItemised();
+    const out = await send(s.id);
+    expect(out).toMatchObject({ outcome: "sent", invoiceNumber: "IV3345-1", verified: true, mismatches: [] });
+    expect(xero.invoices).toHaveLength(1);
+    const lines = xero.invoices[0]!.LineItems;
+    expect(lines.map((l) => [l.Quantity, l.UnitAmount, l.LineAmount])).toEqual([
+      [undefined, undefined, undefined], // the heading: wording only
+      [undefined, undefined, undefined], // the note
+      [1, 95, 95],
+      [14.35, 95, 1363.25],
+      [2.5, 33.33, 83.33], // 83.325 → the half cent goes up, on both sides
+      [1, -50, -50],
+    ]);
+    expect(lines[0]!.Description).toBe("Shop front rewire\nTower Fit-out, 12 Smith St");
+    // Xero's own figures are what is stored
+    expect(row(s.id)).toMatchObject({ state: "sent", xeroSubtotalCents: 149158, xeroTaxCents: 14916, xeroTotalCents: 164074, drift: null });
+  });
+
+  it("sends nothing that is the office's own: no cost, no source, no refs", async () => {
+    const s = await addItemised();
+    await send(s.id);
+    const sent = JSON.stringify(putBodies()[0]);
+    for (const secret of ["costCents", "68880", "u_field", "refs", "source"]) expect(sent).not.toContain(secret);
+  });
+
+  it("shows in the preview exactly what will be sent, with the GST Xero will work out", async () => {
+    const s = await addItemised();
+    const p = await S.preview({ tenant, invoice: row(s.id), job, options: { invoiceDate: "2026-11-22" }, deps: deps() });
+    expect(p.blockers).toEqual([]);
+    expect(p.invoice.lines.map((l: { note?: boolean; quantityMilli?: number; unitCents?: number; amountCents: number }) => [l.note ?? false, l.quantityMilli, l.unitCents, l.amountCents])).toEqual([
+      [true, undefined, undefined, 0],
+      [true, undefined, undefined, 0],
+      [false, 1000, 9500, 9500],
+      [false, 14350, 9500, 136325],
+      [false, 2500, 3333, 8333],
+      [false, 1000, -5000, -5000],
+    ]);
+    // 9.50 + 136.33 + 8.33 − 5.00 — per line, as Xero does it
+    expect(p.invoice).toMatchObject({ netCents: 149158, estimatedTaxCents: 14916, estimatedTotalCents: 164074 });
+    await send(s.id);
+    expect(row(s.id).xeroTaxCents).toBe(p.invoice.estimatedTaxCents);
+  });
+
+  it("can't be sent with no charge on it", async () => {
+    const s = await addItemised({ items: [ITEMS[0]] });
+    const out = await send(s.id);
+    expect(out.outcome).toBe("blocked");
+    expect(out.blockers.map((b: { code: string }) => b.code)).toEqual(["no_lines"]);
+    expect(xero.calls).toEqual([]);
+  });
+
+  it("after a lost answer, the look-up adopts it — never a second invoice", async () => {
+    const s = await addItemised();
+    xero.failNext("timeout_after");
+    expect((await send(s.id)).outcome).toBe("unknown");
+    const out = await retry(s.id);
+    expect(out).toMatchObject({ outcome: "adopted", verified: true });
+    expect(xero.invoices).toHaveLength(1);
+  });
+
+  it("a retry after a refusal sends the very same lines", async () => {
+    const s = await addItemised();
+    xero.failNext("validation", "Account code '200' is not a valid code");
+    expect((await send(s.id)).outcome).toBe("failed");
+    expect((await retry(s.id)).outcome).toBe("sent");
+    const [first, second] = putBodies();
+    expect(second).toEqual(first);
+  });
+});
+
+describe("payment-claim wording on a sent invoice", () => {
+  const claimOn = async () => {
+    const p = await mem.getProfile({}, "t1", "tower");
+    await mem.saveProfile({}, "t1", "tower", { paymentClaim: true }, { expectedVersion: p!.version as number });
+  };
+  const STATEMENT = "This is a payment claim made under the Building and Construction Industry Security of Payment Act 2009 (SA).";
+
+  it("is not on an invoice unless the job has it switched on", async () => {
+    const s = await addStage();
+    await send(s.id);
+    expect(JSON.stringify(putBodies()[0])).not.toContain("payment claim");
+    expect(row(s.id).sentFooter).toBeNull();
+  });
+
+  it("goes last, as wording only, with where the claim stands — and is frozen on the row", async () => {
+    await claimOn();
+    const first = await addStage({ title: "Deposit", percentBp: 2000 });
+    await send(first.id);
+    const second = await addStage({ title: "Rough-in", percentBp: 3000 });
+    await send(second.id);
+    const [a, b] = xero.invoices;
+    const lastA = a!.LineItems[a!.LineItems.length - 1]!;
+    expect(lastA).toEqual({ Description: `${STATEMENT}\nContract sum: $250,000.00. Claimed to date including this claim: $50,000.00. Remaining: $200,000.00. All ex GST, before retention.` });
+    // the second claim counts the first
+    expect(b!.LineItems[b!.LineItems.length - 1]!.Description).toContain("Claimed to date including this claim: $125,000.00. Remaining: $125,000.00.");
+    expect(row(first.id).sentFooter).toBe(lastA.Description);
+    // wording adds nothing to the amount
+    expect(a).toMatchObject({ SubTotal: 50000, TotalTax: 5000 });
+    expect(row(first.id)).toMatchObject({ state: "sent", drift: null });
+  });
+
+  it("counts approved variations in the contract sum", async () => {
+    await claimOn();
+    const v = await mem.createVariation({}, "t1", "tower", { title: "Extra GPOs", quotedCents: 110000 });
+    await mem.decideVariation({}, "t1", v.id, { status: "approved", approvedCents: 110000, approvalRef: null, decidedOn: "2026-11-20" }, { expectedVersion: 1 });
+    const s = await addStage();
+    await send(s.id);
+    expect(String(row(s.id).sentFooter)).toContain("Contract sum including approved variations: $251,100.00.");
+  });
+
+  it("a retry sends the wording that was frozen, even if the job has moved on since", async () => {
+    await claimOn();
+    const s = await addStage();
+    xero.failNext("validation", "nope");
+    await send(s.id);
+    const frozen = row(s.id).sentFooter;
+    // meanwhile: the switch is turned off
+    const p = await mem.getProfile({}, "t1", "tower");
+    await mem.saveProfile({}, "t1", "tower", { paymentClaim: false }, { expectedVersion: p!.version as number });
+    expect((await retry(s.id)).outcome).toBe("sent");
+    const [first, second] = putBodies();
+    expect(second).toEqual(first);
+    expect(row(s.id).sentFooter).toBe(frozen);
+  });
+
+  it("goes on an itemised invoice too, and shows in the preview before anything is sent", async () => {
+    await claimOn();
+    const s = await addItemised();
+    const p = await S.preview({ tenant, invoice: row(s.id), job, options: { invoiceDate: "2026-11-22" }, deps: deps() });
+    const last = p.invoice.lines[p.invoice.lines.length - 1];
+    expect(last).toMatchObject({ note: true, amountCents: 0 });
+    expect(last.description).toContain(STATEMENT);
+    expect(xero.calls).toEqual([]);
+  });
+});

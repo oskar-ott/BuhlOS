@@ -286,6 +286,16 @@ const VALID_ACTIONS = new Set([
   // #1151: a person pressed "Check Xero now" on a job (the hourly check is a
   // system read and is not journalled per run — it is on the Xero sync log).
   'customer_invoice.status_checked',
+  // Part 2 (#1162/#1163): the business's usual charges and markup, and the
+  // job's variations register. targetId = 'prefs' or the variation's id.
+  'customer_invoice.prefs_updated',
+  'customer_invoice.variation_added',
+  'customer_invoice.variation_edited',
+  'customer_invoice.variation_approved',
+  'customer_invoice.variation_declined',
+  'customer_invoice.variation_reopened',
+  'customer_invoice.variation_removed',
+  'customer_invoice.variation_billed',
   // #370: daywork register (api/dayworks.js). daywork.created on POST;
   // daywork.signed on the supervisor sign; daywork.transitioned on the
   // signed → invoiced change (metadata.from/to carry the direction);

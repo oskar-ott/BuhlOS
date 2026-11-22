@@ -37,6 +37,23 @@
 //   POST   /api/customer-invoices?action=raise-again&id=S   the number is taken in Xero: burn it, add a planned copy that takes the next
 //   POST   /api/customer-invoices?action=retention-release  { jobId, amountCents, title? }  a planned stage that releases retention held
 //
+//   ── part 2 (docs/product/job-invoicing-part-2-plan.md) ──
+//   POST   ?action=stage-add / stage-edit with stage.kind = 'itemised'   an ITEMISED invoice (#1161): lines with a
+//                                                      quantity and a unit price, and wording-only notes. A line may bill
+//                                                      the job's own hours / materials / an approved variation (`refs`);
+//                                                      the server checks nothing is billed twice and works out the cost
+//   GET    ?action=billable&jobId=X[&invoiceId=S]      the job's approved hours and materials, each marked with the
+//                                                      invoice it is already on (#1162)
+//   GET    ?action=prefs                               the business's usual markup, usual charges, hours rounding
+//   PUT    ?action=prefs                               { materialsMarkupBp, labourRoundMinutes, usualCharges, expectedVersion }
+//   POST   ?action=variation-add                       { jobId, variation }                       (#1163)
+//   POST   ?action=variation-edit&id=V                 { variation, expectedVersion }
+//   POST   ?action=variation-decide&id=V               { status, approvedCents?, approvalRef?, decidedOn?, expectedVersion }
+//   POST   ?action=variation-remove&id=V               { expectedVersion }
+//   POST   ?action=variation-bill&id=V                 { stageId?, expectedStageVersion? }  on a planned stage, or — with no
+//                                                      stageId — on an invoice by itself
+//   PUT    ?action=payment-claim                       { jobId, on, expectedVersion }  payment-claim wording (#1164)
+//
 //   POST   /api/customer-invoices?action=refresh        { jobId }  "Check Xero now" (#1151): asks Xero what happened to
 //                                                      the job's sent invoices (approved, paid, part-paid, voided, deleted,
 //                                                      edited) and mirrors XERO'S figures. A read of Xero only.
@@ -69,7 +86,17 @@ const { getDb } = require('./_lib/supabase-db');
 const auditLog = require('./_lib/audit-log');
 const { withErrorCapture } = require('./_lib/error-wrap');
 const store = require('./_lib/customer-invoices/store');
-const { MAX_CENTS, BP_WHOLE, contractCentsOf, computeStage, jobTotals } = require('./_lib/customer-invoices/amounts');
+const crypto = require('crypto');
+const {
+  MAX_CENTS, BP_WHOLE, MAX_ITEMS, MAX_QUANTITY_MILLI, MAX_UNIT_CENTS,
+  contractCentsOf, computeStage, jobTotals, itemsOf, itemsSummary, lineAmountCents,
+} = require('./_lib/customer-invoices/amounts');
+const billable = require('./_lib/customer-invoices/billable');
+const { listTimeEntryBlobs, fetchTimeEntries } = require('./_lib/time-entry-blobs');
+const { readCostRates, historyFor, effectiveCostRate } = require('./_lib/cost-rates');
+const { buildWorkerLabeller } = require('./_lib/worker-names');
+const supplierInvoiceStore = require('./_lib/invoices/store');
+const { readLedger, summariseLedger } = require('./_lib/job-materials');
 const { displayStatus } = require('./_lib/customer-invoices/status');
 const xero = require('./_lib/customer-invoices/xero-lookups');
 const sendSvc = require('./_lib/customer-invoices/xero-send');
@@ -90,6 +117,92 @@ const version = z.number().int().min(1);
 const ExtraLine = z.object({
   description: z.string().trim().min(1).max(500),
   amountCents: centsIn,
+  // set when the line bills an approved variation (#1163)
+  variationId: uuid.optional(),
+}).strict();
+
+// ── an itemised invoice's lines (#1161 / #1162) ──
+const jobIdIn = z.string().min(1).max(200);
+const Ref = z.union([
+  z.object({ t: z.literal('h'), u: z.string().min(1).max(200), d: day, m: z.number().int().min(1).max(24000) }).strict(),
+  z.object({ t: z.enum(['sl', 'si', 'ml', 'v']), id: z.string().min(1).max(200) }).strict(),
+]);
+const ItemLine = z.object({
+  id: z.string().min(1).max(40).optional(),
+  type: z.literal('line'),
+  description: z.string().trim().min(1).max(1000),
+  quantityMilli: z.number().int().min(1).max(MAX_QUANTITY_MILLI),
+  unit: z.string().trim().max(12).nullable().optional(),
+  // negative = a discount or credit line
+  unitCents: z.number().int().min(-MAX_UNIT_CENTS).max(MAX_UNIT_CENTS),
+  source: z.enum(['manual', 'labour', 'material', 'variation']).optional(),
+  // the office's own cost for a TYPED line; ignored on a line that bills job data
+  costCents: z.number().int().min(0).max(MAX_CENTS).nullable().optional(),
+  refs: z.array(Ref).max(billable.MAX_REFS_PER_LINE).optional(),
+}).strict();
+const ItemNote = z.object({
+  id: z.string().min(1).max(40).optional(),
+  type: z.literal('note'),
+  description: z.string().trim().min(1).max(2000),
+}).strict();
+const ItemisedBody = z.object({
+  kind: z.literal('itemised'),
+  title: z.string().trim().min(1).max(200),
+  items: z.array(z.union([ItemLine, ItemNote])).min(1).max(MAX_ITEMS),
+  retentionBp: bp.nullable().optional(),
+  plannedDate: day.nullable().optional(),
+  note: z.string().trim().max(1000).nullable().optional(),
+}).strict().superRefine((s, ctx) => {
+  const total = s.items.reduce((sum, it) => sum + (it.type === 'line' ? lineAmountCents(it.quantityMilli, it.unitCents) || 0 : 0), 0);
+  if (!s.items.some((it) => it.type === 'line')) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['items'], message: 'needs a charge' });
+  else if (total < 1 || total > MAX_CENTS) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['items'], message: 'total' });
+});
+
+const UsualCharge = z.object({
+  id: z.string().min(1).max(40).optional(),
+  name: z.string().trim().min(1).max(120),
+  unit: z.string().trim().max(12).nullable().optional(),
+  unitCents: z.number().int().min(1).max(MAX_UNIT_CENTS),
+  kind: z.enum(['labour', 'other']),
+}).strict();
+const PrefsBody = z.object({
+  materialsMarkupBp: z.number().int().min(0).max(100000).nullable(),
+  labourRoundMinutes: z.union([z.literal(0), z.literal(15), z.literal(30), z.literal(60)]),
+  usualCharges: z.array(UsualCharge).max(40),
+  expectedVersion: z.number().int().min(1).nullable(),
+}).strict();
+
+const centsOrZero = z.number().int().min(0).max(MAX_CENTS);
+const VariationBody = z.object({
+  title: z.string().trim().min(1).max(200),
+  detail: z.string().trim().max(2000).nullable().optional(),
+  requestedBy: z.string().trim().max(200).nullable().optional(),
+  requestedOn: day.nullable().optional(),
+  // null = not priced yet
+  quotedCents: centsOrZero.nullable().optional(),
+}).strict();
+const VariationAddBody = z.object({ jobId: jobIdIn, variation: VariationBody }).strict();
+const VariationEditBody = z.object({ variation: VariationBody, expectedVersion: z.number().int().min(1) }).strict();
+const VariationDecideBody = z.object({
+  status: z.enum(['approved', 'declined', 'proposed']),
+  approvedCents: centsOrZero.nullable().optional(),
+  approvalRef: z.string().trim().max(300).nullable().optional(),
+  decidedOn: day.nullable().optional(),
+  expectedVersion: z.number().int().min(1),
+}).strict().superRefine((d, ctx) => {
+  if (d.status === 'approved' && d.approvedCents == null) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['approvedCents'], message: 'required' });
+  }
+});
+const VariationBillBody = z.object({
+  // omitted = an invoice of its own
+  stageId: uuid.optional(),
+  expectedStageVersion: z.number().int().min(1).optional(),
+}).strict();
+const PaymentClaimBody = z.object({
+  jobId: jobIdIn,
+  on: z.boolean(),
+  expectedVersion: z.number().int().min(1).nullable(),
 }).strict();
 
 const StageBody = z.object({
@@ -113,6 +226,9 @@ const StageBody = z.object({
 
 const AddBody = z.object({ jobId: z.string().min(1).max(200), stage: StageBody }).strict();
 const EditBody = z.object({ stage: StageBody, expectedVersion: version }).strict();
+const AddItemisedBody = z.object({ jobId: jobIdIn, stage: ItemisedBody }).strict();
+const EditItemisedBody = z.object({ stage: ItemisedBody, expectedVersion: version }).strict();
+const isItemisedBody = (b) => !!(b && b.stage && typeof b.stage === 'object' && b.stage.kind === 'itemised');
 const RemoveBody = z.object({ expectedVersion: version }).strict();
 const ProfileBody = z.object({
   jobId: z.string().min(1).max(200),
@@ -296,6 +412,8 @@ function presentStage(row, ctx, today) {
       reason: computed.reason,
     },
     display: displayStatus(row, today),
+    // An itemised invoice's lines as priced, and (office only) what they cost.
+    ...(row.kind === 'itemised' ? { items: itemsOf(row), itemsSummary: itemsSummary(row) } : {}),
     // A sent stage Xero shows as deleted or voided can be raised again — once.
     canRaiseAgain:
       row.state === 'sent' && (row.xeroStatus === 'DELETED' || row.xeroStatus === 'VOIDED') && !row.replacedById,
@@ -303,15 +421,18 @@ function presentStage(row, ctx, today) {
 }
 
 async function jobPayload(sql, tenant, job) {
-  const [profile, rows] = await Promise.all([
+  const [profile, rows, variations] = await Promise.all([
     store.getProfile(sql, tenant.id, job.id),
     store.listJobInvoices(sql, tenant.id, job.id),
+    store.listVariations(sql, tenant.id, job.id),
   ]);
   const ctx = {
     contractCents: contractCentsOf(job.contractValue),
     retentionBp: profile ? profile.retentionBp : 0,
+    variations,
   };
   const today = sydneyToday();
+  const billedOn = billable.variationBilling(rows);
   return {
     jobId: job.id,
     job: {
@@ -320,8 +441,11 @@ async function jobPayload(sql, tenant, job) {
       clientName: typeof job.clientName === 'string' && job.clientName ? job.clientName : null,
       contractCents: ctx.contractCents,
     },
-    profile: profile || { jobId: job.id, retentionBp: 0, xeroContactId: null, xeroContactName: null, externalTenantId: null, version: null },
+    profile: profile || { jobId: job.id, retentionBp: 0, paymentClaim: false, xeroContactId: null, xeroContactName: null, externalTenantId: null, version: null },
     stages: rows.map((r) => presentStage(r, ctx, today)),
+    // The variations register (#1163). `billedOn` is the invoice a variation
+    // is on — read from the invoices' own lines, never stored on the variation.
+    variations: variations.map((v) => ({ ...v, number: `V${v.seq}`, billedOn: billedOn.get(v.id) || null })),
     totals: jobTotals(rows, ctx),
     // How fresh the paid / owing figures are: the OLDEST "last checked with
     // Xero" among the job's sent invoices (null when nothing has been sent).
@@ -345,6 +469,70 @@ function stageInput(s) {
     retentionBp: s.retentionBp == null ? null : s.retentionBp,
     plannedDate: s.plannedDate || null,
     note: s.note || null,
+  };
+}
+
+const newItemId = () => `it_${crypto.randomBytes(5).toString('hex')}`;
+
+/** What is stored for an itemised invoice. `amount_cents` is the lines added
+ *  up — kept so every total that reads the row sees one figure. */
+function itemisedInput(s, items) {
+  const withIds = items.map((it) => ({ ...it, id: it.id || newItemId() }));
+  return {
+    kind: 'itemised',
+    title: s.title,
+    basis: 'amount',
+    amountCents: itemsSummary({ items: withIds }).totalCents,
+    percentBp: null,
+    extraLines: [],
+    items: withIds,
+    retentionBp: s.retentionBp == null ? null : s.retentionBp,
+    plannedDate: s.plannedDate || null,
+    note: s.note || null,
+  };
+}
+
+/** The job's hours and materials, read once (the slow part: every source is a
+ *  walk or a query). Each source answers `available: false` rather than
+ *  failing the request. */
+async function jobSources(sql, tenant, job, me) {
+  const [supplierInvoices, ledger] = await Promise.all([
+    isFlagEnabled('invoice_capture', me),
+    isFlagEnabled('job_materials_spend', me),
+  ]);
+  return billable.loadSources({
+    job, sql, tenantId: tenant.id,
+    flags: { supplierInvoices, ledger },
+    deps: {
+      timeEntries: async () => fetchTimeEntries(await listTimeEntryBlobs()),
+      costRates: readCostRates,
+      historyFor,
+      effectiveCostRate,
+      users: async () => {
+        const [u, e] = await Promise.all([readBlob('users.json', { users: [] }), readBlob('employees.json', { employees: [] })]);
+        return { users: (u && u.users) || [], employees: (e && e.employees) || [] };
+      },
+      labeller: buildWorkerLabeller,
+      supplierBreakdown: supplierInvoiceStore.jobMaterialsBreakdown,
+      ledger: readLedger,
+      ledgerLines: (data) => summariseLedger(data).lines,
+    },
+  });
+}
+
+/** A line that bills something it can't → a stable answer a person can act on. */
+function billableResponse(res, e) {
+  const status = e.code === 'ref_not_found' ? 409 : e.code === 'already_billed' ? 409 : e.code === 'line_invalid' ? 400 : 409;
+  return res.status(status).json({ error: e.code, ...(e.extra || {}) });
+}
+
+function variationInput(v) {
+  return {
+    title: v.title,
+    detail: v.detail || null,
+    requestedBy: v.requestedBy || null,
+    requestedOn: v.requestedOn || null,
+    quotedCents: v.quotedCents == null ? null : v.quotedCents,
   };
 }
 
@@ -440,15 +628,32 @@ async function handler(req, res) {
 
     // ── add a planned stage ──────────────────────────────────────────────────
     if (req.method === 'POST' && action === 'stage-add') {
-      const parsed = AddBody.safeParse(body);
+      const itemised = isItemisedBody(body);
+      const parsed = (itemised ? AddItemisedBody : AddBody).safeParse(body);
       if (!parsed.success) return invalid(res, parsed);
       const job = await liveJob(parsed.data.jobId);
       if (!job) return res.status(404).json({ error: 'job_not_found' });
-      const row = await store.createStage(sql, tenant.id, job.id, stageInput(parsed.data.stage), actor);
+      const stage = parsed.data.stage;
+      // The slow read (hours, materials) happens BEFORE the transaction; the
+      // check against other invoices happens inside it, under the job's lock.
+      const sources = itemised && billable.needsSources(stage.items) ? await jobSources(sql, tenant, job, me) : null;
+      const row = await store.createStage(sql, tenant.id, job.id, itemised ? null : stageInput(stage), actor, {
+        prepare: async (tx) => {
+          const [rows, variations] = await Promise.all([
+            store.listJobInvoices(tx, tenant.id, job.id),
+            store.listVariations(tx, tenant.id, job.id),
+          ]);
+          if (!itemised) {
+            billable.checkVariationLines({ extraLines: stage.extraLines, rows, variations });
+            return stageInput(stage);
+          }
+          return itemisedInput(stage, billable.resolveItems({ items: stage.items, sources, rows, variations }));
+        },
+      });
       await journal(me, 'customer_invoice.stage_added', {
         jobId: job.id, targetId: row.id,
-        summary: `Added stage invoice "${row.title}" to ${job.name || job.id}`,
-        metadata: { basis: row.basis },
+        summary: `Added ${itemised ? 'itemised' : 'stage'} invoice "${row.title}" to ${job.name || job.id}`,
+        metadata: itemised ? { kind: 'itemised', lines: row.items.length } : { basis: row.basis },
       });
       return res.status(201).json(await jobPayload(sql, tenant, job));
     }
@@ -462,15 +667,31 @@ async function handler(req, res) {
       if (!job) return res.status(404).json({ error: 'job_not_found' });
 
       if (action === 'stage-edit') {
-        const parsed = EditBody.safeParse(body);
+        const itemised = isItemisedBody(body);
+        const parsed = (itemised ? EditItemisedBody : EditBody).safeParse(body);
         if (!parsed.success) return invalid(res, parsed);
-        const row = await store.updateStage(sql, tenant.id, id, stageInput(parsed.data.stage), {
-          expectedVersion: parsed.data.expectedVersion, actor,
+        // An invoice keeps the kind it was made as.
+        if (itemised !== (existing.kind === 'itemised')) return res.status(409).json({ error: 'kind_mismatch' });
+        const stage = parsed.data.stage;
+        const sources = itemised && billable.needsSources(stage.items) ? await jobSources(sql, tenant, job, me) : null;
+        const row = await store.updateStage(sql, tenant.id, id, null, {
+          expectedVersion: parsed.data.expectedVersion, actor, jobId: job.id,
+          prepare: async (tx) => {
+            const [rows, variations] = await Promise.all([
+              store.listJobInvoices(tx, tenant.id, job.id),
+              store.listVariations(tx, tenant.id, job.id),
+            ]);
+            if (!itemised) {
+              billable.checkVariationLines({ extraLines: stage.extraLines, rows, variations, excludeInvoiceId: id });
+              return { ...stageInput(stage), kind: existing.kind };
+            }
+            return itemisedInput(stage, billable.resolveItems({ items: stage.items, sources, rows, variations, excludeInvoiceId: id }));
+          },
         });
         await journal(me, 'customer_invoice.stage_edited', {
           jobId: job.id, targetId: row.id,
-          summary: `Edited stage invoice "${row.title}" on ${job.name || job.id}`,
-          metadata: { basis: row.basis },
+          summary: `Edited ${itemised ? 'itemised' : 'stage'} invoice "${row.title}" on ${job.name || job.id}`,
+          metadata: itemised ? { kind: 'itemised', lines: row.items.length } : { basis: row.basis },
         });
         return res.status(200).json(await jobPayload(sql, tenant, job));
       }
@@ -481,6 +702,188 @@ async function handler(req, res) {
       await journal(me, 'customer_invoice.stage_removed', {
         jobId: job.id, targetId: id,
         summary: `Removed planned stage invoice "${existing.title}" from ${job.name || job.id}`,
+      });
+      return res.status(200).json(await jobPayload(sql, tenant, job));
+    }
+
+    // ── what on the job can go on an invoice (#1162) ─────────────────────────
+    if (req.method === 'GET' && action === 'billable') {
+      const job = await liveJob(String(q.jobId || ''));
+      if (!job) return res.status(404).json({ error: 'job_not_found' });
+      const excludeInvoiceId = uuid.safeParse(q.invoiceId).success ? q.invoiceId : null;
+      const [sources, rows, prefs] = await Promise.all([
+        jobSources(sql, tenant, job, me),
+        store.listJobInvoices(sql, tenant.id, job.id),
+        store.getPrefs(sql, tenant.id),
+      ]);
+      return res.status(200).json({
+        jobId: job.id,
+        ...billable.present(sources, rows, { excludeInvoiceId }),
+        prefs: prefs || { materialsMarkupBp: null, labourRoundMinutes: 0, usualCharges: [], version: null },
+        asOf: new Date().toISOString(),
+      });
+    }
+
+    // ── the business's invoicing habits (#1162) ──────────────────────────────
+    if (req.method === 'GET' && action === 'prefs') {
+      const prefs = await store.getPrefs(sql, tenant.id);
+      return res.status(200).json({ prefs: prefs || { materialsMarkupBp: null, labourRoundMinutes: 0, usualCharges: [], version: null } });
+    }
+    if (req.method === 'PUT' && action === 'prefs') {
+      const parsed = PrefsBody.safeParse(body);
+      if (!parsed.success) return invalid(res, parsed);
+      const prefs = await store.savePrefs(sql, tenant.id, {
+        materialsMarkupBp: parsed.data.materialsMarkupBp,
+        labourRoundMinutes: parsed.data.labourRoundMinutes,
+        usualCharges: parsed.data.usualCharges.map((c) => ({
+          id: c.id || newItemId(), name: c.name, unit: c.unit || null, unitCents: c.unitCents, kind: c.kind,
+        })),
+      }, { expectedVersion: parsed.data.expectedVersion, actor });
+      await journal(me, 'customer_invoice.prefs_updated', {
+        targetId: 'prefs',
+        summary: 'Changed the usual invoice charges and markup',
+        metadata: { usualCharges: prefs.usualCharges.length, hasMarkup: prefs.materialsMarkupBp != null },
+      });
+      return res.status(200).json({ prefs });
+    }
+
+    // ── variations (#1163) ───────────────────────────────────────────────────
+    if (req.method === 'POST' && action === 'variation-add') {
+      const parsed = VariationAddBody.safeParse(body);
+      if (!parsed.success) return invalid(res, parsed);
+      const job = await liveJob(parsed.data.jobId);
+      if (!job) return res.status(404).json({ error: 'job_not_found' });
+      const v = await store.createVariation(sql, tenant.id, job.id, variationInput(parsed.data.variation), actor);
+      await journal(me, 'customer_invoice.variation_added', {
+        jobId: job.id, targetId: v.id,
+        summary: `Added variation V${v.seq} "${v.title}" to ${job.name || job.id}`,
+        metadata: { number: `V${v.seq}` },
+      });
+      return res.status(201).json(await jobPayload(sql, tenant, job));
+    }
+
+    if (req.method === 'POST' && ['variation-edit', 'variation-decide', 'variation-remove', 'variation-bill'].includes(action)) {
+      if (!uuid.safeParse(id).success) return res.status(400).json({ error: 'id required' });
+      const existing = await store.getVariation(sql, tenant.id, id);
+      if (!existing) return res.status(404).json({ error: 'variation_not_found' });
+      const job = await liveJob(existing.jobId);
+      if (!job) return res.status(404).json({ error: 'job_not_found' });
+      const number = `V${existing.seq}`;
+      // A variation that is on an invoice is settled: it can't be edited,
+      // re-decided or removed. Checked under the job's lock.
+      const notOnAnInvoice = async (tx) => {
+        const rows = await store.listJobInvoices(tx, tenant.id, job.id);
+        const on = billable.variationBilling(rows).get(id);
+        if (on) throw new billable.BillableError('variation_billed', { on });
+      };
+      try {
+        if (action === 'variation-edit') {
+          const parsed = VariationEditBody.safeParse(body);
+          if (!parsed.success) return invalid(res, parsed);
+          // The quote can't move under an approval that was given for it.
+          if (existing.status === 'approved') return res.status(409).json({ error: 'variation_decided' });
+          await store.updateVariation(sql, tenant.id, id, variationInput(parsed.data.variation), {
+            expectedVersion: parsed.data.expectedVersion, actor, guard: notOnAnInvoice, jobId: job.id,
+          });
+          await journal(me, 'customer_invoice.variation_edited', {
+            jobId: job.id, targetId: id, summary: `Edited variation ${number} on ${job.name || job.id}`, metadata: { number },
+          });
+          return res.status(200).json(await jobPayload(sql, tenant, job));
+        }
+
+        if (action === 'variation-decide') {
+          const parsed = VariationDecideBody.safeParse(body);
+          if (!parsed.success) return invalid(res, parsed);
+          const d = parsed.data;
+          await store.decideVariation(sql, tenant.id, id, {
+            status: d.status,
+            approvedCents: d.status === 'approved' ? d.approvedCents : null,
+            approvalRef: d.approvalRef || null,
+            decidedOn: d.decidedOn || sydneyToday(),
+          }, { expectedVersion: d.expectedVersion, actor, guard: notOnAnInvoice, jobId: job.id });
+          await journal(me, d.status === 'approved' ? 'customer_invoice.variation_approved' : d.status === 'declined' ? 'customer_invoice.variation_declined' : 'customer_invoice.variation_reopened', {
+            jobId: job.id, targetId: id,
+            summary: d.status === 'approved' ? `Marked variation ${number} approved on ${job.name || job.id}`
+              : d.status === 'declined' ? `Marked variation ${number} declined on ${job.name || job.id}`
+                : `Put variation ${number} back to proposed on ${job.name || job.id}`,
+            metadata: { number, status: d.status },
+          });
+          return res.status(200).json(await jobPayload(sql, tenant, job));
+        }
+
+        if (action === 'variation-remove') {
+          const parsed = RemoveBody.safeParse(body);
+          if (!parsed.success) return invalid(res, parsed);
+          await store.removeVariation(sql, tenant.id, id, {
+            expectedVersion: parsed.data.expectedVersion, actor, guard: notOnAnInvoice, jobId: job.id,
+          });
+          await journal(me, 'customer_invoice.variation_removed', {
+            jobId: job.id, targetId: id, summary: `Removed variation ${number} from ${job.name || job.id}`, metadata: { number },
+          });
+          return res.status(200).json(await jobPayload(sql, tenant, job));
+        }
+
+        // variation-bill: an approved variation onto a planned stage, or — with
+        // no stage named — onto an invoice of its own.
+        const parsed = VariationBillBody.safeParse(body);
+        if (!parsed.success) return invalid(res, parsed);
+        if (existing.status !== 'approved' || !Number.isInteger(existing.approvedCents)) {
+          return res.status(409).json({ error: 'variation_not_approved' });
+        }
+        if (existing.approvedCents < 1) return res.status(409).json({ error: 'variation_amount' });
+        const wording = `Variation ${number} — ${existing.title}`.slice(0, 500);
+        let target;
+        if (parsed.data.stageId) {
+          if (parsed.data.expectedStageVersion == null) return res.status(400).json({ error: 'invalid_request', fields: ['expectedStageVersion'] });
+          const stage = await store.getInvoice(sql, tenant.id, parsed.data.stageId);
+          if (!stage || stage.jobId !== job.id || stage.state === 'cancelled') return res.status(404).json({ error: 'stage_not_found' });
+          if (stage.kind !== 'stage') return res.status(409).json({ error: 'kind_mismatch' });
+          if (stage.extraLines.length >= MAX_EXTRA_LINES) return res.status(409).json({ error: 'too_many_lines' });
+          target = await store.appendExtraLine(sql, tenant.id, stage.id, {
+            description: wording, amountCents: existing.approvedCents, variationId: id,
+          }, { expectedVersion: parsed.data.expectedStageVersion, actor, guard: notOnAnInvoice, jobId: job.id });
+        } else {
+          const items = [{
+            id: newItemId(), type: 'line', description: wording, quantityMilli: 1000, unit: null,
+            unitCents: existing.approvedCents, source: 'variation', costCents: null, refs: [{ t: 'v', id }],
+          }];
+          target = await store.createStage(sql, tenant.id, job.id, null, actor, {
+            prepare: async (tx) => {
+              await notOnAnInvoice(tx);
+              return itemisedInput({ title: wording.slice(0, 200), retentionBp: null, plannedDate: null, note: null }, items);
+            },
+          });
+        }
+        await journal(me, 'customer_invoice.variation_billed', {
+          jobId: job.id, targetId: id,
+          summary: parsed.data.stageId
+            ? `Put variation ${number} on the stage "${target.title}" (${job.name || job.id})`
+            : `Put variation ${number} on an invoice of its own (${job.name || job.id})`,
+          metadata: { number, invoiceId: target.id },
+        });
+        return res.status(201).json(await jobPayload(sql, tenant, job));
+      } catch (e) {
+        // A conflict here is about the VARIATION (or the stage it was going on).
+        if (e instanceof store.StoreConflict && e.reason === 'not_found' && action !== 'variation-bill') {
+          return res.status(404).json({ error: 'variation_not_found' });
+        }
+        throw e;
+      }
+    }
+
+    // ── payment-claim wording on this job's invoices (#1164) ─────────────────
+    if (req.method === 'PUT' && action === 'payment-claim') {
+      const parsed = PaymentClaimBody.safeParse(body);
+      if (!parsed.success) return invalid(res, parsed);
+      const job = await liveJob(parsed.data.jobId);
+      if (!job) return res.status(404).json({ error: 'job_not_found' });
+      await store.saveProfile(sql, tenant.id, job.id, { paymentClaim: parsed.data.on }, {
+        expectedVersion: parsed.data.expectedVersion, actor,
+      });
+      await journal(me, 'customer_invoice.profile_updated', {
+        jobId: job.id, targetId: job.id,
+        summary: `Turned payment-claim wording ${parsed.data.on ? 'on' : 'off'} for ${job.name || job.id}`,
+        metadata: { fields: ['paymentClaim'], on: parsed.data.on },
       });
       return res.status(200).json(await jobPayload(sql, tenant, job));
     }
@@ -739,6 +1142,7 @@ async function handler(req, res) {
 
     return res.status(405).json({ error: 'method not allowed' });
   } catch (e) {
+    if (e instanceof billable.BillableError) return billableResponse(res, e);
     if (e instanceof store.StoreConflict) return conflictResponse(res, e);
     if (e instanceof XeroError) return xeroFailure(res, e);
     console.error('[customer-invoices] request failed', { action, code: (e && e.code) || 'error' });

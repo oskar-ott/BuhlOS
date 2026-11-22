@@ -12,13 +12,21 @@ import {
   formatDay,
   xeroInvoiceUrl,
 } from "@/domains/customer-invoices/format";
+import { milliToInput } from "@/domains/customer-invoices/itemised";
 import type { Stage } from "@/domains/customer-invoices/schema";
+
+/** An itemised invoice's first few lines show on the row; the editor has the rest. */
+const ITEMS_SHOWN = 6;
 
 const LINK =
   "font-medium text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-2";
 
 function basisCaption(stage: Stage): string {
   if (stage.kind === "retention_release") return "releases retention held";
+  if (stage.kind === "itemised") {
+    const n = (stage.items ?? []).filter((it) => it.type === "line").length;
+    return `itemised · ${n} ${n === 1 ? "line" : "lines"}`;
+  }
   const base =
     stage.basis === "percent" ? `${formatBp(stage.percentBp)} of contract` : "fixed amount";
   const extras = stage.extraLines.length;
@@ -116,6 +124,34 @@ export function StageRow({
           {!planned && stage.invoiceDate ? ` · dated ${formatDay(stage.invoiceDate)}` : ""}
           {!planned && dueDay && !dead ? ` · due ${formatDay(dueDay)}` : ""}
         </p>
+        {stage.kind === "itemised" && (stage.items ?? []).length > 0 ? (
+          <ul className="mt-1 grid gap-0.5 text-xs text-text-muted" data-testid="gp-stage-items">
+            {(stage.items ?? []).slice(0, ITEMS_SHOWN).map((it) =>
+              it.type === "note" ? (
+                <li key={it.id} className="italic">
+                  {it.description}
+                </li>
+              ) : (
+                <li key={it.id}>
+                  {it.description} ·{" "}
+                  <span className="tabular-nums">
+                    {milliToInput(it.quantityMilli)}
+                    {it.unit ? ` ${it.unit}` : ""} × {formatCents(it.unitCents)} = {formatCents(it.amountCents)}
+                  </span>
+                </li>
+              )
+            )}
+            {(stage.items ?? []).length > ITEMS_SHOWN ? (
+              <li>and {(stage.items ?? []).length - ITEMS_SHOWN} more</li>
+            ) : null}
+          </ul>
+        ) : null}
+        {planned && stage.kind === "itemised" && stage.itemsSummary && stage.itemsSummary.costedSellCents > 0 && stage.itemsSummary.costKnown ? (
+          <p className="mt-1 text-xs text-text-muted" data-testid="gp-stage-margin">
+            Office only: cost {formatCents(stage.itemsSummary.costCents)}, margin{" "}
+            {formatCents(stage.itemsSummary.costedSellCents - stage.itemsSummary.costCents)} on the lines with a cost.
+          </p>
+        ) : null}
         {stage.extraLines.length > 0 ? (
           <ul className="mt-1 grid gap-0.5 text-xs text-text-muted">
             {stage.extraLines.map((l, i) => (
@@ -176,7 +212,7 @@ export function StageRow({
           </>
         ) : c.grossCents == null ? (
           <p className="text-sm text-text-muted" data-testid="gp-stage-unresolved">
-            {c.reason === "no_contract_value" ? "needs a contract value" : "can't be worked out"}
+            {c.reason === "no_contract_value" ? "needs a contract value" : c.reason === "no_lines" ? "no lines yet" : "can't be worked out"}
           </p>
         ) : (
           <>
@@ -202,7 +238,9 @@ export function StageRow({
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5 sm:justify-end">
           {planned && confirmingRemove ? (
             <>
-              <span className="w-full text-xs text-text-muted sm:w-auto">Remove this stage?</span>
+              <span className="w-full text-xs text-text-muted sm:w-auto">
+                Remove this {stage.kind === "itemised" ? "invoice" : "stage"}?
+              </span>
               <Button size="sm" variant="danger" onClick={actions.onRemove} disabled={busy}>
                 Yes, remove
               </Button>

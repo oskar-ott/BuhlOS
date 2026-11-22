@@ -185,6 +185,7 @@ describe("Getting paid — the money-in strip", () => {
 const moneyIn = (over: Partial<NonNullable<JobProfitabilityResponse["customerInvoices"]>> = {}): NonNullable<JobProfitabilityResponse["customerInvoices"]> => ({
   unavailable: false, sentCount: 2, plannedCount: 1, draftedCents: 0, invoicedCents: 70_000_00, paidCents: 50_000_00, paidIncGstCents: 55_000_00,
   dueIncGstCents: 22_000_00, stillToInvoiceCents: 180_000_00, retentionHeldCents: 0, overdueCount: 0, cashCents: 12_345_00, asOf: "2026-12-01T00:00:00.000Z",
+  variationsApprovedCents: 0, revisedContractCents: null, billedCents: 70_000_00, billedMarginCents: null,
   ...over,
 });
 const noteHtml = (m: JobProfitabilityResponse["customerInvoices"], labourUnderstated = false) => render(createElement(MoneyInNote, { moneyIn: m, labourUnderstated }));
@@ -229,8 +230,8 @@ describe("Money card — money in", () => {
   });
 
   it("nothing sent yet: says so, and points at the planned stages", () => {
-    expect(noteHtml(moneyIn({ sentCount: 0, plannedCount: 2 }))).toContain("Money in: nothing has been invoiced on this job yet — 2 stages are planned in Getting paid below.");
-    expect(noteHtml(moneyIn({ sentCount: 0, plannedCount: 1 }))).toContain("1 stage is planned");
+    expect(noteHtml(moneyIn({ sentCount: 0, plannedCount: 2 }))).toContain("Money in: nothing has been invoiced on this job yet — 2 invoices are planned in Getting paid below.");
+    expect(noteHtml(moneyIn({ sentCount: 0, plannedCount: 1 }))).toContain("1 invoice is planned");
     expect(noteHtml(moneyIn({ sentCount: 0, plannedCount: 0 }))).toContain("nothing has been invoiced on this job yet.");
   });
 

@@ -12,6 +12,7 @@ import {
   formatDay,
   sydneyToday,
 } from "@/domains/customer-invoices/format";
+import { milliToInput } from "@/domains/customer-invoices/itemised";
 import type {
   SendPreview,
   SendResponse,
@@ -217,8 +218,18 @@ export function SendPreviewView({
             <tbody>
               {inv.lines.map((l, i) => (
                 <tr key={`${l.description}-${i}`} className="border-t border-border align-top">
-                  <td className="whitespace-pre-line py-1.5 pr-3 text-text">{l.description}</td>
-                  <td className="py-1.5 text-right tabular-nums text-text">{formatCents(l.amountCents)}</td>
+                  <td className={`whitespace-pre-line py-1.5 pr-3 ${l.note ? "text-text-muted" : "text-text"}`}>
+                    {l.description}
+                    {l.quantityMilli != null && l.unitCents != null ? (
+                      <span className="block text-xs tabular-nums text-text-muted">
+                        {milliToInput(l.quantityMilli)}
+                        {l.unit ? ` ${l.unit}` : ""} × {formatCents(l.unitCents)}
+                      </span>
+                    ) : null}
+                  </td>
+                  <td className="py-1.5 text-right tabular-nums text-text">
+                    {l.note ? "" : formatCents(l.amountCents)}
+                  </td>
                 </tr>
               ))}
               <tr className="border-t border-border-strong">

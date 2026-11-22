@@ -133,7 +133,7 @@ describe("Getting paid — the Client in Xero line", () => {
   it("offers no Send button while the job isn't ready to send", () => {
     const html = card(standing({ client: { linked: true, name: "Built Pty Ltd", otherOrganisation: false, suggestion: null } }));
     expect(html).not.toMatch(/Send to Xero/);
-    expect(html).toContain("A stage is sent to Xero as a draft.");
+    expect(html).toContain("An invoice is sent to Xero as a draft.");
   });
 });
 

@@ -31,8 +31,59 @@ export type StageDisplayStatus = (typeof STAGE_DISPLAY_STATUSES)[number];
 export const ExtraLineSchema = z.object({
   description: z.string(),
   amountCents: z.number(),
+  /** Set when the line bills an approved variation (#1163). */
+  variationId: z.string().optional(),
 });
 export type ExtraLine = z.infer<typeof ExtraLineSchema>;
+
+// ── itemised invoices (#1161 / #1162) ───────────────────────────────────────
+
+/**
+ * What a charge bills on the job, so nothing can be billed twice:
+ *   h   approved hours — one worker, one day (`m` = thousandths of an hour)
+ *   sl  one line of a captured supplier invoice
+ *   si  a captured supplier invoice taken as one amount
+ *   ml  a docket typed into the job's materials ledger
+ *   v   an approved variation
+ */
+export const ItemRefSchema = z.union([
+  z.object({ t: z.literal("h"), u: z.string(), d: z.string(), m: z.number() }),
+  z.object({ t: z.enum(["sl", "si", "ml", "v"]), id: z.string() }),
+]);
+export type ItemRef = z.infer<typeof ItemRefSchema>;
+
+export const ITEM_SOURCES = ["manual", "labour", "material", "variation"] as const;
+export type ItemSource = (typeof ITEM_SOURCES)[number];
+
+/** One line of an itemised invoice: a charge, or wording only. Quantity is in
+ *  THOUSANDTHS (2.5 hours = 2500); money is cents. `costCents` and `refs` are
+ *  the office's own — they never go to Xero. */
+export const InvoiceItemSchema = z.union([
+  z.object({ id: z.string(), type: z.literal("note"), description: z.string() }),
+  z.object({
+    id: z.string(),
+    type: z.literal("line"),
+    description: z.string(),
+    quantityMilli: z.number(),
+    unit: z.string().nullable(),
+    unitCents: z.number(),
+    amountCents: z.number(),
+    source: z.enum(ITEM_SOURCES),
+    costCents: z.number().nullable(),
+    refs: z.array(ItemRefSchema),
+  }),
+]);
+export type InvoiceItem = z.infer<typeof InvoiceItemSchema>;
+
+export const ItemsSummarySchema = z.object({
+  lineCount: z.number(),
+  totalCents: z.number(),
+  costCents: z.number(),
+  costedSellCents: z.number(),
+  /** False when a charge pulled from the job has no cost — no margin is shown. */
+  costKnown: z.boolean(),
+});
+export type ItemsSummary = z.infer<typeof ItemsSummarySchema>;
 
 /** What an unsent stage works out to today (or the frozen snapshot once sent). */
 export const StageComputedSchema = z.object({
@@ -40,14 +91,17 @@ export const StageComputedSchema = z.object({
   retentionBp: z.number(),
   retentionCents: z.number().nullable(),
   netCents: z.number().nullable(),
-  reason: z.enum(["no_contract_value", "invalid"]).nullable(),
+  reason: z.enum(["no_contract_value", "no_lines", "invalid"]).nullable(),
 });
 
 export const StageSchema = z
   .object({
     id: z.string(),
     jobId: z.string(),
-    kind: z.enum(["stage", "retention_release"]),
+    kind: z.enum(["stage", "retention_release", "itemised"]),
+    /** An itemised invoice's lines, as priced by the server. */
+    items: z.array(InvoiceItemSchema).optional(),
+    itemsSummary: ItemsSummarySchema.optional(),
     seq: z.number().nullable(),
     invoiceNumber: z.string().nullable(),
     title: z.string(),
@@ -100,6 +154,8 @@ export const JobInvoicingProfileSchema = z
     xeroContactId: z.string().nullable(),
     xeroContactName: z.string().nullable(),
     externalTenantId: z.string().nullable(),
+    /** Invoices sent for this job carry the SA payment-claim statement (#1164). */
+    paymentClaim: z.boolean().optional(),
     /** null until the profile is first saved. */
     version: z.number().nullable(),
   })
@@ -109,6 +165,14 @@ export type JobInvoicingProfile = z.infer<typeof JobInvoicingProfileSchema>;
 export const JobInvoicingTotalsSchema = z
   .object({
     contractCents: z.number().nullable(),
+    // ── variations (#1163) ──
+    /** Contract + approved variations. null when the job has no contract value. */
+    revisedContractCents: z.number().nullable().optional(),
+    variationsApprovedCents: z.number().optional(),
+    variationsApprovedCount: z.number().optional(),
+    variationsPendingCents: z.number().optional(),
+    variationsPendingCount: z.number().optional(),
+    variationsUnpricedCount: z.number().optional(),
     plannedCount: z.number(),
     plannedGrossCents: z.number(),
     plannedNetCents: z.number(),
@@ -208,6 +272,43 @@ export const InvoiceSettingsOptionsSchema = z.object({
 });
 export type InvoiceSettingsOptions = z.infer<typeof InvoiceSettingsOptionsSchema>;
 
+// ── variations (#1163) ──────────────────────────────────────────────────────
+
+export const VARIATION_STATUSES = ["proposed", "approved", "declined"] as const;
+export const VariationSchema = z
+  .object({
+    id: z.string(),
+    jobId: z.string(),
+    seq: z.number(),
+    /** "V3" */
+    number: z.string(),
+    title: z.string(),
+    detail: z.string().nullable(),
+    requestedBy: z.string().nullable(),
+    requestedOn: z.string().nullable(),
+    /** The price put to the client, ex GST. null = not priced yet. */
+    quotedCents: z.number().nullable(),
+    status: z.enum(VARIATION_STATUSES),
+    /** What was approved — the figure that counts and is billed. */
+    approvedCents: z.number().nullable(),
+    approvalRef: z.string().nullable(),
+    decidedOn: z.string().nullable(),
+    decidedBy: z.string().nullable().optional(),
+    /** The invoice it is on, read from the invoices' own lines. */
+    billedOn: z.string().nullable(),
+    version: z.number(),
+  })
+  .passthrough();
+export type Variation = z.infer<typeof VariationSchema>;
+
+export interface VariationInput {
+  title: string;
+  detail?: string | null;
+  requestedBy?: string | null;
+  requestedOn?: string | null;
+  quotedCents?: number | null;
+}
+
 export const JobInvoicingResponseSchema = z.object({
   jobId: z.string(),
   job: z.object({
@@ -218,6 +319,7 @@ export const JobInvoicingResponseSchema = z.object({
   }),
   profile: JobInvoicingProfileSchema,
   stages: z.array(StageSchema),
+  variations: z.array(VariationSchema).optional(),
   totals: JobInvoicingTotalsSchema,
   /** How fresh the paid / owing figures are: the OLDEST "last checked with
    *  Xero" among the job's sent invoices. null when nothing has been sent. */
@@ -238,6 +340,7 @@ export const SEND_BLOCKER_CODES = [
   "client_other_organisation",
   "no_job_code",
   "no_contract_value",
+  "no_lines",
   "amount_invalid",
   "nothing_to_invoice",
   "not_awaiting_xero",
@@ -257,7 +360,18 @@ export const SendPreviewSchema = z.object({
       invoiceDate: z.string(),
       dueDate: z.string().nullable(),
       reference: z.string(),
-      lines: z.array(z.object({ description: z.string(), amountCents: z.number() })),
+      lines: z.array(
+        z.object({
+          description: z.string(),
+          amountCents: z.number(),
+          /** Present on an itemised charge. */
+          quantityMilli: z.number().optional(),
+          unit: z.string().nullable().optional(),
+          unitCents: z.number().optional(),
+          /** Wording only — no amount. */
+          note: z.boolean().optional(),
+        })
+      ),
       netCents: z.number(),
       /** What Xero is expected to add, from the rate Xero gave — an estimate. */
       estimatedTaxCents: z.number().nullable(),
@@ -314,3 +428,104 @@ export interface StageInput {
   plannedDate?: string | null;
   note?: string | null;
 }
+
+// ── an itemised invoice, as the editor sends it ─────────────────────────────
+
+export type ItemInput =
+  | { id?: string; type: "note"; description: string }
+  | {
+      id?: string;
+      type: "line";
+      description: string;
+      quantityMilli: number;
+      unit?: string | null;
+      unitCents: number;
+      source?: ItemSource;
+      /** The office's own cost for a typed line; ignored on a line that bills job data. */
+      costCents?: number | null;
+      refs?: ItemRef[];
+    };
+
+export interface ItemisedInput {
+  kind: "itemised";
+  title: string;
+  items: ItemInput[];
+  retentionBp?: number | null;
+  plannedDate?: string | null;
+  note?: string | null;
+}
+
+// ── what on the job can go on an invoice (#1162) ────────────────────────────
+
+const source = { available: z.boolean(), reason: z.string().nullable() };
+
+export const BillableDaySchema = z.object({
+  userId: z.string(),
+  name: z.string(),
+  date: z.string(),
+  hoursMilli: z.number(),
+  billedMilli: z.number(),
+  unbilledMilli: z.number(),
+  onInvoice: z.string().nullable(),
+  chargeOutRateCents: z.number().nullable(),
+  /** What an hour of this worker costs the business (office only). */
+  costRateCents: z.number().nullable(),
+  hasCostRate: z.boolean(),
+});
+export type BillableDay = z.infer<typeof BillableDaySchema>;
+
+const materialHead = {
+  id: z.string(),
+  supplier: z.string(),
+  number: z.string().nullable(),
+  date: z.string().nullable(),
+  costCents: z.number(),
+  onInvoice: z.string().nullable(),
+};
+export const SupplierLineSchema = z.object({
+  ...materialHead,
+  invoiceId: z.string(),
+  credit: z.boolean().optional(),
+  description: z.string(),
+  quantity: z.number().nullable(),
+  unit: z.string().nullable(),
+  unitCostCents: z.number().nullable(),
+});
+export const SupplierWholeSchema = z.object({ ...materialHead, invoiceId: z.string(), credit: z.boolean().optional(), lineCount: z.number() });
+export const LedgerLineSchema = z.object({ ...materialHead, description: z.string().nullable() });
+
+export const UsualChargeSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  unit: z.string().nullable(),
+  unitCents: z.number(),
+  kind: z.enum(["labour", "other"]),
+});
+export type UsualCharge = z.infer<typeof UsualChargeSchema>;
+
+export const InvoicePrefsSchema = z.object({
+  /** Usual markup on materials, basis points. null until the office sets one. */
+  materialsMarkupBp: z.number().nullable(),
+  /** Pulled hours are rounded UP to this many minutes per line. 0 = as logged. */
+  labourRoundMinutes: z.number(),
+  usualCharges: z.array(UsualChargeSchema),
+  version: z.number().nullable(),
+});
+export type InvoicePrefs = z.infer<typeof InvoicePrefsSchema>;
+export const InvoicePrefsResponseSchema = z.object({ prefs: InvoicePrefsSchema });
+
+export const BillableResponseSchema = z.object({
+  jobId: z.string(),
+  labour: z.object({ ...source, days: z.array(BillableDaySchema), pendingMilli: z.number() }),
+  supplier: z.object({ ...source, lines: z.array(SupplierLineSchema), whole: z.array(SupplierWholeSchema) }),
+  ledger: z.object({ ...source, lines: z.array(LedgerLineSchema) }),
+  summary: z.object({
+    unbilledHoursMilli: z.number(),
+    unbilledMaterialCount: z.number(),
+    unbilledMaterialCostCents: z.number(),
+    anyBilled: z.boolean(),
+  }),
+  prefs: InvoicePrefsSchema,
+  asOf: z.string(),
+});
+export type BillableResponse = z.infer<typeof BillableResponseSchema>;

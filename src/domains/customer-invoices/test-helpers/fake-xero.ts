@@ -28,7 +28,8 @@ export interface FakeInvoice {
   DateString: string;
   DueDateString: string;
   LineAmountTypes: string;
-  LineItems: Array<{ Description: string; Quantity: number; UnitAmount: number; LineAmount: number; AccountCode: string; TaxType: string }>;
+  // A line with only a Description is wording: Xero keeps it with no amount.
+  LineItems: Array<{ Description: string; Quantity?: number; UnitAmount?: number; LineAmount?: number; AccountCode?: string; TaxType?: string }>;
   SubTotal: number;
   TotalTax: number;
   Total: number;
@@ -63,12 +64,23 @@ export function createFakeXero({ taxRates = { OUTPUT: 1000, EXEMPTOUTPUT: 0 } as
   const round2 = (v: number) => Math.round(v * 100) / 100;
 
   function store(input: Record<string, unknown>): FakeInvoice {
-    const lines = (input.LineItems as FakeInvoice["LineItems"]).map((l) => ({
-      ...l,
-      LineAmount: round2(Number(l.UnitAmount) * Number(l.Quantity ?? 1)),
-    }));
-    const sub = round2(lines.reduce((s, l) => s + l.LineAmount, 0));
-    const tax = round2(lines.reduce((s, l) => s + (l.LineAmount * (taxRates[l.TaxType] ?? 0)) / 10000, 0));
+    // half away from zero, as BuhlOS rounds — the real Xero's rule for an
+    // exact half cent is not documented and is settled on the proving run
+    const half = (v: number) => (Math.sign(v) * Math.round(Math.abs(v) * 100)) / 100;
+    const lines: FakeInvoice["LineItems"] = (input.LineItems as FakeInvoice["LineItems"]).map((l) =>
+      l.UnitAmount == null
+        ? { Description: l.Description }
+        : { ...l, LineAmount: half(round2(Number(l.UnitAmount) * Number(l.Quantity ?? 1) * 1000) / 1000) }
+    );
+    const sub = round2(lines.reduce((s, l) => s + (l.LineAmount ?? 0), 0));
+    // GST per line, rounded, then added up (developer.xero.com "Rounding in Xero")
+    // …in whole cents, so the stand-in's own floating point can't decide a half
+    const taxCents = (amount: number, bp: number) => {
+      const cents = Math.round(Math.abs(amount) * 100);
+      const t = Math.floor((cents * bp + 5000) / 10000);
+      return amount < 0 ? -t : t;
+    };
+    const tax = lines.reduce((s, l) => s + taxCents(l.LineAmount ?? 0, taxRates[l.TaxType ?? ""] ?? 0), 0) / 100;
     const inv: FakeInvoice = {
       InvoiceID: id(),
       InvoiceNumber: String(input.InvoiceNumber),

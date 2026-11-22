@@ -138,6 +138,7 @@ describe("AuditLogEntrySchema", () => {
       "credential.removed",
       "credential.updated",
       // #1148: customer stage invoices ('credential.' < 'customer_invoice.' < 'daywork.').
+      "customer_invoice.prefs_updated",
       "customer_invoice.profile_updated",
       "customer_invoice.raised_again",
       "customer_invoice.send_failed",
@@ -149,6 +150,13 @@ describe("AuditLogEntrySchema", () => {
       "customer_invoice.stage_edited",
       "customer_invoice.stage_removed",
       "customer_invoice.status_checked",
+      "customer_invoice.variation_added",
+      "customer_invoice.variation_approved",
+      "customer_invoice.variation_billed",
+      "customer_invoice.variation_declined",
+      "customer_invoice.variation_edited",
+      "customer_invoice.variation_removed",
+      "customer_invoice.variation_reopened",
       // #370: daywork register lifecycle.
       "daywork.amended",
       "daywork.created",
