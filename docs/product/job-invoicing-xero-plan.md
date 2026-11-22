@@ -122,7 +122,9 @@ means supplier invoices and keeps that meaning. Internal name everywhere:
 Expiry about 2027-02-20 (the 90-day convention). Crons use `isFlagOn`, never
 `isFlagEnabled` (an admin-tier flag is always false with no viewer).
 
-### 5.3 Database (one additive migration, RLS on with zero policies, `tenant_id` on every table)
+### 5.3 Database (additive migrations, RLS on with zero policies, `tenant_id` on every table)
+
+The five invoice tables ship together in `20261122100000_customer_invoices.sql` (part B), so parts C–E need no further migration. The two IV-number tables ship in their own migration with part F, which is independent.
 
 - **`customer_invoice_settings`** — one row per tenant + Xero organisation: `sales_account_code`, `sales_account_name`, `tax_type`, `tax_name`, `tax_rate_bp`, `payment_terms_days`, `version`
 - **`customer_invoice_job_profiles`** — one row per job (`job_legacy_id`): `xero_contact_id`, `xero_contact_name`, `external_tenant_id`, `retention_bp` (0 = none), `version`
@@ -250,7 +252,7 @@ a small PR of its own first.
 | **C. Xero plumbing** | Scopes + connect + reconnect notices, `xeroFetch` headers, contact search and link, settings panel, sync-log types and the error-text fix | A reconnect grants the new permission; contacts and accounts read live |
 | **D. Send as draft** | `payload.js`, `xero-send.js`, preview / send / retry / raise-again, the preview drawer, row history | A draft lands in the Demo Company and reads back matched |
 | **E. Paid status** | `xero-status.js`, cron, refresh, statuses and drift, profitability fields, Money-card figures, PDF section | Approve and pay in the Demo Company; BuhlOS shows it |
-| **F. IV numbers** | `job_code_auto` flag, counter tables (in the migration from B), `job-codes.js`, create paths, set-once on PUT, office and phone forms | Two creates at once get different numbers |
+| **F. IV numbers** | `job_code_auto` flag, counter tables (their own migration), `job-codes.js`, create paths, set-once on PUT, office and phone forms | Two creates at once get different numbers |
 
 B, C and F do not depend on each other. D needs B and C. E needs D.
 

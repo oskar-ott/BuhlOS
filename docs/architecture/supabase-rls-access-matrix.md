@@ -184,6 +184,23 @@ the unit freezes once real stock has moved; items are archived, never deleted.
 Composite `(tenant_id, id)` foreign keys keep every row inside its tenant. Photo
 rows carry a Blob URL that is never sent to a browser (authenticated proxy).
 
+**`customer_invoice_settings` / `customer_invoice_job_profiles` /
+`customer_invoices` / `customer_invoice_attempts` / `customer_invoice_events`**
+(customer stage invoices, owner pull 2026-11-22 —
+`20261122100000_customer_invoices.sql`, see
+[customer-invoicing-boundary-adr.md](customer-invoicing-boundary-adr.md) and
+[../customer-invoices.md](../customer-invoices.md)): money records — RLS-on,
+zero policies, service-role only. Every read and write goes through
+`api/customer-invoices.js`, admin tier only. The integrity rules live IN the
+database: a stage has no number until it is sent (`seq` and `invoice_number`
+are null together), then the number is unique per job and per tenant and never
+reused; a row cannot be marked `sent` without a number and a Xero invoice id;
+attempts are immutable (a trigger refuses UPDATE); events are append-only and
+deliberately carry **no** foreign key to attempts, because the `pending` event
+is written before the attempt row exists. No token, secret or OAuth columns.
+Only the schedule (planned stages, retention %) is written today; the send and
+the Xero mirror columns are #1150/#1151.
+
 ## How to apply + verify (later — not during the cutover ceremony)
 
 1. **Dev first.** Apply `20260703230000_phase1_rls_policies.sql` to the dev

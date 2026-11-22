@@ -8,6 +8,7 @@ import { cn } from "@/lib/cn";
 import { updateJob } from "@/domains/jobs/client";
 import { formatHoursLabel } from "@/domains/timesheets/format";
 import { JOB_MONEY_CHANGED_EVENT } from "@/domains/jobs/job-materials-client";
+import { announceJobContractChanged } from "@/domains/customer-invoices/client";
 import {
   formatMoneyCents,
   jobProfitability,
@@ -607,6 +608,9 @@ function ContractFigure({
       return;
     }
     await onSaved();
+    // The Getting paid card works its % stages and "still to invoice" off the
+    // contract value — tell it (a no-op when that card isn't on the page).
+    announceJobContractChanged(jobId);
     setBusy(false);
     setEditing(false);
   }

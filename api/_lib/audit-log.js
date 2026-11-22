@@ -261,6 +261,14 @@ const VALID_ACTIONS = new Set([
   'invoice.auto_confirmed',
   'invoice.held',
   'invoice.supplier_pref_changed',
+  // Customer stage invoices (#1148, api/customer-invoices.js): the job's
+  // payment schedule. targetType 'customer_invoice' (targetId = the PG stage
+  // uuid; the jobId for profile_updated). Same privacy line as invoice.*:
+  // never an amount. Kept in sync with src/domains/audit-log/schema.ts.
+  'customer_invoice.stage_added',
+  'customer_invoice.stage_edited',
+  'customer_invoice.stage_removed',
+  'customer_invoice.profile_updated',
   // #370: daywork register (api/dayworks.js). daywork.created on POST;
   // daywork.signed on the supervisor sign; daywork.transitioned on the
   // signed → invoiced change (metadata.from/to carry the direction);
@@ -515,6 +523,9 @@ const VALID_TARGET_TYPES = new Set([
   'xero_sync_item',
   // Supplier-invoice capture: targetId = public.supplier_invoices.id.
   'supplier_invoice',
+  // #1148: a customer stage invoice (targetId = public.customer_invoices.id,
+  // or the job id for a job-level profile change).
+  'customer_invoice',
   // Task I: targetId = public.supplier_line_categories.id (a remembered filing rule).
   'supplier_line_category',
   // Workshop Stock: targetId = public.workshop_stock_items.id.

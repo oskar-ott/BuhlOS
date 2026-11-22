@@ -125,6 +125,11 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "invoice.auto_confirmed": "Booked a supplier invoice automatically",
   "invoice.held": "Held a supplier invoice for a person",
   "invoice.supplier_pref_changed": "Changed a supplier's review preference",
+  // Customer stage invoices (targetType 'customer_invoice' groups as Other).
+  "customer_invoice.stage_added": "Added a stage invoice to a job",
+  "customer_invoice.stage_edited": "Edited a planned stage invoice",
+  "customer_invoice.stage_removed": "Removed a planned stage invoice",
+  "customer_invoice.profile_updated": "Changed a job's invoicing set-up",
   // Workshop Stock (targetType 'workshop_stock_item' groups as Other).
   "workshop_stock.item_created": "Added a workshop stock item",
   "workshop_stock.item_updated": "Edited a workshop stock item",

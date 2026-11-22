@@ -137,6 +137,11 @@ describe("AuditLogEntrySchema", () => {
       "credential.added",
       "credential.removed",
       "credential.updated",
+      // #1148: customer stage invoices ('credential.' < 'customer_invoice.' < 'daywork.').
+      "customer_invoice.profile_updated",
+      "customer_invoice.stage_added",
+      "customer_invoice.stage_edited",
+      "customer_invoice.stage_removed",
       // #370: daywork register lifecycle.
       "daywork.amended",
       "daywork.created",
@@ -363,6 +368,8 @@ describe("AuditLogEntrySchema", () => {
       "claim",
       "contact",
       "credential",
+      // #1148: customer stage invoices (sorts between credential and daywork).
+      "customer_invoice",
       // #370: daywork docket records.
       "daywork",
       // #210: per-job site diary entries.

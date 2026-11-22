@@ -42,6 +42,7 @@ only that registry, typed union and docs agree (`npm run check:flag-docs`).
 | `job_materials_spend` | off · admin-tier | | | | | |
 | `phil_sharpened` | off · global | | | | | |
 | `workshop_stock` | off · global | | | | | |
+| `customer_invoices` | off · admin-tier | | | | | |
 
 ## What this does not prove
 

@@ -26,6 +26,7 @@ import { JobMaterialsCard } from "@/components/admin/JobMaterialsCard";
 import { JobSupplierInvoicesCard } from "@/components/admin/invoices/JobSupplierInvoicesCard";
 import { JobRecentPurchasesCard } from "@/components/admin/JobRecentPurchasesCard";
 import { JobMoneyCard } from "@/components/admin/JobMoneyCard";
+import { JobGettingPaidCard } from "@/components/admin/customer-invoices/JobGettingPaidCard";
 import { JobTagsSummary } from "@/components/admin/JobTagsSummary";
 import { JobEvidenceSummary } from "@/components/admin/JobEvidenceSummary";
 import { isFlagEnabled, isFlagOn } from "../../../../../api/_lib/feature-flags.js";
@@ -64,6 +65,9 @@ interface PageParams {
  *     and (admin) the Edit link beside the name into the builder Basics tab
  *   - Money &mdash; contract / labour / materials / margin, completeness notes,
  *     inline contract + estimate entry, budget variance (admin only)
+ *   - Getting paid &mdash; the job's customer stage invoices: the payment
+ *     schedule, planned vs contract, retention (admin only, behind the
+ *     customer_invoices flag; schedule only &mdash; no Xero call yet)
  *   - Labour &mdash; hours AND cost per worker, day by day (admin only: the
  *     per-job hours read and the cost rates are office data)
  *   - Materials &mdash; the per-job spend ledger (admin only, behind the
@@ -119,6 +123,10 @@ export default async function AdminJobInterfacePage({ params }: PageParams) {
   // Supplier-invoice capture is an admin-tier launch-gate (dark): when off the
   // hub renders no card, no count and makes no fetch — no trace at all.
   const invoicesEnabled = canBuild && (await isFlagEnabled("invoice_capture", session));
+  // Customer stage invoices (owner pull 2026-11-22) — admin-tier launch-gate,
+  // dark: when off the hub renders no card and makes no fetch.
+  const customerInvoicesEnabled =
+    canBuild && (await isFlagEnabled("customer_invoices", session));
   // Recent purchases (owner pull 2026-10-04): for EVERYONE who can open this
   // page — a leading hand sees what was bought, the office also sees the
   // money (the route only sends amounts to the office tier). Reads the
@@ -226,6 +234,14 @@ export default async function AdminJobInterfacePage({ params }: PageParams) {
         {canBuild ? (
           <div className="mt-5">
             <JobMoneyCard jobId={job.id} materialsLedgerEnabled={materialsEnabled} />
+          </div>
+        ) : null}
+
+        {/* What the job is being paid: the customer stage invoices, directly
+            under what it has cost. Client-fetched, admin-tier, flag-dark. */}
+        {customerInvoicesEnabled ? (
+          <div className="mt-5">
+            <JobGettingPaidCard jobId={job.id} />
           </div>
         ) : null}
 
