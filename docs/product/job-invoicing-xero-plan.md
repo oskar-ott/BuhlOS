@@ -19,7 +19,7 @@ whether the job is making or losing money. ServiceM8 can then be dropped.
 | What lands in Xero | A **draft**. The office approves and emails it from Xero, as now |
 | Invoice number in Xero | Job number + stage: `IV3345-1`, `IV3345-2` |
 | Retention | Sometimes. Optional per job |
-| Where new IV numbers come from | BuhlOS, from the 7000 range (`IV7001` up), so it can run beside ServiceM8 |
+| Where new IV numbers come from | BuhlOS, starting at `IV4000` (owner, 2026-11-22 — this replaced the first answer, "the 7000 range") |
 
 **Hypothesis (lean loop, one line for every PR body):** *We believe the office
 will raise the next real stage invoice from BuhlOS instead of ServiceM8. We'll
@@ -206,6 +206,11 @@ Changes to existing files:
 - Lint traps: no `style=` attribute; no function called `confirm`; every user-visible name says BuhlOS
 
 ### 5.6 IV numbers
+
+> **As built (part F):** numbers start at `IV4000`, not in the 7000s, and the
+> issuer takes the lowest number that is not in use rather than seeding from
+> the highest existing one. [../job-numbers.md](../job-numbers.md) is the
+> record of what was built; the bullets below are the plan as first written.
 
 - `api/_lib/job-codes.js` — `issueNextCode(sql, { existingCodes })`: seeds the counter on first use from the highest `IV7xxx` already in `jobs.json` or the claims table (never below 7001), increments atomically, skips any number already on a job, writes the claim
 - `api/_lib/job-create.js` `createJob` — when `code` is omitted and `job_code_auto` is on, issue one. This covers the office form, the phone, and the (dark) ServiceM8 sync in one place. The existing format and clash checks stay as a backstop

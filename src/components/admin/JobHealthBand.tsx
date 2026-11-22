@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/Card";
 import { JobCrewNames } from "@/components/admin/JobCrewNames";
 import { lifecycleLine } from "@/domains/jobs/lifecycle";
 import { JobStatusControl } from "@/components/admin/JobStatusControl";
+import { GiveJobNumber } from "@/components/admin/GiveJobNumber";
 import { deriveJobHealth } from "@/domains/jobs/job-health";
 import { jobCardVerdict, type JobCardVerdictTone } from "@/domains/jobs/portfolio";
 import { healthLabel } from "@/domains/jobs/job-health-list";
@@ -61,9 +62,13 @@ export function JobHealthBand({
   job,
   canEdit,
   progressPct,
+  canIssueNumber = false,
 }: {
   job: Job;
   canEdit: boolean;
+  /** job_code_auto is on for an office viewer: a job with no number can be
+   *  given one, once (#1152). */
+  canIssueNumber?: boolean;
   /** Canonical pooled task progress (0–100) or null when the job has no tasks. */
   progressPct: number | null;
 }) {
@@ -91,13 +96,14 @@ export function JobHealthBand({
     <Card className="overflow-hidden p-0">
       <div className="p-4 sm:p-7 sm:pb-6">
         <div className="flex items-start justify-between gap-4">
-          {idParts.length > 0 ? (
-            <p className="font-mono text-xs font-medium uppercase tracking-[0.14em] text-text-muted">
-              {idParts.join(" · ")}
-            </p>
-          ) : (
-            <span />
-          )}
+          <div className="min-w-0 space-y-1">
+            {idParts.length > 0 ? (
+              <p className="font-mono text-xs font-medium uppercase tracking-[0.14em] text-text-muted">
+                {idParts.join(" · ")}
+              </p>
+            ) : null}
+            {canIssueNumber && canEdit && !job.code ? <GiveJobNumber jobId={job.id} /> : null}
+          </div>
           <div className="shrink-0">
             <JobStatusControl job={job} canEdit={canEdit} />
           </div>

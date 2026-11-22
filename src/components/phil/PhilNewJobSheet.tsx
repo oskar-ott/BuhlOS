@@ -10,11 +10,13 @@ import { cn } from "@/lib/cn";
 import type { Job } from "@/domains/jobs/types";
 import {
   CODE_PREFIX,
+  canCreateIssuedJobInput,
   canCreateJobInput,
   codeFromDigits,
   newJobCodeClash,
   nextFree7000,
   realCodesOnList,
+  recoverIssuedJobAfterTimeout,
   recoverJobIdAfterTimeout,
   sanitizeDigits,
 } from "./philNewJobForm";
@@ -40,6 +42,18 @@ import {
  * Writes via philWrite (non-optimistic — the job exists only on a confirmed
  * server reply); server errors (duplicate code etc.) surface as inline
  * honest errors with every input preserved.
+ *
+ * BuhlOS-issued numbers (`issuedNumbers`, job_code_auto — dark, #1152):
+ * the second side of the toggle stops asking the worker to make a number up.
+ * It sends NO code and the server issues the next one, so two workers can
+ * never be handed the same number.
+ *   - P6: the digits field and "Next free" leave that side — a name is enough.
+ *   - P7: no number is shown before it exists. The slot says one is coming;
+ *     the real number shows on the job once the server has issued it, and if
+ *     none could be issued the worker is told and nothing is created.
+ *   - P10: no new slot — the line sits where the digits field was, and the
+ *     number appears where a job's code already shows.
+ * With the prop off this component is exactly as it was.
  */
 
 export type NewJobCodeMode = "servicemate" | "custom";
@@ -55,6 +69,9 @@ interface PhilNewJobSheetProps {
   jobs: ReadonlyArray<Pick<Job, "id" | "name" | "code">>;
   /** Initial toggle side. Default ServiceMate (the prototype's lead side). */
   initialMode?: NewJobCodeMode;
+  /** job_code_auto is on for this worker: the second side hands the number
+   *  to BuhlOS instead of asking for one. Server-resolved; default off. */
+  issuedNumbers?: boolean;
 }
 
 interface CreatedJob {
@@ -74,6 +91,7 @@ export function PhilNewJobSheet({
   onClose,
   jobs,
   initialMode = "servicemate",
+  issuedNumbers = false,
 }: PhilNewJobSheetProps) {
   const router = useRouter();
 
@@ -102,30 +120,32 @@ export function PhilNewJobSheet({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose, submitting]);
 
-  const digits = mode === "servicemate" ? smDigits : customDigits;
+  // BuhlOS issues the number: this side sends no code at all.
+  const issuing = issuedNumbers && mode === "custom";
+  const digits = issuing ? "" : mode === "servicemate" ? smDigits : customDigits;
   // Pre-guard: the composed code already belongs to a job on the worker's
   // OWN list — Create would only earn a guaranteed 409, so it stays disabled
   // with an honest inline hint instead. Their own list leaks nothing; the
   // server stays the real enforcement for codes on jobs they can't see.
   const codeClash = useMemo(() => newJobCodeClash(jobs, digits), [jobs, digits]);
-  const canCreate = canCreateJobInput(name, digits) && !codeClash && !submitting;
+  const inputReady = issuing ? canCreateIssuedJobInput(name) : canCreateJobInput(name, digits);
+  const canCreate = inputReady && !codeClash && !submitting;
 
   const onNextFree = useCallback(() => {
     setCustomDigits(nextFree7000(existingCodes) ?? "");
   }, [existingCodes]);
 
   const onSubmit = useCallback(async () => {
-    if (!canCreateJobInput(name, digits) || codeClash || submitting) return;
+    if (!inputReady || codeClash || submitting) return;
     setSubmitting(true);
     setError(null);
-    const code = codeFromDigits(digits);
+    const code = issuing ? "" : codeFromDigits(digits);
     // Snapshot the list as it stood at submit — the timeout-recovery probe
     // may only claim success for a job that was NOT already here.
     const preSubmitJobIds = new Set(jobs.map((j) => j.id));
-    const body: Record<string, string> = {
-      name: name.trim(),
-      code,
-    };
+    const body: Record<string, string> = { name: name.trim() };
+    // No code when BuhlOS issues it — the server picks the next number.
+    if (!issuing) body.code = code;
     if (siteAddress.trim()) body.siteAddress = siteAddress.trim();
     const result = await philWrite("/api/jobs", body, parseCreated);
     if (result.ok) {
@@ -143,9 +163,16 @@ export function PhilNewJobSheet({
     // other failure kind means no server confirmation existed; the honest
     // failure line stands.
     if (result.error.kind === "timeout") {
-      const recovery = await recoverJobIdAfterTimeout(code, preSubmitJobIds);
+      const recovery = issuing
+        ? await recoverIssuedJobAfterTimeout(name, preSubmitJobIds)
+        : await recoverJobIdAfterTimeout(code, preSubmitJobIds);
       if (recovery.outcome === "created") {
         router.push(`/phil/jobs/${encodeURIComponent(recovery.id)}`);
+        return;
+      }
+      if (recovery.outcome === "preexisting" && issuing) {
+        setError("There's already a job with that name on your list — this one wasn't created. Use a different name.");
+        setSubmitting(false);
         return;
       }
       if (recovery.outcome === "preexisting") {
@@ -158,7 +185,7 @@ export function PhilNewJobSheet({
     }
     setError(result.error.message || "Couldn't create the job. Try again.");
     setSubmitting(false);
-  }, [name, digits, codeClash, jobs, siteAddress, submitting, router]);
+  }, [name, digits, issuing, inputReady, codeClash, jobs, siteAddress, submitting, router]);
 
   if (!open) return null;
 
@@ -221,7 +248,9 @@ export function PhilNewJobSheet({
           <div className="space-y-2">
             <div className="flex items-baseline justify-between">
               <span className="font-display text-[13px] font-bold text-text">Job code</span>
-              <span className="text-[12px] text-text-muted">format IV0000</span>
+              <span className="text-[12px] text-text-muted">
+                {issuing ? "given by BuhlOS" : "format IV0000"}
+              </span>
             </div>
 
             {/* Segmented toggle — ServiceMate | Custom number */}
@@ -258,7 +287,7 @@ export function PhilNewJobSheet({
                 )}
               >
                 <SquarePen aria-hidden="true" className="h-4 w-4" />
-                Custom number
+                {issuedNumbers ? "BuhlOS number" : "Custom number"}
               </button>
             </div>
 
@@ -270,7 +299,16 @@ export function PhilNewJobSheet({
               >
                 {CODE_PREFIX}
               </span>
-              {mode === "servicemate" ? (
+              {issuing ? (
+                // No number is shown before it exists (P7): BuhlOS issues it
+                // at Create, and it shows on the job from then on.
+                <span
+                  data-testid="phil-new-job-issued-slot"
+                  className="flex min-w-0 flex-1 items-center px-4 text-[15px] text-text-muted"
+                >
+                  next number, given when you create
+                </span>
+              ) : mode === "servicemate" ? (
                 <input
                   key="sm"
                   aria-label="ServiceMate job number (4 digits)"
@@ -347,6 +385,15 @@ export function PhilNewJobSheet({
                   the one ref.
                 </p>
               </>
+            ) : issuing ? (
+              <p
+                data-testid="phil-new-job-issued-help"
+                className="text-[13px] leading-relaxed text-text-muted"
+              >
+                BuhlOS gives this job the next free number. You&apos;ll see it on
+                the job as soon as it&apos;s made — that&apos;s the one to give the
+                wholesaler.
+              </p>
             ) : (
               <p className="text-[13px] leading-relaxed text-text-muted">
                 Your own ref, in the 7000s so it never clashes with a ServiceMate

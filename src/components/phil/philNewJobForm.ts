@@ -168,6 +168,48 @@ export async function recoverJobIdAfterTimeout(
 }
 
 /**
+ * BuhlOS-issued numbers (job_code_auto, #1152): the form sends NO code and
+ * the server issues the next number, so a name is all Create needs.
+ */
+export function canCreateIssuedJobInput(name: string): boolean {
+  return name.trim().length > 0;
+}
+
+/**
+ * The timeout-recovery probe for a create that sent no code. There is no
+ * number to look for, so the job is recognised by what the worker DID send:
+ * a job with that name that was NOT on their list before Create was tapped.
+ * A job that was already there is never claimed as "mine" — same honesty
+ * rule as recoverJobIdAfterTimeout. Any fetch/parse error is "unknown".
+ */
+export async function recoverIssuedJobAfterTimeout(
+  name: string,
+  preSubmitJobIds: ReadonlySet<string>,
+  fetchImpl: typeof fetch = fetch,
+): Promise<TimeoutRecovery> {
+  const want = name.trim().toLowerCase();
+  if (!want) return { outcome: "unknown" };
+  try {
+    const res = await fetchImpl("/api/jobs", { cache: "no-store" });
+    if (!res.ok) return { outcome: "unknown" };
+    const raw = (await res.json()) as { jobs?: unknown };
+    if (!raw || !Array.isArray(raw.jobs)) return { outcome: "unknown" };
+    let preexisting = false;
+    for (const j of raw.jobs) {
+      if (!j || typeof j !== "object") continue;
+      const { id, name: n } = j as { id?: unknown; name?: unknown };
+      if (typeof id !== "string" || !id || typeof n !== "string") continue;
+      if (n.trim().toLowerCase() !== want) continue;
+      if (!preSubmitJobIds.has(id)) return { outcome: "created", id };
+      preexisting = true;
+    }
+    return preexisting ? { outcome: "preexisting" } : { outcome: "unknown" };
+  } catch {
+    return { outcome: "unknown" };
+  }
+}
+
+/**
  * The next free 7000-series number, as 4 digits ("7001"), computed from the
  * ACTUAL codes on the jobs the client already has: the smallest number in
  * [7001..7999] no listed code uses. Returns null only when the whole range is

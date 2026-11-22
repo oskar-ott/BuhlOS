@@ -20,6 +20,7 @@ const {
   validateCustomFields,
 } = require('./validation');
 const { slugify, sanitizeModules, validateJobBasics } = require('./job-fields');
+const jobCodes = require('./job-codes');
 
 /**
  * Create a job through the sanctioned, validated path.
@@ -32,15 +33,26 @@ const { slugify, sanitizeModules, validateJobBasics } = require('./job-fields');
  *                         clientUserId?, type?, status?, areaGroups?,
  *                         roughInTasks?, fitOffTasks?, modules?,
  *                         customFields?, + Job Basics, + fromQuoteId?.
+ * @param {object} [options]
+ * @param {boolean} [options.autoCode]  job_code_auto is on for the caller
+ *                         (#1152). A create with NO code is then issued the
+ *                         next BuhlOS number (IV4000 up), and a typed code is
+ *                         also claimed in Postgres. Off / omitted = exactly
+ *                         the behaviour before the flag existed: no code
+ *                         means no code, and Postgres is never touched.
+ * @param {{ id?: string, name?: string }} [options.actor]  who is creating
+ * @param {object} [options.codes]  the job-codes seam (tests inject one)
  *
- * @returns {Promise<{ ok: true, job: object } | { ok: false, status: number, error: string }>}
+ * @returns {Promise<{ ok: true, job: object, codeIssued?: boolean } | { ok: false, status: number, error: string }>}
  *          On success the job has been pushed onto data.jobs, jobs.json written,
  *          and the per-job seeds (data.json / tags.json / temps.json) written.
  *          On failure nothing is written; `status` is the HTTP code the caller
- *          should return (400 invalid input / id collision).
+ *          should return (400 invalid input / id collision / 409 code taken /
+ *          503 a number could not be issued).
  */
-async function createJob(data, input) {
+async function createJob(data, input, options) {
   const body = input || {};
+  const opts = options || {};
 
   const {
     name, id, clientUserId, type, status,
@@ -136,6 +148,43 @@ async function createJob(data, input) {
     initialStatus = status;
   }
 
+  // ── The job number (#1152) ────────────────────────────────────────────────
+  // LAST, after every validation above, so a refused create never uses up a
+  // number. With job_code_auto on: no code typed → BuhlOS issues the next
+  // one; a typed code is claimed so a number issued a moment later can't
+  // collide with it even while jobs.json is read stale. A number is never
+  // made up: if one can't be issued, nothing is created.
+  let codeIssued = false;
+  let typedClaim = null;
+  if (opts.autoCode) {
+    const codes = opts.codes || jobCodes.connect();
+    if (!code) {
+      try {
+        code = await codes.issue({
+          existingCodes: data.jobs.map((j) => (j && typeof j.code === 'string' ? j.code : null)),
+          jobId,
+          actor: opts.actor || null,
+        });
+        codeIssued = true;
+      } catch (e) {
+        console.error('job create: no number issued', { reason: (e && e.reason) || 'unexpected' });
+        return { ok: false, status: 503, error: jobCodes.issueFailureMessage(e) };
+      }
+    } else {
+      try {
+        const claim = await codes.claimTyped(code, { jobId, actor: opts.actor || null });
+        if (!claim.ok) {
+          return { ok: false, status: 409, error: `code ${code} is already in use — pick another` };
+        }
+        if (claim.fresh) typedClaim = { codes, code };
+      } catch (e) {
+        // Typing a number must keep working when Postgres can't be reached:
+        // the jobs.json clash check above is the backstop it always was.
+        console.error('job create: typed code not claimed', { reason: (e && e.reason) || 'unexpected' });
+      }
+    }
+  }
+
   // Per-job module flags (rigidity audit R1). Defaults to "everything on".
   // Unknown keys dropped; values coerced to boolean.
   const job = {
@@ -165,7 +214,15 @@ async function createJob(data, input) {
   if (fromQuoteId) job.fromQuoteId = String(fromQuoteId);
 
   data.jobs.push(job);
-  await writeBlob('jobs.json', data);
+  try {
+    await writeBlob('jobs.json', data);
+  } catch (e) {
+    // The job was never written. A typed number goes back so it can be used
+    // again; an ISSUED number stays claimed (it is skipped, never reused).
+    data.jobs.pop();
+    if (typedClaim) await typedClaim.codes.release(typedClaim.code, jobId).catch(() => {});
+    throw e;
+  }
   await writeBlob(`jobs/${jobId}/data.json`, { dwellings: {}, snags: [], notes: [] });
   await writeBlob(`jobs/${jobId}/tags.json`, { tags: [] });
   await writeBlob(`jobs/${jobId}/temps.json`, { temps: [] });
@@ -176,7 +233,7 @@ async function createJob(data, input) {
   // authoritative; dark behind supabase_dual_write_jobs; never throws).
   await mirrorJobToPg(jobId);
 
-  return { ok: true, job };
+  return codeIssued ? { ok: true, job, codeIssued: true } : { ok: true, job };
 }
 
 module.exports = { createJob };

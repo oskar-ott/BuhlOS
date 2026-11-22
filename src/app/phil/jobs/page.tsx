@@ -11,6 +11,7 @@ import { canAccessSurface } from "@/lib/auth/permissions";
 import { JobListResponseSchema } from "@/domains/jobs/schema";
 import type { Job } from "@/domains/jobs/types";
 import { philInitials, philSharpenedFlags } from "@/lib/phil/sharpened";
+import { isFlagEnabled } from "../../../../api/_lib/feature-flags.js";
 
 export const dynamic = "force-dynamic";
 
@@ -50,9 +51,13 @@ export default async function PhilJobsPage() {
 
   // Sharpened-chrome flag rides alongside the jobs read (cached flags.json,
   // no extra blob round-trip). Server-resolved booleans only.
-  const [{ jobs, fetchError }, sharpenedFlags] = await Promise.all([
+  // job_code_auto (#1152, dark) rides the same cached flags read: when on,
+  // "+ New job" lets BuhlOS issue the number instead of the worker making
+  // one up. A plain boolean goes down, never the flags blob.
+  const [{ jobs, fetchError }, sharpenedFlags, issuedNumbers] = await Promise.all([
     loadJobs(raw),
     philSharpenedFlags(session),
+    isFlagEnabled("job_code_auto", session),
   ]);
 
   // Hide archived + draft rows on the Phil surface even if a future admin
@@ -86,7 +91,12 @@ export default async function PhilJobsPage() {
             </PhilNotice>
           ) : null}
 
-          <PhilJobsSharpened initialJobs={visible} userId={viewerId} loadFailed={Boolean(fetchError)} />
+          <PhilJobsSharpened
+            initialJobs={visible}
+            userId={viewerId}
+            loadFailed={Boolean(fetchError)}
+            issuedNumbers={issuedNumbers}
+          />
         </div>
       </PhilShell>
     );

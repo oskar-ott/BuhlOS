@@ -468,6 +468,17 @@ const REGISTRY = {
     expires: '2027-02-20',
   },
 
+  // #1152 — BuhlOS issues job numbers itself (owner pull 2026-11-22: the
+  // last thing ServiceM8 does). Global: it changes what a create DOES for
+  // whoever makes the job, office or phone. Field-visible on the phone's
+  // "+ New job" (needs phil_sharpened); Phil principles P6 / P7 / P10.
+  job_code_auto: {
+    description: 'BuhlOS issues the next job number (IV4000 up) when a job is created with none typed — office New job form and the phone "+ New job" — from a Postgres counter, so two people can never be given the same number. A typed number still works. An admin can give an older job with no number its number once. Dark, unproven.',
+    default: false,
+    target: 'global',
+    expires: '2027-02-20',
+  },
+
   // job_photos left the hidden list by owner decision (#916 call 2,
   // 2026-07-18): the gallery completes the capture loop, so it is lean-core —
   // a kill-switch (default ON).
@@ -494,6 +505,7 @@ const FLAG_PRESENTATION = {
   job_purchases: { label: 'Recent purchases on the job', domain: 'Jobs', surface: 'Shared', previewHref: '/v2/jobs' },
   workshop_stock: { label: 'Workshop stock', domain: 'People & gear', surface: 'Shared', previewHref: '/phil/stock' },
   customer_invoices: { label: 'Customer stage invoices', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/v2/jobs' },
+  job_code_auto: { label: 'BuhlOS job numbers', domain: 'Jobs', surface: 'Shared', previewHref: '/v2/jobs/new' },
   admin_flags_readout: { label: 'Flags readout card', domain: 'Platform', surface: 'BuhlOS', previewHref: '/command-centre' },
   servicem8_sync: { label: 'ServiceM8 job sync', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/command-centre' },
   phil_sharpened: { label: 'Phil sharpened redesign', domain: 'Phil', surface: 'Phil', previewHref: '/phil/my-day' },

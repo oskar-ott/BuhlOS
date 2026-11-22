@@ -24,6 +24,12 @@ import { cn } from "@/lib/cn";
  * Name and the IV number are required (the server validates the IV format and
  * refuses a duplicate with a 409). Ref + site address are optional
  * conveniences so the draft is recognisable in the jobs list.
+ *
+ * With `issuedNumbers` (job_code_auto, #1152 — dark) the IV number is
+ * optional: left blank, BuhlOS issues the next one at create. The form then
+ * stops on the issued number, shown large, before going on to the Builder —
+ * it is the number that gets read out at the wholesaler counter, and it did
+ * not exist until that moment. A typed number behaves exactly as before.
  * Job type + client are deliberately NOT here — they need lookup tables and
  * are managed where those tables live; the Builder round-trips them.
  *
@@ -63,8 +69,10 @@ export function createJobFieldError(status: number, body: unknown): CreateJobFie
   return null;
 }
 
-export function NewJobForm() {
+export function NewJobForm({ issuedNumbers = false }: { issuedNumbers?: boolean }) {
   const router = useRouter();
+  /** The job just created with a BuhlOS-issued number, shown before moving on. */
+  const [issued, setIssued] = useState<{ id: string; name: string; code: string } | null>(null);
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
   const [ref, setRef] = useState("");
@@ -85,8 +93,10 @@ export function NewJobForm() {
   // The IV number is what every worker gives the wholesaler and what supplier
   // invoices are matched on — a job without one can never receive a cost.
   const codeTrim = code.trim().toUpperCase();
-  if (!codeTrim) fieldErrors.code = "IV number is required";
-  else if (!/^IV\d{4}$/.test(codeTrim)) fieldErrors.code = "IV followed by four digits, e.g. IV3232";
+  if (!codeTrim) {
+    // Blank is fine when BuhlOS issues the number; otherwise it is required.
+    if (!issuedNumbers) fieldErrors.code = "IV number is required";
+  } else if (!/^IV\d{4}$/.test(codeTrim)) fieldErrors.code = "IV followed by four digits, e.g. IV3232";
 
   async function submit() {
     if (inFlightRef.current || submitting) return;
@@ -109,7 +119,7 @@ export function NewJobForm() {
     const res = await createJob(
       buildCreatePayload({
         name,
-        code: codeTrim,
+        code: codeTrim || undefined,
         ref: ref.trim() || undefined,
         siteAddress: siteAddress.trim() || undefined,
         clientName: clientName.trim() || undefined,
@@ -127,15 +137,48 @@ export function NewJobForm() {
       setError(res.error.message);
       return;
     }
+    // BuhlOS issued the number: stop on it. It didn't exist until now, and it
+    // is what gets quoted at the wholesaler — a redirect would bury it.
+    const created = res.data.job;
+    if (!codeTrim && typeof created.code === "string" && created.code) {
+      setIssued({ id: created.id, name: created.name, code: created.code });
+      return;
+    }
     // Keep `submitting` true through the navigation so the button can't be
     // double-fired while the route transition runs.
-    router.push(`/v2/jobs/${encodeURIComponent(res.data.job.id)}/builder` as Route);
+    router.push(`/v2/jobs/${encodeURIComponent(created.id)}/builder` as Route);
   }
 
   // Client validation shows once the user has tried to create; a server
   // refusal about a field (duplicate IV number / name) shows next to it.
   const nameError = (showErrors ? fieldErrors.name : undefined) ?? serverFieldErrors.name;
   const codeError = (showErrors ? fieldErrors.code : undefined) ?? serverFieldErrors.code;
+
+  if (issued) {
+    return (
+      <Card data-testid="job-number-issued">
+        <CardTitle>Draft created</CardTitle>
+        <CardDescription className="mt-1">{issued.name}</CardDescription>
+        <p className="mt-5 text-[13px] font-semibold text-text-muted">Job number</p>
+        <p className="font-mono text-5xl font-bold tracking-[0.04em] text-text" data-testid="issued-job-code">
+          {issued.code}
+        </p>
+        <p className="mt-2 text-sm text-text-muted">
+          Give this number to the wholesaler. Supplier invoices are matched on it, and it
+          can&rsquo;t be changed.
+        </p>
+        <div className="mt-5 flex items-center justify-end">
+          <Link
+            href={`/v2/jobs/${encodeURIComponent(issued.id)}/builder` as Route}
+            className="inline-flex h-10 items-center rounded-card bg-brand-navy px-4 text-sm font-semibold text-white transition hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-brand-navy"
+            data-testid="issued-continue"
+          >
+            Continue to the Builder →
+          </Link>
+        </div>
+      </Card>
+    );
+  }
 
   return (
     <Card>
@@ -175,21 +218,31 @@ export function NewJobForm() {
         </Field>
         <Field
           label="IV number"
-          required
-          help="The job number workers give the wholesaler — supplier invoices are matched on it."
+          required={!issuedNumbers}
+          help={
+            issuedNumbers
+              ? "Leave blank and BuhlOS gives the job the next number. Or type one, e.g. a ServiceM8 number."
+              : "The job number workers give the wholesaler — supplier invoices are matched on it."
+          }
           error={codeError}
         >
           <input
             ref={codeRef}
             data-testid="job-code"
             aria-invalid={codeError ? true : undefined}
-            className={cn(inputClass, "font-mono uppercase", codeError && "border-rose-400")}
+            className={cn(
+              inputClass,
+              "font-mono uppercase",
+              // the hint is a sentence, not a number: don't shout it
+              issuedNumbers && "placeholder:font-sans placeholder:normal-case",
+              codeError && "border-rose-400"
+            )}
             value={code}
             onChange={(e) => {
               setCode(e.target.value);
               if (serverFieldErrors.code) setServerFieldErrors((p) => ({ ...p, code: undefined }));
             }}
-            placeholder="e.g. IV3232"
+            placeholder={issuedNumbers ? "Blank = next BuhlOS number" : "e.g. IV3232"}
             maxLength={8}
             onKeyDown={(e) => {
               if (e.key === "Enter") void submit();

@@ -212,6 +212,15 @@ null`) when a deleted or voided invoice is raised again. Its hourly run has no
 user session: `api/customer-invoices.js?action=poll` is gated by `CRON_SECRET`
 and the same service-role connection.
 
+**`job_code_counters` / `job_code_claims`** (BuhlOS-issued job numbers, #1152 —
+`20261124100000_job_codes.sql`, see [../job-numbers.md](../job-numbers.md)):
+RLS-on, zero policies, service-role only. Written only by
+`api/_lib/job-codes.js`, reached from job creation (`api/_lib/job-create.js`)
+and the office's one-time "give this job a number" (`api/jobs.js` PUT), and
+only while `job_code_auto` is on. The counter row is locked `FOR UPDATE` while
+a number is issued; `UNIQUE (tenant_id, code)` on the claims is the integrity
+rule. No money, no personal data beyond who claimed a number (id + name).
+
 ## How to apply + verify (later — not during the cutover ceremony)
 
 1. **Dev first.** Apply `20260703230000_phase1_rls_policies.sql` to the dev

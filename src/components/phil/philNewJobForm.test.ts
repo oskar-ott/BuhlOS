@@ -9,6 +9,8 @@ import {
   nextFree7000,
   realCodesOnList,
   recoverJobIdAfterTimeout,
+  canCreateIssuedJobInput,
+  recoverIssuedJobAfterTimeout,
   sanitizeDigits,
 } from "./philNewJobForm";
 
@@ -205,5 +207,43 @@ describe("nextFree7000 — from ACTUAL codes only", () => {
     const all = Array.from({ length: 999 }, (_, i) => `IV${7001 + i}`);
     expect(nextFree7000(all)).toBeNull();
     expect(nextFree7000(all.slice(0, 998))).toBe("7999");
+  });
+});
+
+describe("BuhlOS-issued numbers — the form sends no code (#1152)", () => {
+  const okResponse = (body: unknown) => ({ ok: true, json: async () => body }) as unknown as Response;
+
+  it("a name is all Create needs", () => {
+    expect(canCreateIssuedJobInput("Bakery")).toBe(true);
+    expect(canCreateIssuedJobInput("  ")).toBe(false);
+    expect(canCreateIssuedJobInput("")).toBe(false);
+  });
+
+  it("after a timeout: a job with that name that was NOT on the list before is the one just made", async () => {
+    const fetchImpl = vi.fn(async () =>
+      okResponse({ jobs: [{ id: "old", name: "Old job" }, { id: "smith-st-rewire", name: "Smith St rewire", code: "IV4012" }] }),
+    ) as unknown as typeof fetch;
+    await expect(recoverIssuedJobAfterTimeout("  smith st REWIRE ", new Set(["old"]), fetchImpl)).resolves.toEqual({
+      outcome: "created",
+      id: "smith-st-rewire",
+    });
+    expect(fetchImpl).toHaveBeenCalledWith("/api/jobs", { cache: "no-store" });
+  });
+
+  it("a job with that name that was ALREADY there is never claimed as success", async () => {
+    const fetchImpl = vi.fn(async () => okResponse({ jobs: [{ id: "smith-st-rewire", name: "Smith St rewire" }] })) as unknown as typeof fetch;
+    await expect(recoverIssuedJobAfterTimeout("Smith St rewire", new Set(["smith-st-rewire"]), fetchImpl)).resolves.toEqual({ outcome: "preexisting" });
+  });
+
+  it("no match, a failed read, a bad shape or an empty name is 'unknown' — never a guess", async () => {
+    const none = vi.fn(async () => okResponse({ jobs: [{ id: "x", name: "Other" }, null, { id: 3, name: "Smith St rewire" }] })) as unknown as typeof fetch;
+    await expect(recoverIssuedJobAfterTimeout("Smith St rewire", new Set(), none)).resolves.toEqual({ outcome: "unknown" });
+    const failed = vi.fn(async () => ({ ok: false }) as unknown as Response) as unknown as typeof fetch;
+    await expect(recoverIssuedJobAfterTimeout("Smith St rewire", new Set(), failed)).resolves.toEqual({ outcome: "unknown" });
+    const thrown = vi.fn(async () => { throw new Error("offline"); }) as unknown as typeof fetch;
+    await expect(recoverIssuedJobAfterTimeout("Smith St rewire", new Set(), thrown)).resolves.toEqual({ outcome: "unknown" });
+    const odd = vi.fn(async () => okResponse({ nope: true })) as unknown as typeof fetch;
+    await expect(recoverIssuedJobAfterTimeout("Smith St rewire", new Set(), odd)).resolves.toEqual({ outcome: "unknown" });
+    await expect(recoverIssuedJobAfterTimeout("   ", new Set(), none)).resolves.toEqual({ outcome: "unknown" });
   });
 });
