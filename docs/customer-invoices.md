@@ -110,15 +110,17 @@ Nothing is stored on the job record or in Blob, so `jobs.json`,
 
 ### Turning it on
 
-1. Apply `20261122100000_customer_invoices.sql`, then
-   `20261123100000_customer_invoices_replaced_by.sql`, to the dev Supabase
-   project, then production. An operator step, owner-approved each time.
+1. **Done 2026-11-22.** `20261122100000_customer_invoices.sql`, then
+   `20261123100000_customer_invoices_replaced_by.sql`, are applied to the dev
+   Supabase project and to production (owner-approved each time). What landed
+   was checked against these files character for character; the tables are
+   empty.
 2. In the Owner Console, set **Customer stage invoices** to owner preview (or
    Live for the office).
 3. Open any job. "Getting paid" appears under the Money card.
 
-Without step 1 the card shows "The invoice records can't be reached right
-now" rather than failing silently.
+On a database without step 1 (a new environment, say) the card shows "The
+invoice records can't be reached right now" rather than failing silently.
 
 Preview deployments cannot reach Postgres, so this cannot be exercised on a
 Vercel preview.
