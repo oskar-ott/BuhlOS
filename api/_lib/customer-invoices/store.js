@@ -311,16 +311,116 @@ async function removeStage(sql, tenantId, id, { expectedVersion, actor }) {
   });
 }
 
+/**
+ * The most recently linked Xero contact among OTHER jobs (same client name,
+ * chosen by the caller) in the given organisation — offered as a suggestion
+ * when a job has no link yet. A person still confirms it; it is never applied
+ * on its own (ADR rule 8).
+ */
+async function latestContactAmongJobs(sql, tenantId, jobLegacyIds, externalTenantId) {
+  if (!Array.isArray(jobLegacyIds) || !jobLegacyIds.length || !externalTenantId) return null;
+  const rows = await sql`
+    select xero_contact_id, xero_contact_name, job_legacy_id
+    from public.customer_invoice_job_profiles
+    where tenant_id = ${tenantId}
+      and job_legacy_id in ${sql(jobLegacyIds)}
+      and external_tenant_id = ${externalTenantId}
+      and xero_contact_id is not null
+    order by updated_at desc
+    limit 1`;
+  if (!rows.length) return null;
+  return { id: rows[0].xero_contact_id, name: rows[0].xero_contact_name, fromJobId: rows[0].job_legacy_id };
+}
+
+// ── org-level defaults ──────────────────────────────────────────────────────
+function settingsRow(r) {
+  if (!r) return null;
+  return {
+    externalTenantId: r.external_tenant_id,
+    salesAccountCode: r.sales_account_code,
+    salesAccountName: r.sales_account_name,
+    taxType: r.tax_type,
+    taxName: r.tax_name,
+    taxRateBp: int(r.tax_rate_bp),
+    paymentTermsDays: int(r.payment_terms_days),
+    version: int(r.version),
+    updatedBy: r.updated_by_name,
+    updatedAt: iso(r.updated_at),
+  };
+}
+
+/** The defaults chosen for ONE Xero organisation, or null when none are saved. */
+async function getSettings(sql, tenantId, externalTenantId) {
+  if (!externalTenantId) return null;
+  const rows = await sql`
+    select * from public.customer_invoice_settings
+    where tenant_id = ${tenantId} and external_tenant_id = ${externalTenantId}`;
+  return rows.length ? settingsRow(rows[0]) : null;
+}
+
+/**
+ * Save the defaults for one organisation (whole-row replace: the three are
+ * chosen together on one panel). `expectedVersion` is null for a first save.
+ */
+async function saveSettings(sql, tenantId, externalTenantId, v, { expectedVersion, actor }) {
+  return sql.begin(async (tx) => {
+    const cur = await tx`
+      select id, version from public.customer_invoice_settings
+      where tenant_id = ${tenantId} and external_tenant_id = ${externalTenantId}
+      for update`;
+    let row;
+    if (!cur.length) {
+      if (expectedVersion != null) throw new StoreConflict('version');
+      const ins = await tx`
+        insert into public.customer_invoice_settings
+          (tenant_id, external_tenant_id, sales_account_code, sales_account_name, tax_type, tax_name,
+           tax_rate_bp, payment_terms_days, updated_by_legacy_id, updated_by_name)
+        values (${tenantId}, ${externalTenantId}, ${v.salesAccountCode}, ${v.salesAccountName}, ${v.taxType}, ${v.taxName},
+                ${v.taxRateBp}, ${v.paymentTermsDays}, ${(actor && actor.id) || null}, ${(actor && actor.name) || null})
+        returning *`;
+      row = ins[0];
+    } else {
+      if (Number(cur[0].version) !== Number(expectedVersion)) throw new StoreConflict('version');
+      const upd = await tx`
+        update public.customer_invoice_settings set
+          sales_account_code = ${v.salesAccountCode},
+          sales_account_name = ${v.salesAccountName},
+          tax_type           = ${v.taxType},
+          tax_name           = ${v.taxName},
+          tax_rate_bp        = ${v.taxRateBp},
+          payment_terms_days = ${v.paymentTermsDays},
+          version            = version + 1,
+          updated_by_legacy_id = ${(actor && actor.id) || null},
+          updated_by_name    = ${(actor && actor.name) || null}
+        where id = ${cur[0].id} and tenant_id = ${tenantId}
+        returning *`;
+      row = upd[0];
+    }
+    await insertEvent(tx, tenantId, { event: 'settings_updated', actor, detail: { externalTenantId } });
+    return settingsRow(row);
+  });
+}
+
+/** True when every default an invoice needs has been chosen. */
+function settingsComplete(s) {
+  return !!(s && s.salesAccountCode && s.taxType && Number.isInteger(s.taxRateBp) && Number.isInteger(s.paymentTermsDays));
+}
+
 module.exports = {
   TENANT_SLUG,
   StoreConflict,
   resolveTenant,
   profileRow,
   invoiceRow,
+  settingsRow,
   insertEvent,
   listJobEvents,
   getProfile,
   saveProfile,
+  latestContactAmongJobs,
+  getSettings,
+  saveSettings,
+  settingsComplete,
   listJobInvoices,
   getInvoice,
   createStage,

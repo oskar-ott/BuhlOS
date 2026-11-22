@@ -304,4 +304,84 @@ describe("xeroFetch", () => {
       client.xeroFetch("https://api.xero.com/connections", { deps: { store, env: ENV, fetchImpl } })
     ).rejects.toMatchObject({ category: "rate_limit", retryAfterSeconds: 60 });
   });
+
+  // #1149: caller headers (Idempotency-Key for a create, If-Modified-Since
+  // for a poll) pass through; the connection's own headers never give way.
+  type Init = { method?: string; headers: Record<string, string>; body?: string };
+  const apiCalls = (f: { mock: { calls: unknown[][] } }) =>
+    (f.mock.calls as unknown as Array<[string, Init]>).filter((c) => String(c[0]).includes("api.xero.com"));
+
+  it("passes caller headers through and leaves a plain request unchanged", async () => {
+    const store = makeFakeStore(connectedRow());
+    const fetchImpl = vi.fn(async () => apiResponse(200, { ok: true }));
+    await client.xeroFetch("https://api.xero.com/api.xro/2.0/Invoices", {
+      method: "PUT",
+      body: { Invoices: [] },
+      headers: { "Idempotency-Key": "key-123", "If-Modified-Since": "2026-11-22T00:00:00" },
+      deps: { store, env: ENV, fetchImpl },
+    });
+    const [, init] = apiCalls(fetchImpl)[0]!;
+    expect(init.method).toBe("PUT");
+    expect(init.headers["Idempotency-Key"]).toBe("key-123");
+    expect(init.headers["If-Modified-Since"]).toBe("2026-11-22T00:00:00");
+    expect(init.headers.Authorization).toBe("Bearer at-live");
+    expect(init.headers["Xero-tenant-id"]).toBe("org-1");
+    expect(init.headers["Content-Type"]).toBe("application/json");
+
+    await client.xeroFetch("https://api.xero.com/connections", { deps: { store, env: ENV, fetchImpl } });
+    const [, plain] = apiCalls(fetchImpl)[1]!;
+    expect(Object.keys(plain.headers).sort()).toEqual(["Accept", "Authorization", "Xero-tenant-id"]);
+  });
+
+  it("a caller can never override the token, the tenant or the content negotiation", async () => {
+    const store = makeFakeStore(connectedRow());
+    const fetchImpl = vi.fn(async () => apiResponse(200, { ok: true }));
+    await client.xeroFetch("https://api.xero.com/api.xro/2.0/Invoices", {
+      method: "PUT",
+      body: {},
+      headers: {
+        authorization: "Bearer attacker",
+        Authorization: "Bearer attacker",
+        "xero-tenant-id": "other-org",
+        "Xero-Tenant-Id": "other-org",
+        accept: "text/html",
+        "content-type": "text/plain",
+        "Idempotency-Key": "key-1",
+        skipped: null as unknown as string,
+      },
+      deps: { store, env: ENV, fetchImpl },
+    });
+    const [, init] = apiCalls(fetchImpl)[0]!;
+    expect(init.headers).toEqual({
+      "Idempotency-Key": "key-1",
+      Authorization: "Bearer at-live",
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      "Xero-tenant-id": "org-1",
+    });
+  });
+
+  it("a 401 retry and a short-429 retry both resend the SAME idempotency key and body", async () => {
+    for (const first of [401, 429]) {
+      const store = makeFakeStore(connectedRow());
+      const fetchImpl = vi.fn(async (url: string) => {
+        if (String(url).includes("identity.xero.com")) return tokenResponse("at-new", "rt-new");
+        return apiCalls(fetchImpl).length === 1
+          ? apiResponse(first, {}, first === 429 ? { "retry-after": "0" } : {})
+          : apiResponse(200, { ok: true });
+      });
+      await client.xeroFetch("https://api.xero.com/api.xro/2.0/Invoices", {
+        method: "PUT",
+        body: { Invoices: [{ InvoiceNumber: "IV3345-1" }] },
+        headers: { "Idempotency-Key": "key-same" },
+        deps: { store, env: ENV, fetchImpl },
+      });
+      const calls = apiCalls(fetchImpl);
+      expect(calls).toHaveLength(2);
+      for (const [, init] of calls) {
+        expect(init.headers["Idempotency-Key"]).toBe("key-same");
+        expect(init.body).toBe(JSON.stringify({ Invoices: [{ InvoiceNumber: "IV3345-1" }] }));
+      }
+    }
+  });
 });

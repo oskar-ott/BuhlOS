@@ -238,6 +238,7 @@ export const AUDIT_ACTIONS = [
   "customer_invoice.stage_edited",
   "customer_invoice.stage_removed",
   "customer_invoice.profile_updated",
+  "customer_invoice.settings_updated",
   // Workshop Stock: office catalogue actions, count corrections, undos
   // (targetType 'workshop_stock_item'). Kept in sync with api/_lib/audit-log.js.
   "workshop_stock.item_created",

@@ -2,17 +2,31 @@
 // rules: docs/architecture/customer-invoicing-boundary-adr.md).
 //
 // A job's payment stages, listed in BuhlOS. NOT supplier invoices
-// (api/invoices.js — bills coming in). This slice (#1148) is the schedule
-// only: no Xero call exists in this file yet.
+// (api/invoices.js — bills coming in). Built so far: the schedule (#1148) and
+// the Xero set-up an invoice will need (#1149 — the job's client linked to a
+// Xero contact, and the default sales account, tax rate and payment terms).
+// EVERY Xero call in this file is a READ. Nothing is sent to Xero yet.
 //
 // ADMIN-TIER ONLY on every method (money is office data; a leading hand never
 // reads it). Dark behind the `customer_invoices` launch-gate: 404 while off.
 //
-//   GET    /api/customer-invoices?jobId=X              the job's profile, stages and totals
+//   GET    /api/customer-invoices?jobId=X              the job's profile, stages, totals and Xero readiness
 //   POST   /api/customer-invoices?action=stage-add     { jobId, stage }
 //   POST   /api/customer-invoices?action=stage-edit&id=S    { stage, expectedVersion }
 //   POST   /api/customer-invoices?action=stage-remove&id=S  { expectedVersion }
 //   PUT    /api/customer-invoices?action=profile       { jobId, retentionBp, expectedVersion }
+//   GET    /api/customer-invoices?action=contacts&q=   live Xero contact search → [{ id, name }]
+//   PUT    /api/customer-invoices?action=contact-link  { jobId, contactId, expectedVersion }
+//                                                      the contact is re-read from Xero; its name is Xero's, not the browser's
+//   PUT    /api/customer-invoices?action=contact-unlink { jobId, expectedVersion }
+//   GET    /api/customer-invoices?action=settings      Xero readiness + the saved defaults for the connected organisation
+//   GET    /api/customer-invoices?action=settings-options  live from Xero: active revenue accounts + sales tax rates
+//   PUT    /api/customer-invoices?action=settings      { salesAccountCode, taxType, paymentTermsDays, expectedVersion }
+//                                                      both codes must exist in Xero now; names + rate are snapshotted from Xero
+//
+// A Xero failure answers { error: 'xero_<category>' } with a matching status
+// (409 not connected / reconnect needed, 429 busy, 502 otherwise) — and, for
+// a missing invoice permission, reason: 'missing_invoice_scope'.
 //
 // MONEY IS INTEGER CENTS; percentages are basis points (500 = 5%). Every
 // mutation validates (zod), checks the tier, is a compare-and-swap on the
@@ -30,6 +44,8 @@ const { withErrorCapture } = require('./_lib/error-wrap');
 const store = require('./_lib/customer-invoices/store');
 const { MAX_CENTS, BP_WHOLE, contractCentsOf, computeStage, jobTotals } = require('./_lib/customer-invoices/amounts');
 const { displayStatus } = require('./_lib/customer-invoices/status');
+const xero = require('./_lib/customer-invoices/xero-lookups');
+const { XeroError } = require('./_lib/xero/errors');
 
 const MAX_EXTRA_LINES = 20;
 
@@ -74,6 +90,22 @@ const ProfileBody = z.object({
   expectedVersion: version.nullable(),
 }).strict();
 
+const ContactLinkBody = z.object({
+  jobId: z.string().min(1).max(200),
+  contactId: uuid,
+  expectedVersion: version.nullable(),
+}).strict();
+const ContactUnlinkBody = z.object({
+  jobId: z.string().min(1).max(200),
+  expectedVersion: version,
+}).strict();
+const SettingsBody = z.object({
+  salesAccountCode: z.string().trim().min(1).max(20),
+  taxType: z.string().trim().min(1).max(50),
+  paymentTermsDays: z.number().int().min(0).max(365),
+  expectedVersion: version.nullable(),
+}).strict();
+
 function invalid(res, parsed) {
   const fields = parsed.error.issues.map((i) => i.path.join('.')).filter(Boolean);
   return res.status(400).json({ error: 'invalid_request', fields: Array.from(new Set(fields)) });
@@ -90,12 +122,81 @@ function sydneyToday() {
   }).format(new Date());
 }
 
-async function liveJob(jobId) {
+async function readJobs() {
   const data = await readBlob('jobs.json', { jobs: [] });
-  const jobs = Array.isArray(data.jobs) ? data.jobs : [];
-  const j = jobs.find((x) => x && x.id === jobId);
-  if (!j || j.deleted === true || j.deletedAt) return null;
-  return j;
+  return Array.isArray(data.jobs) ? data.jobs : [];
+}
+
+function isLive(j) {
+  return !!j && j.deleted !== true && !j.deletedAt;
+}
+
+async function liveJob(jobId) {
+  const j = (await readJobs()).find((x) => x && x.id === jobId);
+  return isLive(j) ? j : null;
+}
+
+const clientKey = (name) => String(name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+
+/** Other live jobs that carry the same client name as this one. */
+async function sameClientJobIds(job) {
+  const key = clientKey(job.clientName);
+  if (!key) return [];
+  return (await readJobs())
+    .filter((j) => isLive(j) && j.id !== job.id && clientKey(j.clientName) === key)
+    .map((j) => j.id);
+}
+
+/** A Xero failure → a stable response. Never the exception's message. */
+function xeroFailure(res, err) {
+  const c = err.category;
+  const status =
+    c === 'not_connected' || c === 'pending_selection' || c === 'reconnect_required' || c === 'not_configured' || c === 'conflict' ? 409
+      : c === 'validation' ? 400
+        : c === 'forbidden' ? 403
+          : c === 'rate_limit' ? 429
+            : 502;
+  const body = { error: `xero_${c}` };
+  if (c === 'reconnect_required' && err.reason === 'missing_invoice_scope') body.reason = 'missing_invoice_scope';
+  if (c === 'rate_limit' && Number.isFinite(err.retryAfterSeconds)) body.retryAfterSeconds = err.retryAfterSeconds;
+  return res.status(status).json(body);
+}
+
+/**
+ * Where the job stands against Xero — decided from stored rows only (no Xero
+ * call): is Xero usable, are the defaults chosen, is the client linked, and
+ * was it linked in the organisation that is connected now.
+ */
+async function xeroStanding(sql, tenant, job, profile) {
+  let ready;
+  try {
+    ready = await xero.readiness({ sql });
+  } catch (e) {
+    // The schedule must stay usable when the connection can't be read (P8):
+    // say so rather than fail the whole card.
+    console.error('[customer-invoices] xero readiness unreadable', { code: (e && e.code) || 'db' });
+    ready = { state: 'unavailable', organisationName: null, externalTenantId: null };
+  }
+  const settings = await store.getSettings(sql, tenant.id, ready.externalTenantId);
+  const linked = !!(profile && profile.xeroContactId);
+  const otherOrganisation =
+    linked && !!ready.externalTenantId && profile.externalTenantId !== ready.externalTenantId;
+  let suggestion = null;
+  if (!linked && ready.state === 'connected') {
+    const ids = await sameClientJobIds(job);
+    suggestion = await store.latestContactAmongJobs(sql, tenant.id, ids, ready.externalTenantId);
+  }
+  return {
+    state: ready.state,
+    organisationName: ready.organisationName,
+    settingsComplete: store.settingsComplete(settings),
+    client: {
+      linked,
+      name: linked ? profile.xeroContactName : null,
+      otherOrganisation,
+      suggestion: suggestion ? { id: suggestion.id, name: suggestion.name } : null,
+    },
+  };
 }
 
 /** Privacy line (same as the supplier-invoice journal): never an amount. */
@@ -164,6 +265,7 @@ async function jobPayload(sql, tenant, job) {
     profile: profile || { jobId: job.id, retentionBp: 0, xeroContactId: null, xeroContactName: null, externalTenantId: null, version: null },
     stages: rows.map((r) => presentStage(r, ctx, today)),
     totals: jobTotals(rows, ctx),
+    xero: await xeroStanding(sql, tenant, job, profile),
     asOf: new Date().toISOString(),
   };
 }
@@ -202,7 +304,10 @@ async function handler(req, res) {
   let sql;
   let tenant;
   try {
-    sql = getDb({ mode: req.method === 'GET' ? 'read' : 'write' });
+    // A live Xero read may rotate the connection's tokens (a database write),
+    // so those two GETs must clear the WRITE gate like any mutation does.
+    const callsXero = action === 'contacts' || action === 'settings-options';
+    sql = getDb({ mode: req.method === 'GET' && !callsXero ? 'read' : 'write' });
     tenant = await store.resolveTenant(sql);
   } catch (e) {
     console.error('[customer-invoices] store unavailable', { code: (e && e.code) || 'db' });
@@ -288,9 +393,107 @@ async function handler(req, res) {
       return res.status(200).json(await jobPayload(sql, tenant, job));
     }
 
+    // ── the job's client in Xero (#1149) ─────────────────────────────────────
+    if (req.method === 'GET' && action === 'contacts') {
+      xero.assertReady(await xero.readiness({ sql }));
+      const contacts = await xero.searchContacts(String(q.q || ''), { sql });
+      return res.status(200).json({ contacts });
+    }
+
+    if (req.method === 'PUT' && action === 'contact-link') {
+      const parsed = ContactLinkBody.safeParse(body);
+      if (!parsed.success) return invalid(res, parsed);
+      const job = await liveJob(parsed.data.jobId);
+      if (!job) return res.status(404).json({ error: 'job_not_found' });
+      const ready = await xero.readiness({ sql });
+      xero.assertReady(ready);
+      // The link is confirmed against Xero, and the stored name is Xero's own
+      // — never whatever the browser sent (ADR rule 8).
+      const contact = await xero.getContact(parsed.data.contactId, { sql });
+      if (!contact) return res.status(404).json({ error: 'contact_not_found' });
+      if (contact.status && contact.status !== 'ACTIVE') return res.status(409).json({ error: 'contact_not_active' });
+      await store.saveProfile(sql, tenant.id, job.id, {
+        xeroContactId: contact.id,
+        xeroContactName: contact.name,
+        externalTenantId: ready.externalTenantId,
+      }, { expectedVersion: parsed.data.expectedVersion, actor });
+      await journal(me, 'customer_invoice.profile_updated', {
+        jobId: job.id, targetId: job.id,
+        summary: `Linked ${job.name || job.id} to the Xero contact "${contact.name}"`,
+        metadata: { fields: ['xeroContact'], xeroContactId: contact.id },
+      });
+      return res.status(200).json(await jobPayload(sql, tenant, job));
+    }
+
+    if (req.method === 'PUT' && action === 'contact-unlink') {
+      const parsed = ContactUnlinkBody.safeParse(body);
+      if (!parsed.success) return invalid(res, parsed);
+      const job = await liveJob(parsed.data.jobId);
+      if (!job) return res.status(404).json({ error: 'job_not_found' });
+      await store.saveProfile(sql, tenant.id, job.id, {
+        xeroContactId: null, xeroContactName: null, externalTenantId: null,
+      }, { expectedVersion: parsed.data.expectedVersion, actor });
+      await journal(me, 'customer_invoice.profile_updated', {
+        jobId: job.id, targetId: job.id,
+        summary: `Removed the Xero contact link from ${job.name || job.id}`,
+        metadata: { fields: ['xeroContact'] },
+      });
+      return res.status(200).json(await jobPayload(sql, tenant, job));
+    }
+
+    // ── invoice defaults for the connected organisation (#1149) ──────────────
+    if (req.method === 'GET' && action === 'settings') {
+      const ready = await xero.readiness({ sql });
+      const settings = await store.getSettings(sql, tenant.id, ready.externalTenantId);
+      return res.status(200).json({
+        xero: { state: ready.state, organisationName: ready.organisationName },
+        settings,
+        complete: store.settingsComplete(settings),
+      });
+    }
+
+    if (req.method === 'GET' && action === 'settings-options') {
+      xero.assertReady(await xero.readiness({ sql }));
+      const [accounts, taxRates] = await Promise.all([xero.salesAccounts({ sql }), xero.taxRates({ sql })]);
+      return res.status(200).json({ accounts, taxRates });
+    }
+
+    if (req.method === 'PUT' && action === 'settings') {
+      const parsed = SettingsBody.safeParse(body);
+      if (!parsed.success) return invalid(res, parsed);
+      const ready = await xero.readiness({ sql });
+      xero.assertReady(ready);
+      // Both choices must exist in Xero NOW; their names and the rate are
+      // taken from Xero, so the browser can't store a made-up account or rate.
+      const [accounts, taxRates] = await Promise.all([xero.salesAccounts({ sql }), xero.taxRates({ sql })]);
+      const account = accounts.find((a) => a.code === parsed.data.salesAccountCode);
+      if (!account) return res.status(409).json({ error: 'account_not_in_xero' });
+      const tax = taxRates.find((t) => t.taxType === parsed.data.taxType);
+      if (!tax) return res.status(409).json({ error: 'tax_rate_not_in_xero' });
+      const settings = await store.saveSettings(sql, tenant.id, ready.externalTenantId, {
+        salesAccountCode: account.code,
+        salesAccountName: account.name,
+        taxType: tax.taxType,
+        taxName: tax.name,
+        taxRateBp: tax.rateBp,
+        paymentTermsDays: parsed.data.paymentTermsDays,
+      }, { expectedVersion: parsed.data.expectedVersion, actor });
+      await journal(me, 'customer_invoice.settings_updated', {
+        targetId: 'settings',
+        summary: `Changed the invoice defaults for ${ready.organisationName || 'the connected Xero organisation'}`,
+        metadata: { salesAccountCode: account.code, taxType: tax.taxType, paymentTermsDays: parsed.data.paymentTermsDays },
+      });
+      return res.status(200).json({
+        xero: { state: ready.state, organisationName: ready.organisationName },
+        settings,
+        complete: store.settingsComplete(settings),
+      });
+    }
+
     return res.status(405).json({ error: 'method not allowed' });
   } catch (e) {
     if (e instanceof store.StoreConflict) return conflictResponse(res, e);
+    if (e instanceof XeroError) return xeroFailure(res, e);
     console.error('[customer-invoices] request failed', { action, code: (e && e.code) || 'error' });
     return res.status(500).json({ error: 'server_error' });
   }

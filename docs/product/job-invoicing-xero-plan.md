@@ -249,7 +249,7 @@ a small PR of its own first.
 | --- | --- | --- |
 | **A. Decision record** | `docs/architecture/customer-invoicing-boundary-adr.md` (rules in §4; the payroll ADR only covers timesheets, so the Constitution Gate needs this before an accounting write). `docs/customer-invoices.md` skeleton. Issues filed under Epic 8 in the nine-section format | — |
 | **B. Stages, no Xero** | `customer_invoices` flag, the migration, `amounts.js`, `store.js`, handler (stage + profile calls), schema + client, the Getting-paid section with planned stages and Contract / Still to invoice | The schedule is usable on a real job |
-| **C. Xero plumbing** | Scopes + connect + reconnect notices, `xeroFetch` headers, contact search and link, settings panel, sync-log types and the error-text fix | A reconnect grants the new permission; contacts and accounts read live |
+| **C. Xero plumbing** | Scopes + connect + reconnect notices, `xeroFetch` headers, contact search and link, settings panel, the sync-log error-text fix (the two invoice sync-log types move to D, so no trace shows on the sync health panel before a send exists) | A reconnect grants the new permission; contacts and accounts read live |
 | **D. Send as draft** | `payload.js`, `xero-send.js`, preview / send / retry / raise-again, the preview drawer, row history | A draft lands in the Demo Company and reads back matched |
 | **E. Paid status** | `xero-status.js`, cron, refresh, statuses and drift, profitability fields, Money-card figures, PDF section | Approve and pay in the Demo Company; BuhlOS shows it |
 | **F. IV numbers** | `job_code_auto` flag, counter tables (their own migration), `job-codes.js`, create paths, set-once on PUT, office and phone forms | Two creates at once get different numbers |

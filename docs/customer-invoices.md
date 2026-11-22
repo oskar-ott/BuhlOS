@@ -19,7 +19,7 @@ job page.
 | --- | --- | --- |
 | Boundary record | [#1147](https://github.com/oskar-ott/BuhlOS/issues/1147) | Written |
 | Stages on the job page, no Xero | [#1148](https://github.com/oskar-ott/BuhlOS/issues/1148) | **Built, dark** behind `customer_invoices`. Never used on a real job |
-| Invoice permissions, client link, defaults | [#1149](https://github.com/oskar-ott/BuhlOS/issues/1149) | **Planned, not built** |
+| Invoice permissions, client link, defaults | [#1149](https://github.com/oskar-ott/BuhlOS/issues/1149) | **Built, dark** behind `customer_invoices`. Proven against a stand-in for Xero only — **never run against real Xero** |
 | Send to Xero as a draft | [#1150](https://github.com/oskar-ott/BuhlOS/issues/1150) | **Planned, not built** |
 | Invoiced and paid on the job | [#1151](https://github.com/oskar-ott/BuhlOS/issues/1151) | **Planned, not built** |
 | BuhlOS-issued IV numbers | [#1152](https://github.com/oskar-ott/BuhlOS/issues/1152) | **Planned, not built** |
@@ -39,9 +39,10 @@ ServiceM8.*
 
 ## What is built: the stage schedule (#1148)
 
-**No Xero call exists anywhere in this feature yet.** The card says so on
-screen ("This is the plan only. Nothing is sent to Xero from here yet.") and
-shows no Send button, no Invoiced and no Paid figure.
+**Nothing is sent to Xero by this feature yet.** The card says so on screen
+("This is the plan only. Nothing is sent to Xero from here yet.") and shows no
+Send button, no Invoiced and no Paid figure. The Xero set-up below (#1149)
+only *reads* from Xero.
 
 ### On the job page
 
@@ -120,10 +121,128 @@ now" rather than failing silently.
 Preview deployments cannot reach Postgres, so this cannot be exercised on a
 Vercel preview.
 
-### Testing
+## What is built: the Xero set-up (#1149)
+
+Everything an invoice needs to know before it can be sent. **Every Xero call
+here is a GET.** It has been proven end to end against a stand-in for Xero's
+API (real token store, real shared client, real handler, real local Postgres)
+— not against Xero itself. The first real run is the proving run in the build
+plan (§8).
+
+### Permission
+
+While `customer_invoices` is on for the connecting admin, `/api/xero/connect`
+also asks Xero for `accounting.invoices` and `accounting.contacts.read`. These
+are Xero's 2026 granular scopes; the older `accounting.transactions` is
+deprecated and refused for newer apps. A default connect is unchanged, and the
+payroll write scope stays independent (`xero_payroll_export`).
+
+A connection made before the flag was on does not have them. BuhlOS detects
+that **from the stored connection, before calling Xero**, and every dependent
+surface says "Xero is connected, but without permission for invoices" with a
+Reconnect button. Reconnecting adds the new permission to the ones already
+granted.
+
+### Where a job stands with Xero
+
+`GET /api/customer-invoices?jobId=` now carries `xero`:
+
+| Field | Meaning |
+| --- | --- |
+| `state` | `connected` · `missing_permission` · `reconnect_required` · `connecting` · `disconnected` · `not_configured` · `unavailable` (the connection couldn't be read; the schedule still loads) |
+| `organisationName` | the connected Xero organisation |
+| `settingsComplete` | sales account, tax rate and payment terms are all chosen for that organisation |
+| `client.linked` / `client.name` | the job's client is linked to a Xero contact; the name is Xero's |
+| `client.otherOrganisation` | the link was made while a different organisation was connected |
+| `client.suggestion` | the contact another job with the same client name uses — offered, never applied |
+
+No Xero call is made to answer this.
+
+### The job's client
+
+On the Getting paid card, under the retention line:
+
+- **Link client** opens a search of the connected organisation's contacts,
+  starting from the job's client name. Results are id and name only; archived
+  contacts are left out. Nothing is cached.
+- Picking one stores the contact id, **Xero's own name for it** (the server
+  re-reads the contact; a name sent by the browser is refused) and the
+  organisation it belongs to.
+- If another job with the same client name is already linked, that contact is
+  offered as "Use this contact". A person still applies it.
+- A new client is added in Xero, not here. BuhlOS never creates or edits a
+  contact.
+- If Xero is later connected to a different organisation, the link is flagged
+  and must be made again.
+
+### Invoice defaults
+
+`/settings/integrations/xero` gains an **Invoices** panel (rendered only while
+`customer_invoices` and `xero_connection` are both on):
+
+- **Sales account** — active revenue accounts that have a code
+- **Tax rate** — active rates usable on sales, with Xero's own percentage
+- **Payment terms** — whole days, 0–365; an invoice's due date is its date plus this
+
+The two lists are read live from Xero when the panel opens. On save the server
+reads them again, refuses a choice Xero no longer offers, and stores Xero's
+names and rate. Defaults belong to one Xero organisation; another organisation
+starts empty. A saved choice that has since been archived in Xero stays visible
+and is labelled as gone.
+
+### API added
+
+| Call | Does |
+| --- | --- |
+| `GET ?action=contacts&q=` | live contact search → `[{ id, name }]`; fewer than 2 letters answers empty without calling Xero |
+| `PUT ?action=contact-link` `{ jobId, contactId, expectedVersion }` | link; `404 contact_not_found`, `409 contact_not_active` |
+| `PUT ?action=contact-unlink` `{ jobId, expectedVersion }` | remove the link (retention is kept) |
+| `GET ?action=settings` | readiness + the saved defaults for the connected organisation |
+| `GET ?action=settings-options` | live: `{ accounts, taxRates }` |
+| `PUT ?action=settings` `{ salesAccountCode, taxType, paymentTermsDays, expectedVersion }` | save; `409 account_not_in_xero` / `tax_rate_not_in_xero` |
+
+A Xero failure answers `{ error: "xero_<category>" }`: `409` when not
+connected or a reconnect is needed (with `reason: "missing_invoice_scope"` for
+the permission case), `429` when Xero is rate-limiting, `502` otherwise. Never
+the exception text.
+
+Audit: `customer_invoice.profile_updated` for a link or unlink,
+`customer_invoice.settings_updated` for the defaults.
+
+### Shared Xero code changed
+
+- `api/_lib/xero/config.js` — `INVOICE_SCOPES`, `hasInvoiceScopes()`,
+  `scopesFor({ timesheets, invoices })` (`write` still works as the old name
+  for `timesheets`)
+- `api/_lib/xero/client.js` — `xeroFetch` accepts `headers` (for the
+  `Idempotency-Key` the send will need). The connection's own headers
+  (token, tenant, content negotiation) cannot be overridden, and a retried
+  request resends the same headers and body
+- `src/domains/xero/sync-log.ts` — `taxonomyFor()` now finds the raw
+  categories the client throws (`validation`, `auth`, `server`, …). Before,
+  only `rate_limit` matched, so most payroll sync failures showed no
+  explanation on the sync health panel
+
+The `invoice_export` / `invoice_status` sync-log types are **not** added yet:
+the sync health panel lists every type, so adding them now would show
+"Invoice send: last success never" to anyone with the Xero connection on. They
+arrive with the send (#1150).
+
+### Turning it on
+
+As for the schedule, plus: `xero_connection` on, then **Reconnect** Xero from
+`/settings/integrations/xero` so the invoice permission is granted, then
+choose the three defaults in the Invoices panel.
+
+## Testing (schedule and Xero set-up)
 
 | What | Where |
 | --- | --- |
+| Readiness, contact / account / tax mappers (data minimisation), error text | `src/domains/customer-invoices/xero-lookups.test.ts` |
+| The Xero routes: gating, readiness, search, link, defaults, audit | `src/domains/customer-invoices/customer-invoices-xero-api.test.ts` |
+| Client line, contact picker, Invoices panel — every state | `src/components/admin/customer-invoices/xero-setup.render.test.tsx` |
+| Scopes at connect; caller headers on the shared client | `src/domains/xero/xero-oauth.test.ts`, `xero-client.test.ts` |
+| Settings and suggestion SQL (local Postgres, skipped in CI) | `src/domains/customer-invoices/customer-invoices-settings.pg.test.ts` |
 | Money maths and the display status | `src/domains/customer-invoices/amounts.test.ts` |
 | Typing boundary (dollars → cents, % → basis points), labels, error words | `src/domains/customer-invoices/format.test.ts` |
 | The handler: gating, validation, totals, conflicts, audit journal | `src/domains/customer-invoices/customer-invoices-api.test.ts` |

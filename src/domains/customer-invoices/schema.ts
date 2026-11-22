@@ -96,6 +96,79 @@ export const JobInvoicingTotalsSchema = z
   .passthrough();
 export type JobInvoicingTotals = z.infer<typeof JobInvoicingTotalsSchema>;
 
+/**
+ * Whether Xero can be used for invoices right now (#1149) — decided on the
+ * server from the stored connection alone:
+ *   connected           usable
+ *   missing_permission  connected without the invoice scopes → reconnect
+ *   reconnect_required  the grant was revoked or expired
+ *   connecting          authorised, organisation not chosen yet
+ *   disconnected        no connection
+ *   not_configured      Xero isn't set up in this environment
+ *   unavailable         the connection couldn't be read (the schedule still works)
+ */
+export const XERO_READINESS_STATES = [
+  "connected",
+  "missing_permission",
+  "reconnect_required",
+  "connecting",
+  "disconnected",
+  "not_configured",
+  "unavailable",
+] as const;
+export type XeroReadinessState = (typeof XERO_READINESS_STATES)[number];
+
+export const XeroContactSchema = z.object({ id: z.string(), name: z.string() });
+export type XeroContact = z.infer<typeof XeroContactSchema>;
+
+/** Where one job stands against Xero. */
+export const JobXeroStandingSchema = z.object({
+  state: z.enum(XERO_READINESS_STATES),
+  organisationName: z.string().nullable(),
+  /** Sales account, tax rate and payment terms are all chosen. */
+  settingsComplete: z.boolean(),
+  client: z.object({
+    linked: z.boolean(),
+    name: z.string().nullable(),
+    /** Linked while a DIFFERENT Xero organisation was connected. */
+    otherOrganisation: z.boolean(),
+    /** The contact another job with the same client name uses — offered, never applied. */
+    suggestion: XeroContactSchema.nullable(),
+  }),
+});
+export type JobXeroStanding = z.infer<typeof JobXeroStandingSchema>;
+
+export const ContactSearchResponseSchema = z.object({ contacts: z.array(XeroContactSchema) });
+
+export const InvoiceSettingsSchema = z
+  .object({
+    salesAccountCode: z.string().nullable(),
+    salesAccountName: z.string().nullable(),
+    taxType: z.string().nullable(),
+    taxName: z.string().nullable(),
+    taxRateBp: z.number().nullable(),
+    paymentTermsDays: z.number().nullable(),
+    version: z.number().nullable(),
+    updatedBy: z.string().nullable().optional(),
+    updatedAt: z.string().nullable().optional(),
+  })
+  .passthrough();
+export type InvoiceSettings = z.infer<typeof InvoiceSettingsSchema>;
+
+export const InvoiceSettingsResponseSchema = z.object({
+  xero: z.object({ state: z.enum(XERO_READINESS_STATES), organisationName: z.string().nullable() }),
+  /** null until the defaults are first saved for the connected organisation. */
+  settings: InvoiceSettingsSchema.nullable(),
+  complete: z.boolean(),
+});
+export type InvoiceSettingsResponse = z.infer<typeof InvoiceSettingsResponseSchema>;
+
+export const InvoiceSettingsOptionsSchema = z.object({
+  accounts: z.array(z.object({ code: z.string(), name: z.string(), taxType: z.string().nullable() })),
+  taxRates: z.array(z.object({ taxType: z.string(), name: z.string(), rateBp: z.number() })),
+});
+export type InvoiceSettingsOptions = z.infer<typeof InvoiceSettingsOptionsSchema>;
+
 export const JobInvoicingResponseSchema = z.object({
   jobId: z.string(),
   job: z.object({
@@ -107,6 +180,7 @@ export const JobInvoicingResponseSchema = z.object({
   profile: JobInvoicingProfileSchema,
   stages: z.array(StageSchema),
   totals: JobInvoicingTotalsSchema,
+  xero: JobXeroStandingSchema,
   asOf: z.string(),
 });
 export type JobInvoicingResponse = z.infer<typeof JobInvoicingResponseSchema>;

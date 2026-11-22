@@ -25,17 +25,20 @@ import {
 import type { JobInvoicingResponse, Stage } from "@/domains/customer-invoices/schema";
 import type { HttpResult } from "@/lib/http";
 import { StageEditor } from "./StageEditor";
+import { XeroClientLine } from "./XeroClientLine";
 
 /**
- * Admin job hub — "Getting paid" (customer_invoices, dark; #1148,
+ * Admin job hub — "Getting paid" (customer_invoices, dark; #1148 + #1149,
  * docs/customer-invoices.md). The job's payment stages: a fixed schedule added
  * up front, or one stage added each month for a monthly claim. Each stage is
  * dollars or a % of the contract, with optional extra lines and an optional
- * retention % held back.
+ * retention % held back. Below the retention line, the job's client is linked
+ * to a Xero contact (#1149) so an invoice will know who it is for.
  *
- * THIS SLICE IS THE SCHEDULE ONLY. Nothing is sent to Xero from here yet and
- * the card says so — there is no Send button, no "invoiced" and no "paid"
- * figure, because none of those exist until #1149–#1151 land (no fake UI).
+ * NOTHING IS SENT TO XERO FROM HERE YET and the card says so — there is no
+ * Send button, no "invoiced" and no "paid" figure, because none of those
+ * exist until #1150–#1151 land (no fake UI). The Xero calls behind this card
+ * are reads only.
  *
  * Honesty rules (same as the Money card):
  *   - A figure that cannot be worked out is named, never shown as $0 — a %
@@ -153,7 +156,14 @@ export function JobGettingPaidBody({
     }
     const code = errorCodeOf(res.error.body);
     setError(errorMessage(code, res.error.status));
-    if (code === "stale_version" || code === "stage_not_editable" || code === "stage_not_found") {
+    // A conflict means the list has moved on; a Xero failure may mean the
+    // connection has changed. Either way re-read so the card is true again.
+    if (
+      code === "stale_version" ||
+      code === "stage_not_editable" ||
+      code === "stage_not_found" ||
+      (code !== null && code.startsWith("xero_"))
+    ) {
       await onStale();
     }
     return false;
@@ -232,6 +242,7 @@ export function JobGettingPaidBody({
           </p>
         ) : null}
         <RetentionLine data={data} run={run} />
+        <XeroClientLine data={data} run={run} />
       </div>
 
       {error ? (
