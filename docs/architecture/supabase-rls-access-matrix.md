@@ -199,8 +199,12 @@ attempts are immutable (a trigger refuses UPDATE); events are append-only and
 deliberately carry **no** foreign key to attempts, because the `pending` event
 is written before the attempt row exists. No token, secret or OAuth columns.
 Written today: the schedule (planned stages, retention %), the job's linked
-Xero contact (id + name + organisation) and the per-organisation invoice
-defaults (#1149). The send and the Xero mirror columns are #1150/#1151.
+Xero contact (id + name + organisation), the per-organisation invoice
+defaults (#1149), and the send (#1150): a stage is claimed by a guarded
+UPDATE that allocates its number under a per-job advisory lock, one attempt
+row is inserted per call to Xero with its outcome, and Xero's id, status and
+amounts are written to the mirror columns once the invoice exists. The
+status check that keeps the mirror current is #1151.
 
 ## How to apply + verify (later — not during the cutover ceremony)
 

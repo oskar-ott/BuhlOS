@@ -26,7 +26,17 @@ export const XERO_SYNC_TYPES = [
   "reference_sync",
   "timesheet_export",
   "reconciliation",
+  // #1150: creating a customer stage invoice as a draft (customer_invoices).
+  "invoice_export",
 ] as const;
+
+/**
+ * Types that belong to a flag-dark feature. The health panel lists a
+ * "last success" line per type; for these it shows one ONLY once something
+ * has actually been recorded, so a feature that is switched off (or simply
+ * never used) leaves no trace on a payroll office's panel.
+ */
+export const QUIET_UNTIL_USED: ReadonlySet<XeroSyncType> = new Set<XeroSyncType>(["invoice_export"]);
 export type XeroSyncType = (typeof XERO_SYNC_TYPES)[number];
 
 /** An unresolved item's status (the open working set). */

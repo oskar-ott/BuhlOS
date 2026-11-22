@@ -41,7 +41,8 @@ export function createMemoryStore() {
   const rows: Row[] = [];
   const profiles = new Map<string, Profile>();
   const settings = new Map<string, Settings>();
-  const events: Array<{ event: string; jobId: string | null; invoiceId: string | null }> = [];
+  const events: Array<{ event: string; jobId: string | null; invoiceId: string | null; attemptId?: string | null; detail?: unknown }> = [];
+  const attempts: Array<Record<string, unknown>> = [];
   let n = 0;
   let clock = 0;
   let tenant: { id: string; slug: string } | null = { id: "t1", slug: "buhl" };
@@ -50,6 +51,9 @@ export function createMemoryStore() {
     seq: null, invoiceNumber: null, grossCents: null, retentionCents: null, netCents: null,
     xeroStatus: null, xeroSubtotalCents: null, xeroTotalCents: null, xeroAmountPaidCents: null,
     xeroAmountDueCents: null, xeroDueDate: null, dueDate: null,
+    // the real store maps every column, so an unsent row has these as null
+    xeroInvoiceId: null, failureCategory: null, failureDetail: null, drift: null,
+    invoiceDate: null, reference: null, externalTenantId: null, xeroContactId: null,
   };
   function guard(id: string, expectedVersion: number): Row {
     const r = rows.find((x) => x.id === id);
@@ -149,6 +153,84 @@ export function createMemoryStore() {
       rows.splice(rows.indexOf(r), 1);
       events.push({ event: "removed", jobId: r.jobId, invoiceId: null });
       return { id, jobId: r.jobId };
+    },
+
+    // ── sending (#1150) — the same guards the SQL has ──────────────────────
+    attempts,
+    async insertEvent(_sql: unknown, _t: string, e: { event: string; jobId?: string | null; invoiceId?: string | null; attemptId?: string | null; detail?: unknown }) {
+      events.push({ event: e.event, jobId: e.jobId ?? null, invoiceId: e.invoiceId ?? null, attemptId: e.attemptId ?? null, detail: e.detail });
+    },
+    async peekNextSeq(_sql: unknown, _t: string, jobId: string) {
+      return Math.max(0, ...rows.filter((r) => r.jobId === jobId).map((r) => Number(r.seq) || 0)) + 1;
+    },
+    async beginSend(_sql: unknown, _t: string, id: string, snap: Record<string, unknown> & { jobCode: string; build: (n: string) => string }, o: { expectedVersion: number; actor?: { name?: string } }) {
+      const r = guard(id, o.expectedVersion);
+      const seq = Math.max(0, ...rows.filter((x) => x.jobId === r.jobId).map((x) => Number(x.seq) || 0)) + 1;
+      const invoiceNumber = `${snap.jobCode}-${seq}`;
+      if (rows.some((x) => x.invoiceNumber === invoiceNumber)) throw new StoreConflict("number_clash");
+      const { jobCode: _code, build, ...frozen } = snap;
+      void _code;
+      Object.assign(r, frozen, {
+        state: "sending", seq, invoiceNumber, contentHash: build(invoiceNumber),
+        failureCategory: null, failureDetail: null, sentBy: o.actor?.name ?? null, version: r.version + 1,
+      });
+      return clone(r);
+    },
+    async insertAttempt(_sql: unknown, _t: string, a: Record<string, unknown>) {
+      attempts.push(clone(a));
+    },
+    async listAttempts(_sql: unknown, _t: string, invoiceId: string) {
+      return clone(attempts.filter((a) => a.invoiceId === invoiceId));
+    },
+    async markAccepted(_sql: unknown, _t: string, id: string, p: { xeroInvoiceId: string; mirror: Record<string, unknown>; drift: unknown }) {
+      const r = rows.find((x) => x.id === id);
+      if (!r || !(r.state === "sending" || r.state === "failed") || r.seq == null) return null;
+      const m = p.mirror;
+      Object.assign(r, {
+        state: "sent", xeroInvoiceId: p.xeroInvoiceId, drift: p.drift ?? null, failureCategory: null, failureDetail: null,
+        xeroStatus: m.status, xeroSubtotalCents: m.subtotalCents, xeroTaxCents: m.taxCents, xeroTotalCents: m.totalCents,
+        xeroAmountDueCents: m.amountDueCents, xeroAmountPaidCents: m.amountPaidCents, xeroAmountCreditedCents: m.amountCreditedCents,
+        xeroDueDate: m.dueDate, xeroFullyPaidOn: m.fullyPaidOn, version: r.version + 1,
+      });
+      return clone(r);
+    },
+    async markFailed(_sql: unknown, _t: string, id: string, f: { category: string; detail: string | null }) {
+      const r = rows.find((x) => x.id === id);
+      if (!r || !(r.state === "sending" || r.state === "failed")) return null;
+      Object.assign(r, { state: "failed", failureCategory: f.category, failureDetail: f.detail ?? null, version: r.version + 1 });
+      return clone(r);
+    },
+    async noteUnknown(_sql: unknown, _t: string, id: string, f: { category: string; detail: string | null }) {
+      const r = rows.find((x) => x.id === id);
+      if (!r || r.state !== "sending") return null;
+      Object.assign(r, { failureCategory: f.category, failureDetail: f.detail ?? null, version: r.version + 1 });
+      return clone(r);
+    },
+    async resetToPlanned(_sql: unknown, _t: string, id: string) {
+      const r = rows.find((x) => x.id === id);
+      if (!r) throw new StoreConflict("not_found");
+      if (!(r.state === "sending" || r.state === "failed") || r.xeroInvoiceId) throw new StoreConflict("not_resettable");
+      Object.assign(r, {
+        ...blank, state: "planned", contentHash: null, externalTenantId: null, xeroContactId: null, xeroContactName: null,
+        invoiceDate: null, reference: null, failureCategory: null, failureDetail: null, version: r.version + 1,
+      });
+      events.push({ event: "edited", jobId: r.jobId, invoiceId: r.id });
+      return clone(r);
+    },
+    async raiseAgain(_sql: unknown, _t: string, id: string) {
+      const r = rows.find((x) => x.id === id);
+      if (!r) throw new StoreConflict("not_found");
+      if (r.state !== "failed" || r.xeroInvoiceId) throw new StoreConflict("not_raisable");
+      r.state = "cancelled";
+      r.version += 1;
+      const fresh = {
+        ...blank, id: uuid(), jobId: r.jobId, kind: r.kind, title: r.title, basis: r.basis, percentBp: r.percentBp,
+        amountCents: r.amountCents, extraLines: clone(r.extraLines), retentionBp: null, plannedDate: r.plannedDate ?? null,
+        note: r.note ?? null, state: "planned", version: 1,
+      } as Row;
+      rows.push(fresh);
+      events.push({ event: "raised_again", jobId: r.jobId, invoiceId: r.id });
+      return clone(fresh);
     },
   };
 }

@@ -3,28 +3,37 @@
 import { useCallback, useEffect, useState } from "react";
 import { Card, CardKicker } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { Pill } from "@/components/ui/Pill";
 import { cn } from "@/lib/cn";
 import {
   JOB_CONTRACT_CHANGED_EVENT,
   errorCodeOf,
   jobInvoicing,
+  addRetentionRelease,
+  raiseAgain,
   removeStage,
+  resetSend,
+  retrySend,
   saveRetention,
 } from "@/domains/customer-invoices/client";
 import {
-  STATUS_LABEL,
-  STATUS_TONE,
   bpToInput,
   errorMessage,
   formatBp,
   formatCents,
-  formatDay,
+  centsToInput,
+  parseDollarsToCents,
   parsePercentToBp,
+  sendOutcomeMessage,
 } from "@/domains/customer-invoices/format";
-import type { JobInvoicingResponse, Stage } from "@/domains/customer-invoices/schema";
+import type {
+  JobInvoicingResponse,
+  SendResponse,
+  Stage,
+} from "@/domains/customer-invoices/schema";
 import type { HttpResult } from "@/lib/http";
+import { SendToXeroPreview } from "./SendToXeroPreview";
 import { StageEditor } from "./StageEditor";
+import { StageRow } from "./StageRow";
 import { XeroClientLine } from "./XeroClientLine";
 
 /**
@@ -35,10 +44,14 @@ import { XeroClientLine } from "./XeroClientLine";
  * retention % held back. Below the retention line, the job's client is linked
  * to a Xero contact (#1149) so an invoice will know who it is for.
  *
- * NOTHING IS SENT TO XERO FROM HERE YET and the card says so — there is no
- * Send button, no "invoiced" and no "paid" figure, because none of those
- * exist until #1150–#1151 land (no fake UI). The Xero calls behind this card
- * are reads only.
+ * A planned stage is SENT TO XERO AS A DRAFT from here (#1150): "Send to Xero"
+ * opens a preview of exactly what will be created; the send is create-only,
+ * read back and compared, and can never go twice. A stage that didn't land
+ * says why — in Xero's own words when it gave any — and offers the one safe
+ * next step. BuhlOS never approves or emails an invoice; the card says so.
+ *
+ * There is still no "paid" figure: what Xero says about payment arrives with
+ * #1151 (no fake UI). A sent row shows XERO'S subtotal, GST and total.
  *
  * Honesty rules (same as the Money card):
  *   - A figure that cannot be worked out is named, never shown as $0 — a %
@@ -113,10 +126,11 @@ export function JobGettingPaidCard({ jobId }: { jobId: string }) {
   );
 }
 
-// Figure-strip cell borders: stacked on the phone, one divided row from sm up.
+// Figure-strip cell borders: 2×2 on the phone, one divided row from sm up.
 const CELLS = [
-  "border-b border-border sm:border-b-0",
+  "border-b border-r border-border sm:border-b-0 sm:border-r-0",
   "border-b border-border sm:border-b-0 sm:border-l",
+  "border-r border-border sm:border-r-0 sm:border-l",
   "border-border sm:border-l",
 ];
 
@@ -140,6 +154,8 @@ export function JobGettingPaidBody({
   const [removing, setRemoving] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [sendFor, setSendFor] = useState<Stage | null>(null);
+  const [banner, setBanner] = useState<{ tone: "success" | "warning" | "danger"; text: string } | null>(null);
 
   const t = data.totals;
   const contract = data.job.contractCents;
@@ -169,6 +185,45 @@ export function JobGettingPaidBody({
     return false;
   }
 
+  /** A problem that stopped a call being made at all: say it, and re-read. */
+  async function problem(code: string | null, status: number) {
+    setBanner(null);
+    setError(errorMessage(code, status));
+    await onStale();
+  }
+
+  /** A send / check / reset that reached the server: show how it ended. */
+  function settled(res: SendResponse) {
+    onData(res);
+    setError(null);
+    setBanner(sendOutcomeMessage(res.send));
+  }
+
+  async function runSend(stage: Stage, call: () => Promise<HttpResult<SendResponse>>) {
+    setBusyId(stage.id);
+    setError(null);
+    setBanner(null);
+    const res = await call();
+    setBusyId(null);
+    if (res.ok) settled(res.data);
+    else await problem(errorCodeOf(res.error.body), res.error.status);
+  }
+
+  async function doRaiseAgain(stage: Stage) {
+    setBusyId(stage.id);
+    setBanner(null);
+    const ok = await run(() => raiseAgain(stage.id));
+    setBusyId(null);
+    if (ok) {
+      setBanner({
+        tone: "success",
+        text: `${stage.invoiceNumber ?? "That number"} is left alone. A new copy of the stage is ready to send under the next number.`,
+      });
+    } else {
+      await onStale();
+    }
+  }
+
   async function doRemove(stage: Stage) {
     setBusyId(stage.id);
     await run(() => removeStage(stage.id, stage.version));
@@ -181,7 +236,10 @@ export function JobGettingPaidBody({
   const plannedKnown = t.plannedCount - t.unresolvedCount > 0;
   const plannedCaption =
     t.plannedCount === 0
-      ? "no stages yet"
+      ? // "no stages yet" would be untrue once everything planned has been sent
+        t.sentCount > 0
+        ? "nothing waiting to be sent"
+        : "no stages yet"
       : `${t.plannedCount} ${t.plannedCount === 1 ? "stage" : "stages"}${
           t.unresolvedCount > 0 ? ` · ${t.unresolvedCount} not worked out` : ""
         }`;
@@ -197,7 +255,7 @@ export function JobGettingPaidBody({
 
   return (
     <>
-      <dl className="mt-4 grid grid-cols-1 border-t border-border sm:grid-cols-3">
+      <dl className="mt-4 grid grid-cols-2 border-t border-border sm:grid-cols-4">
         <div className={cn("px-4 py-3 sm:px-6 sm:py-4", CELLS[0])}>
           <Figure
             label="Contract"
@@ -217,6 +275,19 @@ export function JobGettingPaidBody({
           />
         </div>
         <div className={cn("px-4 py-3 sm:px-6 sm:py-4", CELLS[2])}>
+          <Figure
+            label="Sent to Xero"
+            value={t.sentCount > 0 ? formatCents(t.claimedCents) : "—"}
+            muted={t.sentCount === 0}
+            caption={
+              t.sentCount === 0
+                ? "nothing sent yet"
+                : `${t.sentCount} ${t.sentCount === 1 ? "invoice" : "invoices"} · before retention`
+            }
+            testid="gp-sent"
+          />
+        </div>
+        <div className={cn("px-4 py-3 sm:px-6 sm:py-4", CELLS[3])}>
           <Figure
             label="Still to invoice"
             value={t.stillToInvoiceCents == null ? "—" : formatCents(t.stillToInvoiceCents)}
@@ -242,8 +313,26 @@ export function JobGettingPaidBody({
           </p>
         ) : null}
         <RetentionLine data={data} run={run} />
+        <RetentionHeldLine data={data} run={run} />
         <XeroClientLine data={data} run={run} />
       </div>
+
+      {banner ? (
+        <p
+          className={cn(
+            "border-t border-border px-4 py-3 text-sm sm:px-6",
+            banner.tone === "success"
+              ? "text-state-success-subtle-text"
+              : banner.tone === "warning"
+                ? "text-state-warning-subtle-text"
+                : "text-state-danger-subtle-text"
+          )}
+          role={banner.tone === "success" ? "status" : "alert"}
+          data-testid="gp-banner"
+        >
+          {banner.text}
+        </p>
+      ) : null}
 
       {error ? (
         <p
@@ -272,13 +361,24 @@ export function JobGettingPaidBody({
                 stage={s}
                 busy={busyId === s.id}
                 confirmingRemove={removing === s.id}
-                onEdit={() => {
-                  setError(null);
-                  setEditor({ mode: "edit", stage: s });
+                sendReady={data.xero.sendReady}
+                actions={{
+                  onEdit: () => {
+                    setError(null);
+                    setEditor({ mode: "edit", stage: s });
+                  },
+                  onAskRemove: () => setRemoving(s.id),
+                  onCancelRemove: () => setRemoving(null),
+                  onRemove: () => void doRemove(s),
+                  onSend: () => {
+                    setError(null);
+                    setBanner(null);
+                    setSendFor(s);
+                  },
+                  onCheck: () => void runSend(s, () => retrySend(s.id)),
+                  onReset: () => void runSend(s, () => resetSend(s.id)),
+                  onRaiseAgain: () => void doRaiseAgain(s),
                 }}
-                onAskRemove={() => setRemoving(s.id)}
-                onCancelRemove={() => setRemoving(null)}
-                onRemove={() => void doRemove(s)}
               />
             </li>
           ))}
@@ -286,8 +386,9 @@ export function JobGettingPaidBody({
       )}
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-3 sm:px-6">
-        <p className="text-xs text-text-muted" data-testid="gp-plan-only">
-          This is the plan only. Nothing is sent to Xero from here yet.
+        <p className="text-xs text-text-muted" data-testid="gp-drafts-only">
+          A stage is sent to Xero as a draft. Approve and email it from Xero — BuhlOS never does
+          either.
         </p>
         <Button
           size="sm"
@@ -300,6 +401,21 @@ export function JobGettingPaidBody({
           Add stage
         </Button>
       </div>
+
+      {sendFor ? (
+        <SendToXeroPreview
+          stage={sendFor}
+          onClose={() => setSendFor(null)}
+          onSent={(res) => {
+            setSendFor(null);
+            settled(res);
+          }}
+          onProblem={async (code, status) => {
+            setSendFor(null);
+            await problem(code, status);
+          }}
+        />
+      ) : null}
 
       {editor ? (
         <StageEditor
@@ -346,106 +462,6 @@ function Figure({
         {value}
       </dd>
       {caption ? <p className="mt-1 text-xs text-text-muted">{caption}</p> : null}
-    </div>
-  );
-}
-
-function basisCaption(stage: Stage): string {
-  const base =
-    stage.basis === "percent" ? `${formatBp(stage.percentBp)} of contract` : "fixed amount";
-  const extras = stage.extraLines.length;
-  return extras > 0 ? `${base} + ${extras} extra ${extras === 1 ? "line" : "lines"}` : base;
-}
-
-function StageRow({
-  stage,
-  busy,
-  confirmingRemove,
-  onEdit,
-  onAskRemove,
-  onCancelRemove,
-  onRemove,
-}: {
-  stage: Stage;
-  busy: boolean;
-  confirmingRemove: boolean;
-  onEdit: () => void;
-  onAskRemove: () => void;
-  onCancelRemove: () => void;
-  onRemove: () => void;
-}) {
-  const c = stage.computed;
-  const planned = stage.state === "planned";
-  const hasRetention = c.retentionCents != null && c.retentionCents > 0;
-  return (
-    // Stacked on a phone (name and details, then the amount and actions
-    // underneath); side by side from sm up.
-    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-      <div className="min-w-0 sm:flex-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="font-medium text-text">{stage.title}</span>
-          <Pill tone={STATUS_TONE[stage.display]} dot>
-            {STATUS_LABEL[stage.display]}
-          </Pill>
-        </div>
-        <p className="mt-0.5 text-xs text-text-muted">
-          {basisCaption(stage)}
-          {stage.plannedDate ? ` · planned for ${formatDay(stage.plannedDate)}` : ""}
-        </p>
-        {stage.extraLines.length > 0 ? (
-          <ul className="mt-1 grid gap-0.5 text-xs text-text-muted">
-            {stage.extraLines.map((l, i) => (
-              <li key={`${l.description}-${i}`}>
-                + {l.description} · <span className="tabular-nums">{formatCents(l.amountCents)}</span>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-      </div>
-
-      <div className="sm:text-right">
-        {c.grossCents == null ? (
-          <p className="text-sm text-text-muted" data-testid="gp-stage-unresolved">
-            {c.reason === "no_contract_value" ? "needs a contract value" : "can't be worked out"}
-          </p>
-        ) : (
-          <>
-            <p className="font-display text-lg font-bold tabular-nums text-text">
-              {formatCents(c.grossCents)}
-            </p>
-            {hasRetention ? (
-              <p className="text-xs text-text-muted" data-testid="gp-stage-retention">
-                less {formatBp(c.retentionBp)} retention {formatCents(c.retentionCents)} ·{" "}
-                {formatCents(c.netCents)} to invoice
-              </p>
-            ) : null}
-          </>
-        )}
-        {planned ? (
-          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 sm:justify-end">
-            {confirmingRemove ? (
-              <>
-                <span className="w-full text-xs text-text-muted sm:w-auto">Remove this stage?</span>
-                <Button size="sm" variant="danger" onClick={onRemove} disabled={busy}>
-                  Yes, remove
-                </Button>
-                <Button size="sm" variant="ghost" onClick={onCancelRemove} disabled={busy}>
-                  Keep
-                </Button>
-              </>
-            ) : (
-              <>
-                <Button size="sm" variant="secondary" onClick={onEdit} disabled={busy}>
-                  Edit
-                </Button>
-                <Button size="sm" variant="ghost" onClick={onAskRemove} disabled={busy}>
-                  Remove
-                </Button>
-              </>
-            )}
-          </div>
-        ) : null}
-      </div>
     </div>
   );
 }
@@ -528,6 +544,88 @@ function RetentionLine({
         }}
       >
         Change
+      </button>
+    </p>
+  );
+}
+
+/**
+ * Retention already held on sent stages, and the way to get it back: a
+ * release is its own stage, added here and then sent like any other.
+ */
+function RetentionHeldLine({
+  data,
+  run,
+}: {
+  data: JobInvoicingResponse;
+  run: (call: () => Mutation) => Promise<boolean>;
+}) {
+  const held = data.totals.retentionHeldCents;
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [invalid, setInvalid] = useState<string | null>(null);
+  if (held <= 0) return null;
+
+  async function add() {
+    const cents = parseDollarsToCents(value);
+    if (cents == null) return setInvalid("Enter the amount to release in dollars.");
+    if (cents > held) return setInvalid(`Only ${formatCents(held)} is held on this job.`);
+    setBusy(true);
+    const ok = await run(() => addRetentionRelease(data.jobId, cents));
+    setBusy(false);
+    if (ok) setEditing(false);
+  }
+
+  if (editing) {
+    return (
+      <div data-testid="gp-release-edit">
+        <label htmlFor="gp-release-input" className="text-sm text-text">
+          Retention to release ($ ex GST) — {formatCents(held)} is held
+        </label>
+        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+          <input
+            id="gp-release-input"
+            inputMode="decimal"
+            value={value}
+            onChange={(e) => {
+              setValue(e.target.value);
+              setInvalid(null);
+            }}
+            disabled={busy}
+            className="h-8 w-32 rounded-card border border-border bg-surface px-2 text-sm text-text focus:outline-none focus:ring-2 focus:ring-brand-navy"
+          />
+          <Button size="sm" onClick={() => void add()} disabled={busy}>
+            Add release stage
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={busy}>
+            Cancel
+          </Button>
+        </div>
+        {invalid ? (
+          <p className="mt-1 text-xs text-state-danger-subtle-text" role="alert">
+            {invalid}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <p className="flex flex-wrap items-baseline gap-x-2 text-text-muted" data-testid="gp-retention-held">
+      <span>
+        Retention held so far: <span className="font-medium text-text">{formatCents(held)}</span>.
+      </span>
+      <button
+        type="button"
+        className="font-medium text-brand-navy underline decoration-accent-yellow decoration-2 underline-offset-2"
+        onClick={() => {
+          setValue(centsToInput(held));
+          setInvalid(null);
+          setEditing(true);
+        }}
+      >
+        Release retention
       </button>
     </p>
   );

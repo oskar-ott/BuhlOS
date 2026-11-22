@@ -272,6 +272,17 @@ const VALID_ACTIONS = new Set([
   // #1149: the invoice defaults for the connected Xero organisation (sales
   // account, tax rate, payment terms) — targetId 'settings'.
   'customer_invoice.settings_updated',
+  // #1150: the send — the one write to Xero (a DRAFT sales invoice).
+  // sent_to_xero = Xero has it; send_failed = Xero refused it or gave no
+  // answer (metadata.outcome says which); send_retried = a later look-up /
+  // re-send; send_reset = put back to planned after Xero confirmed it holds
+  // nothing; raised_again = the number was taken in Xero, a new planned copy
+  // takes the next one. metadata carries the invoice number, never an amount.
+  'customer_invoice.sent_to_xero',
+  'customer_invoice.send_failed',
+  'customer_invoice.send_retried',
+  'customer_invoice.send_reset',
+  'customer_invoice.raised_again',
   // #370: daywork register (api/dayworks.js). daywork.created on POST;
   // daywork.signed on the supervisor sign; daywork.transitioned on the
   // signed → invoiced change (metadata.from/to carry the direction);

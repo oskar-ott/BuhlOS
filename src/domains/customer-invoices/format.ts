@@ -148,6 +148,105 @@ export function xeroBlocker(
   }
 }
 
+// ── sending (#1150) ─────────────────────────────────────────────────────────
+
+/** Why a stage can't be sent yet, in plain words, with what fixes it. */
+export function blockerMessage(code: string): string {
+  switch (code) {
+    case "not_planned":
+      return "This stage has already been sent.";
+    case "xero_not_ready":
+      return "Xero isn't ready for invoices. Check the Xero connection in Settings.";
+    case "settings_incomplete":
+      return "The sales account, GST rate and payment terms aren't chosen yet. Choose them in the Xero settings.";
+    case "no_client_link":
+      return "This job's client isn't linked to a Xero contact. Link the client first.";
+    case "client_other_organisation":
+      return "The client was linked in a different Xero organisation. Link the client again.";
+    case "no_job_code":
+      return "This job has no IV number, so the invoice can't be numbered.";
+    case "no_contract_value":
+      return "This stage is a percentage of the contract, and the job has no contract value yet. Set it on the Money card.";
+    case "amount_invalid":
+      return "The stage's amount can't be worked out. Edit the stage and check the figures.";
+    case "nothing_to_invoice":
+      return "After retention there is nothing left to invoice on this stage.";
+    case "not_awaiting_xero":
+      return "This stage isn't waiting on Xero any more. The list has been refreshed.";
+    case "other_organisation":
+      return "This stage was sent while a different Xero organisation was connected. Reconnect to that organisation to check on it.";
+    default:
+      return "This stage can't be sent yet.";
+  }
+}
+
+/**
+ * What to tell the office about a stage that didn't land. Xero's own
+ * sentence, when it gave one, is the most useful thing to show.
+ */
+export function failureMessage(category: string | null | undefined, detail: string | null | undefined): string {
+  if (category === "number_taken") {
+    return detail
+      ? `${detail}. Use the next number instead.`
+      : "Xero already has an invoice with this number. Use the next number instead.";
+  }
+  if (category === "validation") {
+    return detail ? `Xero refused it: ${detail}` : "Xero refused this invoice as invalid.";
+  }
+  if (category === "rate_limit") return "Xero was too busy to take it. Nothing was created — try again in a minute.";
+  if (category === "reconnect_required" || category === "auth" || category === "forbidden") {
+    return "Xero refused the request. Reconnect Xero, then try again. Nothing was created.";
+  }
+  if (category === "not_connected" || category === "pending_selection" || category === "not_configured") {
+    return "Xero wasn't connected. Nothing was created.";
+  }
+  return detail ? `It didn't go through: ${detail}` : "It didn't go through. Nothing was created in Xero.";
+}
+
+/** The line shown while a stage is `sending` with no confirmed answer. */
+export const UNKNOWN_SEND_MESSAGE =
+  "BuhlOS didn't hear back from Xero, so this invoice may or may not be there. Check Xero before anything else — it won't be sent twice.";
+
+/** One line for the result of a send / check / reset, for the card's banner. */
+export function sendOutcomeMessage(r: {
+  outcome: string;
+  invoiceNumber: string | null;
+  verified: boolean | null;
+  category: string | null;
+  detail: string | null;
+}): { tone: "success" | "warning" | "danger"; text: string } {
+  const n = r.invoiceNumber ?? "The invoice";
+  switch (r.outcome) {
+    case "sent":
+      return r.verified
+        ? { tone: "success", text: `${n} is in Xero as a draft. Approve and email it from Xero.` }
+        : { tone: "warning", text: `${n} is in Xero as a draft, but it doesn't match what BuhlOS sent. Open it in Xero and check it.` };
+    case "adopted":
+      return { tone: "success", text: `${n} was already in Xero. BuhlOS has picked it up — nothing was sent twice.` };
+    case "reset":
+      return { tone: "success", text: "Xero has nothing under that number, so the stage is back to planned. Edit it and send again." };
+    case "unknown":
+      return { tone: "warning", text: UNKNOWN_SEND_MESSAGE };
+    default:
+      return { tone: "danger", text: failureMessage(r.category, r.detail) };
+  }
+}
+
+/** Open an invoice in Xero's web app. (Xero then asks for a login if needed.) */
+export function xeroInvoiceUrl(xeroInvoiceId: string): string {
+  return `https://go.xero.com/AccountsReceivable/View.aspx?InvoiceID=${encodeURIComponent(xeroInvoiceId)}`;
+}
+
+/** Today in the office's timezone, as YYYY-MM-DD (the send's default date). */
+export function sydneyToday(now: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Australia/Sydney",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
+}
+
 /** Plain words for the stable error codes the API answers with. */
 export function errorMessage(code: string | null, status: number): string {
   switch (code) {
@@ -164,6 +263,15 @@ export function errorMessage(code: string | null, status: number): string {
     case "store_unavailable":
     case "store_unprovisioned":
       return "The invoice records can't be reached right now. Nothing was saved — try again shortly.";
+    case "number_clash":
+      return "Another stage on this job was being sent at the same moment. Nothing was sent for this one — try again.";
+    case "not_resettable":
+    case "not_raisable":
+      return "This stage has moved on since the page loaded. The list has been refreshed.";
+    case "exceeds_retention_held":
+      return "That is more than the retention still held on this job.";
+    case "blocked":
+      return "This stage can't be sent yet. Open Send to see what's missing.";
     case "contact_not_found":
       return "That contact no longer exists in Xero. Search again and pick another.";
     case "contact_not_active":

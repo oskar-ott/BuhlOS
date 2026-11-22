@@ -131,6 +131,11 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "customer_invoice.stage_removed": "Removed a planned stage invoice",
   "customer_invoice.profile_updated": "Changed a job's invoicing set-up",
   "customer_invoice.settings_updated": "Changed the invoice defaults for Xero",
+  "customer_invoice.sent_to_xero": "Sent a stage invoice to Xero as a draft",
+  "customer_invoice.send_failed": "A stage invoice didn't reach Xero",
+  "customer_invoice.send_retried": "Checked Xero again for a stage invoice",
+  "customer_invoice.send_reset": "Put a stage invoice back to planned",
+  "customer_invoice.raised_again": "Raised a stage invoice again under the next number",
   // Workshop Stock (targetType 'workshop_stock_item' groups as Other).
   "workshop_stock.item_created": "Added a workshop stock item",
   "workshop_stock.item_updated": "Edited a workshop stock item",

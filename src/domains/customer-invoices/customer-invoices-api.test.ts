@@ -193,7 +193,7 @@ describe("api/customer-invoices — reading a job", () => {
     expect(p.totals).toMatchObject({ plannedCount: 0, plannedGrossCents: 0, claimedCents: 0, stillToInvoiceCents: 250_000_00, overContract: false });
     // …and that Xero isn't connected, without that getting in the schedule's way.
     expect(p.xero).toEqual({
-      state: "disconnected", organisationName: null, settingsComplete: false,
+      state: "disconnected", organisationName: null, settingsComplete: false, sendReady: false,
       client: { linked: false, name: null, otherOrganisation: false, suggestion: null },
     });
   });
@@ -353,7 +353,11 @@ describe("api/customer-invoices — validation (nothing malformed reaches the st
 
   it("answers 405 for a method / action it doesn't serve", async () => {
     expect((await call({ method: "DELETE", query: { jobId: "tower" } })).statusCode).toBe(405);
-    expect((await call({ method: "POST", query: { action: "send" }, body: {} })).statusCode).toBe(405);
+    // Things BuhlOS must never do in Xero have no route at all (ADR rule 2).
+    for (const action of ["approve", "authorise", "email", "void", "delete", "pay"]) {
+      const r = await call({ method: "POST", query: { action, id: "00000000-0000-4000-8000-000000000001" }, body: {} });
+      expect(r.statusCode, action).toBe(405);
+    }
   });
 });
 

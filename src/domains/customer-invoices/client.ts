@@ -4,9 +4,13 @@ import {
   InvoiceSettingsOptionsSchema,
   InvoiceSettingsResponseSchema,
   JobInvoicingResponseSchema,
+  SendPreviewSchema,
+  SendResponseSchema,
   type InvoiceSettingsOptions,
   type InvoiceSettingsResponse,
   type JobInvoicingResponse,
+  type SendPreview,
+  type SendResponse,
   type StageInput,
   type XeroContact,
 } from "./schema";
@@ -108,6 +112,52 @@ export function saveInvoiceSettings(input: {
   expectedVersion: number | null;
 }): Promise<HttpResult<InvoiceSettingsResponse>> {
   return httpPut(`${BASE}?action=settings`, input, { schema: InvoiceSettingsResponseSchema });
+}
+
+// ── sending to Xero (#1150) ─────────────────────────────────────────────────
+
+const sendOpts = { schema: SendResponseSchema };
+const stageUrl = (action: string, stageId: string) =>
+  `${BASE}?action=${action}&id=${encodeURIComponent(stageId)}`;
+
+/** Exactly what would be sent and everything stopping it. Writes nothing. */
+export function previewSend(
+  stageId: string,
+  options: { invoiceDate?: string; reference?: string | null } = {}
+): Promise<HttpResult<SendPreview>> {
+  return httpPost(stageUrl("preview", stageId), options, { schema: SendPreviewSchema });
+}
+
+/** Create the stage in Xero as a DRAFT invoice. A slow Xero is not a failed
+ *  send: the generous timeout keeps the browser waiting for the real answer. */
+export function sendStage(
+  stageId: string,
+  input: { expectedVersion: number; invoiceDate?: string; reference?: string | null }
+): Promise<HttpResult<SendResponse>> {
+  return httpPost(stageUrl("send", stageId), input, { ...sendOpts, timeoutMs: 45_000 });
+}
+
+/** Look the stage's number up in Xero: adopt what is there, or send again. */
+export function retrySend(stageId: string): Promise<HttpResult<SendResponse>> {
+  return httpPost(stageUrl("retry", stageId), {}, { ...sendOpts, timeoutMs: 45_000 });
+}
+
+/** Put a stage that never reached Xero back to planned so it can be edited. */
+export function resetSend(stageId: string): Promise<HttpResult<SendResponse>> {
+  return httpPost(stageUrl("reset", stageId), {}, { ...sendOpts, timeoutMs: 45_000 });
+}
+
+/** The number is taken in Xero: add a planned copy that takes the next one. */
+export function raiseAgain(stageId: string): Promise<HttpResult<JobInvoicingResponse>> {
+  return httpPost(stageUrl("raise-again", stageId), {}, opts);
+}
+
+/** Add a planned stage that releases some of the retention held. */
+export function addRetentionRelease(
+  jobId: string,
+  amountCents: number
+): Promise<HttpResult<JobInvoicingResponse>> {
+  return httpPost(`${BASE}?action=retention-release`, { jobId, amountCents }, opts);
 }
 
 /** The Money card announces a contract-value save on `window` so this card's
