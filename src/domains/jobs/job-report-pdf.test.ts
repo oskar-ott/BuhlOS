@@ -51,3 +51,63 @@ describe("composeJobReportPdf", () => {
     expect(money(null)).toBe("-");
   });
 });
+
+describe("composeJobReportPdf — Invoicing (customer stage invoices, #1151)", () => {
+  const textOf = async (invoicing: unknown) => (await extractPdfText(Buffer.from(await composeJobReportPdf({ ...base, invoicing })))).text as string;
+  const totals = {
+    unavailable: false, plannedCount: 1, invoicedCents: 30_000_00, draftedCents: 5_000_00, paidIncGstCents: 11_000_00, dueIncGstCents: 22_000_00,
+    retentionHeldCents: 1_500_00, stillToInvoiceCents: 85_000_00, overdueCount: 1, asOf: "2026-11-30T23:30:00.000Z",
+  };
+  const invoices = [
+    { invoiceNumber: "IV3232-1", title: "Deposit", invoiceDate: "2026-06-01", dueDate: "2026-07-01", status: "paid", subtotalCents: 10_000_00, amountPaidCents: 11_000_00, amountDueCents: 0, fullyPaidOn: "2026-06-20" },
+    { invoiceNumber: "IV3232-2", title: "Rough-in", invoiceDate: "2026-07-01", dueDate: "2026-07-31", status: "overdue", subtotalCents: 20_000_00, amountPaidCents: 0, amountDueCents: 22_000_00, fullyPaidOn: null },
+    { invoiceNumber: "IV3232-3", title: "Fit-off", invoiceDate: "2026-08-01", dueDate: "2026-08-31", status: "draft_in_xero", subtotalCents: 5_000_00, amountPaidCents: 0, amountDueCents: 5_500_00, fullyPaidOn: null },
+    { invoiceNumber: "IV3232-4", title: "Raised in error", invoiceDate: "2026-08-02", dueDate: "2026-09-01", status: "voided", subtotalCents: 9_999_00, amountPaidCents: 0, amountDueCents: 0, fullyPaidOn: null },
+  ];
+
+  it("has no Invoicing section at all while the feature is off", async () => {
+    expect(await textOf(null)).not.toContain("Invoicing");
+    expect(await textOf(undefined)).not.toContain("Invoicing");
+  });
+
+  it("lists every sent invoice with Xero's figures and status, then the totals", async () => {
+    const text = await textOf({ ...totals, invoices });
+    expect(text).toContain("Invoicing");
+    expect(text).toContain("Amounts and status are as Xero reports them. Subtotals are ex GST; paid and owing include GST.");
+    expect(text).toContain("IV3232-1");
+    expect(text).toContain("Paid, Sat 20/06/2026");
+    expect(text).toContain("Overdue, due Fri 31/07/2026");
+    expect(text).toContain("Draft in Xero");
+    expect(text).toContain("Voided in Xero");
+    expect(text).toContain("Approved in Xero (ex GST)");
+    expect(text).toContain("$30,000.00");
+    expect(text).toContain("Still a draft in Xero (ex GST)");
+    expect(text).toContain("Paid (inc GST)");
+    expect(text).toContain("Owing (inc GST)");
+    expect(text).toContain("Retention held (ex GST)");
+    expect(text).toContain("$1,500.00");
+    expect(text).toContain("Still to invoice against the contract (ex GST)");
+    expect(text).toContain("$85,000.00");
+    expect(text).toContain("Last checked with Xero 01/12/2026, 10:30 am (Sydney time).");
+  });
+
+  it("nothing sent yet says so, and counts what is planned", async () => {
+    expect(await textOf({ ...totals, invoices: [], plannedCount: 2 })).toContain("No stage invoice has been sent to Xero for this job yet. 2 planned.");
+    expect(await textOf({ ...totals, invoices: [], plannedCount: 0 })).toContain("No stage invoices on this job yet.");
+  });
+
+  it("unreadable records are named — never printed as nothing invoiced", async () => {
+    const text = await textOf({ unavailable: true });
+    expect(text).toContain("The invoice records could not be read when this report was made");
+    expect(text).toContain("That is not the same as nothing invoiced.");
+    expect(text).not.toContain("Approved in Xero");
+  });
+
+  it("a long invoice list paginates with its header repeated", async () => {
+    const many = Array.from({ length: 80 }, (_, i) => ({ ...invoices[0]!, invoiceNumber: `IV3232-${i + 1}` }));
+    const { text, pageCount } = await extractPdfText(Buffer.from(await composeJobReportPdf({ ...base, invoicing: { ...totals, invoices: many } })));
+    expect(pageCount).toBeGreaterThanOrEqual(2);
+    expect(text).toContain("Invoicing (continued)");
+    expect(text).toContain("IV3232-80");
+  });
+});

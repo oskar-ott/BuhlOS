@@ -30,6 +30,27 @@ const BAND = rgb(0.96, 0.96, 0.94);
 const YELLOW = rgb(1, 0.8, 0);
 const RED = rgb(0.72, 0.12, 0.12);
 
+// Plain words for a stage invoice's status (api/_lib/customer-invoices/status.js).
+const INVOICE_STATUS_LABEL = {
+  draft_in_xero: 'Draft in Xero',
+  awaiting_payment: 'Awaiting payment',
+  part_paid: 'Part paid',
+  paid: 'Paid',
+  overdue: 'Overdue',
+  voided: 'Voided in Xero',
+  deleted_in_xero: 'Deleted in Xero',
+  sent_unchecked: 'Sent, not yet checked',
+};
+
+/** An instant as the office reads it: "01/12/2026, 11:00 am", Sydney time. */
+function sydneyDateTime(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso);
+  return new Intl.DateTimeFormat('en-AU', {
+    timeZone: 'Australia/Sydney', day: '2-digit', month: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true,
+  }).format(d).replace(/\u202f|\u00a0/g, ' ');
+}
+
 function safeText(s) {
   return String(s === 0 ? '0' : s || '').replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[–—]/g, '-').replace(/×/g, 'x').replace(/[^\x20-\x7E -ÿ]/g, '').trim();
 }
@@ -65,6 +86,8 @@ function measureText(m) {
  * @param {{ contractValueCents: number|null, labourCostCents: number, materialCostCents: number, marginCents: number|null, marginPct: number|null }} input.money
  * @param {{ hoursTotal: number, pendingHours: number, unratedWorkers: string[], workers: Array<{ name: string, days: number, hours: number, costCents: number|null }>, days: Array<{ date: string, name: string, hours: number, costCents: number|null }> }} input.labour
  * @param {{ categories: Array<{ label: string, cents: number, measure?: object }>, invoices: Array<{ date: string|null, supplier: string, number: string|null, source: string, documentType: string, purchaser: string|null, amountCents: number, lines: Array<{ quantity: number|null, unit: string|null, description: string, category: string, signedCents: number }> }>, ledger: Array<{ date: string, supplier: string, description: string|null, amountCents: number }>, awaitingCount: number, invoicesShown: boolean, ledgerShown: boolean }} input.materials
+ * @param {null|{ unavailable?: boolean, plannedCount?: number, invoicedCents?: number, draftedCents?: number, paidIncGstCents?: number, dueIncGstCents?: number, retentionHeldCents?: number, stillToInvoiceCents?: number|null, overdueCount?: number, asOf?: string|null, invoices?: Array<{ invoiceNumber: string, title: string, invoiceDate: string|null, dueDate: string|null, status: string, subtotalCents: number|null, amountPaidCents: number|null, amountDueCents: number|null, fullyPaidOn: string|null }> }} [input.invoicing]
+ *   customer stage invoices (#1151) — omitted / null when the feature is off for the viewer: no section at all
  */
 async function composeJobReportPdf(input) {
   const { job, labour, materials } = input;
@@ -277,6 +300,60 @@ async function composeJobReportPdf(input) {
     ensure(26); y -= 4; rule(INK); y -= 14;
     text('Materials total', MARGIN, 11, { bold: true }); textR(money(m.materialCostCents || 0), right, 11, { bold: true });
     y -= 20;
+  }
+
+  // ── Invoicing (customer stage invoices, #1151) ──────────────────────────
+  // Only when the feature is on for the viewer (input.invoicing present). A
+  // sent invoice's figures are XERO'S, as last mirrored; nothing is worked
+  // out here beyond adding them up.
+  const inv = input.invoicing;
+  if (inv) {
+    heading('Invoicing');
+    if (inv.unavailable) {
+      note('The invoice records could not be read when this report was made, so nothing is shown here. That is not the same as nothing invoiced.');
+    } else if (!inv.invoices || !inv.invoices.length) {
+      note(inv.plannedCount > 0
+        ? `No stage invoice has been sent to Xero for this job yet. ${inv.plannedCount} planned.`
+        : 'No stage invoices on this job yet.');
+    } else {
+      note('Amounts and status are as Xero reports them. Subtotals are ex GST; paid and owing include GST.');
+      const cDate = MARGIN + 86, cTitle = MARGIN + 150, cSub = MARGIN + 380, cPaid = MARGIN + 450;
+      const ihdr = () => {
+        text('Invoice', MARGIN, 8, { color: GREY, bold: true }); text('Date', cDate, 8, { color: GREY, bold: true }); text('Stage', cTitle, 8, { color: GREY, bold: true });
+        textR('Subtotal', cSub, 8, { color: GREY, bold: true }); textR('Paid', cPaid, 8, { color: GREY, bold: true }); textR('Owing', right, 8, { color: GREY, bold: true });
+        y -= 12; rule(); y -= 10;
+      };
+      ihdr();
+      continued = () => { text('Invoicing (continued)', MARGIN, 10, { bold: true }); y -= 16; ihdr(); };
+      for (const i of inv.invoices) {
+        ensure(26);
+        const dead = i.status === 'voided' || i.status === 'deleted_in_xero';
+        text(i.invoiceNumber || '-', MARGIN, 9.5, { bold: true, color: dead ? GREY : INK });
+        text(i.invoiceDate ? dayDate(i.invoiceDate) : '-', cDate, 9, { color: dead ? GREY : INK });
+        text(i.title || '', cTitle, 9, { maxW: cSub - cTitle - 70, color: dead ? GREY : INK });
+        textR(i.subtotalCents == null ? '-' : money(i.subtotalCents), cSub, 9.5, { color: dead ? GREY : INK });
+        textR(dead || i.amountPaidCents == null ? '-' : money(i.amountPaidCents), cPaid, 9.5, { color: dead ? GREY : INK });
+        textR(dead || i.amountDueCents == null ? '-' : money(i.amountDueCents), right, 9.5, { color: i.status === 'overdue' ? RED : dead ? GREY : INK });
+        y -= 12;
+        const label = INVOICE_STATUS_LABEL[i.status] || i.status;
+        const extra = i.status === 'paid' && i.fullyPaidOn ? `, ${dayDate(i.fullyPaidOn)}`
+          : (i.status === 'awaiting_payment' || i.status === 'part_paid' || i.status === 'overdue') && i.dueDate ? `, due ${dayDate(i.dueDate)}`
+            : '';
+        text(`${label}${extra}`, cDate, 8, { color: i.status === 'overdue' ? RED : GREY });
+        y -= 13;
+      }
+      continued = null;
+
+      ensure(64); rule(INK); y -= 14;
+      const line = (label, value, o = {}) => { text(label, MARGIN, 10, { bold: !!o.bold }); textR(value, right, 10, { bold: !!o.bold, color: o.color || INK }); y -= 15; };
+      line('Approved in Xero (ex GST)', money(inv.invoicedCents), { bold: true });
+      if (inv.draftedCents > 0) line('Still a draft in Xero (ex GST)', money(inv.draftedCents));
+      line('Paid (inc GST)', money(inv.paidIncGstCents));
+      line('Owing (inc GST)', money(inv.dueIncGstCents), { color: inv.overdueCount > 0 ? RED : INK });
+      if (inv.retentionHeldCents > 0) line('Retention held (ex GST)', money(inv.retentionHeldCents));
+      if (inv.stillToInvoiceCents != null) line('Still to invoice against the contract (ex GST)', money(inv.stillToInvoiceCents));
+      if (inv.asOf) { y -= 2; note(`Last checked with Xero ${sydneyDateTime(inv.asOf)} (Sydney time).`); }
+    }
   }
 
   // ── Footer on every page ────────────────────────────────────────────────

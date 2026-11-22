@@ -244,6 +244,7 @@ export const AUDIT_ACTIONS = [
   "customer_invoice.send_retried",
   "customer_invoice.send_reset",
   "customer_invoice.raised_again",
+  "customer_invoice.status_checked",
   // Workshop Stock: office catalogue actions, count corrections, undos
   // (targetType 'workshop_stock_item'). Kept in sync with api/_lib/audit-log.js.
   "workshop_stock.item_created",

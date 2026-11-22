@@ -10,6 +10,7 @@ import {
   jobInvoicing,
   addRetentionRelease,
   raiseAgain,
+  refreshJobInvoices,
   removeStage,
   resetSend,
   retrySend,
@@ -23,8 +24,11 @@ import {
   centsToInput,
   parseDollarsToCents,
   parsePercentToBp,
+  agoLabel,
+  refreshMessage,
   sendOutcomeMessage,
 } from "@/domains/customer-invoices/format";
+import { announceJobMoneyChanged } from "@/domains/jobs/job-materials-client";
 import type {
   JobInvoicingResponse,
   SendResponse,
@@ -50,8 +54,13 @@ import { XeroClientLine } from "./XeroClientLine";
  * says why — in Xero's own words when it gave any — and offers the one safe
  * next step. BuhlOS never approves or emails an invoice; the card says so.
  *
- * There is still no "paid" figure: what Xero says about payment arrives with
- * #1151 (no fake UI). A sent row shows XERO'S subtotal, GST and total.
+ * What happens AFTER the send comes back from Xero (#1151): an hourly check,
+ * and "Check Xero now" here, mirror Xero's status and amounts onto each row —
+ * approved, part paid, paid, overdue, voided, deleted, or changed in Xero.
+ * Once anything has been sent a second strip shows Approved in Xero · Paid ·
+ * Owing, all XERO'S figures, with how long ago they were checked. BuhlOS
+ * never works out "paid" for itself. A stage Xero shows as deleted or voided
+ * drops out of the totals and can be raised again under the next number.
  *
  * Honesty rules (same as the Money card):
  *   - A figure that cannot be worked out is named, never shown as $0 — a %
@@ -134,6 +143,13 @@ const CELLS = [
   "border-border sm:border-l",
 ];
 
+// The money-in strip (three cells): stacked on the phone, a divided row from sm.
+const IN_CELLS = [
+  "border-b border-border sm:border-b-0",
+  "border-b border-border sm:border-b-0 sm:border-l",
+  "border-border sm:border-l",
+];
+
 type Mutation = Promise<HttpResult<JobInvoicingResponse>>;
 
 /**
@@ -155,6 +171,7 @@ export function JobGettingPaidBody({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sendFor, setSendFor] = useState<Stage | null>(null);
+  const [checking, setChecking] = useState(false);
   const [banner, setBanner] = useState<{ tone: "success" | "warning" | "danger"; text: string } | null>(null);
 
   const t = data.totals;
@@ -197,6 +214,24 @@ export function JobGettingPaidBody({
     onData(res);
     setError(null);
     setBanner(sendOutcomeMessage(res.send));
+    // What the job has been invoiced has changed — the Money card follows.
+    announceJobMoneyChanged(res.jobId);
+  }
+
+  /** "Check Xero now": ask Xero what happened to this job's sent invoices. */
+  async function checkNow() {
+    setChecking(true);
+    setError(null);
+    setBanner(null);
+    const res = await refreshJobInvoices(data.jobId);
+    setChecking(false);
+    if (!res.ok) {
+      await problem(errorCodeOf(res.error.body), res.error.status);
+      return;
+    }
+    onData(res.data);
+    setBanner(refreshMessage(res.data.refresh));
+    if (res.data.refresh.changed > 0) announceJobMoneyChanged(res.data.jobId);
   }
 
   async function runSend(stage: Stage, call: () => Promise<HttpResult<SendResponse>>) {
@@ -215,9 +250,10 @@ export function JobGettingPaidBody({
     const ok = await run(() => raiseAgain(stage.id));
     setBusyId(null);
     if (ok) {
+      announceJobMoneyChanged(data.jobId);
       setBanner({
         tone: "success",
-        text: `${stage.invoiceNumber ?? "That number"} is left alone. A new copy of the stage is ready to send under the next number.`,
+        text: `${stage.invoiceNumber ?? "That number"} is left as it is. A new copy of the stage is ready to send under the next number.`,
       });
     } else {
       await onStale();
@@ -243,6 +279,8 @@ export function JobGettingPaidBody({
       : `${t.plannedCount} ${t.plannedCount === 1 ? "stage" : "stages"}${
           t.unresolvedCount > 0 ? ` · ${t.unresolvedCount} not worked out` : ""
         }`;
+
+  const overdueCount = data.stages.filter((s) => s.display === "overdue").length;
 
   const stillCaption =
     contract == null
@@ -297,6 +335,65 @@ export function JobGettingPaidBody({
           />
         </div>
       </dl>
+
+      {t.sentCount > 0 ? (
+        <div className="border-t border-border" data-testid="gp-money-in">
+          <dl className="grid grid-cols-1 sm:grid-cols-3">
+            <div className={cn("px-4 py-3 sm:px-6 sm:py-4", IN_CELLS[0])}>
+              <Figure
+                label="Approved in Xero"
+                value={formatCents(t.invoicedCents)}
+                muted={t.invoicedCents === 0}
+                caption={
+                  t.draftedCents > 0
+                    ? `${formatCents(t.draftedCents)} more is still a draft`
+                    : "ex GST"
+                }
+                testid="gp-invoiced"
+              />
+            </div>
+            <div className={cn("px-4 py-3 sm:px-6 sm:py-4", IN_CELLS[1])}>
+              <Figure
+                label="Paid"
+                value={formatCents(t.paidIncGstCents)}
+                muted={t.paidIncGstCents === 0}
+                caption={
+                  t.paidIncGstCents === 0
+                    ? "nothing paid yet"
+                    : t.paidCents != null
+                      ? `inc GST · ${formatCents(t.paidCents)} ex GST`
+                      : "inc GST"
+                }
+                testid="gp-paid"
+              />
+            </div>
+            <div className={cn("px-4 py-3 sm:px-6 sm:py-4", IN_CELLS[2])}>
+              <Figure
+                label="Owing"
+                value={formatCents(t.dueIncGstCents)}
+                muted={t.dueIncGstCents === 0}
+                caption={overdueCount > 0 ? `inc GST · ${overdueCount} overdue` : "inc GST · on approved invoices"}
+                testid="gp-owing"
+              />
+            </div>
+          </dl>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-4 py-2 sm:px-6">
+            <p className="text-xs text-text-muted" data-testid="gp-as-of">
+              These are Xero&rsquo;s figures, last checked {agoLabel(data.statusAsOf)}. BuhlOS checks
+              every hour.
+            </p>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => void checkNow()}
+              disabled={checking}
+              data-testid="gp-check-now"
+            >
+              {checking ? "Checking Xero…" : "Check Xero now"}
+            </Button>
+          </div>
+        </div>
+      ) : null}
 
       <div className="grid gap-2 border-t border-border px-4 py-3 text-sm sm:px-6">
         {t.overContract && notPlanned != null ? (
@@ -388,7 +485,7 @@ export function JobGettingPaidBody({
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-3 sm:px-6">
         <p className="text-xs text-text-muted" data-testid="gp-drafts-only">
           A stage is sent to Xero as a draft. Approve and email it from Xero — BuhlOS never does
-          either.
+          either. What Xero says about payment shows here.
         </p>
         <Button
           size="sm"

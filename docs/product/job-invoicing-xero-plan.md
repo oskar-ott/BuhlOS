@@ -124,7 +124,7 @@ Expiry about 2027-02-20 (the 90-day convention). Crons use `isFlagOn`, never
 
 ### 5.3 Database (additive migrations, RLS on with zero policies, `tenant_id` on every table)
 
-The five invoice tables ship together in `20261122100000_customer_invoices.sql` (part B), so parts C–E need no further migration. The two IV-number tables ship in their own migration with part F, which is independent.
+The five invoice tables ship together in `20261122100000_customer_invoices.sql` (part B), so parts C–D need no further migration. As built, part E adds one column (`replaced_by_id`) in `20261123100000_customer_invoices_replaced_by.sql`. The two IV-number tables ship in their own migration with part F, which is independent.
 
 - **`customer_invoice_settings`** — one row per tenant + Xero organisation: `sales_account_code`, `sales_account_name`, `tax_type`, `tax_name`, `tax_rate_bp`, `payment_terms_days`, `version`
 - **`customer_invoice_job_profiles`** — one row per job (`job_legacy_id`): `xero_contact_id`, `xero_contact_name`, `external_tenant_id`, `retention_bp` (0 = none), `version`

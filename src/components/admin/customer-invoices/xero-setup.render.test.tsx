@@ -46,8 +46,10 @@ function data(xero: JobXeroStanding): JobInvoicingResponse {
     totals: {
       contractCents: 250_000_00, plannedCount: 0, plannedGrossCents: 0, plannedNetCents: 0, unresolvedCount: 0,
       sentCount: 0, claimedCents: 0, stillToInvoiceCents: 250_000_00, overContract: false, retentionHeldCents: 0,
+      draftedCents: 0, invoicedCents: 0, paidCents: 0, paidIncGstCents: 0, dueIncGstCents: 0,
     },
     xero,
+    statusAsOf: null,
     asOf: "2026-11-22T00:00:00.000Z",
   };
 }

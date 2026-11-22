@@ -74,4 +74,54 @@ syncLog.registerRetryHandler(SYNC_TYPE, async (item) => {
   return { outcome: 'failed', reason: reasonOf(result), category: result.category || 'unexpected' };
 });
 
-module.exports = { SYNC_TYPE, operationOf, reasonOf, recordSendOutcome };
+// ── the status check (#1151) ────────────────────────────────────────────────
+// ONE operation for the whole hourly check (`invstatus:poll`): a run that
+// reached Xero closes an earlier failure; a run that couldn't is the open
+// item, with a Retry that simply runs the check again. A check that was
+// skipped because Xero isn't connected is not recorded — the connection
+// panel already says that.
+
+const STATUS_TYPE = 'invoice_status';
+const STATUS_OPERATION = 'invstatus:poll';
+
+function statusReason(summary) {
+  const base = `${summary.checked} checked, ${summary.changed} changed`;
+  return summary.stoppedEarly ? `${base} (ran out of time — the rest go next run)` : base;
+}
+
+async function recordStatusOutcome({ summary, error }) {
+  if (!error && summary && summary.skipped) return null;
+  try {
+    await syncLog.record({
+      syncType: STATUS_TYPE,
+      operation: STATUS_OPERATION,
+      recordRef: 'sent stage invoices',
+      status: error ? 'failed' : 'ok',
+      reason: error ? `couldn't read invoice status from Xero (${error.category || 'unexpected'})` : statusReason(summary),
+      ...(error ? { category: error.category || 'unexpected' } : {}),
+    });
+    return null;
+  } catch (e) {
+    console.error('customer-invoices sync-bridge: status outcome not recorded', e);
+    return `sync-log write failed (${e.message})`;
+  }
+}
+
+syncLog.registerRetryHandler(STATUS_TYPE, async () => {
+  const statusSvc = require('./xero-status');
+  const sql = getDb({ mode: 'write' });
+  const tenant = await store.resolveTenant(sql);
+  if (!tenant) return { outcome: 'failed', reason: 'the invoice records are not set up', category: 'persistence' };
+  try {
+    const summary = await statusSvc.pollAll({ tenant, deps: { sql } });
+    if (summary.skipped) return { outcome: 'failed', reason: `Xero isn't usable (${summary.skipped})`, category: 'reconnect_required' };
+    return { outcome: 'resolved', reason: statusReason(summary) };
+  } catch (e) {
+    return { outcome: 'failed', reason: `couldn't read invoice status from Xero (${e.category || 'unexpected'})`, category: e.category || 'unexpected' };
+  }
+});
+
+module.exports = {
+  SYNC_TYPE, operationOf, reasonOf, recordSendOutcome,
+  STATUS_TYPE, STATUS_OPERATION, statusReason, recordStatusOutcome,
+};

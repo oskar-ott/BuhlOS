@@ -232,6 +232,38 @@ export function sendOutcomeMessage(r: {
   }
 }
 
+/**
+ * "12 minutes ago" for how fresh Xero's figures are. Coarse on purpose — the
+ * point is whether it is minutes, hours or days old.
+ */
+export function agoLabel(iso: string | null | undefined, now: Date = new Date()): string {
+  if (!iso) return "not checked yet";
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return "not checked yet";
+  const mins = Math.max(0, Math.round((now.getTime() - then) / 60000));
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins} ${mins === 1 ? "minute" : "minutes"} ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 48) return `${hours} ${hours === 1 ? "hour" : "hours"} ago`;
+  const days = Math.round(hours / 24);
+  return `${days} days ago`;
+}
+
+/** One line for what "Check Xero now" found. */
+export function refreshMessage(r: { checked: number; changed: number; notFound: number }): {
+  tone: "success" | "warning";
+  text: string;
+} {
+  if (r.checked === 0) return { tone: "success", text: "Nothing has been sent to Xero for this job yet, so there was nothing to check." };
+  const n = `${r.checked} ${r.checked === 1 ? "invoice" : "invoices"}`;
+  if (r.notFound > 0) {
+    return { tone: "warning", text: `Checked ${n}. Xero no longer has ${r.notFound === 1 ? "one of them" : `${r.notFound} of them`} — see below.` };
+  }
+  return r.changed === 0
+    ? { tone: "success", text: `Checked ${n} with Xero. Nothing has changed.` }
+    : { tone: "success", text: `Checked ${n} with Xero. ${r.changed} ${r.changed === 1 ? "has" : "have"} changed — the figures below are up to date.` };
+}
+
 /** Open an invoice in Xero's web app. (Xero then asks for a login if needed.) */
 export function xeroInvoiceUrl(xeroInvoiceId: string): string {
   return `https://go.xero.com/AccountsReceivable/View.aspx?InvoiceID=${encodeURIComponent(xeroInvoiceId)}`;

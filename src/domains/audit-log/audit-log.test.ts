@@ -148,6 +148,7 @@ describe("AuditLogEntrySchema", () => {
       "customer_invoice.stage_added",
       "customer_invoice.stage_edited",
       "customer_invoice.stage_removed",
+      "customer_invoice.status_checked",
       // #370: daywork register lifecycle.
       "daywork.amended",
       "daywork.created",

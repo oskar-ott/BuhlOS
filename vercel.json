@@ -3,6 +3,7 @@
   "functions": {
     "api/itp-simple.js": { "maxDuration": 60 },
     "api/invoices.js": { "maxDuration": 60 },
+    "api/customer-invoices.js": { "maxDuration": 60 },
     "api/workshop-stock.js": { "maxDuration": 60 },
     "api/backup-snapshot.js": { "maxDuration": 60 },
     "api/internal/sync-checks/hours.js": { "maxDuration": 60 },
@@ -120,6 +121,7 @@
     { "path": "/api/backup-snapshot?action=run",                "schedule": "0 16 * * *"   },
     { "path": "/api/invoices?action=sweep",                     "schedule": "*/15 * * * *" },
     { "path": "/api/invoices?action=digest",                    "schedule": "30 21 * * 0" },
+    { "path": "/api/customer-invoices?action=poll",             "schedule": "5 * * * *"    },
     { "path": "/api/internal/sync-checks/hours",                "schedule": "0 17 * * *"   },
     { "path": "/api/internal/sync-checks/structure",            "schedule": "0 18 * * *"   },
     { "path": "/api/internal/sync-checks/servicem8",            "schedule": "15 19 * * *"  },

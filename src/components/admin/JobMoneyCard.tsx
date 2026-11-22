@@ -9,6 +9,7 @@ import { updateJob } from "@/domains/jobs/client";
 import { formatHoursLabel } from "@/domains/timesheets/format";
 import { JOB_MONEY_CHANGED_EVENT } from "@/domains/jobs/job-materials-client";
 import { announceJobContractChanged } from "@/domains/customer-invoices/client";
+import { MoneyInNote } from "@/components/admin/customer-invoices/MoneyInNote";
 import {
   formatMoneyCents,
   jobProfitability,
@@ -272,6 +273,14 @@ export function JobMoneyFigures({
           />
         </div>
       </dl>
+
+      {/* Money IN (#1151): invoiced / paid / owing from the job's stage
+          invoices, and cash so far against the costs above. Nothing renders
+          while customer_invoices is off for the viewer. */}
+      <MoneyInNote
+        moneyIn={data.customerInvoices}
+        labourUnderstated={labourUnderstated || (labourZero && approvedHours > 0)}
+      />
 
       {/* Completeness notes — ALWAYS rendered (audit L2): the reader must never
           take a figure as more certain than its inputs. */}

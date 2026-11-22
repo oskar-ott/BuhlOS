@@ -132,7 +132,8 @@ describe("StageRow — sent", () => {
   it("says so, loudly, when what is in Xero doesn't match what was sent", () => {
     const html = rowHtml(sent({ drift: { mismatches: ["subtotal"] } }));
     expect(html).toContain("gp-stage-drift");
-    expect(html).toContain("doesn’t match what BuhlOS sent");
+    expect(html).toContain("has been changed in Xero since BuhlOS sent it");
+    expect(html).toContain("The figures shown here are Xero's.");
   });
 });
 
@@ -244,8 +245,10 @@ describe("Getting paid — with stages in Xero", () => {
     totals: {
       contractCents: 250_000_00, plannedCount: 1, plannedGrossCents: 50_000_00, plannedNetCents: 47_500_00, unresolvedCount: 0,
       sentCount: 1, claimedCents: 100_000_00, stillToInvoiceCents: 150_000_00, overContract: false, retentionHeldCents: 5_000_00,
+      draftedCents: 0, invoicedCents: 0, paidCents: 0, paidIncGstCents: 0, dueIncGstCents: 0,
     },
     xero: { state: "connected", organisationName: "Buhl Electrical", settingsComplete: true, sendReady: true, client: { linked: true, name: "Built Pty Ltd", otherOrganisation: false, suggestion: null } },
+    statusAsOf: null,
     asOf: "2026-11-22T00:00:00.000Z",
   };
   const html = render(createElement(JobGettingPaidBody, { data, onData: noop, onStale: noop }));
@@ -267,6 +270,5 @@ describe("Getting paid — with stages in Xero", () => {
   it("the sent row is closed to editing while the planned one can still be sent", () => {
     expect(html).toContain("IV3345-1");
     expect(html.match(/Send to Xero/g)).toHaveLength(1);
-    expect(html).not.toMatch(/>Paid</);
   });
 });

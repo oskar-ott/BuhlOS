@@ -61,6 +61,7 @@ function data(over: Partial<JobInvoicingResponse> = {}): JobInvoicingResponse {
       stillToInvoiceCents: 250_000_00,
       overContract: false,
       retentionHeldCents: 0,
+      draftedCents: 0, invoicedCents: 0, paidCents: 0, paidIncGstCents: 0, dueIncGstCents: 0,
     },
     // Xero usable and fully set up, so the schedule tests read as before; the
     // Xero states themselves are pinned in xero-setup.render.test.tsx.
@@ -71,6 +72,7 @@ function data(over: Partial<JobInvoicingResponse> = {}): JobInvoicingResponse {
       sendReady: true,
       client: { linked: true, name: "Built Pty Ltd", otherOrganisation: false, suggestion: null },
     },
+    statusAsOf: null,
     asOf: "2026-11-22T00:00:00.000Z",
     ...over,
   };
@@ -100,13 +102,15 @@ describe("JobGettingPaidBody", () => {
     expect(html).toContain("Retention: none on this job.");
   });
 
-  it("says a stage goes to Xero as a draft and that BuhlOS never approves or emails — and shows no paid figure yet", () => {
+  it("says a stage goes to Xero as a draft and that BuhlOS never approves or emails — and shows no paid figures before anything is sent", () => {
     const html = body(data({ stages: [stage()], totals: { ...data().totals, plannedCount: 1, plannedGrossCents: 50_000_00, plannedNetCents: 50_000_00 } }));
     expect(html).toContain("A stage is sent to Xero as a draft.");
     expect(html).toContain("BuhlOS never does");
-    // payment arrives with #1151 — no invented "paid" figure before then
+    // Approved / Paid / Owing are Xero's figures — with nothing in Xero there
+    // is nothing to show, so the strip (and its Check Xero now) is absent.
+    expect(html).not.toContain("gp-money-in");
     expect(html).not.toMatch(/>Paid</);
-    expect(html).not.toMatch(/>Invoiced</);
+    expect(html).not.toContain("Check Xero now");
   });
 
   it("nothing sent yet: the Sent to Xero figure is a dash, not $0", () => {

@@ -28,6 +28,8 @@ export const XERO_SYNC_TYPES = [
   "reconciliation",
   // #1150: creating a customer stage invoice as a draft (customer_invoices).
   "invoice_export",
+  // #1151: reading back what happened to sent invoices (paid, voided, …).
+  "invoice_status",
 ] as const;
 
 /**
@@ -36,7 +38,10 @@ export const XERO_SYNC_TYPES = [
  * has actually been recorded, so a feature that is switched off (or simply
  * never used) leaves no trace on a payroll office's panel.
  */
-export const QUIET_UNTIL_USED: ReadonlySet<XeroSyncType> = new Set<XeroSyncType>(["invoice_export"]);
+export const QUIET_UNTIL_USED: ReadonlySet<XeroSyncType> = new Set<XeroSyncType>([
+  "invoice_export",
+  "invoice_status",
+]);
 export type XeroSyncType = (typeof XERO_SYNC_TYPES)[number];
 
 /** An unresolved item's status (the open working set). */

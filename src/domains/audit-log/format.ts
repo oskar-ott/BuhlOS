@@ -136,6 +136,7 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   "customer_invoice.send_retried": "Checked Xero again for a stage invoice",
   "customer_invoice.send_reset": "Put a stage invoice back to planned",
   "customer_invoice.raised_again": "Raised a stage invoice again under the next number",
+  "customer_invoice.status_checked": "Checked Xero for a job's invoice payments",
   // Workshop Stock (targetType 'workshop_stock_item' groups as Other).
   "workshop_stock.item_created": "Added a workshop stock item",
   "workshop_stock.item_updated": "Edited a workshop stock item",

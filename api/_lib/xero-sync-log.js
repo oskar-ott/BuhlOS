@@ -39,7 +39,7 @@ const HISTORY_PREFIX = 'xero/sync-log/';
 const MAX_ENTRIES_PER_MONTH = 5000;
 const TRIM_TO_PER_MONTH = 4000;
 
-const SYNC_TYPES = new Set(['reference_sync', 'timesheet_export', 'reconciliation', 'invoice_export']);
+const SYNC_TYPES = new Set(['reference_sync', 'timesheet_export', 'reconciliation', 'invoice_export', 'invoice_status']);
 const OPEN_STATUSES = new Set(['failed', 'skipped']);
 const TERMINAL_OUTCOMES = new Set(['ok', 'resolved', 'resolved_meanwhile', 'acknowledged']);
 

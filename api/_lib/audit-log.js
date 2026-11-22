@@ -283,6 +283,9 @@ const VALID_ACTIONS = new Set([
   'customer_invoice.send_retried',
   'customer_invoice.send_reset',
   'customer_invoice.raised_again',
+  // #1151: a person pressed "Check Xero now" on a job (the hourly check is a
+  // system read and is not journalled per run — it is on the Xero sync log).
+  'customer_invoice.status_checked',
   // #370: daywork register (api/dayworks.js). daywork.created on POST;
   // daywork.signed on the supervisor sign; daywork.transitioned on the
   // signed → invoiced change (metadata.from/to carry the direction);
