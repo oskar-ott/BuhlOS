@@ -232,6 +232,12 @@ export const AUDIT_ACTIONS = [
   "invoice.auto_confirmed",
   "invoice.held",
   "invoice.supplier_pref_changed",
+  // Customer stage invoices (#1148): the job's payment schedule (targetType
+  // 'customer_invoice'). Kept in sync with api/_lib/audit-log.js.
+  "customer_invoice.stage_added",
+  "customer_invoice.stage_edited",
+  "customer_invoice.stage_removed",
+  "customer_invoice.profile_updated",
   // Workshop Stock: office catalogue actions, count corrections, undos
   // (targetType 'workshop_stock_item'). Kept in sync with api/_lib/audit-log.js.
   "workshop_stock.item_created",
@@ -427,6 +433,8 @@ export const AUDIT_TARGET_TYPES = [
   "xero_sync_item",
   // Supplier-invoice capture: targetId = the PG invoice uuid.
   "supplier_invoice",
+  // #1148: a customer stage invoice (the PG stage uuid, or the job id).
+  "customer_invoice",
   // Task I: targetId = the PG rule uuid (supplier_line_categories).
   "supplier_line_category",
   // Workshop Stock: targetId = the PG item uuid.

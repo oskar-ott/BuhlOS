@@ -450,6 +450,20 @@ const REGISTRY = {
     expires: '2027-01-07',
   },
 
+  // Customer stage invoices (owner pull 2026-11-22,
+  // docs/customer-invoices.md; rules in
+  // docs/architecture/customer-invoicing-boundary-adr.md): a job's payment
+  // stages listed on the job's Money card. NOT supplier invoices
+  // (invoice_capture — bills coming in). Admin-tier: money is office data.
+  // This flag will also gate the request for Xero invoice scopes at connect
+  // and the draft send (#1149/#1150) — neither exists yet.
+  customer_invoices: {
+    description: 'Customer stage invoices — a job\'s payment stages (dollars or % of contract, optional retention) on the job Money card "Getting paid" section (api/customer-invoices). Schedule only: no Xero call yet. Dark, unproven, admin-tier.',
+    default: false,
+    target: 'admin-tier',
+    expires: '2027-02-20',
+  },
+
   // job_photos left the hidden list by owner decision (#916 call 2,
   // 2026-07-18): the gallery completes the capture loop, so it is lean-core —
   // a kill-switch (default ON).
@@ -475,6 +489,7 @@ const FLAG_PRESENTATION = {
   receipt_capture: { label: 'Receipts from the field', domain: 'Jobs', surface: 'Phil', previewHref: '/phil/my-day' },
   job_purchases: { label: 'Recent purchases on the job', domain: 'Jobs', surface: 'Shared', previewHref: '/v2/jobs' },
   workshop_stock: { label: 'Workshop stock', domain: 'People & gear', surface: 'Shared', previewHref: '/phil/stock' },
+  customer_invoices: { label: 'Customer stage invoices', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/v2/jobs' },
   admin_flags_readout: { label: 'Flags readout card', domain: 'Platform', surface: 'BuhlOS', previewHref: '/command-centre' },
   servicem8_sync: { label: 'ServiceM8 job sync', domain: 'Jobs', surface: 'BuhlOS', previewHref: '/command-centre' },
   phil_sharpened: { label: 'Phil sharpened redesign', domain: 'Phil', surface: 'Phil', previewHref: '/phil/my-day' },
