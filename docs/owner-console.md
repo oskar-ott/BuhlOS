@@ -97,6 +97,25 @@ access paths (a real account with stored role `owner`, or an `OWNER_EMAILS` emai
 a real account) still satisfy the console gate, but the env-only principal is the
 no-trace path.
 
+## Page layout (2026-11 simplification)
+
+One short page, in the order the owner uses it — no side rail, no jump tiles:
+
+1. **Band** — environment, who's signed in and how, when it loaded, plus four
+   headline numbers (Health · Features live/preview/off · Activity 7d · Errors
+   7d); the last three jump to their section.
+2. **Needs you** — only real, actionable signals: failed probes, expired /
+   expiring flags, owner-access warnings (from `problems`, minus
+   `not_instrumented`) and errors in the last 7 days. Nothing real → an
+   explicit "All clear".
+3. **Features** — the Off · Preview · Live board (below).
+4. **Feature settings** (when any knobs exist), **Activity** (usage numbers +
+   top actions + the latest audit entries, the rest behind "Show N more"),
+   **Errors**, **Owner password**.
+5. **Diagnostics** — collapsed by default: health probe detail, every
+   instrumentation gap (with its why / suggested fix), the surface-coverage
+   matrix and the generated next actions. Kept whole, just out of the way.
+
 ## Data sources & honesty
 
 Every value is either **real** (from a live source) or an explicit
@@ -121,8 +140,10 @@ endpoint latency, uptime probe.
 
 The console **controls** feature visibility (it is no longer read-only). The
 flags are presented as a **feature board** — grouped by domain (QA & compliance,
-Site records, Commercial, …), each feature a row with a human label and a state
-chip (**On** / **Preview only** / **Off** / **Pinned by env**). Each
+Site records, Commercial, …), each feature a row with a human label, its key and
+where it shows (office / field app / both); the Off · Preview · Live switch is
+the state (env-pinned rows say so instead). One toolbar filters by stage (its
+counts are the rollout mix) and searches. Each
 non-protected flag has two dials — **Live to customers** (the customer launch
 gate) and **Preview for me** (an owner-only override) — while protected
 data-plane flags (`supabase_*`, `phil_jobs_summary_read`) are fenced in a
@@ -249,7 +270,7 @@ back with a visible error on failure.
 ## Feature config knobs (#760 PR2)
 
 Beyond on/off, the owner can **tune** a feature's settings at runtime — the
-"Feature configuration" panel. Where a flag answers "is this visible", a knob
+"Feature settings" section. Where a flag answers "is this visible", a knob
 answers "how does it behave" (upload caps, length limits, …).
 
 - **Registry** — `api/_lib/feature-settings.js` `SETTINGS_REGISTRY`, keyed by

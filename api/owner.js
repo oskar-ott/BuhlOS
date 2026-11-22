@@ -538,13 +538,8 @@ function buildNextActions(problems, flags, meta) {
       suggestedIssue: 'Owner Console: remove/extend expired feature flags',
     });
   }
-  actions.push({
-    title: 'Build an owner-safe runtime feature-flag override API',
-    reason: 'Toggling flags without a deploy needs an audited, CAS-guarded, protected-flag-aware write path (none exists yet).',
-    priority: 'medium',
-    safeNow: false,
-    suggestedIssue: 'Owner Console: safe runtime feature flag override API',
-  });
+  // (The "build a runtime flag override API" action is gone — that shipped as
+  // api/owner-flags.js in #760 and is the Features board's write path.)
   actions.push({
     title: 'Instrument route / feature usage',
     reason: 'The console cannot answer "what is used / abandoned / dead" without it.',

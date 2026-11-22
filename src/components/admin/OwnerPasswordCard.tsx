@@ -62,9 +62,12 @@ export function OwnerPasswordCard() {
       <CardDescription className="mt-1">
         Change your owner sign-in password. Takes effect immediately — no redeploy.
       </CardDescription>
-      <form onSubmit={submit} className="mt-4 max-w-sm space-y-3">
+      <form
+        onSubmit={submit}
+        className="mt-4 grid max-w-2xl gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end"
+      >
         <label className="block">
-          <span className="text-xs uppercase tracking-wider text-text-muted">Current password</span>
+          <span className="text-xs font-semibold text-text-muted">Current password</span>
           <input
             type="password"
             autoComplete="current-password"
@@ -76,7 +79,7 @@ export function OwnerPasswordCard() {
           />
         </label>
         <label className="block">
-          <span className="text-xs uppercase tracking-wider text-text-muted">New password (min 8)</span>
+          <span className="text-xs font-semibold text-text-muted">New password (min 8)</span>
           <input
             type="password"
             autoComplete="new-password"
@@ -88,14 +91,6 @@ export function OwnerPasswordCard() {
             className={inputClass}
           />
         </label>
-        {msg ? (
-          <p
-            role={state === "error" ? "alert" : "status"}
-            className={cn("text-sm", state === "error" ? "text-state-danger" : "text-text-muted")}
-          >
-            {msg}
-          </p>
-        ) : null}
         <button
           type="submit"
           disabled={state === "saving" || !current || !next}
@@ -104,6 +99,17 @@ export function OwnerPasswordCard() {
         >
           {state === "saving" ? "Changing…" : "Change password"}
         </button>
+        {msg ? (
+          <p
+            role={state === "error" ? "alert" : "status"}
+            className={cn(
+              "text-sm sm:col-span-3",
+              state === "error" ? "text-state-danger" : "text-text-muted",
+            )}
+          >
+            {msg}
+          </p>
+        ) : null}
       </form>
     </Card>
   );

@@ -42,6 +42,14 @@ const STAGES: ReadonlyArray<{ state: Rollout; label: string; hint: string }> = [
   { state: "live", label: "Live", hint: "Everyone (customers + admins) sees it" },
 ];
 
+/** Where the feature shows up, in site language (the field app's internal
+ *  name never reaches the screen). */
+const SURFACE_LABEL: Record<NonNullable<FlagItem["surface"]>, string> = {
+  BuhlOS: "office",
+  Phil: "field app",
+  Shared: "office + field app",
+};
+
 const STAGE_INDEX: Record<Rollout, number> = { off: 0, preview: 1, live: 2 };
 
 /** Node + track colours per CURRENT stage (the travelled path takes this colour). */
@@ -158,13 +166,6 @@ export function OwnerFeatureRow({
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-semibold text-text">{flag.label || flag.key}</span>
-          <span className="font-mono text-[11px] text-text-muted">{flag.key}</span>
-          <StatusChip
-            tone={state === "live" ? "success" : state === "preview" ? "info" : "neutral"}
-            dot={false}
-          >
-            {state === "live" ? "Live" : state === "preview" ? "Preview only (you)" : "Off"}
-          </StatusChip>
           {flag.core ? (
             <StatusChip tone="warning" dot={false}>
               core
@@ -180,23 +181,19 @@ export function OwnerFeatureRow({
           ) : null}
         </div>
 
-        <p className="mt-1 text-sm text-text-muted">{flag.description}</p>
-
-        {/* Honest one-liner: what THIS state means for the two audiences. */}
-        {envPinned ? (
-          <p className="mt-1 text-xs text-text-muted">
-            Pinned by <span className="font-mono">FLAG_{flag.key.toUpperCase()}</span> — change it
-            in deployment settings; the env value always wins.
-          </p>
-        ) : (
-          <p className="mt-1 text-xs text-text-muted">
-            {state === "live"
-              ? "Everyone sees this feature."
-              : state === "preview"
-                ? "Only you see this feature — customers and admins don't. Open it to build & test before you release it."
-                : "Hidden from everyone. Switch to Preview to test it yourself first."}
-          </p>
-        )}
+        <p className="mt-0.5 text-sm text-text-muted">{flag.description}</p>
+        <p className="mt-0.5 text-xs text-text-muted">
+          <span className="font-mono">{flag.key}</span>
+          {flag.surface ? <> · {SURFACE_LABEL[flag.surface]}</> : null}
+          {envPinned ? (
+            <>
+              {" "}
+              · {state === "live" ? "On" : "Off"} — pinned by{" "}
+              <span className="font-mono">FLAG_{flag.key.toUpperCase()}</span>; change it in
+              deployment settings, the env value always wins.
+            </>
+          ) : null}
+        </p>
       </div>
 
       {!envPinned ? (

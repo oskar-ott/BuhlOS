@@ -54,10 +54,7 @@ export default async function OwnerConsolePage() {
     if (parsed.success) {
       return (
         <AdminShell title="Owner Console">
-          <OwnerConsole summary={parsed.data} />
-          <div className="mx-auto mt-6 max-w-5xl">
-            <OwnerPasswordCard />
-          </div>
+          <OwnerConsole summary={parsed.data} account={<OwnerPasswordCard />} />
         </AdminShell>
       );
     }
