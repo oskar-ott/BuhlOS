@@ -62,6 +62,14 @@ function data(over: Partial<JobInvoicingResponse> = {}): JobInvoicingResponse {
       overContract: false,
       retentionHeldCents: 0,
     },
+    // Xero usable and fully set up, so the schedule tests read as before; the
+    // Xero states themselves are pinned in xero-setup.render.test.tsx.
+    xero: {
+      state: "connected",
+      organisationName: "Buhl Electrical",
+      settingsComplete: true,
+      client: { linked: true, name: "Built Pty Ltd", otherOrganisation: false, suggestion: null },
+    },
     asOf: "2026-11-22T00:00:00.000Z",
     ...over,
   };

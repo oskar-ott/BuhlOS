@@ -198,8 +198,9 @@ reused; a row cannot be marked `sent` without a number and a Xero invoice id;
 attempts are immutable (a trigger refuses UPDATE); events are append-only and
 deliberately carry **no** foreign key to attempts, because the `pending` event
 is written before the attempt row exists. No token, secret or OAuth columns.
-Only the schedule (planned stages, retention %) is written today; the send and
-the Xero mirror columns are #1150/#1151.
+Written today: the schedule (planned stages, retention %), the job's linked
+Xero contact (id + name + organisation) and the per-organisation invoice
+defaults (#1149). The send and the Xero mirror columns are #1150/#1151.
 
 ## How to apply + verify (later — not during the cutover ceremony)
 

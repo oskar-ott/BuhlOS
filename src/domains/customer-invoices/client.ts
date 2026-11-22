@@ -1,8 +1,14 @@
 import { httpGet, httpPost, httpPut, type HttpResult } from "@/lib/http";
 import {
+  ContactSearchResponseSchema,
+  InvoiceSettingsOptionsSchema,
+  InvoiceSettingsResponseSchema,
   JobInvoicingResponseSchema,
+  type InvoiceSettingsOptions,
+  type InvoiceSettingsResponse,
   type JobInvoicingResponse,
   type StageInput,
+  type XeroContact,
 } from "./schema";
 
 /**
@@ -56,6 +62,52 @@ export function saveRetention(
   expectedVersion: number | null
 ): Promise<HttpResult<JobInvoicingResponse>> {
   return httpPut(`${BASE}?action=profile`, { jobId, retentionBp, expectedVersion }, opts);
+}
+
+// ── the job's client in Xero (#1149) ────────────────────────────────────────
+
+/** Live search of the connected organisation's contacts (id + name only). */
+export function searchXeroContacts(q: string): Promise<HttpResult<XeroContact[]>> {
+  return httpGet(`${BASE}?action=contacts&q=${encodeURIComponent(q)}`, {
+    schema: ContactSearchResponseSchema.transform((r) => r.contacts),
+  });
+}
+
+/** Link the job to a Xero contact. The server re-reads the contact from Xero
+ *  and stores Xero's own name for it. */
+export function linkXeroContact(
+  jobId: string,
+  contactId: string,
+  expectedVersion: number | null
+): Promise<HttpResult<JobInvoicingResponse>> {
+  return httpPut(`${BASE}?action=contact-link`, { jobId, contactId, expectedVersion }, opts);
+}
+
+export function unlinkXeroContact(
+  jobId: string,
+  expectedVersion: number
+): Promise<HttpResult<JobInvoicingResponse>> {
+  return httpPut(`${BASE}?action=contact-unlink`, { jobId, expectedVersion }, opts);
+}
+
+// ── invoice defaults (#1149) ────────────────────────────────────────────────
+
+export function invoiceSettings(): Promise<HttpResult<InvoiceSettingsResponse>> {
+  return httpGet(`${BASE}?action=settings`, { schema: InvoiceSettingsResponseSchema });
+}
+
+/** Read live from Xero: active revenue accounts and sales tax rates. */
+export function invoiceSettingsOptions(): Promise<HttpResult<InvoiceSettingsOptions>> {
+  return httpGet(`${BASE}?action=settings-options`, { schema: InvoiceSettingsOptionsSchema });
+}
+
+export function saveInvoiceSettings(input: {
+  salesAccountCode: string;
+  taxType: string;
+  paymentTermsDays: number;
+  expectedVersion: number | null;
+}): Promise<HttpResult<InvoiceSettingsResponse>> {
+  return httpPut(`${BASE}?action=settings`, input, { schema: InvoiceSettingsResponseSchema });
 }
 
 /** The Money card announces a contract-value save on `window` so this card's

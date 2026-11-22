@@ -60,13 +60,15 @@ function verifyState(state, userId) {
  * The Xero authorization URL the browser is redirected to. `write` adds the
  * payroll.timesheets WRITE scope (#249) — set only when xero_payroll_export is
  * on for the connecting admin, so a default connect stays read-only.
+ * `invoices` adds the customer-invoice scopes (#1149) on the same rule, keyed
+ * on customer_invoices.
  */
-function authorizeUrl(state, { env = process.env, write = false } = {}) {
+function authorizeUrl(state, { env = process.env, write = false, invoices = false } = {}) {
   const params = new URLSearchParams({
     response_type: 'code',
     client_id: clientId(env),
     redirect_uri: redirectUri(env),
-    scope: scopesFor({ write }),
+    scope: scopesFor({ timesheets: write, invoices }),
     state,
   });
   return `${AUTHORIZE_URL}?${params.toString()}`;

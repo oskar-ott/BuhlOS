@@ -2,6 +2,7 @@ import { createRequire } from "node:module";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AUDIT_ACTIONS, AUDIT_TARGET_TYPES } from "@/domains/audit-log/schema";
 import { JobInvoicingResponseSchema } from "./schema";
+import { createMemoryStore, type MemoryStore } from "./test-helpers/memory-store";
 
 /**
  * api/customer-invoices.js — the real handler with signed sessions, the flag
@@ -18,100 +19,20 @@ const flagsPath = resolve("../../../api/_lib/feature-flags.js");
 const auditPath = resolve("../../../api/_lib/audit-log.js");
 const dbPath = resolve("../../../api/_lib/supabase-db.js");
 const storePath = resolve("../../../api/_lib/customer-invoices/store.js");
+const lookupsPath = resolve("../../../api/_lib/customer-invoices/xero-lookups.js");
 const handlerPath = resolve("../../../api/customer-invoices.js");
 
 type Res = ReturnType<typeof createRes>;
-type Row = Record<string, unknown> & { id: string; jobId: string; state: string; version: number };
 
 let blob: Map<string, unknown>;
 let auth: { signSession: (p: Record<string, unknown>) => string };
 let handler: (req: Record<string, unknown>, res: Res) => Promise<unknown>;
-let mem: ReturnType<typeof createMemoryStore>;
+let mem: MemoryStore;
 let dbMode: string[];
 let dbThrows: boolean;
 
 function clone<T>(v: T): T {
   return v === undefined ? v : JSON.parse(JSON.stringify(v));
-}
-
-/** In-memory stand-in with the real store's contract (same function names,
- *  same StoreConflict reasons, same mapped row shape). */
-function createMemoryStore() {
-  class StoreConflict extends Error {
-    reason: string;
-    constructor(reason: string) {
-      super(reason);
-      this.reason = reason;
-    }
-  }
-  const rows: Row[] = [];
-  const profiles = new Map<string, Record<string, unknown> & { version: number }>();
-  const events: Array<{ event: string; jobId: string | null; invoiceId: string | null }> = [];
-  let n = 0;
-  let tenant: { id: string; slug: string } | null = { id: "t1", slug: "buhl" };
-  const uuid = () => `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}`;
-  const blank = {
-    seq: null, invoiceNumber: null, grossCents: null, retentionCents: null, netCents: null,
-    xeroStatus: null, xeroSubtotalCents: null, xeroTotalCents: null, xeroAmountPaidCents: null,
-    xeroAmountDueCents: null, xeroDueDate: null, dueDate: null,
-  };
-  function guard(id: string, expectedVersion: number): Row {
-    const r = rows.find((x) => x.id === id);
-    if (!r) throw new StoreConflict("not_found");
-    if (r.state !== "planned") throw new StoreConflict("not_planned");
-    if (r.version !== expectedVersion) throw new StoreConflict("version");
-    return r;
-  }
-  return {
-    StoreConflict,
-    rows,
-    events,
-    setTenant(t: typeof tenant) { tenant = t; },
-    async resolveTenant() { return tenant; },
-    async getProfile(_sql: unknown, _t: string, jobId: string) {
-      const p = profiles.get(jobId);
-      return p ? clone(p) : null;
-    },
-    async saveProfile(_sql: unknown, _t: string, jobId: string, patch: Record<string, unknown>, o: { expectedVersion: number | null }) {
-      const cur = profiles.get(jobId);
-      if (!cur) {
-        if (o.expectedVersion != null) throw new StoreConflict("version");
-        const p = { jobId, xeroContactId: null, xeroContactName: null, externalTenantId: null, retentionBp: 0, ...patch, version: 1 };
-        profiles.set(jobId, p);
-        events.push({ event: "profile_updated", jobId, invoiceId: null });
-        return clone(p);
-      }
-      if (cur.version !== o.expectedVersion) throw new StoreConflict("version");
-      Object.assign(cur, patch, { version: cur.version + 1 });
-      events.push({ event: "profile_updated", jobId, invoiceId: null });
-      return clone(cur);
-    },
-    async listJobInvoices(_sql: unknown, _t: string, jobId: string) {
-      return clone(rows.filter((r) => r.jobId === jobId && r.state !== "cancelled"));
-    },
-    async getInvoice(_sql: unknown, _t: string, id: string) {
-      const r = rows.find((x) => x.id === id);
-      return r ? clone(r) : null;
-    },
-    async createStage(_sql: unknown, _t: string, jobId: string, s: Record<string, unknown>) {
-      const r = { ...blank, ...s, id: uuid(), jobId, state: "planned", version: 1 } as Row;
-      rows.push(r);
-      events.push({ event: "created", jobId, invoiceId: r.id });
-      return clone(r);
-    },
-    async updateStage(_sql: unknown, _t: string, id: string, s: Record<string, unknown>, o: { expectedVersion: number }) {
-      const r = guard(id, o.expectedVersion);
-      Object.assign(r, s, { version: r.version + 1 });
-      events.push({ event: "edited", jobId: r.jobId, invoiceId: r.id });
-      return clone(r);
-    },
-    async removeStage(_sql: unknown, _t: string, id: string, o: { expectedVersion: number }) {
-      const r = guard(id, o.expectedVersion);
-      rows.splice(rows.indexOf(r), 1);
-      events.push({ event: "removed", jobId: r.jobId, invoiceId: null });
-      return { id, jobId: r.jobId };
-    },
-  };
 }
 
 function createRes() {
@@ -188,6 +109,12 @@ beforeEach(() => {
     },
   });
   mock(storePath, mem);
+  // The schedule must work with Xero not connected at all (P8). The Xero
+  // routes and readiness states are covered in customer-invoices-xero-api.test.ts.
+  mock(lookupsPath, {
+    readiness: async () => ({ state: "disconnected", organisationName: null, externalTenantId: null }),
+    assertReady: () => { throw new Error("no Xero call is expected in the schedule tests"); },
+  });
   auth = requireFromHere(authPath);
   handler = requireFromHere(handlerPath);
 });
@@ -264,6 +191,11 @@ describe("api/customer-invoices — reading a job", () => {
     expect(p.stages).toEqual([]);
     expect(p.profile).toMatchObject({ retentionBp: 0, version: null });
     expect(p.totals).toMatchObject({ plannedCount: 0, plannedGrossCents: 0, claimedCents: 0, stillToInvoiceCents: 250_000_00, overContract: false });
+    // …and that Xero isn't connected, without that getting in the schedule's way.
+    expect(p.xero).toEqual({
+      state: "disconnected", organisationName: null, settingsComplete: false,
+      client: { linked: false, name: null, otherOrganisation: false, suggestion: null },
+    });
   });
 
   it("a job with no contract value reports unknown — never a made-up zero", async () => {

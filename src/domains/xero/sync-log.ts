@@ -241,6 +241,35 @@ export const XERO_ERROR_TAXONOMY = {
 export type XeroErrorCategory = keyof typeof XERO_ERROR_TAXONOMY;
 export const XERO_ERROR_CATEGORIES = Object.keys(XERO_ERROR_TAXONOMY) as XeroErrorCategory[];
 
+/**
+ * The recorder stores the RAW category the shared client threw
+ * (api/_lib/xero/errors.js — `validation`, `auth`, `server`, …), not a
+ * taxonomy key. Without this map only `rate_limit` (the one name the two
+ * lists share) ever found its operator text, so most failures rendered with
+ * no explanation and no next step (#1149). Categories with no honest match —
+ * `not_found`, `conflict`, `not_connected`, `pending_selection`,
+ * `not_configured` — stay unmapped and fall back to the recorded reason.
+ */
+const CLIENT_CATEGORY_TO_TAXONOMY: Readonly<Record<string, XeroErrorCategory>> = {
+  auth: "authentication",
+  reconnect_required: "authentication",
+  forbidden: "authorization",
+  timeout: "network_timeout",
+  network: "network_timeout",
+  server: "network_timeout",
+  validation: "xero_validation",
+  persistence: "local_persistence",
+  unexpected: "unknown_remote",
+};
+
 export function taxonomyFor(category: string): XeroErrorCategoryMeta | null {
-  return (XERO_ERROR_TAXONOMY as Record<string, XeroErrorCategoryMeta>)[category] ?? null;
+  const table = XERO_ERROR_TAXONOMY as Record<string, XeroErrorCategoryMeta>;
+  const direct = Object.prototype.hasOwnProperty.call(table, category) ? table[category] : undefined;
+  if (direct) return direct;
+  // Own keys only: a category named like an Object.prototype member
+  // ("constructor", "toString") must not resolve to anything.
+  const alias = Object.prototype.hasOwnProperty.call(CLIENT_CATEGORY_TO_TAXONOMY, category)
+    ? CLIENT_CATEGORY_TO_TAXONOMY[category]
+    : undefined;
+  return alias ? XERO_ERROR_TAXONOMY[alias] : null;
 }

@@ -1,4 +1,4 @@
-import type { StageDisplayStatus } from "./schema";
+import type { StageDisplayStatus, XeroReadinessState } from "./schema";
 
 /**
  * Pure formatting + input parsing for customer stage invoices. Integer cents
@@ -112,6 +112,42 @@ export function formatDay(day: string | null | undefined): string {
   return `${d} ${month} ${y}`;
 }
 
+export const XERO_SETTINGS_PATH = "/settings/integrations/xero";
+
+/**
+ * What to tell the office when Xero can't be used for invoices yet, and the
+ * one thing that fixes it. `null` = Xero is usable.
+ */
+export function xeroBlocker(
+  state: XeroReadinessState
+): { message: string; action: string } | null {
+  switch (state) {
+    case "connected":
+      return null;
+    case "missing_permission":
+      return {
+        message: "Xero is connected, but without permission for invoices.",
+        action: "Reconnect Xero to allow invoices",
+      };
+    case "reconnect_required":
+      return { message: "The Xero connection has expired.", action: "Reconnect Xero" };
+    case "connecting":
+      return {
+        message: "Xero is connected, but no organisation has been chosen yet.",
+        action: "Finish connecting Xero",
+      };
+    case "disconnected":
+      return { message: "Xero isn't connected.", action: "Connect Xero" };
+    case "not_configured":
+      return { message: "Xero isn't set up for this site yet.", action: "Open Xero settings" };
+    case "unavailable":
+      return {
+        message: "Couldn't check the Xero connection just now.",
+        action: "Open Xero settings",
+      };
+  }
+}
+
 /** Plain words for the stable error codes the API answers with. */
 export function errorMessage(code: string | null, status: number): string {
   switch (code) {
@@ -128,6 +164,29 @@ export function errorMessage(code: string | null, status: number): string {
     case "store_unavailable":
     case "store_unprovisioned":
       return "The invoice records can't be reached right now. Nothing was saved — try again shortly.";
+    case "contact_not_found":
+      return "That contact no longer exists in Xero. Search again and pick another.";
+    case "contact_not_active":
+      return "That contact is archived in Xero. Restore it in Xero, or pick another.";
+    case "account_not_in_xero":
+      return "That sales account is no longer active in Xero. The list has been refreshed — pick again.";
+    case "tax_rate_not_in_xero":
+      return "That tax rate is no longer active in Xero. The list has been refreshed — pick again.";
+    case "xero_reconnect_required":
+      return "Xero needs to be reconnected before this will work. Nothing was changed.";
+    case "xero_not_connected":
+    case "xero_pending_selection":
+    case "xero_not_configured":
+      return "Xero isn't connected. Nothing was changed.";
+    case "xero_rate_limit":
+      return "Xero is busy right now. Wait a minute and try again.";
+    case "xero_timeout":
+    case "xero_network":
+    case "xero_server":
+      return "Couldn't reach Xero. Nothing was changed — try again shortly.";
+    case "xero_forbidden":
+    case "xero_auth":
+      return "Xero refused the request. Reconnect Xero and try again.";
     default:
       return status > 0 ? `Couldn't save (error ${status}). Nothing was changed.` : "Couldn't reach BuhlOS. Nothing was changed.";
   }

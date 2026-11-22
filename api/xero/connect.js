@@ -28,6 +28,9 @@ module.exports = async function handler(req, res) {
   // #249: request the payroll.timesheets WRITE scope only when the export flag
   // is on for this admin — a default connect stays read-only.
   const write = await isFlagEnabled('xero_payroll_export', user);
+  // #1149: likewise the customer-invoice scopes (create a DRAFT sales invoice,
+  // search contacts) only when customer_invoices is on for this admin.
+  const invoices = await isFlagEnabled('customer_invoices', user);
 
   const state = makeState(user.id);
 
@@ -43,6 +46,6 @@ module.exports = async function handler(req, res) {
 
   res.setHeader('Cache-Control', 'no-store');
   res.statusCode = 302;
-  res.setHeader('Location', authorizeUrl(state, { write }));
+  res.setHeader('Location', authorizeUrl(state, { write, invoices }));
   return res.end();
 };

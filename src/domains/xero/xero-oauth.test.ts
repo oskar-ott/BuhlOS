@@ -109,6 +109,28 @@ describe("authorize URL", () => {
     expect(scopes).toContain("payroll.employees.read"); // reads still present
     expect(scopes.filter((s) => s === "payroll.timesheets")).toHaveLength(1);
   });
+
+  it("adds the customer-invoice scopes only when invoices is requested (#1149)", () => {
+    const scopeOf = (o?: Record<string, boolean>) =>
+      String(new URL(oauth.authorizeUrl("S", o)).searchParams.get("scope")).split(" ");
+    // a default connect and a payroll-only connect carry neither invoice scope
+    for (const o of [undefined, { write: true }]) {
+      expect(scopeOf(o)).not.toContain("accounting.invoices");
+      expect(scopeOf(o)).not.toContain("accounting.contacts.read");
+    }
+    const inv = scopeOf({ invoices: true });
+    expect(inv).toContain("accounting.invoices");
+    expect(inv).toContain("accounting.contacts.read");
+    expect(inv).not.toContain("payroll.timesheets"); // independent of the payroll write
+    // Xero's granular 2026 scopes — never the deprecated umbrella; contacts stay read-only
+    expect(inv).not.toContain("accounting.transactions");
+    expect(inv).not.toContain("accounting.contacts");
+
+    const both = scopeOf({ write: true, invoices: true });
+    expect(both).toContain("payroll.timesheets");
+    expect(both).toContain("accounting.invoices");
+    expect(new Set(both).size).toBe(both.length); // no scope twice
+  });
 });
 
 describe("token exchange + refresh", () => {

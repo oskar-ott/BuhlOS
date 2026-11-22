@@ -269,6 +269,9 @@ const VALID_ACTIONS = new Set([
   'customer_invoice.stage_edited',
   'customer_invoice.stage_removed',
   'customer_invoice.profile_updated',
+  // #1149: the invoice defaults for the connected Xero organisation (sales
+  // account, tax rate, payment terms) — targetId 'settings'.
+  'customer_invoice.settings_updated',
   // #370: daywork register (api/dayworks.js). daywork.created on POST;
   // daywork.signed on the supervisor sign; daywork.transitioned on the
   // signed → invoiced change (metadata.from/to carry the direction);

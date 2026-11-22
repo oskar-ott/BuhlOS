@@ -106,11 +106,28 @@ async function getAccessContext(deps = {}) {
   });
 }
 
-async function rawFetch(url, { method = 'GET', accessToken, tenantId, body, fetchImpl }) {
+/** Caller headers a request may add (#1149 — e.g. `Idempotency-Key` for a
+ *  create, `If-Modified-Since` for a poll). The connection's own headers are
+ *  NOT overridable: a caller can never swap the token, the tenant or the
+ *  content negotiation the error handling depends on. */
+const RESERVED_HEADERS = new Set(['authorization', 'accept', 'content-type', 'xero-tenant-id']);
+
+function callerHeaders(headers) {
+  const out = {};
+  if (!headers || typeof headers !== 'object') return out;
+  for (const [k, v] of Object.entries(headers)) {
+    if (v == null || RESERVED_HEADERS.has(String(k).toLowerCase())) continue;
+    out[k] = String(v);
+  }
+  return out;
+}
+
+async function rawFetch(url, { method = 'GET', accessToken, tenantId, body, headers, fetchImpl }) {
   try {
     return await (fetchImpl || fetch)(url, {
       method,
       headers: {
+        ...callerHeaders(headers),
         Authorization: `Bearer ${accessToken}`,
         Accept: 'application/json',
         ...(body != null ? { 'Content-Type': 'application/json' } : {}),
@@ -137,9 +154,11 @@ function correlationIdOf(res) {
  * timeout, typed errors, correlation id, last_success_at touch.
  *
  * @param {string} url absolute Xero API URL
- * @param {{ method?: string, body?: object, tenanted?: boolean, deps?: object }} [opts]
+ * @param {{ method?: string, body?: object, headers?: Record<string,string>, tenanted?: boolean, deps?: object }} [opts]
  *   `body` (any JSON-serialisable value) is sent as an application/json request
  *   body — used by the timesheet push (#249). Absent = no body, unchanged GET behaviour.
+ *   `headers` adds caller headers (#1149 — `Idempotency-Key`, `If-Modified-Since`);
+ *   the connection's own headers cannot be overridden. Absent = unchanged.
  * @returns {Promise<{ data: any, correlationId: string|null }>}
  */
 async function xeroFetch(url, opts = {}) {
@@ -148,39 +167,32 @@ async function xeroFetch(url, opts = {}) {
   let ctx = await getAccessContext(deps);
   const tenantId = opts.tenanted === false ? null : ctx.externalTenantId;
 
-  let res = await rawFetch(url, {
+  // Every attempt of ONE request sends the same method, body and caller
+  // headers — so a retried create carries the same Idempotency-Key.
+  const send = (accessToken) => rawFetch(url, {
     method: opts.method,
-    accessToken: ctx.accessToken,
+    accessToken,
     tenantId,
     body: opts.body,
+    headers: opts.headers,
     fetchImpl: deps.fetchImpl,
   });
+
+  let res = await send(ctx.accessToken);
 
   if (res.status === 401) {
     // One forced refresh + retry: the access token may have been revoked or
     // expired under skew. getAccessContext refreshes because the row's expiry
     // is stale relative to a 401 — force by marking the attempt.
     ctx = await getAccessContext({ ...deps, forceRefresh: true });
-    res = await rawFetch(url, {
-      method: opts.method,
-      accessToken: ctx.accessToken,
-      tenantId,
-      body: opts.body,
-      fetchImpl: deps.fetchImpl,
-    });
+    res = await send(ctx.accessToken);
   }
 
   if (res.status === 429) {
     const retryAfter = Number(res.headers && typeof res.headers.get === 'function' ? res.headers.get('retry-after') : NaN);
     if (Number.isFinite(retryAfter) && retryAfter <= RETRY_AFTER_MAX_WAIT_S) {
       await new Promise((r) => setTimeout(r, retryAfter * 1000));
-      res = await rawFetch(url, {
-        method: opts.method,
-        accessToken: ctx.accessToken,
-        tenantId,
-        body: opts.body,
-        fetchImpl: deps.fetchImpl,
-      });
+      res = await send(ctx.accessToken);
     }
     if (res.status === 429) {
       throw new XeroError('rate_limit', {
@@ -234,7 +246,8 @@ async function xeroFetch(url, opts = {}) {
           // diagnosable from runtime logs (validation bodies carry no
           // credentials; belt-and-braces strip of anything token-like).
           const snippet = raw.replace(/[A-Za-z0-9+/_-]{40,}/g, '[scrubbed]').slice(0, 300);
-          console.error('xero 400 body unrecognised:', res.headers.get('content-type') || 'no-content-type', snippet);
+          const contentType = res.headers && typeof res.headers.get === 'function' ? res.headers.get('content-type') : null;
+          console.error('xero 400 body unrecognised:', contentType || 'no-content-type', snippet);
         }
       } catch {
         // body unreadable → keep the generic detail

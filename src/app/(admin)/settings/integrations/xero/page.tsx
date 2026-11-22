@@ -7,6 +7,7 @@ import { XeroSyncHealthPanel } from "@/components/admin/XeroSyncHealthPanel";
 import { XeroReferenceDataPanel } from "@/components/admin/XeroReferenceDataPanel";
 import { XeroWorkerMappingPanel } from "@/components/admin/XeroWorkerMappingPanel";
 import { XeroEarningsMappingPanel } from "@/components/admin/XeroEarningsMappingPanel";
+import { XeroInvoiceSettingsPanel } from "@/components/admin/XeroInvoiceSettingsPanel";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canAccessSurface } from "@/lib/auth/permissions";
 import { isFlagEnabled } from "../../../../../../api/_lib/feature-flags.js";
@@ -23,6 +24,11 @@ export const dynamic = "force-dynamic";
  * flag), and the CSV export on
  * /hours/period is untouched either way (payroll-boundary ADR: the CSV stays
  * the permanent fallback).
+ *
+ * With customer_invoices on (#1149) an Invoices panel sits under the
+ * connection: the default sales account, tax rate and payment terms for a
+ * job's stage invoices, picked from lists read live from Xero. Reads only —
+ * no invoice is sent from this page or anywhere else yet.
  *
  * Admin-tier gated like every /settings page; the api/xero/* endpoints
  * enforce admin + the xero_connection flag server-side too. When the flag is
@@ -41,6 +47,10 @@ export default async function XeroIntegrationPage() {
   }
 
   const enabled = await isFlagEnabled("xero_connection", session);
+  // Customer stage invoices (#1149) — its own admin-tier launch-gate, dark:
+  // the Invoices panel renders only while it is on, and never without the
+  // connection it depends on.
+  const invoicesEnabled = enabled && (await isFlagEnabled("customer_invoices", session));
 
   return (
     <AdminShell title="Xero connection">
@@ -48,6 +58,7 @@ export default async function XeroIntegrationPage() {
         {enabled ? (
           <>
             <XeroConnectionPanel />
+            {invoicesEnabled ? <XeroInvoiceSettingsPanel /> : null}
             <XeroReferenceDataPanel />
             <XeroWorkerMappingPanel />
             <XeroEarningsMappingPanel />

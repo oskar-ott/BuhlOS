@@ -18,6 +18,8 @@
 // (#249) — is requested at connect ONLY when xero_payroll_export is on for the
 // connecting admin (the authorize URL is built flag-aware via scopesFor), so a
 // default connection stays read-only, faithful to the ADR's flag-gated write.
+// The customer-invoice scopes (#1149) follow the same rule, keyed on
+// customer_invoices; hasInvoiceScopes() detects a connection without them.
 // Connections minted before #610 lack the read scopes; hasReferenceReadScopes()
 // detects that. Connections minted without the write scope can't export until a
 // reconnect — hasTimesheetWriteScope() detects that and the export says so.
@@ -42,9 +44,27 @@ const SCOPES = ['openid profile email offline_access', ...REFERENCE_READ_SCOPES]
 // #249: the first WRITE scope — Payroll AU draft timesheets.
 const TIMESHEET_WRITE_SCOPE = 'payroll.timesheets';
 
-/** Scope string for a connect — read-only by default, +write when enabled. */
-function scopesFor({ write = false } = {}) {
-  return write ? `${SCOPES} ${TIMESHEET_WRITE_SCOPE}` : SCOPES;
+// #1149: customer stage invoices (docs/architecture/customer-invoicing-boundary-adr.md
+// rule 10). `accounting.invoices` creates the DRAFT sales invoice and reads
+// its status back; `accounting.contacts.read` searches contacts so a person
+// can link the job's client (BuhlOS never creates or edits a contact). These
+// are Xero's 2026 GRANULAR scopes — the older umbrella `accounting.transactions`
+// is deprecated and refused for apps created after 2 March 2026. Accounts and
+// tax rates are already covered by `accounting.settings.read` above.
+// Requested at connect ONLY when customer_invoices is on for the connecting
+// admin; Xero adds new scopes to the ones already consented on a reconnect.
+const INVOICE_SCOPES = ['accounting.invoices', 'accounting.contacts.read'];
+
+/**
+ * Scope string for a connect — read-only by default. `timesheets` adds the
+ * payroll write scope (#249); `invoices` adds the customer-invoice scopes
+ * (#1149). `write` is the original name for `timesheets` and still works.
+ */
+function scopesFor({ write = false, timesheets = write, invoices = false } = {}) {
+  const parts = [SCOPES];
+  if (timesheets) parts.push(TIMESHEET_WRITE_SCOPE);
+  if (invoices) parts.push(...INVOICE_SCOPES);
+  return parts.join(' ');
 }
 
 /** True when a connection's granted scopes include every reference read scope. */
@@ -57,6 +77,12 @@ function hasReferenceReadScopes(grantedScopes) {
 function hasTimesheetWriteScope(grantedScopes) {
   const granted = new Set(String(grantedScopes || '').split(/\s+/).filter(Boolean));
   return granted.has(TIMESHEET_WRITE_SCOPE);
+}
+
+/** True when a connection's granted scopes include every customer-invoice scope. */
+function hasInvoiceScopes(grantedScopes) {
+  const granted = new Set(String(grantedScopes || '').split(/\s+/).filter(Boolean));
+  return INVOICE_SCOPES.every((s) => granted.has(s));
 }
 
 const PROVIDER = 'xero';
@@ -123,9 +149,11 @@ module.exports = {
   SCOPES,
   REFERENCE_READ_SCOPES,
   TIMESHEET_WRITE_SCOPE,
+  INVOICE_SCOPES,
   scopesFor,
   hasReferenceReadScopes,
   hasTimesheetWriteScope,
+  hasInvoiceScopes,
   PROVIDER,
   SETTINGS_PATH,
   clientId,

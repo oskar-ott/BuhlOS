@@ -10,8 +10,37 @@ import {
   formatDay,
   parseDollarsToCents,
   parsePercentToBp,
+  xeroBlocker,
 } from "./format";
-import { STAGE_DISPLAY_STATUSES } from "./schema";
+import { STAGE_DISPLAY_STATUSES, XERO_READINESS_STATES } from "./schema";
+
+describe("customer-invoices format — Xero set-up (#1149)", () => {
+  it("only a connected Xero has no blocker; every other state names a reason and a fix", () => {
+    expect(xeroBlocker("connected")).toBeNull();
+    for (const state of XERO_READINESS_STATES.filter((s) => s !== "connected")) {
+      const b = xeroBlocker(state);
+      expect(b, state).not.toBeNull();
+      expect(b!.message.length).toBeGreaterThan(10);
+      expect(b!.action.length).toBeGreaterThan(5);
+    }
+    expect(xeroBlocker("missing_permission")!.action).toBe("Reconnect Xero to allow invoices");
+  });
+
+  it("words every Xero and set-up error code plainly, without leaking the code", () => {
+    const codes = [
+      "contact_not_found", "contact_not_active", "account_not_in_xero", "tax_rate_not_in_xero",
+      "xero_reconnect_required", "xero_not_connected", "xero_pending_selection", "xero_not_configured",
+      "xero_rate_limit", "xero_timeout", "xero_network", "xero_server", "xero_forbidden", "xero_auth",
+    ];
+    for (const code of codes) {
+      const msg = errorMessage(code, 409);
+      expect(msg, code).not.toContain(code);
+      expect(msg, code).not.toMatch(/error 409/);
+    }
+    // an unmapped Xero category still gets an honest generic line
+    expect(errorMessage("xero_unexpected", 502)).toContain("502");
+  });
+});
 
 describe("customer-invoices format", () => {
   it("formats cents exactly, to two decimals, with thousands separators", () => {
