@@ -187,7 +187,8 @@ rows carry a Blob URL that is never sent to a browser (authenticated proxy).
 **`customer_invoice_settings` / `customer_invoice_job_profiles` /
 `customer_invoices` / `customer_invoice_attempts` / `customer_invoice_events`**
 (customer stage invoices, owner pull 2026-11-22 —
-`20261122100000_customer_invoices.sql`, see
+`20261122100000_customer_invoices.sql` +
+`20261123100000_customer_invoices_replaced_by.sql`, see
 [customer-invoicing-boundary-adr.md](customer-invoicing-boundary-adr.md) and
 [../customer-invoices.md](../customer-invoices.md)): money records — RLS-on,
 zero policies, service-role only. Every read and write goes through
@@ -204,7 +205,12 @@ defaults (#1149), and the send (#1150): a stage is claimed by a guarded
 UPDATE that allocates its number under a per-job advisory lock, one attempt
 row is inserted per call to Xero with its outcome, and Xero's id, status and
 amounts are written to the mirror columns once the invoice exists. The
-status check that keeps the mirror current is #1151.
+status check (#1151) rewrites those mirror columns, `drift` and
+`last_checked_at` on `sent` rows only, appends a `status_changed` event when
+something moved, and sets `replaced_by_id` (a self-reference, `on delete set
+null`) when a deleted or voided invoice is raised again. Its hourly run has no
+user session: `api/customer-invoices.js?action=poll` is gated by `CRON_SECRET`
+and the same service-role connection.
 
 ## How to apply + verify (later — not during the cutover ceremony)
 

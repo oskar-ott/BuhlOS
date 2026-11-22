@@ -21,7 +21,7 @@ job page.
 | Stages on the job page, no Xero | [#1148](https://github.com/oskar-ott/BuhlOS/issues/1148) | **Built, dark** behind `customer_invoices`. Never used on a real job |
 | Invoice permissions, client link, defaults | [#1149](https://github.com/oskar-ott/BuhlOS/issues/1149) | **Built, dark** behind `customer_invoices`. Proven against a stand-in for Xero only — **never run against real Xero** |
 | Send to Xero as a draft | [#1150](https://github.com/oskar-ott/BuhlOS/issues/1150) | **Built, dark** behind `customer_invoices`. Proven against a stand-in for Xero only — **never run against real Xero**. The proving run on the Demo Company (plan §8) is still owed, with a hard stop before the first create |
-| Invoiced and paid on the job | [#1151](https://github.com/oskar-ott/BuhlOS/issues/1151) | **Planned, not built** |
+| Invoiced and paid on the job | [#1151](https://github.com/oskar-ott/BuhlOS/issues/1151) | **Built, dark** behind `customer_invoices`. Reads only. Proven against a stand-in for Xero only — **never run against real Xero** |
 | BuhlOS-issued IV numbers | [#1152](https://github.com/oskar-ott/BuhlOS/issues/1152) | **Planned, not built** |
 
 Each part updates its own row, and adds its section below, in the PR that
@@ -40,8 +40,9 @@ ServiceM8.*
 ## What is built: the stage schedule (#1148)
 
 The schedule itself never calls Xero. A planned stage is sent to Xero from the
-same card (see "the send" below); the Xero set-up (#1149) only *reads*. There
-is still no Paid figure anywhere: payment status is #1151.
+same card (see "the send" below); the Xero set-up (#1149) only *reads*. What
+has been approved and paid comes back from Xero (see "invoiced and paid"
+below).
 
 ### On the job page
 
@@ -98,9 +99,10 @@ half-up to the cent, in integer arithmetic
 ### Data
 
 Postgres, migration `20261122100000_customer_invoices.sql`: five tables, RLS
-on with zero policies. The migration already carries the columns and tables the
-send (#1150) and the paid status (#1151) will use, so those parts need no
-second migration; nothing writes them yet. See the
+on with zero policies. That migration already carries the columns and tables
+the send (#1150) and the paid status (#1151) use. The paid status adds one
+column in a second, small migration,
+`20261123100000_customer_invoices_replaced_by.sql`. See the
 [RLS matrix](architecture/supabase-rls-access-matrix.md).
 
 Nothing is stored on the job record or in Blob, so `jobs.json`,
@@ -108,8 +110,9 @@ Nothing is stored on the job record or in Blob, so `jobs.json`,
 
 ### Turning it on
 
-1. Apply `20261122100000_customer_invoices.sql` to the dev Supabase project,
-   then production. An operator step, owner-approved each time.
+1. Apply `20261122100000_customer_invoices.sql`, then
+   `20261123100000_customer_invoices_replaced_by.sql`, to the dev Supabase
+   project, then production. An operator step, owner-approved each time.
 2. In the Owner Console, set **Customer stage invoices** to owner preview (or
    Live for the office).
 3. Open any job. "Getting paid" appears under the Money card.
@@ -222,10 +225,11 @@ Audit: `customer_invoice.profile_updated` for a link or unlink,
   only `rate_limit` matched, so most payroll sync failures showed no
   explanation on the sync health panel
 
-The `invoice_export` / `invoice_status` sync-log types are **not** added yet:
-the sync health panel lists every type, so adding them now would show
-"Invoice send: last success never" to anyone with the Xero connection on. They
-arrive with the send (#1150).
+The `invoice_export` / `invoice_status` sync-log types are not added by this
+part: the sync health panel lists every type, so adding them here would show
+"Invoice send: last success never" to anyone with the Xero connection on.
+`invoice_export` arrives with the send (#1150) and `invoice_status` with the
+paid status (#1151), and each shows on the panel only once it has been used.
 
 ### Turning it on
 
@@ -355,10 +359,133 @@ wrong more than once:
   (`go.xero.com/AccountsReceivable/View.aspx?InvoiceID=…`)
 - that "Go to BuhlOS" appears in Xero from `Url`
 
-## Testing (schedule, Xero set-up and the send)
+## What is built: invoiced and paid (#1151)
+
+After a stage is sent, the office approves it, emails it and records the
+payment **in Xero**. BuhlOS asks Xero what happened and shows it on the job.
+**Every Xero call here is a GET.** Proven end to end against a stand-in for
+Xero's API (real token store, shared client, status service, handler, sync log
+and local Postgres) — **not against Xero itself**.
+
+### What the office sees
+
+On the Getting paid card, once anything has been sent:
+
+- **Approved in Xero · Paid · Owing.** Approved is ex GST and counts invoices
+  the office has approved; drafts are named beside it, not added in. Paid and
+  Owing are GST-inclusive, exactly as Xero reports them (Paid also shows its
+  ex-GST share). Owing says how many are overdue.
+- "These are Xero's figures, last checked 12 minutes ago. BuhlOS checks every
+  hour." with **Check Xero now**, which asks straight away and says what it
+  found.
+- Each sent row shows Xero's status: **Draft in Xero · Awaiting payment · Part
+  paid · Paid · Overdue · Voided · Deleted in Xero**, with what has been paid
+  and what is owing, or "Paid in full on …". The due date is Xero's, so a due
+  date changed in Xero is the one shown.
+- **Changed in Xero.** If the office edits the invoice in Xero, BuhlOS shows
+  Xero's figures and says "This invoice has been changed in Xero since BuhlOS
+  sent it." Putting it back clears the note.
+- **Deleted or voided in Xero.** The row stays as history, struck through, and
+  drops out of every total, so the amount is back in Still to invoice. **Raise
+  again** adds a planned copy; sending it takes the *next* number. The old
+  number is never reused. It can be raised again once (removing the planned
+  copy allows it again).
+- If Xero has nothing at all under the stored id, the last figures Xero gave
+  are kept and the row says so. No status is invented.
+
+On the **Money card**: "Money in: $X invoiced · $Y paid · $Z owing", and
+**Cash so far** = paid (ex GST) less labour and materials to date. The
+contract margin above it is unchanged. Cash so far names uncosted labour when
+there is some, and is left out (with the reason) when a paid amount can't be
+split into ex GST. The **job report PDF** gains an Invoicing section with each
+sent invoice and the same totals.
+
+When the invoice records can't be read, both say so. That is never shown as
+nothing invoiced.
+
+### How it keeps up
+
+- **Hourly**, `GET /api/customer-invoices?action=poll` (`vercel.json`, minute
+  5; `CRON_SECRET`; a no-op while the flag is off, checked with `isFlagOn`
+  because a cron has no viewer). It asks about every sent invoice in the
+  connected organisation that is not settled: drafts and approved invoices
+  every hour, a paid invoice once a day for 60 days after payment (a payment
+  can be removed), a voided or deleted one never. Oldest check first, 40 ids
+  per request (`GET /Invoices?IDs=`), stopping cleanly at 45 seconds with the
+  rest left for the next run.
+- **Check Xero now** asks about every sent invoice on that one job, whatever
+  its status.
+- An invoice the list answer leaves out is asked for on its own before
+  anything is concluded.
+- A failed read **changes nothing**. The figures stay as they were, with their
+  age shown. The hourly check answers `200 { ok: false, error }` and records
+  one open item on the Xero sync log (`invoice_status`, operation
+  `invstatus:poll`); the next good run closes it. The sync health panel's
+  **Retry** runs the check again. The panel shows "Invoice payment checks"
+  only once a check has been recorded.
+- When Xero is not connected, or the invoice permission is missing, the hourly
+  check is skipped with the reason. That is not a failure and is not logged;
+  the connection panel already says it.
+
+### What counts as what
+
+| Xero says | BuhlOS shows | In the job's totals |
+| --- | --- | --- |
+| `DRAFT`, `SUBMITTED` | Draft in Xero | Sent to Xero; "still a draft" |
+| `AUTHORISED`, nothing paid, not past due | Awaiting payment | Approved; Owing |
+| `AUTHORISED`, some paid | Part paid | Approved; Paid; Owing |
+| `AUTHORISED`, money owing, past Xero's due date (Sydney date) | Overdue | as above, counted overdue |
+| `PAID` | Paid | Approved; Paid |
+| `VOIDED`, `DELETED` | Voided / Deleted in Xero | none |
+
+Paid is Xero's `AmountPaid`. A credit note applied in Xero lowers Owing but is
+not counted as money paid.
+
+### API added
+
+| Call | Does |
+| --- | --- |
+| `POST ?action=refresh` `{ jobId }` | Check Xero now. Answers the job's refreshed payload plus `refresh: { checked, changed, notFound }`. `409` / `502` `xero_<category>` when Xero can't be read |
+| `GET ?action=poll` | the hourly check. Cron only: `401` without the secret, `503` in production with none configured. `{ skipped: "flag_off" }` while dark |
+| `POST ?action=raise-again&id=` | now also for a sent stage Xero shows deleted or voided |
+
+The job payload gains `statusAsOf` (the oldest check among its sent invoices),
+`totals.draftedCents / invoicedCents / paidCents / paidIncGstCents /
+dueIncGstCents`, and per stage `xeroAmountPaidCents`, `xeroAmountDueCents`,
+`xeroDueDate`, `xeroFullyPaidOn`, `lastCheckedAt`, `canRaiseAgain`,
+`replacedById`. `GET /api/job-profitability` gains `customerInvoices` (null
+while the flag is off for the viewer).
+
+Audit: `customer_invoice.status_checked` when a person presses Check Xero now
+(counts only, never an amount). The hourly check is not a person's action and
+is not journalled; each change it finds is a `status_changed` event on the
+invoice.
+
+### Data
+
+`20261123100000_customer_invoices_replaced_by.sql` adds one column,
+`customer_invoices.replaced_by_id` (the planned stage a deleted or voided
+invoice was raised again as). Everything else the check writes was already in
+the first migration.
+
+### Not yet confirmed against real Xero
+
+- `GET /Invoices?IDs=` with 40 ids, and that it returns amounts and dates
+  without `summaryOnly` (the check deliberately does not send `summaryOnly`)
+- whether that list returns deleted and voided invoices (the single read
+  covers it if not)
+- the shape of `FullyPaidOnDate`
+- that an unknown invoice id answers 404
+
+## Testing
 
 | What | Where |
 | --- | --- |
+| The status check against a stand-in Xero in which the test plays the office: approve, pay, edit, void, delete, vanish, Xero down | `src/domains/customer-invoices/xero-status.test.ts` |
+| Check Xero now, the hourly check (cron gate, flag off, sync log + its Retry) and raising a dead invoice again | `src/domains/customer-invoices/customer-invoices-status-api.test.ts` |
+| Every row state after a send, the money-in strip, the Money card line | `src/components/admin/customer-invoices/paid-status.render.test.tsx` |
+| Which invoices the hourly check asks about; mirror writes; raise again (local Postgres, skipped in CI) | `src/domains/customer-invoices/customer-invoices-status.pg.test.ts` |
+| Money in on the Money card and the job report | `src/domains/jobs/job-profitability-api.test.ts`, `job-report-pdf.test.ts` |
 | What goes to Xero and what must come back: blockers, lines, body, hashes, read-back compare | `src/domains/customer-invoices/payload.test.ts` |
 | The send service against a stand-in Xero that times out, refuses and loses answers — "never two invoices" | `src/domains/customer-invoices/xero-send.test.ts` |
 | The send routes: gating, double press, outcomes, sync log + its Retry, reset, raise again, retention release | `src/domains/customer-invoices/customer-invoices-send-api.test.ts` |
@@ -375,7 +502,8 @@ wrong more than once:
 | The card and the stage editor, every state | `src/components/admin/customer-invoices/getting-paid.render.test.tsx` |
 | The real SQL and the migration's constraints | `src/domains/customer-invoices/customer-invoices-store.pg.test.ts` |
 
-The last one runs only against a throwaway local Postgres and is skipped in CI:
+The `.pg.test.ts` files run only against a throwaway local Postgres and are
+skipped in CI. For example:
 
 ```
 CUSTOMER_INVOICES_PG_TEST=1 SUPABASE_ENV=local SUPABASE_PROJECT_REF=localstack \

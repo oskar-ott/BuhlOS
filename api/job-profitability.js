@@ -6,7 +6,8 @@
 //       confirmed supplier invoice / receipt with its lines, the typed ledger.
 //     → { jobId, contractValueCents, labourCostCents, materialCostCents,
 //         marginCents, marginPct, completeness, badges, budget, variance,
-//         hoursTotal, labourChargeOutCents, chargeOutHours, unratedWorkerRefs, asOf }
+//         hoursTotal, labourChargeOutCents, chargeOutHours, unratedWorkerRefs,
+//         customerInvoices, asOf }
 //
 // Revenue (contractValue) − labour − material, with an honest completeness
 // statement. Labour is APPROVED hours costed at the EFFECTIVE-DATED cost rate
@@ -32,6 +33,14 @@
 // so present on no current job) as a labelled proxy, else 'none'. Never a
 // fabricated $0; an unreadable invoice store is reported, not silently 0.
 //
+// Money in (#1151, customer_invoices): `customerInvoices` is what the job has
+// been INVOICED and PAID — the job's customer stage invoices, with every
+// figure for a sent invoice being Xero's own as last mirrored (`asOf` says how
+// fresh). null while the feature is off for the viewer (no trace);
+// `unavailable: true` when the records could not be read — never a quiet 0.
+// `cashCents` = paid (ex GST) − labour − materials: what the job has actually
+// taken in less what it has cost so far. null when the paid figure is unknown.
+//
 // Walks the per-user time-entry blobs through the fully paginated helper
 // (api/_lib/time-entry-blobs.js, #935) — there is no per-job hours index.
 //
@@ -48,6 +57,8 @@ const { listTimeEntryBlobs, fetchTimeEntries } = require('./_lib/time-entry-blob
 const { isFlagEnabled } = require('./_lib/feature-flags');
 const { readLedger, summariseLedger } = require('./_lib/job-materials');
 const { getDb } = require('./_lib/supabase-db');
+const customerInvoiceStore = require('./_lib/customer-invoices/store');
+const { jobMoneyIn } = require('./_lib/customer-invoices/summary');
 const invoiceStore = require('./_lib/invoices/store');
 const { buildWorkerLabeller } = require('./_lib/worker-names');
 const { composeJobReportPdf } = require('./_lib/job-report-pdf');
@@ -74,13 +85,14 @@ module.exports = async (req, res) => {
   const job = (jobsBlob.jobs || []).find((j) => j.id === jobId);
   if (!job) return res.status(404).json({ error: 'job not found' });
 
-  const [usersBlob, employeesBlob, ratesData, matsList, ledgerOn, invoicesOn] = await Promise.all([
+  const [usersBlob, employeesBlob, ratesData, matsList, ledgerOn, invoicesOn, customerInvoicesOn] = await Promise.all([
     readBlob('users.json', { users: [] }),
     readBlob('employees.json', { employees: [] }),
     readCostRates(),
     readBlob(`jobs/${jobId}/materials-list.json`, null),
     isFlagEnabled('job_materials_spend', me),
     isFlagEnabled('invoice_capture', me),
+    isFlagEnabled('customer_invoices', me),
   ]);
   const userById = {};
   (usersBlob.users || []).forEach((u) => { userById[u.id] = u; });
@@ -219,8 +231,31 @@ module.exports = async (req, res) => {
     contractValueCents,
   });
 
+  // ── Money in: the job's customer stage invoices (customer_invoices) ───────
+  let customerInvoices = null;
+  if (customerInvoicesOn) {
+    try {
+      const sql = getDb({ mode: 'read' });
+      const tenant = await customerInvoiceStore.resolveTenant(sql);
+      if (tenant) {
+        const m = await jobMoneyIn(sql, tenant.id, job);
+        customerInvoices = {
+          ...m,
+          // What has actually come in, less what the job has cost so far.
+          cashCents: m.paidCents == null ? null : m.paidCents - labourCostCents - (materialCostCents || 0),
+        };
+      } else {
+        // The feature is on but its records aren't set up: say so, never nothing.
+        customerInvoices = { unavailable: true };
+      }
+    } catch (err) {
+      console.error('job-profitability: customer-invoice read failed', { code: (err && err.code) || 'db' });
+      customerInvoices = { unavailable: true };
+    }
+  }
+
   if (String((req.query && req.query.format) || '') === 'pdf') {
-    return sendJobReport(res, { job, jobId, me, result, labourRows, pendingHours, hoursTotal, unratedWorkers, usersBlob, employeesBlob, ledgerOn, invoicesOn, supplierInvoices });
+    return sendJobReport(res, { job, jobId, me, result, labourRows, pendingHours, hoursTotal, unratedWorkers, usersBlob, employeesBlob, ledgerOn, invoicesOn, supplierInvoices, customerInvoices });
   }
 
   return res.status(200).json({
@@ -228,6 +263,10 @@ module.exports = async (req, res) => {
     ...result,
     unratedWorkerRefs,
     supplierInvoices,
+    // The list of invoices is for the PDF; the card reads the totals.
+    customerInvoices: customerInvoices && !customerInvoices.unavailable
+      ? { ...customerInvoices, invoices: undefined }
+      : customerInvoices,
     labourChargeOutCents: chargeOutHours > 0 ? chargeOutCents : null,
     chargeOutHours: round2(chargeOutHours),
     budget,
@@ -243,7 +282,7 @@ module.exports = async (req, res) => {
  * receipt with its lines, and the typed materials ledger.
  */
 async function sendJobReport(res, ctx) {
-  const { job, jobId, me, result, labourRows, pendingHours, hoursTotal, unratedWorkers, usersBlob, employeesBlob, ledgerOn, invoicesOn, supplierInvoices } = ctx;
+  const { job, jobId, me, result, labourRows, pendingHours, hoursTotal, unratedWorkers, usersBlob, employeesBlob, ledgerOn, invoicesOn, supplierInvoices, customerInvoices } = ctx;
   const labelFor = buildWorkerLabeller({ users: usersBlob && usersBlob.users, employees: employeesBlob && employeesBlob.employees });
   const days = labourRows
     .map((r) => ({ date: String(r.date).slice(0, 10), name: labelFor(r.userId, r.userName), hours: round2(r.hours), costCents: r.costCents }))
@@ -303,6 +342,8 @@ async function sendJobReport(res, ctx) {
     money: { contractValueCents: result.contractValueCents, labourCostCents: result.labourCostCents, materialCostCents: result.materialCostCents, marginCents: result.marginCents, marginPct: result.marginPct },
     labour: { hoursTotal: round2(hoursTotal), pendingHours: round2(pendingHours), unratedWorkers, workers, days },
     materials,
+    // null = the feature is off for this viewer: the report has no such section.
+    invoicing: customerInvoices,
   });
   const slug = `${job.code || ''} ${job.name || job.id}`.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'job';
   res.setHeader('Content-Type', 'application/pdf');

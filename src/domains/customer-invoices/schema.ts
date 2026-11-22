@@ -78,6 +78,17 @@ export const StageSchema = z
     xeroTotalCents: z.number().nullable().optional(),
     /** Present when what is in Xero doesn't match what was sent. */
     drift: z.object({ mismatches: z.array(z.string()) }).passthrough().nullable().optional(),
+    // ── what Xero says happened next (#1151) — all Xero's own figures ──
+    /** GST-inclusive, as Xero reports them. */
+    xeroAmountPaidCents: z.number().nullable().optional(),
+    xeroAmountDueCents: z.number().nullable().optional(),
+    xeroDueDate: z.string().nullable().optional(),
+    xeroFullyPaidOn: z.string().nullable().optional(),
+    lastCheckedAt: z.string().nullable().optional(),
+    /** Xero shows it deleted or voided and it hasn't been raised again yet. */
+    canRaiseAgain: z.boolean().optional(),
+    /** Set once a dead stage has been raised again as a new one. */
+    replacedById: z.string().nullable().optional(),
   })
   .passthrough();
 export type Stage = z.infer<typeof StageSchema>;
@@ -108,6 +119,15 @@ export const JobInvoicingTotalsSchema = z
     stillToInvoiceCents: z.number().nullable(),
     overContract: z.boolean(),
     retentionHeldCents: z.number(),
+    // ── money in, from Xero's mirror (#1151) ──
+    /** Ex GST: invoices still a draft in Xero / approved in Xero. */
+    draftedCents: z.number().default(0),
+    invoicedCents: z.number().default(0),
+    /** Paid, ex GST — null when it can't be split out of Xero's GST-inclusive figure. */
+    paidCents: z.number().nullable().default(null),
+    /** GST-inclusive, as Xero shows them. */
+    paidIncGstCents: z.number().default(0),
+    dueIncGstCents: z.number().default(0),
   })
   .passthrough();
 export type JobInvoicingTotals = z.infer<typeof JobInvoicingTotalsSchema>;
@@ -199,6 +219,9 @@ export const JobInvoicingResponseSchema = z.object({
   profile: JobInvoicingProfileSchema,
   stages: z.array(StageSchema),
   totals: JobInvoicingTotalsSchema,
+  /** How fresh the paid / owing figures are: the OLDEST "last checked with
+   *  Xero" among the job's sent invoices. null when nothing has been sent. */
+  statusAsOf: z.string().nullable().default(null),
   xero: JobXeroStandingSchema,
   asOf: z.string(),
 });
@@ -272,6 +295,12 @@ export const SendResponseSchema = JobInvoicingResponseSchema.extend({
   syncLogWarning: z.string().optional(),
 });
 export type SendResponse = z.infer<typeof SendResponseSchema>;
+
+/** "Check Xero now" (#1151): the refreshed job plus what the check found. */
+export const RefreshResponseSchema = JobInvoicingResponseSchema.extend({
+  refresh: z.object({ checked: z.number(), changed: z.number(), notFound: z.number() }),
+});
+export type RefreshResponse = z.infer<typeof RefreshResponseSchema>;
 
 /** What the stage editor sends (mirrors the handler's StageBody). */
 export interface StageInput {

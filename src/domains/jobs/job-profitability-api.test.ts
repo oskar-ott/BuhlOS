@@ -20,12 +20,18 @@ const flagsPath = requireFromHere.resolve("../../../api/_lib/feature-flags.js");
 const handlerPath = requireFromHere.resolve("../../../api/job-profitability.js");
 const dbPath = requireFromHere.resolve("../../../api/_lib/supabase-db.js");
 const invoiceStorePath = requireFromHere.resolve("../../../api/_lib/invoices/store.js");
+const customerStorePath = requireFromHere.resolve("../../../api/_lib/customer-invoices/store.js");
+const customerSummaryPath = requireFromHere.resolve("../../../api/_lib/customer-invoices/summary.js");
 
 /** What the (mocked) supplier-invoice store answers for job-a; a thrown error
  *  simulates an unreachable Postgres. */
 let invoiceSummary: { confirmedCents: number; confirmedCount: number; awaitingCount: number } | Error;
 /** What the (mocked) store's materials breakdown answers for the printable report. */
 let breakdown: Record<string, unknown>;
+/** The job's customer stage invoices as the (mocked) store answers them; an
+ *  Error simulates unreadable records, null a store with no tenant yet. */
+let customerRows: Array<Record<string, unknown>> | Error | null;
+let customerReads: number;
 
 type Res = ReturnType<typeof createRes>;
 let blob: Map<string, unknown>;
@@ -144,6 +150,7 @@ beforeEach(() => {
     walkPath,
     ledgerPath,
     flagsPath,
+    customerSummaryPath,
   ])
     delete requireFromHere.cache[p];
   requireFromHere.cache[blobPath] = {
@@ -174,6 +181,24 @@ beforeEach(() => {
         return { jobId, ...invoiceSummary };
       },
       jobMaterialsBreakdown: async () => breakdown,
+    },
+  } as NodeJS.Module;
+  customerRows = [];
+  customerReads = 0;
+  requireFromHere.cache[customerStorePath] = {
+    id: customerStorePath,
+    filename: customerStorePath,
+    loaded: true,
+    exports: {
+      resolveTenant: async () => {
+        customerReads++;
+        return customerRows === null ? null : { id: "tenant", slug: "buhl" };
+      },
+      getProfile: async () => ({ jobId: "job-a", retentionBp: 0 }),
+      listJobInvoices: async () => {
+        if (customerRows instanceof Error) throw customerRows;
+        return customerRows;
+      },
     },
   } as NodeJS.Module;
   requireFromHere.cache[vercelBlobPath] = {
@@ -208,6 +233,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   delete process.env.FLAG_JOB_MATERIALS_SPEND;
   delete process.env.FLAG_INVOICE_CAPTURE;
+  delete process.env.FLAG_CUSTOMER_INVOICES;
 });
 
 describe("GET /api/job-profitability — confidentiality + shape (#327)", () => {
@@ -545,5 +571,88 @@ describe("GET /api/job-profitability?format=pdf — the printable job cost repor
   });
   it("is refused to non-admins like the JSON", async () => {
     expect((await call({ role: "leadingHand", userId: "u_lh", query: { jobId: "job-a", format: "pdf" } })).statusCode).toBe(403);
+  });
+});
+
+describe("GET /api/job-profitability — money in from customer stage invoices (#1151)", () => {
+  type MoneyIn = {
+    unavailable: boolean; sentCount: number; plannedCount: number; draftedCents: number; invoicedCents: number;
+    paidCents: number | null; paidIncGstCents: number; dueIncGstCents: number; stillToInvoiceCents: number | null;
+    overdueCount: number; cashCents: number | null; asOf: string | null; invoices?: unknown;
+  };
+  type Body = { customerInvoices: MoneyIn | null; labourCostCents: number; materialCostCents: number; marginCents: number | null };
+  const inv = (over: Record<string, unknown>) => ({
+    id: String(over.invoiceNumber), jobId: "job-a", kind: "stage", title: "Stage", basis: "amount", amountCents: 0, percentBp: null, extraLines: [],
+    retentionBp: null, state: "sent", xeroInvoiceId: `x-${over.invoiceNumber}`, invoiceDate: "2026-06-01", dueDate: "2026-07-01",
+    grossCents: over.xeroSubtotalCents, retentionCents: 0, netCents: over.xeroSubtotalCents,
+    xeroTaxCents: Number(over.xeroSubtotalCents) / 10, xeroTotalCents: (Number(over.xeroSubtotalCents) * 11) / 10,
+    xeroAmountPaidCents: 0, xeroAmountDueCents: 0, xeroAmountCreditedCents: 0, xeroDueDate: "2026-07-01", xeroFullyPaidOn: null,
+    lastCheckedAt: "2026-07-02T00:00:00.000Z", drift: null, replacedById: null,
+    ...over,
+  });
+  const three = () => [
+    inv({ invoiceNumber: "IV1-1", title: "Deposit", xeroStatus: "PAID", xeroSubtotalCents: 10_000_00, xeroAmountPaidCents: 11_000_00, xeroFullyPaidOn: "2026-06-20", lastCheckedAt: "2026-07-01T00:00:00.000Z" }),
+    inv({ invoiceNumber: "IV1-2", title: "Rough-in", xeroStatus: "AUTHORISED", xeroSubtotalCents: 20_000_00, xeroAmountDueCents: 22_000_00 }), // due 2026-07-01 → overdue today
+    inv({ invoiceNumber: "IV1-3", title: "Fit-off", xeroStatus: "DRAFT", xeroSubtotalCents: 5_000_00 }),
+    { id: "p1", jobId: "job-a", kind: "stage", title: "Final", basis: "amount", amountCents: 1_000_00, percentBp: null, extraLines: [], retentionBp: null, state: "planned" },
+  ];
+
+  it("with customer_invoices OFF the records are never read and the response carries no trace", async () => {
+    customerRows = new Error("must not be read");
+    const res = await call({ role: "admin", query: { jobId: "job-a" } });
+    expect(res.statusCode).toBe(200);
+    expect((res.body as Body).customerInvoices).toBeNull();
+    expect(customerReads).toBe(0);
+  });
+
+  it("reports invoiced, paid and owing from Xero's figures, and cash so far = paid (ex GST) − labour − materials", async () => {
+    process.env.FLAG_CUSTOMER_INVOICES = "true";
+    customerRows = three();
+    const b = (await call({ role: "admin", query: { jobId: "job-a" } })).body as Body;
+    const m = b.customerInvoices!;
+    expect(m).toMatchObject({
+      unavailable: false, sentCount: 3, plannedCount: 1,
+      draftedCents: 5_000_00, invoicedCents: 30_000_00, paidCents: 10_000_00, paidIncGstCents: 11_000_00, dueIncGstCents: 22_000_00,
+      overdueCount: 1, asOf: "2026-07-01T00:00:00.000Z",
+    });
+    expect(m.cashCents).toBe(10_000_00 - b.labourCostCents - b.materialCostCents);
+    expect(m.invoices).toBeUndefined(); // the list is for the PDF only
+    // the contract margin is untouched by money in
+    expect(b.marginCents).toBe(120_000_00 - b.labourCostCents - b.materialCostCents);
+  });
+
+  it("nothing sent yet is a real zero, with the planned stages counted", async () => {
+    process.env.FLAG_CUSTOMER_INVOICES = "true";
+    customerRows = [three()[3]!];
+    const m = ((await call({ role: "admin", query: { jobId: "job-a" } })).body as Body).customerInvoices!;
+    expect(m).toMatchObject({ unavailable: false, sentCount: 0, plannedCount: 1, invoicedCents: 0, paidIncGstCents: 0, asOf: null });
+  });
+
+  it("unreadable records are REPORTED (unavailable), never a quiet zero — and the rest of the card still answers", async () => {
+    process.env.FLAG_CUSTOMER_INVOICES = "true";
+    customerRows = Object.assign(new Error("pg down"), { code: "db" });
+    let res = await call({ role: "admin", query: { jobId: "job-a" } });
+    expect(res.statusCode).toBe(200);
+    expect((res.body as Body).customerInvoices).toEqual({ unavailable: true });
+    expect((res.body as Body).labourCostCents).toBe(42000);
+    customerRows = null; // the records aren't set up at all
+    res = await call({ role: "admin", query: { jobId: "job-a" } });
+    expect((res.body as Body).customerInvoices).toEqual({ unavailable: true });
+  });
+
+  it("the printable report gains an Invoicing section — only while the feature is on", async () => {
+    const { extractPdfText } = requireFromHere("../../../api/_lib/invoices/pdf-text.js");
+    const pdf = async () => (await extractPdfText((await call({ role: "admin", query: { jobId: "job-a", format: "pdf" } })).ended as Buffer)).text as string;
+    customerRows = three();
+    expect(await pdf()).not.toContain("Invoicing");
+    process.env.FLAG_CUSTOMER_INVOICES = "true";
+    const text = await pdf();
+    expect(text).toContain("Invoicing");
+    expect(text).toContain("IV1-1");
+    expect(text).toContain("IV1-2");
+    expect(text).toContain("Approved in Xero (ex GST)");
+    expect(text).toContain("$30,000.00");
+    expect(text).toContain("Still a draft in Xero (ex GST)");
+    expect(text).toContain("$22,000.00");
   });
 });

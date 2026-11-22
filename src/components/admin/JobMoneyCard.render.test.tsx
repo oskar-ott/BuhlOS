@@ -47,6 +47,7 @@ function prodState(over: Partial<JobProfitabilityResponse> = {}): JobProfitabili
   return {
     jobId: "birdwood",
     contractValueCents: null,
+    customerInvoices: null,
     labourCostCents: 0,
     materialCostCents: 0,
     marginCents: null,

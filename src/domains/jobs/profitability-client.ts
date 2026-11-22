@@ -52,6 +52,30 @@ export const JobProfitabilityResponseSchema = z.object({
     })
     .nullable()
     .default(null),
+  /** Money IN (#1151, customer_invoices): what the job has been invoiced and
+   *  paid — its customer stage invoices, every sent figure being Xero's own as
+   *  last mirrored. null while the feature is off for the viewer;
+   *  `unavailable` when the records couldn't be read (never a quiet 0).
+   *  `paidCents` is ex GST and null when it can't be split out; `cashCents` =
+   *  paid (ex GST) − labour − materials. */
+  customerInvoices: z
+    .object({
+      unavailable: z.boolean().default(false),
+      sentCount: z.number().default(0),
+      plannedCount: z.number().default(0),
+      draftedCents: z.number().default(0),
+      invoicedCents: z.number().default(0),
+      paidCents: z.number().nullable().default(null),
+      paidIncGstCents: z.number().default(0),
+      dueIncGstCents: z.number().default(0),
+      stillToInvoiceCents: z.number().nullable().default(null),
+      retentionHeldCents: z.number().default(0),
+      overdueCount: z.number().default(0),
+      cashCents: z.number().nullable().default(null),
+      asOf: z.string().nullable().default(null),
+    })
+    .nullable()
+    .default(null),
   /** The same approved hours valued at each worker's optional CHARGE-OUT rate —
    *  "what is this labour worth", distinct from cost. null until at least one
    *  worker on the job carries a charge-out rate. */

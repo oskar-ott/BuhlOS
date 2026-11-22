@@ -37,6 +37,15 @@
 //   POST   /api/customer-invoices?action=raise-again&id=S   the number is taken in Xero: burn it, add a planned copy that takes the next
 //   POST   /api/customer-invoices?action=retention-release  { jobId, amountCents, title? }  a planned stage that releases retention held
 //
+//   POST   /api/customer-invoices?action=refresh        { jobId }  "Check Xero now" (#1151): asks Xero what happened to
+//                                                      the job's sent invoices (approved, paid, part-paid, voided, deleted,
+//                                                      edited) and mirrors XERO'S figures. A read of Xero only.
+//   GET    /api/customer-invoices?action=poll           cron (CRON_SECRET) — the same check, hourly, for every unsettled
+//                                                      sent invoice; skipped while the flag is off or Xero isn't connected
+//
+// raise-again also serves a SENT stage Xero shows as deleted or voided: a new
+// planned copy takes the next number and the old row stays as history.
+//
 // send / retry / reset answer the job's refreshed payload plus
 // `send: { outcome, … }` — outcome sent | adopted | failed | unknown | reset.
 // `unknown` means Xero gave no answer: the stage stays "sending" and the next
@@ -55,7 +64,7 @@
 const { z } = require('zod');
 const { readBlob, setNoCache } = require('./_lib/blob');
 const { requireAuth, isAdminRole } = require('./_lib/auth');
-const { isFlagEnabled } = require('./_lib/feature-flags');
+const { isFlagEnabled, isFlagOn } = require('./_lib/feature-flags');
 const { getDb } = require('./_lib/supabase-db');
 const auditLog = require('./_lib/audit-log');
 const { withErrorCapture } = require('./_lib/error-wrap');
@@ -64,6 +73,8 @@ const { MAX_CENTS, BP_WHOLE, contractCentsOf, computeStage, jobTotals } = requir
 const { displayStatus } = require('./_lib/customer-invoices/status');
 const xero = require('./_lib/customer-invoices/xero-lookups');
 const sendSvc = require('./_lib/customer-invoices/xero-send');
+const statusSvc = require('./_lib/customer-invoices/xero-status');
+const { requireCron } = require('./_lib/cron-auth');
 const syncBridge = require('./_lib/customer-invoices/sync-bridge');
 const { XeroError } = require('./_lib/xero/errors');
 
@@ -137,6 +148,7 @@ const SendBody = z.object({
   reference: reference.nullable().optional(),
 }).strict();
 const NoBody = z.object({}).strict();
+const RefreshBody = z.object({ jobId: z.string().min(1).max(200) }).strict();
 const ReleaseBody = z.object({
   jobId: z.string().min(1).max(200),
   amountCents: centsIn,
@@ -284,6 +296,9 @@ function presentStage(row, ctx, today) {
       reason: computed.reason,
     },
     display: displayStatus(row, today),
+    // A sent stage Xero shows as deleted or voided can be raised again — once.
+    canRaiseAgain:
+      row.state === 'sent' && (row.xeroStatus === 'DELETED' || row.xeroStatus === 'VOIDED') && !row.replacedById,
   };
 }
 
@@ -308,6 +323,12 @@ async function jobPayload(sql, tenant, job) {
     profile: profile || { jobId: job.id, retentionBp: 0, xeroContactId: null, xeroContactName: null, externalTenantId: null, version: null },
     stages: rows.map((r) => presentStage(r, ctx, today)),
     totals: jobTotals(rows, ctx),
+    // How fresh the paid / owing figures are: the OLDEST "last checked with
+    // Xero" among the job's sent invoices (null when nothing has been sent).
+    statusAsOf: rows
+      .filter((r) => r.state === 'sent' && r.xeroInvoiceId)
+      .map((r) => r.lastCheckedAt)
+      .reduce((oldest, t) => (t && (!oldest || t < oldest) ? t : oldest), null),
     xero: await xeroStanding(sql, tenant, job, profile),
     asOf: new Date().toISOString(),
   };
@@ -336,11 +357,53 @@ function conflictResponse(res, e) {
   return res.status(409).json({ error: 'stale_version' });
 }
 
+/**
+ * The cron body: ask Xero about every unsettled sent invoice. Always answers
+ * 200 with what happened (a failed read is reported in the body and on the
+ * sync log — a 5xx here would only make the scheduler retry blindly).
+ */
+async function statusPoll(res) {
+  let sql;
+  let tenant;
+  try {
+    sql = getDb({ mode: 'write' });
+    tenant = await store.resolveTenant(sql);
+  } catch (e) {
+    console.error('[customer-invoices] poll: store unavailable', { code: (e && e.code) || 'db' });
+    return res.status(200).json({ ok: false, error: 'store_unavailable' });
+  }
+  if (!tenant) return res.status(200).json({ ok: false, error: 'store_unprovisioned' });
+  try {
+    const summary = await statusSvc.pollAll({ tenant, deps: { sql } });
+    const syncLogWarning = await syncBridge.recordStatusOutcome({ summary });
+    return res.status(200).json({
+      ok: true,
+      ...(summary.skipped ? { skipped: summary.skipped } : {}),
+      checked: summary.checked, changed: summary.changed, notFound: summary.notFound, stoppedEarly: summary.stoppedEarly,
+      ...(syncLogWarning ? { syncLogWarning } : {}),
+    });
+  } catch (e) {
+    const category = e instanceof XeroError ? e.category : 'unexpected';
+    console.error('[customer-invoices] poll failed', { category });
+    const syncLogWarning = await syncBridge.recordStatusOutcome({ error: { category } });
+    return res.status(200).json({ ok: false, error: `xero_${category}`, ...(syncLogWarning ? { syncLogWarning } : {}) });
+  }
+}
+
 async function handler(req, res) {
   setNoCache(res);
   if (req.method === 'OPTIONS') return res.status(200).end();
   const q = req.query || {};
   const action = String(q.action || '');
+
+  // ── the hourly status check (no user session; CRON_SECRET) ───────────────
+  // isFlagOn, not isFlagEnabled: the flag is admin-tier, and a cron has no
+  // viewer — isFlagEnabled would be false forever.
+  if (action === 'poll' && req.method === 'GET') {
+    if (!requireCron(req, res)) return;
+    if (!(await isFlagOn('customer_invoices'))) return res.status(200).json({ skipped: 'flag_off' });
+    return statusPoll(res);
+  }
 
   const me = await requireAuth(req, res);
   if (!me) return;
@@ -476,6 +539,24 @@ async function handler(req, res) {
       return res.status(201).json(await jobPayload(sql, tenant, job));
     }
 
+    // ── "Check Xero now" for one job (#1151) ─────────────────────────────────
+    if (req.method === 'POST' && action === 'refresh') {
+      const parsed = RefreshBody.safeParse(body);
+      if (!parsed.success) return invalid(res, parsed);
+      const job = await liveJob(parsed.data.jobId);
+      if (!job) return res.status(404).json({ error: 'job_not_found' });
+      const summary = await statusSvc.refreshJob({ tenant, job, deps: { sql } });
+      await journal(me, 'customer_invoice.status_checked', {
+        jobId: job.id, targetId: job.id,
+        summary: `Checked Xero for ${job.name || job.id}'s invoices — ${summary.checked} checked, ${summary.changed} changed`,
+        metadata: { checked: summary.checked, changed: summary.changed, notFound: summary.notFound },
+      });
+      return res.status(200).json({
+        ...(await jobPayload(sql, tenant, job)),
+        refresh: { checked: summary.checked, changed: summary.changed, notFound: summary.notFound },
+      });
+    }
+
     // ── preview / send / retry / reset / raise again (#1150) ─────────────────
     if (req.method === 'POST' && ['preview', 'send', 'retry', 'reset', 'raise-again'].includes(action)) {
       if (!uuid.safeParse(id).success) return res.status(400).json({ error: 'id required' });
@@ -492,15 +573,23 @@ async function handler(req, res) {
       }
 
       if (action === 'raise-again') {
-        // Only for a stage whose number Xero says is taken by something else.
-        if (invoice.state !== 'failed' || invoice.failureCategory !== 'number_taken') {
-          return res.status(409).json({ error: 'not_raisable' });
-        }
-        const fresh = await store.raiseAgain(sql, tenant.id, id, { actor });
+        // Two cases, both leaving the old number untouched (never reused):
+        //   * the number was TAKEN in Xero before anything of ours existed
+        //     (#1150) — the stage is cancelled and drops off the list;
+        //   * the invoice WAS sent and Xero now shows it deleted or voided
+        //     (#1151) — the old row stays as history, marked as replaced.
+        const taken = invoice.state === 'failed' && invoice.failureCategory === 'number_taken';
+        const dead = invoice.state === 'sent' && (invoice.xeroStatus === 'DELETED' || invoice.xeroStatus === 'VOIDED') && !invoice.replacedById;
+        if (!taken && !dead) return res.status(409).json({ error: 'not_raisable' });
+        const fresh = taken
+          ? await store.raiseAgain(sql, tenant.id, id, { actor })
+          : await store.raiseAgainSent(sql, tenant.id, id, { actor });
         await journal(me, 'customer_invoice.raised_again', {
           jobId: job.id, targetId: fresh.id,
-          summary: `Raised "${fresh.title}" again on ${job.name || job.id} — ${invoice.invoiceNumber} is taken in Xero`,
-          metadata: { burnedNumber: invoice.invoiceNumber, replaces: invoice.id },
+          summary: taken
+            ? `Raised "${fresh.title}" again on ${job.name || job.id} — ${invoice.invoiceNumber} is taken in Xero`
+            : `Raised "${fresh.title}" again on ${job.name || job.id} — ${invoice.invoiceNumber} was ${invoice.xeroStatus === 'DELETED' ? 'deleted' : 'voided'} in Xero`,
+          metadata: { burnedNumber: invoice.invoiceNumber, replaces: invoice.id, ...(dead ? { xeroStatus: invoice.xeroStatus } : {}) },
         });
         return res.status(201).json(await jobPayload(sql, tenant, job));
       }

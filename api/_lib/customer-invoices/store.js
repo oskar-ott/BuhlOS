@@ -122,6 +122,8 @@ function invoiceRow(r) {
     xeroUpdatedAt: iso(r.xero_updated_at),
     lastCheckedAt: iso(r.last_checked_at),
     drift: json(r.drift, null),
+    // set when a dead (deleted / voided in Xero) stage has been raised again
+    replacedById: r.replaced_by_id || null,
     version: int(r.version),
     createdBy: r.created_by_name,
     sentBy: r.sent_by_name,
@@ -642,9 +644,126 @@ async function raiseAgain(sql, tenantId, id, { actor }) {
   });
 }
 
+// ── paid status: keeping the Xero mirror current (#1151) ────────────────────
+
+const POLL_BATCH_LIMIT = 500;
+
+/**
+ * Sent invoices in ONE Xero organisation that are worth asking Xero about:
+ *   * anything not yet settled (draft, submitted, approved), every time;
+ *   * a PAID invoice once a day for 60 days after it was paid in full —
+ *     a payment can be removed or a credit note reversed;
+ *   * never a VOIDED or DELETED one (those are final in Xero).
+ * Oldest-checked first, so a large backlog still makes progress.
+ */
+async function listForStatusCheck(sql, tenantId, externalTenantId, { limit = POLL_BATCH_LIMIT } = {}) {
+  if (!externalTenantId) return [];
+  const rows = await sql`
+    select * from public.customer_invoices
+    where tenant_id = ${tenantId}
+      and external_tenant_id = ${externalTenantId}
+      and state = 'sent'
+      and xero_invoice_id is not null
+      and (
+        xero_status is null
+        or xero_status in ('DRAFT','SUBMITTED','AUTHORISED')
+        or (xero_status = 'PAID'
+            and (last_checked_at is null or last_checked_at < now() - interval '1 day')
+            and (xero_fully_paid_on is null or xero_fully_paid_on > current_date - 60))
+      )
+    order by last_checked_at asc nulls first
+    limit ${limit}`;
+  return rows.map(invoiceRow);
+}
+
+/** Every sent invoice on one job in the connected organisation — for "Check
+ *  Xero now" (includes paid and dead ones: the office asked, so ask). */
+async function listJobSent(sql, tenantId, jobLegacyId, externalTenantId) {
+  if (!externalTenantId) return [];
+  const rows = await sql`
+    select * from public.customer_invoices
+    where tenant_id = ${tenantId} and job_legacy_id = ${jobLegacyId}
+      and external_tenant_id = ${externalTenantId}
+      and state = 'sent' and xero_invoice_id is not null
+    order by seq asc`;
+  return rows.map(invoiceRow);
+}
+
+/**
+ * Write what Xero says about a SENT invoice: its status, amounts and dates,
+ * and whether it still matches what BuhlOS sent. Xero's figures win (ADR rule
+ * 6). When `event` is given (something moved) it is recorded in the same
+ * transaction. Returns null when the row is no longer a sent invoice.
+ */
+async function applyMirror(sql, tenantId, id, { mirror, drift, event }) {
+  return sql.begin(async (tx) => {
+    const rows = await tx`
+      update public.customer_invoices set
+        ${tx(mirrorSet(mirror))},
+        drift           = ${drift ? tx.json(drift) : null},
+        last_checked_at = now(),
+        version         = version + 1
+      where tenant_id = ${tenantId} and id = ${id} and state = 'sent'
+      returning *`;
+    if (!rows.length) return null;
+    const row = invoiceRow(rows[0]);
+    if (event) {
+      await insertEvent(tx, tenantId, { invoiceId: row.id, jobId: row.jobId, event: 'status_changed', detail: event });
+    }
+    return row;
+  });
+}
+
+/** Xero was asked and nothing moved: only note that it was checked. */
+async function touchChecked(sql, tenantId, ids) {
+  if (!Array.isArray(ids) || !ids.length) return;
+  await sql`
+    update public.customer_invoices set last_checked_at = now()
+    where tenant_id = ${tenantId} and id in ${sql(ids)} and state = 'sent'`;
+}
+
+/**
+ * A SENT stage whose invoice Xero shows as DELETED or VOIDED is raised again:
+ * a new planned copy is added (it will take the next number), and the old row
+ * STAYS as history, marked with what replaced it so it can't be raised twice.
+ */
+async function raiseAgainSent(sql, tenantId, id, { actor }) {
+  return sql.begin(async (tx) => {
+    const cur = await tx`
+      select * from public.customer_invoices
+      where tenant_id = ${tenantId} and id = ${id}
+      for update`;
+    if (!cur.length) throw new StoreConflict('not_found');
+    const o = cur[0];
+    if (o.state !== 'sent' || !(o.xero_status === 'DELETED' || o.xero_status === 'VOIDED') || o.replaced_by_id) {
+      throw new StoreConflict('not_raisable');
+    }
+    const ins = await tx`
+      insert into public.customer_invoices
+        (tenant_id, job_legacy_id, kind, sort_order, title, basis, percent_bp, amount_cents,
+         extra_lines, planned_date, note, created_by_legacy_id, created_by_name)
+      values (${tenantId}, ${o.job_legacy_id}, ${o.kind}, ${o.sort_order}, ${o.title}, ${o.basis}, ${o.percent_bp},
+              ${o.amount_cents}, ${tx.json(extraLinesOf(o.extra_lines))}, ${o.planned_date}, ${o.note},
+              ${(actor && actor.id) || null}, ${(actor && actor.name) || null})
+      returning *`;
+    const fresh = invoiceRow(ins[0]);
+    await tx`
+      update public.customer_invoices set replaced_by_id = ${fresh.id}, version = version + 1
+      where tenant_id = ${tenantId} and id = ${id}`;
+    await insertEvent(tx, tenantId, { invoiceId: o.id, jobId: o.job_legacy_id, event: 'raised_again', actor, detail: { xeroStatus: o.xero_status, newId: fresh.id } });
+    await insertEvent(tx, tenantId, { invoiceId: fresh.id, jobId: o.job_legacy_id, event: 'created', actor, detail: { raisedFrom: o.id, afterXeroStatus: o.xero_status } });
+    return fresh;
+  });
+}
+
 module.exports = {
   TENANT_SLUG,
   StoreConflict,
+  listForStatusCheck,
+  listJobSent,
+  applyMirror,
+  touchChecked,
+  raiseAgainSent,
   peekNextSeq,
   beginSend,
   insertAttempt,

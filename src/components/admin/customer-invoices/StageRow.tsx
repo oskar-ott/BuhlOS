@@ -78,6 +78,23 @@ export function StageRow({
   const sent = stage.state === "sent";
   const hasRetention = c.retentionCents != null && c.retentionCents > 0;
   const numberTaken = failed && stage.failureCategory === "number_taken";
+  // Deleted or voided in Xero: history only.
+  const dead = sent && (stage.xeroStatus === "DELETED" || stage.xeroStatus === "VOIDED");
+  const dueDay = stage.xeroDueDate ?? stage.dueDate ?? null;
+  // What Xero says about payment — its GST-inclusive figures, as given.
+  const paid = stage.xeroAmountPaidCents ?? null;
+  const owing = stage.xeroAmountDueCents ?? null;
+  const paidLine =
+    stage.display === "paid"
+      ? `Paid in full${stage.xeroFullyPaidOn ? ` on ${formatDay(stage.xeroFullyPaidOn)}` : ""}.`
+      : stage.display === "part_paid" || stage.display === "overdue" || stage.display === "awaiting_payment"
+        ? [
+            paid != null && paid > 0 ? `${formatCents(paid)} paid` : null,
+            owing != null ? `${formatCents(owing)} owing` : null,
+          ]
+            .filter(Boolean)
+            .join(" · ") + (owing != null || (paid != null && paid > 0) ? " (inc GST)" : "")
+        : "";
 
   return (
     <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
@@ -97,7 +114,7 @@ export function StageRow({
           {basisCaption(stage)}
           {planned && stage.plannedDate ? ` · planned for ${formatDay(stage.plannedDate)}` : ""}
           {!planned && stage.invoiceDate ? ` · dated ${formatDay(stage.invoiceDate)}` : ""}
-          {!planned && stage.dueDate ? ` · due ${formatDay(stage.dueDate)}` : ""}
+          {!planned && dueDay && !dead ? ` · due ${formatDay(dueDay)}` : ""}
         </p>
         {stage.extraLines.length > 0 ? (
           <ul className="mt-1 grid gap-0.5 text-xs text-text-muted">
@@ -121,10 +138,23 @@ export function StageRow({
             {failureMessage(stage.failureCategory, stage.failureDetail)}
           </p>
         ) : null}
-        {sent && stage.drift ? (
+        {sent && stage.drift && !dead ? (
           <p className="mt-1.5 text-sm text-state-warning-subtle-text" data-testid="gp-stage-drift">
-            What is in Xero doesn&rsquo;t match what BuhlOS sent. The figures shown here are
-            Xero&rsquo;s. Open it in Xero and check it.
+            {stage.drift.mismatches.includes("not_found_in_xero")
+              ? "Xero no longer has this invoice under the id BuhlOS stored. The figures shown are the last ones Xero gave. Check Xero."
+              : "This invoice has been changed in Xero since BuhlOS sent it. The figures shown here are Xero's."}
+          </p>
+        ) : null}
+        {sent && !dead && paidLine ? (
+          <p className="mt-1 text-xs text-text-muted" data-testid="gp-stage-paid">
+            {paidLine}
+          </p>
+        ) : null}
+        {dead ? (
+          <p className="mt-1.5 text-sm text-text-muted" data-testid="gp-stage-dead">
+            This invoice was {stage.xeroStatus === "DELETED" ? "deleted" : "voided"} in Xero, so it
+            no longer counts toward the job. Its number isn&rsquo;t used again.
+            {stage.replacedById ? " It has been raised again as a new stage." : ""}
           </p>
         ) : null}
       </div>
@@ -132,7 +162,10 @@ export function StageRow({
       <div className="sm:text-right">
         {sent && stage.xeroSubtotalCents != null ? (
           <>
-            <p className="font-display text-lg font-bold tabular-nums text-text" data-testid="gp-stage-xero-subtotal">
+            <p
+              className={`font-display text-lg font-bold tabular-nums ${dead ? "text-text-muted line-through" : "text-text"}`}
+              data-testid="gp-stage-xero-subtotal"
+            >
               {formatCents(stage.xeroSubtotalCents)}
             </p>
             <p className="text-xs text-text-muted" data-testid="gp-stage-xero-total">
@@ -160,7 +193,7 @@ export function StageRow({
           </>
         )}
 
-        {sent && hasRetention ? (
+        {sent && hasRetention && !dead ? (
           <p className="text-xs text-text-muted">
             {formatCents(c.retentionCents)} retention held ({formatBp(c.retentionBp)})
           </p>
@@ -212,6 +245,11 @@ export function StageRow({
                 Edit and resend
               </Button>
             </>
+          ) : null}
+          {sent && stage.canRaiseAgain ? (
+            <Button size="sm" onClick={actions.onRaiseAgain} disabled={busy} data-testid="gp-stage-raise-dead">
+              Raise again
+            </Button>
           ) : null}
           {sent && stage.xeroInvoiceId ? (
             <a

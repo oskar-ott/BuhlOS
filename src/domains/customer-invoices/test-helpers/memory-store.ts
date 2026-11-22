@@ -45,6 +45,7 @@ export function createMemoryStore() {
   const attempts: Array<Record<string, unknown>> = [];
   let n = 0;
   let clock = 0;
+  let nowMs = Date.parse("2026-11-22T00:00:00Z");
   let tenant: { id: string; slug: string } | null = { id: "t1", slug: "buhl" };
   const uuid = () => `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}`;
   const blank = {
@@ -54,6 +55,8 @@ export function createMemoryStore() {
     // the real store maps every column, so an unsent row has these as null
     xeroInvoiceId: null, failureCategory: null, failureDetail: null, drift: null,
     invoiceDate: null, reference: null, externalTenantId: null, xeroContactId: null,
+    xeroAmountCreditedCents: null, xeroFullyPaidOn: null,
+    lastCheckedAt: null, replacedById: null,
   };
   function guard(id: string, expectedVersion: number): Row {
     const r = rows.find((x) => x.id === id);
@@ -151,6 +154,8 @@ export function createMemoryStore() {
     async removeStage(_sql: unknown, _t: string, id: string, o: { expectedVersion: number }) {
       const r = guard(id, o.expectedVersion);
       rows.splice(rows.indexOf(r), 1);
+      // the column's `on delete set null`: a removed copy frees the old row
+      for (const other of rows) if (other.replacedById === id) other.replacedById = null;
       events.push({ event: "removed", jobId: r.jobId, invoiceId: null });
       return { id, jobId: r.jobId };
     },
@@ -190,7 +195,8 @@ export function createMemoryStore() {
         state: "sent", xeroInvoiceId: p.xeroInvoiceId, drift: p.drift ?? null, failureCategory: null, failureDetail: null,
         xeroStatus: m.status, xeroSubtotalCents: m.subtotalCents, xeroTaxCents: m.taxCents, xeroTotalCents: m.totalCents,
         xeroAmountDueCents: m.amountDueCents, xeroAmountPaidCents: m.amountPaidCents, xeroAmountCreditedCents: m.amountCreditedCents,
-        xeroDueDate: m.dueDate, xeroFullyPaidOn: m.fullyPaidOn, version: r.version + 1,
+        xeroDueDate: m.dueDate ?? null, xeroFullyPaidOn: m.fullyPaidOn ?? null,
+        lastCheckedAt: new Date(nowMs).toISOString(), version: r.version + 1,
       });
       return clone(r);
     },
@@ -217,6 +223,63 @@ export function createMemoryStore() {
       events.push({ event: "edited", jobId: r.jobId, invoiceId: r.id });
       return clone(r);
     },
+    // ── paid status (#1151) ────────────────────────────────────────────────
+    /** Test clock for "last checked" (ms). */
+    setNow(ms: number) { nowMs = ms; },
+    async listForStatusCheck(_sql: unknown, _t: string, externalTenantId: string | null) {
+      if (!externalTenantId) return [];
+      const dayAgo = nowMs - 24 * 3600_000;
+      const sixtyDaysAgo = new Date(nowMs - 60 * 24 * 3600_000).toISOString().slice(0, 10);
+      return clone(
+        rows
+          .filter((r) => r.state === "sent" && r.xeroInvoiceId && r.externalTenantId === externalTenantId)
+          .filter((r) => {
+            const s = r.xeroStatus as string | null;
+            if (s == null || s === "DRAFT" || s === "SUBMITTED" || s === "AUTHORISED") return true;
+            if (s !== "PAID") return false;
+            const checked = r.lastCheckedAt ? Date.parse(String(r.lastCheckedAt)) : null;
+            const paidOn = r.xeroFullyPaidOn as string | null;
+            return (checked == null || checked < dayAgo) && (paidOn == null || paidOn > sixtyDaysAgo);
+          })
+          .sort((a, b) => String(a.lastCheckedAt ?? "").localeCompare(String(b.lastCheckedAt ?? "")))
+      );
+    },
+    async listJobSent(_sql: unknown, _t: string, jobId: string, externalTenantId: string | null) {
+      if (!externalTenantId) return [];
+      return clone(rows.filter((r) => r.jobId === jobId && r.state === "sent" && r.xeroInvoiceId && r.externalTenantId === externalTenantId));
+    },
+    async applyMirror(_sql: unknown, _t: string, id: string, p: { mirror: Record<string, unknown>; drift: unknown; event?: unknown }) {
+      const r = rows.find((x) => x.id === id);
+      if (!r || r.state !== "sent") return null;
+      const m = p.mirror;
+      Object.assign(r, {
+        xeroStatus: m.status, xeroSubtotalCents: m.subtotalCents, xeroTaxCents: m.taxCents, xeroTotalCents: m.totalCents,
+        xeroAmountDueCents: m.amountDueCents, xeroAmountPaidCents: m.amountPaidCents, xeroAmountCreditedCents: m.amountCreditedCents,
+        xeroDueDate: m.dueDate ?? null, xeroFullyPaidOn: m.fullyPaidOn ?? null, drift: p.drift ?? null,
+        lastCheckedAt: new Date(nowMs).toISOString(), version: r.version + 1,
+      });
+      if (p.event) events.push({ event: "status_changed", jobId: r.jobId, invoiceId: r.id, detail: p.event });
+      return clone(r);
+    },
+    async touchChecked(_sql: unknown, _t: string, ids: string[]) {
+      for (const r of rows) if (ids.includes(r.id) && r.state === "sent") r.lastCheckedAt = new Date(nowMs).toISOString();
+    },
+    async raiseAgainSent(_sql: unknown, _t: string, id: string) {
+      const r = rows.find((x) => x.id === id);
+      if (!r) throw new StoreConflict("not_found");
+      if (r.state !== "sent" || !(r.xeroStatus === "DELETED" || r.xeroStatus === "VOIDED") || r.replacedById) throw new StoreConflict("not_raisable");
+      const fresh = {
+        ...blank, id: uuid(), jobId: r.jobId, kind: r.kind, title: r.title, basis: r.basis, percentBp: r.percentBp,
+        amountCents: r.amountCents, extraLines: clone(r.extraLines), retentionBp: null, plannedDate: r.plannedDate ?? null,
+        note: r.note ?? null, state: "planned", version: 1,
+      } as Row;
+      rows.push(fresh);
+      r.replacedById = fresh.id;
+      r.version += 1;
+      events.push({ event: "raised_again", jobId: r.jobId, invoiceId: r.id });
+      return clone(fresh);
+    },
+
     async raiseAgain(_sql: unknown, _t: string, id: string) {
       const r = rows.find((x) => x.id === id);
       if (!r) throw new StoreConflict("not_found");

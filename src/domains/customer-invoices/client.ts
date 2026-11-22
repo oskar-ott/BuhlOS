@@ -4,11 +4,13 @@ import {
   InvoiceSettingsOptionsSchema,
   InvoiceSettingsResponseSchema,
   JobInvoicingResponseSchema,
+  RefreshResponseSchema,
   SendPreviewSchema,
   SendResponseSchema,
   type InvoiceSettingsOptions,
   type InvoiceSettingsResponse,
   type JobInvoicingResponse,
+  type RefreshResponse,
   type SendPreview,
   type SendResponse,
   type StageInput,
@@ -158,6 +160,13 @@ export function addRetentionRelease(
   amountCents: number
 ): Promise<HttpResult<JobInvoicingResponse>> {
   return httpPost(`${BASE}?action=retention-release`, { jobId, amountCents }, opts);
+}
+
+// ── paid status (#1151) ─────────────────────────────────────────────────────
+
+/** "Check Xero now": ask Xero what happened to this job's sent invoices. */
+export function refreshJobInvoices(jobId: string): Promise<HttpResult<RefreshResponse>> {
+  return httpPost(`${BASE}?action=refresh`, { jobId }, { schema: RefreshResponseSchema, timeoutMs: 45_000 });
 }
 
 /** The Money card announces a contract-value save on `window` so this card's

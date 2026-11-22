@@ -39,6 +39,7 @@ const TYPE_LABEL: Record<XeroSyncType, string> = {
   timesheet_export: "Timesheet export",
   reconciliation: "Reconciliation",
   invoice_export: "Stage invoices",
+  invoice_status: "Invoice payment checks",
 };
 
 function shortWhen(iso: string | undefined): string {

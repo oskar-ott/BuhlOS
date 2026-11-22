@@ -36,6 +36,8 @@ export interface FakeInvoice {
   AmountPaid: number;
   AmountCredited: number;
   Url?: string;
+  FullyPaidOnDate?: string;
+  UpdatedDateUTCString?: string;
 }
 
 export type FailMode =
@@ -52,6 +54,10 @@ export function createFakeXero({ taxRates = { OUTPUT: 1000, EXEMPTOUTPUT: 0 } as
   const byKey = new Map<string, FakeInvoice>();
   const calls: Array<{ method: string; url: string; headers: Record<string, string>; body?: unknown }> = [];
   const queue: Array<{ mode: FailMode; message?: string }> = [];
+  // Invoice ids a multi-invoice (IDs=) read leaves out — the way Xero might
+  // for a deleted invoice. A read of that one id still answers.
+  const leftOutOfLists = new Set<string>();
+  let readsFail: unknown = null;
   let n = 0;
   const id = () => `aaaaaaaa-0000-4000-8000-${String(++n).padStart(12, "0")}`;
   const round2 = (v: number) => Math.round(v * 100) / 100;
@@ -123,11 +129,14 @@ export function createFakeXero({ taxRates = { OUTPUT: 1000, EXEMPTOUTPUT: 0 } as
       return { data: { Invoices: [clone(inv)] }, correlationId: "fake-corr" };
     }
     if (method !== "GET") throw new Error(`the fake Xero got an unexpected ${method} ${path}`);
+    if (readsFail) throw readsFail;
 
     if (path === "/Invoices") {
       const numbers = (u.searchParams.get("InvoiceNumbers") || "").split(",").filter(Boolean);
       const ids = (u.searchParams.get("IDs") || "").split(",").filter(Boolean);
-      const hits = invoices.filter((i) => numbers.includes(i.InvoiceNumber) || ids.includes(i.InvoiceID));
+      const hits = invoices.filter(
+        (i) => numbers.includes(i.InvoiceNumber) || (ids.includes(i.InvoiceID) && !leftOutOfLists.has(i.InvoiceID))
+      );
       return { data: { Invoices: hits.map((i) => clone(summary(i))) }, correlationId: "fake-corr" };
     }
     if (path.startsWith("/Invoices/")) {
@@ -155,6 +164,54 @@ export function createFakeXero({ taxRates = { OUTPUT: 1000, EXEMPTOUTPUT: 0 } as
       });
       Object.assign(inv, input);
       return inv;
+    },
+    // ── what the office does in Xero after a send (#1151) ──────────────────
+    /** The invoice with this number (throws when there is none). */
+    get(number: string): FakeInvoice {
+      const inv = invoices.find((i) => i.InvoiceNumber === number);
+      if (!inv) throw new Error(`no invoice ${number} in the fake Xero`);
+      return inv;
+    },
+    approve(number: string) {
+      this.get(number).Status = "AUTHORISED";
+    },
+    /** Record a payment (GST-inclusive dollars). Fully paid → PAID. */
+    pay(number: string, amount: number, onDay = "2026-12-10") {
+      const inv = this.get(number);
+      inv.AmountPaid = round2(inv.AmountPaid + amount);
+      inv.AmountDue = round2(inv.Total - inv.AmountPaid);
+      if (inv.AmountDue <= 0) {
+        inv.Status = "PAID";
+        inv.FullyPaidOnDate = `/Date(${Date.parse(`${onDay}T00:00:00Z`)}+0000)/`;
+      } else {
+        inv.Status = "AUTHORISED";
+      }
+    },
+    void(number: string) {
+      Object.assign(this.get(number), { Status: "VOIDED", AmountDue: 0 });
+    },
+    delete(number: string) {
+      Object.assign(this.get(number), { Status: "DELETED", AmountDue: 0 });
+    },
+    /** The office edits the draft's amount in Xero. */
+    editSubtotal(number: string, subtotal: number) {
+      const inv = this.get(number);
+      inv.SubTotal = subtotal;
+      inv.TotalTax = round2(subtotal * 0.1);
+      inv.Total = round2(subtotal * 1.1);
+      inv.AmountDue = round2(inv.Total - inv.AmountPaid);
+    },
+    /** Make a multi-invoice read leave this invoice out. */
+    leaveOutOfLists(number: string) {
+      leftOutOfLists.add(this.get(number).InvoiceID);
+    },
+    /** Remove an invoice entirely (Xero has nothing under its id). */
+    vanish(number: string) {
+      invoices.splice(invoices.indexOf(this.get(number)), 1);
+    },
+    /** Make every read fail (e.g. Xero is down) until cleared with null. */
+    failReads(err: unknown) {
+      readsFail = err;
     },
     puts: () => calls.filter((c) => c.method === "PUT"),
     gets: () => calls.filter((c) => c.method === "GET"),
