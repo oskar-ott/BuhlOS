@@ -70,9 +70,11 @@ describe("<OwnerFeatureBoard />", () => {
     for (const t of ["rollout-off-itp", "rollout-preview-itp", "rollout-live-itp"]) {
       expect(html).toContain(t);
     }
-    // A live feature reads "Live"; a preview-only feature reads "Preview only (you)".
-    expect(html).toContain("Live");
-    expect(html).toContain("Preview only (you)");
+    // The switch itself carries the state: the current stop is pressed.
+    expect(html).toMatch(/aria-pressed="true"[^>]*data-testid="rollout-live-itp"/);
+    expect(html).toMatch(/aria-pressed="true"[^>]*data-testid="rollout-preview-rfi_register"/);
+    // Where it shows up, in site language — never the internal field-app name.
+    expect(html).toContain("office + field app");
     // Open-to-test link for the previewed feature (reachable for the owner).
     expect(html).toContain("feature-open-rfi_register");
     expect(html).toContain("Open to test");

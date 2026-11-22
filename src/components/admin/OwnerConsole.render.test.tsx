@@ -16,12 +16,12 @@ describe("<OwnerConsole />", () => {
 
     for (const heading of [
       "Platform control",
-      "Product health",
-      "Usage &amp; activity",
+      "Needs you",
+      "Features",
+      "Activity",
       "Errors",
-      "Feature control",
-      "Product problems",
-      "Audit trail",
+      "Diagnostics",
+      "Product health",
       "Surface coverage",
       "Next actions",
     ]) {
@@ -35,6 +35,34 @@ describe("<OwnerConsole />", () => {
     expect(html).toContain("Route / page views"); // a named gap
     expect(html).toContain("hours.approved"); // a real audit action
     expect(html).toContain("page:/v2/jobs"); // the seeded error group's handler
+    // Needs you: the real problem + this week's errors; the instrumentation gap
+    // is NOT attention — it sits (whole) in the collapsed Diagnostics.
+    expect(html).toContain("is past its expiry");
+    expect(html).toContain("2 errors in the last 7 days");
+    expect(html).toContain("Route / feature usage is not instrumented");
+    expect(html).toContain("owner-diagnostics");
+    expect(html).not.toContain("owner-all-clear");
+    // The side rail + jump tiles are gone.
+    expect(html).not.toContain("Console sections");
+  });
+
+  it("says all clear when nothing real needs the owner", () => {
+    const summary = makeSummary();
+    summary.problems = summary.problems.filter((p) => p.severity === "not_instrumented");
+    summary.errors = { ...summary.errors!, count7d: 0 };
+    const html = renderToString(createElement(OwnerConsole, { summary }));
+    expect(html).toContain("owner-all-clear");
+  });
+
+  it("renders the account slot before Diagnostics", () => {
+    const html = renderToString(
+      createElement(OwnerConsole, {
+        summary: makeSummary(),
+        account: createElement("p", null, "ACCOUNT-SLOT"),
+      }),
+    );
+    expect(html.indexOf("ACCOUNT-SLOT")).toBeGreaterThan(-1);
+    expect(html.indexOf("ACCOUNT-SLOT")).toBeLessThan(html.indexOf("owner-diagnostics"));
   });
 
   it("renders an explicit empty state when no errors are recorded (#154)", () => {
@@ -98,7 +126,7 @@ describe("<OwnerConsole />", () => {
       ],
     };
     const html = renderToString(createElement(OwnerConsole, { summary }));
-    expect(html).toContain("Feature configuration"); // the section
+    expect(html).toContain("Feature settings"); // the section
     expect(html).toContain("setting-input-safety_docs.maxUploadMb"); // the input renders
     expect(html).toContain("Max upload size (MB)");
   });

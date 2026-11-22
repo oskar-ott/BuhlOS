@@ -1,21 +1,20 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Search } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { type FlagItem } from "@/domains/platform/owner-console";
 import { OwnerFlagRow } from "./OwnerFlagRow";
 import { OwnerFeatureRow, type Rollout } from "./OwnerFeatureRow";
-import { pctWidthClass } from "@/components/admin/pct-width";
 
 /**
  * Owner Feature Control Board (#760). Product features grouped by DOMAIN, each
  * with the EASY staged-rollout control (Off · Preview · Live) from
  * OwnerFeatureRow — one atomic write moves a feature from hidden → owner-only
- * test → released to everyone. The rollout-mix bar at the top shows the real
- * Live/Preview/Off split and its legend doubles as the exposure filter; a
- * search box narrows by name or key; MOVING A LIVE FEATURE BACK (to preview or
- * off) goes through a reduce-exposure confirm (optional reason → audit).
+ * test → released to everyone. One toolbar: the exposure filter (its counts ARE
+ * the real Live/Preview/Off split) + a search box (name, key or description).
+ * MOVING A LIVE FEATURE BACK (to preview or off) goes through a reduce-exposure
+ * confirm (optional reason → audit).
  * Protected data-plane flags stay in a collapsed, read-only "System" group
  * (the two-dial OwnerFlagRow, no interaction).
  *
@@ -50,7 +49,6 @@ export function OwnerFeatureBoard({ items, rev }: { items: FlagItem[]; rev?: num
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [expo, setExpo] = useState<Exposure>("all");
-  const [surface, setSurface] = useState<string>("all");
   const [query, setQuery] = useState("");
   const [confirm, setConfirm] = useState<{
     key: string;
@@ -121,14 +119,6 @@ export function OwnerFeatureBoard({ items, rev }: { items: FlagItem[]; rev?: num
     void doRollout(key, target);
   }
 
-  const surfaces = useMemo(
-    () =>
-      Array.from(
-        new Set(rows.filter((r) => !r.protected && r.surface).map((r) => r.surface as string)),
-      ),
-    [rows],
-  );
-
   const product = rows.filter((r) => !r.protected);
   const mix = {
     on: product.filter((r) => exposureOf(r) === "on").length,
@@ -139,7 +129,6 @@ export function OwnerFeatureBoard({ items, rev }: { items: FlagItem[]; rev?: num
   const q = query.trim().toLowerCase();
   const visible = product
     .filter((r) => expo === "all" || exposureOf(r) === expo)
-    .filter((r) => surface === "all" || r.surface === surface)
     .filter(
       (r) =>
         q === "" ||
@@ -169,13 +158,6 @@ export function OwnerFeatureBoard({ items, rev }: { items: FlagItem[]; rev?: num
 
   return (
     <div data-testid="owner-feature-board" className="space-y-4">
-      <p className="text-sm text-text-muted">
-        Move any feature through its launch: <strong className="text-text">Off</strong> (hidden) →{" "}
-        <strong className="text-text">Preview</strong> (only you see it — build &amp; test it live)
-        → <strong className="text-text">Live</strong> (everyone). Turning a live feature back asks
-        you to confirm.
-      </p>
-
       {error ? (
         <div
           role="alert"
@@ -186,68 +168,38 @@ export function OwnerFeatureBoard({ items, rev }: { items: FlagItem[]; rev?: num
         </div>
       ) : null}
 
-      {/* Rollout mix — real proportions; the legend IS the exposure filter. */}
+      {/* One toolbar: the exposure filter (its counts are the rollout mix) +
+          search, with the three stages explained once instead of per row. */}
       {product.length > 0 ? (
-        <div className="rounded-card border border-border bg-surface-raised p-4">
-          <div
-            aria-hidden="true"
-            className="flex h-2 overflow-hidden rounded-pill bg-surface-subtle"
-          >
-            {mix.on > 0 ? (
-              <span className={cn("bg-emerald-500", pctWidthClass(mix.on, product.length))} />
-            ) : null}
-            {mix.preview > 0 ? (
-              <span className={cn("bg-sky-500", pctWidthClass(mix.preview, product.length))} />
-            ) : null}
-            {mix.off > 0 ? (
-              <span className={cn("bg-border-strong", pctWidthClass(mix.off, product.length))} />
-            ) : null}
-          </div>
-          <div className="mt-3 flex flex-wrap items-center gap-1.5">
-            {MIX_LEGEND.map((l) => (
-              <button
-                key={l.expo}
-                type="button"
-                aria-pressed={expo === l.expo}
-                onClick={() => setExpo(l.expo)}
-                className={cn(
-                  "inline-flex items-center gap-1.5 rounded-pill px-2.5 py-1 text-xs font-medium transition-colors",
-                  expo === l.expo
-                    ? "bg-brand-navy text-white"
-                    : "border border-border text-text-muted hover:bg-surface-subtle hover:text-text",
-                )}
-              >
-                {l.swatch ? (
-                  <span aria-hidden="true" className={cn("h-1.5 w-1.5 rounded-full", l.swatch)} />
-                ) : null}
-                {l.label}
-                <span className="font-mono tabular-nums opacity-70">{l.count}</span>
-              </button>
-            ))}
-
-            {surfaces.length > 1 ? (
-              <div className="ml-auto inline-flex overflow-hidden rounded-card border border-border text-xs">
-                {["all", ...surfaces].map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    aria-pressed={surface === s}
-                    onClick={() => setSurface(s)}
-                    className={cn(
-                      "px-2.5 py-1 transition-colors",
-                      surface === s
-                        ? "bg-brand-navy text-white"
-                        : "text-text-muted hover:bg-surface-subtle hover:text-text",
-                    )}
-                  >
-                    {s === "all" ? "All surfaces" : s}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-          </div>
-          <div className="mt-3 flex flex-wrap items-center gap-3">
-            <label className="relative block max-w-xs flex-1">
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <div
+              role="group"
+              aria-label="Filter by rollout"
+              className="inline-flex overflow-hidden rounded-card border border-border bg-surface-raised text-sm"
+            >
+              {MIX_LEGEND.map((l) => (
+                <button
+                  key={l.expo}
+                  type="button"
+                  aria-pressed={expo === l.expo}
+                  onClick={() => setExpo(l.expo)}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 border-l border-border px-3 py-1.5 font-medium transition-colors first:border-l-0",
+                    expo === l.expo
+                      ? "bg-brand-navy text-white"
+                      : "text-text-muted hover:bg-surface-subtle hover:text-text",
+                  )}
+                >
+                  {l.swatch ? (
+                    <span aria-hidden="true" className={cn("h-2 w-2 rounded-full", l.swatch)} />
+                  ) : null}
+                  {l.label}
+                  <span className="font-mono text-xs tabular-nums opacity-70">{l.count}</span>
+                </button>
+              ))}
+            </div>
+            <label className="relative block min-w-[12rem] flex-1 sm:max-w-xs">
               <Search
                 aria-hidden="true"
                 className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted"
@@ -259,11 +211,16 @@ export function OwnerFeatureBoard({ items, rev }: { items: FlagItem[]; rev?: num
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search features…"
                 data-testid="board-search"
-                className="w-full rounded-pill border border-border bg-surface-subtle py-1.5 pl-8 pr-3 text-sm text-text placeholder:text-text-muted focus:border-border-strong focus:outline-none"
+                className="w-full rounded-card border border-border bg-surface-raised py-1.5 pl-8 pr-3 text-sm text-text placeholder:text-text-muted focus:border-border-strong focus:outline-none"
               />
             </label>
-            <span className="text-xs text-text-muted">{visible.length} shown</span>
           </div>
+          <p className="text-xs text-text-muted">
+            <strong className="text-text">Off</strong> hidden from everyone ·{" "}
+            <strong className="text-text">Preview</strong> only you see it, to test it live ·{" "}
+            <strong className="text-text">Live</strong> everyone sees it. Taking a live feature back
+            asks you to confirm.
+          </p>
         </div>
       ) : null}
 
@@ -297,7 +254,7 @@ export function OwnerFeatureBoard({ items, rev }: { items: FlagItem[]; rev?: num
           </div>
         );
       })}
-      {visible.length === 0 ? (
+      {visible.length === 0 && product.length > 0 ? (
         <p className="text-sm text-text-muted">No features match this filter.</p>
       ) : null}
 
