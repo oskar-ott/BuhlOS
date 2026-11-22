@@ -6,6 +6,7 @@ import { NewJobForm } from "@/components/admin/NewJobForm";
 import { StartFromBlueprintCard } from "@/components/admin/StartFromBlueprintCard";
 import { SESSION_COOKIE, decodeSessionCookie } from "@/lib/auth/session";
 import { canCreateJob } from "@/lib/auth/permissions";
+import { isFlagEnabled } from "../../../../../api/_lib/feature-flags.js";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +36,9 @@ export default async function NewJobPage() {
   if (!canCreateJob(session.role)) {
     redirect("/v2/jobs");
   }
+  // BuhlOS job numbers (#1152, dark): on, the IV number may be left blank and
+  // the server issues the next one. A plain boolean goes down to the form.
+  const issuedNumbers = await isFlagEnabled("job_code_auto", session);
 
   return (
     <AdminShell
@@ -50,7 +54,7 @@ export default async function NewJobPage() {
     >
       <div className="mx-auto max-w-2xl space-y-4">
         <StartFromBlueprintCard />
-        <NewJobForm />
+        <NewJobForm issuedNumbers={issuedNumbers} />
       </div>
     </AdminShell>
   );

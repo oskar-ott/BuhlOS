@@ -127,6 +127,9 @@ export default async function AdminJobInterfacePage({ params }: PageParams) {
   // dark: when off the hub renders no card and makes no fetch.
   const customerInvoicesEnabled =
     canBuild && (await isFlagEnabled("customer_invoices", session));
+  // BuhlOS job numbers (#1152, dark): the office can give a job that has no
+  // number its number, once. Off = no trace on the hero.
+  const jobNumbersEnabled = canBuild && (await isFlagEnabled("job_code_auto", session));
   // Recent purchases (owner pull 2026-10-04): for EVERYONE who can open this
   // page — a leading hand sees what was bought, the office also sees the
   // money (the route only sends amounts to the office tier). Reads the
@@ -224,7 +227,12 @@ export default async function AdminJobInterfacePage({ params }: PageParams) {
             (Labour, Materials, Evidence) in the wide column, reference &
             controls (Build & publish, Tag register, Site) in the narrow one. */}
         <div className="mt-3">
-          <JobHealthBand job={job} canEdit={canBuild} progressPct={progressPct} />
+          <JobHealthBand
+            job={job}
+            canEdit={canBuild}
+            progressPct={progressPct}
+            canIssueNumber={jobNumbersEnabled}
+          />
         </div>
 
         {/* One money card, one fetch: profitability + budget variance are two

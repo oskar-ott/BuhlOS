@@ -132,9 +132,16 @@ interface Props {
   /** The jobs read FAILED (the page shows the error notice). An empty list is
    *  then "couldn't load", never "no jobs" — the empty state stays hidden. */
   loadFailed?: boolean;
+  /** job_code_auto, server-resolved: "+ New job" lets BuhlOS issue the number. */
+  issuedNumbers?: boolean;
 }
 
-export function PhilJobsSharpened({ initialJobs, userId = "", loadFailed = false }: Props) {
+export function PhilJobsSharpened({
+  initialJobs,
+  userId = "",
+  loadFailed = false,
+  issuedNumbers = false,
+}: Props) {
   // Prefs after mount only — SSR paints the stable name-first list, exactly
   // like PhilJobsList (no hydration flash, no fabricated "recent").
   const [prefs, setPrefs] = useState<JobListPrefs>(EMPTY_PREFS);
@@ -336,6 +343,7 @@ export function PhilJobsSharpened({ initialJobs, userId = "", loadFailed = false
           open
           onClose={() => setNewJobOpen(false)}
           jobs={initialJobs}
+          issuedNumbers={issuedNumbers}
         />
       ) : null}
     </div>

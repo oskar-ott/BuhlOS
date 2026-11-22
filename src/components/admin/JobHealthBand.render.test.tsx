@@ -119,3 +119,30 @@ describe("JobHealthBand — verdict words agree with the list", () => {
     expect(html).toContain("/v2/jobs/job-1/evidence");
   });
 });
+
+describe("JobHealthBand — giving a job with no number its number (#1152)", () => {
+  const noCode = { ...baseJob, code: undefined } as Job;
+  const band = (job: Job, props: { canEdit: boolean; canIssueNumber?: boolean }) =>
+    renderToString(createElement(JobHealthBand, { job, progressPct: null, ...props }));
+
+  it("is offered to the office on a job with no number while the feature is on", () => {
+    const html = band(noCode, { canEdit: true, canIssueNumber: true });
+    expect(html).toContain('data-testid="give-job-number"');
+    expect(html).toContain("No job number yet.");
+    expect(html).toContain("Give this job a number");
+    // the other identity facts still show
+    expect(html).toContain("Ref PO-8871");
+  });
+
+  it("is never offered on a job that already has a number — a number is not changed", () => {
+    const html = band(baseJob, { canEdit: true, canIssueNumber: true });
+    expect(html).toContain("IV1023");
+    expect(html).not.toContain("give-job-number");
+  });
+
+  it("leaves no trace while the feature is off, or for someone who can't edit the job", () => {
+    expect(band(noCode, { canEdit: true })).not.toContain("give-job-number");
+    expect(band(noCode, { canEdit: true, canIssueNumber: false })).not.toContain("give-job-number");
+    expect(band(noCode, { canEdit: false, canIssueNumber: true })).not.toContain("give-job-number");
+  });
+});

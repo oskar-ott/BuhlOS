@@ -135,3 +135,53 @@ describe("PhilNewJobSheet", () => {
     expect(btn).toContain("disabled"); // no name yet — still disabled
   });
 });
+
+describe("PhilNewJobSheet — BuhlOS issues the number (job_code_auto, #1152)", () => {
+  it("off (the default): exactly the form it was — a number is asked for on both sides", () => {
+    const html = render({ initialMode: "custom" });
+    expect(html).toContain("Custom number");
+    expect(html).toContain('data-testid="phil-new-job-digits-custom"');
+    expect(html).toContain("Next free");
+    expect(html).not.toContain("BuhlOS number");
+    expect(html).not.toContain("phil-new-job-issued-slot");
+  });
+
+  it("on: the second side stops asking for a number and never shows one that doesn't exist yet (P7)", () => {
+    const html = render({ issuedNumbers: true, initialMode: "custom", jobs: [listJob("a", "IV7001")] });
+    expect(html).toContain("BuhlOS number");
+    expect(html).not.toContain("Custom number");
+    expect(html).toContain('data-testid="phil-new-job-issued-slot"');
+    expect(html).toContain("next number, given when you create");
+    expect(html).toContain("given by BuhlOS");
+    // no digits field, no Next free, no invented number in the slot
+    expect(html).not.toContain('data-testid="phil-new-job-digits-custom"');
+    expect(html).not.toContain("Next free");
+    expect(html).not.toMatch(/value="\d{4}"/);
+    expect(html).not.toContain("IV7002");
+    expect(html).not.toContain("in the 7000s");
+  });
+
+  it("on: says where the number will show, in site words", () => {
+    const html = render({ issuedNumbers: true, initialMode: "custom" }).replace(/&#x27;/g, "'");
+    expect(html).toContain("BuhlOS gives this job the next free number.");
+    expect(html).toContain("You'll see it on");
+    expect(html).toContain("the one to give the");
+  });
+
+  it("on: the ServiceMate side is untouched — a number can still be typed", () => {
+    const html = render({ issuedNumbers: true });
+    expect(html).toContain('data-testid="phil-new-job-digits-servicemate"');
+    expect(html).toContain("format IV0000");
+    expect(html).toContain("Use the ServiceMate job number");
+    expect(html).not.toContain("phil-new-job-issued-slot");
+  });
+
+  it("on: no new slot — still one name field, one code row, one address field, one Create (P10)", () => {
+    const off = render({ initialMode: "custom" });
+    const on = render({ issuedNumbers: true, initialMode: "custom" });
+    const count = (html: string, re: RegExp) => (html.match(re) ?? []).length;
+    expect(count(on, /<input/g)).toBeLessThan(count(off, /<input/g));
+    expect(count(on, /<button/g)).toBeLessThan(count(off, /<button/g));
+    expect(count(on, /data-testid="phil-new-job-create"/g)).toBe(1);
+  });
+});

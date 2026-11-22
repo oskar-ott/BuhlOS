@@ -22,7 +22,7 @@ job page.
 | Invoice permissions, client link, defaults | [#1149](https://github.com/oskar-ott/BuhlOS/issues/1149) | **Built, dark** behind `customer_invoices`. Proven against a stand-in for Xero only — **never run against real Xero** |
 | Send to Xero as a draft | [#1150](https://github.com/oskar-ott/BuhlOS/issues/1150) | **Built, dark** behind `customer_invoices`. Proven against a stand-in for Xero only — **never run against real Xero**. The proving run on the Demo Company (plan §8) is still owed, with a hard stop before the first create |
 | Invoiced and paid on the job | [#1151](https://github.com/oskar-ott/BuhlOS/issues/1151) | **Built, dark** behind `customer_invoices`. Reads only. Proven against a stand-in for Xero only — **never run against real Xero** |
-| BuhlOS-issued IV numbers | [#1152](https://github.com/oskar-ott/BuhlOS/issues/1152) | **Planned, not built** |
+| BuhlOS-issued IV numbers | [#1152](https://github.com/oskar-ott/BuhlOS/issues/1152) | **Built, dark** behind its own flag, `job_code_auto`. Starts at IV4000. See [job-numbers.md](job-numbers.md) |
 
 Each part updates its own row, and adds its section below, in the PR that
 builds it. Nothing in this document describes behaviour that is not merged.

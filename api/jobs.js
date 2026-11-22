@@ -54,6 +54,7 @@ const { createJob } = require('./_lib/job-create');
 const { append: appendAuditLog } = require('./_lib/audit-log');
 const { buildJobCreatedEntry } = require('./_lib/job-create-audit');
 const { appendAudit } = require('./_lib/job-audit');
+const jobCodes = require('./_lib/job-codes');
 const { testJobDeleteEligibility } = require('./_lib/test-data');
 const { buildDuplicatePayload, copyName } = require('./_lib/job-duplicate');
 
@@ -305,8 +306,14 @@ async function handlePhilFieldCreate(req, res, me, data) {
   // hours/invoices line up under the one ref). ServiceMate-range and
   // 7000-series custom refs are both just IV#### codes server-side; format +
   // uniqueness are enforced in createJob (400 bad format / 409 duplicate).
+  //
+  // With job_code_auto on (#1152) the worker may send NO code: BuhlOS issues
+  // the next number in createJob. A code that IS sent is held to the same
+  // format as before.
+  const autoCode = await isFlagEnabled('job_code_auto', me);
+  const noCode = body.code === undefined || body.code === null || body.code === '';
   const code = typeof body.code === 'string' ? body.code.trim().toUpperCase() : '';
-  if (!/^IV\d{4}$/.test(code)) {
+  if (!(autoCode && noCode) && !/^IV\d{4}$/.test(code)) {
     return res.status(400).json({ error: 'code must be IV followed by 4 digits (e.g. IV0041)' });
   }
 
@@ -319,16 +326,24 @@ async function handlePhilFieldCreate(req, res, me, data) {
   // auto-assign, so a first attempt that died between the two writes heals
   // here. Genuine clashes (different user or different name) keep the 409
   // from createJob below, message unchanged.
-  const clash = (data.jobs || []).find(
-    j => j && typeof j.code === 'string' && j.code.toUpperCase() === code,
-  );
+  //
+  // A create with NO code (BuhlOS issues it) has no code to recognise the
+  // retry by, so it is recognised by the job itself: the id is made from the
+  // name, and a job with that id, that name and THIS worker's creator stamp
+  // is their own first attempt. Checked BEFORE a number is issued, so a retry
+  // never uses up a second number.
+  const clash = code
+    ? (data.jobs || []).find(
+        j => j && typeof j.code === 'string' && j.code.toUpperCase() === code,
+      )
+    : (data.jobs || []).find(j => j && j.id === slugify(name));
   if (clash) {
     const sameCreator = clash.createdByUserId === me.id;
     const sameName =
       typeof clash.name === 'string' &&
       clash.name.trim().toLowerCase() === name.toLowerCase();
     if (sameCreator && sameName) {
-      const assignErr = await assignJobToCreator(me, clash.id, code, res);
+      const assignErr = await assignJobToCreator(me, clash.id, clash.code || code, res);
       if (assignErr) return assignErr;
       return res.status(200).json({
         job: redactJobForViewer(
@@ -341,12 +356,13 @@ async function handlePhilFieldCreate(req, res, me, data) {
 
   // Whitelist-only input: exactly these fields reach createJob (the creator
   // stamp is server-set — never from the body).
-  const input = { name, code, status: 'active', createdByUserId: me.id };
+  const input = { name, status: 'active', createdByUserId: me.id };
+  if (code) input.code = code;
   if (typeof body.siteAddress === 'string' && body.siteAddress.trim()) {
     input.siteAddress = body.siteAddress.trim();
   }
 
-  const result = await createJob(data, input);
+  const result = await createJob(data, input, { autoCode, actor: { id: me.id, name: me.name || me.username } });
   if (!result.ok) {
     // createJob's duplicate-code 409 names the clashing job and its 400
     // id-collision message confirms a name exists — fine for the office,
@@ -363,7 +379,7 @@ async function handlePhilFieldCreate(req, res, me, data) {
   }
   const job = result.job;
 
-  const assignErr = await assignJobToCreator(me, job.id, code, res);
+  const assignErr = await assignJobToCreator(me, job.id, job.code || code, res);
   if (assignErr) return assignErr;
 
   // Canonical audit journal (#581 pattern) — best-effort after the writes,
@@ -897,7 +913,12 @@ module.exports = async (req, res) => {
     // client-writable, so strip it from the admin body to keep this path
     // bit-for-bit as before the stamp existed.
     const { createdByUserId: _ignoredCreatedBy, ...adminCreateBody } = req.body || {};
-    const result = await createJob(data, adminCreateBody);
+    // #1152: with job_code_auto on, a create with no IV number is issued the
+    // next BuhlOS number; off, the options change nothing.
+    const result = await createJob(data, adminCreateBody, {
+      autoCode: await isFlagEnabled('job_code_auto', me),
+      actor: { id: me.id, name: me.name || me.username },
+    });
     if (!result.ok) return res.status(result.status).json({ error: result.error });
     const job = result.job;
     // #581: record Job Builder job creation in the canonical audit journal —
@@ -942,6 +963,47 @@ module.exports = async (req, res) => {
     if (!id) return res.status(400).json({ error: 'id required' });
     const job = data.jobs.find(j => j.id === id);
     if (!job) return res.status(404).json({ error: 'job not found' });
+
+    // ── Give a job with no number its number — ONCE (#1152) ────────────────
+    // `{ id, issueCode: true }` and nothing else. Admin tier, job_code_auto
+    // on. A job's number is never changed here: a job that already has one is
+    // refused. The number is issued by BuhlOS; it can't be chosen.
+    if (req.body && req.body.issueCode !== undefined) {
+      if (!isAdminRole(me.role)) return res.status(403).json({ error: 'forbidden' });
+      if (!(await isFlagEnabled('job_code_auto', me))) return res.status(404).json({ error: 'not found' });
+      const extras = Object.keys(req.body).filter(k => k !== 'id' && k !== 'issueCode');
+      if (req.body.issueCode !== true || extras.length > 0) {
+        return res.status(400).json({ error: 'send only { id, issueCode: true }' });
+      }
+      if (typeof job.code === 'string' && job.code) {
+        return res.status(409).json({ error: `this job already has a number (${job.code}) — a job number can't be changed` });
+      }
+      let issued;
+      try {
+        issued = await jobCodes.connect().issue({
+          existingCodes: data.jobs.map(j => (j && typeof j.code === 'string' ? j.code : null)),
+          jobId: job.id,
+          actor: { id: me.id, name: me.name || me.username },
+        });
+      } catch (e) {
+        console.error('job issue-code: no number issued', { reason: (e && e.reason) || 'unexpected' });
+        return res.status(503).json({
+          error: e && e.reason === 'range_exhausted'
+            ? 'All the job numbers up to IV9999 are used, so this job was not given one.'
+            : "Couldn't get the next job number just now. Nothing was changed — try again.",
+        });
+      }
+      job.code = issued;
+      job.updatedAt = new Date().toISOString();
+      await writeBlob('jobs.json', data);
+      await mirrorJobToPg(job.id);
+      await appendAudit(job.id, {
+        byUserId: me.id, byUsername: me.username || me.id,
+        kind: 'edited', summary: `Job number ${issued} issued by BuhlOS`,
+      }).catch(() => {});
+      return res.status(200).json({ job: { ...projectJobStructure(job), modules: effectiveModules(job) } });
+    }
+
     /** 'job.closed' | 'job.reopened' when this PUT crossed the finish line — journalled after the write. */
     let lifecycleJournal = null;
 

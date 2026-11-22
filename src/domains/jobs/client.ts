@@ -156,6 +156,22 @@ export function updateJob(
 }
 
 /**
+ * PUT /api/jobs `{ id, issueCode: true }` — give a job that has no number the
+ * next BuhlOS job number, ONCE (#1152, job_code_auto). Admin tier. The server
+ * refuses a job that already has a number (409): a job number never changes.
+ */
+export function issueJobCode(jobId: string): Promise<HttpResult<JobDetailResponse>> {
+  return httpPut<JobDetailResponse>(
+    "/api/jobs",
+    { id: jobId, issueCode: true },
+    {
+      schema: JobDetailResponseSchema,
+      init: { cache: "no-store", credentials: "same-origin" },
+    }
+  );
+}
+
+/**
  * Publish a job to the field: flip status to 'active'. With the api/jobs.js
  * GET gate, a draft job is office-only (invisible to assigned field
  * workers) until this runs. Re-publishing an already-active job is a no-op
