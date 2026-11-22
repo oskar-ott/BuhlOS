@@ -139,6 +139,11 @@ describe("AuditLogEntrySchema", () => {
       "credential.updated",
       // #1148: customer stage invoices ('credential.' < 'customer_invoice.' < 'daywork.').
       "customer_invoice.profile_updated",
+      "customer_invoice.raised_again",
+      "customer_invoice.send_failed",
+      "customer_invoice.send_reset",
+      "customer_invoice.send_retried",
+      "customer_invoice.sent_to_xero",
       "customer_invoice.settings_updated",
       "customer_invoice.stage_added",
       "customer_invoice.stage_edited",

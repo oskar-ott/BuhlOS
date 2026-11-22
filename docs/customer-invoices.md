@@ -20,7 +20,7 @@ job page.
 | Boundary record | [#1147](https://github.com/oskar-ott/BuhlOS/issues/1147) | Written |
 | Stages on the job page, no Xero | [#1148](https://github.com/oskar-ott/BuhlOS/issues/1148) | **Built, dark** behind `customer_invoices`. Never used on a real job |
 | Invoice permissions, client link, defaults | [#1149](https://github.com/oskar-ott/BuhlOS/issues/1149) | **Built, dark** behind `customer_invoices`. Proven against a stand-in for Xero only — **never run against real Xero** |
-| Send to Xero as a draft | [#1150](https://github.com/oskar-ott/BuhlOS/issues/1150) | **Planned, not built** |
+| Send to Xero as a draft | [#1150](https://github.com/oskar-ott/BuhlOS/issues/1150) | **Built, dark** behind `customer_invoices`. Proven against a stand-in for Xero only — **never run against real Xero**. The proving run on the Demo Company (plan §8) is still owed, with a hard stop before the first create |
 | Invoiced and paid on the job | [#1151](https://github.com/oskar-ott/BuhlOS/issues/1151) | **Planned, not built** |
 | BuhlOS-issued IV numbers | [#1152](https://github.com/oskar-ott/BuhlOS/issues/1152) | **Planned, not built** |
 
@@ -39,21 +39,20 @@ ServiceM8.*
 
 ## What is built: the stage schedule (#1148)
 
-**Nothing is sent to Xero by this feature yet.** The card says so on screen
-("This is the plan only. Nothing is sent to Xero from here yet.") and shows no
-Send button, no Invoiced and no Paid figure. The Xero set-up below (#1149)
-only *reads* from Xero.
+The schedule itself never calls Xero. A planned stage is sent to Xero from the
+same card (see "the send" below); the Xero set-up (#1149) only *reads*. There
+is still no Paid figure anywhere: payment status is #1151.
 
 ### On the job page
 
 `/v2/jobs/[jobId]`, directly under the Money card, admin tier only, rendered
 only while `customer_invoices` is on for the viewer:
 
-- **Contract · Planned · Still to invoice.** Contract is the job's existing
-  contract value (edited on the Money card). Planned is the gross of the
-  planned stages. Still to invoice is contract less what has been *sent*
-  (nothing can be sent yet, so today it equals the contract), with "$X not yet
-  planned" beneath.
+- **Contract · Planned · Sent to Xero · Still to invoice.** Contract is the
+  job's existing contract value (edited on the Money card). Planned is the
+  gross of the stages not yet in Xero. Sent to Xero is the gross of the stages
+  that are (before retention). Still to invoice is contract less what has been
+  sent, with "$X not yet planned" beneath.
 - **Stages.** Each is a name, an amount as dollars *or* a % of the contract,
   optional extra lines (e.g. an approved variation), and an optional date it is
   expected to be invoiced. A fixed schedule is all its stages added up front; a
@@ -234,10 +233,137 @@ As for the schedule, plus: `xero_connection` on, then **Reconnect** Xero from
 `/settings/integrations/xero` so the invoice permission is granted, then
 choose the three defaults in the Invoices panel.
 
-## Testing (schedule and Xero set-up)
+## What is built: the send (#1150)
+
+**The one write to Xero.** "Send to Xero" on a planned stage creates a
+**draft** sales invoice. BuhlOS never approves, emails, edits, voids or
+deletes an invoice in Xero, and has no route that could (ADR rule 2).
+
+It has been proven end to end against a stand-in for Xero's API (real token
+store, shared client, send service, handler, sync log and local Postgres) —
+**not against Xero itself**. Before any real use: the proving run on the Demo
+Company (plan §8), stopping for the owner's yes before the first create.
+
+### What the office sees
+
+- **Send to Xero** appears on a planned stage once the job is ready: Xero
+  connected with invoice permission, the three defaults chosen, the client
+  linked in the connected organisation, and the job has an IV number.
+- It opens a **preview of exactly what will be created**: who it goes to, the
+  invoice number, date, due date, account and tax, every line, the retention
+  taken off, the subtotal, and the GST and total Xero is *expected* to add
+  (labelled an estimate). The date and the reference can be changed. Anything
+  stopping the send is named with what fixes it, and the button is not offered.
+- The button says what it does: **Send to Xero as a draft**.
+- A sent row shows its number, **Xero's** subtotal, GST and total (labelled as
+  Xero's), its dates, the retention held, and **Open in Xero**. It can no
+  longer be edited or removed here.
+- **Retention held so far** shows once any sent stage held some back, with
+  **Release retention**: that adds a planned release stage, sent like any other
+  (one line, nothing taken off).
+
+### The invoice BuhlOS creates
+
+`PUT {ACCOUNTING_BASE}/Invoices` (create-only; never the create-or-update
+`POST`) with header `Idempotency-Key`:
+
+| Field | Value |
+| --- | --- |
+| `Type` / `Status` | `ACCREC` / `DRAFT` — always |
+| `Contact` | `{ ContactID }` only, so the contact can't be edited as a side effect |
+| `InvoiceNumber` | `<job code>-<n>`, e.g. `IV3345-2`; `n` counts the job's stages in the order they are **sent** |
+| `Reference` | job code + job name, or what the office typed (e.g. a PO or claim number) |
+| `Date` / `DueDate` | the send date (Sydney) or the one chosen; date + payment terms |
+| `LineAmountTypes` | `Exclusive` — amounts are ex GST, Xero works out the tax |
+| `LineItems` | the stage (worded "… (20% of contract)" for a % stage, with the job and site), each extra line, then `Less retention (5%)` as a **negative** line; all on the default account and tax rate |
+| `Url` | the job's page — shows in Xero as "Go to BuhlOS" |
+
+### It can never go twice
+
+Three independent guards, plus a rule for retries:
+
+1. **The claim.** Before Xero is called the row moves `planned → sending` in
+   one guarded transaction that also allocates the number (serialised per job
+   by an advisory lock; the unique indexes are the backstop). A second request
+   loses here and never reaches Xero.
+2. **The number** is unique in Xero for sales invoices.
+3. **The `Idempotency-Key`** is derived from the stage and its exact body, so
+   the same request replays instead of creating again.
+4. **Any second attempt looks the number up first** (`GET
+   /Invoices?InvoiceNumbers=`) and adopts what it finds.
+
+### "Sent" means read back and matched
+
+The `pending` event is written **before** the call. Each call to Xero is one
+immutable attempt row with its outcome. After Xero accepts, the invoice is read
+back and compared (type, number, contact, draft status, subtotal, line
+amounts). A mismatch — or a read-back that fails — still records the invoice
+(it exists) with the difference named on the row: "What is in Xero doesn't
+match what BuhlOS sent." Xero's figures are the ones stored and shown.
+
+### When it doesn't land
+
+| What happened | The stage | What the office is offered |
+| --- | --- | --- |
+| Xero refused it (bad account, etc.) | `failed`, with **Xero's own sentence** | **Try again** (after fixing the cause — a retry uses the current account and tax defaults) · **Edit and resend** |
+| Xero was busy, or the connection needs a reconnect | `failed`; nothing was created | **Try again** |
+| **No answer** (timeout, network, 5xx, or a 200 with no invoice) | stays `sending`: "BuhlOS didn't hear back from Xero, so this invoice may or may not be there." | **Check Xero** — a look-up. Found and ours → adopted, nothing sent twice. Not there → sent again with the same idempotency key |
+| The number is already used in Xero by something else (or by ours, since deleted or voided) | `failed` as number taken | **Use the next number** — the stage is cancelled *keeping* its number, and a planned copy takes the next one |
+
+- **Edit and resend** puts the stage back to planned (its number released, its
+  frozen figures cleared) **only after Xero confirms it holds nothing under
+  the number**. If Xero has the invoice after all, it is adopted instead.
+- A retry sends the **frozen** amounts: a contract value changed since the
+  first attempt does not change the invoice.
+- A stage claimed while one Xero organisation was connected can only be
+  resolved against that organisation.
+- Every outcome is recorded on the Xero sync log as `invoice_export`
+  (operation `inv:<stage id>`), so a failed or unconfirmed send shows on the
+  sync health panel, whose **Retry** travels the same look-up-first path. The
+  panel shows a "Stage invoices" line only once something has been recorded.
+
+### API added
+
+| Call | Does |
+| --- | --- |
+| `POST ?action=preview&id=` `{ invoiceDate?, reference? }` | what would be sent + every blocker; writes nothing, calls Xero for nothing |
+| `POST ?action=send&id=` `{ expectedVersion, invoiceDate?, reference? }` | the send. `409 { error: "blocked", blockers }` when it can't go |
+| `POST ?action=retry&id=` | look up, then adopt or send again |
+| `POST ?action=reset&id=` | back to planned once Xero confirms nothing is there |
+| `POST ?action=raise-again&id=` | only for a number-taken stage: burn the number, add a planned copy |
+| `POST ?action=retention-release` `{ jobId, amountCents, title? }` | a planned release stage; `409 exceeds_retention_held` |
+
+`send` / `retry` / `reset` answer the job's refreshed payload plus `send: {
+outcome, invoiceNumber, verified, mismatches, category, detail }` — outcome
+`sent` · `adopted` · `failed` · `unknown` · `reset`.
+
+Audit: `customer_invoice.sent_to_xero`, `.send_failed`, `.send_retried`,
+`.send_reset`, `.raised_again` — with the invoice number, never an amount.
+
+### Not yet confirmed against real Xero
+
+To check in the proving run, because the payroll run found the documentation
+wrong more than once:
+
+- the request envelope `{ "Invoices": [ … ] }` on `PUT` is accepted
+- the wording of the duplicate-number refusal (the code looks for "must be
+  unique" / "already exists")
+- how long an `Idempotency-Key` is honoured, and that a replay returns the
+  first invoice
+- whether `GET /Invoices?InvoiceNumbers=` returns deleted and voided invoices
+- the "Open in Xero" link format
+  (`go.xero.com/AccountsReceivable/View.aspx?InvoiceID=…`)
+- that "Go to BuhlOS" appears in Xero from `Url`
+
+## Testing (schedule, Xero set-up and the send)
 
 | What | Where |
 | --- | --- |
+| What goes to Xero and what must come back: blockers, lines, body, hashes, read-back compare | `src/domains/customer-invoices/payload.test.ts` |
+| The send service against a stand-in Xero that times out, refuses and loses answers — "never two invoices" | `src/domains/customer-invoices/xero-send.test.ts` |
+| The send routes: gating, double press, outcomes, sync log + its Retry, reset, raise again, retention release | `src/domains/customer-invoices/customer-invoices-send-api.test.ts` |
+| The preview and every row state | `src/components/admin/customer-invoices/send.render.test.tsx` |
+| The send's SQL incl. real concurrent claims (local Postgres, skipped in CI) | `src/domains/customer-invoices/customer-invoices-send.pg.test.ts` |
 | Readiness, contact / account / tax mappers (data minimisation), error text | `src/domains/customer-invoices/xero-lookups.test.ts` |
 | The Xero routes: gating, readiness, search, link, defaults, audit | `src/domains/customer-invoices/customer-invoices-xero-api.test.ts` |
 | Client line, contact picker, Invoices panel — every state | `src/components/admin/customer-invoices/xero-setup.render.test.tsx` |

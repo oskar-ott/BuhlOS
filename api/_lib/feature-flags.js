@@ -458,10 +458,11 @@ const REGISTRY = {
   // It also gates the Xero set-up an invoice needs (#1149): the request for
   // the invoice scopes at connect, the job's client linked to a Xero contact,
   // and the Invoices panel (sales account, tax rate, terms) on the Xero
-  // settings page — all READS from Xero. The draft send (#1150) does not
-  // exist yet.
+  // settings page — all READS from Xero. And the send (#1150): ONE write to
+  // Xero, creating a DRAFT sales invoice for a stage (create-only, read back,
+  // never twice). BuhlOS never approves, emails, voids or deletes in Xero.
   customer_invoices: {
-    description: 'Customer stage invoices — a job\'s payment stages (dollars or % of contract, optional retention) on the job Money card "Getting paid" section (api/customer-invoices), plus the Xero set-up for it: invoice scopes requested at connect, the job\'s client linked to a Xero contact, default sales account / tax rate / terms on the Xero settings page. Reads from Xero only — nothing is sent yet. Dark, unproven, admin-tier.',
+    description: 'Customer stage invoices — a job\'s payment stages (dollars or % of contract, optional retention) on the job Money card "Getting paid" section (api/customer-invoices), plus the Xero set-up for it: invoice scopes requested at connect, the job\'s client linked to a Xero contact, default sales account / tax rate / terms on the Xero settings page. A planned stage is sent to Xero as a DRAFT sales invoice numbered <job code>-<n> (create-only, read back, never twice); approval and emailing stay in Xero. Paid status is not built yet. Dark, unproven, admin-tier.',
     default: false,
     target: 'admin-tier',
     expires: '2027-02-20',

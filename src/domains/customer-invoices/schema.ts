@@ -62,6 +62,22 @@ export const StageSchema = z
     version: z.number(),
     computed: StageComputedSchema,
     display: z.enum(STAGE_DISPLAY_STATUSES),
+    // ── set once the stage has been sent (#1150) ──
+    invoiceDate: z.string().nullable().optional(),
+    dueDate: z.string().nullable().optional(),
+    reference: z.string().nullable().optional(),
+    /** Why the last attempt didn't land (a stable category) and, when Xero
+     *  refused it, Xero's own sentence. */
+    failureCategory: z.string().nullable().optional(),
+    failureDetail: z.string().nullable().optional(),
+    xeroInvoiceId: z.string().nullable().optional(),
+    xeroStatus: z.string().nullable().optional(),
+    /** Xero's own figures for the invoice — these win over BuhlOS's maths. */
+    xeroSubtotalCents: z.number().nullable().optional(),
+    xeroTaxCents: z.number().nullable().optional(),
+    xeroTotalCents: z.number().nullable().optional(),
+    /** Present when what is in Xero doesn't match what was sent. */
+    drift: z.object({ mismatches: z.array(z.string()) }).passthrough().nullable().optional(),
   })
   .passthrough();
 export type Stage = z.infer<typeof StageSchema>;
@@ -127,6 +143,9 @@ export const JobXeroStandingSchema = z.object({
   organisationName: z.string().nullable(),
   /** Sales account, tax rate and payment terms are all chosen. */
   settingsComplete: z.boolean(),
+  /** Everything a send needs at job level is in place (#1150): Xero usable,
+   *  defaults chosen, client linked in this organisation, job has an IV number. */
+  sendReady: z.boolean(),
   client: z.object({
     linked: z.boolean(),
     name: z.string().nullable(),
@@ -184,6 +203,75 @@ export const JobInvoicingResponseSchema = z.object({
   asOf: z.string(),
 });
 export type JobInvoicingResponse = z.infer<typeof JobInvoicingResponseSchema>;
+
+// ── sending (#1150) ─────────────────────────────────────────────────────────
+
+/** Why a stage can't be sent — stable codes from the server. */
+export const SEND_BLOCKER_CODES = [
+  "not_planned",
+  "xero_not_ready",
+  "settings_incomplete",
+  "no_client_link",
+  "client_other_organisation",
+  "no_job_code",
+  "no_contract_value",
+  "amount_invalid",
+  "nothing_to_invoice",
+  "not_awaiting_xero",
+  "other_organisation",
+] as const;
+export const SendBlockerSchema = z.object({ code: z.string() }).passthrough();
+export type SendBlocker = z.infer<typeof SendBlockerSchema>;
+
+/** Exactly what would be sent (the preview) — writes nothing. */
+export const SendPreviewSchema = z.object({
+  blockers: z.array(SendBlockerSchema),
+  invoice: z
+    .object({
+      invoiceNumber: z.string(),
+      organisationName: z.string().nullable(),
+      contactName: z.string().nullable(),
+      invoiceDate: z.string(),
+      dueDate: z.string().nullable(),
+      reference: z.string(),
+      lines: z.array(z.object({ description: z.string(), amountCents: z.number() })),
+      netCents: z.number(),
+      /** What Xero is expected to add, from the rate Xero gave — an estimate. */
+      estimatedTaxCents: z.number().nullable(),
+      estimatedTotalCents: z.number().nullable(),
+      salesAccountCode: z.string(),
+      salesAccountName: z.string().nullable(),
+      taxName: z.string().nullable(),
+      taxRateBp: z.number().nullable(),
+    })
+    .nullable(),
+});
+export type SendPreview = z.infer<typeof SendPreviewSchema>;
+
+/**
+ * How a send / retry / reset ended:
+ *   sent     created in Xero as a draft
+ *   adopted  it was already in Xero — taken over, nothing sent twice
+ *   failed   Xero refused it; nothing exists there
+ *   unknown  no answer from Xero — it may or may not exist there
+ *   reset    put back to planned; Xero confirmed it holds nothing
+ */
+export const SEND_OUTCOMES = ["sent", "adopted", "failed", "unknown", "reset"] as const;
+export const SendResultSchema = z.object({
+  outcome: z.enum(SEND_OUTCOMES),
+  invoiceNumber: z.string().nullable(),
+  verified: z.boolean().nullable(),
+  mismatches: z.array(z.string()),
+  category: z.string().nullable(),
+  detail: z.string().nullable(),
+});
+export type SendResult = z.infer<typeof SendResultSchema>;
+
+export const SendResponseSchema = JobInvoicingResponseSchema.extend({
+  send: SendResultSchema,
+  syncLogWarning: z.string().optional(),
+});
+export type SendResponse = z.infer<typeof SendResponseSchema>;
 
 /** What the stage editor sends (mirrors the handler's StageBody). */
 export interface StageInput {

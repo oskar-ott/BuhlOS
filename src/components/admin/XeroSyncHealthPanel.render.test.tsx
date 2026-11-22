@@ -89,4 +89,49 @@ describe("SyncHealthView — the honest states", () => {
     expect(html).toContain("Acknowledge");
     expect(html).toContain("Retry all");
   });
+
+  // #1150: stage invoices are a flag-dark feature. A payroll office must see
+  // no trace of it on this panel until an invoice has actually been sent.
+  it("shows no 'Stage invoices' line until one has been recorded", () => {
+    const quiet = view({ kind: "ready", headline: "all_clear", state: READY_BASE });
+    expect(quiet).toContain("Timesheet export");
+    expect(quiet).toContain("Reference data");
+    expect(quiet).not.toContain("Stage invoices");
+  });
+
+  it("shows the line once a send has succeeded, or while one is outstanding", () => {
+    const succeeded = view({
+      kind: "ready",
+      headline: "all_clear",
+      state: { ...READY_BASE, lastSuccessAt: { invoice_export: "2026-11-22T01:00:00Z" } },
+    });
+    expect(succeeded).toContain("Stage invoices");
+
+    const outstanding = view({
+      kind: "ready",
+      headline: "attention",
+      state: {
+        counts: { total: 1, byType: { invoice_export: 1 } },
+        lastSuccessAt: {},
+        items: [
+          {
+            operation: "inv:s-1",
+            syncType: "invoice_export",
+            status: "failed",
+            recordRef: "IV3345-2",
+            reason: "IV3345-2 refused by Xero: Account code '999' is not a valid code for this document.",
+            category: "validation",
+            firstSeenAt: "2026-11-22T01:00:00Z",
+            lastSeenAt: "2026-11-22T01:00:00Z",
+            seenCount: 1,
+          },
+        ],
+      },
+    });
+    expect(outstanding).toContain("Stage invoices");
+    expect(outstanding).toContain("IV3345-2");
+    // the raw client category now finds its operator text (#1149)
+    expect(outstanding).toContain("Xero rejected the record as invalid.");
+    expect(outstanding).toContain("Fix the named field");
+  });
 });

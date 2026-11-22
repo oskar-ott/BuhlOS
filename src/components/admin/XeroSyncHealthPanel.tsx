@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Card, CardDescription, CardTitle } from "@/components/ui/Card";
 import {
+  QUIET_UNTIL_USED,
   headlineState,
   taxonomyFor,
   type OpenItem,
@@ -37,6 +38,7 @@ const TYPE_LABEL: Record<XeroSyncType, string> = {
   reference_sync: "Reference data",
   timesheet_export: "Timesheet export",
   reconciliation: "Reconciliation",
+  invoice_export: "Stage invoices",
 };
 
 function shortWhen(iso: string | undefined): string {
@@ -195,7 +197,15 @@ export function SyncHealthView({
           )}
 
           <dl className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-muted">
-            {(Object.keys(TYPE_LABEL) as XeroSyncType[]).map((t) => (
+            {(Object.keys(TYPE_LABEL) as XeroSyncType[])
+              // A flag-dark feature's line appears only once it has been used.
+              .filter(
+                (t) =>
+                  !QUIET_UNTIL_USED.has(t) ||
+                  !!load.state.lastSuccessAt?.[t] ||
+                  load.state.items.some((i) => i.syncType === t)
+              )
+              .map((t) => (
               <div key={t} className="flex gap-1">
                 <dt>{TYPE_LABEL[t]}:</dt>
                 <dd>last success {shortWhen(load.state.lastSuccessAt?.[t])}</dd>

@@ -239,6 +239,11 @@ export const AUDIT_ACTIONS = [
   "customer_invoice.stage_removed",
   "customer_invoice.profile_updated",
   "customer_invoice.settings_updated",
+  "customer_invoice.sent_to_xero",
+  "customer_invoice.send_failed",
+  "customer_invoice.send_retried",
+  "customer_invoice.send_reset",
+  "customer_invoice.raised_again",
   // Workshop Stock: office catalogue actions, count corrections, undos
   // (targetType 'workshop_stock_item'). Kept in sync with api/_lib/audit-log.js.
   "workshop_stock.item_created",

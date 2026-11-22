@@ -31,6 +31,7 @@ function standing(over: Partial<JobXeroStanding> = {}): JobXeroStanding {
     state: "connected",
     organisationName: "Buhl Electrical",
     settingsComplete: true,
+    sendReady: false,
     client: { linked: false, name: null, otherOrganisation: false, suggestion: null },
     ...over,
   };
@@ -127,10 +128,10 @@ describe("Getting paid — the Client in Xero line", () => {
     expect(html).toContain("Client in Xero: Built Pty Ltd.");
   });
 
-  it("still says nothing is sent to Xero, and offers no Send", () => {
+  it("offers no Send button while the job isn't ready to send", () => {
     const html = card(standing({ client: { linked: true, name: "Built Pty Ltd", otherOrganisation: false, suggestion: null } }));
-    expect(html).toContain("Nothing is sent to Xero from here yet.");
-    expect(html).not.toMatch(/Send to Xero/i);
+    expect(html).not.toMatch(/Send to Xero/);
+    expect(html).toContain("A stage is sent to Xero as a draft.");
   });
 });
 

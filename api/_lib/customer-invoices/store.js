@@ -102,6 +102,7 @@ function invoiceRow(r) {
     invoiceDate: dateOnly(r.invoice_date),
     dueDate: dateOnly(r.due_date),
     reference: r.reference,
+    contentHash: r.content_hash,
     state: r.state,
     failureCategory: r.failure_category,
     failureDetail: r.failure_detail,
@@ -406,9 +407,253 @@ function settingsComplete(s) {
   return !!(s && s.salesAccountCode && s.taxType && Number.isInteger(s.taxRateBp) && Number.isInteger(s.paymentTermsDays));
 }
 
+// ── sending (#1150) ─────────────────────────────────────────────────────────
+// A stage's journey to Xero, in the database:
+//   planned ──beginSend──▶ sending ──markAccepted──▶ sent
+//                             │  └──markFailed──▶ failed   (Xero said no; nothing exists there)
+//                             └──noteUnknown──▶ sending    (no answer; may or may not exist)
+//   sending/failed ──resetToPlanned──▶ planned   (only when Xero has nothing under the number)
+//   failed ──raiseAgain──▶ cancelled (number kept, burned) + a new planned copy
+// Every step is a guarded UPDATE: it changes the row only from the state it
+// expects, so two requests can never both win.
+
+const UNIQUE_VIOLATION = '23505';
+
+/** What the next sent stage on this job would be numbered (a peek for the
+ *  preview — the real allocation happens inside beginSend's transaction). */
+async function peekNextSeq(sql, tenantId, jobLegacyId) {
+  const rows = await sql`
+    select coalesce(max(seq), 0) + 1 as n
+    from public.customer_invoices
+    where tenant_id = ${tenantId} and job_legacy_id = ${jobLegacyId}`;
+  return Number(rows[0].n);
+}
+
+/**
+ * Claim a PLANNED stage for sending: allocate its number, freeze what will be
+ * invoiced, move it to `sending`. One transaction, serialised per job so two
+ * stages sent at once can never take the same number; the unique indexes are
+ * the backstop.
+ *
+ * `snap.build(invoiceNumber)` is called inside the transaction and returns the
+ * content hash of the body that will be sent under that number.
+ */
+async function beginSend(sql, tenantId, id, snap, { expectedVersion, actor }) {
+  try {
+    return await sql.begin(async (tx) => {
+      const cur = await tx`
+        select id, job_legacy_id, state, version from public.customer_invoices
+        where tenant_id = ${tenantId} and id = ${id}
+        for update`;
+      if (!cur.length) throw new StoreConflict('not_found');
+      if (cur[0].state !== 'planned') throw new StoreConflict('not_planned');
+      if (Number(cur[0].version) !== Number(expectedVersion)) throw new StoreConflict('version');
+      const job = cur[0].job_legacy_id;
+      // One send at a time per job (released at commit / rollback).
+      await tx`select pg_advisory_xact_lock(hashtextextended(${`customer-invoice-seq:${tenantId}:${job}`}, 0))`;
+      const next = await tx`
+        select coalesce(max(seq), 0) + 1 as n
+        from public.customer_invoices
+        where tenant_id = ${tenantId} and job_legacy_id = ${job}`;
+      const seq = Number(next[0].n);
+      const invoiceNumber = `${snap.jobCode}-${seq}`;
+      const contentHash = snap.build(invoiceNumber);
+      const rows = await tx`
+        update public.customer_invoices set
+          state              = 'sending',
+          seq                = ${seq},
+          invoice_number     = ${invoiceNumber},
+          gross_cents        = ${snap.grossCents},
+          retention_bp       = ${snap.retentionBp},
+          retention_cents    = ${snap.retentionCents},
+          net_cents          = ${snap.netCents},
+          invoice_date       = ${snap.invoiceDate},
+          due_date           = ${snap.dueDate},
+          reference          = ${snap.reference},
+          content_hash       = ${contentHash},
+          external_tenant_id = ${snap.externalTenantId},
+          xero_contact_id    = ${snap.xeroContactId},
+          xero_contact_name  = ${snap.xeroContactName},
+          failure_category   = null,
+          failure_detail     = null,
+          sent_by_legacy_id  = ${(actor && actor.id) || null},
+          sent_by_name       = ${(actor && actor.name) || null},
+          version            = version + 1
+        where tenant_id = ${tenantId} and id = ${id}
+        returning *`;
+      return invoiceRow(rows[0]);
+    });
+  } catch (e) {
+    if (e && e.code === UNIQUE_VIOLATION) throw new StoreConflict('number_clash');
+    throw e;
+  }
+}
+
+/** One immutable row per attempt to reach Xero, written with its outcome. */
+async function insertAttempt(sql, tenantId, a) {
+  await sql`
+    insert into public.customer_invoice_attempts
+      (id, tenant_id, invoice_id, external_tenant_id, invoice_number, content_hash, request_hash,
+       idempotency_key, xero_invoice_id, correlation_id, http_status, outcome, error_category,
+       error_detail, actor_legacy_id, actor_name)
+    values (${a.id}, ${tenantId}, ${a.invoiceId}, ${a.externalTenantId}, ${a.invoiceNumber}, ${a.contentHash},
+            ${a.requestHash || null}, ${a.idempotencyKey || null}, ${a.xeroInvoiceId || null},
+            ${a.correlationId || null}, ${a.httpStatus == null ? null : a.httpStatus}, ${a.outcome},
+            ${a.errorCategory || null}, ${a.errorDetail == null ? null : String(a.errorDetail).slice(0, 1000)},
+            ${(a.actor && a.actor.id) || null}, ${(a.actor && a.actor.name) || null})`;
+}
+
+async function listAttempts(sql, tenantId, invoiceId) {
+  const rows = await sql`
+    select id, invoice_number, outcome, xero_invoice_id, idempotency_key, request_hash, http_status,
+           error_category, error_detail, created_at
+    from public.customer_invoice_attempts
+    where tenant_id = ${tenantId} and invoice_id = ${invoiceId}
+    order by created_at asc`;
+  return rows.map((r) => ({
+    id: r.id, invoiceNumber: r.invoice_number, outcome: r.outcome, xeroInvoiceId: r.xero_invoice_id,
+    idempotencyKey: r.idempotency_key, requestHash: r.request_hash, httpStatus: int(r.http_status),
+    errorCategory: r.error_category, errorDetail: r.error_detail, at: iso(r.created_at),
+  }));
+}
+
+/** Xero's own status and amounts for an invoice → the mirror columns. */
+function mirrorSet(m) {
+  return {
+    xero_status: m.status,
+    xero_subtotal_cents: m.subtotalCents,
+    xero_tax_cents: m.taxCents,
+    xero_total_cents: m.totalCents,
+    xero_amount_due_cents: m.amountDueCents,
+    xero_amount_paid_cents: m.amountPaidCents,
+    xero_amount_credited_cents: m.amountCreditedCents,
+    xero_due_date: m.dueDate,
+    xero_fully_paid_on: m.fullyPaidOn,
+    xero_updated_at: m.updatedAt,
+  };
+}
+
+/**
+ * Xero has the invoice: record its id and its figures, and move the row from
+ * `sending` (or `failed`, when a later check finds it after all) to `sent`.
+ * Returns null when the row was not waiting for this — nothing is changed.
+ */
+async function markAccepted(sql, tenantId, id, { xeroInvoiceId, mirror, drift }) {
+  const rows = await sql`
+    update public.customer_invoices set
+      ${sql(mirrorSet(mirror))},
+      state            = 'sent',
+      xero_invoice_id  = ${xeroInvoiceId},
+      drift            = ${drift ? sql.json(drift) : null},
+      failure_category = null,
+      failure_detail   = null,
+      sent_at          = coalesce(sent_at, now()),
+      last_checked_at  = now(),
+      version          = version + 1
+    where tenant_id = ${tenantId} and id = ${id} and state in ('sending','failed') and seq is not null
+    returning *`;
+  return rows.length ? invoiceRow(rows[0]) : null;
+}
+
+/** Xero refused it and nothing exists there under this number. */
+async function markFailed(sql, tenantId, id, { category, detail }) {
+  const rows = await sql`
+    update public.customer_invoices set
+      state            = 'failed',
+      failure_category = ${category},
+      failure_detail   = ${detail == null ? null : String(detail).slice(0, 1000)},
+      version          = version + 1
+    where tenant_id = ${tenantId} and id = ${id} and state in ('sending','failed')
+    returning *`;
+  return rows.length ? invoiceRow(rows[0]) : null;
+}
+
+/** No answer from Xero: the row STAYS `sending` (it may exist there) and
+ *  carries why, so the next step is a look-up, never a blind re-send. */
+async function noteUnknown(sql, tenantId, id, { category, detail }) {
+  const rows = await sql`
+    update public.customer_invoices set
+      failure_category = ${category},
+      failure_detail   = ${detail == null ? null : String(detail).slice(0, 1000)},
+      version          = version + 1
+    where tenant_id = ${tenantId} and id = ${id} and state = 'sending'
+    returning *`;
+  return rows.length ? invoiceRow(rows[0]) : null;
+}
+
+/**
+ * Put a stage that never reached Xero back to `planned` so it can be edited
+ * and sent again: its number is released and the frozen snapshot cleared.
+ * ONLY for a row with no Xero invoice — the caller has just confirmed Xero
+ * holds nothing under the number.
+ */
+async function resetToPlanned(sql, tenantId, id, { actor }) {
+  return sql.begin(async (tx) => {
+    const rows = await tx`
+      update public.customer_invoices set
+        state = 'planned', seq = null, invoice_number = null,
+        gross_cents = null, retention_cents = null, net_cents = null,
+        invoice_date = null, due_date = null, reference = null, content_hash = null,
+        external_tenant_id = null, xero_contact_id = null, xero_contact_name = null,
+        failure_category = null, failure_detail = null,
+        sent_by_legacy_id = null, sent_by_name = null,
+        version = version + 1
+      where tenant_id = ${tenantId} and id = ${id}
+        and state in ('sending','failed') and xero_invoice_id is null
+      returning *`;
+    if (!rows.length) {
+      const cur = await tx`select state from public.customer_invoices where tenant_id = ${tenantId} and id = ${id}`;
+      throw new StoreConflict(cur.length ? 'not_resettable' : 'not_found');
+    }
+    const row = invoiceRow(rows[0]);
+    await insertEvent(tx, tenantId, { invoiceId: row.id, jobId: row.jobId, event: 'edited', actor, detail: { reset: true } });
+    return row;
+  });
+}
+
+/**
+ * The number this stage was given is taken in Xero by something else. Burn
+ * it: the row is cancelled KEEPING its number (never reused), and a new
+ * planned copy of its content is added so the next send takes the next one.
+ */
+async function raiseAgain(sql, tenantId, id, { actor }) {
+  return sql.begin(async (tx) => {
+    const old = await tx`
+      update public.customer_invoices set state = 'cancelled', version = version + 1
+      where tenant_id = ${tenantId} and id = ${id} and state = 'failed' and xero_invoice_id is null
+      returning *`;
+    if (!old.length) {
+      const cur = await tx`select state from public.customer_invoices where tenant_id = ${tenantId} and id = ${id}`;
+      throw new StoreConflict(cur.length ? 'not_raisable' : 'not_found');
+    }
+    const o = old[0];
+    const ins = await tx`
+      insert into public.customer_invoices
+        (tenant_id, job_legacy_id, kind, sort_order, title, basis, percent_bp, amount_cents,
+         extra_lines, planned_date, note, created_by_legacy_id, created_by_name)
+      values (${tenantId}, ${o.job_legacy_id}, ${o.kind}, ${o.sort_order}, ${o.title}, ${o.basis}, ${o.percent_bp},
+              ${o.amount_cents}, ${tx.json(extraLinesOf(o.extra_lines))}, ${o.planned_date}, ${o.note},
+              ${(actor && actor.id) || null}, ${(actor && actor.name) || null})
+      returning *`;
+    const fresh = invoiceRow(ins[0]);
+    await insertEvent(tx, tenantId, { invoiceId: o.id, jobId: o.job_legacy_id, event: 'raised_again', actor, detail: { burnedNumber: o.invoice_number, newId: fresh.id } });
+    await insertEvent(tx, tenantId, { invoiceId: fresh.id, jobId: o.job_legacy_id, event: 'created', actor, detail: { raisedFrom: o.id, burnedNumber: o.invoice_number } });
+    return fresh;
+  });
+}
+
 module.exports = {
   TENANT_SLUG,
   StoreConflict,
+  peekNextSeq,
+  beginSend,
+  insertAttempt,
+  listAttempts,
+  markAccepted,
+  markFailed,
+  noteUnknown,
+  resetToPlanned,
+  raiseAgain,
   resolveTenant,
   profileRow,
   invoiceRow,

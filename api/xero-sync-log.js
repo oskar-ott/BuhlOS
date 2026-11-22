@@ -21,6 +21,8 @@ const { isFlagEnabled } = require('./_lib/feature-flags');
 const audit = require('./_lib/audit-log');
 const syncLog = require('./_lib/xero-sync-log');
 require('./_lib/xero/sync-log-bridge');
+// #1150: the customer-invoice send's retry handler registers at load too.
+require('./_lib/customer-invoices/sync-bridge');
 const { readBlob } = require('./_lib/blob');
 const { XeroError } = require('./_lib/xero/errors');
 

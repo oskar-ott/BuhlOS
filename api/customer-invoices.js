@@ -4,8 +4,10 @@
 // A job's payment stages, listed in BuhlOS. NOT supplier invoices
 // (api/invoices.js — bills coming in). Built so far: the schedule (#1148) and
 // the Xero set-up an invoice will need (#1149 — the job's client linked to a
-// Xero contact, and the default sales account, tax rate and payment terms).
-// EVERY Xero call in this file is a READ. Nothing is sent to Xero yet.
+// Xero contact, and the default sales account, tax rate and payment terms),
+// and the send (#1150): ONE write to Xero — creating a DRAFT sales invoice —
+// in api/_lib/customer-invoices/xero-send.js. Every other Xero call is a read.
+// BuhlOS never approves, emails, edits, voids or deletes an invoice in Xero.
 //
 // ADMIN-TIER ONLY on every method (money is office data; a leading hand never
 // reads it). Dark behind the `customer_invoices` launch-gate: 404 while off.
@@ -23,6 +25,22 @@
 //   GET    /api/customer-invoices?action=settings-options  live from Xero: active revenue accounts + sales tax rates
 //   PUT    /api/customer-invoices?action=settings      { salesAccountCode, taxType, paymentTermsDays, expectedVersion }
 //                                                      both codes must exist in Xero now; names + rate are snapshotted from Xero
+//
+//   POST   /api/customer-invoices?action=preview&id=S   { invoiceDate?, reference? }
+//                                                      exactly what would be sent + every blocker; writes nothing, calls Xero for nothing
+//   POST   /api/customer-invoices?action=send&id=S      { expectedVersion, invoiceDate?, reference? }
+//                                                      THE ONE WRITE TO XERO (#1150): a DRAFT sales invoice, create-only,
+//                                                      read back and compared. 409 { error:'blocked', blockers } when it can't go
+//   POST   /api/customer-invoices?action=retry&id=S     a stage stuck sending / failed: looks the number up in Xero FIRST —
+//                                                      adopts what is there, or sends again from the frozen snapshot
+//   POST   /api/customer-invoices?action=reset&id=S     back to planned (to edit) — only once Xero confirms it holds nothing under the number
+//   POST   /api/customer-invoices?action=raise-again&id=S   the number is taken in Xero: burn it, add a planned copy that takes the next
+//   POST   /api/customer-invoices?action=retention-release  { jobId, amountCents, title? }  a planned stage that releases retention held
+//
+// send / retry / reset answer the job's refreshed payload plus
+// `send: { outcome, … }` — outcome sent | adopted | failed | unknown | reset.
+// `unknown` means Xero gave no answer: the stage stays "sending" and the next
+// step is a look-up, never a blind re-send.
 //
 // A Xero failure answers { error: 'xero_<category>' } with a matching status
 // (409 not connected / reconnect needed, 429 busy, 502 otherwise) — and, for
@@ -45,6 +63,8 @@ const store = require('./_lib/customer-invoices/store');
 const { MAX_CENTS, BP_WHOLE, contractCentsOf, computeStage, jobTotals } = require('./_lib/customer-invoices/amounts');
 const { displayStatus } = require('./_lib/customer-invoices/status');
 const xero = require('./_lib/customer-invoices/xero-lookups');
+const sendSvc = require('./_lib/customer-invoices/xero-send');
+const syncBridge = require('./_lib/customer-invoices/sync-bridge');
 const { XeroError } = require('./_lib/xero/errors');
 
 const MAX_EXTRA_LINES = 20;
@@ -104,6 +124,23 @@ const SettingsBody = z.object({
   taxType: z.string().trim().min(1).max(50),
   paymentTermsDays: z.number().int().min(0).max(365),
   expectedVersion: version.nullable(),
+}).strict();
+
+const reference = z.string().trim().max(255);
+const PreviewBody = z.object({
+  invoiceDate: day.optional(),
+  reference: reference.nullable().optional(),
+}).strict();
+const SendBody = z.object({
+  expectedVersion: version,
+  invoiceDate: day.optional(),
+  reference: reference.nullable().optional(),
+}).strict();
+const NoBody = z.object({}).strict();
+const ReleaseBody = z.object({
+  jobId: z.string().min(1).max(200),
+  amountCents: centsIn,
+  title: z.string().trim().min(1).max(200).optional(),
 }).strict();
 
 function invalid(res, parsed) {
@@ -186,10 +223,16 @@ async function xeroStanding(sql, tenant, job, profile) {
     const ids = await sameClientJobIds(job);
     suggestion = await store.latestContactAmongJobs(sql, tenant.id, ids, ready.externalTenantId);
   }
+  const settingsComplete = store.settingsComplete(settings);
   return {
     state: ready.state,
     organisationName: ready.organisationName,
-    settingsComplete: store.settingsComplete(settings),
+    settingsComplete,
+    // Everything a send needs at JOB level is in place (a stage can still be
+    // blocked by its own amount — the preview names that).
+    sendReady:
+      ready.state === 'connected' && settingsComplete && linked && !otherOrganisation &&
+      typeof job.code === 'string' && /^IV\d{4}$/.test(job.code),
     client: {
       linked,
       name: linked ? profile.xeroContactName : null,
@@ -287,6 +330,9 @@ function stageInput(s) {
 function conflictResponse(res, e) {
   if (e.reason === 'not_found') return res.status(404).json({ error: 'stage_not_found' });
   if (e.reason === 'not_planned') return res.status(409).json({ error: 'stage_not_editable' });
+  // Two stages of one job sent at the same instant: the second loses the number.
+  if (e.reason === 'number_clash') return res.status(409).json({ error: 'number_clash' });
+  if (e.reason === 'not_resettable' || e.reason === 'not_raisable') return res.status(409).json({ error: e.reason });
   return res.status(409).json({ error: 'stale_version' });
 }
 
@@ -391,6 +437,118 @@ async function handler(req, res) {
         metadata: { fields: ['retentionBp'] },
       });
       return res.status(200).json(await jobPayload(sql, tenant, job));
+    }
+
+    // ── a planned stage that releases retention held (#1150) ─────────────────
+    if (req.method === 'POST' && action === 'retention-release') {
+      const parsed = ReleaseBody.safeParse(body);
+      if (!parsed.success) return invalid(res, parsed);
+      const job = await liveJob(parsed.data.jobId);
+      if (!job) return res.status(404).json({ error: 'job_not_found' });
+      const [profile, rows] = await Promise.all([
+        store.getProfile(sql, tenant.id, job.id),
+        store.listJobInvoices(sql, tenant.id, job.id),
+      ]);
+      const held = jobTotals(rows, { contractCents: contractCentsOf(job.contractValue), retentionBp: profile ? profile.retentionBp : 0 }).retentionHeldCents;
+      // Releases already planned (or mid-send) are spoken for.
+      const pending = rows
+        .filter((r) => r.kind === 'retention_release' && r.state !== 'sent')
+        .reduce((s, r) => s + (Number.isInteger(r.grossCents) ? r.grossCents : r.amountCents || 0), 0);
+      if (parsed.data.amountCents > held - pending) {
+        return res.status(409).json({ error: 'exceeds_retention_held', heldCents: held, alreadyPlannedCents: pending });
+      }
+      const row = await store.createStage(sql, tenant.id, job.id, {
+        kind: 'retention_release',
+        title: parsed.data.title || 'Retention release',
+        basis: 'amount',
+        amountCents: parsed.data.amountCents,
+        percentBp: null,
+        extraLines: [],
+        retentionBp: 0,
+        plannedDate: null,
+        note: null,
+      }, actor);
+      await journal(me, 'customer_invoice.stage_added', {
+        jobId: job.id, targetId: row.id,
+        summary: `Added a retention release to ${job.name || job.id}`,
+        metadata: { basis: 'amount', kind: 'retention_release' },
+      });
+      return res.status(201).json(await jobPayload(sql, tenant, job));
+    }
+
+    // ── preview / send / retry / reset / raise again (#1150) ─────────────────
+    if (req.method === 'POST' && ['preview', 'send', 'retry', 'reset', 'raise-again'].includes(action)) {
+      if (!uuid.safeParse(id).success) return res.status(400).json({ error: 'id required' });
+      const schema = action === 'preview' ? PreviewBody : action === 'send' ? SendBody : NoBody;
+      const parsed = schema.safeParse(body);
+      if (!parsed.success) return invalid(res, parsed);
+      const invoice = await store.getInvoice(sql, tenant.id, id);
+      if (!invoice || invoice.state === 'cancelled') return res.status(404).json({ error: 'stage_not_found' });
+      const job = await liveJob(invoice.jobId);
+      if (!job) return res.status(404).json({ error: 'job_not_found' });
+
+      if (action === 'preview') {
+        return res.status(200).json(await sendSvc.preview({ tenant, invoice, job, options: parsed.data, deps: { sql } }));
+      }
+
+      if (action === 'raise-again') {
+        // Only for a stage whose number Xero says is taken by something else.
+        if (invoice.state !== 'failed' || invoice.failureCategory !== 'number_taken') {
+          return res.status(409).json({ error: 'not_raisable' });
+        }
+        const fresh = await store.raiseAgain(sql, tenant.id, id, { actor });
+        await journal(me, 'customer_invoice.raised_again', {
+          jobId: job.id, targetId: fresh.id,
+          summary: `Raised "${fresh.title}" again on ${job.name || job.id} — ${invoice.invoiceNumber} is taken in Xero`,
+          metadata: { burnedNumber: invoice.invoiceNumber, replaces: invoice.id },
+        });
+        return res.status(201).json(await jobPayload(sql, tenant, job));
+      }
+
+      const run =
+        action === 'send'
+          ? sendSvc.send({ tenant, invoice, job, options: parsed.data, actor, deps: { sql } })
+          : action === 'retry'
+            ? sendSvc.retry({ tenant, invoice, job, actor, deps: { sql } })
+            : sendSvc.reset({ tenant, invoice, job, actor, deps: { sql } });
+      const result = await run;
+      if (result.outcome === 'blocked') return res.status(409).json({ error: 'blocked', blockers: result.blockers });
+
+      const landed = result.outcome === 'sent' || result.outcome === 'adopted';
+      const verb =
+        action === 'reset' && result.outcome === 'reset' ? 'customer_invoice.send_reset'
+          : action === 'send' ? (landed ? 'customer_invoice.sent_to_xero' : 'customer_invoice.send_failed')
+            : 'customer_invoice.send_retried';
+      const number = result.invoiceNumber || invoice.invoiceNumber || null;
+      await journal(me, verb, {
+        jobId: job.id, targetId: invoice.id,
+        summary:
+          result.outcome === 'sent' ? `Sent ${number} to Xero as a draft (${job.name || job.id})`
+            : result.outcome === 'adopted' ? `${number} was already in Xero — taken over, nothing sent twice (${job.name || job.id})`
+              : result.outcome === 'reset' ? `Put "${invoice.title}" back to planned on ${job.name || job.id} — nothing reached Xero`
+                : result.outcome === 'unknown' ? `No answer from Xero for ${number} (${job.name || job.id}) — it may or may not exist there`
+                  : `Xero refused ${number} (${job.name || job.id})`,
+        metadata: {
+          outcome: result.outcome,
+          invoiceNumber: number,
+          ...(result.xeroInvoiceId ? { xeroInvoiceId: result.xeroInvoiceId } : {}),
+          ...(result.category ? { category: result.category } : {}),
+          ...(landed ? { verified: !!result.verified } : {}),
+        },
+      });
+      const syncLogWarning = await syncBridge.recordSendOutcome({ invoiceId: invoice.id, result });
+      return res.status(200).json({
+        ...(await jobPayload(sql, tenant, job)),
+        send: {
+          outcome: result.outcome,
+          invoiceNumber: number,
+          verified: landed ? !!result.verified : null,
+          mismatches: landed ? result.mismatches || [] : [],
+          category: result.category || null,
+          detail: result.detail || null,
+        },
+        ...(syncLogWarning ? { syncLogWarning } : {}),
+      });
     }
 
     // ── the job's client in Xero (#1149) ─────────────────────────────────────

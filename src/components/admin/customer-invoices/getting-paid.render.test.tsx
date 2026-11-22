@@ -68,6 +68,7 @@ function data(over: Partial<JobInvoicingResponse> = {}): JobInvoicingResponse {
       state: "connected",
       organisationName: "Buhl Electrical",
       settingsComplete: true,
+      sendReady: true,
       client: { linked: true, name: "Built Pty Ltd", otherOrganisation: false, suggestion: null },
     },
     asOf: "2026-11-22T00:00:00.000Z",
@@ -99,12 +100,20 @@ describe("JobGettingPaidBody", () => {
     expect(html).toContain("Retention: none on this job.");
   });
 
-  it("says plainly that this is a plan only — and offers no Xero send, invoiced or paid", () => {
+  it("says a stage goes to Xero as a draft and that BuhlOS never approves or emails — and shows no paid figure yet", () => {
     const html = body(data({ stages: [stage()], totals: { ...data().totals, plannedCount: 1, plannedGrossCents: 50_000_00, plannedNetCents: 50_000_00 } }));
-    expect(html).toContain("This is the plan only. Nothing is sent to Xero from here yet.");
-    expect(html).not.toMatch(/Send to Xero/i);
-    expect(html).not.toMatch(/>Invoiced</);
+    expect(html).toContain("A stage is sent to Xero as a draft.");
+    expect(html).toContain("BuhlOS never does");
+    // payment arrives with #1151 — no invented "paid" figure before then
     expect(html).not.toMatch(/>Paid</);
+    expect(html).not.toMatch(/>Invoiced</);
+  });
+
+  it("nothing sent yet: the Sent to Xero figure is a dash, not $0", () => {
+    const html = body(data());
+    expect(html).toContain("Sent to Xero");
+    expect(html).toContain("nothing sent yet");
+    expect(html).not.toContain("$0");
   });
 
   it("with no contract value: dashes and the reason, never a zero", () => {

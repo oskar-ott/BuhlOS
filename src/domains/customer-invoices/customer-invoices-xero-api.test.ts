@@ -210,7 +210,7 @@ describe("api/customer-invoices — where a job stands with Xero", () => {
   it("connected, nothing chosen: usable, defaults incomplete, client not linked — and no Xero call to say so", async () => {
     const p = await job();
     expect(p.xero).toEqual({
-      state: "connected", organisationName: "Buhl Electrical", settingsComplete: false,
+      state: "connected", organisationName: "Buhl Electrical", settingsComplete: false, sendReady: false,
       client: { linked: false, name: null, otherOrganisation: false, suggestion: null },
     });
     expect(xeroFetch).not.toHaveBeenCalled();
