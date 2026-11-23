@@ -45,6 +45,94 @@ function extraLinesOf(stage) {
   return raw.filter((l) => l && typeof l.description === 'string' && Number.isInteger(l.amountCents));
 }
 
+// ── itemised invoices: quantity × unit price ────────────────────────────────
+//
+// A quantity is an integer number of THOUSANDTHS (2.5 hours = 2500), a unit
+// price is integer cents, so a line total is worked out in integers and
+// rounded once. Bounds keep quantity × price inside exact integer range.
+const MAX_ITEMS = 100;
+const MAX_QUANTITY_MILLI = 100_000_000; // 100,000 units
+const MAX_UNIT_CENTS = 10_000_000; // $100,000 a unit
+
+/**
+ * quantity (thousandths) × unit price (cents) → the line total in cents,
+ * rounded half AWAY from zero (so a discount line rounds the same way as a
+ * charge). Null when either figure is unusable. Xero does not document which
+ * way it rounds an exact half cent; a line it rounds differently is caught by
+ * the read-back after a send, never assumed away.
+ */
+function lineAmountCents(quantityMilli, unitCents) {
+  if (!Number.isInteger(quantityMilli) || quantityMilli <= 0 || quantityMilli > MAX_QUANTITY_MILLI) return null;
+  if (!Number.isInteger(unitCents) || Math.abs(unitCents) > MAX_UNIT_CENTS) return null;
+  const product = quantityMilli * Math.abs(unitCents);
+  const cents = Math.floor((product + 500) / 1000);
+  // `|| 0`: a zero price must be 0, never -0 (it would not equal 0 in a compare).
+  return (unitCents < 0 ? -cents : cents) || 0;
+}
+
+/**
+ * An itemised invoice's lines, normalised. Two kinds:
+ *   line  a charge — description, quantity, unit price (may be negative for a
+ *         discount or credit), optional unit label
+ *   note  wording only (the work done, a heading); carries no amount
+ * `source` says where a charge came from (typed, or pulled from the job's
+ * hours / materials / an approved variation); `costCents` is what it cost the
+ * business and `refs` what job data it bills. Cost and refs are BuhlOS's own —
+ * they are never sent to Xero.
+ */
+function itemsOf(stage) {
+  const raw = stage && Array.isArray(stage.items) ? stage.items : [];
+  const out = [];
+  for (const it of raw) {
+    if (!it || typeof it.description !== 'string' || !it.description.trim()) continue;
+    if (it.type === 'note') {
+      out.push({ id: String(it.id || ''), type: 'note', description: it.description });
+      continue;
+    }
+    const amountCents = lineAmountCents(it.quantityMilli, it.unitCents);
+    if (amountCents == null) continue;
+    out.push({
+      id: String(it.id || ''),
+      type: 'line',
+      description: it.description,
+      quantityMilli: it.quantityMilli,
+      unit: typeof it.unit === 'string' && it.unit.trim() ? it.unit.trim() : null,
+      unitCents: it.unitCents,
+      amountCents,
+      source: ['labour', 'material', 'variation'].includes(it.source) ? it.source : 'manual',
+      // may be negative: a supplier credit note billed through is a negative cost
+      costCents: Number.isInteger(it.costCents) ? it.costCents : null,
+      refs: Array.isArray(it.refs) ? it.refs : [],
+    });
+  }
+  return out;
+}
+
+/**
+ * What an itemised invoice adds up to, and what it cost. `costKnown` is false
+ * when any charge that came from the job's hours or materials has no cost on
+ * it — the margin is then not shown rather than overstated.
+ */
+function itemsSummary(stage) {
+  const lines = itemsOf(stage).filter((l) => l.type === 'line');
+  let totalCents = 0;
+  let costCents = 0;
+  let costedSellCents = 0;
+  let costKnown = lines.length > 0;
+  const bySource = { labour: 0, material: 0, variation: 0, manual: 0 };
+  for (const l of lines) {
+    totalCents += l.amountCents;
+    bySource[l.source] += l.amountCents;
+    if (l.costCents != null) {
+      costCents += l.costCents;
+      costedSellCents += l.amountCents;
+    } else if (l.source === 'labour' || l.source === 'material') {
+      costKnown = false;
+    }
+  }
+  return { lineCount: lines.length, totalCents, costCents, costedSellCents, costKnown, bySource };
+}
+
 /** The retention % that applies to a stage: its own override, else the job's.
  *  A retention release never has retention taken from it. */
 function effectiveRetentionBp(stage, profileRetentionBp) {
@@ -64,7 +152,7 @@ function effectiveRetentionBp(stage, profileRetentionBp) {
  * @param {{ contractCents: number|null, retentionBp?: number }} ctx
  * @returns {{ baseCents: number|null, extrasCents: number, grossCents: number|null,
  *             retentionBp: number, retentionCents: number|null, netCents: number|null,
- *             reason: null|'no_contract_value'|'invalid' }}
+ *             reason: null|'no_contract_value'|'no_lines'|'invalid' }}
  */
 function computeStage(stage, ctx) {
   const contractCents = ctx && Number.isInteger(ctx.contractCents) ? ctx.contractCents : null;
@@ -75,7 +163,13 @@ function computeStage(stage, ctx) {
   });
 
   let baseCents;
-  if (stage && stage.basis === 'percent') {
+  if (stage && stage.kind === 'itemised') {
+    // The lines ARE the amount; the stored amount is never trusted over them.
+    const s = itemsSummary(stage);
+    if (s.lineCount === 0) return none('no_lines');
+    baseCents = s.totalCents;
+    if (baseCents < 0) return none('invalid');
+  } else if (stage && stage.basis === 'percent') {
     if (!isBp(stage.percentBp) || stage.percentBp === 0) return none('invalid');
     if (contractCents == null) return none('no_contract_value');
     baseCents = portionCents(contractCents, stage.percentBp);
@@ -113,7 +207,7 @@ function exGstShare(amountIncCents, subtotalCents, totalCents) {
  * excludes retention releases (they release money already claimed).
  *
  * @param {Array<object>} rows  mapped stage rows (camelCase, cents as numbers)
- * @param {{ contractCents: number|null, retentionBp?: number }} ctx
+ * @param {{ contractCents: number|null, retentionBp?: number, variations?: Array<object> }} ctx
  */
 function jobTotals(rows, ctx) {
   const contractCents = ctx && Number.isInteger(ctx.contractCents) ? ctx.contractCents : null;
@@ -171,17 +265,43 @@ function jobTotals(rows, ctx) {
     }
   }
 
+  // ── variations (#1163): approved ones are part of what the job is worth ──
+  let variationsApprovedCents = 0;
+  let variationsApprovedCount = 0;
+  let variationsPendingCents = 0;
+  let variationsPendingCount = 0;
+  let variationsUnpricedCount = 0;
+  for (const v of Array.isArray(ctx && ctx.variations) ? ctx.variations : []) {
+    if (!v) continue;
+    if (v.status === 'approved' && Number.isInteger(v.approvedCents)) {
+      variationsApprovedCents += v.approvedCents;
+      variationsApprovedCount += 1;
+    } else if (v.status === 'proposed') {
+      variationsPendingCount += 1;
+      if (Number.isInteger(v.quotedCents)) variationsPendingCents += v.quotedCents;
+      else variationsUnpricedCount += 1;
+    }
+  }
+  // "Contract + approved variations": what there is to invoice in the end.
+  const revisedContractCents = contractCents == null ? null : contractCents + variationsApprovedCents;
+
   const committedCents = claimedCents + plannedGrossCents;
   return {
     contractCents,
+    revisedContractCents,
+    variationsApprovedCents,
+    variationsApprovedCount,
+    variationsPendingCents,
+    variationsPendingCount,
+    variationsUnpricedCount,
     plannedCount,
     plannedGrossCents,
     plannedNetCents,
     unresolvedCount,
     sentCount,
     claimedCents,
-    stillToInvoiceCents: contractCents == null ? null : contractCents - claimedCents,
-    overContract: contractCents != null && committedCents > contractCents,
+    stillToInvoiceCents: revisedContractCents == null ? null : revisedContractCents - claimedCents,
+    overContract: revisedContractCents != null && committedCents > revisedContractCents,
     retentionHeldCents: Math.max(0, retentionTakenCents - retentionReleasedCents),
     draftedCents,
     invoicedCents,
@@ -201,6 +321,12 @@ module.exports = {
   isBp,
   portionCents,
   contractCentsOf,
+  MAX_ITEMS,
+  MAX_QUANTITY_MILLI,
+  MAX_UNIT_CENTS,
+  lineAmountCents,
+  itemsOf,
+  itemsSummary,
   effectiveRetentionBp,
   computeStage,
   isLiveSent,

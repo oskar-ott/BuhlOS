@@ -112,6 +112,37 @@ the Phil package (P7, P10: no new slot).
 
 Repo-docs PR first; wiki sync after merge.
 
+## Addendum, 2026-11-22: itemised invoices, job data and variations
+
+Part 2 ([#1161]–[#1164],
+[../product/job-invoicing-part-2-plan.md](../product/job-invoicing-part-2-plan.md))
+adds a second kind of invoice and the variations register. **The boundary does
+not move**: BuhlOS still only creates drafts, and Xero still owns the invoice
+once it exists. Five rules are added to the ones above.
+
+13. **An invoice may be itemised.** Its lines are BuhlOS's until it is sent and
+    frozen after, exactly as a stage is. Xero receives each line's
+    description, quantity, unit price, account and tax type, and nothing else.
+14. **Price is the office's; cost is BuhlOS's.** A person may set any sell
+    price. The cost of a line pulled from the job is worked out on the server
+    from the job's own records and is never taken from the browser. Cost,
+    markup, where a line came from and what it bills never leave BuhlOS.
+15. **"On an invoice" is derived, never flagged.** What hours, materials and
+    variations are billed is read from the lines of the job's live invoices.
+    An invoice that is removed, or that Xero shows deleted or voided, no longer
+    holds what it billed. A write that depends on the answer runs under a
+    per-job lock in the same transaction.
+16. **Variations are BuhlOS's.** Approved variations add to the contract in
+    BuhlOS's own figures. Only an approved variation is billed, once, at the
+    approved amount. Xero is told nothing about a variation beyond the invoice
+    line that bills it.
+17. **Wording added to an invoice is opt-in and frozen.** Payment-claim wording
+    is off unless the office turns it on for a job, and what was sent is kept
+    on the row so a retry sends the same invoice.
+
+No new Xero scope, endpoint or write is introduced. The one write remains the
+create-only draft invoice.
+
 ## Alternatives considered
 
 - **Keep ServiceM8 for invoicing.** Rejected by the owner: it is the only
@@ -137,3 +168,5 @@ Repo-docs PR first; wiki sync after merge.
 [#1150]: https://github.com/oskar-ott/BuhlOS/issues/1150
 [#1151]: https://github.com/oskar-ott/BuhlOS/issues/1151
 [#1152]: https://github.com/oskar-ott/BuhlOS/issues/1152
+[#1161]: https://github.com/oskar-ott/BuhlOS/issues/1161
+[#1164]: https://github.com/oskar-ott/BuhlOS/issues/1164

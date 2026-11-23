@@ -1,5 +1,9 @@
 # Job invoicing into Xero — build plan
 
+> **Part 2** (itemised invoices for small jobs, invoices built from the job's
+> hours and materials, variations, payment-claim wording) has its own
+> research and plan: [job-invoicing-part-2-plan.md](job-invoicing-part-2-plan.md).
+
 **Status: PLAN, approved by the owner 2026-11-22. Written 2026-11-22. This is the plan, not a record of what is built: [../customer-invoices.md](../customer-invoices.md) tracks what has merged. Issues: #1147 (A), #1148 (B), #1149 (C), #1150 (D), #1151 (E), #1152 (F).**
 
 ## 1. Context

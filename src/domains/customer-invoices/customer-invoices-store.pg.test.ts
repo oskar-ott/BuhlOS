@@ -203,7 +203,7 @@ describe.skipIf(!ENABLED)("customer invoices store — real Postgres", () => {
     });
 
     it("row-level security is on with no policies on every table", async () => {
-      const tables = ["customer_invoice_settings", "customer_invoice_job_profiles", "customer_invoices", "customer_invoice_attempts", "customer_invoice_events"];
+      const tables = ["customer_invoice_settings", "customer_invoice_job_profiles", "customer_invoices", "customer_invoice_attempts", "customer_invoice_events", "customer_invoice_prefs", "customer_invoice_variations"];
       const rls = await sql`select relname, relrowsecurity from pg_class where relnamespace = 'public'::regnamespace and relname like 'customer_invoice%' and relkind = 'r'`;
       expect(rls.map((r) => r.relname).sort()).toEqual([...tables].sort());
       for (const r of rls) expect(r.relrowsecurity).toBe(true);

@@ -64,6 +64,7 @@ function profileRow(r) {
     xeroContactName: r.xero_contact_name,
     externalTenantId: r.external_tenant_id,
     retentionBp: int(r.retention_bp) || 0,
+    paymentClaim: r.payment_claim === true,
     version: int(r.version),
     updatedBy: r.updated_by_name,
     updatedAt: iso(r.updated_at),
@@ -75,8 +76,20 @@ function extraLinesOf(v) {
   if (!Array.isArray(raw)) return [];
   return raw
     .filter((l) => l && typeof l.description === 'string')
-    .map((l) => ({ description: l.description, amountCents: cents(l.amountCents) }))
+    .map((l) => ({
+      description: l.description,
+      amountCents: cents(l.amountCents),
+      // set when the line bills an approved variation (#1163)
+      ...(typeof l.variationId === 'string' && l.variationId ? { variationId: l.variationId } : {}),
+    }))
     .filter((l) => l.amountCents != null);
+}
+
+/** An itemised invoice's lines, as stored (api/_lib/customer-invoices/amounts.js
+ *  `itemsOf` is the one place they are normalised and priced). */
+function itemsJson(v) {
+  const raw = json(v, []);
+  return Array.isArray(raw) ? raw.filter((it) => it && typeof it.description === 'string') : [];
 }
 
 function invoiceRow(r) {
@@ -93,6 +106,7 @@ function invoiceRow(r) {
     percentBp: int(r.percent_bp),
     amountCents: cents(r.amount_cents),
     extraLines: extraLinesOf(r.extra_lines),
+    items: itemsJson(r.items),
     retentionBp: int(r.retention_bp),
     plannedDate: dateOnly(r.planned_date),
     note: r.note,
@@ -103,6 +117,7 @@ function invoiceRow(r) {
     dueDate: dateOnly(r.due_date),
     reference: r.reference,
     contentHash: r.content_hash,
+    sentFooter: r.sent_footer || null,
     state: r.state,
     failureCategory: r.failure_category,
     failureDetail: r.failure_detail,
@@ -189,12 +204,13 @@ async function saveProfile(sql, tenantId, jobLegacyId, patch, { expectedVersion,
       const ins = await tx`
         insert into public.customer_invoice_job_profiles
           (tenant_id, job_legacy_id, xero_contact_id, xero_contact_name, external_tenant_id,
-           retention_bp, updated_by_legacy_id, updated_by_name)
+           retention_bp, payment_claim, updated_by_legacy_id, updated_by_name)
         values (${tenantId}, ${jobLegacyId},
                 ${has('xeroContactId') ? patch.xeroContactId : null},
                 ${has('xeroContactName') ? patch.xeroContactName : null},
                 ${has('externalTenantId') ? patch.externalTenantId : null},
                 ${has('retentionBp') ? patch.retentionBp : 0},
+                ${has('paymentClaim') ? patch.paymentClaim === true : false},
                 ${(actor && actor.id) || null}, ${(actor && actor.name) || null})
         returning *`;
       row = ins[0];
@@ -207,6 +223,7 @@ async function saveProfile(sql, tenantId, jobLegacyId, patch, { expectedVersion,
           xero_contact_name  = ${has('xeroContactName') ? patch.xeroContactName : c.xero_contact_name},
           external_tenant_id = ${has('externalTenantId') ? patch.externalTenantId : c.external_tenant_id},
           retention_bp       = ${has('retentionBp') ? patch.retentionBp : c.retention_bp},
+          payment_claim      = ${has('paymentClaim') ? patch.paymentClaim === true : c.payment_claim},
           version            = version + 1,
           updated_by_legacy_id = ${(actor && actor.id) || null},
           updated_by_name    = ${(actor && actor.name) || null}
@@ -237,9 +254,31 @@ async function getInvoice(sql, tenantId, id) {
   return rows.length ? invoiceRow(rows[0]) : null;
 }
 
-/** Add a planned stage at the end of the job's list. */
-async function createStage(sql, tenantId, jobLegacyId, s, actor) {
+/**
+ * One writer at a time per job for anything that decides WHAT AN INVOICE
+ * BILLS (the job's hours, materials, variations). Taken inside the caller's
+ * transaction and released at commit / rollback, so "is this already on an
+ * invoice?" and the write that depends on the answer can never interleave
+ * with another request's.
+ */
+async function lockJobLines(tx, tenantId, jobLegacyId) {
+  await tx`select pg_advisory_xact_lock(hashtextextended(${`customer-invoice-lines:${tenantId}:${jobLegacyId}`}, 0))`;
+}
+
+/**
+ * Add a planned stage at the end of the job's list.
+ *
+ * `opts.prepare(tx)` — when given — runs INSIDE the transaction, under the
+ * job's lines lock, and returns the content to store. It is where an itemised
+ * invoice's lines are checked against what other invoices already bill.
+ */
+async function createStage(sql, tenantId, jobLegacyId, s0, actor, opts = {}) {
   return sql.begin(async (tx) => {
+    let s = s0;
+    if (opts.prepare) {
+      await lockJobLines(tx, tenantId, jobLegacyId);
+      s = await opts.prepare(tx);
+    }
     const next = await tx`
       select coalesce(max(sort_order), 0) + 1 as n
       from public.customer_invoices
@@ -247,10 +286,10 @@ async function createStage(sql, tenantId, jobLegacyId, s, actor) {
     const rows = await tx`
       insert into public.customer_invoices
         (tenant_id, job_legacy_id, kind, sort_order, title, basis, percent_bp, amount_cents,
-         extra_lines, retention_bp, planned_date, note, created_by_legacy_id, created_by_name)
+         extra_lines, items, retention_bp, planned_date, note, created_by_legacy_id, created_by_name)
       values (${tenantId}, ${jobLegacyId}, ${s.kind || 'stage'}, ${Number(next[0].n)}, ${s.title}, ${s.basis},
               ${s.basis === 'percent' ? s.percentBp : null}, ${s.basis === 'amount' ? s.amountCents : null},
-              ${tx.json(s.extraLines || [])}, ${s.retentionBp == null ? null : s.retentionBp},
+              ${tx.json(s.extraLines || [])}, ${tx.json(s.items || [])}, ${s.retentionBp == null ? null : s.retentionBp},
               ${s.plannedDate || null}, ${s.note || null},
               ${(actor && actor.id) || null}, ${(actor && actor.name) || null})
       returning *`;
@@ -271,16 +310,24 @@ async function conflictReason(tx, tenantId, id) {
   return cur[0].state === 'planned' ? 'version' : 'not_planned';
 }
 
-/** Replace a PLANNED stage's content (compare-and-swap on version). */
-async function updateStage(sql, tenantId, id, s, { expectedVersion, actor }) {
+/** Replace a PLANNED stage's content (compare-and-swap on version).
+ *  `prepare(tx)` + `jobId`: as createStage — checked under the job's lock. */
+async function updateStage(sql, tenantId, id, s0, { expectedVersion, actor, prepare, jobId }) {
   return sql.begin(async (tx) => {
+    let s = s0;
+    if (prepare) {
+      await lockJobLines(tx, tenantId, jobId);
+      s = await prepare(tx);
+    }
     const rows = await tx`
       update public.customer_invoices set
+        kind         = ${s.kind || 'stage'},
         title        = ${s.title},
         basis        = ${s.basis},
         percent_bp   = ${s.basis === 'percent' ? s.percentBp : null},
         amount_cents = ${s.basis === 'amount' ? s.amountCents : null},
         extra_lines  = ${tx.json(s.extraLines || [])},
+        items        = ${tx.json(s.items || [])},
         retention_bp = ${s.retentionBp == null ? null : s.retentionBp},
         planned_date = ${s.plannedDate || null},
         note         = ${s.note || null},
@@ -472,6 +519,7 @@ async function beginSend(sql, tenantId, id, snap, { expectedVersion, actor }) {
           invoice_date       = ${snap.invoiceDate},
           due_date           = ${snap.dueDate},
           reference          = ${snap.reference},
+          sent_footer        = ${snap.footer || null},
           content_hash       = ${contentHash},
           external_tenant_id = ${snap.externalTenantId},
           xero_contact_id    = ${snap.xeroContactId},
@@ -595,7 +643,7 @@ async function resetToPlanned(sql, tenantId, id, { actor }) {
       update public.customer_invoices set
         state = 'planned', seq = null, invoice_number = null,
         gross_cents = null, retention_cents = null, net_cents = null,
-        invoice_date = null, due_date = null, reference = null, content_hash = null,
+        invoice_date = null, due_date = null, reference = null, content_hash = null, sent_footer = null,
         external_tenant_id = null, xero_contact_id = null, xero_contact_name = null,
         failure_category = null, failure_detail = null,
         sent_by_legacy_id = null, sent_by_name = null,
@@ -632,15 +680,234 @@ async function raiseAgain(sql, tenantId, id, { actor }) {
     const ins = await tx`
       insert into public.customer_invoices
         (tenant_id, job_legacy_id, kind, sort_order, title, basis, percent_bp, amount_cents,
-         extra_lines, planned_date, note, created_by_legacy_id, created_by_name)
+         extra_lines, items, planned_date, note, created_by_legacy_id, created_by_name)
       values (${tenantId}, ${o.job_legacy_id}, ${o.kind}, ${o.sort_order}, ${o.title}, ${o.basis}, ${o.percent_bp},
-              ${o.amount_cents}, ${tx.json(extraLinesOf(o.extra_lines))}, ${o.planned_date}, ${o.note},
+              ${o.amount_cents}, ${tx.json(extraLinesOf(o.extra_lines))}, ${tx.json(itemsJson(o.items))}, ${o.planned_date}, ${o.note},
               ${(actor && actor.id) || null}, ${(actor && actor.name) || null})
       returning *`;
     const fresh = invoiceRow(ins[0]);
     await insertEvent(tx, tenantId, { invoiceId: o.id, jobId: o.job_legacy_id, event: 'raised_again', actor, detail: { burnedNumber: o.invoice_number, newId: fresh.id } });
     await insertEvent(tx, tenantId, { invoiceId: fresh.id, jobId: o.job_legacy_id, event: 'created', actor, detail: { raisedFrom: o.id, burnedNumber: o.invoice_number } });
     return fresh;
+  });
+}
+
+// ── the business's invoicing habits (#1162) ─────────────────────────────────
+
+function usualChargesOf(v) {
+  const raw = json(v, []);
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((c) => c && typeof c.name === 'string' && c.name.trim() && Number.isInteger(Number(c.unitCents)))
+    .map((c) => ({
+      id: String(c.id || ''),
+      name: c.name,
+      unit: typeof c.unit === 'string' && c.unit ? c.unit : null,
+      unitCents: Number(c.unitCents),
+      kind: c.kind === 'labour' ? 'labour' : 'other',
+    }));
+}
+
+function prefsRow(r) {
+  if (!r) return null;
+  return {
+    materialsMarkupBp: int(r.materials_markup_bp),
+    labourRoundMinutes: int(r.labour_round_minutes) || 0,
+    usualCharges: usualChargesOf(r.usual_charges),
+    version: int(r.version),
+    updatedBy: r.updated_by_name,
+    updatedAt: iso(r.updated_at),
+  };
+}
+
+/** The tenant's invoicing habits, or null until they are first saved. */
+async function getPrefs(sql, tenantId) {
+  const rows = await sql`select * from public.customer_invoice_prefs where tenant_id = ${tenantId}`;
+  return rows.length ? prefsRow(rows[0]) : null;
+}
+
+/** Create or replace the habits (compare-and-swap; null version = first save). */
+async function savePrefs(sql, tenantId, v, { expectedVersion, actor }) {
+  return sql.begin(async (tx) => {
+    const cur = await tx`
+      select version from public.customer_invoice_prefs where tenant_id = ${tenantId} for update`;
+    let row;
+    if (!cur.length) {
+      if (expectedVersion != null) throw new StoreConflict('version');
+      const ins = await tx`
+        insert into public.customer_invoice_prefs
+          (tenant_id, materials_markup_bp, labour_round_minutes, usual_charges, updated_by_legacy_id, updated_by_name)
+        values (${tenantId}, ${v.materialsMarkupBp == null ? null : v.materialsMarkupBp}, ${v.labourRoundMinutes || 0},
+                ${tx.json(v.usualCharges || [])}, ${(actor && actor.id) || null}, ${(actor && actor.name) || null})
+        returning *`;
+      row = ins[0];
+    } else {
+      if (Number(cur[0].version) !== Number(expectedVersion)) throw new StoreConflict('version');
+      const upd = await tx`
+        update public.customer_invoice_prefs set
+          materials_markup_bp  = ${v.materialsMarkupBp == null ? null : v.materialsMarkupBp},
+          labour_round_minutes = ${v.labourRoundMinutes || 0},
+          usual_charges        = ${tx.json(v.usualCharges || [])},
+          version              = version + 1,
+          updated_by_legacy_id = ${(actor && actor.id) || null},
+          updated_by_name      = ${(actor && actor.name) || null}
+        where tenant_id = ${tenantId}
+        returning *`;
+      row = upd[0];
+    }
+    await insertEvent(tx, tenantId, { event: 'prefs_updated', actor, detail: {} });
+    return prefsRow(row);
+  });
+}
+
+// ── variations (#1163) ──────────────────────────────────────────────────────
+
+function variationRow(r) {
+  if (!r) return null;
+  return {
+    id: r.id,
+    jobId: r.job_legacy_id,
+    seq: int(r.seq),
+    title: r.title,
+    detail: r.detail,
+    requestedBy: r.requested_by,
+    requestedOn: dateOnly(r.requested_on),
+    quotedCents: cents(r.quoted_cents),
+    status: r.status,
+    approvedCents: cents(r.approved_cents),
+    approvalRef: r.approval_ref,
+    decidedOn: dateOnly(r.decided_on),
+    decidedBy: r.decided_by_name,
+    version: int(r.version),
+    createdBy: r.created_by_name,
+    createdAt: iso(r.created_at),
+    updatedAt: iso(r.updated_at),
+  };
+}
+
+/** A job's variations, V1 first. Removed ones are left out. */
+async function listVariations(sql, tenantId, jobLegacyId) {
+  const rows = await sql`
+    select * from public.customer_invoice_variations
+    where tenant_id = ${tenantId} and job_legacy_id = ${jobLegacyId} and removed_at is null
+    order by seq asc`;
+  return rows.map(variationRow);
+}
+
+async function getVariation(sql, tenantId, id) {
+  const rows = await sql`
+    select * from public.customer_invoice_variations
+    where tenant_id = ${tenantId} and id = ${id} and removed_at is null`;
+  return rows.length ? variationRow(rows[0]) : null;
+}
+
+/** Add a proposed variation; it takes the job's next number. */
+async function createVariation(sql, tenantId, jobLegacyId, v, actor) {
+  return sql.begin(async (tx) => {
+    // One at a time per job, so two adds can never take the same number.
+    await tx`select pg_advisory_xact_lock(hashtextextended(${`customer-invoice-variation:${tenantId}:${jobLegacyId}`}, 0))`;
+    const next = await tx`
+      select coalesce(max(seq), 0) + 1 as n
+      from public.customer_invoice_variations
+      where tenant_id = ${tenantId} and job_legacy_id = ${jobLegacyId}`;
+    const rows = await tx`
+      insert into public.customer_invoice_variations
+        (tenant_id, job_legacy_id, seq, title, detail, requested_by, requested_on, quoted_cents,
+         created_by_legacy_id, created_by_name)
+      values (${tenantId}, ${jobLegacyId}, ${Number(next[0].n)}, ${v.title}, ${v.detail || null},
+              ${v.requestedBy || null}, ${v.requestedOn || null}, ${v.quotedCents == null ? null : v.quotedCents},
+              ${(actor && actor.id) || null}, ${(actor && actor.name) || null})
+      returning *`;
+    const row = variationRow(rows[0]);
+    await insertEvent(tx, tenantId, { jobId: jobLegacyId, event: 'variation_added', actor, detail: { variationId: row.id, seq: row.seq } });
+    return row;
+  });
+}
+
+async function variationConflict(tx, tenantId, id) {
+  const cur = await tx`
+    select id from public.customer_invoice_variations
+    where tenant_id = ${tenantId} and id = ${id} and removed_at is null`;
+  return cur.length ? 'version' : 'not_found';
+}
+
+/** Replace a variation's wording and quote (compare-and-swap). */
+async function updateVariation(sql, tenantId, id, v, { expectedVersion, actor, guard, jobId }) {
+  return sql.begin(async (tx) => {
+    if (guard) { await lockJobLines(tx, tenantId, jobId); await guard(tx); }
+    const rows = await tx`
+      update public.customer_invoice_variations set
+        title        = ${v.title},
+        detail       = ${v.detail || null},
+        requested_by = ${v.requestedBy || null},
+        requested_on = ${v.requestedOn || null},
+        quoted_cents = ${v.quotedCents == null ? null : v.quotedCents},
+        version      = version + 1
+      where tenant_id = ${tenantId} and id = ${id} and removed_at is null and version = ${expectedVersion}
+      returning *`;
+    if (!rows.length) throw new StoreConflict(await variationConflict(tx, tenantId, id));
+    const row = variationRow(rows[0]);
+    await insertEvent(tx, tenantId, { jobId: row.jobId, event: 'variation_edited', actor, detail: { variationId: row.id, seq: row.seq } });
+    return row;
+  });
+}
+
+/** Approve, decline or re-open a variation (compare-and-swap). */
+async function decideVariation(sql, tenantId, id, d, { expectedVersion, actor, guard, jobId }) {
+  return sql.begin(async (tx) => {
+    if (guard) { await lockJobLines(tx, tenantId, jobId); await guard(tx); }
+    const decided = d.status !== 'proposed';
+    const rows = await tx`
+      update public.customer_invoice_variations set
+        status               = ${d.status},
+        approved_cents       = ${d.status === 'approved' ? d.approvedCents : null},
+        approval_ref         = ${decided ? d.approvalRef || null : null},
+        decided_on           = ${decided ? d.decidedOn || null : null},
+        decided_by_legacy_id = ${decided ? (actor && actor.id) || null : null},
+        decided_by_name      = ${decided ? (actor && actor.name) || null : null},
+        version              = version + 1
+      where tenant_id = ${tenantId} and id = ${id} and removed_at is null and version = ${expectedVersion}
+      returning *`;
+    if (!rows.length) throw new StoreConflict(await variationConflict(tx, tenantId, id));
+    const row = variationRow(rows[0]);
+    const event = d.status === 'approved' ? 'variation_approved' : d.status === 'declined' ? 'variation_declined' : 'variation_reopened';
+    await insertEvent(tx, tenantId, { jobId: row.jobId, event, actor, detail: { variationId: row.id, seq: row.seq } });
+    return row;
+  });
+}
+
+/** Take a variation off the list. Its row stays, so its number is never reused. */
+async function removeVariation(sql, tenantId, id, { expectedVersion, actor, guard, jobId }) {
+  return sql.begin(async (tx) => {
+    if (guard) { await lockJobLines(tx, tenantId, jobId); await guard(tx); }
+    const rows = await tx`
+      update public.customer_invoice_variations set removed_at = now(), version = version + 1
+      where tenant_id = ${tenantId} and id = ${id} and removed_at is null and version = ${expectedVersion}
+      returning *`;
+    if (!rows.length) throw new StoreConflict(await variationConflict(tx, tenantId, id));
+    const row = variationRow(rows[0]);
+    await insertEvent(tx, tenantId, { jobId: row.jobId, event: 'variation_removed', actor, detail: { variationId: row.id, seq: row.seq, title: row.title } });
+    return row;
+  });
+}
+
+/** Add one extra line to a PLANNED stage (compare-and-swap on its version). */
+async function appendExtraLine(sql, tenantId, id, line, { expectedVersion, actor, guard, jobId }) {
+  return sql.begin(async (tx) => {
+    if (guard) { await lockJobLines(tx, tenantId, jobId); await guard(tx); }
+    const cur = await tx`
+      select * from public.customer_invoices where tenant_id = ${tenantId} and id = ${id} for update`;
+    if (!cur.length) throw new StoreConflict('not_found');
+    if (cur[0].state !== 'planned') throw new StoreConflict('not_planned');
+    if (Number(cur[0].version) !== Number(expectedVersion)) throw new StoreConflict('version');
+    const lines = extraLinesOf(cur[0].extra_lines).concat([line]);
+    const rows = await tx`
+      update public.customer_invoices set extra_lines = ${tx.json(lines)}, version = version + 1
+      where tenant_id = ${tenantId} and id = ${id}
+      returning *`;
+    const row = invoiceRow(rows[0]);
+    await insertEvent(tx, tenantId, { invoiceId: row.id, jobId: row.jobId, event: 'edited', actor, detail: { addedLine: true } });
+    return row;
   });
 }
 
@@ -741,9 +1008,9 @@ async function raiseAgainSent(sql, tenantId, id, { actor }) {
     const ins = await tx`
       insert into public.customer_invoices
         (tenant_id, job_legacy_id, kind, sort_order, title, basis, percent_bp, amount_cents,
-         extra_lines, planned_date, note, created_by_legacy_id, created_by_name)
+         extra_lines, items, planned_date, note, created_by_legacy_id, created_by_name)
       values (${tenantId}, ${o.job_legacy_id}, ${o.kind}, ${o.sort_order}, ${o.title}, ${o.basis}, ${o.percent_bp},
-              ${o.amount_cents}, ${tx.json(extraLinesOf(o.extra_lines))}, ${o.planned_date}, ${o.note},
+              ${o.amount_cents}, ${tx.json(extraLinesOf(o.extra_lines))}, ${tx.json(itemsJson(o.items))}, ${o.planned_date}, ${o.note},
               ${(actor && actor.id) || null}, ${(actor && actor.name) || null})
       returning *`;
     const fresh = invoiceRow(ins[0]);
@@ -774,6 +1041,15 @@ module.exports = {
   resetToPlanned,
   raiseAgain,
   resolveTenant,
+  getPrefs,
+  savePrefs,
+  listVariations,
+  getVariation,
+  createVariation,
+  updateVariation,
+  decideVariation,
+  removeVariation,
+  appendExtraLine,
   profileRow,
   invoiceRow,
   settingsRow,

@@ -25,6 +25,23 @@ type Profile = Record<string, unknown> & {
 
 type Settings = Record<string, unknown> & { externalTenantId: string; version: number };
 
+type Variation = Record<string, unknown> & {
+  id: string;
+  jobId: string;
+  seq: number;
+  title: string;
+  status: string;
+  quotedCents: number | null;
+  approvedCents: number | null;
+  version: number;
+  removed?: boolean;
+};
+
+type Prefs = { materialsMarkupBp: number | null; labourRoundMinutes: number; usualCharges: unknown[]; version: number };
+
+/** What the real store's hooks receive as `tx` — unused in memory. */
+type Hooks = { prepare?: (tx: unknown) => Promise<Record<string, unknown>>; guard?: (tx: unknown) => Promise<void>; jobId?: string };
+
 function clone<T>(v: T): T {
   return v === undefined ? v : JSON.parse(JSON.stringify(v));
 }
@@ -43,6 +60,8 @@ export function createMemoryStore() {
   const settings = new Map<string, Settings>();
   const events: Array<{ event: string; jobId: string | null; invoiceId: string | null; attemptId?: string | null; detail?: unknown }> = [];
   const attempts: Array<Record<string, unknown>> = [];
+  const variations: Variation[] = [];
+  let prefs: Prefs | null = null;
   let n = 0;
   let clock = 0;
   let nowMs = Date.parse("2026-11-22T00:00:00Z");
@@ -57,6 +76,8 @@ export function createMemoryStore() {
     invoiceDate: null, reference: null, externalTenantId: null, xeroContactId: null,
     xeroAmountCreditedCents: null, xeroFullyPaidOn: null,
     lastCheckedAt: null, replacedById: null,
+    // part 2: an itemised invoice's lines, and wording frozen at send
+    items: [] as unknown[], sentFooter: null,
   };
   function guard(id: string, expectedVersion: number): Row {
     const r = rows.find((x) => x.id === id);
@@ -139,15 +160,18 @@ export function createMemoryStore() {
       const r = rows.find((x) => x.id === id);
       return r ? clone(r) : null;
     },
-    async createStage(_sql: unknown, _t: string, jobId: string, s: Record<string, unknown>) {
-      const r = { ...blank, ...s, id: uuid(), jobId, state: "planned", version: 1 } as Row;
+    async createStage(_sql: unknown, _t: string, jobId: string, s0: Record<string, unknown> | null, _actor?: unknown, opts: Hooks = {}) {
+      // `prepare` runs where the real store holds the job's lock.
+      const s = opts.prepare ? await opts.prepare(null) : (s0 as Record<string, unknown>);
+      const r = { ...blank, ...clone(s), id: uuid(), jobId, state: "planned", version: 1 } as Row;
       rows.push(r);
       events.push({ event: "created", jobId, invoiceId: r.id });
       return clone(r);
     },
-    async updateStage(_sql: unknown, _t: string, id: string, s: Record<string, unknown>, o: { expectedVersion: number }) {
+    async updateStage(_sql: unknown, _t: string, id: string, s0: Record<string, unknown> | null, o: { expectedVersion: number } & Hooks) {
+      const s = o.prepare ? await o.prepare(null) : (s0 as Record<string, unknown>);
       const r = guard(id, o.expectedVersion);
-      Object.assign(r, s, { version: r.version + 1 });
+      Object.assign(r, { items: [] }, clone(s), { version: r.version + 1 });
       events.push({ event: "edited", jobId: r.jobId, invoiceId: r.id });
       return clone(r);
     },
@@ -173,9 +197,10 @@ export function createMemoryStore() {
       const seq = Math.max(0, ...rows.filter((x) => x.jobId === r.jobId).map((x) => Number(x.seq) || 0)) + 1;
       const invoiceNumber = `${snap.jobCode}-${seq}`;
       if (rows.some((x) => x.invoiceNumber === invoiceNumber)) throw new StoreConflict("number_clash");
-      const { jobCode: _code, build, ...frozen } = snap;
+      const { jobCode: _code, build, footer, ...frozen } = snap;
       void _code;
       Object.assign(r, frozen, {
+        sentFooter: footer ?? null,
         state: "sending", seq, invoiceNumber, contentHash: build(invoiceNumber),
         failureCategory: null, failureDetail: null, sentBy: o.actor?.name ?? null, version: r.version + 1,
       });
@@ -220,6 +245,80 @@ export function createMemoryStore() {
         ...blank, state: "planned", contentHash: null, externalTenantId: null, xeroContactId: null, xeroContactName: null,
         invoiceDate: null, reference: null, failureCategory: null, failureDetail: null, version: r.version + 1,
       });
+      events.push({ event: "edited", jobId: r.jobId, invoiceId: r.id });
+      return clone(r);
+    },
+    // ── part 2: the business's habits, and variations ──────────────────────
+    variations,
+    async getPrefs() { return prefs ? clone(prefs) : null; },
+    async savePrefs(_sql: unknown, _t: string, v: Omit<Prefs, "version">, o: { expectedVersion: number | null }) {
+      if (!prefs) {
+        if (o.expectedVersion != null) throw new StoreConflict("version");
+        prefs = { ...clone(v), version: 1 };
+      } else {
+        if (prefs.version !== o.expectedVersion) throw new StoreConflict("version");
+        prefs = { ...clone(v), version: prefs.version + 1 };
+      }
+      events.push({ event: "prefs_updated", jobId: null, invoiceId: null });
+      return clone(prefs);
+    },
+    async listVariations(_sql: unknown, _t: string, jobId: string) {
+      return clone(variations.filter((v) => v.jobId === jobId && !v.removed).sort((a, b) => a.seq - b.seq));
+    },
+    async getVariation(_sql: unknown, _t: string, id: string) {
+      const v = variations.find((x) => x.id === id && !x.removed);
+      return v ? clone(v) : null;
+    },
+    async createVariation(_sql: unknown, _t: string, jobId: string, v: Record<string, unknown>) {
+      // removed variations keep their number
+      const seq = Math.max(0, ...variations.filter((x) => x.jobId === jobId).map((x) => x.seq)) + 1;
+      const row = {
+        detail: null, requestedBy: null, requestedOn: null, quotedCents: null,
+        ...clone(v), id: uuid(), jobId, seq, status: "proposed", approvedCents: null, approvalRef: null,
+        decidedOn: null, decidedBy: null, version: 1,
+      } as unknown as Variation;
+      variations.push(row);
+      events.push({ event: "variation_added", jobId, invoiceId: null });
+      return clone(row);
+    },
+    async updateVariation(_sql: unknown, _t: string, id: string, v: Record<string, unknown>, o: { expectedVersion: number } & Hooks) {
+      if (o.guard) await o.guard(null);
+      const row = variations.find((x) => x.id === id && !x.removed);
+      if (!row) throw new StoreConflict("not_found");
+      if (row.version !== o.expectedVersion) throw new StoreConflict("version");
+      Object.assign(row, clone(v), { version: row.version + 1 });
+      events.push({ event: "variation_edited", jobId: row.jobId, invoiceId: null });
+      return clone(row);
+    },
+    async decideVariation(_sql: unknown, _t: string, id: string, d: { status: string; approvedCents: number | null; approvalRef: string | null; decidedOn: string | null }, o: { expectedVersion: number; actor?: { name?: string } } & Hooks) {
+      if (o.guard) await o.guard(null);
+      const row = variations.find((x) => x.id === id && !x.removed);
+      if (!row) throw new StoreConflict("not_found");
+      if (row.version !== o.expectedVersion) throw new StoreConflict("version");
+      const decided = d.status !== "proposed";
+      Object.assign(row, {
+        status: d.status, approvedCents: d.status === "approved" ? d.approvedCents : null,
+        approvalRef: decided ? d.approvalRef : null, decidedOn: decided ? d.decidedOn : null,
+        decidedBy: decided ? o.actor?.name ?? null : null, version: row.version + 1,
+      });
+      events.push({ event: d.status === "approved" ? "variation_approved" : d.status === "declined" ? "variation_declined" : "variation_reopened", jobId: row.jobId, invoiceId: null });
+      return clone(row);
+    },
+    async removeVariation(_sql: unknown, _t: string, id: string, o: { expectedVersion: number } & Hooks) {
+      if (o.guard) await o.guard(null);
+      const row = variations.find((x) => x.id === id && !x.removed);
+      if (!row) throw new StoreConflict("not_found");
+      if (row.version !== o.expectedVersion) throw new StoreConflict("version");
+      row.removed = true;
+      row.version += 1;
+      events.push({ event: "variation_removed", jobId: row.jobId, invoiceId: null });
+      return clone(row);
+    },
+    async appendExtraLine(_sql: unknown, _t: string, id: string, line: Record<string, unknown>, o: { expectedVersion: number } & Hooks) {
+      if (o.guard) await o.guard(null);
+      const r = guard(id, o.expectedVersion);
+      r.extraLines = [...((r.extraLines as unknown[]) || []), clone(line)];
+      r.version += 1;
       events.push({ event: "edited", jobId: r.jobId, invoiceId: r.id });
       return clone(r);
     },
@@ -270,7 +369,7 @@ export function createMemoryStore() {
       if (r.state !== "sent" || !(r.xeroStatus === "DELETED" || r.xeroStatus === "VOIDED") || r.replacedById) throw new StoreConflict("not_raisable");
       const fresh = {
         ...blank, id: uuid(), jobId: r.jobId, kind: r.kind, title: r.title, basis: r.basis, percentBp: r.percentBp,
-        amountCents: r.amountCents, extraLines: clone(r.extraLines), retentionBp: null, plannedDate: r.plannedDate ?? null,
+        amountCents: r.amountCents, extraLines: clone(r.extraLines), items: clone(r.items ?? []), retentionBp: null, plannedDate: r.plannedDate ?? null,
         note: r.note ?? null, state: "planned", version: 1,
       } as Row;
       rows.push(fresh);
@@ -288,7 +387,7 @@ export function createMemoryStore() {
       r.version += 1;
       const fresh = {
         ...blank, id: uuid(), jobId: r.jobId, kind: r.kind, title: r.title, basis: r.basis, percentBp: r.percentBp,
-        amountCents: r.amountCents, extraLines: clone(r.extraLines), retentionBp: null, plannedDate: r.plannedDate ?? null,
+        amountCents: r.amountCents, extraLines: clone(r.extraLines), items: clone(r.items ?? []), retentionBp: null, plannedDate: r.plannedDate ?? null,
         note: r.note ?? null, state: "planned", version: 1,
       } as Row;
       rows.push(fresh);

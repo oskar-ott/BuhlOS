@@ -279,6 +279,7 @@ export function JobMoneyFigures({
           while customer_invoices is off for the viewer. */}
       <MoneyInNote
         moneyIn={data.customerInvoices}
+        hasContract={data.contractValueCents != null}
         labourUnderstated={labourUnderstated || (labourZero && approvedHours > 0)}
       />
 

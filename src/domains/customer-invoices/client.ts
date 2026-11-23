@@ -7,6 +7,12 @@ import {
   RefreshResponseSchema,
   SendPreviewSchema,
   SendResponseSchema,
+  BillableResponseSchema,
+  InvoicePrefsResponseSchema,
+  type BillableResponse,
+  type InvoicePrefs,
+  type ItemisedInput,
+  type VariationInput,
   type InvoiceSettingsOptions,
   type InvoiceSettingsResponse,
   type JobInvoicingResponse,
@@ -167,6 +173,105 @@ export function addRetentionRelease(
 /** "Check Xero now": ask Xero what happened to this job's sent invoices. */
 export function refreshJobInvoices(jobId: string): Promise<HttpResult<RefreshResponse>> {
   return httpPost(`${BASE}?action=refresh`, { jobId }, { schema: RefreshResponseSchema, timeoutMs: 45_000 });
+}
+
+// ── itemised invoices (#1161) ───────────────────────────────────────────────
+
+/** Add a planned ITEMISED invoice: lines with a quantity and a unit price. */
+export function addItemised(
+  jobId: string,
+  stage: ItemisedInput
+): Promise<HttpResult<JobInvoicingResponse>> {
+  return httpPost(`${BASE}?action=stage-add`, { jobId, stage }, { ...opts, timeoutMs: 30_000 });
+}
+
+export function editItemised(
+  stageId: string,
+  stage: ItemisedInput,
+  expectedVersion: number
+): Promise<HttpResult<JobInvoicingResponse>> {
+  return httpPost(
+    `${BASE}?action=stage-edit&id=${encodeURIComponent(stageId)}`,
+    { stage, expectedVersion },
+    { ...opts, timeoutMs: 30_000 }
+  );
+}
+
+// ── what on the job can go on an invoice (#1162) ────────────────────────────
+
+/** The job's approved hours and materials, each marked with the invoice it is
+ *  already on. `invoiceId` is the invoice being edited — its own lines don't
+ *  count against it. Reads every time sheet, so it gets a longer wait. */
+export function jobBillable(
+  jobId: string,
+  invoiceId?: string | null
+): Promise<HttpResult<BillableResponse>> {
+  const q = `${BASE}?action=billable&jobId=${encodeURIComponent(jobId)}${invoiceId ? `&invoiceId=${encodeURIComponent(invoiceId)}` : ""}`;
+  return httpGet(q, { schema: BillableResponseSchema, timeoutMs: 30_000 });
+}
+
+export function saveInvoicePrefs(input: {
+  materialsMarkupBp: number | null;
+  labourRoundMinutes: number;
+  usualCharges: Array<{ id?: string; name: string; unit?: string | null; unitCents: number; kind: "labour" | "other" }>;
+  expectedVersion: number | null;
+}): Promise<HttpResult<InvoicePrefs>> {
+  return httpPut(`${BASE}?action=prefs`, input, {
+    schema: InvoicePrefsResponseSchema.transform((r) => r.prefs),
+  });
+}
+
+// ── variations (#1163) ──────────────────────────────────────────────────────
+
+const variationUrl = (action: string, id: string) => `${BASE}?action=${action}&id=${encodeURIComponent(id)}`;
+
+export function addVariation(jobId: string, variation: VariationInput): Promise<HttpResult<JobInvoicingResponse>> {
+  return httpPost(`${BASE}?action=variation-add`, { jobId, variation }, opts);
+}
+
+export function editVariation(
+  id: string,
+  variation: VariationInput,
+  expectedVersion: number
+): Promise<HttpResult<JobInvoicingResponse>> {
+  return httpPost(variationUrl("variation-edit", id), { variation, expectedVersion }, opts);
+}
+
+/** Approve (with the approved amount), decline, or put back to proposed. */
+export function decideVariation(
+  id: string,
+  input: {
+    status: "approved" | "declined" | "proposed";
+    approvedCents?: number | null;
+    approvalRef?: string | null;
+    decidedOn?: string | null;
+    expectedVersion: number;
+  }
+): Promise<HttpResult<JobInvoicingResponse>> {
+  return httpPost(variationUrl("variation-decide", id), input, opts);
+}
+
+export function removeVariation(id: string, expectedVersion: number): Promise<HttpResult<JobInvoicingResponse>> {
+  return httpPost(variationUrl("variation-remove", id), { expectedVersion }, opts);
+}
+
+/** Put an approved variation on a planned stage, or — with no stage — on an
+ *  invoice of its own. */
+export function billVariation(
+  id: string,
+  target?: { stageId: string; expectedStageVersion: number }
+): Promise<HttpResult<JobInvoicingResponse>> {
+  return httpPost(variationUrl("variation-bill", id), target ?? {}, opts);
+}
+
+// ── payment-claim wording (#1164) ───────────────────────────────────────────
+
+export function setPaymentClaim(
+  jobId: string,
+  on: boolean,
+  expectedVersion: number | null
+): Promise<HttpResult<JobInvoicingResponse>> {
+  return httpPut(`${BASE}?action=payment-claim`, { jobId, on, expectedVersion }, opts);
 }
 
 /** The Money card announces a contract-value save on `window` so this card's

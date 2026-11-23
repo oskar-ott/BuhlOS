@@ -31,6 +31,7 @@ let breakdown: Record<string, unknown>;
 /** The job's customer stage invoices as the (mocked) store answers them; an
  *  Error simulates unreadable records, null a store with no tenant yet. */
 let customerRows: Array<Record<string, unknown>> | Error | null;
+let customerVariations: Array<Record<string, unknown>>;
 let customerReads: number;
 
 type Res = ReturnType<typeof createRes>;
@@ -184,6 +185,7 @@ beforeEach(() => {
     },
   } as NodeJS.Module;
   customerRows = [];
+  customerVariations = [];
   customerReads = 0;
   requireFromHere.cache[customerStorePath] = {
     id: customerStorePath,
@@ -199,6 +201,7 @@ beforeEach(() => {
         if (customerRows instanceof Error) throw customerRows;
         return customerRows;
       },
+      listVariations: async () => customerVariations,
     },
   } as NodeJS.Module;
   requireFromHere.cache[vercelBlobPath] = {
@@ -626,6 +629,30 @@ describe("GET /api/job-profitability — money in from customer stage invoices (
     customerRows = [three()[3]!];
     const m = ((await call({ role: "admin", query: { jobId: "job-a" } })).body as Body).customerInvoices!;
     expect(m).toMatchObject({ unavailable: false, sentCount: 0, plannedCount: 1, invoicedCents: 0, paidIncGstCents: 0, asOf: null });
+  });
+
+  it("part 2: what has gone to Xero less the job's costs, and approved variations in what the job is worth", async () => {
+    process.env.FLAG_CUSTOMER_INVOICES = "true";
+    customerRows = three();
+    customerVariations = [{ status: "approved", approvedCents: 5_000_00 }, { status: "proposed", quotedCents: 9_000_00 }, { status: "declined", quotedCents: 1 }];
+    const b = (await call({ role: "admin", query: { jobId: "job-a" } })).body as Body;
+    const m = b.customerInvoices as MoneyIn & { billedCents: number; billedMarginCents: number | null; variationsApprovedCents: number; revisedContractCents: number | null };
+    // approved in Xero + still a draft, ex GST
+    expect(m.billedCents).toBe(35_000_00);
+    expect(m.billedMarginCents).toBe(35_000_00 - b.labourCostCents - b.materialCostCents);
+    // only the approved variation counts
+    expect(m.variationsApprovedCents).toBe(5_000_00);
+    expect(m.revisedContractCents).toBe(125_000_00);
+    expect(m.stillToInvoiceCents).toBe(125_000_00 - 35_000_00);
+    // the contract margin itself is left alone
+    expect(b.marginCents).toBe(120_000_00 - b.labourCostCents - b.materialCostCents);
+  });
+
+  it("part 2: there is no 'margin on what was sent' until something has been", async () => {
+    process.env.FLAG_CUSTOMER_INVOICES = "true";
+    customerRows = [three()[3]!];
+    const m = ((await call({ role: "admin", query: { jobId: "job-a" } })).body as Body).customerInvoices as MoneyIn & { billedCents: number; billedMarginCents: number | null };
+    expect(m).toMatchObject({ billedCents: 0, billedMarginCents: null });
   });
 
   it("unreadable records are REPORTED (unavailable), never a quiet zero — and the rest of the card still answers", async () => {

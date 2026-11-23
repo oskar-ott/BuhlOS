@@ -184,6 +184,21 @@ the unit freezes once real stock has moved; items are archived, never deleted.
 Composite `(tenant_id, id)` foreign keys keep every row inside its tenant. Photo
 rows carry a Blob URL that is never sent to a browser (authenticated proxy).
 
+**`customer_invoice_prefs` / `customer_invoice_variations`** (customer
+invoices part 2, owner pull 2026-11-22 —
+`20261125100000_customer_invoices_itemised_and_variations.sql`, see
+[../customer-invoices.md](../customer-invoices.md)): RLS-on, zero policies,
+service-role only, admin tier only through `api/customer-invoices.js`.
+`customer_invoice_prefs` is one row per tenant (the business's usual markup
+and charges; not tied to a Xero organisation). `customer_invoice_variations`
+is the per-job register: a number is unique per job and never reused (a
+removed row is kept), and an approved row must carry an approved amount.
+Whether a variation, an hour or a material is ON AN INVOICE is not stored
+anywhere: it is read from the invoices' own lines (`customer_invoices.items`
+and `extra_lines`), so it cannot drift from them. The same migration adds
+`items`, `sent_footer` and the `itemised` kind to `customer_invoices` and
+`payment_claim` to `customer_invoice_job_profiles`.
+
 **`customer_invoice_settings` / `customer_invoice_job_profiles` /
 `customer_invoices` / `customer_invoice_attempts` / `customer_invoice_events`**
 (customer stage invoices, owner pull 2026-11-22 —

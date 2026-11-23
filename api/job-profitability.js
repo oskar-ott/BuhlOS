@@ -243,6 +243,12 @@ module.exports = async (req, res) => {
           ...m,
           // What has actually come in, less what the job has cost so far.
           cashCents: m.paidCents == null ? null : m.paidCents - labourCostCents - (materialCostCents || 0),
+          // What has gone to Xero (approved + still a draft, ex GST) less what
+          // the job has cost — the margin on a job that has no contract value
+          // to measure against (a small do-and-charge job). null until
+          // something has been sent.
+          billedCents: m.invoicedCents + m.draftedCents,
+          billedMarginCents: m.sentCount > 0 ? m.invoicedCents + m.draftedCents - labourCostCents - (materialCostCents || 0) : null,
         };
       } else {
         // The feature is on but its records aren't set up: say so, never nothing.

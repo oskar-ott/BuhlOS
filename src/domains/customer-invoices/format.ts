@@ -167,6 +167,8 @@ export function blockerMessage(code: string): string {
       return "This job has no IV number, so the invoice can't be numbered.";
     case "no_contract_value":
       return "This stage is a percentage of the contract, and the job has no contract value yet. Set it on the Money card.";
+    case "no_lines":
+      return "This invoice has no lines with a price yet. Edit it and add one.";
     case "amount_invalid":
       return "The stage's amount can't be worked out. Edit the stage and check the figures.";
     case "nothing_to_invoice":
@@ -302,6 +304,31 @@ export function errorMessage(code: string | null, status: number): string {
       return "This stage has moved on since the page loaded. The list has been refreshed.";
     case "exceeds_retention_held":
       return "That is more than the retention still held on this job.";
+    // ── itemised invoices, hours and materials, variations (part 2) ──
+    case "already_billed":
+      return "Something on this invoice is already on another invoice, so it can't be billed again. Take it off and try again.";
+    case "ref_not_found":
+      return "Some of the hours or materials on this invoice are no longer on the job. Take those lines off and add them again.";
+    case "line_invalid":
+      return "One of the lines has a quantity or price that can't be used. Check the figures.";
+    case "mixed_refs":
+    case "ref_invalid":
+    case "too_many_refs":
+      return "One of the lines couldn't be read. Take it off and add it again.";
+    case "kind_mismatch":
+      return "That can't be done with this kind of invoice. The list has been refreshed.";
+    case "too_many_lines":
+      return "That stage already has as many extra lines as it can hold. Put the variation on its own invoice instead.";
+    case "variation_not_found":
+      return "That variation no longer exists. The list has been refreshed.";
+    case "variation_not_approved":
+      return "Only an approved variation can go on an invoice.";
+    case "variation_billed":
+      return "That variation is already on an invoice, so it can't be changed. Take it off the invoice first.";
+    case "variation_decided":
+      return "An approved variation can't be edited. Put it back to proposed first.";
+    case "variation_amount":
+      return "A variation is billed at exactly what was approved. Check the approved amount.";
     case "blocked":
       return "This stage can't be sent yet. Open Send to see what's missing.";
     case "contact_not_found":
