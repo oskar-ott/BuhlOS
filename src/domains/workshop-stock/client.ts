@@ -204,6 +204,15 @@ export function replaceItemPhoto(itemId: string, photoId: string | null, slot: "
   return httpPost(`${BASE}?action=item-photo`, { itemId, photoId, slot }, { schema: ItemOnlySchema, init: INIT, timeoutMs: WRITE_TIMEOUT_MS });
 }
 
+/**
+ * More photos of an item: add one (uploaded with storePhoto first — anyone; with
+ * no main photo yet it becomes the main), or, the office: remove one or make it
+ * the main photo.
+ */
+export function itemPhotos(itemId: string, photoId: string, op: "add" | "remove" | "main") {
+  return httpPost(`${BASE}?action=item-photos`, { itemId, photoId, op }, { schema: ItemOnlySchema, init: INIT, timeoutMs: WRITE_TIMEOUT_MS });
+}
+
 export function recordVerification(itemId: string) {
   return httpPost(`${BASE}?action=verify`, { itemId }, { schema: ItemOnlySchema, init: INIT, timeoutMs: WRITE_TIMEOUT_MS });
 }

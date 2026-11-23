@@ -23,11 +23,14 @@
 //                              pack: the pack the screen showed, with its size — refused (409 pack_changed) if the office changed it
 //   POST   ?action=count       { itemId, countedQuantity, expectedVersion, reason, estimated?, idempotencyKey }   OFFICE
 //   POST   ?action=undo        { movementId, reason?, idempotencyKey }   own recent (worker) · any with reason (office)
-//   PUT    ?action=item&id=    { expectedRevision, …fields }             OFFICE catalogue edit (compare-and-set)
+//   PUT    ?action=item&id=    { expectedRevision, …fields }             OFFICE catalogue edit (compare-and-set; incl. productUrl / specUrl)
 //   POST   ?action=identifier  { itemId, kind, value, supplierName?, packUnit?, packSize? }   OFFICE
 //   DELETE ?action=identifier&id=                                        OFFICE
 //   POST   ?action=archive | restore  { itemId }                         OFFICE (restore says which codes another item now holds)
 //   POST   ?action=item-photo  { itemId, photoId, slot?: product|location }   OFFICE (location: photoId may be null = remove)
+//   POST   ?action=item-photos { itemId, photoId, op: add|remove|main }   more photos of an item (20261116100000):
+//                              add — anyone, a photo they uploaded (office: any pending one); with no main photo yet it becomes the main
+//                              remove | main — OFFICE (remove the main → the next moves up; the only photo can't go)
 //   POST   ?action=label       { itemId }   give an item with no barcode its own (in-store EAN-13, made here) — for a printed label; answers the barcode it already has otherwise
 //   POST   ?action=type        { key?, label, unit, fields: [{ key?, label }] }   OFFICE — add a category (no key) or change one (its key); fields are only added or renamed
 //                              the crew: slot location only, to FILL a missing photo of where it lives with one they took
@@ -74,6 +77,7 @@ const vision = require('./_lib/workshop-stock/vision');
 const photo = require('./_lib/workshop-stock/photo');
 const search = require('./_lib/workshop-stock/search');
 const { lookupProduct } = require('./_lib/workshop-stock/lookup');
+const links = require('./_lib/workshop-stock/links');
 const { fetchAllowlistedPage } = require('./_lib/workshop-stock/safe-fetch');
 const { withTimeout } = require('./_lib/with-timeout');
 
@@ -337,6 +341,9 @@ const EditBody = z.object({
   defaultPack: z.object({ unit: packUnit, size: qty }).nullable().optional(),
   category: Category.nullable().optional(),
   specs: Specs.optional(),
+  // the wholesaler page and the maker's spec page (20261115100000): null / "" clears
+  productUrl: z.string().max(2000).nullable().optional(),
+  specUrl: z.string().max(2000).nullable().optional(),
 });
 
 const IdentifierBody = z.object({
@@ -364,6 +371,9 @@ const ItemIdBody = z.object({ itemId: uuid });
 const ItemPhotoBody = z
   .object({ itemId: uuid, photoId: uuid.nullable(), slot: z.enum(['product', 'location']).default('product') })
   .refine((b) => b.slot === 'location' || b.photoId !== null, { path: ['photoId'] });
+
+// More photos of an item (20261116100000).
+const ItemPhotosBody = z.object({ itemId: uuid, photoId: uuid, op: z.enum(['add', 'remove', 'main']) });
 
 // A category the office makes (20261103100000). No key = a new one; its key
 // and its fields' keys are made from the names here, on the server.
@@ -473,13 +483,15 @@ async function list(sql, tenant, me, req, res) {
   const types = await store.hasTypes(sql);
   const lists = await store.hasLists(sql);
   const customTypesReady = await store.hasCustomTypes(sql);
+  const linksReady = await store.hasLinks(sql);
+  const itemPhotosReady = await store.hasItemPhotos(sql);
   const items = await store.listItems(sql, tenant.id, { includeArchived });
   const customTypes = customTypesReady ? await store.listCustomTypes(sql, tenant.id) : [];
   return res.status(200).json({
     items,
     viewer: { id: me.id, office },
     // locationPhoto / types / lists: what this database has yet (later, additive migrations)
-    capabilities: { photoRead: vision.enabled(), lookup: search.enabled(), locationPhoto: locationPhoto === true, types: types === true, lists: lists === true, customTypes: customTypesReady === true },
+    capabilities: { photoRead: vision.enabled(), lookup: search.enabled(), locationPhoto: locationPhoto === true, types: types === true, lists: lists === true, customTypes: customTypesReady === true, links: linksReady === true, morePhotos: itemPhotosReady === true },
     // the office's own categories, alongside the built-in ones the app knows
     customTypes,
     undoMinutes: policy.WORKER_UNDO_MINUTES,
@@ -811,6 +823,7 @@ async function create(sql, tenant, me, req, body, res) {
   let verificationStatus = 'unverified';
   let verification = null;
   let lookupSummary = null;
+  let foundLinks = null;
   if (input.lookupCheck && manufacturerCode) {
     const lk = codes.lookupKey(input.lookupCheck);
     const cached = lk ? await store.getCachedLookup(sql, tenant.id, lk) : null;
@@ -820,6 +833,7 @@ async function create(sql, tenant, me, req, body, res) {
       verificationStatus = v.status;
       verification = v.detail;
       lookupSummary = { status: v.status, sourceUrl: v.detail.sourceUrl, checkedAt: v.detail.checkedAt };
+      foundLinks = links.linksFromLookup(cached);
     } else {
       lookupSummary = { status: 'not_applied', reason: v ? 'item_differs_from_check' : 'check_not_found' };
     }
@@ -828,9 +842,10 @@ async function create(sql, tenant, me, req, body, res) {
   // The location photo, and the type with its fields, are only written once
   // their columns exist (the migrations can land after this code); before that
   // they are simply not kept.
-  const [locationColumn, typeColumns] = await Promise.all([
+  const [locationColumn, typeColumns, linkColumns] = await Promise.all([
     input.locationPhotoId || input.locationPhotoFromItemId ? store.hasLocationPhoto(sql) : false,
     input.category || (input.specs && Object.keys(input.specs).length) ? store.hasTypes(sql) : false,
+    foundLinks && (foundLinks.productUrl || foundLinks.specUrl) ? store.hasLinks(sql) : false,
   ]);
   const locationPhotoId = input.locationPhotoId && locationColumn === true ? input.locationPhotoId : null;
   const locationPhotoFromItemId = !input.locationPhotoId && input.locationPhotoFromItemId && locationColumn === true ? input.locationPhotoFromItemId : null;
@@ -847,6 +862,8 @@ async function create(sql, tenant, me, req, body, res) {
     locationPhotoFromItemId,
     category: typeColumns === true ? input.category || null : null,
     specs: typeColumns === true ? input.specs || {} : {},
+    // the pages the accepted check found: the wholesaler's and the maker's
+    links: linkColumns === true ? foundLinks : null,
     openingMilli,
     pack,
     estimated: input.estimated === true,
@@ -1059,6 +1076,17 @@ async function editItem(sql, tenant, me, id, body, res) {
     if (input.category !== undefined) patch.category = input.category;
     if (input.specs !== undefined) patch.specs = input.specs;
   }
+  // The product links: any http(s) page (links.cleanLink); blank clears.
+  for (const k of ['productUrl', 'specUrl']) {
+    if (input[k] === undefined) continue;
+    if (input[k] === null || !input[k].trim()) { patch[k] = null; continue; }
+    const u = links.cleanLink(input[k]);
+    if (!u) return bad(res, 'link_invalid', { field: k });
+    patch[k] = u;
+  }
+  if (('productUrl' in patch || 'specUrl' in patch) && (await store.hasLinks(sql)) !== true) {
+    return res.status(503).json({ error: 'links_unavailable' });
+  }
   // Keep the identifiers in step with the edited codes (and the brand/supplier that scope them).
   const identifierChanges = { retire: [], add: [] };
   const nextBrand = patch.brand !== undefined ? patch.brand : current.brand;
@@ -1182,6 +1210,30 @@ async function itemPhoto(sql, tenant, me, body, res) {
   return res.status(200).json({ item: await store.getItem(sql, tenant.id, input.itemId) });
 }
 
+const ITEM_PHOTOS_STATUS = { item_not_found: 404, photo_not_on_item: 404, photos_unavailable: 503 };
+
+async function itemPhotos(sql, tenant, me, body, res) {
+  const input = parseOr400(ItemPhotosBody, body, res);
+  if (!input) return;
+  const office = policy.isOffice(me.role);
+  // Anyone can add a photo they took; taking one off or choosing the main one
+  // stays the office's (like replacing the main photo).
+  if (input.op !== 'add' && !office) return res.status(403).json({ error: 'office_only' });
+  const actor = actorOf(me);
+  const r = input.op === 'add'
+    ? await store.addItemPhoto(sql, tenant.id, input.itemId, input.photoId, actor, { office })
+    : input.op === 'remove'
+      ? await store.removeItemPhoto(sql, tenant.id, input.itemId, input.photoId, actor)
+      : await store.setMainItemPhoto(sql, tenant.id, input.itemId, input.photoId, actor);
+  if (r.error) return res.status(ITEM_PHOTOS_STATUS[r.error] || 409).json({ error: r.error, ...(r.max ? { max: r.max } : {}) });
+  // the crew's additions are in the item's own history (like their creates), not the shared journal
+  if (office && !r.unchanged) {
+    const what = { add: 'Added a photo to', remove: 'Removed a photo from', main: 'Chose the main photo of' }[input.op];
+    await journal(me, 'workshop_stock.photo_changed', input.itemId, `${what} a workshop item`, { slot: 'gallery', op: input.op });
+  }
+  return res.status(200).json({ item: await store.getItem(sql, tenant.id, input.itemId) });
+}
+
 async function verify(sql, tenant, me, body, res) {
   if (!policy.isOffice(me.role)) return res.status(403).json({ error: 'office_only' });
   const input = parseOr400(ItemIdBody, body, res);
@@ -1195,7 +1247,10 @@ async function verify(sql, tenant, me, body, res) {
   const key = codes.lookupKey({ brand: item.brand, manufacturerCode: item.manufacturerCode, colourFinish: item.colourFinish, variantDetails: item.variant });
   const cached = key ? await store.getCachedLookup(sql, tenant.id, key) : null;
   const v = verificationFromLookup(cached);
-  const r = await store.recordVerification(sql, tenant.id, item.id, { status: v ? v.status : 'unverified', verification: v ? v.detail : null, actor: actorOf(me) });
+  // The pages the check found fill the item's EMPTY links (never one a person set).
+  const found = v ? links.linksFromLookup(cached) : null;
+  const linkColumns = found && (found.productUrl || found.specUrl) ? await store.hasLinks(sql) : false;
+  const r = await store.recordVerification(sql, tenant.id, item.id, { status: v ? v.status : 'unverified', verification: v ? v.detail : null, actor: actorOf(me), links: linkColumns === true ? found : null });
   if (r.error) return res.status(r.error === 'item_not_found' ? 404 : 409).json({ error: r.error });
   await journal(me, 'workshop_stock.verification_recorded', item.id, `Recorded the online check for ${item.name}: ${v ? v.status : 'unverified'}`, { status: v ? v.status : 'unverified' });
   return res.status(200).json({ item: await store.getItem(sql, tenant.id, item.id) });
@@ -1429,6 +1484,7 @@ async function handler(req, res) {
       case 'archive': return archive(sql, tenant, me, body, res, true);
       case 'restore': return archive(sql, tenant, me, body, res, false);
       case 'item-photo': return itemPhoto(sql, tenant, me, body, res);
+      case 'item-photos': return itemPhotos(sql, tenant, me, body, res);
       case 'verify': return verify(sql, tenant, me, body, res);
       case 'list': return saveList(sql, tenant, me, body, res);
       case 'type': return saveType(sql, tenant, me, body, res);

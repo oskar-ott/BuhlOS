@@ -6,8 +6,10 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 import { Drawer } from "@/components/ui/Drawer";
 import { Button } from "@/components/ui/Button";
 import { Pill } from "@/components/ui/Pill";
+import { ItemPhotos } from "@/components/stock/ItemPhotos";
 import { LocationPhoto } from "@/components/stock/LocationPhoto";
 import { PhotoCapture } from "@/components/stock/PhotoCapture";
+import { ProductLinks } from "@/components/stock/ProductLinks";
 import { StockThumb } from "@/components/stock/StockThumb";
 import { cn } from "@/lib/cn";
 import { fetchHistory, fetchItem, newOperationKey, replaceItemPhoto, setArchived, storePhoto, undoMovement } from "@/domains/workshop-stock/client";
@@ -53,6 +55,15 @@ const EVENT_LABEL: Record<string, string> = {
   identifier_added: "Code added", identifier_removed: "Code removed", photo_changed: "Photo changed", verification_recorded: "Online check recorded",
 };
 
+/** A catalogue-history line in words (photo changes say which photo). */
+function eventLabel(event: string, detail: unknown): string {
+  const d = (detail && typeof detail === "object" ? detail : {}) as { slot?: string; to?: string | null; from?: string | null; added?: string; removed?: string; main?: string };
+  if (event === "photo_changed" && d.slot === "location") return d.to ? "Photo of where it lives changed" : "Photo of where it lives removed";
+  if (event === "photo_changed" && d.slot === "gallery") return d.added ? "Photo added" : d.removed ? "Photo removed" : d.main ? "Main photo chosen" : "Photo changed";
+  if (event === "photo_changed" && !d.from && d.to) return "Photo added";
+  return EVENT_LABEL[event] ?? event;
+}
+
 /**
  * The office view of one workshop item, ordered by use: what's recorded and
  * Correct the count first; then the movement history with its audited Undo
@@ -61,7 +72,7 @@ const EVENT_LABEL: Record<string, string> = {
  * and archive last and apart (P12: the destructive action never sits beside
  * routine ones). An archived item is read-only until it is restored.
  */
-export function StockItemDrawer({ itemId, lookupEnabled, locationPhotoEnabled = false, typesEnabled = false, labelOpenAtStart = false, onClose, onChanged }: { itemId: string; lookupEnabled: boolean; locationPhotoEnabled?: boolean; typesEnabled?: boolean; labelOpenAtStart?: boolean; onClose: () => void; onChanged: () => void }) {
+export function StockItemDrawer({ itemId, lookupEnabled, locationPhotoEnabled = false, typesEnabled = false, linksEnabled = false, morePhotosEnabled = false, labelOpenAtStart = false, onClose, onChanged }: { itemId: string; lookupEnabled: boolean; locationPhotoEnabled?: boolean; typesEnabled?: boolean; linksEnabled?: boolean; morePhotosEnabled?: boolean; labelOpenAtStart?: boolean; onClose: () => void; onChanged: () => void }) {
   const [detail, setDetail] = useState<ItemDetail | null>(null);
   const [older, setOlder] = useState<StockMovement[]>([]);
   const [next, setNext] = useState<{ before: string; beforeId: string } | null>(null);
@@ -213,6 +224,8 @@ export function StockItemDrawer({ itemId, lookupEnabled, locationPhotoEnabled = 
                   <StockThumb photoId={item.photoId} alt={item.name} size="lg" />
                   <p className="font-display text-[26px] font-semibold text-text" data-testid="stock-drawer-balance">{balanceLabel(item)}</p>
                 </div>
+                {morePhotosEnabled ? <ItemPhotos item={item} enabled onChanged={changed} /> : null}
+                <ProductLinks item={item} />
                 <p className="text-sm text-text-muted" data-testid="stock-drawer-archived-note">Counts, takes and edits are off while archived. Restore it (below) to change its details, codes, online check or photo.</p>
               </Section>
               <Section kicker="Movement history">{history}</Section>
@@ -250,6 +263,8 @@ export function StockItemDrawer({ itemId, lookupEnabled, locationPhotoEnabled = 
                     <p className="mt-1 text-xs text-text-muted">Recorded — not a guarantee of what&rsquo;s on the shelf.</p>
                   </div>
                 </div>
+                {morePhotosEnabled ? <ItemPhotos item={item} enabled manage onChanged={changed} /> : null}
+                <ProductLinks item={item} />
                 {item.locationPhotoId ? <LocationPhoto photoId={item.locationPhotoId} location={item.location} /> : null}
                 <dl className="grid grid-cols-2 gap-2 text-sm">
                   <div>
@@ -268,16 +283,16 @@ export function StockItemDrawer({ itemId, lookupEnabled, locationPhotoEnabled = 
               <Section kicker="Movement history">{history}</Section>
 
               <div>
-                <Fold label="Catalogue" sub="· details, codes and packs, online check, photo, history" open={catalogueOpen} onClick={() => setCatalogueOpen((o) => !o)} testId="stock-catalogue-toggle" />
+                <Fold label="Catalogue" sub={linksEnabled ? "· details and links, codes and packs, online check, photo, history" : "· details, codes and packs, online check, photo, history"} open={catalogueOpen} onClick={() => setCatalogueOpen((o) => !o)} testId="stock-catalogue-toggle" />
                 {catalogueOpen ? (
                   <div className="space-y-4 pt-3" data-testid="stock-catalogue">
                     <Section kicker="Details">
                       {/* keyed on the item, not its revision: a reload never wipes what the office is typing */}
-                      <EditForm key={item.id} item={item} unitLocked={unitLocked} typesEnabled={typesEnabled} onSaved={changed} />
+                      <EditForm key={item.id} item={item} unitLocked={unitLocked} typesEnabled={typesEnabled} linksEnabled={linksEnabled} onSaved={changed} />
                     </Section>
                     <Section kicker="Codes, barcodes and packs"><IdentifiersEditor item={item} onChanged={changed} /></Section>
                     <Section kicker="Online product check"><CheckSection item={item} lookupEnabled={lookupEnabled} onChanged={changed} /></Section>
-                    <Section kicker="Photo">
+                    <Section kicker={morePhotosEnabled ? "Main photo" : "Photo"}>
                       <div className="flex items-start gap-3">
                         <StockThumb photoId={item.photoId} alt={item.name} size="xl" />
                         <div className="min-w-0 flex-1">
@@ -306,7 +321,7 @@ export function StockItemDrawer({ itemId, lookupEnabled, locationPhotoEnabled = 
                         <ul className="divide-y divide-border text-sm">
                           {detail.events.map((e) => (
                             <li key={e.id} className="py-1.5">
-                              <span className="font-semibold text-text">{e.event === "photo_changed" && (e.detail as { slot?: string } | null)?.slot === "location" ? ((e.detail as { to?: string | null }).to ? "Photo of where it lives changed" : "Photo of where it lives removed") : EVENT_LABEL[e.event] ?? e.event}</span>
+                              <span className="font-semibold text-text">{eventLabel(e.event, e.detail)}</span>
                               <span className="text-text-muted"> · {e.actorName ?? "someone"} · {whenLabel(e.at)}{e.event === "updated" && e.detail && typeof e.detail === "object" && "changes" in e.detail ? ` (${Object.keys(e.detail.changes as Record<string, unknown>).join(", ")})` : ""}</span>
                             </li>
                           ))}

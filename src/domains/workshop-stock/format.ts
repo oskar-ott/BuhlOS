@@ -271,6 +271,18 @@ export function errorCopy(status: number, body: unknown, fallback = "That didn't
       return "That doesn't look like a product code. Check it against the label.";
     case "barcode_invalid":
       return "That barcode doesn't check out — leave it blank or re-read it.";
+    case "photos_full":
+      return "This item has all the photos it can take. The office can remove one first.";
+    case "only_photo":
+      return "That's the item's only photo — replace it instead of removing it.";
+    case "photo_not_on_item":
+      return "That photo isn't on this item any more. Reload to see its photos.";
+    case "photos_unavailable":
+      return "More photos per item aren't set up yet.";
+    case "link_invalid":
+      return "That doesn't look like a web link. Paste the page's address (https://…).";
+    case "links_unavailable":
+      return "Product links aren't set up yet.";
     case "office_only":
       return "Only the office can do that.";
     case "location_photo_exists":
@@ -407,4 +419,37 @@ export function verificationLine(item: Pick<StockItem, "verificationStatus" | "v
 export function movementWho(m: Pick<StockMovement, "actorId" | "actorName" | "createdAt" | "jobLabel">, viewerId?: string | null, now = Date.now()): string {
   const who = viewerId && m.actorId === viewerId ? "You" : m.actorName ?? "Someone";
   return [who, whenLabel(m.createdAt, now), m.jobLabel ? `note: ${m.jobLabel}` : null].filter(Boolean).join(" · ");
+}
+
+/** The site a link points at, as people say it: "rexel.com.au" (no "www."). */
+export function linkSite(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./i, "");
+  } catch {
+    return url;
+  }
+}
+
+export type ItemLink = { kind: "product" | "spec"; label: string; site: string; url: string };
+
+/**
+ * An item's product links, in reading order: the wholesaler's page, then the
+ * maker's spec page when there is one. Only http(s) links are ever shown.
+ */
+export function itemLinks(item: { productUrl?: string | null; specUrl?: string | null }): ItemLink[] {
+  const out: ItemLink[] = [];
+  const ok = (u: string | null | undefined): u is string => typeof u === "string" && /^https?:\/\//i.test(u);
+  if (ok(item.productUrl)) out.push({ kind: "product", label: "Wholesaler page", site: linkSite(item.productUrl), url: item.productUrl });
+  if (ok(item.specUrl)) out.push({ kind: "spec", label: "Maker’s specs", site: linkSite(item.specUrl), url: item.specUrl });
+  return out;
+}
+
+/** How many photos an item can carry besides its main one (the server's MAX_ITEM_PHOTOS). */
+export const MAX_ITEM_PHOTOS = 8;
+
+/** Every photo of an item, main first: what the gallery shows. */
+export function allPhotoIds(item: { photoId: string | null; photos?: Array<{ id: string }> | null }): string[] {
+  const out = item.photoId ? [item.photoId] : [];
+  for (const p of item.photos ?? []) if (!out.includes(p.id)) out.push(p.id);
+  return out;
 }

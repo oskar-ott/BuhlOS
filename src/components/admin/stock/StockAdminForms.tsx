@@ -138,11 +138,14 @@ type EditFields = {
   location: string; baseUnit: StockUnit; packUnit: PackUnit | ""; packSize: string;
   /** the type key ("" = not sorted) and its fields as one comparable string (stableSpecs) */
   category: string; specs: string;
+  /** the wholesaler page and the maker's spec page ("" = none) */
+  productUrl: string; specUrl: string;
 };
 
 const FIELD_NAME: Record<keyof EditFields, string> = {
   name: "Name", brand: "Brand", manufacturerCode: "Maker's code", supplierSku: "Supplier SKU", supplierName: "Supplier", variant: "Size / rating", colourFinish: "Colour / finish", location: "Shelf", baseUnit: "Counted in", packUnit: "Default pack", packSize: "Per pack",
   category: "Type", specs: "Type's fields",
+  productUrl: "Wholesaler page", specUrl: "Maker's spec page",
 };
 
 /** A type's fields as a string that compares equal when the values do (sorted keys, empty ones dropped). */
@@ -158,6 +161,7 @@ function fieldsOf(item: StockItem): EditFields {
     supplierName: item.supplierName ?? "", variant: item.variant ?? "", colourFinish: item.colourFinish ?? "", location: item.location ?? "",
     baseUnit: item.baseUnit, packUnit: (item.defaultPack?.unit ?? "") as PackUnit | "", packSize: item.defaultPack ? formatNumber(item.defaultPack.sizeMilli) : "",
     category: item.category ?? "", specs: stableSpecs(item.specs),
+    productUrl: item.productUrl ?? "", specUrl: item.specUrl ?? "",
   };
 }
 
@@ -172,7 +176,7 @@ function fieldsOf(item: StockItem): EditFields {
  * check ("Clipsal Iconic 2 gang switch" → Range Iconic, Gang 2 gang), and a
  * not-yet-sorted item says what it looks like, one click to use it.
  */
-export function EditForm({ item, unitLocked, typesEnabled = false, onSaved }: { item: StockItem; unitLocked: boolean; typesEnabled?: boolean; onSaved: (i: StockItem) => void }) {
+export function EditForm({ item, unitLocked, typesEnabled = false, linksEnabled = false, onSaved }: { item: StockItem; unitLocked: boolean; typesEnabled?: boolean; linksEnabled?: boolean; onSaved: (i: StockItem) => void }) {
   const [base, setBase] = useState<StockItem>(item);
   const [f, setF] = useState<EditFields>(() => fieldsOf(item));
   const [busy, setBusy] = useState(false);
@@ -229,6 +233,11 @@ export function EditForm({ item, unitLocked, typesEnabled = false, onSaved }: { 
       // a changed type drops the old type's fields; otherwise only what changed
       if (categoryChanged || f.specs !== stableSpecs(base.specs)) patch.specs = specsForType(f.category || null, parseSpecs(f.specs));
     }
+    if (linksEnabled) {
+      for (const k of ["productUrl", "specUrl"] as const) {
+        if (f[k].trim() !== (base[k] ?? "")) patch[k] = f[k].trim() || null;
+      }
+    }
     const r = await editItem(base.id, patch);
     setBusy(false);
     if (r.ok) {
@@ -246,6 +255,20 @@ export function EditForm({ item, unitLocked, typesEnabled = false, onSaved }: { 
     <label className={cn("block", full && "col-span-2")}>
       <span className={LABEL}>{FIELD_NAME[k]}</span>
       <input value={f[k] as string} onChange={set(k)} className={cn(INPUT, "mt-1", stale && f[k] !== baseFields[k] && "border-2 border-brand-navy")} data-testid={`stock-edit-${k}`} />
+    </label>
+  );
+  const link = (k: "productUrl" | "specUrl", hint: string) => (
+    <label className="block">
+      <span className={LABEL}>{FIELD_NAME[k]} <span className="font-normal">· {hint}</span></span>
+      <input
+        value={f[k]}
+        onChange={set(k)}
+        type="url"
+        inputMode="url"
+        placeholder="https://…"
+        className={cn(INPUT, "mt-1", stale && f[k] !== baseFields[k] && "border-2 border-brand-navy")}
+        data-testid={`stock-edit-${k}`}
+      />
     </label>
   );
   return (
@@ -281,6 +304,13 @@ export function EditForm({ item, unitLocked, typesEnabled = false, onSaved }: { 
         </label>
         {text("supplierSku")}
         {text("supplierName")}
+        {linksEnabled ? (
+          <div className="col-span-2 space-y-2 rounded-[4px] border border-border bg-surface-subtle p-2.5" data-testid="stock-edit-links">
+            {link("productUrl", "the item's page at your wholesaler — paste it from the browser")}
+            {link("specUrl", "the maker's own product or spec sheet page, if there is one")}
+            <p className="text-xs text-text-muted">The online check fills these when it finds the pages; it never replaces one set here. Leave blank for none.</p>
+          </div>
+        ) : null}
       </div>
       <div>
         <span className={LABEL}>Counted in</span>
