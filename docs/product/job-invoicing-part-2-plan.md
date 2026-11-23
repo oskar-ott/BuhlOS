@@ -274,7 +274,8 @@ run**:
    on Xero's invoice template.
 
 The migration needs the owner's approval for dev and for production, as
-before. Nothing here calls Xero until an invoice is sent.
+before. **Done 2026-11-23: applied to both.** Nothing here calls Xero until an
+invoice is sent.
 
 ## 9. Not in this build
 

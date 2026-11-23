@@ -490,8 +490,10 @@ All of it sits behind the same `customer_invoices` flag and on the same
 "Getting paid" card. **A stage invoice is unchanged: one line and its amount.**
 Proven against a stand-in for Xero and a local Postgres only. **Never run
 against real Xero; never used on a real job.** Its migration
-(`20261125100000_customer_invoices_itemised_and_variations.sql`) is applied
-nowhere yet.
+(`20261125100000_customer_invoices_itemised_and_variations.sql`) is applied to
+the dev Supabase project and to production (2026-11-23, owner-approved each
+time). What landed was checked against the file character for character; the
+two new tables are empty.
 
 ### Itemised invoices (#1161)
 
