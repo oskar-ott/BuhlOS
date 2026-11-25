@@ -27,7 +27,7 @@ job page.
 | Add from the job's hours and materials, markup, usual charges | [#1162](https://github.com/oskar-ott/BuhlOS/issues/1162) | **Built, dark** behind `customer_invoices`. Never used on a real job |
 | Variations | [#1163](https://github.com/oskar-ott/BuhlOS/issues/1163) | **Built, dark** behind `customer_invoices`. Never used on a real job |
 | Payment-claim wording | [#1164](https://github.com/oskar-ott/BuhlOS/issues/1164) | **Built, dark** behind `customer_invoices`, and off per job by default. **Never run against real Xero** |
-| An invoice with no job | [#1166](https://github.com/oskar-ott/BuhlOS/issues/1166) | **Built, dark** behind `customer_invoices`. Proven against a stand-in for Xero only — **never run against real Xero**. Its migration is applied nowhere yet |
+| An invoice with no job | [#1166](https://github.com/oskar-ott/BuhlOS/issues/1166) | **Built, dark** behind `customer_invoices`. Proven against a stand-in for Xero only — **never run against real Xero**. Its migration is applied to dev and production (2026-11-25) |
 
 Each part updates its own row, and adds its section below, in the PR that
 builds it. Nothing in this document describes behaviour that is not merged.
@@ -666,7 +666,9 @@ Research and plan: [product/job-invoicing-no-job-plan.md](product/job-invoicing-
 Behind the same `customer_invoices` flag. Proven against a stand-in for Xero
 and a local Postgres only. **Never run against real Xero; never used by the
 office.** Its migration (`20261126100000_customer_invoices_no_job.sql`) is
-applied nowhere yet.
+applied to the dev Supabase project and to production (2026-11-25,
+owner-approved each time). What landed was checked against the file character
+for character; the invoice table is still empty.
 
 **The pull (owner, 2026-11-25):** on builder work the money is released
 monthly against the builder's payment schedule (Payapps and the like), and one
@@ -764,13 +766,14 @@ The number needs no change: `seq` is already unique per
 
 ### Turning it on
 
-1. Apply `20261126100000_customer_invoices_no_job.sql` to dev, then
-   production. Owner-approved each time. **The migration goes first, before
-   this code is live:** the store writes the three new columns for every
-   invoice it saves, so with the flag on and the migration missing, adding or
-   editing any invoice, on a job or not, fails. The columns are additive and
-   nullable, so applying them ahead of the code changes nothing for the code
-   already running.
+1. **Done 2026-11-25.** `20261126100000_customer_invoices_no_job.sql` is
+   applied to dev and to production, owner-approved each time, ahead of the
+   code. On a new environment **the migration goes first, before this code is
+   live:** the store writes the three new columns for every invoice it saves,
+   so with the flag on and the migration missing, adding or editing any
+   invoice, on a job or not, fails. The columns are additive and nullable, so
+   applying them ahead of the code changes nothing for the code already
+   running.
 2. Nothing new to switch: it is the existing **Customer stage invoices**.
 
 ### Not yet confirmed against real Xero

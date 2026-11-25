@@ -57,8 +57,9 @@ then shows beside the job invoices.
 
 ## 4. Before it can be used
 
-1. The migration `20261126100000_customer_invoices_no_job.sql` on dev, then
-   production (owner-approved each time), **before** the code that needs it is
+1. **Done 2026-11-25.** The migration
+   `20261126100000_customer_invoices_no_job.sql` is on dev and production
+   (owner-approved each time), applied **before** the code that needs it went
    live with the flag on.
 2. The proving run on a test Xero organisation still owed for the whole
    feature, now including one invoice with no job.
