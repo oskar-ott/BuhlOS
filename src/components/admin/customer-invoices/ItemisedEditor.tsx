@@ -17,9 +17,10 @@ import {
   marginOf,
   type ItemDraft,
 } from "@/domains/customer-invoices/itemised";
-import type { BillableResponse, JobInvoicingResponse, Stage } from "@/domains/customer-invoices/schema";
+import type { BillableResponse, JobInvoicingResponse, Stage, XeroContact } from "@/domains/customer-invoices/schema";
 import { portionCents } from "./StageEditor";
 import { AddFromJob, type AddFromJobTab } from "./AddFromJob";
+import { XeroContactSearch } from "./XeroClientLine";
 
 const INPUT =
   "h-10 w-full rounded-card border border-border bg-surface px-3 text-sm text-text focus:outline-none focus:ring-2 focus:ring-brand-navy disabled:bg-surface-subtle disabled:text-text-muted";
@@ -50,24 +51,43 @@ export function sourceCaption(d: ItemDraft, amountCents: number | null): string 
  *
  * The total is live. The cost and margin underneath are for the office only:
  * the box says so, and they are never sent to Xero.
+ *
+ * With `noJob` (#1166) it edits an invoice that is NOT tied to a job: the
+ * client is chosen here, from the connected Xero organisation's contacts, and
+ * every line is typed — there is no job to pull hours or materials from.
  */
 export function ItemisedEditor({
   jobId,
   jobRetentionBp,
   stage,
+  noJob,
   onClose,
   onSaved,
   onStale,
+  searchContacts,
 }: {
   jobId: string;
   jobRetentionBp: number;
   /** null = a new invoice. */
   stage: Stage | null;
+  /** Set for an invoice with no job. `canChoose` is false while Xero isn't
+   *  connected with permission for invoices: there is nothing to search. */
+  noJob?: { organisationName: string | null; canChoose: boolean };
   onClose: () => void;
   onSaved: (next: JobInvoicingResponse) => void;
   onStale: () => Promise<void> | void;
+  /** Injectable for tests (the contact search). */
+  searchContacts?: Parameters<typeof XeroContactSearch>[0]["search"];
 }) {
   const [title, setTitle] = useState(stage?.title ?? "");
+  // The client chosen on an invoice with no job. A client picked in another
+  // Xero organisation is not carried over: it has to be chosen again.
+  const [client, setClient] = useState<{ id: string; name: string } | null>(() =>
+    stage?.clientContactId && stage.clientContactName && !stage.clientOtherOrganisation
+      ? { id: stage.clientContactId, name: stage.clientContactName }
+      : null
+  );
+  const [picking, setPicking] = useState(false);
   const [rows, setRows] = useState<ItemDraft[]>(() =>
     stage?.items && stage.items.length > 0 ? draftsFromItems(stage.items) : [blankLine()]
   );
@@ -124,7 +144,10 @@ export function ItemisedEditor({
     }
     setBusy(true);
     setProblem(null);
-    const res = stage ? await editItemised(stage.id, built.input, stage.version) : await addItemised(jobId, built.input);
+    // Only an invoice with no job says who it is for; a job's invoice uses
+    // the job's linked client and never sends one.
+    const input = noJob ? { ...built.input, contactId: client ? client.id : null } : built.input;
+    const res = stage ? await editItemised(stage.id, input, stage.version) : await addItemised(jobId, input);
     setBusy(false);
     if (res.ok) {
       onSaved(res.data);
@@ -145,7 +168,7 @@ export function ItemisedEditor({
     <Modal
       open
       onClose={busy ? () => {} : onClose}
-      title={stage ? "Edit itemised invoice" : "Add an itemised invoice"}
+      title={noJob ? (stage ? "Edit invoice" : "New invoice") : stage ? "Edit itemised invoice" : "Add an itemised invoice"}
       className="max-h-[92vh] max-w-4xl overflow-y-auto p-4 sm:p-6"
     >
       <form
@@ -156,9 +179,57 @@ export function ItemisedEditor({
         }}
         data-testid="itemised-editor"
       >
+        {noJob ? (
+          <div data-testid="itemised-client">
+            <p className={LABEL}>Who is it for?</p>
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <span className={client ? "text-sm text-text" : "text-sm text-text-muted"} data-testid="itemised-client-name">
+                {client ? client.name : "No client chosen yet"}
+              </span>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => {
+                  setProblem(null);
+                  setPicking(true);
+                }}
+                disabled={busy || !noJob.canChoose}
+                data-testid="itemised-choose-client"
+              >
+                {client ? "Change client" : "Choose client"}
+              </Button>
+            </div>
+            <p className="mt-1 text-xs text-text-muted">
+              {noJob.canChoose
+                ? "Chosen from your Xero contacts. You can save without one and choose it before sending."
+                : "Xero isn't connected for invoices, so there are no contacts to choose from yet. You can save the invoice and choose the client later."}
+            </p>
+            {picking ? (
+              <div className="mt-2 grid gap-3 rounded-card border border-border p-3" data-testid="itemised-client-search">
+                <XeroContactSearch
+                  initialQuery=""
+                  organisationName={noJob.organisationName}
+                  busy={busy}
+                  pickLabel="Choose"
+                  onPick={(contact: XeroContact) => {
+                    setClient({ id: contact.id, name: contact.name });
+                    setPicking(false);
+                  }}
+                  {...(searchContacts ? { search: searchContacts } : {})}
+                />
+                <div className="flex justify-end">
+                  <Button size="sm" variant="ghost" onClick={() => setPicking(false)} disabled={busy}>
+                    Close search
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
         <div>
           <label htmlFor="itemised-title" className={LABEL}>
-            What was the work?
+            {noJob ? "What is this invoice for?" : "What was the work?"}
           </label>
           <input
             id="itemised-title"
@@ -168,12 +239,14 @@ export function ItemisedEditor({
               setTitle(e.target.value);
               setProblem(null);
             }}
-            placeholder="e.g. Replace switchboard and test"
+            placeholder={noJob ? "e.g. Progress claim, November 2026" : "e.g. Replace switchboard and test"}
             maxLength={200}
             disabled={busy}
           />
           <p className="mt-1 text-xs text-text-muted">
-            This heads the invoice, with the job&rsquo;s name and address under it.
+            {noJob
+              ? "This heads the invoice. It is also the invoice's reference in Xero unless you type another when you send it."
+              : "This heads the invoice, with the job\u2019s name and address under it."}
           </p>
         </div>
 
@@ -321,14 +394,16 @@ export function ItemisedEditor({
               >
                 Add a note
               </Button>
-              <Button
-                size="sm"
-                onClick={() => void openAdd(adding ?? "hours")}
-                disabled={busy}
-                data-testid="itemised-add-from-job"
-              >
-                Add from this job
-              </Button>
+              {noJob ? null : (
+                <Button
+                  size="sm"
+                  onClick={() => void openAdd(adding ?? "hours")}
+                  disabled={busy}
+                  data-testid="itemised-add-from-job"
+                >
+                  Add from this job
+                </Button>
+              )}
             </div>
           ) : (
             <p className="mt-2 text-xs text-text-muted">An invoice can have up to {MAX_ITEMS} lines.</p>
@@ -435,6 +510,7 @@ export function ItemisedEditor({
           </Button>
         </div>
       </form>
+
     </Modal>
   );
 }

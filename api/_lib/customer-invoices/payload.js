@@ -20,6 +20,7 @@
 
 const crypto = require('crypto');
 const { computeStage, isCents, itemsOf } = require('./amounts');
+const { isNoJob, numberFor: noJobNumberFor } = require('./no-job');
 
 const MAX_REFERENCE = 255;
 const MAX_DESCRIPTION = 4000;
@@ -97,8 +98,11 @@ function linesOf({ stage, job, baseCents, retentionBp, retentionCents, footer })
 }
 
 function chargeLines({ stage, job, baseCents, retentionBp, retentionCents }) {
-  const where = [job.name || job.id, typeof job.siteAddress === 'string' && job.siteAddress.trim() ? job.siteAddress.trim() : null]
-    .filter(Boolean).join(', ');
+  // A no-job invoice (#1166) has no job name or address to print.
+  const where = job.noJob
+    ? ''
+    : [job.name || job.id, typeof job.siteAddress === 'string' && job.siteAddress.trim() ? job.siteAddress.trim() : null]
+      .filter(Boolean).join(', ');
   if (stage.kind === 'itemised') return itemisedLines({ stage, where, retentionBp, retentionCents });
   const headline =
     stage.kind !== 'retention_release' && stage.basis === 'percent' && Number.isInteger(stage.percentBp)
@@ -121,7 +125,8 @@ function chargeLines({ stage, job, baseCents, retentionBp, retentionCents }) {
  * Cost, markup and what job data a line bills never leave BuhlOS.
  */
 function itemisedLines({ stage, where, retentionBp, retentionCents }) {
-  const lines = [{ description: `${stage.title}\n${where}`.slice(0, MAX_DESCRIPTION), amountCents: 0, note: true }];
+  const heading = where ? `${stage.title}\n${where}` : String(stage.title);
+  const lines = [{ description: heading.slice(0, MAX_DESCRIPTION), amountCents: 0, note: true }];
   for (const it of itemsOf(stage)) {
     if (it.type === 'note') {
       lines.push({ description: String(it.description).slice(0, MAX_DESCRIPTION), amountCents: 0, note: true });
@@ -213,11 +218,14 @@ function blockersFor(ctx) {
   if (!stage || stage.state !== 'planned') out.push({ code: 'not_planned' });
   if (!ready || ready.state !== 'connected') out.push({ code: 'xero_not_ready', state: ready ? ready.state : 'unavailable' });
   if (!ctx.settingsComplete) out.push({ code: 'settings_incomplete' });
-  if (!profile || !profile.xeroContactId) out.push({ code: 'no_client_link' });
+  const noJob = !!(job && job.noJob);
+  // A job's client is linked on the job; a no-job invoice's is chosen on it.
+  if (!profile || !profile.xeroContactId) out.push({ code: noJob ? 'no_client_chosen' : 'no_client_link' });
   else if (ready && ready.externalTenantId && profile.externalTenantId !== ready.externalTenantId) {
-    out.push({ code: 'client_other_organisation' });
+    out.push({ code: noJob ? 'client_chosen_other_organisation' : 'client_other_organisation' });
   }
-  if (!job || typeof job.code !== 'string' || !JOB_CODE.test(job.code)) out.push({ code: 'no_job_code' });
+  // A no-job invoice is numbered from its own series, not from a job number.
+  if (!noJob && (!job || typeof job.code !== 'string' || !JOB_CODE.test(job.code))) out.push({ code: 'no_job_code' });
   if (stage) {
     const c = computeStage(stage, { contractCents: ctx.contractCents, retentionBp: profile ? profile.retentionBp : 0 });
     if (c.grossCents == null) {
@@ -247,7 +255,8 @@ function composeInvoice(ctx) {
 
   const invoiceDate = ctx.invoiceDate;
   const dueDate = addDays(invoiceDate, settings.paymentTermsDays);
-  const fallbackRef = [job.code, job.name || job.id].filter(Boolean).join(' ');
+  // No job: the reference is what the invoice is for, unless one is typed.
+  const fallbackRef = job.noJob ? String(stage.title || '') : [job.code, job.name || job.id].filter(Boolean).join(' ');
   const reference = String(ctx.reference == null || String(ctx.reference).trim() === '' ? fallbackRef : ctx.reference)
     .trim().slice(0, MAX_REFERENCE);
 
@@ -334,9 +343,17 @@ function idempotencyKey(invoiceId, hash) {
   return sha256(`customer-invoice:${invoiceId}:${hash}`);
 }
 
-/** Where the job lives in BuhlOS — shown in Xero as "Go to BuhlOS". */
+/** Where the invoice lives in BuhlOS — shown in Xero as "Go to BuhlOS": the
+ *  job, or the Getting paid page for an invoice with no job (#1166). */
 function jobUrl(appBaseUrl, jobId) {
-  return appBaseUrl ? `${appBaseUrl}/v2/jobs/${encodeURIComponent(jobId)}` : null;
+  if (!appBaseUrl) return null;
+  return isNoJob(jobId) ? `${appBaseUrl}/getting-paid` : `${appBaseUrl}/v2/jobs/${encodeURIComponent(jobId)}`;
+}
+
+/** The number an invoice would be sent under: the job number plus the stage,
+ *  or the next of the no-job series. */
+function numberOf(job, seq) {
+  return job && job.noJob ? noJobNumberFor(seq) : invoiceNumberFor(job.code, seq);
 }
 
 /** First invoice in a Xero response (create, single GET, or list). */
@@ -413,6 +430,7 @@ function isNumberTaken(detail) {
 module.exports = {
   MAX_REFERENCE,
   invoiceNumberFor,
+  numberOf,
   addDays,
   dollars,
   centsFromXero,

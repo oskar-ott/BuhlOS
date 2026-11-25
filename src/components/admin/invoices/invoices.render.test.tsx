@@ -44,6 +44,7 @@ describe("nav — the Invoices item is flag-gated", () => {
     expect(item?.countKey).toBeUndefined();
     const hidden = visibleNavGroups(["/invoices"]);
     expect(hidden.flatMap((g) => g.items).some((i) => i.href === "/invoices")).toBe(false);
-    expect(hidden.find((g) => g.heading === "Jobs")?.items.map((i) => i.href)).toEqual(["/v2/jobs"]);
+    // "/getting-paid" (invoices with no job, #1166) has its own flag and its own test.
+    expect(hidden.find((g) => g.heading === "Jobs")?.items.map((i) => i.href)).toEqual(["/v2/jobs", "/getting-paid"]);
   });
 });

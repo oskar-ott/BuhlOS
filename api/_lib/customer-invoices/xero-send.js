@@ -31,6 +31,7 @@ const lookups = require('./xero-lookups');
 const defaultStore = require('./store');
 const { contractCentsOf, jobTotals } = require('./amounts');
 const P = require('./payload');
+const noJob = require('./no-job');
 
 // Xero answered and created nothing → the stage is `failed` (safe to fix and resend).
 const DEFINITE = new Set([
@@ -57,11 +58,15 @@ function sydneyToday(now = new Date()) {
   }).format(now);
 }
 
-/** Everything a send decision is made from — stored rows only, no Xero call. */
-async function loadContext(d, tenantId, job) {
+/**
+ * Everything a send decision is made from — stored rows only, no Xero call.
+ * A no-job invoice (#1166) has no job profile: its client is the one chosen
+ * on the invoice, it holds no retention and carries no payment-claim wording.
+ */
+async function loadContext(d, tenantId, job, invoice) {
   const ready = await d.lookups.readiness({ sql: d.sql, env: d.env });
   const [profile, settings] = await Promise.all([
-    d.store.getProfile(d.sql, tenantId, job.id),
+    job.noJob ? noJob.profileOf(invoice) : d.store.getProfile(d.sql, tenantId, job.id),
     d.store.getSettings(d.sql, tenantId, ready.externalTenantId),
   ]);
   const contractCents = contractCentsOf(job.contractValue);
@@ -110,10 +115,10 @@ function presentable(composed, settings, invoiceNumber, ctx) {
  */
 async function preview({ tenant, invoice, job, options = {}, deps }) {
   const d = depsOf(deps);
-  const ctx = await loadContext(d, tenant.id, job);
+  const ctx = await loadContext(d, tenant.id, job, invoice);
   const blockers = P.blockersFor({ stage: invoice, job, profile: ctx.profile, settings: ctx.settings, ready: ctx.ready, settingsComplete: ctx.settingsComplete, contractCents: ctx.contractCents });
   let shown = null;
-  if (ctx.settingsComplete && typeof job.code === 'string') {
+  if (ctx.settingsComplete && (job.noJob || typeof job.code === 'string')) {
     const composed = P.composeInvoice({
       stage: invoice, job, profile: ctx.profile || { retentionBp: 0 }, settings: ctx.settings,
       contractCents: ctx.contractCents, claim: ctx.claim,
@@ -121,7 +126,7 @@ async function preview({ tenant, invoice, job, options = {}, deps }) {
     });
     if (composed) {
       const seq = await d.store.peekNextSeq(d.sql, tenant.id, job.id);
-      shown = presentable(composed, ctx.settings, P.invoiceNumberFor(job.code, seq), ctx);
+      shown = presentable(composed, ctx.settings, P.numberOf(job, seq), ctx);
     }
   }
   return { blockers, invoice: shown };
@@ -250,7 +255,7 @@ async function settleError(d, tenant, row, attempt, err, { actor }) {
  */
 async function send({ tenant, invoice, job, options = {}, actor, deps }) {
   const d = depsOf(deps);
-  const ctx = await loadContext(d, tenant.id, job);
+  const ctx = await loadContext(d, tenant.id, job, invoice);
   const blockers = P.blockersFor({ stage: invoice, job, profile: ctx.profile, settings: ctx.settings, ready: ctx.ready, settingsComplete: ctx.settingsComplete, contractCents: ctx.contractCents });
   if (blockers.length) return { outcome: 'blocked', blockers };
 
@@ -265,6 +270,8 @@ async function send({ tenant, invoice, job, options = {}, actor, deps }) {
   // A second request loses here (StoreConflict) before anything reaches Xero.
   const row = await d.store.beginSend(d.sql, tenant.id, invoice.id, {
     jobCode: job.code,
+    // a no-job invoice is numbered from its own series (#1166)
+    numberFor: job.noJob ? noJob.numberFor : null,
     grossCents: composed.grossCents,
     retentionBp: composed.retentionBp,
     retentionCents: composed.retentionCents,
@@ -350,7 +357,7 @@ async function adopt(d, tenant, row, composed, got, { actor }) {
  */
 async function retry({ tenant, invoice, job, actor, deps }) {
   const d = depsOf(deps);
-  const ctx = await loadContext(d, tenant.id, job);
+  const ctx = await loadContext(d, tenant.id, job, invoice);
   const blockers = resolvable(invoice, ctx);
   if (!blockers.length && !ctx.settingsComplete) blockers.push({ code: 'settings_incomplete' });
   if (blockers.length) return { outcome: 'blocked', blockers };
@@ -371,7 +378,7 @@ async function retry({ tenant, invoice, job, actor, deps }) {
  */
 async function reset({ tenant, invoice, job, actor, deps }) {
   const d = depsOf(deps);
-  const ctx = await loadContext(d, tenant.id, job);
+  const ctx = await loadContext(d, tenant.id, job, invoice);
   const blockers = resolvable(invoice, ctx);
   if (blockers.length) return { outcome: 'blocked', blockers };
   const composed = P.composeFromSnapshot(invoice, job);

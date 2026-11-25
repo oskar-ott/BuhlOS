@@ -67,6 +67,7 @@ const APPROVED_ADMIN_HREFS = new Set([
   '/employees',
   '/v2/jobs', // transitional — live admin Jobs index; -> /admin/jobs later
   '/invoices', // supplier-invoice capture inbox (invoice_capture, dark) — nav item hides while the flag is off
+  '/getting-paid', // invoices to clients with no job (#1166, customer_invoices, dark) — nav item hides while the flag is off
   '/stock', // Workshop Stock office view (workshop_stock, dark) — nav item hides while the flag is off
   '/settings', // #222 — the v2 settings hub (hours policy + job types); sidebar FOOTER link (not a nav group)
   '/settings/notifications', // #218 — notification prefs; sidebar FOOTER link (not a nav group), reached from the #222 hub

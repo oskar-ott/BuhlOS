@@ -78,7 +78,21 @@ export function createMemoryStore() {
     lastCheckedAt: null, replacedById: null,
     // part 2: an itemised invoice's lines, and wording frozen at send
     items: [] as unknown[], sentFooter: null,
+    // #1166: the client chosen ON an invoice with no job
+    clientContactId: null as string | null, clientContactName: null as string | null,
+    clientExternalTenantId: null as string | null,
   };
+  /** What the real store writes for `s.client`: three columns, all or none. */
+  function withClient(s: Record<string, unknown>): Record<string, unknown> {
+    const { client, ...rest } = s as { client?: { id?: string; name?: string; externalTenantId?: string } | null };
+    const whole = !!(client && client.id && client.name && client.externalTenantId);
+    return {
+      ...rest,
+      clientContactId: whole ? client!.id : null,
+      clientContactName: whole ? client!.name : null,
+      clientExternalTenantId: whole ? client!.externalTenantId : null,
+    };
+  }
   function guard(id: string, expectedVersion: number): Row {
     const r = rows.find((x) => x.id === id);
     if (!r) throw new StoreConflict("not_found");
@@ -162,14 +176,14 @@ export function createMemoryStore() {
     },
     async createStage(_sql: unknown, _t: string, jobId: string, s0: Record<string, unknown> | null, _actor?: unknown, opts: Hooks = {}) {
       // `prepare` runs where the real store holds the job's lock.
-      const s = opts.prepare ? await opts.prepare(null) : (s0 as Record<string, unknown>);
+      const s = withClient(opts.prepare ? await opts.prepare(null) : (s0 as Record<string, unknown>));
       const r = { ...blank, ...clone(s), id: uuid(), jobId, state: "planned", version: 1 } as Row;
       rows.push(r);
       events.push({ event: "created", jobId, invoiceId: r.id });
       return clone(r);
     },
     async updateStage(_sql: unknown, _t: string, id: string, s0: Record<string, unknown> | null, o: { expectedVersion: number } & Hooks) {
-      const s = o.prepare ? await o.prepare(null) : (s0 as Record<string, unknown>);
+      const s = withClient(o.prepare ? await o.prepare(null) : (s0 as Record<string, unknown>));
       const r = guard(id, o.expectedVersion);
       Object.assign(r, { items: [] }, clone(s), { version: r.version + 1 });
       events.push({ event: "edited", jobId: r.jobId, invoiceId: r.id });
@@ -192,13 +206,14 @@ export function createMemoryStore() {
     async peekNextSeq(_sql: unknown, _t: string, jobId: string) {
       return Math.max(0, ...rows.filter((r) => r.jobId === jobId).map((r) => Number(r.seq) || 0)) + 1;
     },
-    async beginSend(_sql: unknown, _t: string, id: string, snap: Record<string, unknown> & { jobCode: string; build: (n: string) => string }, o: { expectedVersion: number; actor?: { name?: string } }) {
+    async beginSend(_sql: unknown, _t: string, id: string, snap: Record<string, unknown> & { jobCode: string | null; numberFor?: ((seq: number) => string) | null; build: (n: string) => string }, o: { expectedVersion: number; actor?: { name?: string } }) {
       const r = guard(id, o.expectedVersion);
       const seq = Math.max(0, ...rows.filter((x) => x.jobId === r.jobId).map((x) => Number(x.seq) || 0)) + 1;
-      const invoiceNumber = `${snap.jobCode}-${seq}`;
+      const invoiceNumber = typeof snap.numberFor === "function" ? snap.numberFor(seq) : `${snap.jobCode}-${seq}`;
       if (rows.some((x) => x.invoiceNumber === invoiceNumber)) throw new StoreConflict("number_clash");
-      const { jobCode: _code, build, footer, ...frozen } = snap;
+      const { jobCode: _code, numberFor: _numberFor, build, footer, ...frozen } = snap;
       void _code;
+      void _numberFor;
       Object.assign(r, frozen, {
         sentFooter: footer ?? null,
         state: "sending", seq, invoiceNumber, contentHash: build(invoiceNumber),
@@ -241,9 +256,13 @@ export function createMemoryStore() {
       const r = rows.find((x) => x.id === id);
       if (!r) throw new StoreConflict("not_found");
       if (!(r.state === "sending" || r.state === "failed") || r.xeroInvoiceId) throw new StoreConflict("not_resettable");
+      // The real UPDATE clears the send snapshot only: the invoice's own
+      // lines and (for an invoice with no job) its chosen client stay.
+      const { items, clientContactId, clientContactName, clientExternalTenantId } = r;
       Object.assign(r, {
         ...blank, state: "planned", contentHash: null, externalTenantId: null, xeroContactId: null, xeroContactName: null,
         invoiceDate: null, reference: null, failureCategory: null, failureDetail: null, version: r.version + 1,
+        items, clientContactId, clientContactName, clientExternalTenantId,
       });
       events.push({ event: "edited", jobId: r.jobId, invoiceId: r.id });
       return clone(r);
@@ -371,6 +390,8 @@ export function createMemoryStore() {
         ...blank, id: uuid(), jobId: r.jobId, kind: r.kind, title: r.title, basis: r.basis, percentBp: r.percentBp,
         amountCents: r.amountCents, extraLines: clone(r.extraLines), items: clone(r.items ?? []), retentionBp: null, plannedDate: r.plannedDate ?? null,
         note: r.note ?? null, state: "planned", version: 1,
+        clientContactId: r.clientContactId ?? null, clientContactName: r.clientContactName ?? null,
+        clientExternalTenantId: r.clientExternalTenantId ?? null,
       } as Row;
       rows.push(fresh);
       r.replacedById = fresh.id;
@@ -389,6 +410,8 @@ export function createMemoryStore() {
         ...blank, id: uuid(), jobId: r.jobId, kind: r.kind, title: r.title, basis: r.basis, percentBp: r.percentBp,
         amountCents: r.amountCents, extraLines: clone(r.extraLines), items: clone(r.items ?? []), retentionBp: null, plannedDate: r.plannedDate ?? null,
         note: r.note ?? null, state: "planned", version: 1,
+        clientContactId: r.clientContactId ?? null, clientContactName: r.clientContactName ?? null,
+        clientExternalTenantId: r.clientExternalTenantId ?? null,
       } as Row;
       rows.push(fresh);
       events.push({ event: "raised_again", jobId: r.jobId, invoiceId: r.id });

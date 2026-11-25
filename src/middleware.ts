@@ -38,6 +38,9 @@ const PROTECTED: ReadonlyArray<{ prefix: string; surface: Surface }> = [
   // Supplier-invoice capture (invoice_capture, dark): office money surface —
   // admin tier; the page + api/invoices additionally 404 while the flag is off.
   { prefix: "/invoices", surface: "admin" },
+  // Invoices to clients with no job (#1166, customer_invoices, dark): office
+  // money surface — admin tier; the page + api 404 while the flag is off.
+  { prefix: "/getting-paid", surface: "admin" },
   // Workshop Stock (workshop_stock, dark): the office view is admin tier; the
   // field view is /phil/stock below. Page + api/workshop-stock 404 while off.
   { prefix: "/stock", surface: "admin" },
@@ -136,6 +139,7 @@ export const config = {
     "/hours/:path*",
     "/gear/:path*",
     "/invoices/:path*",
+    "/getting-paid/:path*",
     "/stock/:path*",
     "/employees/:path*",
     "/observations/:path*",

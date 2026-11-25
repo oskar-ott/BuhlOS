@@ -26,6 +26,7 @@ describe("NAV_GROUPS / ALL_ITEMS (#215 shared source)", () => {
       "/command-centre",
       "/v2/jobs",
       "/invoices", // supplier-invoice capture — flag-gated (invoice_capture), hidden while off
+      "/getting-paid", // invoices with no job (#1166) — flag-gated (customer_invoices), hidden while off
       "/hours",
       "/employees",
       "/gear",
