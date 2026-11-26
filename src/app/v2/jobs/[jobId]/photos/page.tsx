@@ -120,6 +120,9 @@ export default async function AdminJobPhotosPage({ params }: PageParams) {
       message: catalogResult.error,
     });
   }
+  if (catalogResult.itpError) {
+    sourceErrors.push({ label: "ITP report", message: catalogResult.itpError });
+  }
 
   return (
     <AdminShell
@@ -234,7 +237,7 @@ async function loadEvidence(
 async function loadCatalog(
   cookieValue: string | undefined,
   jobId: string,
-): Promise<{ photos: PhotoCatalogEntry[]; error: string | null }> {
+): Promise<{ photos: PhotoCatalogEntry[]; error: string | null; itpError: string | null }> {
   const base = await apiBase();
   try {
     const res = await fetch(
@@ -245,14 +248,18 @@ async function loadCatalog(
       },
     );
     if (!res.ok) {
-      return { photos: [], error: `Catalog API returned ${res.status}` };
+      return { photos: [], error: `Catalog API returned ${res.status}`, itpError: null };
     }
     const parsed = PhotoCatalogResponseSchema.safeParse(await res.json());
     if (!parsed.success) {
-      return { photos: [], error: "Unexpected catalog response shape" };
+      return { photos: [], error: "Unexpected catalog response shape", itpError: null };
     }
-    return { photos: parsed.data.photos, error: null };
+    return { photos: parsed.data.photos, error: null, itpError: parsed.data.itpError ?? null };
   } catch (err) {
-    return { photos: [], error: err instanceof Error ? err.message : "Network error" };
+    return {
+      photos: [],
+      error: err instanceof Error ? err.message : "Network error",
+      itpError: null,
+    };
   }
 }
