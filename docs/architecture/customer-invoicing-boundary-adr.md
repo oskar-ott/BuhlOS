@@ -143,6 +143,25 @@ once it exists. Five rules are added to the ones above.
 No new Xero scope, endpoint or write is introduced. The one write remains the
 create-only draft invoice.
 
+### Addendum, 2026-11-25: an invoice with no job ([#1166])
+
+Owner pull, 2026-11-25: on builder work the money is released monthly, and one
+invoice is raised for it that belongs to no single job.
+
+18. **An invoice may belong to no job; nothing else about it changes.** It is
+    an itemised invoice kept in a reserved ledger (`job_legacy_id = '~no-job'`,
+    an id a job can never have). Its client is chosen on the invoice and
+    confirmed against Xero, by the same rule as a job's client (rule 8: only
+    the contact id is sent, and the stored name is Xero's). It is numbered by
+    BuhlOS from its own series (`GEN-0001`), never by Xero and never from a job
+    number, so the look-up before any retry works exactly as it does for a
+    job's invoice. Its lines are typed: with no job there is no job data to
+    bill. It is created as a draft, once, read back and compared, and its
+    status is read back like any other. It does not count toward any job's
+    figures.
+
+No new Xero scope, endpoint or write is introduced.
+
 ## Alternatives considered
 
 - **Keep ServiceM8 for invoicing.** Rejected by the owner: it is the only
@@ -170,3 +189,4 @@ create-only draft invoice.
 [#1152]: https://github.com/oskar-ott/BuhlOS/issues/1152
 [#1161]: https://github.com/oskar-ott/BuhlOS/issues/1161
 [#1164]: https://github.com/oskar-ott/BuhlOS/issues/1164
+[#1166]: https://github.com/oskar-ott/BuhlOS/issues/1166

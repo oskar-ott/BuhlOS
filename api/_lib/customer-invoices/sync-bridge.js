@@ -14,6 +14,7 @@ const { readBlob } = require('../blob');
 const { getDb } = require('../supabase-db');
 const store = require('./store');
 const sendSvc = require('./xero-send');
+const noJob = require('./no-job');
 
 const SYNC_TYPE = 'invoice_export';
 const RETRY_ACTOR = { id: 'sync-log-retry', name: 'Sync health retry' };
@@ -63,8 +64,14 @@ syncLog.registerRetryHandler(SYNC_TYPE, async (item) => {
   if (invoice.state === 'planned' || invoice.state === 'cancelled') {
     return { outcome: 'resolved_meanwhile', reason: 'the stage was put back to planned or replaced' };
   }
-  const data = await readBlob('jobs.json', { jobs: [] });
-  const job = (Array.isArray(data.jobs) ? data.jobs : []).find((j) => j && j.id === invoice.jobId && j.deleted !== true && !j.deletedAt);
+  let job;
+  if (noJob.isNoJob(invoice.jobId)) {
+    // An invoice with no job (#1166): there is no job record to look for.
+    job = noJob.ledger();
+  } else {
+    const data = await readBlob('jobs.json', { jobs: [] });
+    job = (Array.isArray(data.jobs) ? data.jobs : []).find((j) => j && j.id === invoice.jobId && j.deleted !== true && !j.deletedAt);
+  }
   if (!job) return { outcome: 'failed', reason: 'the job no longer exists', category: 'unexpected' };
   const result = await sendSvc.retry({ tenant, invoice, job, actor: RETRY_ACTOR, deps: { sql } });
   if (result.outcome === 'sent' || result.outcome === 'adopted') return { outcome: 'resolved', reason: reasonOf(result) };

@@ -13,7 +13,7 @@ import {
   xeroInvoiceUrl,
 } from "@/domains/customer-invoices/format";
 import { milliToInput } from "@/domains/customer-invoices/itemised";
-import type { Stage } from "@/domains/customer-invoices/schema";
+import { NO_JOB_ID, type Stage } from "@/domains/customer-invoices/schema";
 
 /** An itemised invoice's first few lines show on the row; the editor has the rest. */
 const ITEMS_SHOWN = 6;
@@ -86,6 +86,8 @@ export function StageRow({
   const sent = stage.state === "sent";
   const hasRetention = c.retentionCents != null && c.retentionCents > 0;
   const numberTaken = failed && stage.failureCategory === "number_taken";
+  // An invoice with no job (#1166) names its own client on the row.
+  const noJob = stage.jobId === NO_JOB_ID;
   // Deleted or voided in Xero: history only.
   const dead = sent && (stage.xeroStatus === "DELETED" || stage.xeroStatus === "VOIDED");
   const dueDay = stage.xeroDueDate ?? stage.dueDate ?? null;
@@ -124,6 +126,14 @@ export function StageRow({
           {!planned && stage.invoiceDate ? ` · dated ${formatDay(stage.invoiceDate)}` : ""}
           {!planned && dueDay && !dead ? ` · due ${formatDay(dueDay)}` : ""}
         </p>
+        {noJob ? (
+          <p className="mt-0.5 text-xs text-text-muted" data-testid="gp-stage-client">
+            {stage.clientContactName ? `For ${stage.clientContactName}` : "No client chosen yet"}
+            {stage.clientContactName && stage.clientOtherOrganisation
+              ? " · chosen in a different Xero organisation, choose it again"
+              : ""}
+          </p>
+        ) : null}
         {stage.kind === "itemised" && (stage.items ?? []).length > 0 ? (
           <ul className="mt-1 grid gap-0.5 text-xs text-text-muted" data-testid="gp-stage-items">
             {(stage.items ?? []).slice(0, ITEMS_SHOWN).map((it) =>
@@ -189,8 +199,8 @@ export function StageRow({
         {dead ? (
           <p className="mt-1.5 text-sm text-text-muted" data-testid="gp-stage-dead">
             This invoice was {stage.xeroStatus === "DELETED" ? "deleted" : "voided"} in Xero, so it
-            no longer counts toward the job. Its number isn&rsquo;t used again.
-            {stage.replacedById ? " It has been raised again as a new stage." : ""}
+            no longer counts{noJob ? "" : " toward the job"}. Its number isn&rsquo;t used again.
+            {stage.replacedById ? (noJob ? " It has been raised again as a new invoice." : " It has been raised again as a new stage.") : ""}
           </p>
         ) : null}
       </div>

@@ -163,6 +163,10 @@ export function blockerMessage(code: string): string {
       return "This job's client isn't linked to a Xero contact. Link the client first.";
     case "client_other_organisation":
       return "The client was linked in a different Xero organisation. Link the client again.";
+    case "no_client_chosen":
+      return "No client is chosen for this invoice. Edit it and choose the client.";
+    case "client_chosen_other_organisation":
+      return "The client was chosen in a different Xero organisation. Edit the invoice and choose the client again.";
     case "no_job_code":
       return "This job has no IV number, so the invoice can't be numbered.";
     case "no_contract_value":
@@ -317,6 +321,11 @@ export function errorMessage(code: string | null, status: number): string {
       return "One of the lines couldn't be read. Take it off and add it again.";
     case "kind_mismatch":
       return "That can't be done with this kind of invoice. The list has been refreshed.";
+    case "no_job_itemised_only":
+    case "no_job_typed_lines_only":
+    case "no_job_no_retention":
+    case "client_is_the_jobs":
+      return "That can't be saved on this kind of invoice. Check the lines and try again.";
     case "too_many_lines":
       return "That stage already has as many extra lines as it can hold. Put the variation on its own invoice instead.";
     case "variation_not_found":

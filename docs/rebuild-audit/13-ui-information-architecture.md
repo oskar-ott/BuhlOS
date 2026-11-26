@@ -59,7 +59,7 @@
 > truth for the groups:
 >
 > - **Today** — Command centre · From site (the field inbox; route stays `/observations`) · Material requests
-> - **Jobs** — Jobs (/v2/jobs) · Defects (/defects, #414) · ITP templates (/itp-templates)
+> - **Jobs** — Jobs (/v2/jobs) · Defects (/defects, #414) · ITP templates (/itp-templates) · Getting paid (/getting-paid, #1166 — invoices to clients with no job; only while `customer_invoices` is on)
 > - **Hours** — Hours (/hours) — ONE item per #415; Approvals + Weekly closeout are in-page tabs
 > - **People & gear** — Employees (/employees) · Gear (/gear)
 > - **Company** — Reports (/reports, #316 — the owner numbers dashboard; the

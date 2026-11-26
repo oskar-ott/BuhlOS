@@ -1,4 +1,4 @@
-import { LayoutGrid, Briefcase, Clock, Wrench, Users, Receipt, Boxes } from "lucide-react";
+import { LayoutGrid, Briefcase, Clock, Wrench, Users, Receipt, Boxes, Banknote } from "lucide-react";
 import type { Route } from "next";
 import type { FlagKey } from "../../../api/_lib/feature-flags";
 
@@ -97,6 +97,16 @@ export const NAV_GROUPS: ReadonlyArray<NavGroup> = [
         icon: Receipt,
         activeFor: ["/invoices"],
         flag: "invoice_capture",
+      },
+      {
+        // Invoices to clients that aren't tied to a job (#1166,
+        // customer_invoices, dark, admin-tier): hidden while the flag is off.
+        // A job's own invoices stay on the job ("Getting paid" card).
+        label: "Getting paid",
+        href: "/getting-paid" as Route,
+        icon: Banknote,
+        activeFor: ["/getting-paid"],
+        flag: "customer_invoices",
       },
     ],
   },

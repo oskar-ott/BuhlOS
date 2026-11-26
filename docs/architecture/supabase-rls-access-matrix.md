@@ -184,6 +184,15 @@ the unit freezes once real stock has moved; items are archived, never deleted.
 Composite `(tenant_id, id)` foreign keys keep every row inside its tenant. Photo
 rows carry a Blob URL that is never sent to a browser (authenticated proxy).
 
+**`customer_invoices` — the client on an invoice with no job** (#1166,
+owner pull 2026-11-25 — `20261126100000_customer_invoices_no_job.sql`, see
+[../customer-invoices.md](../customer-invoices.md)): three columns
+(`client_contact_id`, `client_contact_name`, `client_external_tenant_id`) on
+the existing table; no new table, so its access is unchanged — RLS-on, zero
+policies, service-role only, admin tier only through
+`api/customer-invoices.js`. The schema allows them only on a row in the
+reserved no-job ledger (`job_legacy_id = '~no-job'`), which must be itemised.
+
 **`customer_invoice_prefs` / `customer_invoice_variations`** (customer
 invoices part 2, owner pull 2026-11-22 —
 `20261125100000_customer_invoices_itemised_and_variations.sql`, see

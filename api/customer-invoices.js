@@ -103,6 +103,7 @@ const sendSvc = require('./_lib/customer-invoices/xero-send');
 const statusSvc = require('./_lib/customer-invoices/xero-status');
 const { requireCron } = require('./_lib/cron-auth');
 const syncBridge = require('./_lib/customer-invoices/sync-bridge');
+const noJob = require('./_lib/customer-invoices/no-job');
 const { XeroError } = require('./_lib/xero/errors');
 
 const MAX_EXTRA_LINES = 20;
@@ -152,6 +153,9 @@ const ItemisedBody = z.object({
   retentionBp: bp.nullable().optional(),
   plannedDate: day.nullable().optional(),
   note: z.string().trim().max(1000).nullable().optional(),
+  // An invoice with no job (#1166) only: the Xero contact it is for.
+  // On an edit, leaving it out keeps the client; null clears it.
+  contactId: uuid.nullable().optional(),
 }).strict().superRefine((s, ctx) => {
   const total = s.items.reduce((sum, it) => sum + (it.type === 'line' ? lineAmountCents(it.quantityMilli, it.unitCents) || 0 : 0), 0);
   if (!s.items.some((it) => it.type === 'line')) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['items'], message: 'needs a charge' });
@@ -301,6 +305,16 @@ async function liveJob(jobId) {
   return isLive(j) ? j : null;
 }
 
+/** A real, live job — or the ledger that holds invoices with no job (#1166).
+ *  Only the routes an invoice with no job can use call this; every other
+ *  route keeps `liveJob`, which answers "no such job" for the ledger. */
+async function resolveJob(jobId) {
+  return noJob.isNoJob(jobId) ? noJob.ledger() : liveJob(jobId);
+}
+
+/** How a job is named in the journal. */
+const jobLabel = (job) => (job.noJob ? 'invoices with no job' : job.name || job.id);
+
 const clientKey = (name) => String(name || '').trim().toLowerCase().replace(/\s+/g, ' ');
 
 /** Other live jobs that carry the same client name as this one. */
@@ -343,6 +357,20 @@ async function xeroStanding(sql, tenant, job, profile) {
     ready = { state: 'unavailable', organisationName: null, externalTenantId: null };
   }
   const settings = await store.getSettings(sql, tenant.id, ready.externalTenantId);
+  if (job.noJob) {
+    // No job, so no job-level client: each invoice carries its own (#1166).
+    const complete = store.settingsComplete(settings);
+    return {
+      externalTenantId: ready.externalTenantId || null,
+      standing: {
+        state: ready.state,
+        organisationName: ready.organisationName,
+        settingsComplete: complete,
+        sendReady: ready.state === 'connected' && complete,
+        client: { linked: false, name: null, otherOrganisation: false, suggestion: null },
+      },
+    };
+  }
   const linked = !!(profile && profile.xeroContactId);
   const otherOrganisation =
     linked && !!ready.externalTenantId && profile.externalTenantId !== ready.externalTenantId;
@@ -353,19 +381,22 @@ async function xeroStanding(sql, tenant, job, profile) {
   }
   const settingsComplete = store.settingsComplete(settings);
   return {
-    state: ready.state,
-    organisationName: ready.organisationName,
-    settingsComplete,
-    // Everything a send needs at JOB level is in place (a stage can still be
-    // blocked by its own amount — the preview names that).
-    sendReady:
-      ready.state === 'connected' && settingsComplete && linked && !otherOrganisation &&
-      typeof job.code === 'string' && /^IV\d{4}$/.test(job.code),
-    client: {
-      linked,
-      name: linked ? profile.xeroContactName : null,
-      otherOrganisation,
-      suggestion: suggestion ? { id: suggestion.id, name: suggestion.name } : null,
+    externalTenantId: ready.externalTenantId || null,
+    standing: {
+      state: ready.state,
+      organisationName: ready.organisationName,
+      settingsComplete,
+      // Everything a send needs at JOB level is in place (a stage can still be
+      // blocked by its own amount — the preview names that).
+      sendReady:
+        ready.state === 'connected' && settingsComplete && linked && !otherOrganisation &&
+        typeof job.code === 'string' && /^IV\d{4}$/.test(job.code),
+      client: {
+        linked,
+        name: linked ? profile.xeroContactName : null,
+        otherOrganisation,
+        suggestion: suggestion ? { id: suggestion.id, name: suggestion.name } : null,
+      },
     },
   };
 }
@@ -378,7 +409,7 @@ async function journal(me, action, { jobId, targetId, summary, metadata }) {
       actorId: me.id,
       actorName: actorOf(me).name,
       actorRole: me.role || null,
-      jobId: jobId || null,
+      jobId: jobId && !noJob.isNoJob(jobId) ? jobId : null,
       targetType: 'customer_invoice',
       targetId: String(targetId),
       summary: String(summary).slice(0, 240),
@@ -421,11 +452,13 @@ function presentStage(row, ctx, today) {
 }
 
 async function jobPayload(sql, tenant, job) {
+  // The no-job ledger (#1166) has no profile and no variations to read.
   const [profile, rows, variations] = await Promise.all([
-    store.getProfile(sql, tenant.id, job.id),
+    job.noJob ? null : store.getProfile(sql, tenant.id, job.id),
     store.listJobInvoices(sql, tenant.id, job.id),
-    store.listVariations(sql, tenant.id, job.id),
+    job.noJob ? [] : store.listVariations(sql, tenant.id, job.id),
   ]);
+  const xeroNow = await xeroStanding(sql, tenant, job, profile);
   const ctx = {
     contractCents: contractCentsOf(job.contractValue),
     retentionBp: profile ? profile.retentionBp : 0,
@@ -435,14 +468,25 @@ async function jobPayload(sql, tenant, job) {
   const billedOn = billable.variationBilling(rows);
   return {
     jobId: job.id,
+    noJob: !!job.noJob,
     job: {
-      name: job.name || job.id,
+      name: job.noJob ? 'Invoices with no job' : job.name || job.id,
       code: typeof job.code === 'string' ? job.code : null,
       clientName: typeof job.clientName === 'string' && job.clientName ? job.clientName : null,
       contractCents: ctx.contractCents,
     },
     profile: profile || { jobId: job.id, retentionBp: 0, paymentClaim: false, xeroContactId: null, xeroContactName: null, externalTenantId: null, version: null },
-    stages: rows.map((r) => presentStage(r, ctx, today)),
+    stages: rows.map((r) => ({
+      ...presentStage(r, ctx, today),
+      // The client chosen on an invoice with no job was picked in a different
+      // Xero organisation from the one connected now: choose it again.
+      ...(job.noJob
+        ? {
+            clientOtherOrganisation:
+              !!r.clientContactId && !!xeroNow.externalTenantId && r.clientExternalTenantId !== xeroNow.externalTenantId,
+          }
+        : {}),
+    })),
     // The variations register (#1163). `billedOn` is the invoice a variation
     // is on — read from the invoices' own lines, never stored on the variation.
     variations: variations.map((v) => ({ ...v, number: `V${v.seq}`, billedOn: billedOn.get(v.id) || null })),
@@ -453,7 +497,7 @@ async function jobPayload(sql, tenant, job) {
       .filter((r) => r.state === 'sent' && r.xeroInvoiceId)
       .map((r) => r.lastCheckedAt)
       .reduce((oldest, t) => (t && (!oldest || t < oldest) ? t : oldest), null),
-    xero: await xeroStanding(sql, tenant, job, profile),
+    xero: xeroNow.standing,
     asOf: new Date().toISOString(),
   };
 }
@@ -490,6 +534,38 @@ function itemisedInput(s, items) {
     plannedDate: s.plannedDate || null,
     note: s.note || null,
   };
+}
+
+/** Why a save into the no-job ledger is refused, or null (#1166). */
+function noJobRefusal(itemised, stage) {
+  if (!itemised) return 'no_job_itemised_only';
+  // No job means no job data to bill: every line is typed.
+  if (stage.items.some((it) => it.type === 'line' && Array.isArray(it.refs) && it.refs.length > 0)) return 'no_job_typed_lines_only';
+  if (stage.retentionBp != null && stage.retentionBp !== 0) return 'no_job_no_retention';
+  return null;
+}
+
+/**
+ * The client chosen on an invoice with no job (#1166), confirmed against Xero.
+ * The stored name is XERO'S (ADR rule 8), never one the browser sent.
+ *   contactId undefined  keep what the invoice already has (an edit)
+ *   contactId null       no client
+ *   unchanged contact    kept as stored, with no Xero call
+ * @returns {null | { id, name, externalTenantId } | { error, status }}
+ */
+async function chosenClient(sql, contactId, existing) {
+  const kept = existing && existing.clientContactId
+    ? { id: existing.clientContactId, name: existing.clientContactName, externalTenantId: existing.clientExternalTenantId }
+    : null;
+  if (contactId === undefined) return kept;
+  if (contactId === null) return null;
+  if (kept && kept.id === contactId) return kept;
+  const ready = await xero.readiness({ sql });
+  xero.assertReady(ready);
+  const contact = await xero.getContact(contactId, { sql });
+  if (!contact) return { error: 'contact_not_found', status: 404 };
+  if (contact.status && contact.status !== 'ACTIVE') return { error: 'contact_not_active', status: 409 };
+  return { id: contact.id, name: contact.name, externalTenantId: ready.externalTenantId };
 }
 
 /** The job's hours and materials, read once (the slow part: every source is a
@@ -621,7 +697,7 @@ async function handler(req, res) {
     if (req.method === 'GET' && !action) {
       const jobId = String(q.jobId || '');
       if (!jobId) return res.status(400).json({ error: 'jobId required' });
-      const job = await liveJob(jobId);
+      const job = await resolveJob(jobId);
       if (!job) return res.status(404).json({ error: 'job_not_found' });
       return res.status(200).json(await jobPayload(sql, tenant, job));
     }
@@ -631,9 +707,26 @@ async function handler(req, res) {
       const itemised = isItemisedBody(body);
       const parsed = (itemised ? AddItemisedBody : AddBody).safeParse(body);
       if (!parsed.success) return invalid(res, parsed);
-      const job = await liveJob(parsed.data.jobId);
+      const job = await resolveJob(parsed.data.jobId);
       if (!job) return res.status(404).json({ error: 'job_not_found' });
       const stage = parsed.data.stage;
+      if (job.noJob) {
+        // An invoice with no job (#1166): itemised, typed lines only, and its
+        // client chosen on the invoice itself.
+        const refused = noJobRefusal(itemised, stage);
+        if (refused) return res.status(400).json({ error: refused });
+        const client = await chosenClient(sql, stage.contactId === undefined ? null : stage.contactId, null);
+        if (client && client.error) return res.status(client.status).json({ error: client.error });
+        const items = billable.resolveItems({ items: stage.items, sources: null, rows: [], variations: [] });
+        const row = await store.createStage(sql, tenant.id, job.id, { ...itemisedInput(stage, items), client }, actor);
+        await journal(me, 'customer_invoice.stage_added', {
+          jobId: job.id, targetId: row.id,
+          summary: `Added invoice "${row.title}" with no job`,
+          metadata: { kind: 'itemised', noJob: true, lines: row.items.length, client: !!client },
+        });
+        return res.status(201).json(await jobPayload(sql, tenant, job));
+      }
+      if (itemised && stage.contactId !== undefined) return res.status(400).json({ error: 'client_is_the_jobs' });
       // The slow read (hours, materials) happens BEFORE the transaction; the
       // check against other invoices happens inside it, under the job's lock.
       const sources = itemised && billable.needsSources(stage.items) ? await jobSources(sql, tenant, job, me) : null;
@@ -652,7 +745,7 @@ async function handler(req, res) {
       });
       await journal(me, 'customer_invoice.stage_added', {
         jobId: job.id, targetId: row.id,
-        summary: `Added ${itemised ? 'itemised' : 'stage'} invoice "${row.title}" to ${job.name || job.id}`,
+        summary: `Added ${itemised ? 'itemised' : 'stage'} invoice "${row.title}" to ${jobLabel(job)}`,
         metadata: itemised ? { kind: 'itemised', lines: row.items.length } : { basis: row.basis },
       });
       return res.status(201).json(await jobPayload(sql, tenant, job));
@@ -663,7 +756,7 @@ async function handler(req, res) {
       if (!uuid.safeParse(id).success) return res.status(400).json({ error: 'id required' });
       const existing = await store.getInvoice(sql, tenant.id, id);
       if (!existing) return res.status(404).json({ error: 'stage_not_found' });
-      const job = await liveJob(existing.jobId);
+      const job = await resolveJob(existing.jobId);
       if (!job) return res.status(404).json({ error: 'job_not_found' });
 
       if (action === 'stage-edit') {
@@ -673,6 +766,23 @@ async function handler(req, res) {
         // An invoice keeps the kind it was made as.
         if (itemised !== (existing.kind === 'itemised')) return res.status(409).json({ error: 'kind_mismatch' });
         const stage = parsed.data.stage;
+        if (job.noJob) {
+          const refused = noJobRefusal(itemised, stage);
+          if (refused) return res.status(400).json({ error: refused });
+          const client = await chosenClient(sql, stage.contactId, existing);
+          if (client && client.error) return res.status(client.status).json({ error: client.error });
+          const items = billable.resolveItems({ items: stage.items, sources: null, rows: [], variations: [] });
+          const row = await store.updateStage(sql, tenant.id, id, { ...itemisedInput(stage, items), client }, {
+            expectedVersion: parsed.data.expectedVersion, actor,
+          });
+          await journal(me, 'customer_invoice.stage_edited', {
+            jobId: job.id, targetId: row.id,
+            summary: `Edited invoice "${row.title}" with no job`,
+            metadata: { kind: 'itemised', noJob: true, lines: row.items.length, client: !!client },
+          });
+          return res.status(200).json(await jobPayload(sql, tenant, job));
+        }
+        if (itemised && stage.contactId !== undefined) return res.status(400).json({ error: 'client_is_the_jobs' });
         const sources = itemised && billable.needsSources(stage.items) ? await jobSources(sql, tenant, job, me) : null;
         const row = await store.updateStage(sql, tenant.id, id, null, {
           expectedVersion: parsed.data.expectedVersion, actor, jobId: job.id,
@@ -690,7 +800,7 @@ async function handler(req, res) {
         });
         await journal(me, 'customer_invoice.stage_edited', {
           jobId: job.id, targetId: row.id,
-          summary: `Edited ${itemised ? 'itemised' : 'stage'} invoice "${row.title}" on ${job.name || job.id}`,
+          summary: `Edited ${itemised ? 'itemised' : 'stage'} invoice "${row.title}" on ${jobLabel(job)}`,
           metadata: itemised ? { kind: 'itemised', lines: row.items.length } : { basis: row.basis },
         });
         return res.status(200).json(await jobPayload(sql, tenant, job));
@@ -701,7 +811,7 @@ async function handler(req, res) {
       await store.removeStage(sql, tenant.id, id, { expectedVersion: parsed.data.expectedVersion, actor });
       await journal(me, 'customer_invoice.stage_removed', {
         jobId: job.id, targetId: id,
-        summary: `Removed planned stage invoice "${existing.title}" from ${job.name || job.id}`,
+        summary: `Removed planned stage invoice "${existing.title}" from ${jobLabel(job)}`,
       });
       return res.status(200).json(await jobPayload(sql, tenant, job));
     }
@@ -756,7 +866,7 @@ async function handler(req, res) {
       const v = await store.createVariation(sql, tenant.id, job.id, variationInput(parsed.data.variation), actor);
       await journal(me, 'customer_invoice.variation_added', {
         jobId: job.id, targetId: v.id,
-        summary: `Added variation V${v.seq} "${v.title}" to ${job.name || job.id}`,
+        summary: `Added variation V${v.seq} "${v.title}" to ${jobLabel(job)}`,
         metadata: { number: `V${v.seq}` },
       });
       return res.status(201).json(await jobPayload(sql, tenant, job));
@@ -786,7 +896,7 @@ async function handler(req, res) {
             expectedVersion: parsed.data.expectedVersion, actor, guard: notOnAnInvoice, jobId: job.id,
           });
           await journal(me, 'customer_invoice.variation_edited', {
-            jobId: job.id, targetId: id, summary: `Edited variation ${number} on ${job.name || job.id}`, metadata: { number },
+            jobId: job.id, targetId: id, summary: `Edited variation ${number} on ${jobLabel(job)}`, metadata: { number },
           });
           return res.status(200).json(await jobPayload(sql, tenant, job));
         }
@@ -803,9 +913,9 @@ async function handler(req, res) {
           }, { expectedVersion: d.expectedVersion, actor, guard: notOnAnInvoice, jobId: job.id });
           await journal(me, d.status === 'approved' ? 'customer_invoice.variation_approved' : d.status === 'declined' ? 'customer_invoice.variation_declined' : 'customer_invoice.variation_reopened', {
             jobId: job.id, targetId: id,
-            summary: d.status === 'approved' ? `Marked variation ${number} approved on ${job.name || job.id}`
-              : d.status === 'declined' ? `Marked variation ${number} declined on ${job.name || job.id}`
-                : `Put variation ${number} back to proposed on ${job.name || job.id}`,
+            summary: d.status === 'approved' ? `Marked variation ${number} approved on ${jobLabel(job)}`
+              : d.status === 'declined' ? `Marked variation ${number} declined on ${jobLabel(job)}`
+                : `Put variation ${number} back to proposed on ${jobLabel(job)}`,
             metadata: { number, status: d.status },
           });
           return res.status(200).json(await jobPayload(sql, tenant, job));
@@ -818,7 +928,7 @@ async function handler(req, res) {
             expectedVersion: parsed.data.expectedVersion, actor, guard: notOnAnInvoice, jobId: job.id,
           });
           await journal(me, 'customer_invoice.variation_removed', {
-            jobId: job.id, targetId: id, summary: `Removed variation ${number} from ${job.name || job.id}`, metadata: { number },
+            jobId: job.id, targetId: id, summary: `Removed variation ${number} from ${jobLabel(job)}`, metadata: { number },
           });
           return res.status(200).json(await jobPayload(sql, tenant, job));
         }
@@ -857,8 +967,8 @@ async function handler(req, res) {
         await journal(me, 'customer_invoice.variation_billed', {
           jobId: job.id, targetId: id,
           summary: parsed.data.stageId
-            ? `Put variation ${number} on the stage "${target.title}" (${job.name || job.id})`
-            : `Put variation ${number} on an invoice of its own (${job.name || job.id})`,
+            ? `Put variation ${number} on the stage "${target.title}" (${jobLabel(job)})`
+            : `Put variation ${number} on an invoice of its own (${jobLabel(job)})`,
           metadata: { number, invoiceId: target.id },
         });
         return res.status(201).json(await jobPayload(sql, tenant, job));
@@ -882,7 +992,7 @@ async function handler(req, res) {
       });
       await journal(me, 'customer_invoice.profile_updated', {
         jobId: job.id, targetId: job.id,
-        summary: `Turned payment-claim wording ${parsed.data.on ? 'on' : 'off'} for ${job.name || job.id}`,
+        summary: `Turned payment-claim wording ${parsed.data.on ? 'on' : 'off'} for ${jobLabel(job)}`,
         metadata: { fields: ['paymentClaim'], on: parsed.data.on },
       });
       return res.status(200).json(await jobPayload(sql, tenant, job));
@@ -899,7 +1009,7 @@ async function handler(req, res) {
       });
       await journal(me, 'customer_invoice.profile_updated', {
         jobId: job.id, targetId: job.id,
-        summary: `Updated invoicing set-up on ${job.name || job.id}`,
+        summary: `Updated invoicing set-up on ${jobLabel(job)}`,
         metadata: { fields: ['retentionBp'] },
       });
       return res.status(200).json(await jobPayload(sql, tenant, job));
@@ -936,7 +1046,7 @@ async function handler(req, res) {
       }, actor);
       await journal(me, 'customer_invoice.stage_added', {
         jobId: job.id, targetId: row.id,
-        summary: `Added a retention release to ${job.name || job.id}`,
+        summary: `Added a retention release to ${jobLabel(job)}`,
         metadata: { basis: 'amount', kind: 'retention_release' },
       });
       return res.status(201).json(await jobPayload(sql, tenant, job));
@@ -946,12 +1056,12 @@ async function handler(req, res) {
     if (req.method === 'POST' && action === 'refresh') {
       const parsed = RefreshBody.safeParse(body);
       if (!parsed.success) return invalid(res, parsed);
-      const job = await liveJob(parsed.data.jobId);
+      const job = await resolveJob(parsed.data.jobId);
       if (!job) return res.status(404).json({ error: 'job_not_found' });
       const summary = await statusSvc.refreshJob({ tenant, job, deps: { sql } });
       await journal(me, 'customer_invoice.status_checked', {
         jobId: job.id, targetId: job.id,
-        summary: `Checked Xero for ${job.name || job.id}'s invoices — ${summary.checked} checked, ${summary.changed} changed`,
+        summary: `Checked Xero for ${jobLabel(job)}'s invoices — ${summary.checked} checked, ${summary.changed} changed`,
         metadata: { checked: summary.checked, changed: summary.changed, notFound: summary.notFound },
       });
       return res.status(200).json({
@@ -968,7 +1078,7 @@ async function handler(req, res) {
       if (!parsed.success) return invalid(res, parsed);
       const invoice = await store.getInvoice(sql, tenant.id, id);
       if (!invoice || invoice.state === 'cancelled') return res.status(404).json({ error: 'stage_not_found' });
-      const job = await liveJob(invoice.jobId);
+      const job = await resolveJob(invoice.jobId);
       if (!job) return res.status(404).json({ error: 'job_not_found' });
 
       if (action === 'preview') {
@@ -990,8 +1100,8 @@ async function handler(req, res) {
         await journal(me, 'customer_invoice.raised_again', {
           jobId: job.id, targetId: fresh.id,
           summary: taken
-            ? `Raised "${fresh.title}" again on ${job.name || job.id} — ${invoice.invoiceNumber} is taken in Xero`
-            : `Raised "${fresh.title}" again on ${job.name || job.id} — ${invoice.invoiceNumber} was ${invoice.xeroStatus === 'DELETED' ? 'deleted' : 'voided'} in Xero`,
+            ? `Raised "${fresh.title}" again on ${jobLabel(job)} — ${invoice.invoiceNumber} is taken in Xero`
+            : `Raised "${fresh.title}" again on ${jobLabel(job)} — ${invoice.invoiceNumber} was ${invoice.xeroStatus === 'DELETED' ? 'deleted' : 'voided'} in Xero`,
           metadata: { burnedNumber: invoice.invoiceNumber, replaces: invoice.id, ...(dead ? { xeroStatus: invoice.xeroStatus } : {}) },
         });
         return res.status(201).json(await jobPayload(sql, tenant, job));
@@ -1015,11 +1125,11 @@ async function handler(req, res) {
       await journal(me, verb, {
         jobId: job.id, targetId: invoice.id,
         summary:
-          result.outcome === 'sent' ? `Sent ${number} to Xero as a draft (${job.name || job.id})`
-            : result.outcome === 'adopted' ? `${number} was already in Xero — taken over, nothing sent twice (${job.name || job.id})`
-              : result.outcome === 'reset' ? `Put "${invoice.title}" back to planned on ${job.name || job.id} — nothing reached Xero`
-                : result.outcome === 'unknown' ? `No answer from Xero for ${number} (${job.name || job.id}) — it may or may not exist there`
-                  : `Xero refused ${number} (${job.name || job.id})`,
+          result.outcome === 'sent' ? `Sent ${number} to Xero as a draft (${jobLabel(job)})`
+            : result.outcome === 'adopted' ? `${number} was already in Xero — taken over, nothing sent twice (${jobLabel(job)})`
+              : result.outcome === 'reset' ? `Put "${invoice.title}" back to planned on ${jobLabel(job)} — nothing reached Xero`
+                : result.outcome === 'unknown' ? `No answer from Xero for ${number} (${jobLabel(job)}) — it may or may not exist there`
+                  : `Xero refused ${number} (${jobLabel(job)})`,
         metadata: {
           outcome: result.outcome,
           invoiceNumber: number,
@@ -1069,7 +1179,7 @@ async function handler(req, res) {
       }, { expectedVersion: parsed.data.expectedVersion, actor });
       await journal(me, 'customer_invoice.profile_updated', {
         jobId: job.id, targetId: job.id,
-        summary: `Linked ${job.name || job.id} to the Xero contact "${contact.name}"`,
+        summary: `Linked ${jobLabel(job)} to the Xero contact "${contact.name}"`,
         metadata: { fields: ['xeroContact'], xeroContactId: contact.id },
       });
       return res.status(200).json(await jobPayload(sql, tenant, job));
@@ -1085,7 +1195,7 @@ async function handler(req, res) {
       }, { expectedVersion: parsed.data.expectedVersion, actor });
       await journal(me, 'customer_invoice.profile_updated', {
         jobId: job.id, targetId: job.id,
-        summary: `Removed the Xero contact link from ${job.name || job.id}`,
+        summary: `Removed the Xero contact link from ${jobLabel(job)}`,
         metadata: { fields: ['xeroContact'] },
       });
       return res.status(200).json(await jobPayload(sql, tenant, job));

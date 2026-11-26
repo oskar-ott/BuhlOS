@@ -124,6 +124,10 @@ function invoiceRow(r) {
     externalTenantId: r.external_tenant_id,
     xeroContactId: r.xero_contact_id,
     xeroContactName: r.xero_contact_name,
+    // the client chosen ON a no-job invoice (#1166); null on a job's invoices
+    clientContactId: r.client_contact_id || null,
+    clientContactName: r.client_contact_name || null,
+    clientExternalTenantId: r.client_external_tenant_id || null,
     xeroInvoiceId: r.xero_invoice_id,
     xeroStatus: r.xero_status,
     xeroSubtotalCents: cents(r.xero_subtotal_cents),
@@ -254,6 +258,13 @@ async function getInvoice(sql, tenantId, id) {
   return rows.length ? invoiceRow(rows[0]) : null;
 }
 
+/** The client chosen ON an invoice (#1166) — all three fields or none. */
+function clientOf(s) {
+  const c = s && s.client;
+  if (!c || !c.id || !c.name || !c.externalTenantId) return { id: null, name: null, externalTenantId: null };
+  return { id: String(c.id), name: String(c.name), externalTenantId: String(c.externalTenantId) };
+}
+
 /**
  * One writer at a time per job for anything that decides WHAT AN INVOICE
  * BILLS (the job's hours, materials, variations). Taken inside the caller's
@@ -286,11 +297,14 @@ async function createStage(sql, tenantId, jobLegacyId, s0, actor, opts = {}) {
     const rows = await tx`
       insert into public.customer_invoices
         (tenant_id, job_legacy_id, kind, sort_order, title, basis, percent_bp, amount_cents,
-         extra_lines, items, retention_bp, planned_date, note, created_by_legacy_id, created_by_name)
+         extra_lines, items, retention_bp, planned_date, note,
+         client_contact_id, client_contact_name, client_external_tenant_id,
+         created_by_legacy_id, created_by_name)
       values (${tenantId}, ${jobLegacyId}, ${s.kind || 'stage'}, ${Number(next[0].n)}, ${s.title}, ${s.basis},
               ${s.basis === 'percent' ? s.percentBp : null}, ${s.basis === 'amount' ? s.amountCents : null},
               ${tx.json(s.extraLines || [])}, ${tx.json(s.items || [])}, ${s.retentionBp == null ? null : s.retentionBp},
               ${s.plannedDate || null}, ${s.note || null},
+              ${clientOf(s).id}, ${clientOf(s).name}, ${clientOf(s).externalTenantId},
               ${(actor && actor.id) || null}, ${(actor && actor.name) || null})
       returning *`;
     const row = invoiceRow(rows[0]);
@@ -331,6 +345,9 @@ async function updateStage(sql, tenantId, id, s0, { expectedVersion, actor, prep
         retention_bp = ${s.retentionBp == null ? null : s.retentionBp},
         planned_date = ${s.plannedDate || null},
         note         = ${s.note || null},
+        client_contact_id         = ${clientOf(s).id},
+        client_contact_name       = ${clientOf(s).name},
+        client_external_tenant_id = ${clientOf(s).externalTenantId},
         version      = version + 1
       where tenant_id = ${tenantId} and id = ${id} and state = 'planned' and version = ${expectedVersion}
       returning *`;
@@ -505,7 +522,9 @@ async function beginSend(sql, tenantId, id, snap, { expectedVersion, actor }) {
         from public.customer_invoices
         where tenant_id = ${tenantId} and job_legacy_id = ${job}`;
       const seq = Number(next[0].n);
-      const invoiceNumber = `${snap.jobCode}-${seq}`;
+      // A job's invoice is the job number plus the stage; a no-job invoice
+      // (#1166) takes the next number of its own series.
+      const invoiceNumber = typeof snap.numberFor === 'function' ? snap.numberFor(seq) : `${snap.jobCode}-${seq}`;
       const contentHash = snap.build(invoiceNumber);
       const rows = await tx`
         update public.customer_invoices set
@@ -680,9 +699,12 @@ async function raiseAgain(sql, tenantId, id, { actor }) {
     const ins = await tx`
       insert into public.customer_invoices
         (tenant_id, job_legacy_id, kind, sort_order, title, basis, percent_bp, amount_cents,
-         extra_lines, items, planned_date, note, created_by_legacy_id, created_by_name)
+         extra_lines, items, planned_date, note,
+         client_contact_id, client_contact_name, client_external_tenant_id,
+         created_by_legacy_id, created_by_name)
       values (${tenantId}, ${o.job_legacy_id}, ${o.kind}, ${o.sort_order}, ${o.title}, ${o.basis}, ${o.percent_bp},
               ${o.amount_cents}, ${tx.json(extraLinesOf(o.extra_lines))}, ${tx.json(itemsJson(o.items))}, ${o.planned_date}, ${o.note},
+              ${o.client_contact_id || null}, ${o.client_contact_name || null}, ${o.client_external_tenant_id || null},
               ${(actor && actor.id) || null}, ${(actor && actor.name) || null})
       returning *`;
     const fresh = invoiceRow(ins[0]);
@@ -1008,9 +1030,12 @@ async function raiseAgainSent(sql, tenantId, id, { actor }) {
     const ins = await tx`
       insert into public.customer_invoices
         (tenant_id, job_legacy_id, kind, sort_order, title, basis, percent_bp, amount_cents,
-         extra_lines, items, planned_date, note, created_by_legacy_id, created_by_name)
+         extra_lines, items, planned_date, note,
+         client_contact_id, client_contact_name, client_external_tenant_id,
+         created_by_legacy_id, created_by_name)
       values (${tenantId}, ${o.job_legacy_id}, ${o.kind}, ${o.sort_order}, ${o.title}, ${o.basis}, ${o.percent_bp},
               ${o.amount_cents}, ${tx.json(extraLinesOf(o.extra_lines))}, ${tx.json(itemsJson(o.items))}, ${o.planned_date}, ${o.note},
+              ${o.client_contact_id || null}, ${o.client_contact_name || null}, ${o.client_external_tenant_id || null},
               ${(actor && actor.id) || null}, ${(actor && actor.name) || null})
       returning *`;
     const fresh = invoiceRow(ins[0]);

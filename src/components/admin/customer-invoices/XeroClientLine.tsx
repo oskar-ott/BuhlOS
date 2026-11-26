@@ -192,6 +192,50 @@ export function XeroContactPicker({
   /** Injectable for tests. */
   search?: (q: string) => Promise<HttpResult<XeroContact[]>>;
 }) {
+  return (
+    <Modal open onClose={busy ? () => {} : onClose} title="Link this job's client in Xero">
+      <div className="grid gap-3" data-testid="xero-contact-picker">
+        <XeroContactSearch
+          initialQuery={initialQuery}
+          organisationName={organisationName}
+          busy={busy}
+          onPick={onPick}
+          search={search}
+        />
+        <div className="flex justify-end">
+          <Button variant="ghost" onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/**
+ * The search itself — the box, the live results and the "can't find them"
+ * line — with no dialog around it. The job's "Link client" dialog wraps it;
+ * the editor of an invoice with no job (#1166) shows it in place, because a
+ * dialog opened over a dialog would close both on Escape.
+ */
+export function XeroContactSearch({
+  initialQuery,
+  organisationName,
+  busy,
+  onPick,
+  search = searchXeroContacts,
+  pickLabel = "Link",
+}: {
+  initialQuery: string;
+  organisationName: string | null;
+  busy: boolean;
+  onPick: (contact: XeroContact) => Promise<boolean> | void;
+  /** Injectable for tests. */
+  search?: (q: string) => Promise<HttpResult<XeroContact[]>>;
+  /** The action word on each result: a job LINKS its client; an invoice with
+   *  no job CHOOSES one. */
+  pickLabel?: string;
+}) {
   const [query, setQuery] = useState(initialQuery);
   const [state, setState] = useState<SearchState>({ kind: "idle" });
   const latest = useRef(0);
@@ -220,38 +264,34 @@ export function XeroContactPicker({
   }, [query, search]);
 
   return (
-    <Modal open onClose={busy ? () => {} : onClose} title="Link this job's client in Xero">
-      <div className="grid gap-3" data-testid="xero-contact-picker">
-        <div>
-          <label htmlFor="xero-contact-search" className="block text-sm font-medium text-text">
-            Search {organisationName ? `${organisationName}'s` : "your"} Xero contacts
-          </label>
-          <input
-            id="xero-contact-search"
-            className="mt-1 h-10 w-full rounded-card border border-border bg-surface px-3 text-sm text-text focus:outline-none focus:ring-2 focus:ring-brand-navy"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Start typing the client's name"
-            disabled={busy}
-            autoComplete="off"
-          />
-        </div>
-
-        <div className="min-h-[6rem]" aria-live="polite">
-          <ContactResults state={state} busy={busy} onPick={onPick} />
-        </div>
-
-        <p className="text-xs text-text-muted">
-          Can&rsquo;t find them? Add the client as a contact in Xero first, then search again.
-        </p>
-
-        <div className="flex justify-end">
-          <Button variant="ghost" onClick={onClose} disabled={busy}>
-            Cancel
-          </Button>
-        </div>
+    <>
+      <div>
+        <label htmlFor="xero-contact-search" className="block text-sm font-medium text-text">
+          Search {organisationName ? `${organisationName}'s` : "your"} Xero contacts
+        </label>
+        <input
+          id="xero-contact-search"
+          className="mt-1 h-10 w-full rounded-card border border-border bg-surface px-3 text-sm text-text focus:outline-none focus:ring-2 focus:ring-brand-navy"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          // Inside a form (the invoice editor) Enter must search, not save.
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.preventDefault();
+          }}
+          placeholder="Start typing the client's name"
+          disabled={busy}
+          autoComplete="off"
+        />
       </div>
-    </Modal>
+
+      <div className="min-h-[6rem]" aria-live="polite">
+        <ContactResults state={state} busy={busy} onPick={onPick} pickLabel={pickLabel} />
+      </div>
+
+      <p className="text-xs text-text-muted">
+        Can&rsquo;t find them? Add the client as a contact in Xero first, then search again.
+      </p>
+    </>
   );
 }
 
@@ -260,10 +300,12 @@ export function ContactResults({
   state,
   busy,
   onPick,
+  pickLabel = "Link",
 }: {
   state: SearchState;
   busy: boolean;
   onPick: (contact: XeroContact) => Promise<boolean> | void;
+  pickLabel?: string;
 }) {
   if (state.kind === "idle") {
     return <p className="text-sm text-text-muted">Type at least two letters to search.</p>;
@@ -296,7 +338,7 @@ export function ContactResults({
             onClick={() => void onPick(c)}
           >
             <span className="min-w-0 truncate">{c.name}</span>
-            <span className="shrink-0 text-xs text-text-muted">Link</span>
+            <span className="shrink-0 text-xs text-text-muted">{pickLabel}</span>
           </button>
         </li>
       ))}

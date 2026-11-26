@@ -27,6 +27,7 @@ job page.
 | Add from the job's hours and materials, markup, usual charges | [#1162](https://github.com/oskar-ott/BuhlOS/issues/1162) | **Built, dark** behind `customer_invoices`. Never used on a real job |
 | Variations | [#1163](https://github.com/oskar-ott/BuhlOS/issues/1163) | **Built, dark** behind `customer_invoices`. Never used on a real job |
 | Payment-claim wording | [#1164](https://github.com/oskar-ott/BuhlOS/issues/1164) | **Built, dark** behind `customer_invoices`, and off per job by default. **Never run against real Xero** |
+| An invoice with no job | [#1166](https://github.com/oskar-ott/BuhlOS/issues/1166) | **Built, dark** behind `customer_invoices`. Proven against a stand-in for Xero only — **never run against real Xero**. Its migration is applied to dev and production (2026-11-25) |
 
 Each part updates its own row, and adds its section below, in the PR that
 builds it. Nothing in this document describes behaviour that is not merged.
@@ -659,7 +660,141 @@ In addition to the lists above, for the proving run:
 - that a wording-only line prints on Xero's invoice template, including the
   payment-claim line
 
+## What is built: an invoice with no job (#1166)
+
+Research and plan: [product/job-invoicing-no-job-plan.md](product/job-invoicing-no-job-plan.md).
+Behind the same `customer_invoices` flag. Proven against a stand-in for Xero
+and a local Postgres only. **Never run against real Xero; never used by the
+office.** Its migration (`20261126100000_customer_invoices_no_job.sql`) is
+applied to the dev Supabase project and to production (2026-11-25,
+owner-approved each time). What landed was checked against the file character
+for character; the invoice table is still empty.
+
+**The pull (owner, 2026-11-25):** on builder work the money is released
+monthly against the builder's payment schedule (Payapps and the like), and one
+invoice is raised for it. "Create one invoice and send it to Xero … it won't
+be tied to a job."
+
+### What the office sees
+
+A page, **Getting paid** (`/getting-paid`), in the Jobs group of the sidebar
+and in the phone's More sheet. It lists the invoices that are not on a job and
+has one button, **New invoice**.
+
+- **Who is it for?** A Xero contact, searched live in the connected
+  organisation and chosen in the editor. The invoice can be saved without one
+  and given one later; it cannot be sent without one. A new client is added in
+  Xero, not here.
+- **What is this invoice for?** Its heading, for example "Progress claim,
+  November 2026". It is also the invoice's reference in Xero unless another is
+  typed on the Send preview (a PO or claim number, say).
+- **Lines**, as on an itemised invoice: description, quantity, unit, unit
+  price; wording-only notes; a minus price for a discount. Every line is
+  typed. There is no "Add from this job": with no job there are no hours or
+  materials to pull from.
+- **Send to Xero** opens the same preview a job's invoice has, and creates the
+  same kind of draft. Everything in [the send](#what-is-built-the-send-1150)
+  applies unchanged: created once, read back and compared, a lost answer looked
+  up by number and never sent twice.
+- **After it is sent**, the row and a three-figure strip show what Xero says:
+  approved, paid, owing, with how long ago it was checked and **Check Xero
+  now**. The hourly check covers these invoices with every other.
+
+A job's own invoices do not show here, and these do not show on any job.
+
+### How it differs from a job's invoice
+
+| | A job's invoice | An invoice with no job |
+| --- | --- | --- |
+| Where it lives | on the job, `job_legacy_id` = the job's id | the reserved ledger, `job_legacy_id = '~no-job'` |
+| Kind | stage, retention release or itemised | itemised only |
+| Client | the job's linked client | chosen on the invoice |
+| Number | job number + stage, `IV3345-2` | its own series, `GEN-0001`, `GEN-0002` … |
+| Lines | typed, or pulled from the job | typed |
+| Retention, variations, payment-claim wording | per job | none |
+| Counts toward a job's money | yes | no |
+| "Go to BuhlOS" link in Xero | the job | the Getting paid page |
+
+`~no-job` cannot be a job's id: a job id is a slug of lower-case letters,
+digits and hyphens. A job really called "No job" has the id `no-job` and is an
+ordinary job.
+
+### What it will not do
+
+- Bill a job's hours, materials or variations. A line that tries is refused.
+- Hold retention, or carry payment-claim wording.
+- Show on a job's Money card. An invoice that should count toward a job
+  belongs on that job.
+
+### API
+
+No new route. `api/customer-invoices.js` accepts the ledger id where an
+invoice with no job needs it:
+
+| Call | For the ledger |
+| --- | --- |
+| `GET ?jobId=~no-job` | the list, in the shape a job's payload has, with `noJob: true`. Each row carries `clientContactId`, `clientContactName` and `clientOtherOrganisation` |
+| `POST ?action=stage-add` with `jobId: "~no-job"` | itemised only. `stage.contactId` is the Xero contact (or `null`); the server re-reads it from Xero and stores Xero's own name |
+| `POST ?action=stage-edit&id=` | `stage.contactId` left out keeps the client, the same id keeps it without a Xero call, another id is confirmed against Xero, `null` clears it |
+| `POST ?action=stage-remove`, `preview`, `send`, `retry`, `reset`, `raise-again` | as for a job's invoice |
+| `POST ?action=refresh` with `jobId: "~no-job"` | Check Xero now |
+
+Everything else (`billable`, `variation-*`, `profile`, `payment-claim`,
+`contact-link`, `contact-unlink`, `retention-release`) answers
+`404 job_not_found` for the ledger. Refusals on a save:
+`no_job_itemised_only`, `no_job_typed_lines_only`, `no_job_no_retention`,
+`contact_not_found`, `contact_not_active`. A job's invoice that sends a
+`contactId` is refused with `client_is_the_jobs`. Two new blockers on the
+preview: `no_client_chosen` and `client_chosen_other_organisation`.
+
+Audit entries for these invoices carry no job id, no client name and no
+amount.
+
+### Data
+
+`20261126100000_customer_invoices_no_job.sql`, additive. No new table.
+
+| Change | Why |
+| --- | --- |
+| `customer_invoices.client_contact_id`, `client_contact_name`, `client_external_tenant_id` | the client chosen on the invoice. Set together or not at all |
+| check: those columns only on a `~no-job` row | a job's invoice uses the job's client |
+| check: a `~no-job` row is `itemised` | no contract to take a percentage of, nothing to release |
+
+The number needs no change: `seq` is already unique per
+`(tenant, job_legacy_id)`, so the ledger counts 1, 2, 3 … on its own, and
+`invoice_number` is already unique per tenant.
+
+### Turning it on
+
+1. **Done 2026-11-25.** `20261126100000_customer_invoices_no_job.sql` is
+   applied to dev and to production, owner-approved each time, ahead of the
+   code. On a new environment **the migration goes first, before this code is
+   live:** the store writes the three new columns for every invoice it saves,
+   so with the flag on and the migration missing, adding or editing any
+   invoice, on a job or not, fails. The columns are additive and nullable, so
+   applying them ahead of the code changes nothing for the code already
+   running.
+2. Nothing new to switch: it is the existing **Customer stage invoices**.
+
+### Not yet confirmed against real Xero
+
+For the proving run, in addition to the lists above: one invoice with no job,
+its `GEN-` number accepted by Xero, and the "Go to BuhlOS" link on it opening
+the Getting paid page.
+
 ### Known limits
+
+- The number series is shared by every Xero organisation BuhlOS has been
+  connected to. Invoices sent to a test organisation use up `GEN-` numbers;
+  the first real one may not be `GEN-0001`.
+- The prefix `GEN-` is a constant (`api/_lib/customer-invoices/no-job.js`).
+- No usual charges in this editor.
+- A line cannot be tagged with the job it pays for.
+- Payapps has its own Xero integration that can create an invoice when a
+  claim is submitted or approved. If most claims go through Payapps, that may
+  suit better than typing the invoice here. It has not been evaluated.
+
+### Known limits (part 2)
 
 - One sales account and one tax rate for every line.
 - Markup is one figure per batch and per line; no tiered, per-supplier or
@@ -672,6 +807,9 @@ In addition to the lists above, for the proving run:
 
 | What | Where |
 | --- | --- |
+| An invoice with no job — the routes through the real handler and the real send: gating, the client confirmed against Xero, every refusal, its own number series, a lost answer, the sync log's Retry, paid status, raise again, audit | `src/domains/customer-invoices/customer-invoices-no-job-api.test.ts` |
+| An invoice with no job — the page, the editor's client field, every state | `src/components/admin/customer-invoices/no-job.render.test.tsx` |
+| An invoice with no job — the real SQL: the client columns, what the schema refuses, eight sent at once get eight different numbers (local Postgres, skipped in CI) | `src/domains/customer-invoices/customer-invoices-no-job.pg.test.ts` |
 | Part 2 — the editor's maths: quantity × price, hours and materials into lines, markup, margin, every refusal | `src/domains/customer-invoices/itemised.test.ts` |
 | Part 2 — itemised lines to Xero, per-line GST, wording frozen for a retry, payment-claim wording, totals with variations | `src/domains/customer-invoices/itemised-payload.test.ts` |
 | Part 2 — nothing billed twice; reading the job's hours and materials; cost worked out on the server | `src/domains/customer-invoices/billable.test.ts` |

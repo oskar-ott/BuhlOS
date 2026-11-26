@@ -143,9 +143,21 @@ export const StageSchema = z
     canRaiseAgain: z.boolean().optional(),
     /** Set once a dead stage has been raised again as a new one. */
     replacedById: z.string().nullable().optional(),
+    /** An invoice with no job (#1166) only: the Xero contact chosen on it. */
+    clientContactId: z.string().nullable().optional(),
+    clientContactName: z.string().nullable().optional(),
+    /** That client was chosen in a different Xero organisation from the one
+     *  connected now, so it has to be chosen again before sending. */
+    clientOtherOrganisation: z.boolean().optional(),
   })
   .passthrough();
 export type Stage = z.infer<typeof StageSchema>;
+
+/**
+ * The ledger that holds invoices with no job (#1166). The server keeps them
+ * under this reserved id; a real job id can never contain `~`.
+ */
+export const NO_JOB_ID = "~no-job";
 
 export const JobInvoicingProfileSchema = z
   .object({
@@ -311,6 +323,8 @@ export interface VariationInput {
 
 export const JobInvoicingResponseSchema = z.object({
   jobId: z.string(),
+  /** True for the ledger of invoices with no job (#1166). */
+  noJob: z.boolean().optional(),
   job: z.object({
     name: z.string(),
     code: z.string().nullable(),
@@ -338,6 +352,8 @@ export const SEND_BLOCKER_CODES = [
   "settings_incomplete",
   "no_client_link",
   "client_other_organisation",
+  "no_client_chosen",
+  "client_chosen_other_organisation",
   "no_job_code",
   "no_contract_value",
   "no_lines",
@@ -453,6 +469,9 @@ export interface ItemisedInput {
   retentionBp?: number | null;
   plannedDate?: string | null;
   note?: string | null;
+  /** An invoice with no job (#1166) only: the Xero contact it is for.
+   *  null = no client chosen yet. Never sent for a job's invoice. */
+  contactId?: string | null;
 }
 
 // ── what on the job can go on an invoice (#1162) ────────────────────────────
